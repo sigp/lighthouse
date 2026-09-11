@@ -3,8 +3,11 @@
 use crate::EngineCapabilities;
 use crate::auth::Auth;
 use crate::engine_api::{
-    ClientVersionV1, Error, ExecutionPayloadBodyV1, ForkchoiceUpdatedResponse, GetPayloadResponse,
-    NewPayloadRequest, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
+    ClientVersionV1, ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT, ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
+    ENGINE_GET_BLOBS_TIMEOUT, ENGINE_GET_CLIENT_VERSION_TIMEOUT, ENGINE_GET_PAYLOAD_BODIES_TIMEOUT,
+    ENGINE_GET_PAYLOAD_TIMEOUT, ENGINE_NEW_PAYLOAD_TIMEOUT, Error, ExecutionPayloadBodyV1,
+    ForkchoiceUpdatedResponse, GetPayloadResponse, NewPayloadRequest, PayloadAttributes, PayloadId,
+    PayloadStatusV1, PayloadStatusV1Status,
 };
 use crate::engines::ForkchoiceState;
 use crate::http::{CachedResponse, LIGHTHOUSE_JSON_CLIENT_VERSION};
@@ -35,9 +38,8 @@ const APPLICATION_JSON: &str = "application/json";
 const H2_CONNECTION_WINDOW: u32 = 1024 * 1024;
 const H2_STREAM_WINDOW: u32 = 1024 * 1024;
 
-// A single HTTP-standard request timeout applied to every REST call (scaled by
-// `execution_timeout_multiplier`), replacing the JSON-RPC per-method timeout SHOULDs.
-const REST_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+// REST reuses the JSON-RPC per-method timeouts from `http.rs`, applied per request rather than as
+// a single client-wide default, so each endpoint gets a deadline matched to its work.
 
 // The CL's `X-Engine-Client-Version` header value, e.g. `LH/v6.2.1`.
 static CLIENT_VERSION_HEADER: LazyLock<String> = LazyLock::new(|| {
@@ -90,14 +92,11 @@ impl HttpRestSsz {
         let execution_timeout_multiplier = execution_timeout_multiplier.unwrap_or(1);
         Ok(Self {
             client_h2c: Client::builder()
-                .timeout(REST_REQUEST_TIMEOUT * execution_timeout_multiplier)
                 .http2_prior_knowledge()
                 .http2_initial_stream_window_size(H2_STREAM_WINDOW)
                 .http2_initial_connection_window_size(H2_CONNECTION_WINDOW)
                 .build()?,
-            client_h1: Client::builder()
-                .timeout(REST_REQUEST_TIMEOUT * execution_timeout_multiplier)
-                .build()?,
+            client_h1: Client::builder().build()?,
             http_version: OnceLock::new(),
             url,
             execution_timeout_multiplier,
@@ -160,6 +159,7 @@ impl HttpRestSsz {
         body: Option<Vec<u8>>,
         accept: &str,
         method_label: Option<&'static str>,
+        timeout: Duration,
     ) -> Result<Option<Bytes>, Error> {
         if let (Some(label), Some(body)) = (method_label, &body) {
             metrics::observe_vec(
@@ -177,6 +177,7 @@ impl HttpRestSsz {
 
         let mut request = client
             .request(method, url)
+            .timeout(timeout)
             .header(ACCEPT, accept)
             .header(X_ENGINE_CLIENT_VERSION, CLIENT_VERSION_HEADER.as_str());
 
@@ -277,6 +278,7 @@ impl HttpRestSsz {
                 None,
                 APPLICATION_JSON,
                 None,
+                ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /capabilities".to_string()))?;
@@ -286,7 +288,15 @@ impl HttpRestSsz {
 
     pub async fn get_client_version_v1(&self) -> Result<Vec<ClientVersionV1>, Error> {
         let body = self
-            .rest_request(Method::GET, "identity", None, None, APPLICATION_JSON, None)
+            .rest_request(
+                Method::GET,
+                "identity",
+                None,
+                None,
+                APPLICATION_JSON,
+                None,
+                ENGINE_GET_CLIENT_VERSION_TIMEOUT * self.execution_timeout_multiplier,
+            )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /identity".to_string()))?;
         let versions: Vec<JsonClientVersionV1> = serde_json::from_slice(&body)?;
@@ -365,6 +375,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::NEW_PAYLOAD),
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /payloads".to_string()))?;
@@ -395,6 +406,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::FORKCHOICE_UPDATED),
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /forkchoice".to_string()))?;
@@ -432,6 +444,7 @@ impl HttpRestSsz {
                 None,
                 OCTET_STREAM,
                 Some(metrics::GET_PAYLOAD),
+                ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /payloads/{id}".to_string()))?;
@@ -455,6 +468,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::GET_BLOBS_V2),
+                ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
         else {
@@ -478,6 +492,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::GET_BLOBS_V3),
+                ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
         else {
@@ -503,6 +518,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::GET_BLOBS_V4),
+                ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
         else {
@@ -531,6 +547,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::GET_PAYLOAD_BODIES_BY_HASH),
+                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /bodies/hash".to_string()))?;

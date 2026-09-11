@@ -25,6 +25,8 @@ use types::{
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
 
+use std::time::Duration;
+
 pub mod auth;
 pub mod http;
 pub mod json_structures;
@@ -40,6 +42,18 @@ pub use new_payload_request::{
 };
 
 pub const LATEST_TAG: &str = "latest";
+
+// Per-method request timeouts, shared by the JSON-RPC and REST-SSZ.
+pub const ETH_GET_BLOCK_BY_NUMBER_TIMEOUT: Duration = Duration::from_secs(1);
+pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
+pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
+pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
+pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
+pub const ENGINE_GET_PAYLOAD_BODIES_TIMEOUT: Duration = Duration::from_secs(10);
+pub const ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT: Duration = Duration::from_secs(1);
+pub const ENGINE_GET_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
+pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
+pub const ENGINE_GET_INCLUSION_LIST_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub type PayloadId = [u8; 8];
 
