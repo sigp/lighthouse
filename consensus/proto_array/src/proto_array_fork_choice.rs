@@ -1112,6 +1112,12 @@ impl ProtoArrayForkChoice {
     }
 
     /// See `ProtoArray` documentation.
+    pub fn common_ancestor_slot(&self, block_root: Hash256, other_root: Hash256) -> Option<Slot> {
+        self.proto_array
+            .common_ancestor_slot(block_root, other_root)
+    }
+
+    /// See `ProtoArray` documentation.
     pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(
         &self,
         descendant_root: Hash256,

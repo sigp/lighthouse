@@ -209,6 +209,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         header_or_bid,
                         block_root,
                         publish_blobs,
+                        EnvelopeSource::Rpc,
                     )
                     .await;
                 } else {
