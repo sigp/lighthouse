@@ -106,7 +106,7 @@ fn ensure_header_variant<E: EthSpec>(
     }
 }
 
-fn header_variant<E: EthSpec>(header: &LightClientHeader<E>) -> ForkName {
+pub(crate) fn header_variant<E: EthSpec>(header: &LightClientHeader<E>) -> ForkName {
     match header {
         LightClientHeader::Altair(_) => ForkName::Altair,
         LightClientHeader::Capella(_) => ForkName::Capella,

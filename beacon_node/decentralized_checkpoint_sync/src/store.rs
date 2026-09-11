@@ -2,17 +2,19 @@ use crate::{
     LightClientStoreSchema, LightClientSyncError, ValidatedLightClientUpdate,
     VerifiedFinalizedHeader, beacon_header,
     update::{UpdateView, is_default_sync_committee, sync_committee_period},
+    upgrade::{upgrade_light_client_header, upgrade_light_client_update},
 };
 use safe_arith::{ArithError, SafeArith};
 use std::sync::Arc;
 use types::{
-    ChainSpec, EthSpec, Hash256, LightClientHeader, LightClientUpdate, Slot, SyncCommittee,
+    ChainSpec, EthSpec, ForkName, Hash256, LightClientHeader, LightClientUpdate, Slot,
+    SyncCommittee,
 };
 
 /// Light-client state initialized by [`crate::initialize_light_client_store`].
 ///
-/// Headers retain their original Rust enum variants when a newer store schema is selected.
-/// Validation uses their beacon slots and data schemas, without eagerly upgrading SSZ objects.
+/// Initialization and processing may retain older wire variants within a newer schema ceiling.
+/// [`upgrade_light_client_store`] explicitly normalizes stored objects to a chosen data format.
 /// The checkpoint header is tracked separately because the spec permits force updates to change
 /// `finalized_header` without establishing supermajority finality.
 #[derive(Debug)]
@@ -144,6 +146,60 @@ impl<E: EthSpec> LightClientStore<E> {
         }
         self.best_valid_update = None;
     }
+}
+
+/// Upgrade the store's local data representations without advancing or authenticating its state.
+///
+/// Follows the Capella, Deneb and Electra light-client fork logic. This may be called before the
+/// target fork activates. Fulu uses Electra's schema with distinct Rust object variants.
+/// Committees, participation maxima and committee authentication flags remain unchanged.
+/// The independent checkpoint keeps its beacon root and slot-derived fork, even after force updates.
+///
+/// All conversions finish before any store field changes. Unsupported targets and downgrades
+/// leave the entire store unchanged. Same-schema calls still normalize older stored wire objects;
+/// once all objects use the requested format, repeating the call is idempotent.
+///
+/// A pending validation token prevents upgrading its store before processing:
+///
+/// ```compile_fail,E0499
+/// use decentralized_checkpoint_sync::{LightClientStore, validate_light_client_update,
+///     upgrade_light_client_store};
+/// use types::{ChainSpec, ForkName, Hash256, LightClientUpdate, MinimalEthSpec, Slot};
+///
+/// fn upgrade_while_pending(store: &mut LightClientStore<MinimalEthSpec>,
+///     update: &LightClientUpdate<MinimalEthSpec>, spec: &ChainSpec) {
+///     let pending = validate_light_client_update(store, update, ForkName::Altair,
+///         Slot::new(10), Hash256::default(), spec);
+///     let _ = upgrade_light_client_store(store, ForkName::Electra);
+///     drop(pending);
+/// }
+/// ```
+pub fn upgrade_light_client_store<E: EthSpec>(
+    store: &mut LightClientStore<E>,
+    target_fork: ForkName,
+) -> Result<(), LightClientSyncError> {
+    let requested = LightClientStoreSchema::try_from(target_fork)?;
+    if requested < store.store_schema {
+        return Err(LightClientSyncError::StoreSchemaDowngrade {
+            current: store.store_schema,
+            requested,
+        });
+    }
+    let finalized_header = upgrade_light_client_header(&store.finalized_header, target_fork)?;
+    let optimistic_header = upgrade_light_client_header(&store.optimistic_header, target_fork)?;
+    let best_valid_update = store
+        .best_valid_update
+        .as_ref()
+        .map(|update| upgrade_light_client_update(update, target_fork))
+        .transpose()?;
+    let checkpoint_header = store.checkpoint_header.upgrade(target_fork)?;
+
+    store.finalized_header = finalized_header;
+    store.optimistic_header = optimistic_header;
+    store.best_valid_update = best_valid_update;
+    store.checkpoint_header = checkpoint_header;
+    store.store_schema = requested;
+    Ok(())
 }
 
 /// Process an update already validated against its exclusively borrowed store.

@@ -12,6 +12,7 @@ mod merkle;
 mod partial_update;
 mod store;
 mod update;
+mod upgrade;
 mod verified;
 
 pub use bootstrap::initialize_light_client_store;
@@ -23,6 +24,10 @@ pub use partial_update::{
 };
 pub use store::{
     LightClientStore, process_light_client_store_force_update, process_light_client_update,
+    upgrade_light_client_store,
 };
 pub use update::{ValidatedLightClientUpdate, validate_light_client_update};
+pub use upgrade::{
+    upgrade_light_client_bootstrap, upgrade_light_client_header, upgrade_light_client_update,
+};
 pub use verified::VerifiedFinalizedHeader;
