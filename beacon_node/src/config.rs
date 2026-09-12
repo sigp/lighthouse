@@ -526,6 +526,7 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "genesis-state-url-timeout")
             .map(Duration::from_secs)?;
 
+
     let genesis_state_url_opt =
         clap_utils::parse_optional::<String>(cli_args, "genesis-state-url")?;
     let checkpoint_sync_url_opt =
