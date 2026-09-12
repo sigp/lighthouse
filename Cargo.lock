@@ -1381,6 +1381,7 @@ dependencies = [
  "environment",
  "eth2_config",
  "execution_layer",
+ "filesystem",
  "genesis",
  "hex",
  "http_api",
@@ -1395,6 +1396,7 @@ dependencies = [
  "store",
  "strum",
  "task_executor",
+ "tempfile",
  "tracing",
  "types",
 ]
@@ -3512,6 +3514,7 @@ dependencies = [
  "eth2",
  "ethereum_serde_utils",
  "ethereum_ssz",
+ "filesystem",
  "fixed_bytes",
  "fork_choice",
  "hash-db",
@@ -3669,6 +3672,7 @@ dependencies = [
 name = "filesystem"
 version = "0.1.0"
 dependencies = [
+ "tempfile",
  "winapi",
  "windows-acl",
 ]

@@ -508,6 +508,16 @@ fn run_execution_jwt_secret_key_is_persisted() {
                 .read_to_string(&mut file_jwt_secret_key)
                 .expect("could not read from file");
             assert_eq!(file_jwt_secret_key, jwt_secret_key);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = std::fs::metadata(config.secret_file.as_ref().unwrap())
+                    .expect("stat jwt_secret_key file")
+                    .permissions()
+                    .mode()
+                    & 0o777;
+                assert_eq!(mode, 0o600);
+            }
         });
 }
 #[test]
