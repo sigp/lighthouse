@@ -420,6 +420,7 @@ where
         parent_beacon_block_root,
         None,
         None,
+        None,
     );
 
     let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;

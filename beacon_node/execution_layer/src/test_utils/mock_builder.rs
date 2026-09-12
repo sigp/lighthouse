@@ -922,6 +922,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 None,
                 None,
                 None,
+                None,
             ),
             ForkName::Deneb | ForkName::Electra | ForkName::Fulu => PayloadAttributes::new(
                 timestamp,
@@ -929,6 +930,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 fee_recipient,
                 expected_withdrawals,
                 Some(head_block_root),
+                None,
                 None,
                 None,
             ),
@@ -940,6 +942,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 Some(head_block_root),
                 Some(slot.as_u64()),
                 None, // TODO(gloas): pass target_gas_limit
+                None,
             ),
             ForkName::Base | ForkName::Altair => {
                 return Err("invalid fork".to_string());
