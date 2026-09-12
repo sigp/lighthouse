@@ -33,7 +33,10 @@ use crate::{
     exit::SignedVoluntaryExit,
     fork::{ForkName, map_fork_name},
     kzg_ext::KzgCommitments,
-    light_client::consts::{EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_PROOF_LEN},
+    light_client::consts::{
+        EXECUTION_BLOCK_HASH_INDEX_GLOAS, EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_PROOF_LEN,
+        PARENT_BLOCK_HASH_FIELD_INDEX, SIGNED_EXECUTION_PAYLOAD_BID_FIELD_INDEX,
+    },
     slashing::{
         AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas, AttesterSlashingRef,
         ProposerSlashing,
@@ -374,14 +377,44 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         Ok(FixedVector::new(proof)?)
     }
 
+    /// Produces the proof of inclusion for the execution block hash, for Gloas and later.
+    fn gloas_execution_block_hash_proof(&self) -> Result<Vec<Hash256>, BeaconStateError> {
+        let signed_bid = self.signed_execution_payload_bid()?;
+
+        let bid_roots = signed_bid.message.field_roots();
+        let bid_active_fields = merkle_proof::active_fields_all_active(bid_roots.len())?;
+        let mut proof = merkle_proof::progressive_container_proof(
+            &bid_roots,
+            PARENT_BLOCK_HASH_FIELD_INDEX,
+            bid_active_fields,
+        )?;
+
+        proof.push(signed_bid.signature.tree_hash_root());
+
+        let body_roots = self.body_merkle_leaves();
+        let body_active_fields = merkle_proof::active_fields_all_active(body_roots.len())?;
+        proof.extend(merkle_proof::progressive_container_proof(
+            &body_roots,
+            SIGNED_EXECUTION_PAYLOAD_BID_FIELD_INDEX,
+            body_active_fields,
+        )?);
+
+        Ok(proof)
+    }
+
     pub fn block_body_merkle_proof(
         &self,
         generalized_index: usize,
     ) -> Result<Vec<Hash256>, BeaconStateError> {
         // [Modified in Gloas:EIP7688] the body is a progressive container with different
-        // generalized indices, which are not implemented yet.
+        // generalized indices.
         if self.fork_name().gloas_enabled() {
-            return Err(BeaconStateError::ProgressiveMerkleProofNotSupported);
+            return match generalized_index {
+                EXECUTION_BLOCK_HASH_INDEX_GLOAS => self.gloas_execution_block_hash_proof(),
+                _ => Err(BeaconStateError::GeneralizedIndexNotSupported(
+                    generalized_index,
+                )),
+            };
         }
         let field_index = match generalized_index {
             EXECUTION_PAYLOAD_INDEX => {
