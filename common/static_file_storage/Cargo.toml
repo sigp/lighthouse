@@ -1,0 +1,20 @@
+[package]
+name = "static_file_storage"
+version = "0.1.0"
+edition = { workspace = true }
+
+[dependencies]
+parking_lot = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+criterion = { workspace = true }
+rand = { workspace = true }
+rand_xorshift = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "large_writes"
+harness = false
