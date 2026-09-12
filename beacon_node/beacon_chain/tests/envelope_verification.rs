@@ -3,8 +3,12 @@ use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env, test_spec};
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
+use ssz_types::ProgressiveVariableList;
 use std::sync::Arc;
-use types::{Address, Epoch, ExecPayload, ForkName, MinimalEthSpec, Slot, WithdrawalRequest};
+use types::{
+    Address, Epoch, EthSpec, ExecPayload, ForkName, MinimalEthSpec, Slot, Withdrawal,
+    WithdrawalRequest,
+};
 
 type E = MinimalEthSpec;
 
@@ -152,6 +156,75 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
             .get_gas_limit(block_hash),
         None
     );
+}
+
+#[tokio::test]
+async fn gossip_rejects_operation_limits_before_unknown_block() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let state = harness.get_current_state();
+    let target_slot = Slot::new(2);
+    harness.advance_slot();
+    let (_block_contents, opt_envelope, _new_state) =
+        harness.make_block_with_envelope(state, target_slot).await;
+    let signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
+
+    let mut requests_over_limit = signed_envelope.clone();
+    let withdrawal_request = WithdrawalRequest {
+        source_address: Address::ZERO,
+        validator_pubkey: PublicKeyBytes::empty(),
+        amount: 0,
+    };
+    requests_over_limit.message.execution_requests.withdrawals =
+        ProgressiveVariableList::new(vec![
+            withdrawal_request;
+            E::max_withdrawal_requests_per_payload() + 1
+        ]);
+
+    let result = harness
+        .chain
+        .verify_envelope_for_gossip(Arc::new(requests_over_limit), EnvelopeSource::Gossip)
+        .await;
+    assert!(matches!(
+        result,
+        Err(EnvelopeError::OperationListTooLong {
+            kind: "withdrawal_requests",
+            ..
+        })
+    ));
+
+    let mut withdrawals_over_limit = signed_envelope;
+    let withdrawal = Withdrawal {
+        index: 0,
+        validator_index: 0,
+        address: Address::ZERO,
+        amount: 0,
+    };
+    withdrawals_over_limit.message.payload.withdrawals =
+        ProgressiveVariableList::new(vec![withdrawal; E::max_withdrawals_per_payload() + 1]);
+
+    let result = harness
+        .chain
+        .verify_envelope_for_gossip(Arc::new(withdrawals_over_limit), EnvelopeSource::Gossip)
+        .await;
+    assert!(matches!(
+        result,
+        Err(EnvelopeError::OperationListTooLong {
+            kind: "withdrawals",
+            ..
+        })
+    ));
 }
 
 #[tokio::test]
