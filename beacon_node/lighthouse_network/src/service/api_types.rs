@@ -21,6 +21,8 @@ pub struct SingleLookupReqId {
 pub enum SyncRequestId {
     /// Request searching for a block given a hash.
     SingleBlock { id: SingleLookupReqId },
+    /// Request walking the ancestors of a block given its root, via `beacon_blocks_by_head`.
+    BlocksByHead(SingleLookupReqId),
     /// Request searching for a payload envelope given a hash.
     SinglePayloadEnvelope { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.

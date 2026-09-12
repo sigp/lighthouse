@@ -870,6 +870,17 @@ impl<E: EthSpec> PeerDB<E> {
             .ok_or_else(|| "Cannot set custody subnets, peer not found".to_string())
     }
 
+    pub fn __set_supported_protocols(
+        &mut self,
+        peer_id: &PeerId,
+        supported_protocols: HashSet<crate::rpc::Protocol>,
+    ) -> Result<(), String> {
+        self.peers
+            .get_mut(peer_id)
+            .map(|info| info.set_supported_protocols(supported_protocols))
+            .ok_or_else(|| "Cannot set supported protocols, peer not found".to_string())
+    }
+
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all
     /// variables are in sync with libp2p.
     /// Updating the state can lead to a `BanOperation` which needs to be processed via the peer
