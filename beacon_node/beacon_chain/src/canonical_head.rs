@@ -869,6 +869,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut new_forkchoice_update_parameters =
             fork_choice_read_lock.get_forkchoice_update_parameters();
 
+        // Only finalized is safe until FCR confirms, which it may not during deep sync or after
+        // an error. A successful run below overrides this; with FCR disabled `safe` stays
+        // justified.
+        if self.canonical_head.fast_confirmation.is_some() {
+            new_forkchoice_update_parameters.justified_hash =
+                new_forkchoice_update_parameters.finalized_hash;
+        }
+
         // Runs even when the head hasn't changed so the cache rotates at epoch boundaries.
         let head_state_and_assignments = self.update_head_slot_assignments(
             current_slot,
