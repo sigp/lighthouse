@@ -1714,6 +1714,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "builder_store"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "bls",
+ "builder_types",
+ "filesystem",
+ "futures",
+ "hex",
+ "parking_lot",
+ "serde",
+ "ssz_types",
+ "tempfile",
+ "tracing",
+ "types",
+ "yaml_serde",
+]
+
+[[package]]
 name = "builder_types"
 version = "0.1.0"
 dependencies = [
@@ -5666,6 +5685,7 @@ dependencies = [
  "account_utils",
  "beacon_node_fallback",
  "bls",
+ "builder_types",
  "doppelganger_service",
  "either",
  "environment",
@@ -8445,6 +8465,7 @@ name = "signing_method"
 version = "0.1.0"
 dependencies = [
  "bls",
+ "builder_types",
  "eth2_keystore",
  "ethereum_serde_utils",
  "lockfile",
@@ -9811,6 +9832,7 @@ version = "8.2.2"
 dependencies = [
  "account_utils",
  "beacon_node_fallback",
+ "builder_store",
  "clap",
  "clap_utils",
  "directory",
@@ -9976,6 +9998,8 @@ version = "0.1.0"
 dependencies = [
  "beacon_node_fallback",
  "bls",
+ "builder_store",
+ "builder_types",
  "either",
  "eth2",
  "futures",
@@ -10000,6 +10024,7 @@ name = "validator_store"
 version = "0.1.0"
 dependencies = [
  "bls",
+ "builder_types",
  "eth2",
  "futures",
  "slashing_protection",

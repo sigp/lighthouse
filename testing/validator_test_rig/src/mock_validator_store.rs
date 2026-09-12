@@ -1,4 +1,5 @@
 use bls::{PublicKeyBytes, Signature};
+use eth2::types::{RequestAuth, SignedRequestAuth};
 use futures::future::{BoxFuture, FutureExt};
 use futures::{Stream, stream};
 use std::future::Future;
@@ -182,6 +183,14 @@ impl ValidatorStore for MockValidatorStore {
         _preferences: ProposerPreferences,
     ) -> Result<SignedProposerPreferences, StoreError<Self::Error>> {
         panic!("MockValidatorStore::sign_proposer_preferences called without a hook")
+    }
+
+    async fn sign_request_auth_v1(
+        &self,
+        _validator_pubkey: PublicKeyBytes,
+        _request_auth_v1: RequestAuth,
+    ) -> Result<SignedRequestAuth, StoreError<Self::Error>> {
+        panic!("MockValidatorStore::sign_request_auth_v1 called without a hook")
     }
 
     fn proposal_data(&self, _pubkey: &PublicKeyBytes) -> Option<ProposalData> {
