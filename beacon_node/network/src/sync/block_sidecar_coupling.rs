@@ -43,11 +43,12 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
         ByRangeRequest<BlocksByRangeRequestId, (Vec<Arc<SignedBeaconBlock<E>>>, PeerId)>,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
-    /// Payload envelopes for Gloas blocks.
+    /// Payload envelopes for Gloas blocks, and the peer that served them.
+    #[allow(clippy::type_complexity)]
     payloads_request: Option<
         ByRangeRequest<
             PayloadEnvelopesByRangeRequestId,
-            Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+            (Vec<Arc<SignedExecutionPayloadEnvelope<E>>>, PeerId),
         >,
     >,
     /// Span to track the range request and all children range requests.
@@ -85,7 +86,12 @@ pub enum CouplingError {
         faulty_peers: Vec<(ColumnIndex, PeerId)>,
     },
     BlobPeerFailure(String),
-    EnvelopePeerFailure(String),
+    /// The peer we requested the payload envelopes from served an envelope that is inconsistent
+    /// with its block.
+    EnvelopePeerFailure {
+        error: String,
+        peer_id: PeerId,
+    },
     AvailabilityCheckError(AvailabilityCheckError),
 }
 
@@ -182,13 +188,16 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
+    /// Adds received payload envelopes to the request, recording the peer that served them so
+    /// that coupling failures can be attributed to it.
     pub fn add_payload_envelopes(
         &mut self,
         req_id: PayloadEnvelopesByRangeRequestId,
         envelopes: Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        peer_id: PeerId,
     ) -> Result<(), String> {
         match &mut self.payloads_request {
-            Some(req) => req.finish(req_id, envelopes),
+            Some(req) => req.finish(req_id, (envelopes, peer_id)),
             None => Err("received payload envelopes but none were expected".to_owned()),
         }
     }
@@ -214,7 +223,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         // reveal-status check in `import_historical_block_batch` catches it.
         let revealed_block_roots = match &self.payloads_request {
             Some(ByRangeRequest::Active(_)) => return Ok(()),
-            Some(ByRangeRequest::Complete(envelopes)) => Some(
+            Some(ByRangeRequest::Complete((envelopes, _))) => Some(
                 envelopes
                     .iter()
                     .map(|envelope| envelope.beacon_block_root())
@@ -333,7 +342,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 let payload_envelopes = self.payloads_request.as_ref().and_then(|request| {
                     request
                         .to_finished()
-                        .map(|payload_envelopes| payload_envelopes.to_vec())
+                        .map(|(payload_envelopes, peer_id)| (payload_envelopes.to_vec(), *peer_id))
                 });
 
                 Some((
@@ -422,17 +431,22 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
         columns: DataColumnSidecarList<E>,
         custody_context: &CustodyContext<T>,
-        payload_envelopes: Option<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
+        payload_envelopes: Option<(Vec<Arc<SignedExecutionPayloadEnvelope<E>>>, PeerId)>,
     ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
-        // Index envelopes by beacon_block_root for correct coupling.
-        let mut envelopes_by_block_root = payload_envelopes.map(|envelopes| {
-            envelopes
-                .into_iter()
-                .map(|e| (e.beacon_block_root(), e))
-                .collect::<HashMap<_, _>>()
+        // Index envelopes by beacon_block_root for correct coupling. The peer that served the
+        // envelopes is kept alongside them so a coupling failure is attributed to that peer, and
+        // not to whichever peer happened to complete the batch.
+        let mut envelopes_by_block_root = payload_envelopes.map(|(envelopes, peer_id)| {
+            (
+                envelopes
+                    .into_iter()
+                    .map(|e| (e.beacon_block_root(), e))
+                    .collect::<HashMap<_, _>>(),
+                peer_id,
+            )
         });
 
         // Group the downloaded custody columns by block root. The custody-by-root request only
@@ -457,7 +471,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 vec![]
             };
 
-            let range_sync_block = if let Some(envelopes_by_block_root) =
+            let range_sync_block = if let Some((envelopes_by_block_root, envelope_peer)) =
                 envelopes_by_block_root.as_mut()
             {
                 let envelope = envelopes_by_block_root.remove(&block_root);
@@ -471,8 +485,12 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     .map(|env| AvailableEnvelope::new(env, custody_columns, bid, custody_context))
                     .transpose()?;
 
-                RangeSyncBlock::new_gloas(block, available_envelope)
-                    .map_err(CouplingError::EnvelopePeerFailure)?
+                RangeSyncBlock::new_gloas(block, available_envelope).map_err(|error| {
+                    CouplingError::EnvelopePeerFailure {
+                        error,
+                        peer_id: *envelope_peer,
+                    }
+                })?
             } else if custody_columns.is_empty() {
                 RangeSyncBlock::new(block, AvailableBlockData::NoData, custody_context)
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
@@ -493,10 +511,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
 
         // Recoverable error, log and continue
-        if let Some(envelopes_by_block_root) = envelopes_by_block_root
+        if let Some((envelopes_by_block_root, envelope_peer)) = envelopes_by_block_root
             && !envelopes_by_block_root.is_empty()
         {
-            warn!("Peer returned extra envelopes not matching any block");
+            warn!(%envelope_peer, "Peer returned extra envelopes not matching any block");
         }
 
         Ok(range_sync_blocks)
@@ -684,6 +702,7 @@ mod tests {
             Arc<SignedExecutionPayloadEnvelope<E>>,
         )],
         expected_custody_columns: &[u64],
+        column_peer: PeerId,
     ) {
         info.set_custody_requesting();
         let columns = expected_custody_columns
@@ -697,7 +716,7 @@ mod tests {
                 })
             })
             .collect();
-        info.add_custody_columns(columns, PeerGroup::from_set(Default::default()))
+        info.add_custody_columns(columns, PeerGroup::from_single(column_peer))
             .unwrap();
     }
 
@@ -713,11 +732,31 @@ mod tests {
         )>,
         payloads_req_id: PayloadEnvelopesByRangeRequestId,
         expected_custody_columns: Vec<u64>,
+        /// The peer that served the blocks. Distinct from the envelope peer the tests use, so that
+        /// peer attribution of coupling errors can be asserted.
+        block_peer: PeerId,
+        /// The peer that serves the custody columns. Distinct from both the block peer and the
+        /// envelope peer, so a batch completed by *this* peer's response can be distinguished from
+        /// the peer actually at fault.
+        column_peer: PeerId,
     }
 
     /// Builds a Gloas coupling request with `count` blocks and all custody columns added,
     /// ready for the per-test payload-envelope step.
     fn setup_gloas_coupling(count: usize) -> GloasSetup {
+        let mut setup = setup_gloas_coupling_pending_columns(count);
+        add_all_columns(
+            &mut setup.info,
+            &setup.blocks,
+            &setup.expected_custody_columns,
+            setup.column_peer,
+        );
+        setup
+    }
+
+    /// As `setup_gloas_coupling`, but leaves the custody-by-root request outstanding so the test
+    /// controls when — and therefore from which peer — the batch is completed.
+    fn setup_gloas_coupling_pending_columns(count: usize) -> GloasSetup {
         let spec = Arc::new(gloas_spec());
         let custody_context = test_custody_context(NodeCustodyType::Fullnode, spec.clone());
         let expected_custody_columns = custody_context
@@ -736,13 +775,13 @@ mod tests {
             Span::none(),
         );
 
+        let block_peer = PeerId::random();
         info.add_blocks(
             blocks_req_id,
             blocks.iter().map(|(block, _, _)| block.clone()).collect(),
-            PeerId::random(),
+            block_peer,
         )
         .unwrap();
-        add_all_columns(&mut info, &blocks, &expected_custody_columns);
 
         GloasSetup {
             info,
@@ -751,6 +790,8 @@ mod tests {
             blocks,
             payloads_req_id,
             expected_custody_columns,
+            block_peer,
+            column_peer: PeerId::random(),
         }
     }
 
@@ -914,6 +955,7 @@ mod tests {
             blocks,
             payloads_req_id,
             expected_custody_columns,
+            ..
         } = setup_gloas_coupling(2);
 
         // Supply envelopes in reverse order to prove coupling is by block root, not position.
@@ -924,6 +966,7 @@ mod tests {
                 .rev()
                 .map(|(_, _, envelope)| envelope.clone())
                 .collect(),
+            PeerId::random(),
         )
         .unwrap();
 
@@ -958,7 +1001,7 @@ mod tests {
         } = setup_gloas_coupling(2);
 
         // Supply an envelope for only one of the two blocks.
-        info.add_payload_envelopes(payloads_req_id, vec![blocks[0].2.clone()])
+        info.add_payload_envelopes(payloads_req_id, vec![blocks[0].2.clone()], PeerId::random())
             .unwrap();
 
         let responses = info.responses(&custody_context, spec).unwrap().0.unwrap();
@@ -982,22 +1025,82 @@ mod tests {
             spec,
             blocks,
             payloads_req_id,
+            block_peer,
             ..
         } = setup_gloas_coupling(1);
 
+        // Serve the bad envelope from a peer that is *not* the block peer, so the assertion below
+        // pins the blame on the envelope sender specifically.
+        let envelope_peer = PeerId::random();
         let mut bad_envelope = (*blocks[0].2).clone();
         bad_envelope.message.payload.slot_number += 1;
-        info.add_payload_envelopes(payloads_req_id, vec![Arc::new(bad_envelope)])
+        info.add_payload_envelopes(payloads_req_id, vec![Arc::new(bad_envelope)], envelope_peer)
             .unwrap();
 
         let result = info.responses(&custody_context, spec).unwrap().0;
         assert!(
             matches!(
                 result,
-                Err(super::CouplingError::EnvelopePeerFailure(ref error))
+                Err(super::CouplingError::EnvelopePeerFailure { ref error, peer_id })
                     if error.contains("SlotMismatch")
+                        && peer_id == envelope_peer
+                        && peer_id != block_peer
             ),
-            "expected envelope slot mismatch, got {result:?}"
+            "expected envelope slot mismatch attributed to the envelope peer, got {result:?}"
+        );
+    }
+
+    /// Reproduces the mis-attribution this fix targets.
+    ///
+    /// The bad envelope arrives from the envelope peer while the custody-by-root request is still
+    /// outstanding, so it is the *column* peer's response that finally completes the batch. That
+    /// completing peer is what range sync hands to `inject_error` (and on the custody path it is
+    /// not even a real peer -- `SyncManager::on_custody_by_root_result` passes `PeerId::random()`).
+    /// The penalty must nonetheless land on the peer that served the envelope.
+    #[test]
+    fn gloas_envelope_failure_blames_envelope_peer_when_columns_complete_batch() {
+        let GloasSetup {
+            mut info,
+            custody_context,
+            spec,
+            blocks,
+            payloads_req_id,
+            expected_custody_columns,
+            block_peer,
+            column_peer,
+        } = setup_gloas_coupling_pending_columns(1);
+
+        // 1. The bad envelope arrives first, from the envelope peer.
+        let envelope_peer = PeerId::random();
+        let mut bad_envelope = (*blocks[0].2).clone();
+        bad_envelope.message.payload.slot_number += 1;
+        info.add_payload_envelopes(payloads_req_id, vec![Arc::new(bad_envelope)], envelope_peer)
+            .unwrap();
+
+        // The batch is not yet complete: the custody columns are still in flight, so the coupling
+        // error does not exist yet and no peer can be blamed.
+        assert!(
+            info.responses(&custody_context, spec.clone()).is_none(),
+            "batch must still be pending while custody columns are outstanding"
+        );
+
+        // 2. The columns arrive last, from a different peer. *This* response completes the batch,
+        //    so this is the peer range sync would name as "the peer that completed the batch".
+        add_all_columns(&mut info, &blocks, &expected_custody_columns, column_peer);
+
+        let result = info.responses(&custody_context, spec).unwrap().0;
+        assert!(
+            matches!(
+                result,
+                Err(super::CouplingError::EnvelopePeerFailure { ref error, peer_id })
+                    if error.contains("SlotMismatch")
+                        && peer_id == envelope_peer
+                        && peer_id != column_peer
+                        && peer_id != block_peer
+            ),
+            "envelope failure must blame the envelope peer {envelope_peer}, not the \
+             batch-completing column peer {column_peer} nor the block peer {block_peer}; \
+             got {result:?}"
         );
     }
 }
