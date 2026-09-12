@@ -3,6 +3,9 @@ name = "fast_confirmation"
 version = "0.1.0"
 edition = { workspace = true }
 
+[features]
+test-utils = []
+
 [dependencies]
 metrics = { workspace = true }
 proto_array = { workspace = true }

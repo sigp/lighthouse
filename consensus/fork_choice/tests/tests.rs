@@ -2,6 +2,7 @@
 
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    fork_name_from_env,
 };
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
@@ -60,8 +61,10 @@ impl ForkChoiceTest {
 
     /// Creates a new tester with a custom chain config.
     pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
-        // Run fork choice tests against the latest fork.
-        let spec = ForkName::latest_stable().make_genesis_spec(ChainSpec::default());
+        // Run fork choice tests against the fork named by `FORK_NAME` when the `fork_from_env`
+        // feature is enabled, otherwise against the latest stable fork.
+        let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest_stable);
+        let spec = fork_name.make_genesis_spec(ChainSpec::default());
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.into())
             .chain_config(chain_config)

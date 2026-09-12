@@ -1185,6 +1185,36 @@ fn fork_choice_payload_data_availability() {
 }
 
 #[test]
+fn fork_choice_compliance_attester_slashing_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("attester_slashing_test").run();
+}
+
+#[test]
+fn fork_choice_compliance_block_cover_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_cover_test").run();
+}
+
+#[test]
+fn fork_choice_compliance_block_tree_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_tree_test").run();
+}
+
+#[test]
+fn fork_choice_compliance_block_weight_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_weight_test").run();
+}
+
+#[test]
+fn fork_choice_compliance_invalid_message_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("invalid_message_test").run();
+}
+
+#[test]
+fn fork_choice_compliance_shuffling_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("shuffling_test").run();
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();
