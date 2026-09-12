@@ -83,7 +83,10 @@ struct StateContext {
     finalized_checkpoint: Checkpoint,
     is_in_inactivity_leak: bool,
     total_active_balance: u64,
-    churn_limit: u64,
+    /// Pre-Electra validator-count exit churn.
+    validator_churn_limit: Option<u64>,
+    /// Electra+ Gwei exit churn.
+    exit_churn_limit: Option<u64>,
     fork_name: ForkName,
 }
 
@@ -169,10 +172,25 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let next_epoch = state.next_epoch()?;
     let is_in_inactivity_leak = state.is_in_inactivity_leak(previous_epoch, spec)?;
     let total_active_balance = state.get_total_active_balance()?;
-    let churn_limit = state.get_validator_churn_limit(spec)?;
-    let activation_churn_limit = state.get_activation_churn_limit(spec)?;
     let finalized_checkpoint = state.finalized_checkpoint();
     let fork_name = state.fork_name_unchecked();
+    let (validator_churn_limit, activation_churn_limit) = if !fork_name.electra_enabled() {
+        (
+            Some(state.get_validator_churn_limit(spec)?),
+            Some(state.get_validator_activation_churn_limit(spec)?),
+        )
+    } else {
+        (None, None)
+    };
+    let exit_churn_limit = if fork_name.electra_enabled() {
+        Some(if fork_name.gloas_enabled() {
+            state.get_exit_churn_limit(spec)?
+        } else {
+            state.get_activation_exit_churn_limit(spec)?
+        })
+    } else {
+        None
+    };
 
     let state_ctxt = &StateContext {
         current_epoch,
@@ -180,7 +198,8 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         finalized_checkpoint,
         is_in_inactivity_leak,
         total_active_balance,
-        churn_limit,
+        validator_churn_limit,
+        exit_churn_limit,
         fork_name,
     };
 
@@ -230,7 +249,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             .activation_queue()?
             .get_validators_eligible_for_activation(
                 finalized_checkpoint.epoch,
-                activation_churn_limit as usize,
+                activation_churn_limit.ok_or(BeaconStateError::IncorrectStateVariant)? as usize,
             );
         let next_epoch_activation_queue = ActivationQueue::default();
         Some((activation_queue, next_epoch_activation_queue))
@@ -933,7 +952,11 @@ fn initiate_validator_exit(
             .map_or(delayed_epoch, |epoch| max(epoch, delayed_epoch));
         let exit_queue_churn = exit_cache.get_churn_at(exit_queue_epoch)?;
 
-        if exit_queue_churn >= state_ctxt.churn_limit {
+        if exit_queue_churn
+            >= state_ctxt
+                .validator_churn_limit
+                .ok_or(BeaconStateError::IncorrectStateVariant)?
+        {
             exit_queue_epoch.safe_add_assign(1)?;
         }
         exit_queue_epoch
@@ -961,11 +984,9 @@ fn compute_exit_epoch_and_update_churn(
         spec.compute_activation_exit_epoch(state_ctxt.current_epoch)?,
     );
 
-    let per_epoch_churn = if state_ctxt.fork_name.gloas_enabled() {
-        get_balance_churn_limit(state_ctxt, spec)?
-    } else {
-        get_activation_exit_churn_limit(state_ctxt, spec)?
-    };
+    let per_epoch_churn = state_ctxt
+        .exit_churn_limit
+        .ok_or(BeaconStateError::IncorrectStateVariant)?;
     // New epoch for exits
     let mut exit_balance_to_consume = if *earliest_exit_epoch_state < earliest_exit_epoch {
         per_epoch_churn
@@ -988,36 +1009,6 @@ fn compute_exit_epoch_and_update_churn(
     *earliest_exit_epoch_state = earliest_exit_epoch;
 
     Ok(earliest_exit_epoch)
-}
-
-fn get_activation_exit_churn_limit(
-    state_ctxt: &StateContext,
-    spec: &ChainSpec,
-) -> Result<u64, Error> {
-    let max_limit = if state_ctxt.fork_name.gloas_enabled() {
-        spec.max_per_epoch_activation_churn_limit_gloas
-    } else {
-        spec.max_per_epoch_activation_exit_churn_limit
-    };
-    Ok(std::cmp::min(
-        max_limit,
-        get_balance_churn_limit(state_ctxt, spec)?,
-    ))
-}
-
-fn get_balance_churn_limit(state_ctxt: &StateContext, spec: &ChainSpec) -> Result<u64, Error> {
-    let total_active_balance = state_ctxt.total_active_balance;
-    let quotient = if state_ctxt.fork_name.gloas_enabled() {
-        spec.churn_limit_quotient_gloas
-    } else {
-        spec.churn_limit_quotient
-    };
-    let churn = std::cmp::max(
-        spec.min_per_epoch_churn_limit_electra,
-        total_active_balance.safe_div(quotient)?,
-    );
-
-    Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
 }
 
 impl SlashingsContext {
@@ -1085,9 +1076,14 @@ impl PendingDepositsContext {
         spec: &ChainSpec,
         config: &SinglePassConfig,
     ) -> Result<Self, Error> {
+        let activation_churn = if state.fork_name_unchecked().gloas_enabled() {
+            state.get_activation_churn_limit(spec)?
+        } else {
+            state.get_activation_exit_churn_limit(spec)?
+        };
         let available_for_processing = state
             .deposit_balance_to_consume()?
-            .safe_add(state.get_activation_exit_churn_limit(spec)?)?;
+            .safe_add(activation_churn)?;
         let current_epoch = state.current_epoch();
         let next_epoch = state.next_epoch()?;
         let mut processed_amount = 0;
