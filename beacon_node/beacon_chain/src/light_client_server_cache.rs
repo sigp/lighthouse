@@ -157,7 +157,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             None => true,
         };
 
-        if is_latest_finality & !cached_parts.finalized_block_root.is_zero() {
+        if is_latest_finality {
             // Immediately after checkpoint sync the finalized block may not be available yet.
             if let Some(finalized_block) = maybe_finalized_block.as_ref() {
                 *self.latest_finality_update.write() = Some(LightClientFinalityUpdate::new(
