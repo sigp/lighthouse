@@ -1624,6 +1624,8 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 /// 1. Block production can happen immediately and does not have to wait for the proposer duties to
 ///    download.
 /// 2. We won't miss a block if the duties for the current slot happen to change with this poll.
+/// 3. When the next epoch is on the Gloas fork, fetch next-epoch proposer duties asynchronously
+///    for the proposer preferences service.
 ///
 /// This sounds great, but is it safe? Firstly, the additional notification will only contain block
 /// producers that were not included in the first notification. This should be safe enough.
@@ -1635,8 +1637,8 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 /// through the slow path every time. I.e., the proposal will only happen after we've been able to
 /// download and process the duties from the BN. This means it is very important to ensure this
 /// function is as fast as possible.
-async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
-    duties_service: &DutiesService<S, T>,
+async fn poll_beacon_proposers<S: ValidatorStore + 'static, T: SlotClock + 'static>(
+    duties_service: &Arc<DutiesService<S, T>>,
     block_service_tx: &mut Sender<BlockServiceNotification>,
 ) -> Result<(), Error<S::Error>> {
     let _timer = validator_metrics::start_timer_vec(
@@ -1673,9 +1675,8 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
     // Only download duties and push out additional block production events if we have some
     // validators.
     if !local_pubkeys.is_empty() {
-        for epoch in [current_epoch, current_epoch + 1] {
-            fetch_and_store_proposer_duties(duties_service, epoch, &local_pubkeys).await;
-        }
+        // Download the duties and update the duties for the current epoch.
+        fetch_and_store_proposer_duties(duties_service, current_epoch, &local_pubkeys).await;
 
         // Compute the block proposers for this slot again, now that we've received an update from
         // the BN.
@@ -1705,6 +1706,22 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
                 "Detected new block proposer"
             );
             validator_metrics::inc_counter(&validator_metrics::PROPOSAL_CHANGED);
+        }
+
+        let next_epoch = current_epoch + 1;
+        if duties_service
+            .spec
+            .fork_name_at_epoch(next_epoch)
+            .gloas_enabled()
+        {
+            let subservice = duties_service.clone();
+            let local_pubkeys = local_pubkeys.clone();
+            duties_service.executor.spawn(
+                async move {
+                    fetch_and_store_proposer_duties(&subservice, next_epoch, &local_pubkeys).await;
+                },
+                "duties_service_proposers_next_epoch",
+            );
         }
     }
 
