@@ -228,6 +228,7 @@ impl ForkChoiceTestDefinition {
                         op_index,
                     );
                     last_current_slot = current_slot;
+                    assert_eq!(fork_choice.balances, justified_balances);
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::ProposerBoostFindHead {
