@@ -8,7 +8,7 @@ edition = { workspace = true }
 arbitrary = ["dep:arbitrary"]
 default = ["supranational"]
 fake_crypto = []
-supranational = ["blst"]
+supranational = ["blst", "blst/no-threads"]
 supranational-portable = ["supranational", "blst/portable"]
 supranational-force-adx = ["supranational", "blst/force-adx"]
 

@@ -78,6 +78,12 @@ where
     Sig: TSignature<Pub> + Clone,
     AggSig: TAggregateSignature<Pub, AggPub, Sig> + Clone,
 {
+    /// The message (signing root) this set's signature is checked against. Exposed so callers can
+    /// count how many sets in a batch share a message.
+    pub fn message(&self) -> Hash256 {
+        self.message
+    }
+
     /// Instantiate self where `signature` is only signed by a single public key.
     pub fn single_pubkey(
         signature: impl Into<WrappedSignature<'a, Pub, AggPub, Sig, AggSig>>,
