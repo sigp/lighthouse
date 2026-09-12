@@ -1,19 +1,22 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
+use crate::ClientVersionV1;
+use crate::engine_api::transport::EngineApi;
 use crate::engine_api::{
     EngineCapabilities, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
     PayloadId,
 };
-use crate::{ClientVersionV1, HttpJsonRpc};
 use hashlink::lru_cache::LruCache;
+use ssz_derive::{Decode, Encode};
 use std::future::Future;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, info, warn};
-use types::ExecutionBlockHash;
+use types::{EthSpec, ExecutionBlockHash, ForkName};
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
@@ -98,7 +101,7 @@ impl State {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Encode, Decode, Debug)]
 pub struct ForkchoiceState {
     pub head_block_hash: ExecutionBlockHash,
     pub safe_block_hash: ExecutionBlockHash,
@@ -119,23 +122,25 @@ pub enum EngineError {
 }
 
 /// An execution engine.
-pub struct Engine {
-    pub api: HttpJsonRpc,
+pub struct Engine<E: EthSpec> {
+    pub api: EngineApi,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<State>,
-    latest_forkchoice_state: RwLock<Option<ForkchoiceState>>,
+    latest_forkchoice_state: RwLock<Option<(ForkchoiceState, ForkName)>>,
     executor: TaskExecutor,
+    _phantom: PhantomData<E>,
 }
 
-impl Engine {
+impl<E: EthSpec> Engine<E> {
     /// Creates a new, offline engine.
-    pub fn new(api: HttpJsonRpc, executor: TaskExecutor) -> Self {
+    pub fn new(api: EngineApi, executor: TaskExecutor) -> Self {
         Self {
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
             state: Default::default(),
             latest_forkchoice_state: Default::default(),
             executor,
+            _phantom: PhantomData,
         }
     }
 
@@ -158,14 +163,26 @@ impl Engine {
             .cloned()
     }
 
+    pub async fn invalidate_payload_id(
+        &self,
+        head_block_hash: &ExecutionBlockHash,
+        payload_attributes: &PayloadAttributes,
+    ) {
+        self.payload_id_cache
+            .lock()
+            .await
+            .remove(&PayloadIdCacheKey::new(head_block_hash, payload_attributes));
+    }
+
     pub async fn notify_forkchoice_updated(
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        fork: ForkName,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api
-            .forkchoice_updated(forkchoice_state, payload_attributes.clone())
+            .forkchoice_updated::<E>(forkchoice_state, payload_attributes.clone(), fork)
             .await?;
 
         if let Some(payload_id) = response.payload_id {
@@ -181,18 +198,18 @@ impl Engine {
         Ok(response)
     }
 
-    async fn get_latest_forkchoice_state(&self) -> Option<ForkchoiceState> {
+    async fn get_latest_forkchoice_state(&self) -> Option<(ForkchoiceState, ForkName)> {
         *self.latest_forkchoice_state.read().await
     }
 
-    pub async fn set_latest_forkchoice_state(&self, state: ForkchoiceState) {
-        *self.latest_forkchoice_state.write().await = Some(state);
+    pub async fn set_latest_forkchoice_state(&self, state: ForkchoiceState, fork: ForkName) {
+        *self.latest_forkchoice_state.write().await = Some((state, fork));
     }
 
     async fn send_latest_forkchoice_state(&self) {
         let latest_forkchoice_state = self.get_latest_forkchoice_state().await;
 
-        if let Some(forkchoice_state) = latest_forkchoice_state {
+        if let Some((forkchoice_state, fork)) = latest_forkchoice_state {
             if forkchoice_state.head_block_hash == ExecutionBlockHash::zero() {
                 debug!(
                     msg = "head does not have execution enabled",
@@ -205,7 +222,11 @@ impl Engine {
 
             // For simplicity, payload attributes are never included in this call. It may be
             // reasonable to include them in the future.
-            if let Err(e) = self.api.forkchoice_updated(forkchoice_state, None).await {
+            if let Err(e) = self
+                .api
+                .forkchoice_updated::<E>(forkchoice_state, None, fork)
+                .await
+            {
                 debug!(
                     error = ?e,
                     "Failed to issue latest head to engine"
@@ -342,7 +363,7 @@ impl Engine {
     /// deadlock.
     pub async fn request<'a, F, G, H>(self: &'a Arc<Self>, func: F) -> Result<H, EngineError>
     where
-        F: FnOnce(&'a Engine) -> G,
+        F: FnOnce(&'a Engine<E>) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         match func(self).await {

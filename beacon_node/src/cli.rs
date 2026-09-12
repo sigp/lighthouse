@@ -846,6 +846,16 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("enable-rest-ssz-engine")
+                .long("enable-rest-ssz-engine")
+                .help("Use the REST-SSZ Engine API transport instead of JSON-RPC. Requires an \
+                       execution endpoint that supports the REST-SSZ Engine API; falls back to \
+                       JSON-RPC if the capabilities probe fails.")
+                .requires("execution-endpoint")
+                .action(ArgAction::SetTrue)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("proof-engine-endpoint")
                 .long("proof-engine-endpoint")
                 .value_name("PROOF-ENGINE-ENDPOINT")

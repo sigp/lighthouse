@@ -3,6 +3,7 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
+use crate::metrics;
 use lighthouse_version::{COMMIT_PREFIX, VERSION};
 use opentelemetry::global;
 use opentelemetry_http::HeaderInjector;
@@ -28,17 +29,14 @@ pub const JSONRPC_VERSION: &str = "2.0";
 pub const RETURN_FULL_TRANSACTION_OBJECTS: bool = false;
 
 pub const ETH_GET_BLOCK_BY_NUMBER: &str = "eth_getBlockByNumber";
-pub const ETH_GET_BLOCK_BY_NUMBER_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ETH_SYNCING: &str = "eth_syncing";
-pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
 pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
 pub const ENGINE_NEW_PAYLOAD_V4: &str = "engine_newPayloadV4";
 pub const ENGINE_NEW_PAYLOAD_V5: &str = "engine_newPayloadV5";
-pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_V2: &str = "engine_getPayloadV2";
@@ -46,31 +44,24 @@ pub const ENGINE_GET_PAYLOAD_V3: &str = "engine_getPayloadV3";
 pub const ENGINE_GET_PAYLOAD_V4: &str = "engine_getPayloadV4";
 pub const ENGINE_GET_PAYLOAD_V5: &str = "engine_getPayloadV5";
 pub const ENGINE_GET_PAYLOAD_V6: &str = "engine_getPayloadV6";
-pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_V3: &str = "engine_forkchoiceUpdatedV3";
 pub const ENGINE_FORKCHOICE_UPDATED_V4: &str = "engine_forkchoiceUpdatedV4";
-pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesByHashV1";
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2: &str = "engine_getPayloadBodiesByHashV2";
-pub const ENGINE_GET_PAYLOAD_BODIES_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub const ENGINE_EXCHANGE_CAPABILITIES: &str = "engine_exchangeCapabilities";
-pub const ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_GET_CLIENT_VERSION_V1: &str = "engine_getClientVersionV1";
-pub const ENGINE_GET_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_GET_BLOBS_V2: &str = "engine_getBlobsV2";
 pub const ENGINE_GET_BLOBS_V3: &str = "engine_getBlobsV3";
 pub const ENGINE_GET_BLOBS_V4: &str = "engine_getBlobsV4";
-pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_GET_INCLUSION_LIST_V1: &str = "engine_getInclusionListV1";
-pub const ENGINE_GET_INCLUSION_LIST_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
@@ -617,7 +608,7 @@ pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
     pub execution_timeout_multiplier: u32,
-    pub engine_capabilities_cache: Mutex<Option<CachedResponse<EngineCapabilities>>>,
+    pub engine_capabilities_cache: Mutex<Option<CachedResponse<JsonRpcCapabilities>>>,
     pub engine_version_cache: Mutex<Option<CachedResponse<Vec<ClientVersionV1>>>>,
     auth: Option<Auth>,
 }
@@ -658,19 +649,21 @@ impl HttpJsonRpc {
         params: serde_json::Value,
         timeout: Duration,
     ) -> Result<D, Error> {
-        let body = JsonRequestBody {
+        let request_body = JsonRequestBody {
             jsonrpc: JSONRPC_VERSION,
             method,
             params,
             id: json!(STATIC_ID),
         };
+        let raw_request = serde_json::to_vec(&request_body)?;
+        let request_len = raw_request.len();
 
         let mut request = self
             .client
             .post(self.url.expose_full().clone())
             .timeout(timeout)
             .header(CONTENT_TYPE, "application/json")
-            .json(&body);
+            .body(raw_request);
 
         // Generate and add a jwt token to the header if auth is defined.
         if let Some(auth) = &self.auth {
@@ -685,7 +678,30 @@ impl HttpJsonRpc {
         });
         request = request.headers(headers);
 
-        let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
+        let response_bytes = request.send().await?.error_for_status()?.bytes().await?;
+
+        if let Some(label) = metrics::engine_method_label(method) {
+            metrics::observe_vec(
+                &metrics::EXECUTION_LAYER_ENGINE_BODY_SIZE_BYTES,
+                &[
+                    label,
+                    metrics::TRANSPORT_JSON_RPC,
+                    metrics::DIRECTION_REQUEST,
+                ],
+                request_len as f64,
+            );
+            metrics::observe_vec(
+                &metrics::EXECUTION_LAYER_ENGINE_BODY_SIZE_BYTES,
+                &[
+                    label,
+                    metrics::TRANSPORT_JSON_RPC,
+                    metrics::DIRECTION_RESPONSE,
+                ],
+                response_bytes.len() as f64,
+            );
+        }
+
+        let body: JsonResponseBody = serde_json::from_slice(&response_bytes)?;
 
         match (body.result, body.error) {
             (result, None) => serde_json::from_value(result).map_err(Into::into),
@@ -1241,7 +1257,7 @@ impl HttpJsonRpc {
             .collect())
     }
 
-    pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
+    pub async fn exchange_capabilities(&self) -> Result<JsonRpcCapabilities, Error> {
         let params = json!([LIGHTHOUSE_CAPABILITIES]);
 
         let capabilities: HashSet<String> = self
@@ -1252,7 +1268,7 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(EngineCapabilities {
+        Ok(JsonRpcCapabilities {
             new_payload_v1: capabilities.contains(ENGINE_NEW_PAYLOAD_V1),
             new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
             new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
@@ -1297,6 +1313,15 @@ impl HttpJsonRpc {
         &self,
         age_limit: Option<Duration>,
     ) -> Result<EngineCapabilities, Error> {
+        Ok(EngineCapabilities::JsonRpc(
+            self.json_rpc_capabilities(age_limit).await?,
+        ))
+    }
+
+    async fn json_rpc_capabilities(
+        &self,
+        age_limit: Option<Duration>,
+    ) -> Result<JsonRpcCapabilities, Error> {
         let mut lock = self.engine_capabilities_cache.lock().await;
 
         if let Some(lock) = lock
@@ -1351,7 +1376,7 @@ impl HttpJsonRpc {
         age_limit: Option<Duration>,
     ) -> Result<Vec<ClientVersionV1>, Error> {
         // check engine capabilities first (avoids holding two locks at once)
-        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        let engine_capabilities = self.json_rpc_capabilities(None).await?;
         if !engine_capabilities.get_client_version_v1 {
             // We choose an empty vec to denote that this method is not
             // supported instead of an error since this method is optional
@@ -1381,7 +1406,7 @@ impl HttpJsonRpc {
         &self,
         new_payload_request: NewPayloadRequest<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
-        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        let engine_capabilities = self.json_rpc_capabilities(None).await?;
         match new_payload_request {
             NewPayloadRequest::Bellatrix(_) | NewPayloadRequest::Capella(_) => {
                 if engine_capabilities.new_payload_v2 {
@@ -1438,7 +1463,7 @@ impl HttpJsonRpc {
         fork_name: ForkName,
         payload_id: PayloadId,
     ) -> Result<GetPayloadResponse<E>, Error> {
-        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        let engine_capabilities = self.json_rpc_capabilities(None).await?;
         match fork_name {
             ForkName::Bellatrix | ForkName::Capella => {
                 if engine_capabilities.get_payload_v2 {
@@ -1496,7 +1521,7 @@ impl HttpJsonRpc {
         forkchoice_state: ForkchoiceState,
         maybe_payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let engine_capabilities = self.get_engine_capabilities(None).await?;
+        let engine_capabilities = self.json_rpc_capabilities(None).await?;
         if let Some(payload_attributes) = maybe_payload_attributes.as_ref() {
             match payload_attributes {
                 PayloadAttributes::V1(_) | PayloadAttributes::V2(_) => {

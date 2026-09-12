@@ -15,8 +15,11 @@ use bls::{PublicKeyBytes, Signature};
 use builder_client::PreGloasBuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
+use engine_api::transport::EngineApi;
 pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods};
+pub use engine_api::{
+    http, http::HttpJsonRpc, http::deposit_methods, rest::HttpRestSsz, transport::Transport,
+};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
@@ -158,6 +161,7 @@ pub enum Error {
     ZeroLengthTransaction,
     PayloadBodiesByHashV2NotSupported,
     PayloadBodiesByHashNotSupported,
+    PayloadBodiesNotSupportedForFork(ForkName),
     GetBlobsNotSupported,
     GetInclusionListNotSupported,
     InvalidJWTSecret(String),
@@ -469,7 +473,7 @@ pub enum SubmitBlindedBlockResponse<E: EthSpec> {
 type PayloadContentsRefTuple<'a, E> = (ExecutionPayloadRef<'a, E>, Option<&'a BlobsBundle<E>>);
 
 struct Inner<E: EthSpec> {
-    engine: Arc<Engine>,
+    engine: Arc<Engine<E>>,
     builder: ArcSwapOption<PreGloasBuilderHttpClient>,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
@@ -509,6 +513,8 @@ pub struct Config {
     /// Default directory for the jwt secret if not provided through cli.
     pub default_datadir: PathBuf,
     pub execution_timeout_multiplier: Option<u32>,
+    /// Use the REST-SSZ Engine API transport instead of JSON-RPC (opt-in).
+    pub engine_api_rest_ssz: bool,
 }
 
 /// Provides access to one execution engine and provides a neat interface for consumption by the
@@ -533,6 +539,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             jwt_version,
             default_datadir,
             execution_timeout_multiplier,
+            engine_api_rest_ssz,
         } = config;
 
         let execution_url = url.ok_or(Error::NoEngine)?;
@@ -569,11 +576,26 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 .map_err(Error::InvalidJWTSecret)
         }?;
 
-        let engine: Engine = {
-            let auth = Auth::new(jwt_key, jwt_id, jwt_version);
+        let engine: Engine<E> = {
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
-            let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
-                .map_err(Error::ApiError)?;
+            let rest_ssz = if engine_api_rest_ssz {
+                let rest_auth = Auth::new(jwt_key.clone(), jwt_id.clone(), jwt_version.clone());
+                Some(
+                    HttpRestSsz::new_with_auth(
+                        execution_url.clone(),
+                        rest_auth,
+                        execution_timeout_multiplier,
+                    )
+                    .map_err(Error::ApiError)?,
+                )
+            } else {
+                None
+            };
+            let json_auth = Auth::new(jwt_key, jwt_id, jwt_version);
+            let json_rpc =
+                HttpJsonRpc::new_with_auth(execution_url, json_auth, execution_timeout_multiplier)
+                    .map_err(Error::ApiError)?;
+            let api = EngineApi::new(json_rpc, rest_ssz);
             Engine::new(api, executor.clone())
         };
 
@@ -605,7 +627,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         Ok(el)
     }
 
-    fn engine(&self) -> &Arc<Engine> {
+    fn engine(&self) -> &Arc<Engine<E>> {
         &self.inner.engine
     }
 
@@ -1335,52 +1357,58 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         self.engine()
             .request(move |engine| async move {
+                let fork_choice_state = ForkchoiceState {
+                    head_block_hash: parent_hash,
+                    safe_block_hash: forkchoice_update_params
+                        .justified_hash
+                        .unwrap_or_else(ExecutionBlockHash::zero),
+                    finalized_block_hash: forkchoice_update_params
+                        .finalized_hash
+                        .unwrap_or_else(ExecutionBlockHash::zero),
+                };
+
+                // Reused by the initial cache MISS and the REST `unknown-payload` recovery below.
+                let mint_payload_id = move || async move {
+                    let response = engine
+                        .notify_forkchoice_updated(
+                            fork_choice_state,
+                            Some(payload_attributes.clone()),
+                            current_fork,
+                        )
+                        .await?;
+
+                    match response.payload_id {
+                        Some(payload_id) => Ok(payload_id),
+                        None => {
+                            error!(
+                                msg = "No payload ID, the engine is likely syncing. \
+                                This has the potential to cause a missed block proposal.",
+                                status = ?response.payload_status,
+                                "Exec engine unable to produce payload"
+                            );
+                            Err(ApiError::PayloadIdUnavailable)
+                        }
+                    }
+                };
+
                 let payload_id = if let Some(id) = engine
                     .get_payload_id(&parent_hash, payload_attributes)
                     .await
                 {
-                    // The payload id has been cached for this engine.
+                    // The payload id has been cached
                     metrics::inc_counter_vec(
                         &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
                         &[metrics::HIT],
                     );
                     id
                 } else {
-                    // The payload id has *not* been cached. Trigger an artificial
-                    // fork choice update to retrieve a payload ID.
+                    // The payload id not cached. Trigger an artificial fork choice update
                     metrics::inc_counter_vec(
                         &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
                         &[metrics::MISS],
                     );
-                    let fork_choice_state = ForkchoiceState {
-                        head_block_hash: parent_hash,
-                        safe_block_hash: forkchoice_update_params
-                            .justified_hash
-                            .unwrap_or_else(ExecutionBlockHash::zero),
-                        finalized_block_hash: forkchoice_update_params
-                            .finalized_hash
-                            .unwrap_or_else(ExecutionBlockHash::zero),
-                    };
 
-                    let response = engine
-                        .notify_forkchoice_updated(
-                            fork_choice_state,
-                            Some(payload_attributes.clone()),
-                        )
-                        .await?;
-
-                    match response.payload_id {
-                        Some(payload_id) => payload_id,
-                        None => {
-                            error!(
-                                      msg = "No payload ID, the engine is likely syncing. \
-                                      This has the potential to cause a missed block proposal.",
-                            status = ?response.payload_status,
-                                      "Exec engine unable to produce payload"
-                                  );
-                            return Err(ApiError::PayloadIdUnavailable);
-                        }
-                    }
+                    mint_payload_id().await?
                 };
 
                 let payload_response = async {
@@ -1391,11 +1419,40 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         ?parent_hash,
                         "Issuing engine_getPayload"
                     );
-                    let _timer = metrics::start_timer_vec(
-                        &metrics::EXECUTION_LAYER_REQUEST_TIMES,
-                        &[metrics::GET_PAYLOAD],
-                    );
-                    engine.api.get_payload::<E>(current_fork, payload_id).await
+
+                    let first_attempt = {
+                        metrics::start_timer_vec(
+                            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+                            &[metrics::GET_PAYLOAD],
+                        );
+                        engine.api.get_payload::<E>(current_fork, payload_id).await
+                    };
+                    match first_attempt {
+                        Ok(response) => Ok(response),
+                        Err(e) if e.is_unknown_payload() => {
+                            // REST build-bound TTL: the cached id is unknown to the EL. Invalidate
+                            // it, mint a fresh id, and retry the GET exactly once.
+                            debug!(
+                                ?payload_id,
+                                "Cached payload id unknown to execution engine; re-issuing forkchoice update"
+                            );
+
+                            metrics::inc_counter_vec(
+                                &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                                &[metrics::EXPIRED],
+                            );
+                            engine
+                                .invalidate_payload_id(&parent_hash, payload_attributes)
+                                .await;
+                            let fresh_payload_id = mint_payload_id().await?;
+                            let _timer = metrics::start_timer_vec(
+                                &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+                                &[metrics::GET_PAYLOAD],
+                            );
+                            engine.api.get_payload::<E>(current_fork, fresh_payload_id).await
+                        }
+                        Err(e) => Err(e),
+                    }
                 }
                 .await?;
 
@@ -1545,6 +1602,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
+    #[allow(clippy::too_many_arguments)]
     pub async fn notify_forkchoice_updated(
         &self,
         head_block_hash: ExecutionBlockHash,
@@ -1553,6 +1611,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         current_slot: Slot,
         head_block_root: Hash256,
         head_payload_status: fork_choice::PayloadStatus,
+        fork: ForkName,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
@@ -1595,14 +1654,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         };
 
         self.engine()
-            .set_latest_forkchoice_state(forkchoice_state)
+            .set_latest_forkchoice_state(forkchoice_state, fork)
             .await;
 
         let result = self
             .engine()
             .request(|engine| async move {
                 engine
-                    .notify_forkchoice_updated(forkchoice_state, payload_attributes)
+                    .notify_forkchoice_updated(forkchoice_state, payload_attributes, fork)
                     .await
             })
             .await;
@@ -1664,13 +1723,22 @@ impl<E: EthSpec> ExecutionLayer<E> {
         Ok(versions)
     }
 
-    pub async fn get_payload_bodies_by_hash(
+    pub async fn get_payload_bodies_by_hash_v1(
         &self,
+        fork: ForkName,
         hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+        if !capabilities.get_payload_bodies_by_hash_v1(fork) {
+            return Err(Error::PayloadBodiesNotSupportedForFork(fork));
+        }
+
         self.engine()
-            .request(|engine: &Engine| async move {
-                engine.api.get_payload_bodies_by_hash_v1(hashes).await
+            .request(|engine: &Engine<E>| async move {
+                engine
+                    .api
+                    .get_payload_bodies_by_hash_v1::<E>(fork, hashes)
+                    .await
             })
             .await
             .map_err(Box::new)
@@ -1680,16 +1748,17 @@ impl<E: EthSpec> ExecutionLayer<E> {
     /// Fetch execution payload bodies using the Gloas V2 response format.
     pub async fn get_payload_bodies_by_hash_v2(
         &self,
+        fork: ForkName,
         hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
-        if !capabilities.get_payload_bodies_by_hash_v2 {
+        if !capabilities.get_payload_bodies_by_hash_v2(fork) {
             return Err(Error::PayloadBodiesByHashV2NotSupported);
         }
 
         self.engine()
-            .request(|engine: &Engine| async move {
-                engine.api.get_payload_bodies_by_hash_v2(hashes).await
+            .request(|engine: &Engine<E>| async move {
+                engine.api.get_payload_bodies_by_hash_v2(fork, hashes).await
             })
             .await
             .map_err(Box::new)
@@ -1726,9 +1795,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
 
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_hash_v1 {
+        if capabilities.get_payload_bodies_by_hash_v1(fork) {
             let mut payload_bodies = self
-                .get_payload_bodies_by_hash(vec![header.block_hash()])
+                .get_payload_bodies_by_hash_v1(fork, vec![header.block_hash()])
                 .await?;
 
             if payload_bodies.len() != 1 {
@@ -1753,7 +1822,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<Option<Vec<BlobAndProofV2<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
-        if capabilities.get_blobs_v2 {
+        if capabilities.get_blobs_v2() {
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v2(query).await })
                 .await
@@ -1770,7 +1839,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<Option<Vec<BlobAndProofV3<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
-        if capabilities.get_blobs_v3 {
+        if capabilities.get_blobs_v3() {
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v3(query).await })
                 .await
@@ -1788,7 +1857,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<Option<GetBlobsV4List<E>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
-        if capabilities.get_blobs_v4 {
+        if capabilities.get_blobs_v4() {
             self.engine()
                 .request(
                     |engine| async move { engine.api.get_blobs_v4(query, custody_columns).await },
@@ -1804,9 +1873,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_inclusion_list_v1(&self) -> Result<ProgressiveTransactions, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
-        if capabilities.get_inclusion_list_v1 {
+        if capabilities.get_inclusion_list_v1() {
             self.engine()
-                .request(|engine| async move { engine.api.get_inclusion_list_v1().await })
+                .request(|engine| async move { engine.api.get_inclusion_list_v1::<E>().await })
                 .await
                 .map_err(Box::new)
                 .map_err(Error::EngineError)
@@ -1984,6 +2053,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
         } else {
             Err(Error::NoPayloadBuilder)
         }
+    }
+
+    pub(crate) fn resolved_transport(&self) -> Option<Transport> {
+        self.engine().api.get_decision().copied()
     }
 }
 
@@ -2208,6 +2281,8 @@ mod test {
     async fn produce_three_valid_pos_execution_blocks() {
         let runtime = TestRuntime::default();
         MockExecutionLayer::default_params(runtime.task_executor.clone())
+            .resolve_and_assert_transport()
+            .await
             .produce_valid_execution_payload_on_head()
             .await
             .produce_valid_execution_payload_on_head()
@@ -2259,7 +2334,10 @@ mod test {
 
         let bodies_by_hash = mock
             .el
-            .get_payload_bodies_by_hash_v2(vec![block_hash, ExecutionBlockHash::zero()])
+            .get_payload_bodies_by_hash_v2(
+                ForkName::Gloas,
+                vec![block_hash, ExecutionBlockHash::zero()],
+            )
             .await
             .expect("payload body request by hash should succeed");
         assert_eq!(bodies_by_hash, vec![Some(expected_body.clone()), None]);
