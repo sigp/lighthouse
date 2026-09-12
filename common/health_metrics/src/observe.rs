@@ -1,4 +1,5 @@
 use eth2::lighthouse::{Health, ProcessHealth, SystemHealth};
+use std::path::Path;
 
 #[cfg(target_os = "linux")]
 use {
@@ -26,66 +27,75 @@ impl Observe for Health {
 }
 
 impl Observe for SystemHealth {
-    #[cfg(not(target_os = "linux"))]
     fn observe() -> Result<Self, String> {
-        Err("Health is only available on Linux".into())
+        observe_system_health(Path::new("/"))
     }
+}
 
-    #[cfg(target_os = "linux")]
-    fn observe() -> Result<Self, String> {
-        let vm = psutil::memory::virtual_memory()
-            .map_err(|e| format!("Unable to get virtual memory: {:?}", e))?;
-        let loadavg =
-            psutil::host::loadavg().map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
+/// Observes system health using the filesystem containing `data_dir` for disk capacity metrics.
+#[cfg(not(target_os = "linux"))]
+pub fn observe_system_health(_data_dir: &Path) -> Result<SystemHealth, String> {
+    Err("Health is only available on Linux".into())
+}
 
-        let cpu =
-            psutil::cpu::cpu_times().map_err(|e| format!("Unable to get cpu times: {:?}", e))?;
+/// Observes system health using the filesystem containing `data_dir` for disk capacity metrics.
+#[cfg(target_os = "linux")]
+pub fn observe_system_health(data_dir: &Path) -> Result<SystemHealth, String> {
+    let vm = psutil::memory::virtual_memory()
+        .map_err(|e| format!("Unable to get virtual memory: {:?}", e))?;
+    let loadavg = psutil::host::loadavg().map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
 
-        let disk_usage = psutil::disk::disk_usage("/")
-            .map_err(|e| format!("Unable to disk usage info: {:?}", e))?;
+    let cpu = psutil::cpu::cpu_times().map_err(|e| format!("Unable to get cpu times: {:?}", e))?;
 
-        let disk = psutil::disk::DiskIoCountersCollector::default()
-            .disk_io_counters()
-            .map_err(|e| format!("Unable to get disk counters: {:?}", e))?;
+    let disk_usage = psutil::disk::disk_usage(data_dir).map_err(|e| {
+        format!(
+            "Unable to get disk usage for {}: {:?}",
+            data_dir.display(),
+            e
+        )
+    })?;
 
-        let net = psutil::network::NetIoCountersCollector::default()
-            .net_io_counters()
-            .map_err(|e| format!("Unable to get network io counters: {:?}", e))?;
+    let disk = psutil::disk::DiskIoCountersCollector::default()
+        .disk_io_counters()
+        .map_err(|e| format!("Unable to get disk counters: {:?}", e))?;
 
-        let boot_time = psutil::host::boot_time()
-            .map_err(|e| format!("Unable to get system boot time: {:?}", e))?
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| format!("Boot time is lower than unix epoch: {}", e))?
-            .as_secs();
+    let net = psutil::network::NetIoCountersCollector::default()
+        .net_io_counters()
+        .map_err(|e| format!("Unable to get network io counters: {:?}", e))?;
 
-        Ok(Self {
-            sys_virt_mem_total: vm.total(),
-            sys_virt_mem_available: vm.available(),
-            sys_virt_mem_used: vm.used(),
-            sys_virt_mem_free: vm.free(),
-            sys_virt_mem_cached: vm.cached(),
-            sys_virt_mem_buffers: vm.buffers(),
-            sys_virt_mem_percent: vm.percent(),
-            sys_loadavg_1: loadavg.one,
-            sys_loadavg_5: loadavg.five,
-            sys_loadavg_15: loadavg.fifteen,
-            cpu_cores: psutil::cpu::cpu_count_physical(),
-            cpu_threads: psutil::cpu::cpu_count(),
-            system_seconds_total: cpu.system().as_secs(),
-            cpu_time_total: cpu.total().as_secs(),
-            user_seconds_total: cpu.user().as_secs(),
-            iowait_seconds_total: cpu.iowait().as_secs(),
-            idle_seconds_total: cpu.idle().as_secs(),
-            disk_node_bytes_total: disk_usage.total(),
-            disk_node_bytes_free: disk_usage.free(),
-            disk_node_reads_total: disk.read_count(),
-            disk_node_writes_total: disk.write_count(),
-            network_node_bytes_total_received: net.bytes_recv(),
-            network_node_bytes_total_transmit: net.bytes_sent(),
-            misc_node_boot_ts_seconds: boot_time,
-            misc_os: std::env::consts::OS.to_string(),
-        })
-    }
+    let boot_time = psutil::host::boot_time()
+        .map_err(|e| format!("Unable to get system boot time: {:?}", e))?
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| format!("Boot time is lower than unix epoch: {}", e))?
+        .as_secs();
+
+    Ok(SystemHealth {
+        sys_virt_mem_total: vm.total(),
+        sys_virt_mem_available: vm.available(),
+        sys_virt_mem_used: vm.used(),
+        sys_virt_mem_free: vm.free(),
+        sys_virt_mem_cached: vm.cached(),
+        sys_virt_mem_buffers: vm.buffers(),
+        sys_virt_mem_percent: vm.percent(),
+        sys_loadavg_1: loadavg.one,
+        sys_loadavg_5: loadavg.five,
+        sys_loadavg_15: loadavg.fifteen,
+        cpu_cores: psutil::cpu::cpu_count_physical(),
+        cpu_threads: psutil::cpu::cpu_count(),
+        system_seconds_total: cpu.system().as_secs(),
+        cpu_time_total: cpu.total().as_secs(),
+        user_seconds_total: cpu.user().as_secs(),
+        iowait_seconds_total: cpu.iowait().as_secs(),
+        idle_seconds_total: cpu.idle().as_secs(),
+        disk_node_bytes_total: disk_usage.total(),
+        disk_node_bytes_free: disk_usage.free(),
+        disk_node_reads_total: disk.read_count(),
+        disk_node_writes_total: disk.write_count(),
+        network_node_bytes_total_received: net.bytes_recv(),
+        network_node_bytes_total_transmit: net.bytes_sent(),
+        misc_node_boot_ts_seconds: boot_time,
+        misc_os: std::env::consts::OS.to_string(),
+    })
 }
 
 impl Observe for ProcessHealth {
@@ -123,5 +133,18 @@ impl Observe for ProcessHealth {
                 + process_times.children_system().as_secs()
                 + process_times.children_user().as_secs(),
         })
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn system_health_reports_the_requested_disk_path() {
+        let missing_path = Path::new("/proc/lighthouse-health-metrics-missing-path");
+        let error = observe_system_health(missing_path).expect_err("path should not exist");
+
+        assert!(error.contains(&missing_path.display().to_string()));
     }
 }

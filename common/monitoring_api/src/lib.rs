@@ -2,9 +2,8 @@ mod gather;
 mod types;
 use std::{path::PathBuf, time::Duration};
 
-use eth2::lighthouse::SystemHealth;
 use gather::{gather_beacon_metrics, gather_validator_metrics};
-use health_metrics::observe::Observe;
+use health_metrics::observe::observe_system_health;
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
@@ -57,6 +56,8 @@ impl From<reqwest::Error> for Error {
 pub struct Config {
     /// Endpoint
     pub monitoring_endpoint: String,
+    /// Path whose filesystem should be used for disk capacity metrics.
+    pub data_dir: Option<PathBuf>,
     /// Path for the hot database required for fetching beacon db size metrics.
     /// Note: not relevant for validator and system metrics.
     pub db_path: Option<PathBuf>,
@@ -70,6 +71,8 @@ pub struct Config {
 #[derive(Clone)]
 pub struct MonitoringHttpClient {
     client: reqwest::Client,
+    /// Path whose filesystem should be used for disk capacity metrics.
+    data_dir: PathBuf,
     /// Path to the hot database. Required for getting db size metrics
     db_path: Option<PathBuf>,
     /// Path to the freezer database.
@@ -82,6 +85,10 @@ impl MonitoringHttpClient {
     pub fn new(config: &Config) -> Result<Self, String> {
         Ok(Self {
             client: reqwest::Client::new(),
+            data_dir: config
+                .data_dir
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("/")),
             db_path: config.db_path.clone(),
             freezer_db_path: config.freezer_db_path.clone(),
             update_period: Duration::from_secs(
@@ -165,7 +172,8 @@ impl MonitoringHttpClient {
 
     /// Gets system metrics by observing capturing the SystemHealth metrics.
     pub fn get_system_metrics(&self) -> Result<MonitoringMetrics, Error> {
-        let system_health = SystemHealth::observe().map_err(Error::SystemMetricsFailed)?;
+        let system_health =
+            observe_system_health(&self.data_dir).map_err(Error::SystemMetricsFailed)?;
         Ok(MonitoringMetrics {
             metadata: Metadata::new(ProcessType::System),
             process_metrics: Process::System(system_health.into()),
@@ -235,6 +243,7 @@ mod tests {
 
         let client = MonitoringHttpClient::new(&Config {
             monitoring_endpoint: "http://127.0.0.1/".to_string(),
+            data_dir: None,
             db_path: None,
             freezer_db_path: None,
             update_period_secs: None,
@@ -254,5 +263,44 @@ mod tests {
         assert!(!formatted_error.contains("apikey"));
         assert!(!formatted_error.contains(api_key));
         assert!(!formatted_error.contains(&format!("apikey={api_key}")));
+    }
+
+    #[test]
+    fn monitoring_client_uses_configured_data_dir() {
+        let data_dir = PathBuf::from("/configured-data-dir");
+        let client = MonitoringHttpClient::new(&Config {
+            monitoring_endpoint: "http://127.0.0.1/".to_string(),
+            data_dir: Some(data_dir.clone()),
+            ..Config::default()
+        })
+        .expect("monitoring endpoint should be valid");
+
+        assert_eq!(client.data_dir, data_dir);
+    }
+
+    #[test]
+    fn monitoring_client_defaults_to_root_for_older_configs() {
+        let client = MonitoringHttpClient::new(&Config {
+            monitoring_endpoint: "http://127.0.0.1/".to_string(),
+            ..Config::default()
+        })
+        .expect("monitoring endpoint should be valid");
+
+        assert_eq!(client.data_dir, PathBuf::from("/"));
+    }
+
+    #[test]
+    fn config_without_data_dir_deserializes() {
+        let config: Config = serde_json::from_str(
+            r#"{
+                "monitoring_endpoint": "http://127.0.0.1/",
+                "db_path": null,
+                "freezer_db_path": null,
+                "update_period_secs": null
+            }"#,
+        )
+        .expect("older monitoring config should deserialize");
+
+        assert_eq!(config.data_dir, None);
     }
 }
