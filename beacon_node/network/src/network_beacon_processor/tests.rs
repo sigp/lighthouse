@@ -667,9 +667,9 @@ impl TestRig {
             .unwrap();
     }
 
-    /// Enqueue a valid payload attestation message for `next_block`, signed by the first
-    /// member of the PTC for its slot.
-    pub fn enqueue_next_block_payload_attestation(&self) {
+    /// A valid payload attestation message for `next_block`, signed by the first member of the
+    /// PTC for its slot.
+    pub fn make_next_block_payload_attestation(&self) -> PayloadAttestationMessage {
         let slot = self.next_block.slot();
         let beacon_block_root = self.next_block.canonical_root();
         let head = self.chain.canonical_head.cached_head();
@@ -696,17 +696,45 @@ impl TestRig {
             .sk
             .sign(data.signing_root(domain));
 
+        PayloadAttestationMessage {
+            validator_index,
+            data,
+            signature,
+        }
+    }
+
+    pub fn enqueue_payload_attestation(&self, message: PayloadAttestationMessage) {
         self.network_beacon_processor
-            .send_gossip_payload_attestation(
-                junk_message_id(),
-                junk_peer_id(),
-                Box::new(PayloadAttestationMessage {
-                    validator_index,
-                    data,
-                    signature,
-                }),
-            )
+            .send_gossip_payload_attestation(junk_message_id(), junk_peer_id(), Box::new(message))
             .unwrap();
+    }
+
+    /// Aggregation bits pooled for exactly `data`. Bits rather than a pool count, because
+    /// aggregation on insert means a second attester voting the same `data` sets a bit in the
+    /// existing aggregate instead of adding a new one.
+    pub fn pooled_payload_attestation_bits(&self, data: &PayloadAttestationData) -> usize {
+        self.chain
+            .op_pool
+            .get_payload_attestations(data.slot, data.beacon_block_root)
+            .iter()
+            .filter(|attestation| &attestation.data == data)
+            .map(|attestation| attestation.aggregation_bits.num_set_bits())
+            .sum()
+    }
+
+    /// Number of PTC positions held by `validator_index`, which is how many bits its message sets.
+    pub fn ptc_seats(&self, slot: Slot, validator_index: u64) -> usize {
+        self.chain
+            .canonical_head
+            .cached_head()
+            .snapshot
+            .beacon_state
+            .get_ptc(slot, &self.chain.spec)
+            .expect("should get PTC")
+            .0
+            .iter()
+            .filter(|index| **index as u64 == validator_index)
+            .count()
     }
 
     /// Assert that the `BeaconProcessor` doesn't produce any events in the given `duration`.
@@ -1550,16 +1578,18 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
 
     // Send the payload attestation but not the block, and check that it was not imported.
 
-    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+    let message = rig.make_next_block_payload_attestation();
+    let bits_before = rig.pooled_payload_attestation_bits(&message.data);
+    let expected_bits = rig.ptc_seats(message.data.slot, message.validator_index);
 
-    rig.enqueue_next_block_payload_attestation();
+    rig.enqueue_payload_attestation(message.clone());
 
     rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
         .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        rig.pooled_payload_attestation_bits(&message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 
@@ -1599,8 +1629,8 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
     rig.assert_event_journal_contains_ordered(&events).await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages + 1,
+        rig.pooled_payload_attestation_bits(&message.data),
+        bits_before + expected_bits,
         "Payload attestation should have been included."
     );
 
@@ -1658,16 +1688,17 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
 
     // Send the payload attestation but not the block, and check that it was not imported.
 
-    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+    let message = rig.make_next_block_payload_attestation();
+    let bits_before = rig.pooled_payload_attestation_bits(&message.data);
 
-    rig.enqueue_next_block_payload_attestation();
+    rig.enqueue_payload_attestation(message.clone());
 
     rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
         .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        rig.pooled_payload_attestation_bits(&message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 
@@ -1686,8 +1717,8 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
     .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        rig.pooled_payload_attestation_bits(&message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 }

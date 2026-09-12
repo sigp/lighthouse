@@ -40,7 +40,7 @@ use std::ptr;
 use typenum::Unsigned;
 use types::{
     AbstractExecPayload, Attestation, AttestationData, AttesterSlashing, BeaconState,
-    BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, PayloadAttestation,
+    BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, PTC, PayloadAttestation,
     PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate, SyncAggregateError,
     SyncCommitteeContribution, Validator,
@@ -62,9 +62,8 @@ pub struct OperationPool<E: EthSpec + Default> {
     voluntary_exits: RwLock<HashMap<u64, SigVerifiedOp<SignedVoluntaryExit, E>>>,
     /// Map from credential changing validator to their position in the queue.
     bls_to_execution_changes: RwLock<BlsToExecutionChanges<E>>,
-    /// Map from payload attestation data to individual messages for aggregation at block production.
-    payload_attestation_messages:
-        RwLock<HashMap<PayloadAttestationData, Vec<PayloadAttestationMessage>>>,
+    /// Map from payload attestation data to the aggregate for that data.
+    payload_attestations: RwLock<HashMap<PayloadAttestationData, PayloadAttestation<E>>>,
     /// Reward cache for accelerating attestation packing.
     reward_cache: RwLock<RewardCache>,
     _phantom: PhantomData<E>,
@@ -84,7 +83,6 @@ pub enum OpPoolError {
     IncorrectOpPoolVariant,
     EpochCacheNotInitialized,
     EpochCacheError(EpochCacheError),
-    GetPtcError(BeaconStateError),
     PayloadAttestationBitError,
 }
 
@@ -201,72 +199,62 @@ impl<E: EthSpec> OperationPool<E> {
         });
     }
 
-    /// Insert a validated `PayloadAttestationMessage` into the pool.
-    pub fn insert_payload_attestation_message(
+    /// Insert a validated `PayloadAttestationMessage` into the pool, aggregating it into the
+    /// running `PayloadAttestation` for its data.
+    pub fn insert_payload_attestation(
         &self,
-        message: PayloadAttestationMessage,
+        message: &PayloadAttestationMessage,
+        ptc: &PTC<E>,
     ) -> Result<(), OpPoolError> {
-        let mut messages = self.payload_attestation_messages.write();
-        let entry = messages.entry(message.data.clone()).or_default();
-        if !entry
-            .iter()
-            .any(|m| m.validator_index == message.validator_index)
-        {
-            entry.push(message);
+        // A validator absent from the PTC must not leave a permanently-empty aggregate behind.
+        if !ptc.0.contains(&(message.validator_index as usize)) {
+            return Ok(());
         }
+
+        let mut aggregates = self.payload_attestations.write();
+        let entry = aggregates
+            .entry(message.data.clone())
+            .or_insert_with(|| PayloadAttestation {
+                aggregation_bits: BitVector::new(),
+                data: message.data.clone(),
+                signature: AggregateSignature::infinity(),
+            });
+
+        for (ptc_index, &validator_index) in ptc.0.iter().enumerate() {
+            if validator_index == message.validator_index as usize
+                && !entry.aggregation_bits.get(ptc_index).unwrap_or(false)
+            {
+                entry
+                    .aggregation_bits
+                    .set(ptc_index, true)
+                    .map_err(|_| OpPoolError::PayloadAttestationBitError)?;
+                entry.signature.add_assign(&message.signature);
+            }
+        }
+
         Ok(())
     }
 
-    /// Build `PayloadAttestation`s from stored messages for block production.
+    /// Collect `PayloadAttestation`s for block production.
     ///
     /// `parent_block_root` is the root of the parent block (the block PTC members attested to).
     /// Returns one `PayloadAttestation` per distinct `PayloadAttestationData`. With two boolean
     /// fields this yields at most 4, capped to `MaxPayloadAttestations`.
     pub fn get_payload_attestations(
         &self,
-        state: &BeaconState<E>,
+        target_slot: Slot,
         parent_block_root: Hash256,
-        spec: &ChainSpec,
-    ) -> Result<Vec<PayloadAttestation<E>>, OpPoolError> {
-        let target_slot = state.slot().saturating_sub(1u64);
-
-        let ptc = state
-            .get_ptc(target_slot, spec)
-            .map_err(OpPoolError::GetPtcError)?;
-
-        let messages = self.payload_attestation_messages.read();
-        let mut result = Vec::new();
-
-        for (data, msgs) in messages.iter() {
-            if data.slot != target_slot || data.beacon_block_root != parent_block_root {
-                continue;
-            }
-
-            let mut aggregation_bits = BitVector::new();
-            let mut aggregate_sig = AggregateSignature::infinity();
-
-            for msg in msgs {
-                // Add the signature once per set bit.
-                for (ptc_index, &ptc_validator_index) in ptc.0.iter().enumerate() {
-                    if ptc_validator_index == msg.validator_index as usize
-                        && !aggregation_bits.get(ptc_index).unwrap_or(false)
-                    {
-                        aggregation_bits
-                            .set(ptc_index, true)
-                            .map_err(|_| OpPoolError::PayloadAttestationBitError)?;
-                        aggregate_sig.add_assign(&msg.signature);
-                    }
-                }
-            }
-
-            if aggregation_bits.num_set_bits() > 0 {
-                result.push(PayloadAttestation {
-                    aggregation_bits,
-                    data: data.clone(),
-                    signature: aggregate_sig,
-                });
-            }
-        }
+    ) -> Vec<PayloadAttestation<E>> {
+        let mut result: Vec<_> = self
+            .payload_attestations
+            .read()
+            .values()
+            .filter(|attestation| {
+                attestation.data.slot == target_slot
+                    && attestation.data.beacon_block_root == parent_block_root
+            })
+            .cloned()
+            .collect();
 
         // Prefer most participation and cap by `max_payload_attestations`
         result.sort_by(|a, b| {
@@ -276,23 +264,33 @@ impl<E: EthSpec> OperationPool<E> {
         });
         result.truncate(E::max_payload_attestations());
 
-        Ok(result)
+        result
     }
 
-    /// Remove payload attestation messages that are too old for block inclusion.
-    pub fn prune_payload_attestation_messages(&self, current_slot: Slot) {
-        self.payload_attestation_messages
+    /// Returns all known `PayloadAttestation` objects, optionally filtered by slot.
+    /// Unlike `get_payload_attestations` this applies no block-root filter and no cap
+    pub fn get_all_payload_attestations(
+        &self,
+        target_slot: Option<Slot>,
+    ) -> Vec<PayloadAttestation<E>> {
+        self.payload_attestations
+            .read()
+            .values()
+            .filter(|attestation| target_slot.is_none_or(|slot| attestation.data.slot == slot))
+            .cloned()
+            .collect()
+    }
+
+    /// Remove payload attestations that are too old for block inclusion.
+    pub fn prune_payload_attestations(&self, current_slot: Slot) {
+        self.payload_attestations
             .write()
             .retain(|data, _| current_slot <= data.slot.saturating_add(Slot::new(1)));
     }
 
-    /// Total number of payload attestation messages in the pool.
-    pub fn num_payload_attestation_messages(&self) -> usize {
-        self.payload_attestation_messages
-            .read()
-            .values()
-            .map(|msgs| msgs.len())
-            .sum()
+    /// Total number of payload attestations in the pool.
+    pub fn num_payload_attestations(&self) -> usize {
+        self.payload_attestations.read().len()
     }
 
     /// Insert an attestation into the pool, aggregating it with existing attestations if possible.
@@ -754,7 +752,7 @@ impl<E: EthSpec> OperationPool<E> {
     ) {
         self.prune_attestations(current_epoch);
         self.prune_sync_contributions(head_state.slot());
-        self.prune_payload_attestation_messages(head_state.slot());
+        self.prune_payload_attestations(head_state.slot());
         self.prune_proposer_slashings(finalized_state);
         self.prune_attester_slashings(finalized_state);
         self.prune_voluntary_exits(finalized_state, spec);
@@ -2302,54 +2300,210 @@ mod release_tests {
         }
     }
 
-    #[test]
-    fn payload_attestation_insert_and_dedup() {
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
-        let root = Hash256::repeat_byte(0xaa);
-        let slot = Slot::new(1);
+    /// Build a chain to slot 1 and return the head state's PTC for that slot.
+    async fn payload_attestation_test_harness() -> (
+        BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>>,
+        ChainSpec,
+    ) {
+        let spec = test_spec::<MinimalEthSpec>();
+        let num_validators = 64;
+        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
 
-        let msg1 = make_payload_attestation_message(slot, 0, root);
-        let msg2 = make_payload_attestation_message(slot, 1, root);
-        let msg1_dup = make_payload_attestation_message(slot, 0, root);
+        harness
+            .add_attested_blocks_at_slots(
+                harness.get_current_state(),
+                &[Slot::new(1)],
+                (0..num_validators).collect::<Vec<_>>().as_slice(),
+            )
+            .await;
 
-        op_pool.insert_payload_attestation_message(msg1).unwrap();
-        op_pool.insert_payload_attestation_message(msg2).unwrap();
-        op_pool
-            .insert_payload_attestation_message(msg1_dup)
-            .unwrap();
-
-        assert_eq!(op_pool.num_payload_attestation_messages(), 2);
+        (harness, spec)
     }
 
-    #[test]
-    fn payload_attestation_prune() {
+    /// Number of PTC seats held by `validator_index`.
+    fn ptc_seats<E: EthSpec>(ptc: &PTC<E>, validator_index: usize) -> usize {
+        ptc.0
+            .iter()
+            .filter(|&&index| index == validator_index)
+            .count()
+    }
+
+    #[tokio::test]
+    async fn payload_attestation_insert_and_dedup() {
+        let spec = test_spec::<MinimalEthSpec>();
+        if spec.gloas_fork_epoch.is_none() {
+            return;
+        };
+
+        let (harness, spec) = payload_attestation_test_harness().await;
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let target_slot = Slot::new(1);
+        let parent_root = head.head_block_root();
+        let ptc = state.get_ptc(target_slot, &spec).unwrap();
+
+        let distinct_members: Vec<usize> = ptc
+            .0
+            .iter()
+            .copied()
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        assert!(distinct_members.len() >= 2);
+        let member_0 = distinct_members[0];
+        let member_1 = distinct_members[1];
+
         let op_pool = OperationPool::<MinimalEthSpec>::new();
-        let root = Hash256::repeat_byte(0xaa);
 
-        let msg_slot1 = make_payload_attestation_message(Slot::new(1), 0, root);
-        let msg_slot2 = make_payload_attestation_message(Slot::new(2), 1, root);
-        let msg_slot3 = make_payload_attestation_message(Slot::new(3), 2, root);
+        let msg0 = make_payload_attestation_message(target_slot, member_0 as u64, parent_root);
+        let msg1 = make_payload_attestation_message(target_slot, member_1 as u64, parent_root);
+        let msg0_dup = make_payload_attestation_message(target_slot, member_0 as u64, parent_root);
 
-        op_pool
-            .insert_payload_attestation_message(msg_slot1)
-            .unwrap();
-        op_pool
-            .insert_payload_attestation_message(msg_slot2)
-            .unwrap();
-        op_pool
-            .insert_payload_attestation_message(msg_slot3)
-            .unwrap();
+        op_pool.insert_payload_attestation(&msg0, &ptc).unwrap();
+        op_pool.insert_payload_attestation(&msg1, &ptc).unwrap();
+        op_pool.insert_payload_attestation(&msg0_dup, &ptc).unwrap();
 
-        assert_eq!(op_pool.num_payload_attestation_messages(), 3);
+        assert_eq!(op_pool.num_payload_attestations(), 1);
 
-        op_pool.prune_payload_attestation_messages(Slot::new(3));
-        assert_eq!(op_pool.num_payload_attestation_messages(), 2);
+        let attestations = op_pool.get_payload_attestations(target_slot, parent_root);
+        assert_eq!(attestations.len(), 1);
+        assert_eq!(
+            attestations[0].aggregation_bits.num_set_bits(),
+            ptc_seats(&ptc, member_0) + ptc_seats(&ptc, member_1)
+        );
+    }
 
-        op_pool.prune_payload_attestation_messages(Slot::new(4));
-        assert_eq!(op_pool.num_payload_attestation_messages(), 1);
+    #[tokio::test]
+    async fn payload_attestation_non_ptc_member_is_ignored() {
+        let spec = test_spec::<MinimalEthSpec>();
+        if spec.gloas_fork_epoch.is_none() {
+            return;
+        };
 
-        op_pool.prune_payload_attestation_messages(Slot::new(5));
-        assert_eq!(op_pool.num_payload_attestation_messages(), 0);
+        let (harness, spec) = payload_attestation_test_harness().await;
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let target_slot = Slot::new(1);
+        let parent_root = head.head_block_root();
+        let ptc = state.get_ptc(target_slot, &spec).unwrap();
+
+        let members: HashSet<usize> = ptc.0.iter().copied().collect();
+        let outsider = (0..state.validators().len())
+            .find(|index| !members.contains(index))
+            .expect("should find a non-PTC validator") as u64;
+
+        let msg = make_payload_attestation_message(target_slot, outsider, parent_root);
+        let op_pool = OperationPool::<MinimalEthSpec>::new();
+        op_pool.insert_payload_attestation(&msg, &ptc).unwrap();
+
+        assert_eq!(op_pool.num_payload_attestations(), 0);
+        assert!(
+            op_pool
+                .get_payload_attestations(target_slot, parent_root)
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn payload_attestation_prune() {
+        let spec = test_spec::<MinimalEthSpec>();
+        if spec.gloas_fork_epoch.is_none() {
+            return;
+        };
+
+        let (harness, spec) = payload_attestation_test_harness().await;
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let parent_root = head.head_block_root();
+
+        let op_pool = OperationPool::<MinimalEthSpec>::new();
+        for slot in [Slot::new(1), Slot::new(2), Slot::new(3)] {
+            let ptc = state.get_ptc(slot, &spec).unwrap();
+            let msg = make_payload_attestation_message(slot, ptc.0[0] as u64, parent_root);
+            op_pool.insert_payload_attestation(&msg, &ptc).unwrap();
+        }
+
+        assert_eq!(op_pool.num_payload_attestations(), 3);
+
+        op_pool.prune_payload_attestations(Slot::new(3));
+        assert_eq!(op_pool.num_payload_attestations(), 2);
+
+        op_pool.prune_payload_attestations(Slot::new(4));
+        assert_eq!(op_pool.num_payload_attestations(), 1);
+
+        op_pool.prune_payload_attestations(Slot::new(5));
+        assert_eq!(op_pool.num_payload_attestations(), 0);
+    }
+
+    #[tokio::test]
+    async fn payload_attestation_get_all_filters_by_slot() {
+        let spec = test_spec::<MinimalEthSpec>();
+        if spec.gloas_fork_epoch.is_none() {
+            return;
+        };
+
+        let (harness, spec) = payload_attestation_test_harness().await;
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let target_slot = Slot::new(1);
+        let parent_root = head.head_block_root();
+        let other_root = Hash256::repeat_byte(0xbb);
+
+        let op_pool = OperationPool::<MinimalEthSpec>::new();
+
+        // Slot 1: two block roots voting every boolean combo, for eight distinct data.
+        let ptc = state.get_ptc(target_slot, &spec).unwrap();
+        for root in [parent_root, other_root] {
+            for (payload_present, blob_data_available) in
+                [(true, true), (true, false), (false, true), (false, false)]
+            {
+                let msg = make_payload_attestation_message_with_flags(
+                    target_slot,
+                    ptc.0[0] as u64,
+                    root,
+                    payload_present,
+                    blob_data_available,
+                );
+                op_pool.insert_payload_attestation(&msg, &ptc).unwrap();
+            }
+        }
+
+        for slot in [Slot::new(2), Slot::new(3)] {
+            let ptc = state.get_ptc(slot, &spec).unwrap();
+            let msg = make_payload_attestation_message(slot, ptc.0[0] as u64, parent_root);
+            op_pool.insert_payload_attestation(&msg, &ptc).unwrap();
+        }
+
+        let all = op_pool.get_all_payload_attestations(None);
+        assert_eq!(all.len(), 10);
+        assert_eq!(all.len(), op_pool.num_payload_attestations());
+
+        let at_target = op_pool.get_all_payload_attestations(Some(target_slot));
+        assert_eq!(at_target.len(), 8);
+        assert!(at_target.len() > MinimalEthSpec::max_payload_attestations());
+        assert!(
+            at_target
+                .iter()
+                .any(|att| att.data.beacon_block_root == other_root)
+        );
+
+        let at_slot_2 = op_pool.get_all_payload_attestations(Some(Slot::new(2)));
+        assert_eq!(at_slot_2.len(), 1);
+        assert_eq!(at_slot_2[0].data.slot, Slot::new(2));
+
+        assert!(
+            op_pool
+                .get_all_payload_attestations(Some(Slot::new(9)))
+                .is_empty()
+        );
+
+        // Block production keeps the root filter.
+        assert_eq!(
+            op_pool
+                .get_payload_attestations(target_slot, parent_root)
+                .len(),
+            4
+        );
     }
 
     #[tokio::test]
@@ -2384,23 +2538,10 @@ mod release_tests {
 
         let msg0 = make_payload_attestation_message(target_slot, ptc_member_0, parent_root);
         let msg1 = make_payload_attestation_message(target_slot, ptc_member_1, parent_root);
-        op_pool.insert_payload_attestation_message(msg0).unwrap();
-        op_pool.insert_payload_attestation_message(msg1).unwrap();
+        op_pool.insert_payload_attestation(&msg0, &ptc).unwrap();
+        op_pool.insert_payload_attestation(&msg1, &ptc).unwrap();
 
-        // Advance state to slot 2 so get_payload_attestations looks at slot 1.
-        let mut advanced_state = state.clone();
-        state_processing::state_advance::complete_state_advance(
-            &mut advanced_state,
-            None,
-            Slot::new(2),
-            None,
-            &spec,
-        )
-        .unwrap();
-
-        let attestations = op_pool
-            .get_payload_attestations(&advanced_state, parent_root, &spec)
-            .unwrap();
+        let attestations = op_pool.get_payload_attestations(target_slot, parent_root);
 
         let expected_positions: Vec<usize> = ptc
             .0
@@ -2463,7 +2604,7 @@ mod release_tests {
                 blob_data_available: true,
             };
             let msg = harness.make_payload_attestation_message(validator_index, data, &fork);
-            op_pool.insert_payload_attestation_message(msg).unwrap();
+            op_pool.insert_payload_attestation(&msg, &ptc).unwrap();
         }
 
         let mut advanced_state = state.clone();
@@ -2475,9 +2616,7 @@ mod release_tests {
             &spec,
         )
         .unwrap();
-        let attestations = op_pool
-            .get_payload_attestations(&advanced_state, parent_root, &spec)
-            .unwrap();
+        let attestations = op_pool.get_payload_attestations(target_slot, parent_root);
 
         assert_eq!(attestations.len(), 1);
         assert_eq!(
@@ -2543,23 +2682,12 @@ mod release_tests {
                     *payload_present,
                     *blob_available,
                 );
-                op_pool.insert_payload_attestation_message(msg).unwrap();
+                op_pool.insert_payload_attestation(&msg, &ptc).unwrap();
             }
         }
 
         // When: we pack attestations for block production at slot 2.
-        let mut advanced_state = state.clone();
-        state_processing::state_advance::complete_state_advance(
-            &mut advanced_state,
-            None,
-            Slot::new(2),
-            None,
-            &spec,
-        )
-        .unwrap();
-        let attestations = op_pool
-            .get_payload_attestations(&advanced_state, parent_root, &spec)
-            .unwrap();
+        let attestations = op_pool.get_payload_attestations(target_slot, parent_root);
 
         // Then: one attestation per combo, sorted by participation (most first).
         assert_eq!(attestations.len(), 4);

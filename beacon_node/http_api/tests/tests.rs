@@ -3153,6 +3153,32 @@ impl ApiTester {
         self
     }
 
+    /// Aggregation bits pooled for exactly `data`. Bits rather than a pool count, because
+    /// aggregation on insert means a second attester voting the same `data` sets a bit in the
+    /// existing aggregate instead of adding a new one.
+    fn pooled_payload_attestation_bits(&self, data: &PayloadAttestationData) -> usize {
+        self.chain
+            .op_pool
+            .get_payload_attestations(data.slot, data.beacon_block_root)
+            .iter()
+            .filter(|attestation| &attestation.data == data)
+            .map(|attestation| attestation.aggregation_bits.num_set_bits())
+            .sum()
+    }
+
+    /// Number of PTC positions held by `validator_index`, which is how many bits its message sets.
+    fn ptc_seats(&self, slot: Slot, validator_index: u64) -> usize {
+        self.chain
+            .head_snapshot()
+            .beacon_state
+            .get_ptc(slot, &self.chain.spec)
+            .expect("should get PTC")
+            .0
+            .iter()
+            .filter(|index| **index as u64 == validator_index)
+            .count()
+    }
+
     fn make_valid_payload_attestation_message(
         &self,
         ptc_offset: usize,
@@ -3212,7 +3238,139 @@ impl ApiTester {
         let message = self.make_valid_payload_attestation_message(0);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
-        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
+        let bits_before = self.pooled_payload_attestation_bits(&message.data);
+        let expected_bits = self.ptc_seats(message.data.slot, message.validator_index);
+
+        self.client
+            .post_beacon_pool_payload_attestations(&[message.clone()], fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation should be sent to network"
+        );
+
+        assert_eq!(
+            self.pooled_payload_attestation_bits(&message.data),
+            bits_before + expected_bits,
+            "payload attestation should be added to op pool"
+        );
+
+        self
+    }
+
+    pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
+        let message = self.make_valid_payload_attestation_message(1);
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
+
+        let bits_before = self.pooled_payload_attestation_bits(&message.data);
+        let expected_bits = self.ptc_seats(message.data.slot, message.validator_index);
+
+        self.client
+            .post_beacon_pool_payload_attestations_ssz(&[message.clone()], fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation (SSZ) should be sent to network"
+        );
+
+        assert_eq!(
+            self.pooled_payload_attestation_bits(&message.data),
+            bits_before + expected_bits,
+            "payload attestation should be added to op pool"
+        );
+
+        self
+    }
+
+    pub async fn test_get_beacon_pool_payload_attestations(mut self) -> Self {
+        let pool_count_before = self.chain.op_pool.num_payload_attestations();
+
+        let first = self.make_valid_payload_attestation_message(0);
+        let first_slot = first.data.slot;
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(first_slot);
+
+        self.client
+            .post_beacon_pool_payload_attestations(&[first.clone()], fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation should be sent to network"
+        );
+
+        self.harness.extend_slots(1).await;
+
+        let first_only = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(first_slot))
+            .await
+            .unwrap();
+
+        assert_eq!(first_only.version(), Some(ForkName::Gloas));
+        assert_eq!(first_only.data().len(), 1);
+        assert_eq!(first_only.data()[0].data, first.data);
+
+        let second = self.make_valid_payload_attestation_message(0);
+        let second_slot = second.data.slot;
+        assert!(second_slot > first_slot);
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(second_slot);
+
+        self.client
+            .post_beacon_pool_payload_attestations(&[second.clone()], fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation should be sent to network"
+        );
+
+        self.harness.extend_slots(1).await;
+
+        // An omitted slot returns every slot held, not just the current one.
+        let all = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(None)
+            .await
+            .unwrap();
+
+        assert_eq!(all.version(), Some(ForkName::Gloas));
+        assert_eq!(all.data().len(), pool_count_before + 2);
+        assert!(all.data().iter().any(|a| a.data == first.data));
+        assert!(all.data().iter().any(|a| a.data == second.data));
+
+        // An explicit slot excludes the others.
+        let second_only = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(second_slot))
+            .await
+            .unwrap();
+
+        assert_eq!(second_only.data().len(), 1);
+        assert_eq!(second_only.data()[0].data, second.data);
+
+        // A slot with nothing in the pool is an empty list, not an error.
+        let empty = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(second_slot + 1))
+            .await
+            .unwrap();
+
+        assert_eq!(empty.version(), Some(ForkName::Gloas));
+        assert!(empty.data().is_empty());
+
+        self
+    }
+
+    pub async fn test_get_beacon_pool_payload_attestations_ssz(mut self) -> Self {
+        let message = self.make_valid_payload_attestation_message(0);
+        let slot = message.data.slot;
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
 
         self.client
             .post_beacon_pool_payload_attestations(&[message], fork_name)
@@ -3224,36 +3382,90 @@ impl ApiTester {
             "valid payload attestation should be sent to network"
         );
 
-        assert_eq!(
-            self.chain.op_pool.num_payload_attestation_messages(),
-            pool_count_before + 1,
-            "payload attestation should be added to op pool"
-        );
+        let json = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(slot))
+            .await
+            .unwrap();
+
+        let bytes = self
+            .client
+            .get_beacon_pool_payload_attestations_ssz(Some(slot))
+            .await
+            .unwrap()
+            .expect("SSZ response should be present");
+
+        let ssz = Vec::<PayloadAttestation<E>>::from_ssz_bytes(&bytes).unwrap();
+
+        assert!(!ssz.is_empty());
+        assert_eq!(&ssz, json.data());
 
         self
     }
 
-    pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
-        let message = self.make_valid_payload_attestation_message(1);
-        let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
+    pub async fn test_get_beacon_pool_payload_attestations_invalid_slot(self) -> Self {
+        // The typed client takes an `Option<Slot>`, so a malformed slot can only be sent raw.
+        let url = self
+            .client
+            .server()
+            .expose_full()
+            .join("/eth/v1/beacon/pool/payload_attestations?slot=abc")
+            .unwrap();
 
-        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
+        let response = reqwest::Client::new().get(url).send().await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        self
+    }
+
+    pub async fn test_get_beacon_pool_payload_attestations_after_reorg(mut self) -> Self {
+        let message = self.make_valid_payload_attestation_message(0);
+        let slot = message.data.slot;
+        let block_root = message.data.beacon_block_root;
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
 
         self.client
-            .post_beacon_pool_payload_attestations_ssz(&[message], fork_name)
+            .post_beacon_pool_payload_attestations(&[message.clone()], fork_name)
             .await
             .unwrap();
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
-            "valid payload attestation (SSZ) should be sent to network"
+            "valid payload attestation should be sent to network"
         );
 
-        assert_eq!(
-            self.chain.op_pool.num_payload_attestation_messages(),
-            pool_count_before + 1,
-            "payload attestation should be added to op pool"
+        // Re-org the attested block out of the canonical chain by building a competing branch
+        // from its parent, which every validator then attests to.
+        self.harness
+            .extend_chain(
+                2,
+                BlockStrategy::ForkCanonicalChainAt {
+                    previous_slot: slot - 1,
+                    first_slot: slot + 1,
+                },
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+
+        assert_ne!(
+            self.chain
+                .block_root_at_slot(slot, WhenSlotSkipped::None)
+                .unwrap(),
+            Some(block_root),
+            "precondition: attested block should be re-orged out"
         );
+
+        // The aggregate is still served, even though its block is no longer canonical.
+        let result = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(slot))
+            .await
+            .unwrap();
+
+        assert_eq!(result.version(), Some(ForkName::Gloas));
+        assert_eq!(result.data().len(), 1);
+        assert_eq!(result.data()[0].data, message.data);
 
         self
     }
@@ -10463,6 +10675,50 @@ async fn post_beacon_pool_payload_attestations_valid_ssz() {
     ApiTester::new_with_hard_forks()
         .await
         .test_post_beacon_pool_payload_attestations_valid_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_pool_payload_attestations() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_pool_payload_attestations()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_pool_payload_attestations_ssz() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_pool_payload_attestations_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_pool_payload_attestations_invalid_slot() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_pool_payload_attestations_invalid_slot()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_pool_payload_attestations_after_reorg() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_pool_payload_attestations_after_reorg()
         .await;
 }
 

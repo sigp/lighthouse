@@ -4,8 +4,8 @@ use crate::utils::{
     ResponseFilter, TaskSpawnerFilter,
 };
 use crate::version::{
-    ResponseIncludesVersion, V1, V2, add_consensus_version_header, beacon_response,
-    unsupported_version_rejection,
+    ResponseIncludesVersion, V1, V2, add_consensus_version_header, add_ssz_content_type_header,
+    beacon_response, unsupported_version_rejection,
 };
 use crate::{sync_committees, utils};
 use beacon_chain::observed_operations::ObservationOutcome;
@@ -14,7 +14,10 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use context_deserialize::ContextDeserialize;
 use eth2::CONSENSUS_VERSION_HEADER;
-use eth2::types::{AttestationPoolQuery, EndpointVersion, Failure, GenericResponse};
+use eth2::types::{
+    Accept, AttestationPoolQuery, EndpointVersion, Failure, GenericResponse,
+    PayloadAttestationPoolQuery,
+};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use operation_pool::ReceivedPreCapella;
@@ -30,6 +33,7 @@ use types::{
     SyncCommitteeMessage,
 };
 use warp::filters::BoxedFilter;
+use warp::http::response::Builder;
 use warp::{Filter, Reply};
 use warp_utils::reject::convert_rejection;
 
@@ -557,6 +561,54 @@ pub fn post_beacon_pool_attestations_v2<T: BeaconChainTypes>(
                 .await
                 .map(|()| warp::reply::json(&()));
                 convert_rejection(result).await
+            },
+        )
+        .boxed()
+}
+
+/// GET beacon/pool/payload_attestations?slot
+pub fn get_beacon_pool_payload_attestations<T: BeaconChainTypes>(
+    beacon_pool_path: &BeaconPoolPathFilter<T>,
+) -> ResponseFilter {
+    beacon_pool_path
+        .clone()
+        .and(warp::path("payload_attestations"))
+        .and(warp::path::end())
+        .and(warp::query::<PayloadAttestationPoolQuery>())
+        .and(warp::header::optional::<Accept>("accept"))
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             query: PayloadAttestationPoolQuery,
+             accept_header: Option<Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let fork_name = ForkName::Gloas;
+                    let attestations = chain.op_pool.get_all_payload_attestations(query.slot);
+
+                    match accept_header {
+                        Some(Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(attestations.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map(|res| add_consensus_version_header(res, fork_name))
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => {
+                            let res = beacon_response(
+                                ResponseIncludesVersion::Yes(fork_name),
+                                &attestations,
+                            );
+                            Ok(add_consensus_version_header(
+                                warp::reply::json(&res).into_response(),
+                                fork_name,
+                            ))
+                        }
+                    }
+                })
             },
         )
         .boxed()
