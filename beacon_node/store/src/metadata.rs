@@ -19,6 +19,7 @@ pub const ANCHOR_INFO_KEY: Hash256 = Hash256::repeat_byte(5);
 pub const BLOB_INFO_KEY: Hash256 = Hash256::repeat_byte(6);
 pub const DATA_COLUMN_INFO_KEY: Hash256 = Hash256::repeat_byte(7);
 pub const DATA_COLUMN_CUSTODY_INFO_KEY: Hash256 = Hash256::repeat_byte(8);
+pub const LC_EPOCH_BACKFILL_PROGRESS_KEY: Hash256 = Hash256::repeat_byte(9);
 
 /// State upper limit value used to indicate that a node is not storing historic states.
 pub const STATE_UPPER_LIMIT_NO_RETAIN: Slot = Slot::new(u64::MAX);
@@ -253,5 +254,20 @@ impl StoreItem for DataColumnInfo {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LightClientEpochBackfillProgress(pub u64);
+
+impl StoreItem for LightClientEpochBackfillProgress {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconMeta
+    }
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.0.to_be_bytes().to_vec()
+    }
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(LightClientEpochBackfillProgress(u64::from_ssz_bytes(bytes)?))
     }
 }
