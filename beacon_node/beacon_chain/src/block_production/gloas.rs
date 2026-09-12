@@ -31,12 +31,12 @@ use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationGloas, AttesterSlashing, AttesterSlashingGloas, BeaconBlock,
     BeaconBlockBodyGloas, BeaconBlockGloas, BeaconState, BeaconStateError, BlobsList, BuilderIndex,
-    Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBid, ExecutionPayloadEnvelope,
-    ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, IndexedAttestation, KzgProofs,
-    PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal,
-    Withdrawals,
+    Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas,
+    ExecutionPayloadEnvelope, ExecutionRequestsGloas, FullPayload, Graffiti, Hash256,
+    IndexedAttestation, KzgProofs, PayloadAttestation, ProposerSlashing, RelativeEpoch,
+    SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
 
 use builder_client::BidRequestContext;
@@ -252,9 +252,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Distinct from the beacon-chain parent (`parent_root`); on the wire this becomes the
         // bid's `parent_block_hash` and the builder request's `parent_hash` path parameter.
         let executed_ancestor_hash = if should_build_on_full || parent_is_pre_gloas {
-            parent_bid.block_hash
+            parent_bid.block_hash()
         } else {
-            parent_bid.parent_block_hash
+            parent_bid.parent_block_hash()
         };
 
         // The per-proposal context addressing each `getExecutionPayloadBid`.
@@ -450,7 +450,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // building on the parent's payload) so that attestation packing scores head votes like
             // block processing does.
             if should_build_on_full {
-                let parent_slot = state.latest_execution_payload_bid()?.slot;
+                let parent_slot = state.latest_execution_payload_bid()?.slot();
                 let availability_index =
                     parent_slot.as_usize() % T::EthSpec::slots_per_historical_root();
                 state
@@ -706,6 +706,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bls_to_execution_changes,
         } = partial_beacon_block;
 
+        let SignedExecutionPayloadBid::Gloas(signed_execution_payload_bid) =
+            signed_execution_payload_bid
+        else {
+            return Err(BlockProductionError::InvalidBlockVariant(
+                "Cannot construct a Gloas block with a non-Gloas execution payload bid".to_string(),
+            ));
+        };
+
         let beacon_block = match &state {
             BeaconState::Base(_)
             | BeaconState::Altair(_)
@@ -953,7 +961,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO(gloas) since we are defaulting to local building, execution payment is 0
         // execution payment should only be set to > 0 for trusted building.
-        let bid = ExecutionPayloadBid::<T::EthSpec> {
+        let bid = ExecutionPayloadBidGloas::<T::EthSpec> {
             parent_block_hash: executed_ancestor_hash,
             parent_block_root: parent_root,
             block_hash: payload.block_hash,
@@ -979,10 +987,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         Ok((
-            SignedExecutionPayloadBid {
+            SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
                 message: bid,
                 signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
-            },
+            }),
             LocalBuildResult {
                 payload_data,
                 payload_value,
@@ -1048,7 +1056,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // eligibility or coverage can go stale before production. Re-check against the production
             // state and drop it if it would now fail `per_block_processing`, so a stale gossip bid
             // can't outrank a viable candidate and sink the whole proposal.
-            match verify_bid_state_conditions(&gossip_bid.message, state, &self.spec) {
+            match verify_bid_state_conditions(gossip_bid.message(), state, &self.spec) {
                 Ok(_) => {
                     externals.push(BidCandidate::gossip(
                         gossip_bid,
@@ -1068,7 +1076,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The parent's exit requests apply to the state before this block's bid is processed, so a
         // bid from a builder the parent payload exits fails `process_execution_payload_bid`.
         externals.retain(|candidate| {
-            let builder_index = candidate.signed_bid.message.builder_index;
+            let builder_index = candidate.signed_bid.message().builder_index();
             let exit_requested = state
                 .get_builder(builder_index)
                 .is_ok_and(|builder| builder_exit_requested(builder, parent_execution_requests));
@@ -1220,7 +1228,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     let random = *state.get_randao_mix(current_epoch)?;
 
     let parent_bid = state.latest_execution_payload_bid()?;
-    let is_parent_block_full = parent_block_hash == parent_bid.block_hash;
+    let is_parent_block_full = parent_block_hash == parent_bid.block_hash();
 
     let withdrawals = if is_parent_block_full {
         if let Some(envelope) = parent_envelope {

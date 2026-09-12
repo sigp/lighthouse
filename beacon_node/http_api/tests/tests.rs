@@ -51,9 +51,10 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
 use types::{
-    Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBid, Hash256,
+    Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas, Hash256,
     MainnetEthSpec, ProposerPreferences, RelativeEpoch, SelectionProof, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, SingleAttestation, Slot,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedRoot, SingleAttestation, Slot,
     attestation::AttestationBase,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
 };
@@ -3428,7 +3429,7 @@ impl ApiTester {
         let slot = self.chain.slot().unwrap();
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
 
-        let bid = ExecutionPayloadBid {
+        let bid = ExecutionPayloadBidGloas {
             parent_block_hash: ExecutionBlockHash::zero(),
             parent_block_root: head.head_block_root(),
             block_hash: ExecutionBlockHash::zero(),
@@ -3444,10 +3445,10 @@ impl ApiTester {
             _phantom: std::marker::PhantomData,
         };
 
-        let signed = SignedExecutionPayloadBid {
+        let signed = SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
             message: bid,
             signature: bls::Signature::empty(),
-        };
+        });
 
         (signed, fork_name)
     }

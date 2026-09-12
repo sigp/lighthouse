@@ -139,7 +139,7 @@ async fn gloas_block_production_parent_root_with_unadvanced_state() {
         let parent_slot = parent_state.slot();
         let slot = parent_slot + 1;
         let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
-        assert_ne!(parent_bid.block_hash, parent_bid.parent_block_hash);
+        assert_ne!(parent_bid.block_hash(), parent_bid.parent_block_hash());
 
         // The head's full branch has attestation weight, but negative PTC votes should make the
         // next proposer build on empty. Looking up the grandparent (as the buggy code did) instead
@@ -212,13 +212,13 @@ async fn gloas_block_production_parent_root_with_unadvanced_state() {
                 .body()
                 .signed_execution_payload_bid()
                 .unwrap()
-                .message
-                .parent_block_hash,
-            parent_bid.parent_block_hash,
+                .message()
+                .parent_block_hash(),
+            parent_bid.parent_block_hash(),
         );
         let (envelope, _, _) = payload_contents.unwrap();
         assert_eq!(envelope.parent_beacon_block_root, parent_root);
-        assert_eq!(envelope.payload.parent_hash, parent_bid.parent_block_hash);
+        assert_eq!(envelope.payload.parent_hash, parent_bid.parent_block_hash());
     }
 }
 
@@ -540,8 +540,8 @@ async fn prepare_payload_generic(
         .body()
         .signed_execution_payload_bid()
         .unwrap()
-        .message
-        .parent_block_hash;
+        .message()
+        .parent_block_hash();
     assert_eq!(
         produced_execution_parent_hash, expected_execution_parent_hash,
         "block production should independently select the {parent_payload_status:?} parent"

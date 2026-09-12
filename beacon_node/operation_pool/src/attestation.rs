@@ -84,7 +84,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
         let parent_slot = state
             .latest_execution_payload_bid()
             .ok()
-            .map(|bid| bid.slot);
+            .map(|bid| bid.slot());
 
         let att_participation_flags = get_attestation_participation_flag_indices(
             state,
