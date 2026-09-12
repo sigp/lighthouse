@@ -2384,7 +2384,7 @@ impl ApiTester {
             .try_prune_blobs(force_prune, split_epoch)
             .unwrap();
 
-        let oldest_blob_slot = store.get_blob_info().oldest_blob_slot.unwrap();
+        let oldest_blob_slot = store.get_data_info().oldest_data_slot;
 
         assert_ne!(
             oldest_blob_slot, 0,
@@ -2430,7 +2430,7 @@ impl ApiTester {
     }
 
     pub async fn test_get_blob_sidecars_pre_deneb(self) -> Self {
-        let oldest_blob_slot = self.chain.store.get_blob_info().oldest_blob_slot.unwrap();
+        let oldest_blob_slot = self.chain.store.get_data_info().oldest_data_slot;
         assert_ne!(
             oldest_blob_slot, 0,
             "oldest_blob_slot should be non-zero and post-Deneb"

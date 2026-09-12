@@ -13,7 +13,7 @@ use store::{
     DBColumn, HotColdDB, StoreConfig, StoreItem,
     database::interface::BeaconNodeBackend,
     hot_cold_store::Split,
-    metadata::{DataColumnCustodyInfo, DataColumnInfo},
+    metadata::{BlobInfo, DataColumnCustodyInfo, DataColumnInfo},
 };
 use strum::IntoEnumIterator;
 use tempfile::{TempDir, tempdir};
@@ -126,16 +126,25 @@ fn insert_data_column_custody_info(store: &Store<E>, spec: &ChainSpec) {
 fn check_metadata_sizes(store: &Store<E>) {
     assert_eq!(Split::default().ssz_bytes_len(), 40);
     assert_eq!(store.get_anchor_info().ssz_bytes_len(), 64);
+    assert_eq!(store.get_data_info().ssz_bytes_len(), 8);
+    assert_eq!(DataColumnCustodyInfo::default().ssz_bytes_len(), 5);
     assert_eq!(
-        store.get_blob_info().ssz_bytes_len(),
-        if store.get_chain_spec().deneb_fork_epoch.is_some() {
-            14
-        } else {
-            6
+        BlobInfo {
+            oldest_blob_slot: Some(Slot::new(0)),
+            blobs_db: true,
         }
+        .ssz_bytes_len(),
+        14
+    );
+    assert_eq!(BlobInfo::default().ssz_bytes_len(), 6);
+    assert_eq!(
+        DataColumnInfo {
+            oldest_data_column_slot: Some(Slot::new(0)),
+        }
+        .ssz_bytes_len(),
+        13
     );
     assert_eq!(DataColumnInfo::default().ssz_bytes_len(), 5);
-    assert_eq!(DataColumnCustodyInfo::default().ssz_bytes_len(), 5);
 }
 
 fn check_op_pool(store: &Store<E>) {

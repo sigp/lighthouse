@@ -1622,21 +1622,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
             };
 
-        let oldest_blob_slot = self
-            .chain
-            .store
-            .get_blob_info()
-            .oldest_blob_slot
-            .unwrap_or(data_availability_boundary_slot);
-        if request_start_slot < oldest_blob_slot {
+        let oldest_data_slot = self.chain.store.get_data_info().oldest_data_slot;
+        if request_start_slot < oldest_data_slot {
             debug!(
                 %request_start_slot,
-                %oldest_blob_slot,
+                %oldest_data_slot,
                 %data_availability_boundary_slot,
                 "Range request start slot is older than data availability boundary."
             );
 
-            return if data_availability_boundary_slot < oldest_blob_slot {
+            return if data_availability_boundary_slot < oldest_data_slot {
                 Err((
                     RpcErrorResponse::ResourceUnavailable,
                     "blobs pruned within boundary",
