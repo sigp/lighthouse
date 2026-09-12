@@ -3716,6 +3716,24 @@ impl BeaconNodeHttpClient {
             .transpose()
     }
 
+    /// `GET validator/inclusion_list?slot`
+    pub async fn get_validator_inclusion_list(
+        &self,
+        slot: Slot,
+    ) -> Result<GenericResponse<InclusionListTransactions>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("inclusion_list");
+
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string());
+
+        self.get(path).await
+    }
+
     /// `GET v1/validator/aggregate_attestation?slot,attestation_data_root`
     pub async fn get_validator_aggregate_attestation_v1<E: EthSpec>(
         &self,

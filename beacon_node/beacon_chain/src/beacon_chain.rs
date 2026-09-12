@@ -37,6 +37,9 @@ use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_e
 use crate::execution_proof_verification::{GossipVerifiedExecutionProof, ObservedExecutionProofs};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
+use crate::inclusion_list_verification::{
+    verify_inclusion_list_transactions_bounds, verify_no_blob_transactions,
+};
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -2248,6 +2251,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_present,
             blob_data_available,
         })
+    }
+
+    /// Produce the inclusion list transactions for `request_slot`.
+    ///
+    /// The transactions are requested from the execution layer via `getInclusionListV1`.
+    /// An empty list is a valid answer (nothing to include) and is returned as such, while a
+    /// list that violates the rules the engine API places on it (size bounds, no blob
+    /// transactions) is an execution layer fault and is rejected
+    pub async fn produce_inclusion_list(
+        &self,
+        request_slot: Slot,
+    ) -> Result<ProgressiveTransactions, Error> {
+        // Inclusion lists are only produced for the current slot.
+        let current_slot = self.slot()?;
+        if request_slot != current_slot {
+            return Err(Error::InvalidSlot(request_slot));
+        }
+        let _timer = metrics::start_timer(&metrics::INCLUSION_LIST_PRODUCTION_SECONDS);
+
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?;
+
+        let inclusion_list_transactions = execution_layer
+            .get_inclusion_list_v1()
+            .await
+            .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))?;
+
+        verify_inclusion_list_transactions_bounds(&inclusion_list_transactions, &self.spec)
+            .and_then(|()| verify_no_blob_transactions(&inclusion_list_transactions))
+            .inspect_err(|e| {
+                warn!(
+                    error = ?e,
+                    %request_slot,
+                    "Execution layer returned an invalid inclusion list"
+                )
+            })
+            .map_err(Error::InvalidInclusionListFromExecutionLayer)?;
+
+        Ok(inclusion_list_transactions)
     }
 
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for

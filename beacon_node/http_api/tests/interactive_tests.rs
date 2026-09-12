@@ -10,11 +10,15 @@ use beacon_chain::{
 use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
-use execution_layer::{ForkchoiceState, PayloadAttributes};
+use execution_layer::{ForkchoiceState, PayloadAttributes, test_utils::static_valid_tx};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
+use lighthouse_network::types::SyncState;
 use parking_lot::Mutex;
+use reqwest::StatusCode;
+use serde_json::json;
 use slot_clock::SlotClock;
+use ssz_types::ProgressiveVariableList;
 use state_processing::{
     per_block_processing::get_expected_withdrawals, state_advance::complete_state_advance,
 };
@@ -23,7 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Address, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, MainnetEthSpec,
-    MinimalEthSpec, ProposerPreparationData, Slot,
+    MinimalEthSpec, ProgressiveTransactions, ProposerPreparationData, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -1401,4 +1405,226 @@ async fn lighthouse_custody_info() {
         info.custody_columns.len(),
         info.custody_group_count as usize
     );
+}
+
+fn set_mock_inclusion_list(tester: &InteractiveTester<E>, transactions: ProgressiveTransactions) {
+    tester
+        .harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .execution_block_generator()
+        .set_inclusion_list(transactions);
+}
+
+// Test that the validator inclusion list endpoint returns the transactions provided by the EL for
+// the current slot.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    let transactions = ProgressiveTransactions::new(vec![ProgressiveVariableList::new(
+        static_valid_tx::<E>().unwrap().to_vec(),
+    )]);
+    set_mock_inclusion_list(&tester, transactions.clone());
+
+    let slot = tester.harness.chain.slot().unwrap();
+    let response = tester
+        .client
+        .get_validator_inclusion_list(slot)
+        .await
+        .unwrap();
+    assert_eq!(response.data.transactions, transactions);
+}
+
+// Test that an empty inclusion list from the EL is returned as such.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_empty() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    set_mock_inclusion_list(&tester, ProgressiveTransactions::empty());
+
+    let slot = tester.harness.chain.slot().unwrap();
+    let response = tester
+        .client
+        .get_validator_inclusion_list(slot)
+        .await
+        .unwrap();
+    assert!(response.data.transactions.is_empty());
+}
+
+// Test that the validator inclusion list endpoint rejects requests for non-current slots.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_invalid_slot() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    // Advance to the first slot after genesis, so we can check the slot 0 of the fork
+    tester.harness.advance_slot();
+
+    let current_slot = tester.harness.chain.slot().unwrap();
+    for slot in [current_slot - 1, current_slot + 1] {
+        match tester.client.get_validator_inclusion_list(slot).await {
+            Ok(response) => panic!("query for slot {slot} should fail, got: {response:?}"),
+            Err(e) => assert_eq!(e.status(), Some(StatusCode::BAD_REQUEST)),
+        }
+    }
+}
+
+// Test that an inclusion list with a size over the spec's byte limit is reported as a server error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_oversized() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    let max = tester
+        .harness
+        .chain
+        .spec
+        .max_transactions_bytes_per_inclusion_list as usize;
+    set_mock_inclusion_list(
+        &tester,
+        ProgressiveTransactions::new(vec![ProgressiveVariableList::new(vec![0xaa; max + 1])]),
+    );
+
+    let slot = tester.harness.chain.slot().unwrap();
+    match tester.client.get_validator_inclusion_list(slot).await {
+        Ok(response) => panic!("oversized inclusion list should fail, got: {response:?}"),
+        Err(e) => assert_eq!(e.status(), Some(StatusCode::INTERNAL_SERVER_ERROR)),
+    }
+}
+
+// Test that an inclusion list containing an empty transaction triggers a server error.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_empty_transaction() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    set_mock_inclusion_list(
+        &tester,
+        ProgressiveTransactions::new(vec![ProgressiveVariableList::empty()]),
+    );
+
+    let slot = tester.harness.chain.slot().unwrap();
+    match tester.client.get_validator_inclusion_list(slot).await {
+        Ok(response) => panic!("empty transaction should fail, got: {response:?}"),
+        Err(e) => assert_eq!(e.status(), Some(StatusCode::INTERNAL_SERVER_ERROR)),
+    }
+}
+
+// Test that the validator inclusion list endpoint rejects a list containing a blob transaction
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_blob_transaction() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    // An EIP-4844 transaction is identified by its EIP-2718 type byte(`0x03`)
+    set_mock_inclusion_list(
+        &tester,
+        ProgressiveTransactions::new(vec![
+            ProgressiveVariableList::new(static_valid_tx::<E>().unwrap().to_vec()),
+            ProgressiveVariableList::new(vec![0x03, 0xaa]),
+        ]),
+    );
+
+    let slot = tester.harness.chain.slot().unwrap();
+    match tester.client.get_validator_inclusion_list(slot).await {
+        Ok(response) => panic!("blob transaction should fail, got: {response:?}"),
+        Err(e) => assert_eq!(e.status(), Some(StatusCode::INTERNAL_SERVER_ERROR)),
+    }
+}
+
+// Test that the validator inclusion list endpoint returns a server error when the EL call fails.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_el_failure() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    tester
+        .harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .push_preloaded_response(json!({
+            "id": 1,
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32000,
+                "message": "inclusion list unavailable"
+            }
+        }));
+
+    let slot = tester.harness.chain.slot().unwrap();
+    match tester.client.get_validator_inclusion_list(slot).await {
+        Ok(response) => panic!("query should fail when the EL errors, got: {response:?}"),
+        Err(e) => assert_eq!(e.status(), Some(StatusCode::INTERNAL_SERVER_ERROR)),
+    }
+}
+
+// Test that the validator inclusion list endpoint is unavailable while the node is syncing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_while_syncing() {
+    let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest);
+    if !fork_name.heze_enabled() {
+        return;
+    }
+    let spec = fork_name.make_genesis_spec(E::default_spec());
+    let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
+
+    // Simulate a long-range sync with the head beyond the sync tolerance.
+    let network_globals = tester.ctx.network_globals.as_ref().unwrap();
+    *network_globals.sync_state.write() = SyncState::SyncingFinalized {
+        start_slot: Slot::new(0),
+        target_slot: Slot::new(u64::MAX),
+    };
+    let head_slot = tester
+        .harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .head_slot();
+    let tolerance = tester.harness.chain.config.sync_tolerance_epochs * E::slots_per_epoch();
+    tester
+        .harness
+        .chain
+        .slot_clock
+        .set_slot(head_slot.as_u64() + tolerance + 1);
+
+    let slot = tester.harness.chain.slot().unwrap();
+    match tester.client.get_validator_inclusion_list(slot).await {
+        Ok(response) => panic!("query should fail while syncing, got: {response:?}"),
+        Err(e) => assert_eq!(e.status(), Some(StatusCode::SERVICE_UNAVAILABLE)),
+    }
 }

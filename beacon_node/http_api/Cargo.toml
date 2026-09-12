@@ -59,6 +59,7 @@ warp_utils = { workspace = true }
 fork_choice = { workspace = true }
 genesis = { workspace = true }
 proto_array = { workspace = true }
+ssz_types = { workspace = true }
 
 [[test]]
 name = "bn_http_api_tests"
