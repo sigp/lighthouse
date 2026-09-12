@@ -1,5 +1,6 @@
 use chrono::Local;
 use logroller::{LogRollerBuilder, Rotation, RotationSize};
+use std::fmt::Write as FmtWrite;
 use std::io::Write;
 use std::path::PathBuf;
 use tracing::Subscriber;
@@ -17,21 +18,29 @@ impl<S> Layer<S> for Libp2pDiscv5TracingLayer
 where
     S: Subscriber,
 {
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<S>) {
+    fn event_enabled(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) -> bool {
+        let target = event.metadata().target();
+        target == "libp2p_gossipsub"
+            || target.starts_with("libp2p_gossipsub::")
+            || target == "discv5"
+            || target.starts_with("discv5::")
+    }
+
+    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
         let meta = event.metadata();
+        let target = meta.target();
+
+        let mut writer = if target == "libp2p_gossipsub" || target.starts_with("libp2p_gossipsub::")
+        {
+            self.libp2p_non_blocking_writer.clone()
+        } else if target == "discv5" || target.starts_with("discv5::") {
+            self.discv5_non_blocking_writer.clone()
+        } else {
+            return;
+        };
+
         let log_level = meta.level();
-        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-
-        let target = match meta.target().split_once("::") {
-            Some((crate_name, _)) => crate_name,
-            None => "unknown",
-        };
-
-        let mut writer = match target {
-            "libp2p_gossipsub" => self.libp2p_non_blocking_writer.clone(),
-            "discv5" => self.discv5_non_blocking_writer.clone(),
-            _ => return,
-        };
+        let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S");
 
         let mut visitor = LogMessageExtractor {
             message: String::default(),
@@ -52,7 +61,10 @@ struct LogMessageExtractor {
 
 impl tracing_core::field::Visit for LogMessageExtractor {
     fn record_debug(&mut self, _: &tracing_core::Field, value: &dyn std::fmt::Debug) {
-        self.message = format!("{} {:?}", self.message, value);
+        if !self.message.is_empty() {
+            self.message.push(' ');
+        }
+        let _ = write!(&mut self.message, "{:?}", value);
     }
 }
 
