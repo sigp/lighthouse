@@ -94,37 +94,17 @@ fn is_fulu_enabled_at_slot(spec: &ChainSpec, slot: Slot) -> bool {
 async fn build_chain_segment_from_harness(
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
 ) -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>) {
-    harness
-        .extend_chain(
-            CHAIN_SEGMENT_LENGTH,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-
     let mut segment = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
     let mut segment_sidecars = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
-    for snapshot in harness
-        .chain
-        .chain_dump()
-        .expect("should dump chain")
-        .into_iter()
-        .skip(1)
-    {
-        let full_block = harness
-            .chain
-            .get_block(&snapshot.beacon_block_root)
-            .await
-            .unwrap()
-            .unwrap();
-        let block_epoch = full_block.epoch();
 
-        segment.push(BeaconSnapshot {
-            beacon_block_root: snapshot.beacon_block_root,
-            execution_envelope: snapshot.execution_envelope,
-            beacon_block: Arc::new(full_block),
-            beacon_state: snapshot.beacon_state,
-        });
+    // Retain each complete snapshot as it is produced. Finalization may prune its envelope payload
+    // from the database before the complete segment has been built.
+    for _ in 0..CHAIN_SEGMENT_LENGTH {
+        let block_root = harness.extend_slots(1).await;
+        let snapshot = harness.chain.head_snapshot();
+        assert_eq!(snapshot.beacon_block_root, block_root);
+
+        let block_epoch = snapshot.beacon_block.epoch();
 
         let fork_name = snapshot.beacon_block.fork_name_unchecked();
 
@@ -150,6 +130,7 @@ async fn build_chain_segment_from_harness(
         };
 
         segment_sidecars.push(data_sidecars);
+        segment.push(snapshot.as_ref().clone());
     }
     (segment, segment_sidecars)
 }
@@ -2686,27 +2667,14 @@ async fn filter_chain_segment_keeps_checkpoint_gloas_block_by_split_root() {
         .build();
 
     harness.advance_slot();
-    harness
+    let block_root = harness
         .extend_chain(
-            E::slots_per_epoch() as usize * 4,
+            1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
         .await;
 
-    let finalized_checkpoint = harness
-        .chain
-        .canonical_head
-        .cached_head()
-        .finalized_checkpoint();
-    let finalized_slot = finalized_checkpoint.epoch.start_slot(E::slots_per_epoch());
-    assert!(finalized_slot > Slot::new(1));
-
-    let block_root = harness
-        .chain
-        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::Prev)
-        .unwrap()
-        .unwrap();
     let block = harness
         .chain
         .store
@@ -2719,6 +2687,18 @@ async fn filter_chain_segment_keeps_checkpoint_gloas_block_by_split_root() {
         .get_payload_envelope(&block_root)
         .unwrap()
         .unwrap();
+
+    harness
+        .extend_slots(E::slots_per_epoch() as usize * 4 - 1)
+        .await;
+
+    let finalized_checkpoint = harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint();
+    let finalized_slot = finalized_checkpoint.epoch.start_slot(E::slots_per_epoch());
+    assert!(finalized_slot > Slot::new(1));
 
     let (mut block_message, signature) = block.deconstruct();
     *block_message.parent_root_mut() = Hash256::repeat_byte(0x42);

@@ -10,6 +10,7 @@ use crate::version::{
     execution_optimistic_finalized_beacon_response,
 };
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::payload_envelope_streamer::EnvelopeRequestSource;
 use beacon_chain::payload_envelope_verification::EnvelopeError;
 use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::{
@@ -21,6 +22,7 @@ use eth2::{
     BLOB_DATA_INCLUDED_HEADER, CONSENSUS_VERSION_HEADER,
     types::{self as api_types, BroadcastValidation, SignedExecutionPayloadEnvelopeContents},
 };
+use futures::StreamExt;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use ssz::{Decode, Encode};
@@ -589,17 +591,30 @@ pub(crate) fn get_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
-                task_spawner.blocking_response_task(Priority::P1, move || {
+                task_spawner.spawn_async_with_rejection(Priority::P1, async move {
                     let (root, execution_optimistic, finalized) = block_id.root(&chain)?;
 
-                    let envelope = chain
-                        .get_payload_envelope(&root)
-                        .map_err(warp_utils::reject::unhandled_error)?
-                        .ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(format!(
+                    let mut envelope_stream =
+                        chain.get_payload_envelopes(vec![root], EnvelopeRequestSource::ByRoot);
+                    let (_, result) = envelope_stream.next().await.ok_or_else(|| {
+                        warp_utils::reject::custom_server_error(format!(
+                            "payload envelope stream ended before returning block root {root}"
+                        ))
+                    })?;
+                    let envelope = match result.as_ref() {
+                        Ok(Some(envelope)) => envelope.clone(),
+                        Ok(None) => {
+                            return Err(warp_utils::reject::custom_not_found(format!(
                                 "execution payload envelope for block root {root}"
-                            ))
-                        })?;
+                            )));
+                        }
+                        Err(error) => {
+                            return Err(warp_utils::reject::custom_server_error(format!(
+                                "failed to load execution payload envelope for block root \
+                                 {root}: {error:?}"
+                            )));
+                        }
+                    };
 
                     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(envelope.slot());
 

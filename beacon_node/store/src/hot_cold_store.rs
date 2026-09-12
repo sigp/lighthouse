@@ -741,26 +741,39 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
-        let key = block_root.as_slice();
+        let Some(summary) = self.get_payload_envelope_summary(block_root)? else {
+            return Ok(None);
+        };
+        let Some(payload) = self.get_envelope_payload(block_root)? else {
+            return Ok(None);
+        };
 
-        match self
-            .hot_db
-            .get_bytes(SignedExecutionPayloadEnvelope::<E>::db_column(), key)?
-        {
-            Some(bytes) => {
-                let envelope = SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)?;
-                Ok(Some(envelope))
-            }
-            None => Ok(None),
-        }
+        Ok(Some(summary.into_envelope(payload)))
+    }
+
+    /// Load the persistent portion of a signed execution payload envelope.
+    pub fn get_payload_envelope_summary(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedExecutionPayloadEnvelopeSummary<E>>, Error> {
+        self.hot_db.get(block_root)
+    }
+
+    /// Load the prunable execution payload portion of an envelope.
+    pub fn get_envelope_payload(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<ExecutionPayloadGloas<E>>, Error> {
+        self.hot_db
+            .get_bytes(DBColumn::PayloadEnvelope, block_root.as_slice())?
+            .map(|bytes| ExecutionPayloadGloas::from_ssz_bytes(&bytes).map_err(Error::from))
+            .transpose()
     }
 
     /// Check if the payload envelope for a block exists on disk.
     pub fn payload_envelope_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
-        self.hot_db.key_exists(
-            SignedExecutionPayloadEnvelope::<E>::db_column(),
-            block_root.as_slice(),
-        )
+        self.hot_db
+            .key_exists(DBColumn::PayloadSummary, block_root.as_slice())
     }
 
     /// Load the execution payload for a block from disk.
@@ -1052,31 +1065,36 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         }
     }
 
-    // TODO(gloas) we should store the execution payload separately like we do for blocks.
     /// Prepare a signed execution payload envelope for storage in the database.
     pub fn payload_envelope_as_kv_store_ops(
         &self,
         key: &Hash256,
-        payload: &SignedExecutionPayloadEnvelope<E>,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
+        let (summary, payload) = envelope.clone().into();
         ops.push(KeyValueStoreOp::PutKeyValue(
-            SignedExecutionPayloadEnvelope::<E>::db_column(),
+            DBColumn::PayloadEnvelope,
             key.as_slice().into(),
             payload.as_ssz_bytes(),
         ));
+
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            SignedExecutionPayloadEnvelopeSummary::<E>::db_column(),
+            key.as_slice().into(),
+            summary.as_ssz_bytes(),
+        ));
     }
 
+    /// Test-only function; should not be used in production.
     pub fn put_payload_envelope(
         &self,
         block_root: &Hash256,
         payload_envelope: &SignedExecutionPayloadEnvelope<E>,
     ) -> Result<(), Error> {
-        self.hot_db.put_bytes(
-            SignedExecutionPayloadEnvelope::<E>::db_column(),
-            block_root.as_slice(),
-            &payload_envelope.as_ssz_bytes(),
-        )
+        let mut ops = vec![];
+        self.payload_envelope_as_kv_store_ops(block_root, payload_envelope, &mut ops);
+        self.hot_db.do_atomically(ops)
     }
 
     /// Store a state in the store.
@@ -1369,9 +1387,21 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     }
                 }
 
-                StoreOp::DeletePayloadEnvelope(block_root) => {
+                StoreOp::DeletePayloadWithSummary(block_root) => {
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
-                        SignedExecutionPayloadEnvelope::<E>::db_column(),
+                        DBColumn::PayloadSummary,
+                        block_root.as_slice().to_vec(),
+                    ));
+
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        DBColumn::PayloadEnvelope,
+                        block_root.as_slice().to_vec(),
+                    ))
+                }
+
+                StoreOp::DeletePayload(block_root) => {
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(
+                        DBColumn::PayloadEnvelope,
                         block_root.as_slice().to_vec(),
                     ))
                 }
@@ -1617,7 +1647,9 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                         guard.delete_block(&block_root);
                     }
 
-                    StoreOp::DeletePayloadEnvelope(_) => (),
+                    StoreOp::DeletePayloadWithSummary(_) => (),
+
+                    StoreOp::DeletePayload(_) => (),
 
                     StoreOp::DeleteState(_, _) => (),
 
@@ -3201,7 +3233,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             .transpose()?)
     }
 
-    /// Try to prune all execution payloads, returning early if there is no need to prune.
+    /// Try to prune all finalized execution payloads and payload-envelope bodies, returning early
+    /// if there is no need to prune.
     pub fn try_prune_execution_payloads(&self, force: bool) -> Result<(), Error> {
         let split = self.get_split_info();
 
@@ -3226,23 +3259,18 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             ))?;
 
         // The finalized block may or may not have its execution payload stored, depending on
-        // whether it was at a skipped slot. However for a fully pruned database its parent
-        // should *always* have been pruned. In case of a long split (no parent found) we
-        // continue as if the payloads are pruned, as the node probably has other things to worry
-        // about.
+        // whether it was at a skipped slot. Check the newest prior block that could have payload
+        // data. In Gloas, a WITHHELD block has no envelope summary or payload, so its absence does
+        // not prove that older envelope payloads have already been pruned.
         let split_block_root = split_state.get_latest_block_root(split.state_root);
 
         let already_pruned =
-            process_results(split_state.rev_iter_block_roots(&self.spec), |mut iter| {
-                iter.find(|(_, block_root)| *block_root != split_block_root)
-                    .map_or(Ok(true), |(_, split_parent_root)| {
-                        self.execution_payload_exists(&split_parent_root)
-                            .map(|exists| !exists)
-                    })
+            process_results(split_state.rev_iter_block_roots(&self.spec), |iter| {
+                self.finalized_payloads_are_pruned(split_block_root, iter)
             })??;
 
         if already_pruned && !force {
-            info!("Execution payloads are pruned");
+            info!("Execution payloads and payload envelope bodies are pruned");
             return Ok(());
         }
 
@@ -3276,12 +3304,18 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                 break;
             }
 
-            if Some(block_root) != last_pruned_block_root
-                && self.execution_payload_exists(&block_root)?
-            {
-                debug!(%slot, ?block_root, "Pruning execution payload");
+            if Some(block_root) != last_pruned_block_root {
+                if self.execution_payload_exists(&block_root)? {
+                    debug!(%slot, ?block_root, "Pruning execution payload");
+                    ops.push(StoreOp::DeleteExecutionPayload(block_root));
+                }
+
+                if self.get_envelope_payload(&block_root)?.is_some() {
+                    debug!(%slot, ?block_root, "Pruning payload envelope body");
+                    ops.push(StoreOp::DeletePayload(block_root));
+                }
+
                 last_pruned_block_root = Some(block_root);
-                ops.push(StoreOp::DeleteExecutionPayload(block_root));
             }
 
             if slot <= anchor_info.oldest_block_slot {
@@ -3293,6 +3327,41 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         self.do_atomically_with_block_and_blobs_cache(ops)?;
         info!(%payloads_pruned, "Execution payload pruning complete");
         Ok(())
+    }
+
+    /// Check the newest canonical block before `split_block_root` that could have stored payload
+    /// data. Payload pruning proceeds backwards, so its state indicates whether there is any work
+    /// left to do.
+    fn finalized_payloads_are_pruned(
+        &self,
+        split_block_root: Hash256,
+        block_roots: impl Iterator<Item = (Slot, Hash256)>,
+    ) -> Result<bool, Error> {
+        for (slot, block_root) in block_roots {
+            if block_root == split_block_root {
+                continue;
+            }
+
+            if self.execution_payload_exists(&block_root)? {
+                return Ok(false);
+            }
+
+            if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+                // A canonical Gloas block without a summary was WITHHELD and never had an
+                // envelope payload. Continue backwards until we find a FULL block.
+                if self.payload_envelope_exists(&block_root)? {
+                    return Ok(self.get_envelope_payload(&block_root)?.is_none());
+                }
+            } else {
+                // Before Gloas, an absent execution payload means this part of the chain has
+                // already been pruned (or predates Bellatrix).
+                return Ok(true);
+            }
+        }
+
+        // In case of a long split with no suitable parent, continue as if payloads are pruned. The
+        // node probably has other things to worry about and a forced prune remains available.
+        Ok(true)
     }
 
     /// Try to prune blobs, approximating the current epoch from the split slot.
@@ -4118,5 +4187,69 @@ impl BytesKey {
 
     pub fn from_vec(key: Vec<u8>) -> Self {
         Self { key }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bls::Signature;
+
+    #[test]
+    fn payload_pruning_fast_path_skips_withheld_gloas_blocks() {
+        type E = MinimalEthSpec;
+
+        let mut spec = E::default_spec();
+        spec.gloas_fork_epoch = Some(Epoch::new(0));
+        let store = HotColdDB::<E, MemoryStore, MemoryStore>::open_ephemeral(
+            StoreConfig::default(),
+            Arc::new(spec),
+        )
+        .expect("store should open");
+
+        let split_block_root = Hash256::repeat_byte(0x11);
+        let withheld_block_root = Hash256::repeat_byte(0x22);
+        let full_block_root = Hash256::repeat_byte(0x33);
+        let envelope = SignedExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope {
+                payload: ExecutionPayloadGloas {
+                    slot_number: Slot::new(2),
+                    ..Default::default()
+                },
+                execution_requests: Default::default(),
+                builder_index: 0,
+                beacon_block_root: full_block_root,
+                parent_beacon_block_root: Hash256::ZERO,
+            },
+            signature: Signature::empty(),
+        };
+        store
+            .put_payload_envelope(&full_block_root, &envelope)
+            .expect("envelope should be stored");
+
+        let block_roots = || {
+            [
+                (Slot::new(4), split_block_root),
+                (Slot::new(3), withheld_block_root),
+                (Slot::new(2), full_block_root),
+            ]
+            .into_iter()
+        };
+
+        assert!(
+            !store
+                .finalized_payloads_are_pruned(split_block_root, block_roots())
+                .expect("pruning state should be detected")
+        );
+
+        store
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayload(full_block_root)])
+            .expect("envelope payload should be pruned");
+
+        assert!(
+            store
+                .finalized_payloads_are_pruned(split_block_root, block_roots())
+                .expect("pruning state should be detected")
+        );
     }
 }

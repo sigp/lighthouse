@@ -3,12 +3,14 @@ use crate::beacon_chain::ForkChoiceError;
 use crate::payload_envelope_streamer::beacon_chain_adapter::MockEnvelopeStreamerBeaconAdapter;
 use crate::test_utils::EphemeralHarnessType;
 use bls::{FixedBytesExtended, Signature};
+use execution_layer::ExecutionPayloadBodyV2;
 use futures::StreamExt;
 use std::collections::HashMap;
 use task_executor::test_utils::TestRuntime;
 use types::{
-    ExecutionBlockHash, ExecutionPayloadEnvelope, ExecutionPayloadGloas, Hash256, MinimalEthSpec,
-    SignedExecutionPayloadEnvelope, Slot,
+    BlockAccessList, ExecutionBlockHash, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
+    ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef, Hash256, MinimalEthSpec,
+    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -57,19 +59,26 @@ fn build_chain(
         let is_non_canonical = non_canonical_envelope_slots.contains(&i);
 
         let envelope = if has_envelope {
-            let block_hash = if is_non_canonical {
-                ExecutionBlockHash::from_root(Hash256::repeat_byte(0xFF))
-            } else {
-                ExecutionBlockHash::from_root(Hash256::from_low_u64_be(i))
+            let execution_requests = ExecutionRequestsGloas::default();
+            let mut payload = ExecutionPayloadGloas {
+                parent_hash: if is_non_canonical {
+                    ExecutionBlockHash::from_root(Hash256::repeat_byte(0xFF))
+                } else {
+                    ExecutionBlockHash::default()
+                },
+                slot_number: slot,
+                ..Default::default()
             };
+            payload.block_hash = execution_layer::calculate_execution_block_hash(
+                ExecutionPayloadRef::Gloas(&payload),
+                Some(Hash256::ZERO),
+                Some(ExecutionRequestsRef::Gloas(&execution_requests)),
+            )
+            .0;
             Some(SignedExecutionPayloadEnvelope {
                 message: ExecutionPayloadEnvelope {
-                    payload: ExecutionPayloadGloas {
-                        block_hash,
-                        slot_number: slot,
-                        ..Default::default()
-                    },
-                    execution_requests: Default::default(),
+                    payload,
+                    execution_requests,
                     builder_index: 0,
                     beacon_block_root: block_root,
                     parent_beacon_block_root: Hash256::ZERO,
@@ -98,14 +107,52 @@ fn mock_adapter() -> (MockEnvelopeStreamerBeaconAdapter<T>, TestRuntime) {
     (mock, runtime)
 }
 
-/// Configure `get_payload_envelope` to return envelopes from chain data.
+/// Configure the summary and locally retained payload reads from chain data.
 fn mock_envelopes(mock: &mut MockEnvelopeStreamerBeaconAdapter<T>, chain: &[SlotEntry]) {
-    let envelope_map: HashMap<Hash256, Option<SignedExecutionPayloadEnvelope<E>>> = chain
+    mock_envelopes_with_pruned_payloads(mock, chain, &[]);
+}
+
+fn mock_envelopes_with_pruned_payloads(
+    mock: &mut MockEnvelopeStreamerBeaconAdapter<T>,
+    chain: &[SlotEntry],
+    pruned_payload_slots: &[u64],
+) {
+    let summary_map: HashMap<Hash256, Option<SignedExecutionPayloadEnvelopeSummary<E>>> = chain
         .iter()
-        .map(|entry| (entry.block_root, entry.envelope.clone()))
+        .map(|entry| {
+            let summary = entry
+                .envelope
+                .clone()
+                .map(|envelope| <(_, _)>::from(envelope).0);
+            (entry.block_root, summary)
+        })
         .collect();
-    mock.expect_get_payload_envelope()
-        .returning(move |root| Ok(envelope_map.get(root).cloned().flatten()));
+    mock.expect_get_payload_envelope_summary()
+        .returning(move |root| Ok(summary_map.get(root).cloned().flatten()));
+
+    let payload_map: HashMap<Hash256, Option<ExecutionPayloadGloas<E>>> = chain
+        .iter()
+        .map(|entry| {
+            (
+                entry.block_root,
+                entry
+                    .envelope
+                    .as_ref()
+                    .filter(|_| !pruned_payload_slots.contains(&entry.slot.as_u64()))
+                    .map(|envelope| envelope.message.payload.clone()),
+            )
+        })
+        .collect();
+    mock.expect_get_envelope_payload()
+        .returning(move |root| Ok(payload_map.get(root).cloned().flatten()));
+}
+
+fn payload_body(payload: &ExecutionPayloadGloas<E>) -> ExecutionPayloadBodyV2 {
+    ExecutionPayloadBodyV2 {
+        transactions: payload.transactions.clone(),
+        withdrawals: Some(payload.withdrawals.clone()),
+        block_access_list: Some(payload.block_access_list.clone()),
+    }
 }
 
 /// Configure `block_has_canonical_payload` based on chain's non-canonical entries.
@@ -148,9 +195,9 @@ async fn assert_stream_matches(
                 .unwrap_or_else(|| panic!("expected Some at index {i} but got None"));
             let expected_envelope = entry.envelope.as_ref().unwrap();
             assert_eq!(
-                envelope.block_hash(),
-                expected_envelope.block_hash(),
-                "block_hash mismatch at index {i}"
+                envelope.as_ref(),
+                expected_envelope,
+                "envelope mismatch at index {i}"
             );
         } else {
             assert!(
@@ -245,6 +292,202 @@ async fn stream_envelopes_single_root() {
     assert!(stream.next().await.is_none(), "stream should be exhausted");
 }
 
+/// Payloads pruned at finalization are fetched from the EL and combined with their summaries.
+#[tokio::test]
+async fn stream_reconstructs_pruned_envelopes() {
+    let chain = build_chain(4, &[], &[], &[]);
+    let (mut mock, _runtime) = mock_adapter();
+    mock.expect_get_split_slot().return_const(Slot::new(5));
+    mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[2, 4]);
+    mock.expect_block_has_canonical_payload().times(0);
+
+    let payload_bodies: HashMap<ExecutionBlockHash, ExecutionPayloadBodyV2> = chain
+        .iter()
+        .filter(|entry| [2, 4].contains(&entry.slot.as_u64()))
+        .map(|entry| {
+            let payload = entry.envelope.as_ref().unwrap().message.payload.clone();
+            (payload.block_hash, payload_body(&payload))
+        })
+        .collect();
+    mock.expect_get_payload_bodies_by_hash_v2()
+        .times(1)
+        .returning(move |block_hashes| {
+            Ok(block_hashes
+                .into_iter()
+                .map(|block_hash| payload_bodies.get(&block_hash).cloned())
+                .collect())
+        });
+
+    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let mut stream = streamer.launch_stream(roots(&chain));
+    assert_stream_matches(&mut stream, &chain, Some(Slot::new(5))).await;
+}
+
+/// Payload-body requests are split at the Engine API's guaranteed 32-hash limit while preserving
+/// response order across chunks.
+#[tokio::test]
+async fn stream_batches_pruned_envelope_requests() {
+    let chain = build_chain(65, &[], &[], &[]);
+    let pruned_payload_slots = (1..=65).collect::<Vec<_>>();
+    let (mut mock, _runtime) = mock_adapter();
+    mock.expect_get_split_slot().return_const(Slot::new(66));
+    mock_envelopes_with_pruned_payloads(&mut mock, &chain, &pruned_payload_slots);
+    mock.expect_block_has_canonical_payload().times(0);
+
+    let payload_bodies: HashMap<ExecutionBlockHash, ExecutionPayloadBodyV2> = chain
+        .iter()
+        .map(|entry| {
+            let payload = entry.envelope.as_ref().unwrap().message.payload.clone();
+            (payload.block_hash, payload_body(&payload))
+        })
+        .collect();
+    mock.expect_get_payload_bodies_by_hash_v2()
+        .times(3)
+        .returning(move |block_hashes| {
+            assert!(block_hashes.len() <= MAX_PAYLOAD_BODIES_PER_REQUEST);
+            Ok(block_hashes
+                .into_iter()
+                .map(|block_hash| payload_bodies.get(&block_hash).cloned())
+                .collect())
+        });
+
+    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let mut stream = streamer.launch_stream(roots(&chain));
+    assert_stream_matches(&mut stream, &chain, Some(Slot::new(66))).await;
+}
+
+/// A response with a different number of entries cannot be safely associated with summaries.
+#[tokio::test]
+async fn stream_rejects_invalid_payload_body_response_length() {
+    let chain = build_chain(1, &[], &[], &[]);
+    let (mut mock, _runtime) = mock_adapter();
+    mock.expect_get_split_slot().return_const(Slot::new(2));
+    mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
+    mock.expect_block_has_canonical_payload().times(0);
+    mock.expect_get_payload_bodies_by_hash_v2()
+        .times(1)
+        .returning(|_| Ok(vec![]));
+
+    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let mut stream = streamer.launch_stream(roots(&chain));
+    let (_, result) = stream.next().await.expect("should get one result");
+    assert!(matches!(
+        result.as_ref(),
+        Err(BeaconChainError::EnvelopeStreamerError(
+            Error::InvalidPayloadBodiesResponse {
+                expected: 1,
+                received: 0,
+            }
+        ))
+    ));
+    assert!(stream.next().await.is_none());
+}
+
+/// An EL that no longer has a requested payload produces an error for that envelope.
+#[tokio::test]
+async fn stream_handles_payload_missing_from_execution_layer() {
+    let chain = build_chain(1, &[], &[], &[]);
+    let (mut mock, _runtime) = mock_adapter();
+    mock.expect_get_split_slot().return_const(Slot::new(2));
+    mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
+    mock.expect_block_has_canonical_payload().times(0);
+    mock.expect_get_payload_bodies_by_hash_v2()
+        .times(1)
+        .returning(|block_hashes| Ok(vec![None; block_hashes.len()]));
+
+    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let mut stream = streamer.launch_stream(roots(&chain));
+    let (_, result) = stream.next().await.expect("should get one result");
+    assert!(matches!(
+        result.as_ref(),
+        Err(BeaconChainError::EnvelopeStreamerError(
+            Error::PayloadMissingFromExecutionLayer(_)
+        ))
+    ));
+    assert!(stream.next().await.is_none());
+}
+
+/// A payload body that does not match the block hash retained in the summary is rejected.
+#[tokio::test]
+async fn stream_rejects_payload_body_with_wrong_hash() {
+    let chain = build_chain(1, &[], &[], &[]);
+    let (mut mock, _runtime) = mock_adapter();
+    mock.expect_get_split_slot().return_const(Slot::new(2));
+    mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
+    mock.expect_block_has_canonical_payload().times(0);
+
+    let mut wrong_body = payload_body(&chain[0].envelope.as_ref().unwrap().message.payload);
+    wrong_body.block_access_list = Some(BlockAccessList::new(vec![1]));
+    mock.expect_get_payload_bodies_by_hash_v2()
+        .times(1)
+        .return_once(move |_| Ok(vec![Some(wrong_body)]));
+
+    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let mut stream = streamer.launch_stream(roots(&chain));
+    let (_, result) = stream.next().await.expect("should get one result");
+    assert!(matches!(
+        result.as_ref(),
+        Err(BeaconChainError::EnvelopeStreamerError(
+            Error::ComputedPayloadHashMismatch { .. }
+        ))
+    ));
+    assert!(stream.next().await.is_none());
+}
+
+/// A V2 payload body without withdrawals cannot reconstruct a Gloas payload.
+#[tokio::test]
+async fn stream_rejects_payload_body_without_withdrawals() {
+    let chain = build_chain(1, &[], &[], &[]);
+    let (mut mock, _runtime) = mock_adapter();
+    mock.expect_get_split_slot().return_const(Slot::new(2));
+    mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
+    mock.expect_block_has_canonical_payload().times(0);
+
+    let mut body = payload_body(&chain[0].envelope.as_ref().unwrap().message.payload);
+    body.withdrawals = None;
+    mock.expect_get_payload_bodies_by_hash_v2()
+        .times(1)
+        .return_once(move |_| Ok(vec![Some(body)]));
+
+    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let mut stream = streamer.launch_stream(roots(&chain));
+    let (_, result) = stream.next().await.expect("should get one result");
+    assert!(matches!(
+        result.as_ref(),
+        Err(BeaconChainError::EnvelopeStreamerError(
+            Error::PayloadBodyMissingWithdrawals(_)
+        ))
+    ));
+    assert!(stream.next().await.is_none());
+}
+
+/// A V2 payload body without a block access list cannot reconstruct a Gloas payload.
+#[tokio::test]
+async fn stream_rejects_payload_body_without_block_access_list() {
+    let chain = build_chain(1, &[], &[], &[]);
+    let (mut mock, _runtime) = mock_adapter();
+    mock.expect_get_split_slot().return_const(Slot::new(2));
+    mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
+    mock.expect_block_has_canonical_payload().times(0);
+
+    let mut body = payload_body(&chain[0].envelope.as_ref().unwrap().message.payload);
+    body.block_access_list = None;
+    mock.expect_get_payload_bodies_by_hash_v2()
+        .times(1)
+        .return_once(move |_| Ok(vec![Some(body)]));
+
+    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let mut stream = streamer.launch_stream(roots(&chain));
+    let (_, result) = stream.next().await.expect("should get one result");
+    assert!(matches!(
+        result.as_ref(),
+        Err(BeaconChainError::EnvelopeStreamerError(
+            Error::PayloadBodyMissingBlockAccessList(_)
+        ))
+    ));
+    assert!(stream.next().await.is_none());
+}
+
 /// ByRoot requests skip canonical verification, so non-canonical envelopes
 /// should still be returned. `block_has_canonical_payload` should never be called.
 #[tokio::test]
@@ -318,7 +561,8 @@ async fn stream_envelopes_error() {
 async fn stream_envelopes_by_range_unknown_roots() {
     let (mut mock, _runtime) = mock_adapter();
     mock.expect_get_split_slot().return_const(Slot::new(0));
-    mock.expect_get_payload_envelope().returning(|_| Ok(None));
+    mock.expect_get_payload_envelope_summary()
+        .returning(|_| Ok(None));
 
     let unknown_roots: Vec<Hash256> = (1..=4)
         .map(|i| Hash256::from_low_u64_be(i * 1000))
