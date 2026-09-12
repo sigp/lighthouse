@@ -844,7 +844,22 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     ) -> Result<Self, BlockError> {
         // [New in Gloas:EIP7688] Reject over-limit progressive lists before any checks that may
         // ignore the block, and before hashing the block body to construct its header.
-        verify_gloas_block_operation_limits(block.as_ref())?;
+        if let Ok(parent_execution_requests) = block.message().body().parent_execution_requests() {
+            verify_operation_list_lengths(block.message().body())
+                .map_err(BlockError::PerBlockProcessingError)?;
+            verify_execution_request_list_lengths(parent_execution_requests)
+                .map_err(BlockError::PerBlockProcessingError)?;
+            let deposits_len = block.message().body().deposits().len();
+            if deposits_len > 0 {
+                return Err(BlockError::PerBlockProcessingError(
+                    BlockProcessingError::OperationListTooLong {
+                        kind: "deposits",
+                        length: deposits_len,
+                        max: 0,
+                    },
+                ));
+            }
+        }
 
         // If the block is valid for gossip we don't supply it to the slasher here because
         // we assume it will be transformed into a fully verified block. We *do* need to supply
@@ -1090,29 +1105,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     pub fn block_root(&self) -> Hash256 {
         self.block_root
     }
-}
-
-fn verify_gloas_block_operation_limits<E: EthSpec>(
-    block: &SignedBeaconBlock<E>,
-) -> Result<(), BlockError> {
-    if let Ok(parent_execution_requests) = block.message().body().parent_execution_requests() {
-        verify_operation_list_lengths(block.message().body())
-            .map_err(BlockError::PerBlockProcessingError)?;
-        verify_execution_request_list_lengths(parent_execution_requests)
-            .map_err(BlockError::PerBlockProcessingError)?;
-        let deposits_len = block.message().body().deposits().len();
-        if deposits_len > 0 {
-            return Err(BlockError::PerBlockProcessingError(
-                BlockProcessingError::OperationListTooLong {
-                    kind: "deposits",
-                    length: deposits_len,
-                    max: 0,
-                },
-            ));
-        }
-    }
-
-    Ok(())
 }
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for GossipVerifiedBlock<T> {
