@@ -842,6 +842,25 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError> {
+        // [New in Gloas:EIP7688] Reject over-limit progressive lists before any checks that may
+        // ignore the block, and before hashing the block body to construct its header.
+        if let Ok(parent_execution_requests) = block.message().body().parent_execution_requests() {
+            verify_operation_list_lengths(block.message().body())
+                .map_err(BlockError::PerBlockProcessingError)?;
+            verify_execution_request_list_lengths(parent_execution_requests)
+                .map_err(BlockError::PerBlockProcessingError)?;
+            let deposits_len = block.message().body().deposits().len();
+            if deposits_len > 0 {
+                return Err(BlockError::PerBlockProcessingError(
+                    BlockProcessingError::OperationListTooLong {
+                        kind: "deposits",
+                        length: deposits_len,
+                        max: 0,
+                    },
+                ));
+            }
+        }
+
         // If the block is valid for gossip we don't supply it to the slasher here because
         // we assume it will be transformed into a fully verified block. We *do* need to supply
         // it to the slasher if an error occurs, because that's the end of this block's journey,
@@ -898,23 +917,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                     max_blobs_at_epoch,
                     block: blob_kzg_commitments_len,
                 });
-            }
-        }
-
-        if let Ok(parent_execution_requests) = block.message().body().parent_execution_requests() {
-            verify_operation_list_lengths(block.message().body())
-                .map_err(BlockError::PerBlockProcessingError)?;
-            verify_execution_request_list_lengths(parent_execution_requests)
-                .map_err(BlockError::PerBlockProcessingError)?;
-            let deposits_len = block.message().body().deposits().len();
-            if deposits_len > 0 {
-                return Err(BlockError::PerBlockProcessingError(
-                    BlockProcessingError::OperationListTooLong {
-                        kind: "deposits",
-                        length: deposits_len,
-                        max: 0,
-                    },
-                ));
             }
         }
 
