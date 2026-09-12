@@ -2860,12 +2860,12 @@ fn partial_columns() {
             assert!(config.network.enable_partial_columns);
             assert!(config.chain.enable_partial_columns);
         });
-    // And disabled by default on mainnet:
+    // And enabled by default on mainnet:
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.network.enable_partial_columns);
-            assert!(!config.chain.enable_partial_columns);
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
         })
 }
 
@@ -2893,30 +2893,7 @@ fn partial_columns_default_hoodi() {
 }
 
 #[test]
-fn partial_columns_default_sepolia() {
-    CommandLineTest::new()
-        .flag("network", Some("sepolia"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert!(config.network.enable_partial_columns);
-            assert!(config.chain.enable_partial_columns);
-        });
-}
-
-#[test]
-fn partial_columns_false_overrides_hoodi_default() {
-    CommandLineTest::new()
-        .flag("network", Some("hoodi"))
-        .flag("enable-partial-columns", Some("false"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert!(!config.network.enable_partial_columns);
-            assert!(!config.chain.enable_partial_columns);
-        });
-}
-
-#[test]
-fn partial_columns_false_on_mainnet() {
+fn partial_columns_false_overrides_default() {
     CommandLineTest::new()
         .flag("enable-partial-columns", Some("false"))
         .run_with_zero_port()
