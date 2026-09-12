@@ -1,10 +1,82 @@
 use crate::state_id::StateId;
+use crate::validator::pubkey_to_validator_index;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::types::{
     self as api_types, ExecutionOptimisticFinalizedResponse, ValidatorBalanceData, ValidatorData,
     ValidatorId, ValidatorIdentityData, ValidatorStatus,
 };
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashSet},
+    sync::Arc,
+};
+use types::{BeaconState, EthSpec, Validator};
+
+// Map the ids (pubkeys or indices) to only indices as indices are easier to deal with
+fn resolve_ids_to_indices<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    state: &BeaconState<T::EthSpec>,
+    optional_ids: Option<&[ValidatorId]>,
+) -> Result<Option<BTreeSet<usize>>, warp::Rejection> {
+    let Some(ids) = optional_ids.filter(|ids| !ids.is_empty()) else {
+        return Ok(None);
+    };
+
+    let mut indices = BTreeSet::new();
+
+    for id in ids {
+        let index_opt = match id {
+            ValidatorId::Index(index) => usize::try_from(*index).ok(),
+            ValidatorId::PublicKey(pubkey) => pubkey_to_validator_index(chain, state, pubkey)
+                .map_err(|e| {
+                    warp_utils::reject::custom_not_found(format!(
+                        "unable to access pubkey cache: {e:?}",
+                    ))
+                })?,
+        };
+        if let Some(index) = index_opt {
+            indices.insert(index);
+        }
+    }
+
+    Ok(Some(indices))
+}
+
+// Yields an iterator of validators with its validator index
+fn iter_validators<E: EthSpec>(
+    state: &BeaconState<E>,
+    indices: Option<BTreeSet<usize>>,
+) -> Box<dyn Iterator<Item = (usize, &Validator)> + '_> {
+    match indices {
+        None => Box::new(state.validators().iter().enumerate()),
+        Some(indices) => Box::new(
+            indices
+                .into_iter()
+                .filter_map(move |index| Some((index, state.validators().get(index)?))),
+        ),
+    }
+}
+
+// Yields an iterator of validators with its validator index and balance
+fn iter_validators_with_balances<E: EthSpec>(
+    state: &BeaconState<E>,
+    indices: Option<BTreeSet<usize>>,
+) -> Box<dyn Iterator<Item = (usize, &Validator, u64)> + '_> {
+    match indices {
+        None => Box::new(
+            state
+                .validators()
+                .iter()
+                .zip(state.balances().iter())
+                .enumerate()
+                .map(|(index, (validator, balance))| (index, validator, *balance)),
+        ),
+        Some(indices) => Box::new(indices.into_iter().filter_map(move |index| {
+            let validator = state.validators().get(index)?;
+            let balance = *state.balances().get(index)?;
+            Some((index, validator, balance))
+        })),
+    }
+}
 
 pub fn get_beacon_state_validators<T: BeaconChainTypes>(
     state_id: StateId,
@@ -19,12 +91,7 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                 let epoch = state.current_epoch();
                 let far_future_epoch = chain.spec.far_future_epoch;
 
-                // Map [] to None, indicating that no filtering should be applied (return all
-                // validators).
-                let ids_filter_set: Option<HashSet<&ValidatorId>> = query_ids
-                    .as_ref()
-                    .filter(|list| !list.is_empty())
-                    .map(HashSet::from_iter);
+                let indices = resolve_ids_to_indices(&chain, state, query_ids.as_deref())?;
 
                 let statuses_filter_set: Option<HashSet<&ValidatorStatus>> = query_statuses
                     .as_ref()
@@ -32,20 +99,9 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                     .map(HashSet::from_iter);
 
                 Ok((
-                    state
-                        .validators()
-                        .iter()
-                        .zip(state.balances().iter())
-                        .enumerate()
-                        // filter by validator id(s) if provided
-                        .filter(|(index, (validator, _))| {
-                            ids_filter_set.as_ref().is_none_or(|ids_set| {
-                                ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
-                                    || ids_set.contains(&ValidatorId::Index(*index as u64))
-                            })
-                        })
+                    iter_validators_with_balances(state, indices)
                         // filter by status(es) if provided and map the result
-                        .filter_map(|(index, (validator, balance))| {
+                        .filter_map(|(index, validator, balance)| {
                             let status = api_types::ValidatorStatus::from_validator(
                                 validator,
                                 epoch,
@@ -61,7 +117,7 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                             if status_matches {
                                 Some(ValidatorData {
                                     index: index as u64,
-                                    balance: *balance,
+                                    balance,
                                     status,
                                     validator: validator.clone(),
                                 })
@@ -92,30 +148,13 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
         .map_state_and_execution_optimistic_and_finalized(
             &chain,
             |state, execution_optimistic, finalized| {
-                let ids_filter_set: Option<HashSet<&ValidatorId>> = match optional_ids {
-                    // if optional_ids (the request data body) is [], returns a `None`, so that later when calling .is_none_or() will return True
-                    // Hence, all validators will pass through .filter(), and balances of all validators are returned, in accordance to the spec
-                    Some([]) => None,
-                    Some(ids) => Some(HashSet::from_iter(ids.iter())),
-                    None => None,
-                };
+                let indices = resolve_ids_to_indices(&chain, state, optional_ids)?;
 
                 Ok((
-                    state
-                        .validators()
-                        .iter()
-                        .zip(state.balances().iter())
-                        .enumerate()
-                        // filter by validator id(s) if provided
-                        .filter(|(index, (validator, _))| {
-                            ids_filter_set.as_ref().is_none_or(|ids_set| {
-                                ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
-                                    || ids_set.contains(&ValidatorId::Index(*index as u64))
-                            })
-                        })
-                        .map(|(index, (_, balance))| ValidatorBalanceData {
+                    iter_validators_with_balances(state, indices)
+                        .map(|(index, _validator, balance)| ValidatorBalanceData {
                             index: index as u64,
-                            balance: *balance,
+                            balance,
                         })
                         .collect::<Vec<_>>(),
                     execution_optimistic,
@@ -140,26 +179,10 @@ pub fn get_beacon_state_validator_identities<T: BeaconChainTypes>(
         .map_state_and_execution_optimistic_and_finalized(
             &chain,
             |state, execution_optimistic, finalized| {
-                let ids_filter_set: Option<HashSet<&ValidatorId>> = match optional_ids {
-                    // Same logic as validator_balances endpoint above
-                    Some([]) => None,
-                    Some(ids) => Some(HashSet::from_iter(ids.iter())),
-                    None => None,
-                };
+                let indices = resolve_ids_to_indices(&chain, state, optional_ids)?;
 
                 Ok((
-                    // From the BeaconState, extract the Validator data and convert it into ValidatorIdentityData type
-                    state
-                        .validators()
-                        .iter()
-                        .enumerate()
-                        // filter by validator id(s) if provided
-                        .filter(|(index, validator)| {
-                            ids_filter_set.as_ref().is_none_or(|ids_set| {
-                                ids_set.contains(&ValidatorId::PublicKey(validator.pubkey))
-                                    || ids_set.contains(&ValidatorId::Index(*index as u64))
-                            })
-                        })
+                    iter_validators(state, indices)
                         .map(|(index, validator)| ValidatorIdentityData {
                             index: index as u64,
                             pubkey: validator.pubkey,
