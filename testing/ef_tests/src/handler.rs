@@ -32,7 +32,14 @@ pub trait Handler {
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![]
+        vec![
+	    ForkName::Bellatrix,
+	    ForkName::Capella,
+	    ForkName::Deneb,
+	    ForkName::Electra,
+	    ForkName::Fulu,
+	    ForkName::Gloas,
+	]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -1271,6 +1278,34 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas light client tests
         vec![ForkName::Gloas, ForkName::Heze]
+    }
+}
+
+#[derive(Educe)]
+#[educe(Default)]
+pub struct LightClientDataCollectionHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for LightClientDataCollectionHandler<E> {
+    type Case = cases::LightClientDataCollection<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "light_client"
+    }
+
+    fn handler_name(&self) -> String {
+        "data_collection".into()
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+	fork_name == ForkName::Altair || fork_name == ForkName::Bellatrix || fork_name == ForkName::Capella
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        vec![ForkName::Gloas,]	
     }
 }
 
