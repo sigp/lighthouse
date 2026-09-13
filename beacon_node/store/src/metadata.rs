@@ -265,7 +265,7 @@ impl StoreItem for LightClientEpochBackfillProgress {
         DBColumn::BeaconMeta
     }
     fn as_store_bytes(&self) -> Vec<u8> {
-        self.0.to_be_bytes().to_vec()
+        self.0.as_ssz_bytes()
     }
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(LightClientEpochBackfillProgress(u64::from_ssz_bytes(bytes)?))

@@ -49,7 +49,11 @@ pub fn backfill_light_client_epoch_data<T: BeaconChainTypes>(
         .unwrap_or(oldest_period);
 
     for period in start_period..=newest_period {
-        backfill_period(chain, period, spec, slots_per_epoch)?;
+        let bckfill = backfill_period(chain, period, spec, slots_per_epoch)?;
+
+        if !bckfill {
+            break; // watermark stays put; next invocation retries this whole period
+        }
 
         // Only advance the watermark after the *entire* period is done —
         // this is what makes "resume" actually mean "resume", not
@@ -75,7 +79,7 @@ fn backfill_period<T: BeaconChainTypes>(
     period: u64,
     spec: &ChainSpec,
     slots_per_epoch: u64,
-) -> Result<(), Error> {
+) -> Result<bool, Error> {
     let period_start_epoch = Epoch::new(period * spec.epochs_per_sync_committee_period);
     let period_end_epoch = period_start_epoch + spec.epochs_per_sync_committee_period;
 
@@ -115,9 +119,10 @@ fn backfill_period<T: BeaconChainTypes>(
                 // Don't advance completed_period for this period — leaving
                 // it incomplete means a future run retries it naturally,
                 // without needing a separate retry queue.
+                return Ok(false);
             }
         }
     }
 
-    Ok(())
+    Ok(true)
 }
