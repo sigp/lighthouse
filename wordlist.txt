@@ -190,6 +190,7 @@ mainnet
 makefile
 mdBook
 mev
+mimalloc
 misconfiguration
 mkcert
 namespace

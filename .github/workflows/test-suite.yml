@@ -475,7 +475,7 @@ jobs:
     - name: Check eth2 feature powerset
       run: cargo hack check -p eth2 --feature-powerset --no-dev-deps
     - name: Check malloc_utils feature powerset
-      run: cargo hack check -p malloc_utils --feature-powerset --no-dev-deps
+      run: cargo hack check -p malloc_utils --feature-powerset --no-dev-deps --exclude-features jemalloc-profiling,jemalloc-unprefixed
   cargo-sort:
     name: cargo-sort
     needs: [check-labels]
