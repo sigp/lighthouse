@@ -23,10 +23,16 @@ jemalloc-profiling = ["tikv-jemallocator/profiling"]
 sysmalloc = []
 # Enable jemalloc with unprefixed malloc (recommended for reproducible builds)
 jemalloc-unprefixed = ["jemalloc", "tikv-jemallocator/unprefixed_malloc_on_supported_platforms"]
+# Use mimalloc as the global allocator. Takes precedence over jemalloc, but is still disabled by
+# `sysmalloc`. Unlike jemalloc this also works on Windows.
+mimalloc = ["dep:mimalloc", "dep:libmimalloc-sys"]
 
 [dependencies]
 libc = "0.2.79"
+# The `extended` feature exposes mi_process_info, which the metrics below are built on.
+libmimalloc-sys = { version = "0.1.49", optional = true, features = ["extended"] }
 metrics = { workspace = true }
+mimalloc = { version = "0.1.52", optional = true }
 parking_lot = { workspace = true }
 tikv-jemalloc-ctl = { version = "0.6.0", optional = true, features = ["stats"] }
 
