@@ -944,6 +944,33 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn new_payload_v6_heze<E: EthSpec>(
+        &self,
+        new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::Heze(
+                new_payload_request_heze
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
+            new_payload_request_heze.versioned_hashes,
+            new_payload_request_heze.parent_beacon_block_root,
+            types::ExecutionRequestsRef::Gloas(new_payload_request_heze.execution_requests)
+                .get_execution_requests_list(),
+            JsonInclusionListV1(new_payload_request_heze.inclusion_list_transactions),
+        ]);
+        let response: JsonPayloadStatusV2 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V6,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+        Ok(response.into())
+    }
+
     pub async fn get_payload_v1<E: EthSpec>(
         &self,
         payload_id: PayloadId,
@@ -1380,33 +1407,6 @@ impl HttpJsonRpc {
 
     // automatically selects the latest version of
     // new_payload that the execution engine supports
-    pub async fn new_payload_v6_heze<E: EthSpec>(
-        &self,
-        new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
-    ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([
-            JsonExecutionPayload::Heze(
-                new_payload_request_heze
-                    .execution_payload
-                    .clone()
-                    .try_into()?
-            ),
-            new_payload_request_heze.versioned_hashes,
-            new_payload_request_heze.parent_beacon_block_root,
-            types::ExecutionRequestsRef::Gloas(new_payload_request_heze.execution_requests)
-                .get_execution_requests_list(),
-            JsonInclusionListV1(new_payload_request_heze.inclusion_list_transactions),
-        ]);
-        let response: JsonPayloadStatusV2 = self
-            .rpc_request(
-                ENGINE_NEW_PAYLOAD_V6,
-                params,
-                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
-            )
-            .await?;
-        Ok(response.into())
-    }
-
     pub async fn new_payload<E: EthSpec>(
         &self,
         new_payload_request: NewPayloadRequest<'_, E>,
