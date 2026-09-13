@@ -1,4 +1,4 @@
-#![cfg(all(feature = "ef_tests", not(feature = "fake_crypto")))]
+#![cfg(feature = "ef_tests")]
 
 use ef_tests::{Handler, LightClientSyncHandler};
 use types::MinimalEthSpec;

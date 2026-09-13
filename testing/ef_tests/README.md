@@ -44,7 +44,8 @@ The `light_client_sync` integration test runs the official `light_client/sync` v
 through the transport-independent `decentralized_checkpoint_sync` crate:
 
 ```
-cargo test -p ef_tests --features ef_tests --test light_client_sync -- --nocapture
+cargo nextest run --release -p ef_tests --features ef_tests light_client_sync
+cargo nextest run --release -p ef_tests --features ef_tests,fake_crypto light_client_sync
 ```
 
 It loads each case's `config.yaml`, resolves bootstrap/update fork digests (including Fulu
@@ -54,10 +55,18 @@ Capella onward, historical-fork execution roots. Force updates are also checked 
 advance Lighthouse's independently authenticated checkpoint.
 
 The pinned v1.7.0-alpha.14 generator emits only the **minimal** preset for sync. Altair
-through Fulu are supported. Gloas-targeting cases in older-fork directories are reported
-as known skips; Gloas/Heze handlers remain disabled. Unknown contexts and processing or
-comparison errors fail the test. The sync test is disabled under `fake_crypto` so it cannot
-claim successful signature verification with dummy BLS.
+through Fulu are supported. Gloas/Heze are explicitly disabled because Lighthouse does
+not implement their light-client types. Nine named Gloas-targeting cases in older-fork
+directories are also explicitly disabled before execution; these are logged as disabled,
+not counted as passing or returned as known failures. Any other new case is enabled by
+default. Unknown contexts and bootstrap, process, force, upgrade or comparison errors fail
+the test; failures are never converted into skips.
+
+Both commands run the same consumer code and the same vectors. The real-crypto run checks
+BLS signatures; the existing `bls/fake_crypto` backend uses dummy BLS operations, so its run
+checks parsing, Merkle proofs and state-machine behavior, not BLS security. `make test-ef`
+runs both backends as part of the complete EF suite. With `ef_tests` enabled, fixture-backed
+regression tests also check error propagation and comparison failures after each step.
 
 Parser and comparison regression tests do not require downloaded vectors:
 

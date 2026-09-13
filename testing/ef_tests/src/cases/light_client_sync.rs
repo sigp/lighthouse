@@ -101,23 +101,26 @@ impl<E: EthSpec> LoadCase for LightClientSync<E> {
 
 impl<E: EthSpec> Case for LightClientSync<E> {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
-        cfg!(not(feature = "fake_crypto")) && LightClientStoreSchema::try_from(fork_name).is_ok()
+        LightClientStoreSchema::try_from(fork_name).is_ok()
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
+        let (mut store, mut store_fork) = self.initialize_store()?;
+        for (index, step) in self.steps.iter().enumerate() {
+            self.execute_step(step, &mut store, &mut store_fork)
+                .map_err(|error| {
+                    Error::InternalError(format!("light-client step {index}: {error:?}"))
+                })?;
+        }
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> LightClientSync<E> {
+    fn initialize_store(&self) -> Result<(LightClientStore<E>, ForkName), Error> {
         let spec = &self.spec;
-        let mut store_fork = fork_for_version(self.metadata.store_fork_version, spec)?;
-        // Some vectors in older-fork directories explicitly target Gloas. Report these as
-        // skipped, never as successful syncs; unknown versions remain hard failures.
-        let mut store_forks = vec![store_fork];
-        for step in &self.steps {
-            if let Step::UpgradeStore { upgrade_store } = step {
-                store_forks.push(fork_for_version(upgrade_store.store_fork_version, spec)?);
-            }
-        }
-        if store_forks.iter().any(|fork| fork.gloas_enabled()) {
-            return Err(Error::SkippedKnownFailure);
-        }
+        let store_fork = fork_for_version(self.metadata.store_fork_version, spec)?;
+        let store_schema = LightClientStoreSchema::try_from(store_fork).map_err(sync_error)?;
         let bootstrap_fork = fork_for_digest(
             self.metadata.bootstrap_fork_digest,
             self.metadata.genesis_validators_root,
@@ -138,26 +141,18 @@ impl<E: EthSpec> Case for LightClientSync<E> {
         let bootstrap_format = store_fork.max(bootstrap_fork);
         let bootstrap =
             upgrade_light_client_bootstrap(&bootstrap, bootstrap_format).map_err(sync_error)?;
-        let mut store = initialize_light_client_store(
+        let store = initialize_light_client_store(
             self.metadata.trusted_block_root,
             &bootstrap,
             bootstrap_format,
-            LightClientStoreSchema::try_from(store_fork).map_err(sync_error)?,
+            store_schema,
             spec,
         )
         .map_err(sync_error)?;
 
-        for (index, step) in self.steps.iter().enumerate() {
-            self.execute_step(step, &mut store, &mut store_fork)
-                .map_err(|error| {
-                    Error::InternalError(format!("light-client step {index}: {error:?}"))
-                })?;
-        }
-        Ok(())
+        Ok((store, store_fork))
     }
-}
 
-impl<E: EthSpec> LightClientSync<E> {
     fn execute_step(
         &self,
         step: &Step,
@@ -232,10 +227,20 @@ fn sync_error(error: LightClientSyncError) -> Error {
 }
 
 fn fork_for_version(version: FixedBytes<4>, spec: &ChainSpec) -> Result<ForkName, Error> {
-    ForkName::list_all()
+    let mut forks = ForkName::list_all()
         .into_iter()
-        .find(|fork| spec.fork_version_for_name(*fork) == version.0)
-        .ok_or_else(|| Error::FailedToParseTest(format!("unknown store fork version {version}")))
+        .filter(|fork| spec.fork_version_for_name(*fork) == version.0);
+    let fork = forks
+        .next()
+        .ok_or_else(|| Error::FailedToParseTest(format!("unknown store fork version {version}")))?;
+    // Config uses a shared placeholder for omitted future versions. It must not be
+    // interpreted as the first matching fork and silently select a supported schema.
+    if forks.next().is_some() {
+        return Err(Error::FailedToParseTest(format!(
+            "ambiguous store fork version {version}"
+        )));
+    }
+    Ok(fork)
 }
 
 fn fork_for_digest(
@@ -363,12 +368,66 @@ fn execution_root<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handler::{Handler, LightClientSyncHandler};
     use decentralized_checkpoint_sync::upgrade_light_client_header;
     use types::{
         BlobParameters, Epoch, LightClientHeaderAltair, LightClientHeaderCapella, MinimalEthSpec,
     };
 
     type E = MinimalEthSpec;
+
+    #[test]
+    fn handler_enables_supported_forks_with_either_crypto_backend() {
+        let handler = LightClientSyncHandler::<E>::default();
+        assert_eq!(
+            handler.disabled_forks(),
+            vec![ForkName::Gloas, ForkName::Heze]
+        );
+        for fork in ForkName::list_all() {
+            assert_eq!(
+                handler.is_enabled_for_fork(fork),
+                matches!(
+                    fork,
+                    ForkName::Altair
+                        | ForkName::Bellatrix
+                        | ForkName::Capella
+                        | ForkName::Deneb
+                        | ForkName::Electra
+                        | ForkName::Fulu
+                ),
+                "{fork}"
+            );
+        }
+    }
+
+    #[test]
+    fn handler_disables_only_named_unsupported_formats() {
+        let handler = LightClientSyncHandler::<E>::default();
+        for fork in [
+            ForkName::Altair,
+            ForkName::Bellatrix,
+            ForkName::Capella,
+            ForkName::Deneb,
+            ForkName::Electra,
+            ForkName::Fulu,
+        ] {
+            for (name, disabled) in [
+                ("gloas_store_with_legacy_data", true),
+                ("deneb_gloas_fork", fork == ForkName::Capella),
+                ("electra_gloas_fork", fork == ForkName::Deneb),
+                ("gloas_fork", fork == ForkName::Fulu),
+                ("light_client_sync", false),
+                ("new_case", false),
+                ("new_gloas_case", false),
+            ] {
+                assert_eq!(
+                    handler.is_enabled_for_case(Path::new(name), fork),
+                    !disabled,
+                    "{fork}/{name}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn fork_versions_are_not_fork_digests_and_unknown_contexts_fail() {
@@ -386,6 +445,10 @@ mod tests {
         assert!(fork_for_version(FixedBytes::repeat_byte(255), &spec).is_err());
         assert!(fork_for_digest(FixedBytes::repeat_byte(255), genesis_root, &spec).is_err());
         assert!(fork_for_digest(digest, Hash256::repeat_byte(2), &spec).is_err());
+
+        let mut spec = spec;
+        spec.gloas_fork_version = spec.altair_fork_version;
+        assert!(fork_for_version(version, &spec).is_err());
     }
 
     #[test]
@@ -486,5 +549,141 @@ mod tests {
             execution_root(&upgraded, &spec).unwrap(),
             Hash256::default()
         );
+    }
+}
+
+// These fault-injection tests use official fixtures, so they require the same opt-in as
+// the conformance handler. Only the in-memory case is modified, never the downloaded files.
+#[cfg(all(test, feature = "ef_tests"))]
+mod conformance_tests {
+    use super::*;
+    use types::{Epoch, MinimalEthSpec};
+
+    type E = MinimalEthSpec;
+
+    fn load_case(fork: ForkName, name: &str) -> LightClientSync<E> {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("consensus-spec-tests/tests/minimal")
+            .join(fork.to_string())
+            .join("light_client/sync/pyspec_tests")
+            .join(name);
+        LightClientSync::load_from_dir(&path, fork).unwrap()
+    }
+
+    fn assert_failure(result: Result<(), Error>, expected: &str) {
+        let error = result.unwrap_err();
+        assert!(!error.is_skipped(), "{error:?}");
+        assert!(error.message().contains(expected), "{error:?}");
+    }
+
+    #[test]
+    fn bootstrap_errors_fail_the_case() {
+        let mut case = load_case(ForkName::Altair, "light_client_sync");
+        case.metadata.trusted_block_root = Hash256::repeat_byte(255);
+        assert_failure(case.result(0, ForkName::Altair), "BootstrapRootMismatch");
+    }
+
+    #[test]
+    fn process_errors_fail_the_case_without_mutating_store() {
+        let mut case = load_case(ForkName::Altair, "light_client_sync");
+        let (mut store, mut fork) = case.initialize_store().unwrap();
+        let before = format!("{store:?}");
+        let step = case.steps.first_mut().unwrap();
+        let Step::ProcessUpdate { process_update } = step else {
+            panic!("fixture must start with process_update");
+        };
+        process_update.current_slot = Slot::new(0);
+        assert_failure(
+            case.execute_step(case.steps.first().unwrap(), &mut store, &mut fork),
+            "InvalidUpdateSlots",
+        );
+        assert_eq!(format!("{store:?}"), before);
+        assert_failure(case.result(0, ForkName::Altair), "light-client step 0");
+    }
+
+    #[test]
+    fn force_errors_propagate_without_mutating_store() {
+        let mut case = load_case(ForkName::Altair, "light_client_sync");
+        let (mut store, mut fork) = case.initialize_store().unwrap();
+        let force_index = case
+            .steps
+            .iter()
+            .position(|step| matches!(step, Step::ForceUpdate { .. }))
+            .unwrap();
+        for step in case.steps.iter().take(force_index) {
+            case.execute_step(step, &mut store, &mut fork).unwrap();
+        }
+        assert!(store.best_valid_update().is_some());
+        let before = format!("{store:?}");
+        case.spec.epochs_per_sync_committee_period = Epoch::new(0);
+        assert_failure(
+            case.execute_step(case.steps.get(force_index).unwrap(), &mut store, &mut fork),
+            "Arithmetic",
+        );
+        assert_eq!(format!("{store:?}"), before);
+    }
+
+    #[test]
+    fn unsupported_bootstrap_and_upgrade_are_errors_not_skips() {
+        for unsupported in [ForkName::Gloas, ForkName::Heze] {
+            let mut case = load_case(ForkName::Altair, "light_client_sync");
+            // Altair's config omits future versions, which share Config's placeholder
+            // 0xffffffff. Give the injected targets distinct versions.
+            case.spec.gloas_fork_version = [7, 0, 0, 1];
+            case.spec.heze_fork_version = [8, 0, 0, 1];
+            let (mut store, mut fork) = case.initialize_store().unwrap();
+            let before = format!("{store:?}");
+            let version = FixedBytes(case.spec.fork_version_for_name(unsupported));
+            let Step::ProcessUpdate { process_update } = case.steps.remove(0) else {
+                panic!("fixture must start with process_update");
+            };
+            case.steps = vec![Step::UpgradeStore {
+                upgrade_store: UpgradeStore {
+                    store_fork_version: version,
+                    checks: process_update.checks,
+                },
+            }];
+            assert_failure(
+                case.execute_step(case.steps.first().unwrap(), &mut store, &mut fork),
+                "UnsupportedFork",
+            );
+            assert_eq!(format!("{store:?}"), before);
+            assert_eq!(fork, ForkName::Altair);
+            assert_failure(case.result(0, ForkName::Altair), "UnsupportedFork");
+            case.metadata.store_fork_version = version;
+            assert_failure(case.result(0, ForkName::Altair), "UnsupportedFork");
+        }
+    }
+
+    #[test]
+    fn both_headers_are_checked_after_every_step_kind() {
+        for name in ["light_client_sync", "deneb_fork"] {
+            let original = load_case(ForkName::Capella, name);
+            original.result(0, ForkName::Capella).unwrap();
+            for index in 0..original.steps.len() {
+                for field in ["finalized_header", "optimistic_header"] {
+                    let mut case = load_case(ForkName::Capella, name);
+                    let checks = match case.steps.get_mut(index).unwrap() {
+                        Step::ProcessUpdate { process_update } => &mut process_update.checks,
+                        Step::ForceUpdate { force_update } => &mut force_update.checks,
+                        Step::UpgradeStore { upgrade_store } => &mut upgrade_store.checks,
+                    };
+                    let header = if field == "finalized_header" {
+                        &mut checks.finalized_header
+                    } else {
+                        &mut checks.optimistic_header
+                    };
+                    header.beacon_root = Hash256::repeat_byte(255);
+                    let error = case.result(0, ForkName::Capella).unwrap_err();
+                    assert!(!error.is_skipped());
+                    assert!(
+                        error
+                            .message()
+                            .contains(&format!("light-client step {index}:"))
+                    );
+                    assert!(error.message().contains(field), "{error:?}");
+                }
+            }
+        }
     }
 }

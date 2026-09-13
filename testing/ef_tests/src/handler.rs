@@ -5,7 +5,7 @@ use context_deserialize::ContextDeserialize;
 use educe::Educe;
 use std::fs::{self, DirEntry};
 use std::marker::PhantomData;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use types::{BeaconState, EthSpec, ForkName};
 
 pub trait Handler {
@@ -41,6 +41,11 @@ pub trait Handler {
 
     fn is_enabled_for_feature(&self, feature_name: FeatureName) -> bool {
         Self::Case::is_enabled_for_feature(feature_name)
+    }
+
+    /// Exclude explicitly unsupported case formats before execution, never failed results.
+    fn is_enabled_for_case(&self, _path: &Path, _fork_name: ForkName) -> bool {
+        true
     }
 
     fn run(&self) {
@@ -99,6 +104,7 @@ pub trait Handler {
             .filter_map(as_directory)
             .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
             .filter_map(as_directory)
+            .filter(|entry| self.is_enabled_for_case(&entry.path(), fork_name))
             .map(|test_case_dir| {
                 let path = test_case_dir.path();
                 let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
@@ -134,6 +140,7 @@ pub trait Handler {
             .filter_map(as_directory)
             .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
             .filter_map(as_directory)
+            .filter(|entry| self.is_enabled_for_case(&entry.path(), fork_name))
             .map(|test_case_dir| {
                 let path = test_case_dir.path();
                 let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
@@ -1303,6 +1310,39 @@ impl<E: EthSpec + TypeName> Handler for LightClientSyncHandler<E> {
 
     fn handler_name(&self) -> String {
         "sync".into()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        // Lighthouse has no Gloas/Heze light-client types or consumer implementation yet.
+        vec![ForkName::Gloas, ForkName::Heze]
+    }
+
+    fn is_enabled_for_case(&self, path: &Path, fork_name: ForkName) -> bool {
+        // v1.7.0-alpha.14 also emits Gloas-targeting cases in earlier-fork directories.
+        // This is a format support list, not a list of failing supported vectors.
+        // Keep synchronized with check_all_files_accessed.py.
+        let name = path.file_name().and_then(|name| name.to_str());
+        let unsupported = matches!(
+            (fork_name, name),
+            (
+                ForkName::Altair
+                    | ForkName::Bellatrix
+                    | ForkName::Capella
+                    | ForkName::Deneb
+                    | ForkName::Electra
+                    | ForkName::Fulu,
+                Some("gloas_store_with_legacy_data")
+            ) | (ForkName::Capella, Some("deneb_gloas_fork"))
+                | (ForkName::Deneb, Some("electra_gloas_fork"))
+                | (ForkName::Fulu, Some("gloas_fork"))
+        );
+        if unsupported {
+            println!(
+                "Disabled {}: Lighthouse has no Gloas light-client types",
+                path.display()
+            );
+        }
+        !unsupported
     }
 }
 

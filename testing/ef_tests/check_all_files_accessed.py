@@ -28,8 +28,12 @@ excluded_paths = [
     # We no longer implement merge logic.
     "tests/.*/bellatrix/fork_choice/on_merge_block",
     # Cross-fork sync cases targeting Gloas are also emitted in pre-Gloas directories.
-    # Keep synchronized with LightClientSync's unsupported-store-version check.
-    "tests/minimal/.*/light_client/sync/pyspec_tests/(gloas_store_with_legacy_data|gloas_fork|deneb_gloas_fork|electra_gloas_fork)/",
+    # Lighthouse has no Gloas light-client types. Keep synchronized with
+    # LightClientSyncHandler::is_enabled_for_case (these cases are never executed).
+    "tests/minimal/(altair|bellatrix|capella|deneb|electra|fulu)/light_client/sync/pyspec_tests/gloas_store_with_legacy_data/",
+    "tests/minimal/capella/light_client/sync/pyspec_tests/deneb_gloas_fork/",
+    "tests/minimal/deneb/light_client/sync/pyspec_tests/electra_gloas_fork/",
+    "tests/minimal/fulu/light_client/sync/pyspec_tests/gloas_fork/",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
