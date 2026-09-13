@@ -108,10 +108,12 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
+    // Partial columns are enabled by default on all networks except the ones listed here.
+    // This enables them on Hoodi, Sepolia and custom networks.
     let default_partial_columns_enabled = spec
         .config_name
         .as_ref()
-        .is_some_and(|name| matches!(name.as_str(), "hoodi" | "sepolia"));
+        .is_none_or(|name| !matches!(name.as_str(), "mainnet" | "gnosis" | "chiado" | "holesky"));
     let enable_partial_columns = clap_utils::parse_optional(cli_args, "enable-partial-columns")?
         .unwrap_or(default_partial_columns_enabled);
 
@@ -331,6 +333,16 @@ pub fn get_config<E: EthSpec>(
             })?;
     } else {
         return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
+    }
+
+    // Parse and set the EIP-8025 proof engine, if any.
+    if let Some(endpoint) = cli_args.get_one::<String>("proof-engine-endpoint") {
+        client_config.proof_engine_endpoint = Some(parse_only_one_value(
+            endpoint,
+            SensitiveUrl::parse,
+            "--proof-engine-endpoint",
+        )?);
+        client_config.network.enable_execution_proof = true;
     }
 
     // Parse and set the payload builder, if any.

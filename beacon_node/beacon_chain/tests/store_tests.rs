@@ -23,7 +23,7 @@ use beacon_chain::{
     },
     custody_context::NodeCustodyType,
     historical_blocks::HistoricalBlockError,
-    kzg_utils::reconstruct_blobs,
+    kzg_utils::reconstruct_blob_sidecars,
     migrate::MigratorConfig,
 };
 use bls::{Keypair, Signature, SignatureBytes};
@@ -94,7 +94,7 @@ fn get_or_reconstruct_blobs<T: BeaconChainTypes>(
         if let Some(columns) = chain.store.get_data_columns(block_root, fork_name)? {
             let num_required_columns = T::EthSpec::number_of_columns() / 2;
             if columns.len() >= num_required_columns {
-                reconstruct_blobs(&chain.kzg, columns, None, &block, &chain.spec)
+                reconstruct_blob_sidecars(&chain.kzg, columns, None, &block, &chain.spec)
                     .map(Some)
                     .map_err(BeaconChainError::FailedToReconstructBlobs)
             } else {
@@ -1773,6 +1773,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
         &mut head_state,
         head_state_root,
         gloas_fork_epoch,
+        None,
         spec,
     )
     .unwrap();
@@ -4253,6 +4254,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         &mut advanced_split_state,
         Some(split_state_root),
         attestation_start_slot,
+        None,
         &harness.chain.spec,
     )
     .unwrap();
@@ -6044,7 +6046,7 @@ async fn test_gloas_block_and_envelope_storage_generic(
         harness.advance_slot();
 
         if skipped_slots.contains(&i) {
-            complete_state_advance(&mut state, None, slot, spec)
+            complete_state_advance(&mut state, None, slot, None, spec)
                 .expect("should be able to advance state to slot");
 
             let state_root = state.canonical_root().unwrap();
@@ -6500,7 +6502,7 @@ async fn bellatrix_produce_and_store_payloads() {
 
         // Advance state to compute correct timestamp and randao.
         let mut pre_state = state.clone();
-        complete_state_advance(&mut pre_state, None, slot, &harness.spec)
+        complete_state_advance(&mut pre_state, None, slot, None, &harness.spec)
             .expect("should advance state");
         pre_state
             .build_caches(&harness.spec)

@@ -23,6 +23,7 @@ use fixed_bytes::FixedBytesExtended;
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
+use state_processing::GloasVerificationContext;
 use state_processing::{
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
     common::{attesting_indices_base, attesting_indices_electra, attesting_indices_gloas},
@@ -1827,7 +1828,13 @@ async fn add_base_block_to_altair_chain() {
     {
         let mut state = state;
         let mut ctxt = ConsensusContext::new(base_block.slot());
-        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            &harness.chain.spec,
+        )
+        .unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,
@@ -1976,7 +1983,13 @@ async fn add_altair_block_to_base_chain() {
     {
         let mut state = state;
         let mut ctxt = ConsensusContext::new(altair_block.slot());
-        per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            &harness.chain.spec,
+        )
+        .unwrap();
         assert!(matches!(
             per_block_processing(
                 &mut state,
@@ -2156,7 +2169,13 @@ async fn gloas_get_head_can_return_justified_empty_payload_branch() {
     // chain built off its `Full` branch.
     for slot in (attestation_start_slot.as_u64()..current_slot.as_u64()).map(Slot::new) {
         while attestation_state.slot() < slot {
-            per_slot_processing(&mut attestation_state, None, &spec).unwrap();
+            per_slot_processing(
+                &mut attestation_state,
+                None,
+                GloasVerificationContext::FullVerification,
+                &spec,
+            )
+            .unwrap();
         }
         attestation_state.build_caches(&spec).unwrap();
         let attestation_state_root = attestation_state.update_tree_hash_cache().unwrap();
