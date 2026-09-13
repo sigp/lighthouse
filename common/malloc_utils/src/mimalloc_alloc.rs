@@ -10,9 +10,10 @@ use std::sync::LazyLock;
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-// Metrics for mimalloc. These mirror the `jemalloc_*` gauges so that a dashboard can chart either
-// allocator, but the underlying quantities are the ones mimalloc itself reports: resident set size
-// and committed memory, rather than jemalloc's arena accounting.
+// Metrics for mimalloc. These follow the `jemalloc_*` naming convention, but they are not
+// drop-in equivalents: the quantities mimalloc reports are process resident set size and
+// committed memory, rather than jemalloc's arena accounting, and the metric names differ, so an
+// existing query against `jemalloc_bytes_mapped` will not resolve on a mimalloc build.
 pub static CURRENT_RSS: LazyLock<metrics::Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "mimalloc_current_rss_bytes",
