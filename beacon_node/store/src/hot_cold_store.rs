@@ -807,8 +807,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
 
     /// Check if the execution payload for a block exists on disk.
     pub fn execution_payload_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
-        self.get_item::<ExecutionPayload<E>>(block_root)
-            .map(|payload| payload.is_some())
+        self.hot_db
+            .key_exists(DBColumn::ExecPayload, block_root.as_slice())
     }
 
     /// Get the sync committee branch for the given block root

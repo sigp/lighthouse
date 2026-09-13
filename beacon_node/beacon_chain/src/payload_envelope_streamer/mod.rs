@@ -288,14 +288,7 @@ fn reconstruct_envelope<E: EthSpec>(
         .into());
     }
 
-    reconstruct_envelope_from_body(
-        summary,
-        ExecutionPayloadBodyV2 {
-            transactions: payload.transactions,
-            withdrawals: Some(payload.withdrawals),
-            block_access_list: Some(payload.block_access_list),
-        },
-    )
+    Ok(Some(Arc::new(summary.into_envelope(payload))))
 }
 
 fn reconstruct_envelope_from_body<E: EthSpec>(
