@@ -635,9 +635,14 @@ impl<E: EthSpec> GossipTester<E> {
             .message
             .starts_with("execution_payload_envelope_")
         {
-            let _: SignedExecutionPayloadEnvelope<E> =
+            let envelope: SignedExecutionPayloadEnvelope<E> =
                 ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
             self.set_message_time(message_meta)?;
+            let payload = &envelope.message.payload;
+            self.harness
+                .chain
+                .observed_execution_payloads
+                .insert_for_testing(payload.block_hash, payload.gas_limit);
             return Ok(Some(MessageAcceptance::Accept));
         }
         if !message_meta.message.starts_with("execution_payload_bid_") {
@@ -933,6 +938,12 @@ impl<E: EthSpec> GossipTester<E> {
                 block.canonical_root()
             )));
         }
+
+        let execution_payload = &envelope.message.payload;
+        self.harness
+            .chain
+            .observed_execution_payloads
+            .insert_for_testing(execution_payload.block_hash, execution_payload.gas_limit);
 
         self.harness
             .chain
