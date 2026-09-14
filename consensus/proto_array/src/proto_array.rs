@@ -1350,11 +1350,14 @@ impl ProtoArray {
                 .get(fc_node.proto_node_index)
                 .ok_or(Error::InvalidNodeIndex(fc_node.proto_node_index))?;
 
-            let children: Vec<_> = self
-                .get_node_children(&fc_node)?
-                .into_iter()
-                .filter(|(child, _)| viable_nodes.contains(&child.proto_node_index))
-                .collect();
+            let children: Vec<_> = if fc_node.payload_status == PayloadStatus::Pending {
+                self.get_node_children(&fc_node)?
+            } else {
+                self.get_node_children(&fc_node)?
+                    .into_iter()
+                    .filter(|(child, _)| viable_nodes.contains(&child.proto_node_index))
+                    .collect()
+            };
 
             if children.is_empty() {
                 let leaf_node = if proto_node.payload_received().is_err() {
