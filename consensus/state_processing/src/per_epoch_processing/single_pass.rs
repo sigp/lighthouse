@@ -76,6 +76,13 @@ impl SinglePassConfig {
     }
 }
 
+/// Exit churn limit: validator count (pre-Electra) or Gwei (Electra+).
+#[derive(Clone, Copy)]
+enum ExitChurnLimit {
+    ValidatorCount(u64),
+    Balance(u64),
+}
+
 /// Values from the state that are immutable throughout epoch processing.
 struct StateContext {
     current_epoch: Epoch,
@@ -83,10 +90,7 @@ struct StateContext {
     finalized_checkpoint: Checkpoint,
     is_in_inactivity_leak: bool,
     total_active_balance: u64,
-    /// Pre-Electra validator-count exit churn.
-    validator_churn_limit: Option<u64>,
-    /// Electra+ Gwei exit churn.
-    exit_churn_limit: Option<u64>,
+    exit_churn_limit: ExitChurnLimit,
     fork_name: ForkName,
 }
 
@@ -174,22 +178,14 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let total_active_balance = state.get_total_active_balance()?;
     let finalized_checkpoint = state.finalized_checkpoint();
     let fork_name = state.fork_name_unchecked();
-    let (validator_churn_limit, activation_churn_limit) = if !fork_name.electra_enabled() {
-        (
-            Some(state.get_validator_churn_limit(spec)?),
-            Some(state.get_validator_activation_churn_limit(spec)?),
-        )
-    } else {
-        (None, None)
-    };
     let exit_churn_limit = if fork_name.electra_enabled() {
-        Some(if fork_name.gloas_enabled() {
+        ExitChurnLimit::Balance(if fork_name.gloas_enabled() {
             state.get_exit_churn_limit(spec)?
         } else {
             state.get_activation_exit_churn_limit(spec)?
         })
     } else {
-        None
+        ExitChurnLimit::ValidatorCount(state.get_validator_churn_limit(spec)?)
     };
 
     let state_ctxt = &StateContext {
@@ -198,7 +194,6 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         finalized_checkpoint,
         is_in_inactivity_leak,
         total_active_balance,
-        validator_churn_limit,
         exit_churn_limit,
         fork_name,
     };
@@ -216,6 +211,13 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let mut earliest_exit_epoch = state.earliest_exit_epoch().ok();
     let mut exit_balance_to_consume = state.exit_balance_to_consume().ok();
     let validators_in_consolidations = get_validators_in_consolidations(state);
+
+    // Pre-Electra only; must be computed before the state is split.
+    let activation_churn_limit = if !fork_name.electra_enabled() {
+        state.get_validator_activation_churn_limit(spec)?
+    } else {
+        0
+    };
 
     // Split the state into several disjoint mutable borrows.
     let (
@@ -249,7 +251,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             .activation_queue()?
             .get_validators_eligible_for_activation(
                 finalized_checkpoint.epoch,
-                activation_churn_limit.ok_or(BeaconStateError::IncorrectStateVariant)? as usize,
+                activation_churn_limit as usize,
             );
         let next_epoch_activation_queue = ActivationQueue::default();
         Some((activation_queue, next_epoch_activation_queue))
@@ -952,11 +954,11 @@ fn initiate_validator_exit(
             .map_or(delayed_epoch, |epoch| max(epoch, delayed_epoch));
         let exit_queue_churn = exit_cache.get_churn_at(exit_queue_epoch)?;
 
-        if exit_queue_churn
-            >= state_ctxt
-                .validator_churn_limit
-                .ok_or(BeaconStateError::IncorrectStateVariant)?
-        {
+        let ExitChurnLimit::ValidatorCount(validator_churn_limit) = state_ctxt.exit_churn_limit
+        else {
+            return Err(BeaconStateError::IncorrectStateVariant.into());
+        };
+        if exit_queue_churn >= validator_churn_limit {
             exit_queue_epoch.safe_add_assign(1)?;
         }
         exit_queue_epoch
@@ -984,9 +986,9 @@ fn compute_exit_epoch_and_update_churn(
         spec.compute_activation_exit_epoch(state_ctxt.current_epoch)?,
     );
 
-    let per_epoch_churn = state_ctxt
-        .exit_churn_limit
-        .ok_or(BeaconStateError::IncorrectStateVariant)?;
+    let ExitChurnLimit::Balance(per_epoch_churn) = state_ctxt.exit_churn_limit else {
+        return Err(BeaconStateError::IncorrectStateVariant.into());
+    };
     // New epoch for exits
     let mut exit_balance_to_consume = if *earliest_exit_epoch_state < earliest_exit_epoch {
         per_epoch_churn

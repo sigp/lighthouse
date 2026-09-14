@@ -2539,6 +2539,8 @@ impl<E: EthSpec> BeaconState<E> {
 
     /// Return the churn limit for the current epoch (number of validators who can leave per epoch).
     ///
+    /// Pre-Electra only.
+    ///
     /// Uses the current epoch committee cache, and will error if it isn't initialized.
     pub fn get_validator_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
         if self.fork_name_unchecked().electra_enabled() {
@@ -2555,7 +2557,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     /// Return the activation churn limit for the current epoch (number of validators who can enter per epoch).
     ///
-    /// Deneb `get_validator_activation_churn_limit`. Not the Gloas Gwei [`Self::get_activation_churn_limit`].
+    /// Pre-Electra only. Distinct from the Gloas Gwei [`Self::get_activation_churn_limit`].
     ///
     /// Uses the current epoch committee cache, and will error if it isn't initialized.
     pub fn get_validator_activation_churn_limit(
@@ -3142,6 +3144,8 @@ impl<E: EthSpec> BeaconState<E> {
     // ******* Electra accessors *******
 
     /// Return the churn limit for the current epoch.
+    ///
+    /// Electra onwards.
     pub fn get_balance_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
         if !self.fork_name_unchecked().electra_enabled() {
             return Err(BeaconStateError::IncorrectStateVariant);
@@ -3179,6 +3183,8 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Return the Gloas (EIP-8061) per-epoch churn limit for activations.
+    ///
+    /// Gloas onwards.
     pub fn get_activation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
         if !self.fork_name_unchecked().gloas_enabled() {
             return Err(BeaconStateError::IncorrectStateVariant);
@@ -3191,7 +3197,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     /// Return the Gloas (EIP-8061) exit churn limit for the current epoch.
     ///
-    /// Unlike [`Self::get_activation_churn_limit`], this is uncapped.
+    /// Gloas onwards. Unlike [`Self::get_activation_churn_limit`], this is uncapped.
     pub fn get_exit_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
         if !self.fork_name_unchecked().gloas_enabled() {
             return Err(BeaconStateError::IncorrectStateVariant);
@@ -3199,6 +3205,9 @@ impl<E: EthSpec> BeaconState<E> {
         self.get_balance_churn_limit(spec)
     }
 
+    /// Return the per-epoch churn limit for consolidations.
+    ///
+    /// Electra onwards.
     pub fn get_consolidation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
         if !self.fork_name_unchecked().electra_enabled() {
             return Err(BeaconStateError::IncorrectStateVariant);
