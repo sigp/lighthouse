@@ -789,12 +789,6 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceComplianceHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // `FORK_NAME` optionally restricts the run to a single fork.
-        if let Ok(only_fork) = std::env::var("FORK_NAME")
-            && fork_name.to_string() != only_fork
-        {
-            return false;
-        }
         cfg!(feature = "fake_crypto") && fork_name.fulu_enabled()
     }
 
