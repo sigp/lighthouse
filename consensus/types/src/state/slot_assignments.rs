@@ -136,6 +136,27 @@ impl SlotAssignments {
         &self.assignments[2].key
     }
 
+    /// The slots `val_idx` attests in across the window epochs, in ascending epoch order.
+    pub fn assigned_slots(&self, val_idx: usize) -> Result<Vec<Slot>, BeaconStateError> {
+        let mut slots = Vec::with_capacity(self.assignments.len());
+        let mut prev_epoch_start = None;
+        for assignment in &self.assignments {
+            // Near genesis the window epochs saturate and repeat; count each epoch once.
+            if prev_epoch_start == Some(assignment.epoch_start_slot) {
+                continue;
+            }
+            prev_epoch_start = Some(assignment.epoch_start_slot);
+            if let Some(slot) = assigned_slot(
+                &assignment.committee_cache,
+                assignment.epoch_start_slot,
+                val_idx,
+            )? {
+                slots.push(slot);
+            }
+        }
+        Ok(slots)
+    }
+
     /// True if `val_idx` attests in any window epoch at a slot within `[start, end]`.
     pub fn is_in_range(
         &self,
