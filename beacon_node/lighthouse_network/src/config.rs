@@ -128,7 +128,7 @@ pub struct Config {
     /// Whether to subscribe to the EIP-8025 `execution_proof` gossip topic.
     pub enable_execution_proof: bool,
 
-    /// Whether to enable the mplex multiplexer alongside yamux. Enabled by default.
+    /// Whether to enable the mplex multiplexer alongside yamux. Disabled by default.
     pub enable_mplex: bool,
 
     /// Configuration for the outbound rate limiter (requests made by this node).
@@ -369,7 +369,7 @@ impl Default for Config {
             metrics_enabled: false,
             enable_light_client_server: true,
             enable_execution_proof: false,
-            enable_mplex: true,
+            enable_mplex: false,
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,

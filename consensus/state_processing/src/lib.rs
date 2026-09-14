@@ -18,6 +18,7 @@ mod metrics;
 
 pub mod all_caches;
 pub mod block_replayer;
+pub mod builder_deposits_cache;
 pub mod common;
 pub mod consensus_context;
 pub mod envelope_processing;
@@ -46,4 +47,5 @@ pub use per_epoch_processing::{
 };
 pub use per_slot_processing::{Error as SlotProcessingError, per_slot_processing};
 pub use types::{EpochCache, EpochCacheError, EpochCacheKey};
+pub use upgrade::gloas::GloasVerificationContext;
 pub use verify_operation::{SigVerifiedOp, TransformPersist, VerifyOperation, VerifyOperationAt};

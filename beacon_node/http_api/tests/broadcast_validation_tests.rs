@@ -433,6 +433,7 @@ pub async fn consensus_partial_pass_only_consensus() {
         &channel.0,
         validation_level,
         StatusCode::ACCEPTED,
+        None,
     )
     .await;
 
@@ -610,7 +611,7 @@ pub async fn equivocation_consensus_early_equivocation() {
             .post_beacon_blocks_v2_ssz(
                 &PublishBlockRequest::new(block_a.clone(), blobs_a),
                 validation_level,
-                None
+                None,
             )
             .await
             .is_ok()
@@ -763,6 +764,7 @@ pub async fn equivocation_consensus_late_equivocation() {
         &channel.0,
         validation_level,
         StatusCode::ACCEPTED,
+        None,
     )
     .await;
 

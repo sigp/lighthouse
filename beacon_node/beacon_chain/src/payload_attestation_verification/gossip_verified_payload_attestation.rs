@@ -10,6 +10,7 @@ use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::per_block_processing::signature_sets::indexed_payload_attestation_signature_set_from_pubkeys;
 use std::borrow::Cow;
 use types::{
@@ -19,6 +20,7 @@ use types::{
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
+    pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub observed_payload_attesters: &'a RwLock<ObservedPayloadAttesters<T::EthSpec>>,
     pub canonical_head: &'a CanonicalHead<T>,
     pub shuffling_cache: &'a RwLock<ShufflingCache<T::EthSpec>>,
@@ -92,6 +94,7 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
             ctx.canonical_head,
             ctx.shuffling_cache,
             ctx.store,
+            ctx.builder_onboarding_cache,
             ctx.spec,
             beacon_block_root,
             message_epoch,
@@ -175,6 +178,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         GossipVerificationContext {
             slot_clock: &self.slot_clock,
             spec: &self.spec,
+            builder_onboarding_cache: self.builder_onboarding_cache.as_deref(),
             observed_payload_attesters: &self.observed_payload_attesters,
             canonical_head: &self.canonical_head,
             shuffling_cache: &self.shuffling_cache,
