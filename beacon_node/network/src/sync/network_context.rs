@@ -1607,21 +1607,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<CustodyBackFillBatchRequestId, RpcRequestSendError> {
         // Attempt to find all required custody peers before sending any request or creating an ID
-        let columns_by_range_peers_to_request = {
-            let column_indexes = self
-                .chain
-                .custody_context
-                .sampling_columns_for_epoch(batch_id.epoch)
-                .iter()
-                .cloned()
-                .collect();
-
-            self.select_columns_by_range_peers_to_request(
-                &column_indexes,
-                peers,
-                peers_to_deprioritize,
-            )?
-        };
+        let column_indexes: HashSet<ColumnIndex> = request.columns.iter().copied().collect();
+        let columns_by_range_peers_to_request = self.select_columns_by_range_peers_to_request(
+            &column_indexes,
+            peers,
+            peers_to_deprioritize,
+        )?;
 
         // Create the overall `custody_by_range` request id
         let id = CustodyBackFillBatchRequestId {
@@ -1630,17 +1621,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         let result = columns_by_range_peers_to_request
-            .keys()
-            .filter_map(|peer_id| {
+            .into_iter()
+            .map(|(peer_id, columns)| {
                 self.send_data_columns_by_range_request(
-                    *peer_id,
-                    request.clone(),
+                    peer_id,
+                    DataColumnsByRangeRequest {
+                        start_slot: request.start_slot,
+                        count: request.count,
+                        columns,
+                    },
                     DataColumnsByRangeRequester::CustodyBackfillSync(id),
                     Span::none(),
                 )
-                .ok()
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let range_data_column_batch_request =
             RangeDataColumnBatchRequest::new(result, self.chain.clone(), batch_id.epoch);
