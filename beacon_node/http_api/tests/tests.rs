@@ -3242,7 +3242,7 @@ impl ApiTester {
         let expected_bits = self.ptc_seats(message.data.slot, message.validator_index);
 
         self.client
-            .post_beacon_pool_payload_attestations(&[message.clone()], fork_name)
+            .post_beacon_pool_payload_attestations(std::slice::from_ref(&message), fork_name)
             .await
             .unwrap();
 
@@ -3268,7 +3268,7 @@ impl ApiTester {
         let expected_bits = self.ptc_seats(message.data.slot, message.validator_index);
 
         self.client
-            .post_beacon_pool_payload_attestations_ssz(&[message.clone()], fork_name)
+            .post_beacon_pool_payload_attestations_ssz(std::slice::from_ref(&message), fork_name)
             .await
             .unwrap();
 
@@ -3294,7 +3294,7 @@ impl ApiTester {
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(first_slot);
 
         self.client
-            .post_beacon_pool_payload_attestations(&[first.clone()], fork_name)
+            .post_beacon_pool_payload_attestations(std::slice::from_ref(&first), fork_name)
             .await
             .unwrap();
 
@@ -3321,7 +3321,7 @@ impl ApiTester {
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(second_slot);
 
         self.client
-            .post_beacon_pool_payload_attestations(&[second.clone()], fork_name)
+            .post_beacon_pool_payload_attestations(std::slice::from_ref(&second), fork_name)
             .await
             .unwrap();
 
@@ -3426,7 +3426,7 @@ impl ApiTester {
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
 
         self.client
-            .post_beacon_pool_payload_attestations(&[message.clone()], fork_name)
+            .post_beacon_pool_payload_attestations(std::slice::from_ref(&message), fork_name)
             .await
             .unwrap();
 
