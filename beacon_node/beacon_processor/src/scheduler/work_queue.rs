@@ -448,12 +448,12 @@ impl<E: EthSpec> WorkQueues<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{BeaconState, ChainSpec, Eth1Data, ForkName, MainnetEthSpec};
+    use types::{BeaconState, Eth1Data, ForkName, MainnetEthSpec};
 
     #[test]
     fn min_queue_len() {
         // State with no validators.
-        let spec = ForkName::latest().make_genesis_spec(ChainSpec::mainnet());
+        let spec = ForkName::latest().make_genesis_spec(MainnetEthSpec::default_spec());
         let genesis_time = 0;
         let state = BeaconState::<MainnetEthSpec>::new(genesis_time, Eth1Data::default(), &spec);
         assert_eq!(state.validators().len(), 0);

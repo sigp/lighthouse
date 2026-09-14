@@ -268,7 +268,7 @@ mod test {
     fn gloas_state_progressive_container_root() {
         use tree_hash::TreeHash;
 
-        let validator_count = 16;
+        let validator_count = 2 * TestEthSpec::slots_per_epoch() as usize;
         let genesis_time = 42;
         let spec = &types::ForkName::Gloas.make_genesis_spec(TestEthSpec::default_spec());
 

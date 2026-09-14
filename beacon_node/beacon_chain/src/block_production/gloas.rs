@@ -1395,9 +1395,7 @@ fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
 mod tests {
     use super::*;
     use ssz_types::ProgressiveVariableList;
-    use types::{
-        ChainSpec, ConsolidationRequest, Epoch, MainnetEthSpec, VoluntaryExit, WithdrawalRequest,
-    };
+    use types::{ConsolidationRequest, Epoch, MainnetEthSpec, VoluntaryExit, WithdrawalRequest};
 
     type TestSpec = MainnetEthSpec;
 
@@ -1441,7 +1439,7 @@ mod tests {
 
     #[test]
     fn full_exit_withdrawal_request_filters_matching_voluntary_exit() {
-        let spec = ChainSpec::mainnet();
+        let spec = TestSpec::default_spec();
         let validators = vec![pubkey(1), pubkey(2)];
         let mut exits = vec![exit(0), exit(1)];
         let reqs = requests(
@@ -1461,7 +1459,7 @@ mod tests {
 
     #[test]
     fn partial_withdrawal_request_filters_matching_voluntary_exit() {
-        let spec = ChainSpec::mainnet();
+        let spec = TestSpec::default_spec();
         let validators = vec![pubkey(1), pubkey(2)];
         let mut exits = vec![exit(0), exit(1)];
         let reqs = requests(

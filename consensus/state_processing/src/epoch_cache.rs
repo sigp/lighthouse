@@ -187,7 +187,7 @@ pub fn initialize_epoch_cache<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::Epoch;
+    use types::{Epoch, MinimalEthSpec};
 
     /// Regression test for division-by-zero when all validators have zero effective balance.
     ///
@@ -197,7 +197,7 @@ mod tests {
     /// by `integer_sqrt(0) = 0`.
     #[test]
     fn into_epoch_cache_zero_total_active_balance() {
-        let spec = ChainSpec::minimal();
+        let spec = MinimalEthSpec::default_spec();
 
         let cache = PreEpochCache {
             epoch_key: EpochCacheKey {

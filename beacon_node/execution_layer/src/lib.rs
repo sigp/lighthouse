@@ -2267,7 +2267,7 @@ mod test {
 
     #[tokio::test]
     async fn test_expected_gas_limit() {
-        let spec = ChainSpec::mainnet();
+        let spec = MainnetEthSpec::default_spec();
         assert_eq!(
             expected_gas_limit(30_000_000, 30_000_000, &spec),
             Some(30_000_000)

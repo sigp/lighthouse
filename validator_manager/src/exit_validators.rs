@@ -319,8 +319,10 @@ mod test {
 
     impl TestBuilder {
         async fn new() -> Self {
-            let mut spec = ChainSpec::mainnet();
+            let mut spec = MainnetEthSpec::default_spec();
             spec.shard_committee_period = 1;
+            // Enough churn for all exits in a test to share one epoch (minimal's default is 2).
+            spec.min_per_epoch_churn_limit = 4;
             spec.altair_fork_epoch = Some(Epoch::new(0));
             spec.bellatrix_fork_epoch = Some(Epoch::new(0));
             spec.capella_fork_epoch = Some(Epoch::new(2));
