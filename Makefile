@@ -176,14 +176,15 @@ build-release-tarballs:
 test-release:
 	cargo nextest run --workspace --release --features "$(TEST_FEATURES)" \
 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
-		--exclude http_api
+		--exclude http_api --exclude fork_choice
 
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
 	cargo nextest run --workspace --features "$(TEST_FEATURES)" \
-		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api
+		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api \
+		--exclude fork_choice
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
