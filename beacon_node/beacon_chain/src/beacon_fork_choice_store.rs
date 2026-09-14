@@ -47,58 +47,34 @@ impl From<ArithError> for Error {
 /// The number of validator balance sets that are cached within `BalancesCache`.
 const MAX_BALANCE_CACHE_SIZE: usize = 4;
 
-#[superstruct(
-    variants(V8),
-    variant_attributes(derive(PartialEq, Clone, Debug, Encode, Decode)),
-    no_enum
-)]
+#[derive(PartialEq, Clone, Debug)]
 pub(crate) struct CacheItem {
     pub(crate) block_root: Hash256,
     pub(crate) epoch: Epoch,
-    pub(crate) balances: Vec<u64>,
+    pub(crate) justified_balances: JustifiedBalances,
 }
 
-pub(crate) type CacheItem = CacheItemV8;
-
-#[superstruct(
-    variants(V8),
-    variant_attributes(derive(PartialEq, Clone, Default, Debug, Encode, Decode)),
-    no_enum
-)]
+#[derive(PartialEq, Clone, Default, Debug)]
 pub struct BalancesCache {
-    pub(crate) items: Vec<CacheItemV8>,
+    pub(crate) items: Vec<CacheItem>,
 }
-
-pub type BalancesCache = BalancesCacheV8;
 
 impl BalancesCache {
-    /// Inspect the given `state` and determine the root of the block at the first slot of
-    /// `state.current_epoch`. If there is not already some entry for the given block root, then
-    /// add the effective balances from the `state` to the cache.
-    pub fn process_state<E: EthSpec>(
+    /// Add an entry for the given epoch boundary block root, built from `state`.
+    ///
+    /// The caller must pass a `state` at the epoch boundary slot, so that the cached balances
+    /// match the checkpoint state exactly (see `on_verified_block`).
+    pub fn insert<E: EthSpec>(
         &mut self,
-        block_root: Hash256,
+        epoch_boundary_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
         let epoch = state.current_epoch();
-        let epoch_boundary_slot = epoch.start_slot(E::slots_per_epoch());
-        let epoch_boundary_root = if epoch_boundary_slot == state.slot() {
-            block_root
-        } else {
-            // This call remains sensible as long as `state.block_roots` is larger than a single
-            // epoch.
-            *state.get_block_root(epoch_boundary_slot)?
-        };
-
-        // Check if there already exists a cache entry for the epoch boundary block of the current
-        // epoch. We rely on the invariant that effective balances do not change for the duration
-        // of a single epoch, so even if the block on the epoch boundary itself is skipped we can
-        // still update its cache entry from any subsequent state in that epoch.
         if self.position(epoch_boundary_root, epoch).is_none() {
             let item = CacheItem {
                 block_root: epoch_boundary_root,
                 epoch,
-                balances: JustifiedBalances::from_justified_state(state)?.effective_balances,
+                justified_balances: JustifiedBalances::from_justified_state(state)?,
             };
 
             if self.items.len() == MAX_BALANCE_CACHE_SIZE {
@@ -120,9 +96,9 @@ impl BalancesCache {
     /// Get the balances for the given `block_root`, if any.
     ///
     /// If some balances are found, they are cloned from the cache.
-    pub fn get(&mut self, block_root: Hash256, epoch: Epoch) -> Option<Vec<u64>> {
+    pub fn get(&mut self, block_root: Hash256, epoch: Epoch) -> Option<JustifiedBalances> {
         let i = self.position(block_root, epoch)?;
-        Some(self.items[i].balances.clone())
+        Some(self.items[i].justified_balances.clone())
     }
 }
 
@@ -286,7 +262,37 @@ where
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Self::Error> {
-        self.balances_cache.process_state(block_root, state)
+        let epoch = state.current_epoch();
+        let epoch_boundary_slot = epoch.start_slot(E::slots_per_epoch());
+
+        if state.slot() == epoch_boundary_slot {
+            return self.balances_cache.insert(block_root, state);
+        }
+
+        // The epoch boundary slot was skipped. We need to make sure to use the boundary state. If
+        // not, a slashing included in first post boundary block would cause us to cache incorrect
+        // balances.
+        let epoch_boundary_root = *state.get_block_root(epoch_boundary_slot)?;
+        if self
+            .balances_cache
+            .position(epoch_boundary_root, epoch)
+            .is_some()
+        {
+            return Ok(());
+        }
+
+        let epoch_boundary_state_root = *state.get_state_root(epoch_boundary_slot)?;
+        let update_cache = true;
+        if let Some(epoch_boundary_state) = self
+            .store
+            .get_hot_state(&epoch_boundary_state_root, update_cache)
+            .map_err(Error::FailedToReadState)?
+        {
+            self.balances_cache
+                .insert(epoch_boundary_root, &epoch_boundary_state)?;
+        }
+
+        Ok(())
     }
 
     fn justified_checkpoint(&self) -> &Checkpoint {
@@ -333,13 +339,12 @@ where
         self.justified_checkpoint = checkpoint;
         self.justified_state_root = justified_state_root;
 
-        if let Some(balances) = self.balances_cache.get(
+        if let Some(justified_balances) = self.balances_cache.get(
             self.justified_checkpoint.root,
             self.justified_checkpoint.epoch,
         ) {
-            // NOTE: could avoid this re-calculation by introducing a `PersistedCacheItem`.
             metrics::inc_counter(&metrics::BALANCES_CACHE_HITS);
-            self.justified_balances = JustifiedBalances::from_effective_balances(balances)?;
+            self.justified_balances = justified_balances;
         } else {
             metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
 
@@ -393,4 +398,41 @@ pub struct PersistedForkChoiceStore {
     pub unrealized_finalized_checkpoint: Checkpoint,
     pub proposer_boost_root: Hash256,
     pub equivocating_indices: BTreeSet<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{MinimalEthSpec, Validator};
+
+    type E = MinimalEthSpec;
+
+    #[test]
+    fn balances_cache_hit_matches_justified_state() {
+        let spec = E::default_spec();
+        let mut state: BeaconState<E> = BeaconState::new(0, <_>::default(), &spec);
+        for i in 0..4u64 {
+            state
+                .validators_mut()
+                .push(Validator {
+                    effective_balance: 32_000_000_000,
+                    slashed: i == 1,
+                    activation_epoch: Epoch::new(0),
+                    exit_epoch: spec.far_future_epoch,
+                    withdrawable_epoch: spec.far_future_epoch,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+
+        let block_root = Hash256::repeat_byte(1);
+        let mut cache = BalancesCache::default();
+        cache.insert(block_root, &state).unwrap();
+
+        let cached = cache.get(block_root, state.current_epoch()).unwrap();
+        let expected = JustifiedBalances::from_justified_state(&state).unwrap();
+        assert_eq!(cached, expected);
+        assert!(!cached.slashed_balances.is_empty());
+        assert!(cache.get(block_root, state.current_epoch() + 1).is_none());
+    }
 }
