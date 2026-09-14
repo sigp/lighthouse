@@ -16,6 +16,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
 use superstruct::superstruct;
+use tracing::debug;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
     Hash256, Slot,
@@ -269,9 +270,6 @@ where
             return self.balances_cache.insert(block_root, state);
         }
 
-        // The epoch boundary slot was skipped. We need to make sure to use the boundary state. If
-        // not, a slashing included in first post boundary block would cause us to cache incorrect
-        // balances.
         let epoch_boundary_root = *state.get_block_root(epoch_boundary_slot)?;
         if self
             .balances_cache
@@ -281,7 +279,16 @@ where
             return Ok(());
         }
 
+        // The epoch boundary slot was skipped. We need to make sure to use the boundary state. If
+        // not, a slashing included in first post boundary block would cause us to cache incorrect
+        // balances.
         let epoch_boundary_state_root = *state.get_state_root(epoch_boundary_slot)?;
+        debug!(
+            slot = %epoch_boundary_slot,
+            state_root = ?epoch_boundary_state_root,
+            "Loading epoch boundary state for balances cache"
+        );
+        let _timer = metrics::start_timer(&metrics::BALANCES_CACHE_BOUNDARY_STATE_LOAD_TIMES);
         let update_cache = true;
         if let Some(epoch_boundary_state) = self
             .store
