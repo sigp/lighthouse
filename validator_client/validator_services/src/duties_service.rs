@@ -86,7 +86,7 @@ pub enum Error<T> {
     UnableToReadSlotClock,
     FailedToDownloadAttesters(#[allow(dead_code)] String),
     FailedToDownloadPtc(#[allow(dead_code)] String),
-    FailedToDownloadILs(#[allow(dead_code)] String),
+    FailedToDownloadInclusionListDuties(#[allow(dead_code)] String),
     FailedToProduceSelectionProof(#[allow(dead_code)] ValidatorStoreError<T>),
     InvalidModulo(#[allow(dead_code)] ArithError),
     Arith(#[allow(dead_code)] ArithError),
@@ -889,7 +889,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                     if let Err(e) = poll_beacon_il_committee_duties(&duties_service).await {
                         error!(
                             error = ?e,
-                            "Failed to poll il committee duties"
+                            "Failed to poll IL committee duties"
                         )
                     }
 
@@ -1561,7 +1561,7 @@ async fn post_validator_il_duties<S: ValidatorStore, T: SlotClock + 'static>(
                 .await
         })
         .await
-        .map_err(|e| Error::FailedToDownloadILs(e.to_string()))
+        .map_err(|e| Error::FailedToDownloadInclusionListDuties(e.to_string()))
 }
 
 /// Compute the attestation selection proofs for the `duties` and add them to the `attesters` map.
@@ -2001,7 +2001,7 @@ where
         .filter(|duty| local_pubkeys.contains(&duty.pubkey()));
 
     let mut new_duties = if !indices_to_request.is_empty() {
-        fetch_duties(epoch, indices_to_request.to_vec()).await?.data
+        fetch_duties(epoch, indices_to_request).await?.data
     } else {
         vec![]
     };
