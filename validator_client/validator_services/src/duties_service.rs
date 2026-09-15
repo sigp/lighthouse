@@ -25,7 +25,6 @@ use serde::{Serialize, de::DeserializeOwned};
 use slot_clock::SlotClock;
 use std::cmp::min;
 use std::collections::{BTreeMap, HashMap, HashSet, hash_map};
-use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -282,62 +281,41 @@ impl SubscriptionSlots {
     }
 }
 
-enum LookaheadDutyKind {
-    Ptc,
-    InclusionList,
-}
+/// A duty that is known one epoch in advance and keyed by dependent root, so it can be polled
+/// for the current and next epoch with the same logic.
+trait LookaheadDuty: Serialize + DeserializeOwned {
+    /// Used in log messages.
+    const NAME: &'static str;
+    /// Task labels for the duties service timing metrics.
+    const FETCH_METRIC: &'static str;
+    const STORE_METRIC: &'static str;
+    const CURRENT_EPOCH_METRIC: &'static str;
+    const NEXT_EPOCH_METRIC: &'static str;
 
-impl Display for LookaheadDutyKind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LookaheadDutyKind::Ptc => write!(f, "PTC"),
-            LookaheadDutyKind::InclusionList => write!(f, "IL"),
-        }
-    }
-}
-
-impl LookaheadDutyKind {
-    fn fetch_metric(&self) -> &'static str {
-        match self {
-            LookaheadDutyKind::Ptc => validator_metrics::UPDATE_PTC_FETCH,
-            LookaheadDutyKind::InclusionList => validator_metrics::UPDATE_IL_DUTIES_FETCH,
-        }
-    }
-
-    fn store_metric(&self) -> &'static str {
-        match self {
-            LookaheadDutyKind::Ptc => validator_metrics::UPDATE_PTC_STORE,
-            LookaheadDutyKind::InclusionList => validator_metrics::UPDATE_IL_DUTIES_STORE,
-        }
-    }
-}
-
-trait LookaheadDuty {
     fn pubkey(&self) -> PublicKeyBytes;
-    /// This duty type's identity, used for log messages and metric labels.
-    ///
-    /// An associated fn (no `self`) so the generic polling code can use it without
-    /// holding a duty instance — same pattern as `StoreItem::db_column`.
-    fn kind() -> LookaheadDutyKind;
 }
 
 impl LookaheadDuty for PtcDuty {
+    const NAME: &'static str = "PTC";
+    const FETCH_METRIC: &'static str = validator_metrics::UPDATE_PTC_FETCH;
+    const STORE_METRIC: &'static str = validator_metrics::UPDATE_PTC_STORE;
+    const CURRENT_EPOCH_METRIC: &'static str = validator_metrics::UPDATE_PTC_CURRENT_EPOCH;
+    const NEXT_EPOCH_METRIC: &'static str = validator_metrics::UPDATE_PTC_NEXT_EPOCH;
+
     fn pubkey(&self) -> PublicKeyBytes {
         self.pubkey
-    }
-
-    fn kind() -> LookaheadDutyKind {
-        LookaheadDutyKind::Ptc
     }
 }
 
 impl LookaheadDuty for InclusionListDuty {
+    const NAME: &'static str = "Inclusion List";
+    const FETCH_METRIC: &'static str = validator_metrics::UPDATE_IL_DUTIES_FETCH;
+    const STORE_METRIC: &'static str = validator_metrics::UPDATE_IL_DUTIES_STORE;
+    const CURRENT_EPOCH_METRIC: &'static str = validator_metrics::UPDATE_IL_DUTIES_CURRENT_EPOCH;
+    const NEXT_EPOCH_METRIC: &'static str = validator_metrics::UPDATE_IL_DUTIES_NEXT_EPOCH;
+
     fn pubkey(&self) -> PublicKeyBytes {
         self.pubkey
-    }
-
-    fn kind() -> LookaheadDutyKind {
-        LookaheadDutyKind::InclusionList
     }
 }
 
@@ -836,10 +814,17 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                         continue;
                     }
 
-                    if let Err(e) = poll_beacon_ptc_attesters(&duties_service).await {
+                    let service = &duties_service;
+                    let fetch_ptc_duties = |epoch: Epoch, indices: Vec<u64>| async move {
+                        post_validator_duties_ptc(service, epoch, &indices).await
+                    };
+                    if let Err(e) =
+                        poll_beacon_lookahead_duties(service, &service.ptc_duties, fetch_ptc_duties)
+                            .await
+                    {
                         error!(
                             error = ?e,
-                           "Failed to poll PTC duties"
+                            "Failed to poll PTC duties"
                         );
                     }
 
@@ -886,7 +871,14 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                         continue;
                     }
 
-                    if let Err(e) = poll_beacon_il_committee_duties(&duties_service).await {
+                    let service = &duties_service;
+                    let fetch_il_duties = |epoch: Epoch, indices: Vec<u64>| async move {
+                        post_validator_il_duties(service, epoch, &indices).await
+                    };
+                    if let Err(e) =
+                        poll_beacon_lookahead_duties(service, &service.il_duties, fetch_il_duties)
+                            .await
+                    {
                         error!(
                             error = ?e,
                             "Failed to poll IL committee duties"
@@ -1949,14 +1941,14 @@ async fn poll_lookahead_duties_for_epoch<D, F, Fut, E>(
     fetch_duties: F,
 ) -> Result<(), E>
 where
-    D: LookaheadDuty + Serialize + DeserializeOwned,
+    D: LookaheadDuty,
     F: Fn(Epoch, Vec<u64>) -> Fut,
     Fut: Future<Output = Result<DutiesResponse<Vec<D>>, E>>,
 {
     if local_indices.is_empty() {
         debug!(
             %epoch,
-            duty_kind = %D::kind(),
+            duty = D::NAME,
             "No validators, not downloading duties"
         );
         return Ok(());
@@ -1964,7 +1956,7 @@ where
 
     let fetch_timer = validator_metrics::start_timer_vec(
         &validator_metrics::DUTIES_SERVICE_TIMES,
-        &[D::kind().fetch_metric()],
+        &[D::FETCH_METRIC],
     );
 
     // TODO(gloas) limitation: only `dependent_root` changes are detected here, so validators
@@ -2011,12 +2003,12 @@ where
 
     let _store_timer = validator_metrics::start_timer_vec(
         &validator_metrics::DUTIES_SERVICE_TIMES,
-        &[D::kind().store_metric()],
+        &[D::STORE_METRIC],
     );
 
     debug!(
         %dependent_root,
-        duty_kind = %D::kind(),
+        duty = D::NAME,
         num_new_duties = new_duties.len(),
         "Downloaded duties"
     );
@@ -2029,7 +2021,7 @@ where
             debug!(
                 old_root = %existing_root,
                 new_root = %dependent_root,
-                duty_kind = %D::kind(),
+                duty = D::NAME,
                 "Dependent root changed, replacing all duties"
             );
 
@@ -2044,116 +2036,23 @@ where
     Ok(())
 }
 
-/// Query the beacon node for ptc duties for any known validators.
-async fn poll_beacon_ptc_attesters<S: ValidatorStore + 'static, T: SlotClock + 'static>(
+/// Download the lookahead duties for the current and next epoch, store them in `duties_map`,
+/// then prune duties older than `HISTORICAL_DUTIES_EPOCHS`.
+async fn poll_beacon_lookahead_duties<D, S, T, F, Fut>(
     duties_service: &Arc<DutiesService<S, T>>,
-) -> Result<(), Error<S::Error>> {
-    let current_epoch_timer = validator_metrics::start_timer_vec(
-        &validator_metrics::DUTIES_SERVICE_TIMES,
-        &[validator_metrics::UPDATE_PTC_CURRENT_EPOCH],
-    );
-
-    let current_slot = duties_service
-        .slot_clock
-        .now()
-        .ok_or(Error::UnableToReadSlotClock)?;
-    let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
-
-    // Collect *all* pubkeys, even those undergoing doppelganger protection.
-    let local_pubkeys: HashSet<_> = duties_service
-        .validator_store
-        .voting_pubkeys(DoppelgangerStatus::ignored);
-
-    let local_indices = {
-        let mut local_indices = Vec::with_capacity(local_pubkeys.len());
-
-        for &pubkey in &local_pubkeys {
-            if let Some(validator_index) = duties_service.validator_store.validator_index(&pubkey) {
-                local_indices.push(validator_index)
-            }
-        }
-        local_indices
-    };
-
-    // Poll for current epoch
-    if let Err(e) = poll_beacon_ptc_attesters_for_epoch(
-        duties_service,
-        current_epoch,
-        &local_indices,
-        &local_pubkeys,
-    )
-    .await
-    {
-        error!(
-            %current_epoch,
-            request_epoch = %current_epoch,
-            err = ?e,
-            "Failed to download PTC duties"
-        );
-    }
-    drop(current_epoch_timer);
-    let next_epoch_timer = validator_metrics::start_timer_vec(
-        &validator_metrics::DUTIES_SERVICE_TIMES,
-        &[validator_metrics::UPDATE_PTC_NEXT_EPOCH],
-    );
-
-    // Poll for next epoch
-    let next_epoch = current_epoch + 1;
-    if let Err(e) = poll_beacon_ptc_attesters_for_epoch(
-        duties_service,
-        next_epoch,
-        &local_indices,
-        &local_pubkeys,
-    )
-    .await
-    {
-        error!(
-            %current_epoch,
-            request_epoch = %next_epoch,
-            err = ?e,
-            "Failed to download PTC duties"
-        );
-    }
-    drop(next_epoch_timer);
-
-    // Prune old duties.
-    duties_service
-        .ptc_duties
-        .write()
-        .retain(|&epoch, _| epoch + HISTORICAL_DUTIES_EPOCHS >= current_epoch);
-
-    Ok(())
-}
-
-/// For the given `local_indices` and `local_pubkeys`, download the PTC duties for the given `epoch` and
-/// store them in `duties_service.ptc_duties` using bandwidth optimization.
-async fn poll_beacon_ptc_attesters_for_epoch<
+    duties_map: &RwLock<HashMap<Epoch, (DependentRoot, Vec<D>)>>,
+    fetch_duties: F,
+) -> Result<(), Error<S::Error>>
+where
+    D: LookaheadDuty,
     S: ValidatorStore + 'static,
     T: SlotClock + 'static,
->(
-    duties_service: &Arc<DutiesService<S, T>>,
-    epoch: Epoch,
-    local_indices: &[u64],
-    local_pubkeys: &HashSet<PublicKeyBytes>,
-) -> Result<(), Error<S::Error>> {
-    poll_lookahead_duties_for_epoch(
-        epoch,
-        local_indices,
-        local_pubkeys,
-        &duties_service.ptc_duties,
-        |epoch, indices| async move {
-            post_validator_duties_ptc(duties_service, epoch, &indices).await
-        },
-    )
-    .await
-}
-
-async fn poll_beacon_il_committee_duties<S: ValidatorStore + 'static, T: SlotClock + 'static>(
-    duties_service: &Arc<DutiesService<S, T>>,
-) -> Result<(), Error<S::Error>> {
+    F: Fn(Epoch, Vec<u64>) -> Fut,
+    Fut: Future<Output = Result<DutiesResponse<Vec<D>>, Error<S::Error>>>,
+{
     let current_epoch_timer = validator_metrics::start_timer_vec(
         &validator_metrics::DUTIES_SERVICE_TIMES,
-        &[validator_metrics::UPDATE_IL_DUTIES_CURRENT_EPOCH],
+        &[D::CURRENT_EPOCH_METRIC],
     );
 
     let current_slot = duties_service
@@ -2172,70 +2071,57 @@ async fn poll_beacon_il_committee_duties<S: ValidatorStore + 'static, T: SlotClo
         .collect::<Vec<_>>();
 
     // Poll for current epoch
-    if let Err(e) = poll_beacon_il_duties_for_epoch(
-        duties_service,
+    if let Err(e) = poll_lookahead_duties_for_epoch(
         current_epoch,
         &local_indices,
         &local_pubkeys,
+        duties_map,
+        &fetch_duties,
     )
     .await
     {
         error!(
             %current_epoch,
             request_epoch = %current_epoch,
-            err = ?e,
-            "Failed to download IL committee duties"
+            duty = D::NAME,
+            error = ?e,
+            "Failed to download duties"
         );
     }
     drop(current_epoch_timer);
 
     let next_epoch_timer = validator_metrics::start_timer_vec(
         &validator_metrics::DUTIES_SERVICE_TIMES,
-        &[validator_metrics::UPDATE_IL_DUTIES_NEXT_EPOCH],
+        &[D::NEXT_EPOCH_METRIC],
     );
 
     // Poll for next epoch
     let next_epoch = current_epoch + 1;
-    if let Err(e) =
-        poll_beacon_il_duties_for_epoch(duties_service, next_epoch, &local_indices, &local_pubkeys)
-            .await
+    if let Err(e) = poll_lookahead_duties_for_epoch(
+        next_epoch,
+        &local_indices,
+        &local_pubkeys,
+        duties_map,
+        &fetch_duties,
+    )
+    .await
     {
         error!(
             %current_epoch,
             request_epoch = %next_epoch,
-            err = ?e,
-            "Failed to download IL committee duties"
+            duty = D::NAME,
+            error = ?e,
+            "Failed to download duties"
         );
     }
     drop(next_epoch_timer);
 
-    // Prune old IL committee duties
-    duties_service
-        .il_duties
+    // Prune old duties
+    duties_map
         .write()
         .retain(|&epoch, _| epoch + HISTORICAL_DUTIES_EPOCHS >= current_epoch);
 
     Ok(())
-}
-
-/// For the given `local_indices` and `local_pubkeys`, download the IL committee duties
-/// for the given `epoch` and store them in `duties_service.il_duties` using bandwidth optimization.
-async fn poll_beacon_il_duties_for_epoch<S: ValidatorStore + 'static, T: SlotClock + 'static>(
-    duties_service: &Arc<DutiesService<S, T>>,
-    epoch: Epoch,
-    local_indices: &[u64],
-    local_pubkeys: &HashSet<PublicKeyBytes>,
-) -> Result<(), Error<S::Error>> {
-    poll_lookahead_duties_for_epoch(
-        epoch,
-        local_indices,
-        local_pubkeys,
-        &duties_service.il_duties,
-        |epoch, indices| async move {
-            post_validator_il_duties(duties_service, epoch, &indices).await
-        },
-    )
-    .await
 }
 
 async fn notify_block_production_service<S: ValidatorStore>(
