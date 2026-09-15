@@ -17,11 +17,7 @@ fn shuffle_indices_individually(seed: &[u8], list_size: usize) -> Vec<usize> {
 // Prefix benchmark names so that time-based and hardware performance data results are stored and
 // compared separately by criterion.
 fn name(prefix: &str, base: &str) -> String {
-    if prefix.is_empty() {
-        base.to_string()
-    } else {
-        format!("{prefix}/{base}")
-    }
+    format!("{prefix}/{base}")
 }
 
 fn shuffles<M: Measurement + 'static>(c: &mut Criterion<M>, prefix: &str) {
