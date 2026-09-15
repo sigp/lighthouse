@@ -1068,7 +1068,7 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
         .and(warp_utils::json::json())
-        .and(consensus_version_header_filter)
+        .and(consensus_version_header_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
@@ -1573,6 +1573,7 @@ pub async fn serve<T: BeaconChainTypes>(
     // POST beacon/execution_payload_bids
     let post_beacon_execution_payload_bids = post_beacon_execution_payload_bids(
         eth_v1.clone(),
+        consensus_version_header_filter.clone(),
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
@@ -1581,6 +1582,7 @@ pub async fn serve<T: BeaconChainTypes>(
     // POST beacon/execution_payload_bids (SSZ)
     let post_beacon_execution_payload_bids_ssz = post_beacon_execution_payload_bids_ssz(
         eth_v1.clone(),
+        consensus_version_header_filter.clone(),
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
