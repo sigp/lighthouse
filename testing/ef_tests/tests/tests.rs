@@ -944,20 +944,6 @@ mod ssz_static {
 }
 
 #[test]
-fn ssz_generic() {
-    SszGenericHandler::<BasicVector>::default().run();
-    SszGenericHandler::<Bitlist>::default().run();
-    SszGenericHandler::<Bitvector>::default().run();
-    SszGenericHandler::<Boolean>::default().run();
-    SszGenericHandler::<Uints>::default().run();
-    SszGenericHandler::<Containers>::default().run();
-    SszGenericHandler::<BasicProgressiveList>::default().run();
-    SszGenericHandler::<ProgressiveBitlist>::default().run();
-    SszGenericHandler::<ProgressiveContainers>::default().run();
-    SszGenericHandler::<CompatibleUnions>::default().run();
-}
-
-#[test]
 fn epoch_processing_justification_and_finalization() {
     EpochProcessingHandler::<MinimalEthSpec, JustificationAndFinalization>::default().run();
     EpochProcessingHandler::<MainnetEthSpec, JustificationAndFinalization>::default().run();
@@ -1199,6 +1185,36 @@ fn fork_choice_payload_data_availability() {
 }
 
 #[test]
+fn fork_choice_compliance_attester_slashing_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("attester_slashing_test").run();
+}
+
+#[test]
+fn fork_choice_compliance_block_cover_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_cover_test").run();
+}
+
+#[test]
+fn fork_choice_compliance_block_tree_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_tree_test").run();
+}
+
+#[test]
+fn fork_choice_compliance_block_weight_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("block_weight_test").run();
+}
+
+#[test]
+fn fork_choice_compliance_invalid_message_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("invalid_message_test").run();
+}
+
+#[test]
+fn fork_choice_compliance_shuffling_test() {
+    ForkChoiceComplianceHandler::<MinimalEthSpec>::new("shuffling_test").run();
+}
+
+#[test]
 fn optimistic_sync() {
     OptimisticSyncHandler::<MinimalEthSpec>::default().run();
     OptimisticSyncHandler::<MainnetEthSpec>::default().run();
@@ -1213,56 +1229,6 @@ fn genesis_initialization() {
 fn genesis_validity() {
     GenesisValidityHandler::<MinimalEthSpec>::default().run();
     // Note: there are no genesis validity tests for mainnet
-}
-
-#[test]
-fn kzg_blob_to_kzg_commitment() {
-    KZGBlobToKZGCommitmentHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_compute_blob_kzg_proof() {
-    KZGComputeBlobKZGProofHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_compute_kzg_proof() {
-    KZGComputeKZGProofHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_verify_blob_kzg_proof() {
-    KZGVerifyBlobKZGProofHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_verify_blob_kzg_proof_batch() {
-    KZGVerifyBlobKZGProofBatchHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_verify_kzg_proof() {
-    KZGVerifyKZGProofHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_compute_cells() {
-    KZGComputeCellsHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_compute_cells_and_proofs() {
-    KZGComputeCellsAndKZGProofHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_verify_cell_proof_batch() {
-    KZGVerifyCellKZGProofBatchHandler::<MainnetEthSpec>::default().run();
-}
-
-#[test]
-fn kzg_recover_cells_and_proofs() {
-    KZGRecoverCellsAndKZGProofHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]

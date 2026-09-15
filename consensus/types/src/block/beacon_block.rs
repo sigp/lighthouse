@@ -14,7 +14,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    SignedExecutionPayloadBid,
+    KzgCommitment, SignedExecutionPayloadBid,
     attestation::{AttestationBase, AttestationData, IndexedAttestationBase},
     block::{
         BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,
@@ -312,22 +312,22 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
         self.body().execution_payload()
     }
 
-    pub fn blob_kzg_commitments_len(&self) -> Option<usize> {
+    pub fn blob_kzg_commitments(&self) -> Option<&[KzgCommitment]> {
         match self {
             BeaconBlockRef::Base(_) => None,
             BeaconBlockRef::Altair(_) => None,
             BeaconBlockRef::Bellatrix(_) => None,
             BeaconBlockRef::Capella(_) => None,
-            BeaconBlockRef::Deneb(block) => Some(block.body.blob_kzg_commitments.len()),
-            BeaconBlockRef::Electra(block) => Some(block.body.blob_kzg_commitments.len()),
-            BeaconBlockRef::Fulu(block) => Some(block.body.blob_kzg_commitments.len()),
+            BeaconBlockRef::Deneb(block) => Some(block.body.blob_kzg_commitments.as_ref()),
+            BeaconBlockRef::Electra(block) => Some(block.body.blob_kzg_commitments.as_ref()),
+            BeaconBlockRef::Fulu(block) => Some(block.body.blob_kzg_commitments.as_ref()),
             BeaconBlockRef::Gloas(block) => Some(
                 block
                     .body
                     .signed_execution_payload_bid
                     .message
                     .blob_kzg_commitments
-                    .len(),
+                    .as_ref(),
             ),
             BeaconBlockRef::Heze(block) => Some(
                 block
@@ -335,9 +335,13 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
                     .signed_execution_payload_bid
                     .message
                     .blob_kzg_commitments
-                    .len(),
+                    .as_ref(),
             ),
         }
+    }
+
+    pub fn blob_kzg_commitments_len(&self) -> Option<usize> {
+        self.blob_kzg_commitments().map(<[KzgCommitment]>::len)
     }
 }
 

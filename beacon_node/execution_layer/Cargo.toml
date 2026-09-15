@@ -11,7 +11,7 @@ alloy-rlp = { workspace = true }
 alloy-rpc-types-eth = { workspace = true }
 arc-swap = "1.6.0"
 bls = { workspace = true }
-builder_client = { path = "../builder_client" }
+builder_client = { workspace = true }
 bytes = { workspace = true }
 eth2 = { workspace = true, features = ["events", "lighthouse", "network"] }
 ethereum_serde_utils = { workspace = true }
