@@ -94,7 +94,7 @@ async fn committee_resolves_for_a_slot_in_the_previous_epoch() {
         .unwrap()
         .unwrap();
 
-    let (committee, _) = harness
+    let (committee, dependent_root) = harness
         .chain
         .inclusion_list_committee(block_root, slot)
         .unwrap();
@@ -110,6 +110,30 @@ async fn committee_resolves_for_a_slot_in_the_previous_epoch() {
         harness
             .chain
             .inclusion_list_committee(harness.head_block_root(), slot),
+        Err(BeaconChainError::InvalidShufflingId { .. })
+    ));
+
+    // `get_inclusion_list_transactions` resolves the dependent root itself, so cover it here too.
+    harness
+        .chain
+        .inclusion_list_store
+        .write()
+        .process_inclusion_list(
+            signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
+            true,
+        );
+
+    assert_eq!(
+        harness
+            .chain
+            .get_inclusion_list_transactions(block_root, slot, true)
+            .unwrap(),
+        vec![transaction(0xaa)]
+    );
+    assert!(matches!(
+        harness
+            .chain
+            .get_inclusion_list_transactions(harness.head_block_root(), slot, true),
         Err(BeaconChainError::InvalidShufflingId { .. })
     ));
 }
