@@ -100,15 +100,9 @@ excluded_paths = [
     "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__ignore_payload_pending_el_validation/.*",
     "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__reject_block_failed_validation/.*",
     "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__reject_payload_failed_el_validation/.*",
-    # Gloas bid gas-limit validation currently uses the committed bid rather than the parent
-    # payload. Keep these synchronized with IGNORED_EXECUTION_PAYLOAD_BID_GAS_LIMIT_CASES.
-    # TODO(gloas): should be enabled after https://github.com/sigp/lighthouse/pull/9905
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_decrease_exceeding_limit/.*",
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_decrease_within_limit/.*",
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_increase_exceeding_limit/.*",
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_increase_within_limit/.*",
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_parent_under_step/.*",
-    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_gas_limit_target_equals_parent/.*",
+    # Advancing the parent state across an epoch for every gossip bid would put epoch processing
+    # on the gossip hot path. Keep synchronized with IGNORED_EXECUTION_PAYLOAD_BID_CASES.
+    "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_requires_state_advanced_across_epoch/.*",
     # Gloas execution payload envelope cases with production-harness limitations. Keep these
     # synchronized with IGNORED_EXECUTION_PAYLOAD_ENVELOPE_CASES.
     "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__ignore_duplicate/.*",
