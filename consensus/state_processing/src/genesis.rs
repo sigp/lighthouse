@@ -221,6 +221,13 @@ pub fn genesis_block<E: EthSpec>(
 ) -> Result<BeaconBlock<E>, BeaconStateError> {
     let mut block = BeaconBlock::empty(spec);
     match &mut block {
+        BeaconBlock::Base(_)
+        | BeaconBlock::Altair(_)
+        | BeaconBlock::Bellatrix(_)
+        | BeaconBlock::Capella(_)
+        | BeaconBlock::Deneb(_)
+        | BeaconBlock::Electra(_)
+        | BeaconBlock::Fulu(_) => {}
         BeaconBlock::Gloas(gloas_block) => {
             gloas_block.body.signed_execution_payload_bid.message =
                 state.latest_execution_payload_bid_gloas()?.clone();
@@ -229,7 +236,6 @@ pub fn genesis_block<E: EthSpec>(
             heze_block.body.signed_execution_payload_bid.message =
                 state.latest_execution_payload_bid_heze()?.clone();
         }
-        _ => {}
     }
     Ok(block)
 }
