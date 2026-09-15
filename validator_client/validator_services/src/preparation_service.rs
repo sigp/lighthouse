@@ -11,7 +11,7 @@ use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 use types::{
-    Address, ChainSpec, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,
+    Address, ChainSpec, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData, Slot,
     ValidatorRegistrationData,
 };
 use validator_store::{
@@ -23,6 +23,10 @@ const PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS: u64 = 2;
 
 /// Number of epochs to wait before re-submitting validator registration.
 const EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION: u64 = 1;
+
+fn should_publish_validator_registrations<E: EthSpec>(slot: Slot, spec: &ChainSpec) -> bool {
+    !spec.fork_name_at_slot::<E>(slot).gloas_enabled()
+}
 
 /// Builds an `PreparationService`.
 #[derive(Default)]
@@ -220,9 +224,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
 
         let validator_registration_fut = async move {
             loop {
-                // Poll the endpoint immediately to ensure fee recipients are received.
-                if let Err(e) = self.register_validators().await {
-                    error!(error = ?e, "Error during validator registration");
+                if let Some(slot) = self.slot_clock.now()
+                    && should_publish_validator_registrations::<S::E>(slot, &spec)
+                {
+                    // Poll the endpoint immediately to ensure fee recipients are received.
+                    if let Err(e) = self.register_validators(slot).await {
+                        error!(error = ?e, "Error during validator registration");
+                    }
                 }
 
                 // Wait one slot if the register validator request fails or if we should not publish at the current slot.
@@ -348,7 +356,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
     }
 
     /// Register validators with builders, used in the blinded block proposal flow.
-    async fn register_validators(&self) -> Result<(), String> {
+    async fn register_validators(&self, slot: Slot) -> Result<(), String> {
         let registration_keys = self.collect_validator_registration_keys();
 
         let mut changed_keys = vec![];
@@ -366,15 +374,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
         }
 
         // Check if any have changed or it's been `EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION`.
-        if let Some(slot) = self.slot_clock.now() {
-            if slot % (S::E::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0
-            {
-                self.publish_validator_registration_data(registration_keys)
-                    .await?;
-            } else if !changed_keys.is_empty() {
-                self.publish_validator_registration_data(changed_keys)
-                    .await?;
-            }
+        if slot % (S::E::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0 {
+            self.publish_validator_registration_data(registration_keys)
+                .await?;
+        } else if !changed_keys.is_empty() {
+            self.publish_validator_registration_data(changed_keys)
+                .await?;
         }
 
         Ok(())
@@ -470,5 +475,44 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{Epoch, MainnetEthSpec, Slot};
+
+    #[test]
+    fn validator_registrations_stop_at_gloas() {
+        type E = MainnetEthSpec;
+
+        let mut spec = E::default_spec();
+        let gloas_fork_epoch = Epoch::new(1);
+        spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+
+        let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
+
+        assert!(should_publish_validator_registrations::<E>(
+            first_gloas_slot - 1,
+            &spec
+        ));
+        assert!(!should_publish_validator_registrations::<E>(
+            first_gloas_slot,
+            &spec
+        ));
+    }
+
+    #[test]
+    fn validator_registrations_continue_without_gloas() {
+        type E = MainnetEthSpec;
+
+        let mut spec = E::default_spec();
+        spec.gloas_fork_epoch = None;
+
+        assert!(should_publish_validator_registrations::<E>(
+            Slot::new(0),
+            &spec
+        ));
     }
 }

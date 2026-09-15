@@ -108,10 +108,12 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
+    // Partial columns are enabled by default on all networks except the ones listed here.
+    // This enables them on Hoodi, Sepolia and custom networks.
     let default_partial_columns_enabled = spec
         .config_name
         .as_ref()
-        .is_some_and(|name| matches!(name.as_str(), "hoodi" | "sepolia"));
+        .is_none_or(|name| !matches!(name.as_str(), "mainnet" | "gnosis" | "chiado" | "holesky"));
     let enable_partial_columns = clap_utils::parse_optional(cli_args, "enable-partial-columns")?
         .unwrap_or(default_partial_columns_enabled);
 

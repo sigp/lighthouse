@@ -12,6 +12,7 @@ network = ["libp2p-identity", "enr", "multiaddr"]
 
 [dependencies]
 bls = { workspace = true }
+builder_types = { workspace = true }
 context_deserialize = { workspace = true }
 educe = { workspace = true }
 eip_3076 = { workspace = true, optional = true }
@@ -40,5 +41,6 @@ zeroize = { workspace = true, optional = true }
 
 [dev-dependencies]
 arbitrary = { workspace = true }
+builder_types = { workspace = true, features = ["arbitrary"] }
 tokio = { workspace = true }
 types = { workspace = true, features = ["arbitrary"] }

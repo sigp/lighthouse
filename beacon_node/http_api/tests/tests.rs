@@ -41,6 +41,7 @@ use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use ssz::{BitList, Decode};
+use state_processing::GloasVerificationContext;
 use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::per_slot_processing;
 use state_processing::state_advance::partial_state_advance;
@@ -1987,7 +1988,7 @@ impl ApiTester {
         let next_block = &self.next_block;
 
         self.client
-            .post_beacon_blocks_v2_ssz(next_block, None)
+            .post_beacon_blocks_v2_ssz(next_block, None, None)
             .await
             .unwrap();
 
@@ -2085,7 +2086,7 @@ impl ApiTester {
                 .await
                 .unwrap(),
             self.client
-                .post_beacon_blocks_v2_ssz(&block_contents, None)
+                .post_beacon_blocks_v2_ssz(&block_contents, None, None)
                 .await
                 .unwrap(),
             self.client
@@ -4544,7 +4545,7 @@ impl ApiTester {
                 block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
             self.client
-                .post_beacon_blocks_v2_ssz(&signed_block_contents, None)
+                .post_beacon_blocks_v2_ssz(&signed_block_contents, None, None)
                 .await
                 .unwrap();
 
@@ -4666,7 +4667,7 @@ impl ApiTester {
                         block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
                     self.client
-                        .post_beacon_blocks_v2_ssz(&signed_block_contents, None)
+                        .post_beacon_blocks_v2_ssz(&signed_block_contents, None, None)
                         .await
                         .unwrap();
 
@@ -4812,7 +4813,15 @@ impl ApiTester {
 
         let (response, _metadata) = self
             .client
-            .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
+            .post_validator_blocks_v4::<E>(
+                slot,
+                &randao_reveal,
+                None,
+                false,
+                &eth2::types::BuilderConfig::empty(),
+                None,
+                ForkName::Gloas,
+            )
             .await
             .unwrap();
         let block = response.into_block();
@@ -4976,13 +4985,12 @@ impl ApiTester {
 
         let mut url = self
             .client
-            .get_validator_blocks_v4_path(
+            .post_validator_blocks_v4_path(
                 slot,
                 &randao_reveal,
                 None,
                 SkipRandaoVerification::No,
                 false,
-                None,
                 None,
             )
             .await
@@ -5001,6 +5009,248 @@ impl ApiTester {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_block_production_v4_missing_consensus_version_header_returns_400(
+        self,
+    ) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, _fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (_sk, randao_reveal) = self
+            .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+            .await;
+
+        let url = self
+            .client
+            .post_validator_blocks_v4_path(
+                slot,
+                &randao_reveal,
+                None,
+                SkipRandaoVerification::No,
+                false,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // A valid body, but no `Eth-Consensus-Version` header: the header is required
+        // (beacon-APIs #630), so the request must fail with a 400.
+        let response = reqwest::Client::new()
+            .post(url)
+            .json(&eth2::types::BuilderConfig::empty())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_block_production_v4_zero_length_entry_fields_return_400(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let Some((slot, epoch, _fork_name)) = self.advance_to_gloas_slot() else {
+            return self;
+        };
+
+        let (_sk, randao_reveal) = self
+            .proposer_setup(slot, epoch, &fork, genesis_validators_root)
+            .await;
+
+        let url = self
+            .client
+            .post_validator_blocks_v4_path(
+                slot,
+                &randao_reveal,
+                None,
+                SkipRandaoVerification::No,
+                false,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let valid_auth = eth2::types::SignedRequestAuth {
+            message: eth2::types::RequestAuth {
+                data: eth2::types::RequestAuthData::new(b"http://builder.example.com".to_vec())
+                    .unwrap(),
+                slot,
+            },
+            signature: Signature::empty(),
+        };
+        let entry = |url: &str, auth: eth2::types::SignedRequestAuth| eth2::types::BuilderEntry {
+            url: url.parse().unwrap(),
+            auth,
+            builder_pubkeys: <_>::default(),
+            max_execution_payment: 0,
+            min_bid: 0,
+            builder_boost_factor: 100,
+        };
+
+        // A zero-length `url` and a zero-length auth `data` each make the body invalid
+        // (beacon-APIs #630), so the request must fail with a 400.
+        let empty_url_entry = entry("", valid_auth.clone());
+        let mut empty_data_auth = valid_auth;
+        empty_data_auth.message.data = eth2::types::RequestAuthData::default();
+        let empty_data_entry = entry("http://builder.example.com", empty_data_auth);
+
+        for bad_entry in [empty_url_entry, empty_data_entry] {
+            let config = serde_json::json!({
+                "min_bid": "0",
+                "builder_boost_factor": "100",
+                "builders": [bad_entry],
+            });
+            let response = reqwest::Client::new()
+                .post(url.clone())
+                .header(eth2::CONSENSUS_VERSION_HEADER, "gloas")
+                .json(&config)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    /// The `POST validator/builder_preferences` URL, for raw requests that bypass the eth2 client
+    /// (which always sets the required header).
+    fn builder_preferences_url(&self) -> reqwest::Url {
+        let mut url = self.client.server().expose_full().clone();
+        url.path_segments_mut()
+            .unwrap()
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push("builder_preferences");
+        url
+    }
+
+    /// A `BuilderPreferenceEntry` that passes the endpoint's body validation.
+    fn valid_builder_preference_entry() -> eth2::types::BuilderPreferenceEntry {
+        eth2::types::BuilderPreferenceEntry {
+            proposer_pubkey: PublicKeyBytes::empty(),
+            url: "http://builder.example.com".parse().unwrap(),
+            auth: eth2::types::SignedRequestAuth {
+                message: eth2::types::RequestAuth {
+                    data: eth2::types::RequestAuthData::new(b"http://builder.example.com".to_vec())
+                        .unwrap(),
+                    slot: Slot::new(0),
+                },
+                signature: Signature::empty(),
+            },
+            max_execution_payment: 0,
+        }
+    }
+
+    pub async fn test_builder_preferences_missing_consensus_version_header_returns_400(
+        self,
+    ) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        // A valid body, but no `Eth-Consensus-Version` header: the header is required
+        // (beacon-APIs #630), so the request must fail with a 400.
+        let response = reqwest::Client::new()
+            .post(self.builder_preferences_url())
+            .json(&vec![Self::valid_builder_preference_entry()])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        self
+    }
+
+    pub async fn test_builder_preferences_zero_length_entry_fields_return_400(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        // A zero-length `url` and a zero-length auth `data` each make the body invalid
+        // (beacon-APIs #630), so the request must fail with a 400.
+        let mut empty_url_entry = Self::valid_builder_preference_entry();
+        empty_url_entry.url = "".parse().unwrap();
+        let mut empty_data_entry = Self::valid_builder_preference_entry();
+        empty_data_entry.auth.message.data = eth2::types::RequestAuthData::default();
+
+        for bad_entry in [empty_url_entry, empty_data_entry] {
+            let response = reqwest::Client::new()
+                .post(self.builder_preferences_url())
+                .header(eth2::CONSENSUS_VERSION_HEADER, "gloas")
+                .json(&vec![bad_entry])
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        self
+    }
+
+    pub async fn test_builder_preferences_oversize_list_returns_400(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        // The submission list is bounded at `MAX_SUBMITTED_BUILDER_PREFERENCES` entries
+        // (beacon-APIs #630); one more is an invalid body.
+        let entries = vec![
+            Self::valid_builder_preference_entry();
+            eth2::types::MAX_SUBMITTED_BUILDER_PREFERENCES + 1
+        ];
+        let response = reqwest::Client::new()
+            .post(self.builder_preferences_url())
+            .header(eth2::CONSENSUS_VERSION_HEADER, "gloas")
+            .json(&entries)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        self
+    }
+
+    pub async fn test_builder_preferences_without_builder_service_returns_400(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        // The test harness never wires a builder service into the chain, so a well-formed
+        // submission reaches the handler and must be rejected as a client-side misconfiguration
+        // (400 with a self-explanatory message), not a 500.
+        let response = reqwest::Client::new()
+            .post(self.builder_preferences_url())
+            .header(eth2::CONSENSUS_VERSION_HEADER, "gloas")
+            .json(&vec![Self::valid_builder_preference_entry()])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response.text().await.unwrap();
+        assert!(
+            body.contains("no builder service"),
+            "unexpected error body: {body}"
+        );
 
         self
     }
@@ -5178,7 +5428,15 @@ impl ApiTester {
 
             let (response, metadata) = self
                 .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
+                .post_validator_blocks_v4::<E>(
+                    slot,
+                    &randao_reveal,
+                    None,
+                    false,
+                    &eth2::types::BuilderConfig::empty(),
+                    None,
+                    ForkName::Gloas,
+                )
                 .await
                 .unwrap();
             let block = response.into_block();
@@ -5253,7 +5511,15 @@ impl ApiTester {
 
             let (response, metadata) = self
                 .client
-                .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, false, None, None)
+                .post_validator_blocks_v4_ssz::<E>(
+                    slot,
+                    &randao_reveal,
+                    None,
+                    false,
+                    &eth2::types::BuilderConfig::empty(),
+                    None,
+                    ForkName::Gloas,
+                )
                 .await
                 .unwrap();
             let block = response.into_block();
@@ -5272,7 +5538,7 @@ impl ApiTester {
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
             self.client
-                .post_beacon_blocks_v2_ssz(&signed_block_request, None)
+                .post_beacon_blocks_v2_ssz(&signed_block_request, None, None)
                 .await
                 .unwrap();
             assert_eq!(self.chain.head_beacon_block(), Arc::new(signed_block));
@@ -5325,12 +5591,28 @@ impl ApiTester {
 
             let (response, metadata) = if ssz {
                 self.client
-                    .get_validator_blocks_v4_ssz::<E>(slot, &randao_reveal, None, true, None, None)
+                    .post_validator_blocks_v4_ssz::<E>(
+                        slot,
+                        &randao_reveal,
+                        None,
+                        true,
+                        &eth2::types::BuilderConfig::empty(),
+                        None,
+                        ForkName::Gloas,
+                    )
                     .await
                     .unwrap()
             } else {
                 self.client
-                    .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, true, None, None)
+                    .post_validator_blocks_v4::<E>(
+                        slot,
+                        &randao_reveal,
+                        None,
+                        true,
+                        &eth2::types::BuilderConfig::empty(),
+                        None,
+                        ForkName::Gloas,
+                    )
                     .await
                     .unwrap()
             };
@@ -5347,7 +5629,7 @@ impl ApiTester {
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
             if ssz {
                 self.client
-                    .post_beacon_blocks_v2_ssz(&signed_block_request, None)
+                    .post_beacon_blocks_v2_ssz(&signed_block_request, None, None)
                     .await
                     .unwrap();
             } else {
@@ -5871,7 +6153,15 @@ impl ApiTester {
             // Produce and publish a block.
             let (response, _metadata) = self
                 .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
+                .post_validator_blocks_v4::<E>(
+                    slot,
+                    &randao_reveal,
+                    None,
+                    false,
+                    &eth2::types::BuilderConfig::empty(),
+                    None,
+                    ForkName::Gloas,
+                )
                 .await
                 .unwrap();
             let block = response.into_block();
@@ -5954,7 +6244,15 @@ impl ApiTester {
             // Produce and publish a block, but withhold its envelope.
             let (response, _metadata) = self
                 .client
-                .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
+                .post_validator_blocks_v4::<E>(
+                    slot,
+                    &randao_reveal,
+                    None,
+                    false,
+                    &eth2::types::BuilderConfig::empty(),
+                    None,
+                    ForkName::Gloas,
+                )
                 .await
                 .unwrap();
             let block = response.into_block();
@@ -6119,7 +6417,13 @@ impl ApiTester {
 
         let mut head = self.chain.head_snapshot().as_ref().clone();
         while head.beacon_state.current_epoch() < epoch {
-            per_slot_processing(&mut head.beacon_state, None, &self.chain.spec).unwrap();
+            per_slot_processing(
+                &mut head.beacon_state,
+                None,
+                GloasVerificationContext::FullVerification,
+                &self.chain.spec,
+            )
+            .unwrap();
         }
         head.beacon_state
             .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
@@ -8724,6 +9028,7 @@ impl ApiTester {
                 &mut state,
                 Some(state_root),
                 proposal_slot,
+                None,
                 &self.chain.spec,
             );
         }
@@ -8916,7 +9221,15 @@ impl ApiTester {
 
         let (response, _metadata) = self
             .client
-            .get_validator_blocks_v4::<E>(slot, &randao_reveal, None, false, None, None)
+            .post_validator_blocks_v4::<E>(
+                slot,
+                &randao_reveal,
+                None,
+                false,
+                &eth2::types::BuilderConfig::empty(),
+                None,
+                ForkName::Gloas,
+            )
             .await
             .unwrap();
         let block = response.into_block();
@@ -9217,23 +9530,20 @@ impl ApiTester {
         self
     }
 
-    async fn get_validator_blocks_v4_path_graffiti_policy(self) -> Self {
+    async fn post_validator_blocks_v4_path_graffiti_policy(self) -> Self {
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
         let (_, randao_reveal) = self.get_test_randao(slot, epoch).await;
         let graffiti = Some(Graffiti::from([0; GRAFFITI_BYTES_LEN]));
-        let builder_boost_factor = None;
-
         // When GraffitiPolicy is None
         let no_graffiti_policy_path = self
             .client
-            .get_validator_blocks_v4_path(
+            .post_validator_blocks_v4_path(
                 slot,
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
                 false,
-                builder_boost_factor,
                 None,
             )
             .await
@@ -9242,13 +9552,12 @@ impl ApiTester {
         // Default case where GraffitiPolicy is AppendClientVersions
         let default_path = self
             .client
-            .get_validator_blocks_v4_path(
+            .post_validator_blocks_v4_path(
                 slot,
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
                 false,
-                builder_boost_factor,
                 Some(GraffitiPolicy::AppendClientVersions),
             )
             .await
@@ -9267,13 +9576,12 @@ impl ApiTester {
 
         let preserve_path = self
             .client
-            .get_validator_blocks_v4_path(
+            .post_validator_blocks_v4_path(
                 slot,
                 &randao_reveal,
                 graffiti.as_ref(),
                 SkipRandaoVerification::Yes,
                 false,
-                builder_boost_factor,
                 Some(GraffitiPolicy::PreserveUserGraffiti),
             )
             .await
@@ -10098,6 +10406,18 @@ async fn envelope_api() {
         .await
         .test_block_production_v4_missing_include_payload_returns_400()
         .await
+        .test_block_production_v4_missing_consensus_version_header_returns_400()
+        .await
+        .test_block_production_v4_zero_length_entry_fields_return_400()
+        .await
+        .test_builder_preferences_missing_consensus_version_header_returns_400()
+        .await
+        .test_builder_preferences_zero_length_entry_fields_return_400()
+        .await
+        .test_builder_preferences_oversize_list_returns_400()
+        .await
+        .test_builder_preferences_without_builder_service_returns_400()
+        .await
         .test_envelope_post_consensus_invalid_returns_400_no_broadcast()
         .await
         .test_envelope_post_gossip_partial_pass_returns_202()
@@ -10884,7 +11204,7 @@ async fn get_validator_blocks_http_api_path() {
         .await
         .get_validator_blocks_v3_path_graffiti_policy()
         .await
-        .get_validator_blocks_v4_path_graffiti_policy()
+        .post_validator_blocks_v4_path_graffiti_policy()
         .await;
 }
 

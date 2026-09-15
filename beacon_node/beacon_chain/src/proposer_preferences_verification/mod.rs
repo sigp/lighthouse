@@ -26,6 +26,8 @@ mod tests;
 pub enum ProposerPreferencesError {
     /// The proposal slot is not within the proposer lookahead.
     InvalidProposalEpoch { proposal_epoch: Epoch },
+    /// The proposal epoch is before the gloas fork.
+    ProposalEpochPreGloas { proposal_epoch: Epoch },
     /// The proposal slot has already passed.
     ProposalSlotAlreadyPassed {
         proposal_slot: Slot,

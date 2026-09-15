@@ -393,9 +393,9 @@ pub fn cli_app() -> Command {
                 .value_name("BOOLEAN")
                 .action(ArgAction::Set)
                 .num_args(0..=1)
-                .default_value("true")
+                .default_value("false")
                 .default_missing_value("true")
-                .help("Enables the mplex multiplexer alongside yamux. Yamux is preferred when both are available. Enabled by default; set to \"false\" to disable.")
+                .help("Enables the mplex multiplexer alongside yamux. Yamux is preferred when both are available. Disabled by default; set to \"true\" to enable.")
                 .display_order(0)
         )
         .arg(
@@ -686,8 +686,8 @@ pub fn cli_app() -> Command {
                 .long("enable-partial-columns")
                 .value_name("BOOLEAN")
                 .help("Enable partial messages for data columns. This can reduce the amount of \
-                data sent over the network. Enabled by default on Hoodi and Sepolia; set to \
-                \"false\" to opt out.")
+                data sent over the network. Enabled by default on Hoodi, Sepolia and custom \
+                networks; set to \"false\" to opt out.")
                 .action(ArgAction::Set)
                 .num_args(0..=1)
                 .default_missing_value("true")

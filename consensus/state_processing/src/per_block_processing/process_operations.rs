@@ -6,7 +6,6 @@ use crate::common::{
 };
 use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
-use bls::PublicKeyBytes;
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
@@ -396,8 +395,14 @@ pub mod gloas {
             let validator_slashed = state.slashings_cache().is_slashed(index);
 
             // [New in Gloas:EIP7732]
-            // For same-slot attestations, check if we're setting any new flags
-            // If we are, this validator hasn't contributed to this slot's quorum yet
+            let had_no_participation = state
+                .get_epoch_participation_mut(data.target.epoch, previous_epoch, current_epoch)?
+                .get(index)
+                .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?
+                .into_u8()
+                == 0;
+
+            // [New in Gloas:EIP7732]
             let mut will_set_new_flag = false;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
@@ -430,9 +435,8 @@ pub mod gloas {
             }
 
             // [New in Gloas:EIP7732]
-            // Add weight for same-slot attestations when any new flag is set.
-            // This ensures each validator contributes exactly once per slot.
             if will_set_new_flag
+                && had_no_participation
                 && state.is_attestation_same_slot(data)?
                 && payment_withdrawal_amount > 0
             {
@@ -1042,29 +1046,6 @@ fn process_builder_exit_request<E: EthSpec>(
     initiate_builder_exit(state, builder_index, spec)?;
 
     Ok(())
-}
-
-/// Check if there is a pending deposit for a new validator with the given pubkey.
-// TODO(gloas): cache the deposit signature validation or remove this loop entirely if possible,
-// it is `O(n * m)` where `n` is max 8192 and `m` is max 128M.
-pub fn is_pending_validator<'a>(
-    pending_deposits: impl IntoIterator<Item = &'a PendingDeposit>,
-    pubkey: &PublicKeyBytes,
-    spec: &ChainSpec,
-) -> bool {
-    pending_deposits.into_iter().any(|deposit| {
-        deposit.pubkey == *pubkey
-            && is_valid_deposit_signature(
-                &DepositData {
-                    pubkey: deposit.pubkey,
-                    withdrawal_credentials: deposit.withdrawal_credentials,
-                    amount: deposit.amount,
-                    signature: deposit.signature.clone(),
-                },
-                spec,
-            )
-            .is_ok()
-    })
 }
 
 // Make sure to build the pubkey cache before calling this function

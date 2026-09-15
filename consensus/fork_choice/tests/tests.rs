@@ -2,6 +2,7 @@
 
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    fork_name_from_env,
 };
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
@@ -60,8 +61,10 @@ impl ForkChoiceTest {
 
     /// Creates a new tester with a custom chain config.
     pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
-        // Run fork choice tests against the latest fork.
-        let spec = ForkName::latest_stable().make_genesis_spec(ChainSpec::default());
+        // Run fork choice tests against the fork named by `FORK_NAME` when the `fork_from_env`
+        // feature is enabled, otherwise against the latest stable fork.
+        let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest_stable);
+        let spec = fork_name.make_genesis_spec(ChainSpec::default());
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.into())
             .chain_config(chain_config)
@@ -178,6 +181,10 @@ impl ForkChoiceTest {
     }
 
     /// Build the chain whilst `predicate` returns `true` and `process_block_result` does not error.
+    ///
+    /// Both variants intentionally carry the whole test harness (`Ok` to continue, `Err` to stop
+    /// with the state at that point), so boxing only the error would not shrink anything useful.
+    #[allow(clippy::result_large_err)]
     pub async fn apply_blocks_while<F>(self, mut predicate: F) -> Result<Self, Self>
     where
         F: FnMut(BeaconBlockRef<'_, E>, &BeaconState<E>) -> bool,
@@ -191,7 +198,7 @@ impl ForkChoiceTest {
             // Skip slashed proposers, as we expect validators to get slashed in these tests.
             // Presently `make_block` will panic if the proposer is slashed, so we just avoid
             // calling it in this case.
-            complete_state_advance(&mut state, None, slot, &self.harness.spec).unwrap();
+            complete_state_advance(&mut state, None, slot, None, &self.harness.spec).unwrap();
             state.build_caches(&self.harness.spec).unwrap();
             let proposer_index = state
                 .get_beacon_proposer_index(slot, &self.harness.chain.spec)
