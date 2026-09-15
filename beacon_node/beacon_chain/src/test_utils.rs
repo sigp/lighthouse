@@ -1105,7 +1105,7 @@ where
             return (signed_blinded, pending_state);
         }
 
-        complete_state_advance(&mut state, None, slot, &self.spec)
+        complete_state_advance(&mut state, None, slot, None, &self.spec)
             .expect("should be able to advance state to slot");
 
         state.build_caches(&self.spec).expect("should build caches");
@@ -1171,7 +1171,7 @@ where
             return (block_contents, state);
         }
 
-        complete_state_advance(&mut state, None, slot, &self.spec)
+        complete_state_advance(&mut state, None, slot, None, &self.spec)
             .expect("should be able to advance state to slot");
 
         state.build_caches(&self.spec).expect("should build caches");
@@ -1265,7 +1265,7 @@ where
         if state.fork_name_unchecked().gloas_enabled()
             || self.spec.fork_name_at_slot::<E>(slot).gloas_enabled()
         {
-            complete_state_advance(&mut state, None, slot, &self.spec)
+            complete_state_advance(&mut state, None, slot, None, &self.spec)
                 .expect("should be able to advance state to slot");
             state.build_caches(&self.spec).expect("should build caches");
 
@@ -1276,14 +1276,10 @@ where
                 GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
             let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
+            let parent_root = *state
+                .get_block_root(state.slot() - 1)
+                .expect("should get parent block root");
             let parent_envelope = if parent_payload_status == PayloadStatus::Full {
-                let parent_root = if state.slot() > 0 {
-                    *state
-                        .get_block_root(state.slot() - 1)
-                        .expect("should get parent block root")
-                } else {
-                    state.latest_block_header().canonical_root()
-                };
                 self.chain
                     .store
                     .get_payload_envelope(&parent_root)
@@ -1299,18 +1295,20 @@ where
                 _consensus_block_value,
                 _execution_payload_value,
                 _payload_contents,
+                _builder_url,
             ) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,
                     None,
+                    parent_root,
                     parent_payload_status,
                     parent_envelope,
                     slot,
                     randao_reveal,
                     graffiti_settings,
                     ProduceBlockVerification::VerifyRandao,
-                    None,
+                    eth2::types::BuilderConfig::empty(),
                 )
                 .await
                 .unwrap();
@@ -1367,7 +1365,7 @@ where
         if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
             let pre_state = {
                 let mut s = state.clone();
-                complete_state_advance(&mut s, None, slot, &self.spec)
+                complete_state_advance(&mut s, None, slot, None, &self.spec)
                     .expect("should be able to advance state to slot");
                 s.build_caches(&self.spec).expect("should build caches");
                 s
@@ -1377,7 +1375,7 @@ where
             return (block_contents, pre_state);
         }
 
-        complete_state_advance(&mut state, None, slot, &self.spec)
+        complete_state_advance(&mut state, None, slot, None, &self.spec)
             .expect("should be able to advance state to slot");
 
         state.build_caches(&self.spec).expect("should build caches");
@@ -1483,7 +1481,7 @@ where
         slot: Slot,
         execution_payload: ExecutionPayloadBellatrix<E>,
     ) {
-        complete_state_advance(state, None, slot, &self.spec).expect("should advance state");
+        complete_state_advance(state, None, slot, None, &self.spec).expect("should advance state");
         state.build_caches(&self.spec).expect("should build caches");
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
@@ -1569,6 +1567,7 @@ where
                 mut_state,
                 Some(state_root),
                 epoch.start_slot(E::slots_per_epoch()),
+                None,
                 &self.spec,
             )?;
             mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
@@ -1695,6 +1694,7 @@ where
                 mut_state,
                 Some(state_root),
                 epoch.start_slot(E::slots_per_epoch()),
+                None,
                 &self.spec,
             )?;
             mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;

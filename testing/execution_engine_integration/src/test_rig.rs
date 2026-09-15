@@ -730,9 +730,9 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
         .unwrap();
 
     assert!(
-        // if the engine doesn't have these capabilities, we need to update the client in our tests
-        capabilities.get_payload_bodies_by_hash_v1 && capabilities.get_payload_bodies_by_range_v1,
-        "Testing engine does not support payload bodies methods"
+        // if the engine doesn't have this capability, we need to update the client in our tests
+        capabilities.get_payload_bodies_by_hash_v1,
+        "Testing engine does not support payload bodies by hash"
     );
 
     let mut bodies = ee

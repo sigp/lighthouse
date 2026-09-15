@@ -15,6 +15,7 @@ use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use safe_arith::SafeArith;
 use smallvec::SmallVec;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
 use tracing::{debug, instrument};
@@ -177,6 +178,7 @@ pub fn with_proposer_cache<Spec, V, Err>(
     proposal_epoch: Epoch,
     accessor: impl Fn(&EpochBlockProposers) -> Result<V, BeaconChainError>,
     state_provider: impl FnOnce() -> Result<(Hash256, BeaconState<Spec>), Err>,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<V, Err>
 where
@@ -203,6 +205,7 @@ where
             &mut state,
             state_root,
             proposal_epoch,
+            builder_onboarding_cache,
             spec,
         )?;
 
@@ -274,6 +277,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         &mut state,
         head_state_root,
         request_epoch,
+        chain.builder_onboarding_cache.as_deref(),
         &chain.spec,
     )?;
 
@@ -317,6 +321,7 @@ pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Hash256,
     target_epoch: Epoch,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), BeaconChainError> {
     // The decision slot is the end of an epoch, so we add 1 to reach the first slot of the epoch
@@ -337,7 +342,13 @@ pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     } else {
         // State's current epoch is less than the minimum epoch.
         // Advance the state up to the minimum epoch.
-        partial_state_advance(state, Some(state_root), minimum_slot, spec)
-            .map_err(BeaconChainError::from)
+        partial_state_advance(
+            state,
+            Some(state_root),
+            minimum_slot,
+            builder_onboarding_cache,
+            spec,
+        )
+        .map_err(BeaconChainError::from)
     }
 }

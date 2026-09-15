@@ -4,6 +4,7 @@ use crate::state_id::StateId;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{self as api_types};
 use slot_clock::SlotClock;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::state_advance::partial_state_advance;
 use types::{AttestationDuty, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, RelativeEpoch};
 
@@ -113,6 +114,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
                 &mut state,
                 state_root,
                 request_epoch,
+                chain.builder_onboarding_cache.as_deref(),
                 &chain.spec,
             )?;
             (state, execution_optimistic)
@@ -171,6 +173,7 @@ fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Hash256,
     target_epoch: Epoch,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), warp::reject::Rejection> {
     // Protect against an inconsistent slot clock.
@@ -188,9 +191,15 @@ fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
             .start_slot(E::slots_per_epoch());
 
         // A "partial" state advance is adequate since attester duties don't rely on state roots.
-        partial_state_advance(state, Some(state_root), target_slot, spec)
-            .map_err(BeaconChainError::from)
-            .map_err(warp_utils::reject::unhandled_error)?;
+        partial_state_advance(
+            state,
+            Some(state_root),
+            target_slot,
+            builder_onboarding_cache,
+            spec,
+        )
+        .map_err(BeaconChainError::from)
+        .map_err(warp_utils::reject::unhandled_error)?;
     }
 
     Ok(())

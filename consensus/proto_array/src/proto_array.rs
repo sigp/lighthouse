@@ -1262,11 +1262,15 @@ impl ProtoArray {
             self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
 
         loop {
-            let children: Vec<_> = self
-                .get_node_children(&head)?
-                .into_iter()
-                .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
-                .collect();
+            let children: Vec<_> = if head.payload_status == PayloadStatus::Pending {
+                // Spec: `get_node_children` does not consult `get_filtered_block_tree` for PENDING.
+                self.get_node_children(&head)?
+            } else {
+                self.get_node_children(&head)?
+                    .into_iter()
+                    .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
+                    .collect()
+            };
 
             if children.is_empty() {
                 return Ok(head);
@@ -1300,6 +1304,83 @@ impl ProtoArray {
                 .map(|(child, _, _)| child)
                 .ok_or(Error::NoViableChildren)?;
         }
+    }
+
+    /// Returns every leaf node in the filtered block tree, along with its fork-choice weight.
+    ///
+    /// This is similar to `find_head_walk`, except it walks every viable branch instead of taking
+    /// the maximum child at each step. Only used in fork choice compliance tests.
+    #[allow(clippy::too_many_arguments)]
+    pub fn filtered_block_tree_leaves_and_weights<E: EthSpec>(
+        &self,
+        justified_root: &Hash256,
+        current_slot: Slot,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
+        proposer_boost_root: Hash256,
+        justified_balances: &JustifiedBalances,
+        spec: &ChainSpec,
+    ) -> Result<Vec<(Hash256, PayloadStatus, u64)>, Error> {
+        let start_index = self
+            .indices
+            .get(justified_root)
+            .copied()
+            .ok_or(Error::NodeUnknown(*justified_root))?;
+
+        let viable_nodes = self.get_filtered_block_tree::<E>(
+            start_index,
+            current_slot,
+            justified_checkpoint,
+            finalized_checkpoint,
+        )?;
+
+        let apply_proposer_boost =
+            self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
+
+        let mut leaves = Vec::new();
+        let mut stack = vec![IndexedForkChoiceNode {
+            root: *justified_root,
+            proto_node_index: start_index,
+            payload_status: PayloadStatus::Pending,
+        }];
+
+        while let Some(fc_node) = stack.pop() {
+            let proto_node = self
+                .nodes
+                .get(fc_node.proto_node_index)
+                .ok_or(Error::InvalidNodeIndex(fc_node.proto_node_index))?;
+
+            let children: Vec<_> = if fc_node.payload_status == PayloadStatus::Pending {
+                self.get_node_children(&fc_node)?
+            } else {
+                self.get_node_children(&fc_node)?
+                    .into_iter()
+                    .filter(|(child, _)| viable_nodes.contains(&child.proto_node_index))
+                    .collect()
+            };
+
+            if children.is_empty() {
+                let leaf_node = if proto_node.payload_received().is_err() {
+                    fc_node.with_status(PayloadStatus::Pending)
+                } else {
+                    fc_node
+                };
+                let weight = self.get_weight::<E>(
+                    &leaf_node,
+                    proto_node,
+                    apply_proposer_boost,
+                    proposer_boost_root,
+                    current_slot,
+                    justified_balances,
+                    spec,
+                )?;
+                leaves.push((leaf_node.root, leaf_node.payload_status, weight));
+            } else {
+                stack.extend(children.into_iter().map(|(child, _)| child));
+            }
+        }
+
+        Ok(leaves)
     }
 
     /// Returns the canonical payload status of a block, matching the decision
@@ -1388,7 +1469,7 @@ impl ProtoArray {
 
     /// Spec: `get_weight`.
     #[allow(clippy::too_many_arguments)]
-    fn get_weight<E: EthSpec>(
+    pub(crate) fn get_weight<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
@@ -1830,6 +1911,23 @@ impl ProtoArray {
                     .map(|(root, _slot)| root == ancestor_root)
             })
             .unwrap_or(false)
+    }
+
+    /// Slot at which the chains of `block_root` and `other_root` last agree. `None` if either
+    /// root is unknown.
+    pub fn common_ancestor_slot(&self, block_root: Hash256, other_root: Hash256) -> Option<Slot> {
+        let mut chain = self.iter_nodes(&block_root).peekable();
+        let mut other = self.iter_nodes(&other_root).peekable();
+        loop {
+            let (node, other_node) = (chain.peek()?, other.peek()?);
+            if node.root() == other_node.root() {
+                return Some(node.slot());
+            } else if node.slot() >= other_node.slot() {
+                chain.next();
+            } else {
+                other.next();
+            }
+        }
     }
 
     pub fn get_block(&self, root: Hash256) -> Option<&ProtoNode> {

@@ -29,17 +29,26 @@ use store::Error as DBError;
 use strum::AsRefStr;
 use tracing::{instrument, warn};
 use types::{
-    BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    Slot,
+    BeaconState, BeaconStateError, BuilderIndex, DataColumnSidecarList, EthSpec,
+    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub mod execution_pending_envelope;
 pub mod gossip_verified_envelope;
 pub mod import;
+pub mod observed_payload_envelopes;
 mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
+
+/// The path through which a payload envelope reached this node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr)]
+pub enum EnvelopeSource {
+    Gossip,
+    Rpc,
+    Http,
+}
 
 #[derive(Debug, Clone)]
 pub struct AvailableEnvelope<E: EthSpec> {
@@ -200,6 +209,12 @@ impl<E: EthSpec> AvailableExecutedEnvelope<E> {
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown { block_root: Hash256 },
+    /// A validated envelope for this `block_root` has already been seen from the
+    /// builder with `builder_index`, so this one is a duplicate.
+    EnvelopeAlreadySeen {
+        block_root: Hash256,
+        builder_index: BuilderIndex,
+    },
     /// The signature is invalid.
     BadSignature,
     /// The builder index doesn't match the committed bid
@@ -285,6 +300,7 @@ impl EnvelopeError {
             | EnvelopeError::EnvelopeProcessingError(_) => true,
             EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
             EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::EnvelopeAlreadySeen { .. }
             | EnvelopeError::PriorToFinalization { .. }
             | EnvelopeError::BeaconChainError(_)
             | EnvelopeError::BeaconStateError(_)

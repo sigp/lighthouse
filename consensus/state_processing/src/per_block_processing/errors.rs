@@ -550,6 +550,8 @@ pub enum ExecutionPayloadBidInvalid {
         state_block_hash: ExecutionBlockHash,
         bid_parent_hash: ExecutionBlockHash,
     },
+    /// The bid's block hash equals its parent block hash
+    BlockHashEqualsParentBlockHash { block_hash: ExecutionBlockHash },
     /// The bid's parent block root doesn't match the block's parent root
     ParentBlockRootMismatch {
         block_parent_root: Hash256,
