@@ -195,6 +195,23 @@ jobs:
           bins: cargo-nextest
     - name: Run operation_pool tests for all known forks
       run: make test-op-pool
+  fork-choice-tests:
+    name: fork-choice-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run fork_choice tests for all known forks
+      run: make test-fork-choice
   network-tests:
     name: network-tests
     needs: [check-labels]
@@ -502,6 +519,7 @@ jobs:
       'release-tests-ubuntu',
       'beacon-chain-tests',
       'op-pool-tests',
+      'fork-choice-tests',
       'network-tests',
       'slasher-tests',
       'http-api-tests',
