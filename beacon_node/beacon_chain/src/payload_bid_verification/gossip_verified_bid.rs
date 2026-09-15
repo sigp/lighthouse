@@ -323,10 +323,6 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         let bid_parent = BidParent::from_bid(&signed_bid.message);
         let bid_parent_block_root = signed_bid.message.parent_block_root;
         let bid_value = signed_bid.message.value;
-        let current_slot = ctx
-            .slot_clock
-            .now()
-            .ok_or(PayloadBidError::UnableToReadSlot)?;
         verify_bid_slot_range(ctx.slot_clock, bid_slot, ctx.spec)?;
 
         if ctx
@@ -461,7 +457,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
         // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
         if signed_bid.message.prev_randao
-            != *head_state.get_randao_mix(current_slot.epoch(E::slots_per_epoch()))?
+            != *head_state.get_randao_mix(head_state.current_epoch())?
         {
             return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
