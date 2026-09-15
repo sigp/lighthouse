@@ -6802,6 +6802,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "perf-event"
+version = "0.4.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2529f39584dbaa980f4959510c963ae95f119c127c046012c2834365f694438"
+dependencies = [
+ "bitflags 2.10.0",
+ "libc",
+ "perf-event-open-sys",
+]
+
+[[package]]
+name = "perf-event-open-sys"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5f8d1487a4ffa23c80a1c355dd27235f9b66fb71ba0f261eb417e4fe8451347"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "perf_benchmarking"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "perf-event",
+]
+
+[[package]]
 name = "pest"
 version = "2.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7937,7 +7965,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8864,6 +8892,7 @@ dependencies = [
  "criterion",
  "ethereum_hashing",
  "fixed_bytes",
+ "perf_benchmarking",
 ]
 
 [[package]]
