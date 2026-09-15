@@ -335,8 +335,8 @@ impl<E: EthSpec> Display for PartialDataColumnPartsMetadata<E> {
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
 pub struct PartialDataColumnGroupId {
-    pub slot: Slot,
     pub beacon_block_root: Hash256,
+    pub slot: Slot,
 }
 
 #[superstruct(

@@ -750,7 +750,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     &[validator_metrics::BEACON_BLOCK_HTTP_POST],
                 );
                 beacon_node
-                    .post_beacon_blocks_v2_ssz(signed_block, None)
+                    .post_beacon_blocks_v2_ssz(signed_block, None, None)
                     .await
                     .map(|_| ())
                     .or_else(|e| {
