@@ -11,8 +11,7 @@ use tree_hash_derive::TreeHash;
 
 /// The `active_fields` of the `ExecutionPayloadBid` progressive container (EIP-7688).
 ///
-/// Must mirror the `active_fields(..)` list on the `tree_hash` attribute below; the
-/// `field_roots_match_root` test checks that it does.
+/// Must match the `active_fields` attribute on the struct.
 pub const EXECUTION_PAYLOAD_BID_ACTIVE_FIELDS: [bool; 12] = [true; 12];
 
 #[derive(Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
@@ -96,7 +95,6 @@ mod tests {
             execution_requests_root: Hash256::repeat_byte(6),
             _phantom: PhantomData,
         };
-        // A mismatch against the `active_fields` attribute on the struct changes the root.
         let field_roots = bid.field_roots();
         assert_eq!(
             merkle_proof::progressive_container_root(

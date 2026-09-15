@@ -400,9 +400,6 @@ pub fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index:
 /// Return the first field index, the number of chunks and the binary depth of the progressive
 /// subtree at `level`, which holds `4^level` chunks starting at field `(4^level - 1) / 3`
 /// (EIP-7916).
-///
-/// A level deeper than `MAX_TREE_DEPTH` is reported as `ArithError`, since such a tree is not
-/// representable here.
 fn progressive_level(level: usize) -> Result<(usize, usize, usize), MerkleTreeError> {
     let depth = level.safe_mul(2)?;
     if depth > MAX_TREE_DEPTH {
@@ -502,7 +499,6 @@ fn progressive_container_leaves(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    // Every supplied root must have been claimed by an active entry.
     match roots.next() {
         Some(_) => Err(MerkleTreeError::Invalid),
         None => Ok(leaves),
@@ -545,8 +541,7 @@ pub fn progressive_container_root(
 ) -> Result<H256, MerkleTreeError> {
     let field_roots = progressive_container_leaves(active_field_roots, active_fields)?;
 
-    // Reuse `tree_hash`'s streaming implementation so that proof generation and the `TreeHash`
-    // derive agree on the container root by construction.
+    // Reuse `tree_hash` so that proof generation and the `TreeHash` derive agree on the root.
     let mut hasher = tree_hash::ProgressiveMerkleHasher::new();
     for root in &field_roots {
         hasher
@@ -649,8 +644,6 @@ mod progressive_tests {
             H256::from(expected)
         });
 
-        // The inactive entry contributes a zero leaf, so the progressive part below the
-        // `active_fields` mix-in matches an all-active container whose middle root is zero.
         let padded = [roots[0], H256::zero(), roots[1]];
         assert_eq!(
             progressive_container_leaves(&roots, &active_fields).unwrap(),
@@ -670,7 +663,6 @@ mod progressive_tests {
             root
         ));
 
-        // Supplying a root for the inactive entry is an error, not a silently different root.
         assert_eq!(
             progressive_container_root(&padded, &active_fields),
             Err(MerkleTreeError::Invalid)

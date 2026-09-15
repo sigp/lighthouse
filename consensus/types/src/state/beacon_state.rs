@@ -296,9 +296,6 @@ impl From<BeaconStateHash> for Hash256 {
 /// we add internal mutability to `milhouse::{List, Vector}`. See:
 ///
 /// https://github.com/sigp/milhouse/issues/43
-///
-/// The `active_fields` of the progressive-container variants (EIP-7688) are declared separately in
-/// `BEACON_STATE_ACTIVE_FIELDS`, which must mirror the `active_fields(..)` lists below.
 #[superstruct(
     variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(
@@ -3750,9 +3747,7 @@ impl<E: EthSpec> ForkVersionDecode for BeaconState<E> {
 
 /// The `active_fields` of the progressive-container `BeaconState` variants (EIP-7688).
 ///
-/// Must mirror the `active_fields(..)` lists on the `tree_hash` attributes of `BeaconStateGloas`
-/// and `BeaconStateHeze`, which currently share one list; `active_fields_match_num_fields` checks
-/// that the lengths agree.
+/// Must match the `active_fields` attribute on the Gloas and Heze variants.
 pub const BEACON_STATE_ACTIVE_FIELDS: [bool; 46] = [true; 46];
 
 impl<E: EthSpec> BeaconState<E> {
@@ -4081,8 +4076,7 @@ mod progressive_container_tests {
     use super::*;
     use crate::MainnetEthSpec;
 
-    /// The `active_fields` used when generating Merkle proofs must describe the same container as
-    /// the `tree_hash` attributes on the progressive-container variants.
+    /// The proof `active_fields` must match the `tree_hash` attributes on the progressive variants.
     #[test]
     fn active_fields_match_num_fields() {
         assert_eq!(

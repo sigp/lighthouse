@@ -58,8 +58,7 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
 
 /// The `active_fields` of the progressive-container `BeaconBlockBody` variants (EIP-7688).
 ///
-/// Must mirror the `active_fields(..)` lists on the `tree_hash` attributes below, which Gloas and
-/// Heze currently share; `gloas_body_progressive_container_root` checks that it does.
+/// Must match the `active_fields` attribute on the struct.
 pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS: [bool; 13] = [true; 13];
 
 /// The body of a `BeaconChain` block, containing operations.
@@ -387,9 +386,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
     /// Produces the proof of inclusion for the execution block hash, for Gloas and later.
     ///
     /// [Modified in Gloas:EIP7732] the block commits to a payload bid rather than to a payload, so
-    /// the hash the light client can prove is the bid's `parent_block_hash`. The proof walks up
-    /// `ExecutionPayloadBid` (progressive), then `SignedExecutionPayloadBid` (a plain two-field
-    /// container), then the `BeaconBlockBody` (progressive).
+    /// the hash the light client can prove is the bid's `parent_block_hash`.
     fn gloas_execution_block_hash_proof(&self) -> Result<Vec<Hash256>, BeaconStateError> {
         let signed_bid = self.signed_execution_payload_bid()?;
 
@@ -1668,8 +1665,6 @@ mod tests {
 
             assert_eq!(body.tree_hash_root(), expected);
 
-            // The `active_fields` used when generating Merkle proofs must describe the same
-            // container as the `tree_hash` attribute.
             assert_eq!(field_roots.len(), BEACON_BLOCK_BODY_ACTIVE_FIELDS.len());
             assert_eq!(
                 merkle_proof::pack_active_fields(&BEACON_BLOCK_BODY_ACTIVE_FIELDS).unwrap(),
