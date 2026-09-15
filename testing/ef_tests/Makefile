@@ -10,6 +10,12 @@ BLS_TEST = bls_tests_yaml
 BLS_OUTPUT_DIR := $(OUTPUT_DIR)/$(BLS_TEST_REPO_NAME)
 BLS_BASE_URL := https://github.com/ethereum/$(BLS_TEST_REPO_NAME)/releases/download/$(BLS_TEST_VERSION)
 
+COMPLIANCE_TEST = comptests
+# The compliance tarball only contains minimal preset vectors. It also contains
+# consensus-specs source directories, so extraction is scoped to the test vectors.
+COMPLIANCE_FORKS ?= fulu gloas
+COMPLIANCE_BASE_URL := https://github.com/ethereum/consensus-specs/releases/download/$(CONSENSUS_SPECS_TEST_VERSION)
+
 .PHONY: all clean
 
 all: clean $(OUTPUT_DIR) $(BLS_OUTPUT_DIR)
@@ -24,6 +30,11 @@ $(OUTPUT_DIR):
 		tar -xzf $$test_tarball -C $(OUTPUT_DIR); \
 		rm -f $$test_tarball; \
 	done
+	curl --progress-bar --location --remote-name --show-error --retry 3 --retry-all-errors --fail \
+		$(COMPLIANCE_BASE_URL)/$(COMPLIANCE_TEST).tar.gz
+	tar -xzf $(COMPLIANCE_TEST).tar.gz -C $(OUTPUT_DIR) \
+		$(foreach fork,$(COMPLIANCE_FORKS),tests/minimal/$(fork)/fork_choice_compliance)
+	rm -f $(COMPLIANCE_TEST).tar.gz
 
 $(BLS_OUTPUT_DIR):
 	mkdir -p $(BLS_OUTPUT_DIR)
@@ -31,3 +42,4 @@ $(BLS_OUTPUT_DIR):
 		$(BLS_BASE_URL)/$(BLS_TEST).tar.gz
 	tar -xzf *.tar.gz -C $(BLS_OUTPUT_DIR)
 	rm -f *.tar.gz
+
