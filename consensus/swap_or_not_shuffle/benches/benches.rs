@@ -1,6 +1,6 @@
 use criterion::measurement::Measurement;
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_main};
-use perf_benchmarking::InstructionCount;
+use perf_benchmarking::{HardwareCounter, Metric};
 use std::hint::black_box;
 use swap_or_not_shuffle::{compute_shuffled_index, shuffle_list};
 
@@ -14,8 +14,8 @@ fn shuffle_indices_individually(seed: &[u8], list_size: usize) -> Vec<usize> {
     output
 }
 
-/// Prefix benchmark names so that time-based and hardware performance data results are stored and
-/// compared separately by criterion.
+// Prefix benchmark names so that time-based and hardware performance data results are stored and
+// compared separately by criterion.
 fn name(prefix: &str, base: &str) -> String {
     if prefix.is_empty() {
         base.to_string()
@@ -75,17 +75,15 @@ fn shuffles<M: Measurement + 'static>(c: &mut Criterion<M>, prefix: &str) {
     group.finish();
 }
 
-/// Wall-clock benchmarks, measure real time spent
+// Wall-clock benchmarks, measure real time spent
 fn time_benches() {
     let mut criterion = Criterion::default().configure_from_args();
     shuffles(&mut criterion, "time");
 }
 
-/// The same benchmarks measured in CPU instructions, which are far more reproducible
-/// than wall-clock time. Skipped when the hardware counter cannot be opened (non-Linux, or
-/// `kernel.perf_event_paranoid` too restrictive).
+// The same benchmarks measured in CPU instructions
 fn cpu_instructions_benches() {
-    match InstructionCount::new() {
+    match HardwareCounter::new(Metric::CpuInstructions) {
         Ok(measurement) => {
             let mut criterion = Criterion::default()
                 .with_measurement(measurement)

@@ -1,8 +1,8 @@
-//! A [`criterion`] measurement that counts hardware performance data (e.g., CPU instructions) instead of wall-clock time.
+//! Benchmarking that measures and counts hardware performance (e.g., CPU instructions) instead of wall-clock time.
 //!
-//! Wall-clock timings vary from run to run and depend on factors such as background processes, data like CPU instructions don't.
+//! Wall-clock timings can vary from run to run and depend on factors such as background processes, data like CPU instructions don't.
 //! This type of hardware performance data provides a more reliable measurement of the benchmarking data.
-//! 
+//!
 //! Counting uses the Linux `perf_event_open` interface, so it is only available on Linux and
 //! requires access to hardware performance counters. On most distributions this means setting
 //! `kernel.perf_event_paranoid` to `2` or lower:
@@ -10,7 +10,6 @@
 //! ```text
 //! sudo sysctl kernel.perf_event_paranoid=2
 //! ```
-
 
 use criterion::Throughput;
 use criterion::measurement::{Measurement, ValueFormatter};
@@ -20,52 +19,122 @@ use perf_event::{Builder, Counter, events::Hardware};
 use std::cell::RefCell;
 use std::io::Result;
 
-/// Criterion measurement reporting retired user-space CPU instructions per iteration.
-pub struct InstructionCount {
-    #[cfg(target_os = "linux")]
-    counter: RefCell<Counter>,
+/// A list of hardware performance data
+/// To add another metric (e.g., CPU cycles), simply add a new variant here, then add an arm in `event` and `labels` methods
+#[derive(Clone, Copy, Debug)]
+pub enum Metric {
+    //CPU instructions
+    CpuInstructions,
 }
 
-impl InstructionCount {
-    /// Open the hardware instruction counter for the current process.
+impl Metric {
     #[cfg(target_os = "linux")]
-    pub fn new() -> Result<Self> {
-        let mut builder = Builder::new().kind(Hardware::INSTRUCTIONS);
-        builder.exclude_kernel(true).exclude_hv(true);
-        let counter = builder.build()?;
+    // For any new metric, add another arm in the match
+    fn event(self) -> Hardware {
+        match self {
+            Metric::CpuInstructions => Hardware::INSTRUCTIONS,
+        }
+    }
+
+    // Unit labels for reports
+    // For any new metric, add another arm in the match
+    fn labels(self) -> Labels {
+        match self {
+            Metric::CpuInstructions => Labels {
+                plain: "instructions",
+                kilo: "Kinstructions",
+                mega: "Minstructions",
+                giga: "Ginstructions",
+                per_element: "instructions/elements",
+                per_byte: "instructions/bytes",
+            },
+        }
+    }
+}
+
+// The following methods are required to be implemented for the ValueFormatter trait
+// https://docs.rs/criterion/0.8.2/criterion/measurement/trait.ValueFormatter.html
+impl ValueFormatter for Metric {
+    fn scale_values(&self, typical_value: f64, values: &mut [f64]) -> &'static str {
+        let (factor, unit) = self.labels().scale(typical_value);
+        for value in values {
+            *value *= factor;
+        }
+        unit
+    }
+
+    fn scale_throughputs(
+        &self,
+        _typical_value: f64,
+        throughput: &Throughput,
+        values: &mut [f64],
+    ) -> &'static str {
+        let labels = self.labels();
+        match throughput {
+            // If the benchmark test is using elements, we divide by the count to give throughput/elements (e.g., instructions/elements)
+            Throughput::Elements(count) => {
+                for value in values {
+                    *value /= *count as f64;
+                }
+                labels.per_element
+            }
+            Throughput::Bytes(count) | Throughput::BytesDecimal(count) => {
+                for value in values {
+                    *value /= *count as f64;
+                }
+                labels.per_byte
+            }
+            _ => labels.plain,
+        }
+    }
+
+    fn scale_for_machines(&self, _values: &mut [f64]) -> &'static str {
+        self.labels().plain
+    }
+}
+
+/// Criterion measurement reporting a hardware counter value per iteration.
+pub struct HardwareCounter {
+    #[cfg(target_os = "linux")]
+    counter: RefCell<Counter>,
+    metric: Metric,
+}
+
+impl HardwareCounter {
+    /// Open the hardware counter for `metric` on the current process.
+    #[cfg(target_os = "linux")]
+    pub fn new(metric: Metric) -> Result<Self> {
+        let counter = Builder::new().kind(metric.event()).build()?;
         Ok(Self {
             counter: RefCell::new(counter),
+            metric,
         })
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn new() -> Result<Self> {
+    pub fn new(_metric: Metric) -> Result<Self> {
         Err(std::io::Error::new(
             std::io::ErrorKind::Unsupported,
-            "hardware instruction counters are only supported on Linux",
+            "hardware performance counters are only supported on Linux",
         ))
     }
 }
 
 // The following are required methods to implement the trait Measurement
 // https://docs.rs/criterion/0.8.2/criterion/measurement/trait.Measurement.html
-impl Measurement for InstructionCount {
+impl Measurement for HardwareCounter {
     // Method `start` hands this value to method `end`
     // the counter is reset in `start` and read in `end`, so the intermediate type is empty
     type Intermediate = ();
-    // CPU instructions are in the form of integers
+    // Hardware counters are whole numbers
     type Value = u64;
 
     #[cfg(target_os = "linux")]
     fn start(&self) -> Self::Intermediate {
         let mut counter = self.counter.borrow_mut();
-        // Zero the counter, then start counting
-        counter
-            .reset()
-            .expect("failed to reset instruction counter");
-        counter
-            .enable()
-            .expect("failed to enable instruction counter");
+        // Reset the counter, then start counting
+        counter.reset().expect("failed to reset hardware counter");
+        counter.enable().expect("failed to enable hardware counter");
     }
 
     #[cfg(target_os = "linux")]
@@ -74,19 +143,19 @@ impl Measurement for InstructionCount {
         // Stop counting, then read the total
         counter
             .disable()
-            .expect("failed to disable instruction counter");
-        counter.read().expect("failed to read instruction counter")
+            .expect("failed to disable hardware counter");
+        counter.read().expect("failed to read hardware counter")
     }
 
     // For operating systems that are not Linux
     #[cfg(not(target_os = "linux"))]
     fn start(&self) -> Self::Intermediate {
-        unreachable!("InstructionCount cannot be constructed on this platform")
+        panic!("hardware performance counters are only supported on Linux")
     }
 
     #[cfg(not(target_os = "linux"))]
     fn end(&self, _: Self::Intermediate) -> Self::Value {
-        unreachable!("InstructionCount cannot be constructed on this platform")
+        panic!("hardware performance counters are only supported on Linux")
     }
 
     fn add(&self, v1: &Self::Value, v2: &Self::Value) -> Self::Value {
@@ -104,62 +173,33 @@ impl Measurement for InstructionCount {
     // The output of method formatter is type ValueFormatter
     fn formatter(&self) -> &dyn ValueFormatter {
         // Any type that implements ValueFormatter can be returned
-        // The impl of InstructionFormatter is below
-        &InstructionFormatter
+        // The impl for Metric is below; it looks up the unit strings for this counter's metric
+        &self.metric
     }
 }
 
-struct InstructionFormatter;
+/// Unit labels for a metric
+struct Labels {
+    // unscaled unit, e.g., instructions
+    plain: &'static str,
+    // scaled unit, e.g., Kinstructions to mean it is 1000 instructions
+    kilo: &'static str,
+    mega: &'static str,
+    giga: &'static str,
+    per_element: &'static str,
+    per_byte: &'static str,
+}
 
-impl InstructionFormatter {
-    fn scale(count: f64) -> (f64, &'static str) {
-        if count >= 1e9 {
-            (1e-9, "Ginstructions")
-        } else if count >= 1e6 {
-            (1e-6, "Minstructions")
-        } else if count >= 1e3 {
-            (1e-3, "Kinstructions")
+impl Labels {
+    fn scale(&self, typical_value: f64) -> (f64, &'static str) {
+        if typical_value >= 1e9 {
+            (1e-9, self.giga)
+        } else if typical_value >= 1e6 {
+            (1e-6, self.mega)
+        } else if typical_value >= 1e3 {
+            (1e-3, self.kilo)
         } else {
-            (1.0, "instructions")
+            (1.0, self.plain)
         }
-    }
-}
-
-// The following methods are required to be implemented for the ValueFormatter trait
-// https://docs.rs/criterion/0.8.2/criterion/measurement/trait.ValueFormatter.html
-impl ValueFormatter for InstructionFormatter {
-    fn scale_for_machines(&self, _values: &mut [f64]) -> &'static str {
-        "instructions"
-    }
-
-    fn scale_throughputs(
-        &self,
-        _typical: f64,
-        throughput: &Throughput,
-        values: &mut [f64],
-    ) -> &'static str {
-        match throughput {
-            Throughput::Elements(count) => {
-                for value in values {
-                    *value /= *count as f64;
-                }
-                "instructions/elements"
-            }
-            Throughput::Bytes(count) | Throughput::BytesDecimal(count) => {
-                for value in values {
-                    *value /= *count as f64;
-                }
-                "instructions/bytes"
-            }
-            _ => "instructions",
-        }
-    }
-
-    fn scale_values(&self, typical: f64, values: &mut [f64]) -> &'static str {
-        let (factor, unit) = Self::scale(typical);
-        for value in values {
-            *value *= factor;
-        }
-        unit
     }
 }
