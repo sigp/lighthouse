@@ -1167,15 +1167,10 @@ impl<E: EthSpec> GossipValidation<E> {
             // reads the finalized checkpoint from the canonical head.
             "gossip_execution_payload_envelope__ignore_pre_finalized",
         ];
-        const IGNORED_EXECUTION_PAYLOAD_BID_GAS_LIMIT_CASES: &[&str] = &[
-            // Known limitation: bid gossip validation uses the head state's committed bid gas
-            // limit instead of the parent executed payload's gas limit.
-            "gossip_execution_payload_bid__valid_gas_limit_decrease_exceeding_limit",
-            "gossip_execution_payload_bid__valid_gas_limit_parent_under_step",
-            "gossip_execution_payload_bid__valid_gas_limit_target_equals_parent",
-            "gossip_execution_payload_bid__valid_gas_limit_increase_within_limit",
-            "gossip_execution_payload_bid__valid_gas_limit_decrease_within_limit",
-            "gossip_execution_payload_bid__valid_gas_limit_increase_exceeding_limit",
+        const IGNORED_EXECUTION_PAYLOAD_BID_CASES: &[&str] = &[
+            // Advancing the parent state across an epoch for every gossip bid would put epoch
+            // processing on the gossip hot path. Keep this skipped pending a caching strategy.
+            "gossip_execution_payload_bid__valid_requires_state_advanced_across_epoch",
         ];
         const IGNORED_PAYLOAD_ATTESTATION_CASES: &[&str] = &[
             // Lighthouse does not retain a status that distinguishes a consensus-invalid block
@@ -1210,9 +1205,7 @@ impl<E: EthSpec> GossipValidation<E> {
             Topic::ExecutionPayload => {
                 IGNORED_EXECUTION_PAYLOAD_ENVELOPE_CASES.contains(&case_name)
             }
-            Topic::ExecutionPayloadBid => {
-                IGNORED_EXECUTION_PAYLOAD_BID_GAS_LIMIT_CASES.contains(&case_name)
-            }
+            Topic::ExecutionPayloadBid => IGNORED_EXECUTION_PAYLOAD_BID_CASES.contains(&case_name),
             Topic::PayloadAttestationMessage => {
                 IGNORED_PAYLOAD_ATTESTATION_CASES.contains(&case_name)
             }
