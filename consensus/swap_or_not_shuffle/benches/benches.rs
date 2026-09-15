@@ -14,8 +14,7 @@ fn shuffle_indices_individually(seed: &[u8], list_size: usize) -> Vec<usize> {
     output
 }
 
-// Prefix benchmark names so that time-based and hardware performance data results are stored and
-// compared separately by criterion.
+// Prefix benchmark names so that time-based and hardware performance data results are stored separately
 fn name(prefix: &str, base: &str) -> String {
     format!("{prefix}/{base}")
 }
