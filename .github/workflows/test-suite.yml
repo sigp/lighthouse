@@ -519,6 +519,7 @@ jobs:
       'release-tests-ubuntu',
       'beacon-chain-tests',
       'op-pool-tests',
+      'fork-choice-tests',
       'network-tests',
       'slasher-tests',
       'http-api-tests',
