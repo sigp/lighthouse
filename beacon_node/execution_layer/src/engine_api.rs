@@ -124,6 +124,10 @@ pub struct PayloadStatusV1 {
     pub inclusion_list_satisfied: Option<bool>,
 }
 
+/// A `PayloadStatusV2` is a `PayloadStatusV1` that may carry a value
+/// for the `inclusion_list_satisfied` field
+pub type PayloadStatusV2 = PayloadStatusV1;
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum BlockByNumberQuery<'a> {

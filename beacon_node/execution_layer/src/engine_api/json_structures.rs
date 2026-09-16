@@ -1272,7 +1272,7 @@ impl From<JsonPayloadStatusV1> for PayloadStatusV1 {
     }
 }
 
-impl From<JsonPayloadStatusV2> for PayloadStatusV1 {
+impl From<JsonPayloadStatusV2> for PayloadStatusV2 {
     fn from(j: JsonPayloadStatusV2) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
         let JsonPayloadStatusV2 {
