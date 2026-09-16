@@ -675,6 +675,14 @@ pub static BALANCES_CACHE_MISSES: LazyLock<Result<IntCounter>> = LazyLock::new(|
         "Count of times balances cache misses request",
     )
 });
+pub static BALANCES_CACHE_BOUNDARY_STATE_LOAD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(
+    || {
+        try_create_histogram(
+            "beacon_balances_cache_boundary_state_load_seconds",
+            "Time spent loading the epoch boundary state to fill the balances cache after a skipped boundary slot",
+        )
+    },
+);
 
 /*
  * Persisting BeaconChain components to disk
@@ -705,13 +713,6 @@ pub static DEFAULT_ETH1_VOTES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
 /*
  * Chain Head
  */
-pub static SLOT_ASSIGNMENTS_ERRORS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "beacon_slot_assignments_errors_total",
-        "Count of slot assignments cache update errors by error category",
-        &["error"],
-    )
-});
 pub static HEAD_STATE_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "beacon_head_state_slot",
