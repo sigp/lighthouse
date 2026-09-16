@@ -29,7 +29,7 @@ use std::vec::Vec;
 use strum::VariantNames;
 use task_executor::TaskExecutor;
 use tokio::{
-    sync::{RwLock, mpsc},
+    sync::{RwLock, broadcast, mpsc},
     time::sleep,
 };
 use tracing::{debug, error, warn};
@@ -462,7 +462,7 @@ pub struct BeaconNodeFallback<T> {
     distance_tiers: BeaconNodeSyncDistanceTiers,
     slot_clock: Option<T>,
     beacon_head_cache: Option<Arc<BeaconHeadCache>>,
-    head_monitor_send: Option<Arc<mpsc::Sender<HeadEvent>>>,
+    head_monitor_send: Option<broadcast::Sender<HeadEvent>>,
     payload_available_send: Option<Arc<mpsc::Sender<PayloadAvailableEvent>>>,
     broadcast_topics: Vec<ApiTopic>,
     spec: Arc<ChainSpec>,
@@ -501,9 +501,16 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
     /// validator client is connected in the `BeaconNodeFallback`. This also initializes the
     /// beacon_head_cache under the assumption the beacon_head_cache will always be needed when
     /// head_monitor_send is set.
-    pub fn set_head_send(&mut self, head_monitor_send: Arc<mpsc::Sender<HeadEvent>>) {
+    pub fn set_head_send(&mut self, head_monitor_send: broadcast::Sender<HeadEvent>) {
         self.head_monitor_send = Some(head_monitor_send);
         self.beacon_head_cache = Some(Arc::new(BeaconHeadCache::new()));
+    }
+
+    /// Subscribe to the stream of head events, if the head monitor is enabled.
+    pub fn subscribe_to_head_events(&self) -> Option<broadcast::Receiver<HeadEvent>> {
+        self.head_monitor_send
+            .as_ref()
+            .map(|sender| sender.subscribe())
     }
 
     /// This is the payload monitor channel that streams events from all the beacon nodes that the
