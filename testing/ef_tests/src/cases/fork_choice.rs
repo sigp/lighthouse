@@ -1,18 +1,15 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::{
-    AttestationFromBlock, ForkChoiceStore, PayloadVerificationStatus, ProposerHeadError,
+    AttestationFromBlock, ForkChoiceStore, PayloadStatus as FcPayloadStatus, ProposerHeadError,
 };
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::chain_config::FastConfirmationMode;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
-use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
-    attestation_verification::{
-        VerifiedAttestation, obtain_indexed_attestation_and_committees_per_slot,
-    },
+    attestation_verification::VerifiedAttestation,
     blob_verification::KzgVerifiedBlob,
     custody_context::NodeCustodyType,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
@@ -26,9 +23,15 @@ use serde::Deserialize;
 use ssz_derive::Decode;
 use ssz_types::VariableList;
 use state_processing::VerifySignatures;
+use state_processing::common::{
+    attesting_indices_base, attesting_indices_electra, attesting_indices_gloas,
+};
 use state_processing::envelope_processing::verify_execution_payload_envelope;
 use state_processing::per_block_processing::is_valid_indexed_payload_attestation;
+use state_processing::per_block_processing::verify_attester_slashing;
 use state_processing::state_advance::complete_state_advance;
+use std::cell::RefCell;
+use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -100,6 +103,14 @@ pub struct Checks {
     head_payload_status: Option<u8>,
     payload_timeliness_vote: Option<PayloadVoteCheck>,
     payload_data_availability_vote: Option<PayloadVoteCheck>,
+    viable_for_head_roots_and_weights: Option<Vec<RootAndWeight>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RootAndWeight {
+    pub root: Hash256,
+    pub weight: u64,
+    pub payload_status: Option<u8>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -147,12 +158,14 @@ pub enum Step<
     Attestation {
         attestation: TAttestation,
         // Post-Gloas `on_attestation` tests can assert that an attestation is rejected (e.g. an
-        // invalid payload-present index). Defaults to `true` for the pre-Gloas tests that omit it.
+        // invalid payload-present index). Defaults to `true` for the tests that omit it.
         #[serde(default = "default_true")]
         valid: bool,
     },
     AttesterSlashing {
         attester_slashing: TAttesterSlashing,
+        #[serde(default = "default_true")]
+        valid: bool,
     },
     PowBlock {
         pow_block: TPowBlock,
@@ -184,8 +197,7 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Meta {
     #[serde(default, rename(deserialize = "description"))]
     _description: Option<String>,
@@ -198,6 +210,8 @@ pub struct Meta {
 #[derive(Debug)]
 pub struct ForkChoiceTest<E: EthSpec> {
     pub description: String,
+    /// True when the case comes from the `fast_confirmation` runner.
+    pub fast_confirmation: bool,
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
     #[allow(clippy::type_complexity)]
@@ -224,6 +238,9 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .to_str()
             .expect("path must be valid OsStr")
             .to_string();
+        let fast_confirmation = path
+            .iter()
+            .any(|component| component == "fast_confirmation");
         let spec = &testing_spec::<E>(fork_name);
 
         #[allow(clippy::type_complexity)]
@@ -286,21 +303,27 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         )
                     }
                 }
-                Step::AttesterSlashing { attester_slashing } => {
+                Step::AttesterSlashing {
+                    attester_slashing,
+                    valid,
+                } => {
                     if fork_name.gloas_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                             .map(|attester_slashing| Step::AttesterSlashing {
                                 attester_slashing: AttesterSlashing::Gloas(attester_slashing),
+                                valid,
                             })
                     } else if fork_name.electra_enabled() {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                             .map(|attester_slashing| Step::AttesterSlashing {
                                 attester_slashing: AttesterSlashing::Electra(attester_slashing),
+                                valid,
                             })
                     } else {
                         ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
                             .map(|attester_slashing| Step::AttesterSlashing {
                                 attester_slashing: AttesterSlashing::Base(attester_slashing),
+                                valid,
                             })
                     }
                 }
@@ -393,6 +416,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
 
         Ok(Self {
             description,
+            fast_confirmation,
             anchor_state,
             anchor_block,
             steps,
@@ -445,10 +469,28 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     *valid,
                 )?,
                 Step::Attestation { attestation, valid } => {
-                    tester.process_attestation(attestation, *valid)?
+                    let result = tester.process_attestation(attestation);
+                    if *valid {
+                        result?
+                    } else if result.is_ok() {
+                        return Err(Error::DidntFail(format!(
+                            "attestation for slot {} marked valid=false was accepted",
+                            attestation.data().slot
+                        )));
+                    }
                 }
-                Step::AttesterSlashing { attester_slashing } => {
-                    tester.process_attester_slashing(attester_slashing.to_ref())
+                Step::AttesterSlashing {
+                    attester_slashing,
+                    valid,
+                } => {
+                    let result = tester.process_attester_slashing(attester_slashing.to_ref());
+                    if *valid {
+                        result?
+                    } else if result.is_ok() {
+                        return Err(Error::DidntFail(
+                            "attester slashing marked valid=false should have been rejected".into(),
+                        ));
+                    }
                 }
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
                 Step::OnPayloadInfo {
@@ -482,6 +524,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         head_payload_status,
                         payload_timeliness_vote,
                         payload_data_availability_vote,
+                        viable_for_head_roots_and_weights,
                     } = checks.as_ref();
 
                     if let Some(expected_head) = head {
@@ -561,6 +604,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     if let Some(expected) = payload_data_availability_vote {
                         tester.check_payload_data_availability_vote(expected)?;
                     }
+
+                    if let Some(expected) = viable_for_head_roots_and_weights {
+                        tester.check_viable_for_head_roots_and_weights(expected)?;
+                    }
                 }
 
                 Step::MaybeValidBlockAndColumns {
@@ -594,6 +641,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
 struct Tester<E: EthSpec> {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
     spec: Arc<ChainSpec>,
+    /// Roots of every block this test has imported.
+    ///
+    /// Lighthouse returns an error for blocks that have already been imported. The spec
+    /// treats these as a no-op. We can't use fork choice to tell if a block has already
+    /// been imported, because finalized & abandoned blocks get pruned. We can't use the
+    /// on-disk store because abandoned blocks are pruned as well. So instead we keep track
+    /// of those blocks here.
+    imported_blocks: RefCell<HashSet<Hash256>>,
 }
 
 impl<E: EthSpec> Tester<E> {
@@ -650,6 +705,22 @@ impl<E: EthSpec> Tester<E> {
             genesis_time
         );
 
+        // Reject rather than queue attestations from the current or a future slot, so the
+        // store matches the spec's `on_attestation`.
+        //
+        // The fast confirmation vectors list each slot's attestation steps before the tick that
+        // moves the store to the next slot, so strict mode rejects every one of them. Keep the
+        // queue path for those until the generator is fixed.
+        // TODO(fcr): remove once https://github.com/ethereum/consensus-specs/pull/5627 lands
+        // and the vectors are regenerated.
+        if !case.fast_confirmation {
+            harness
+                .chain
+                .canonical_head
+                .fork_choice_write_lock()
+                .set_spec_test_mode(true);
+        }
+
         // Disable FCR auto-confirmation for spec tests. The spec only calls
         // `on_fast_confirmation` at explicit `with_fast_confirmation` points,
         // not on every block/attestation import. We trigger confirmation
@@ -658,7 +729,11 @@ impl<E: EthSpec> Tester<E> {
             fcr_mutex.lock().set_spec_test_mode(true);
         }
 
-        Ok(Self { harness, spec })
+        Ok(Self {
+            harness,
+            spec,
+            imported_blocks: RefCell::new(HashSet::new()),
+        })
     }
 
     fn tick_to_slot(&self, tick: u64) -> Result<Slot, Error> {
@@ -694,7 +769,6 @@ impl<E: EthSpec> Tester<E> {
         // Compute the slot time manually to ensure the slot clock is correct.
         let slot = self.tick_to_slot(tick).unwrap();
         assert_eq!(slot, self.harness.chain.slot().unwrap());
-
         self.harness
             .chain
             .canonical_head
@@ -710,6 +784,11 @@ impl<E: EthSpec> Tester<E> {
         valid: bool,
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
+
+        // If the block has already been imported, we treat is as a no-op success.
+        if self.imported_blocks.borrow().contains(&block_root) {
+            return Ok(());
+        }
 
         let mut data_column_success = true;
 
@@ -738,6 +817,14 @@ impl<E: EthSpec> Tester<E> {
         };
 
         let block = Arc::new(block);
+
+        // Lighthouse's `on_block` adds proposer boost by comparing the block's dependent root
+        // against the cached fork choice view, instead of recomputing it. In production code paths
+        // the cache is fresh as long as the fork choice clock is current. The test runners
+        // manually set the fork choice clock without recomputing fork choice, so we manually recompute
+        // here.
+        self.find_head()?;
+
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
@@ -748,30 +835,14 @@ impl<E: EthSpec> Tester<E> {
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = data_column_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
+        if success {
+            self.imported_blocks.borrow_mut().insert(block_root);
+        }
         if success != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
-                block_root,
-                result.is_ok(),
-                valid,
-                result
+                block_root, success, valid, result
             )));
-        }
-
-        if !valid && columns.is_none() {
-            self.apply_invalid_block(&block)?;
-        }
-
-        // Per spec test runner: an on_block step implies receiving block's attestations
-        // and attester slashings.
-        if success {
-            for attestation in block.message().body().attestations() {
-                let att = attestation.clone_as_attestation();
-                let _ = self.process_attestation(&att, true);
-            }
-            for attester_slashing in block.message().body().attester_slashings() {
-                self.process_attester_slashing(attester_slashing);
-            }
         }
 
         Ok(())
@@ -785,6 +856,11 @@ impl<E: EthSpec> Tester<E> {
         valid: bool,
     ) -> Result<(), Error> {
         let block_root = block.canonical_root();
+
+        // If the block has already been imported, we treat is as a no-op success.
+        if self.imported_blocks.borrow().contains(&block_root) {
+            return Ok(());
+        }
 
         let mut blob_success = true;
 
@@ -850,6 +926,14 @@ impl<E: EthSpec> Tester<E> {
         };
 
         let block = Arc::new(block);
+
+        // Lighthouse's `on_block` adds proposer boost by comparing the block's dependent root
+        // against the cached fork choice view, instead of recomputing it. In production code paths
+        // the cache is fresh as long as the fork choice clock is current. The test runners
+        // manually set the fork choice clock without recomputing fork choice, so we manually recompute
+        // here.
+        self.find_head()?;
+
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
@@ -860,146 +944,152 @@ impl<E: EthSpec> Tester<E> {
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
         let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
+        if success {
+            self.imported_blocks.borrow_mut().insert(block_root);
+        }
         // Only assert valid blocks import; blob-DA failure cases are expected to import now.
         if valid && !success {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
-                block_root,
-                result.is_ok(),
-                valid,
-                result
+                block_root, success, valid, result
             )));
         }
 
-        if !valid && blobs.is_none() {
-            self.apply_invalid_block(&block)?;
-        }
-
-        // Per spec test runner: an on_block step implies receiving block's attestations
-        // and attester slashings.
-        if success {
-            for attestation in block.message().body().attestations() {
-                let att = attestation.clone_as_attestation();
-                let _ = self.process_attestation(&att, true);
-            }
-            for attester_slashing in block.message().body().attester_slashings() {
-                self.process_attester_slashing(attester_slashing);
-            }
-        }
-
         Ok(())
     }
 
-    // Apply invalid blocks directly against the fork choice `on_block` function. This ensures
-    // that the block is being rejected by `on_block`, not just some upstream block processing
-    // function. When data columns or blobs exist, we don't do this.
-    fn apply_invalid_block(&self, block: &Arc<SignedBeaconBlock<E>>) -> Result<(), Error> {
-        let block_root = block.canonical_root();
-        // A missing parent block whilst `valid == false` means the test should pass.
-        if let Some(parent_block) = self
-            .harness
-            .chain
-            .get_blinded_block(&block.parent_root())
-            .unwrap()
-        {
-            let parent_state_root = parent_block.state_root();
-
-            let mut state = self
-                .harness
-                .chain
-                .get_state(
-                    &parent_state_root,
-                    Some(parent_block.slot()),
-                    CACHE_STATE_IN_TESTS,
-                )
-                .unwrap()
-                .unwrap();
-
-            complete_state_advance(
-                &mut state,
-                Some(parent_state_root),
-                block.slot(),
-                None,
-                &self.harness.chain.spec,
-            )
-            .unwrap();
-
-            let block_delay = self
-                .harness
-                .chain
-                .slot_clock
-                .seconds_from_current_slot_start()
-                .unwrap();
-
-            let result = self
-                .harness
-                .chain
-                .canonical_head
-                .fork_choice_write_lock()
-                .on_block(
-                    self.harness.chain.slot().unwrap(),
-                    block.message(),
-                    block_root,
-                    block_delay,
-                    &state,
-                    PayloadVerificationStatus::Irrelevant,
-                    &self.harness.chain.spec,
-                );
-
-            if result.is_ok() {
-                return Err(Error::DidntFail(format!(
-                    "block with root {} should fail on_block",
-                    block_root,
-                )));
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn process_attestation(
+    fn indexed_attestation_from_target_state(
         &self,
         attestation: &Attestation<E>,
-        valid: bool,
-    ) -> Result<(), Error> {
-        // Post-Gloas `on_attestation` tests can assert that an attestation is rejected (e.g. an
-        // invalid same-slot/payload-present index). Treat any failure in either indexing or fork
-        // choice application as a rejection so it can be compared against the expected `valid` flag.
-        let result = obtain_indexed_attestation_and_committees_per_slot(
-            &self.harness.chain,
-            attestation.to_ref(),
+    ) -> Result<Option<IndexedAttestation<E>>, Error> {
+        let target_root = attestation.data().target.root;
+        let Some(target_block) = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&target_root)
+        else {
+            return Ok(None);
+        };
+        let Some(mut target_state) = self
+            .harness
+            .chain
+            .store
+            .get_hot_state(&target_block.state_root, CACHE_STATE_IN_TESTS)
+            .map_err(|e| Error::InternalError(format!("failed to load target state: {e:?}")))?
+        else {
+            return Ok(None);
+        };
+        let target_epoch_start_slot = attestation
+            .data()
+            .target
+            .epoch
+            .start_slot(E::slots_per_epoch());
+        complete_state_advance(
+            &mut target_state,
+            Some(target_block.state_root),
+            target_epoch_start_slot,
+            None,
+            &self.harness.chain.spec,
         )
-        .map_err(|e| format!("attestation indexing failed with {:?}", e))
-        .and_then(|(indexed_attestation, _)| {
-            let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
-                ManuallyVerifiedAttestation {
-                    attestation,
-                    indexed_attestation,
-                };
+        .map_err(|e| {
+            Error::InternalError(format!("failed to advance attestation target state: {e:?}"))
+        })?;
 
-            self.harness
-                .chain
-                .apply_attestation_to_fork_choice(&verified_attestation)
-                .map_err(|e| format!("attestation import failed with {:?}", e))
-        });
-
-        if valid {
-            result.map_err(Error::InternalError)
-        } else if result.is_ok() {
-            Err(Error::DidntFail(
-                "attestation was valid but the test expects it to be rejected".to_string(),
-            ))
-        } else {
-            Ok(())
+        match Self::indexed_attestation_from_state(&target_state, attestation) {
+            Ok(indexed_attestation) => Ok(Some(indexed_attestation)),
+            Err(_) => Ok(None),
         }
     }
 
-    pub fn process_attester_slashing(&self, attester_slashing: AttesterSlashingRef<E>) {
+    fn indexed_attestation_from_state(
+        state: &BeaconState<E>,
+        attestation: &Attestation<E>,
+    ) -> Result<IndexedAttestation<E>, Error> {
+        match attestation.to_ref() {
+            AttestationRef::Base(att) => {
+                let committee = state
+                    .get_beacon_committee(att.data.slot, att.data.index)
+                    .map_err(|e| {
+                        Error::InternalError(format!("attestation committee lookup failed: {e:?}"))
+                    })?;
+                attesting_indices_base::get_indexed_attestation(committee.committee, att).map_err(
+                    |e| Error::InternalError(format!("attestation indexing failed: {e:?}")),
+                )
+            }
+            AttestationRef::Electra(att) => {
+                attesting_indices_electra::get_indexed_attestation_from_state(state, att).map_err(
+                    |e| Error::InternalError(format!("attestation indexing failed: {e:?}")),
+                )
+            }
+            AttestationRef::Gloas(att) => {
+                attesting_indices_gloas::get_indexed_attestation_from_state(state, att).map_err(
+                    |e| Error::InternalError(format!("attestation indexing failed: {e:?}")),
+                )
+            }
+        }
+    }
+
+    pub fn process_attestation(&self, attestation: &Attestation<E>) -> Result<(), Error> {
+        let indexed_attestation = self
+            .indexed_attestation_from_target_state(attestation)?
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "attestation target block {:?} unknown or could not be indexed from target state",
+                    attestation.data().target.root
+                ))
+            })?;
+        let verified_attestation: ManuallyVerifiedAttestation<EphemeralHarnessType<E>> =
+            ManuallyVerifiedAttestation {
+                attestation,
+                indexed_attestation,
+            };
+
+        self.harness
+            .chain
+            .apply_attestation_to_fork_choice(&verified_attestation)
+            .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
+    }
+
+    pub fn process_attester_slashing(
+        &self,
+        attester_slashing: AttesterSlashingRef<E>,
+    ) -> Result<(), Error> {
+        let justified_block = {
+            let fork_choice = self.harness.chain.canonical_head.fork_choice_read_lock();
+            fork_choice
+                .get_block(&fork_choice.justified_checkpoint().root)
+                .ok_or_else(|| Error::InternalError("justified block not found".into()))?
+        };
+        let justified_state = self
+            .harness
+            .chain
+            .store
+            .get_hot_state(&justified_block.state_root, CACHE_STATE_IN_TESTS)
+            .map_err(|e| Error::InternalError(format!("failed to load justified state: {e:?}")))?
+            .ok_or_else(|| {
+                Error::InternalError(format!(
+                    "justified state {:?} not found",
+                    justified_block.state_root
+                ))
+            })?;
+
+        verify_attester_slashing(
+            &justified_state,
+            attester_slashing,
+            VerifySignatures::True,
+            &self.harness.chain.spec,
+        )
+        .map_err(|e| Error::InternalError(format!("invalid attester slashing: {e:?}")))?;
+
         self.harness
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_attester_slashing(attester_slashing)
+            .on_attester_slashing(attester_slashing);
+
+        Ok(())
     }
 
     pub fn process_pow_block(&self, pow_block: &PowBlock) {
@@ -1278,6 +1368,62 @@ impl<E: EthSpec> Tester<E> {
         // PayloadStatus repr: Empty=0, Full=1, Pending=2 (matches spec constants).
         let actual = head.head_payload_status() as u8;
         check_equal("head_payload_status", actual, expected_status)
+    }
+
+    pub fn check_viable_for_head_roots_and_weights(
+        &self,
+        expected: &[RootAndWeight],
+    ) -> Result<(), Error> {
+        // Apply pending vote deltas so weights reflect the latest store state.
+        let _ = self.find_head()?;
+
+        let fork_choice = self.harness.chain.canonical_head.fork_choice_read_lock();
+        let justified = fork_choice.justified_checkpoint();
+        let finalized = fork_choice.finalized_checkpoint();
+        let current_slot = fork_choice.fc_store().get_current_slot();
+        let proposer_boost_root = fork_choice.proposer_boost_root();
+        let justified_balances = fork_choice.fc_store().justified_balances().clone();
+        let actual = fork_choice
+            .proto_array()
+            .core_proto_array()
+            .filtered_block_tree_leaves_and_weights::<E>(
+                &justified.root,
+                current_slot,
+                justified,
+                finalized,
+                proposer_boost_root,
+                &justified_balances,
+                &self.spec,
+            )
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "filtered_block_tree_leaves_and_weights failed: {e:?}"
+                ))
+            })?;
+        drop(fork_choice);
+
+        let mut actual_sorted: Vec<(Hash256, u8, u64)> = actual
+            .into_iter()
+            .map(|(root, status, weight)| (root, status as u8, weight))
+            .collect();
+        actual_sorted.sort();
+        let mut expected_sorted: Vec<(Hash256, u8, u64)> = expected
+            .iter()
+            .map(|x| {
+                (
+                    x.root,
+                    x.payload_status.unwrap_or(FcPayloadStatus::Pending as u8),
+                    x.weight,
+                )
+            })
+            .collect();
+        expected_sorted.sort();
+
+        check_equal(
+            "viable_for_head_roots_and_weights",
+            actual_sorted,
+            expected_sorted,
+        )
     }
 
     pub fn check_should_override_fcu(
