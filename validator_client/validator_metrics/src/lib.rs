@@ -12,6 +12,9 @@ pub const BLINDED_BEACON_BLOCK_HTTP_POST: &str = "blinded_beacon_block_http_post
 pub const ATTESTATIONS: &str = "attestations";
 pub const ATTESTATIONS_HTTP_GET: &str = "attestations_http_get";
 pub const ATTESTATIONS_HTTP_POST: &str = "attestations_http_post";
+pub const PAYLOAD_ATTESTATIONS: &str = "payload_attestations";
+pub const PAYLOAD_ATTESTATIONS_HTTP_GET: &str = "payload_attestations_http_get";
+pub const PAYLOAD_ATTESTATIONS_HTTP_POST: &str = "payload_attestations_http_post";
 pub const AGGREGATES: &str = "aggregates";
 pub const AGGREGATES_HTTP_GET: &str = "aggregates_http_get";
 pub const AGGREGATES_HTTP_POST: &str = "aggregates_http_post";
@@ -140,6 +143,14 @@ pub static ATTESTATION_SERVICE_TIMES: LazyLock<Result<HistogramVec>> = LazyLock:
         &["task"],
     )
 });
+pub static PAYLOAD_ATTESTATION_SERVICE_TIMES: LazyLock<Result<HistogramVec>> =
+    LazyLock::new(|| {
+        try_create_histogram_vec(
+            "vc_payload_attestation_service_task_times_seconds",
+            "Duration to perform payload attestation service tasks",
+            &["task"],
+        )
+    });
 pub static SLASHING_PROTECTION_PRUNE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "vc_slashing_protection_prune_times_seconds",
