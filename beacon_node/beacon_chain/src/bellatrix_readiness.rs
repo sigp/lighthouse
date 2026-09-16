@@ -48,7 +48,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let exec_block_hash = latest_execution_payload_header.block_hash();
 
         // Use getBlockByNumber(0) to check that the block hash matches.
-        // At present, Geth does not respond to engine_getPayloadBodiesByRange before genesis.
         let execution_block = execution_layer
             .get_block_by_number(BlockByNumberQuery::Tag("0x0"))
             .await

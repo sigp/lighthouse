@@ -1,5 +1,6 @@
 use arbitrary::Arbitrary;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
@@ -274,7 +275,7 @@ async fn execution_payload_envelope_events() {
     // Stage 1: gossip verification fires execution_payload_gossip only.
     let gossip_verified = harness
         .chain
-        .verify_envelope_for_gossip(Arc::new(signed_envelope))
+        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
         .await
         .expect("envelope gossip verification should succeed");
 

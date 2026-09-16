@@ -755,6 +755,48 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
     }
 }
 
+pub struct ForkChoiceComplianceHandler<E> {
+    handler_name: String,
+    _phantom: PhantomData<E>,
+}
+
+impl<E: EthSpec> ForkChoiceComplianceHandler<E> {
+    pub fn new(handler_name: &str) -> Self {
+        Self {
+            handler_name: handler_name.into(),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec + TypeName> Handler for ForkChoiceComplianceHandler<E> {
+    type Case = cases::ForkChoiceTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "fork_choice_compliance"
+    }
+
+    fn handler_name(&self) -> String {
+        self.handler_name.clone()
+    }
+
+    fn use_rayon() -> bool {
+        false
+    }
+
+    fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        cfg!(feature = "fake_crypto") && fork_name.fulu_enabled()
+    }
+
+    fn disabled_forks(&self) -> Vec<ForkName> {
+        vec![]
+    }
+}
+
 pub struct FastConfirmationHandler<E> {
     handler_name: String,
     _phantom: PhantomData<E>,
