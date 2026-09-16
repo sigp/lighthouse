@@ -151,6 +151,7 @@ impl HttpRestSsz {
     }
 
     /// The single REST-SSZ transport chokepoint. `Some(bytes)` on `200`, `None` on `204`.
+    #[allow(clippy::too_many_arguments)]
     pub async fn rest_request(
         &self,
         method: Method,
