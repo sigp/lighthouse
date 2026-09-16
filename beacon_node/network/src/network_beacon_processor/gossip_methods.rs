@@ -56,7 +56,7 @@ use types::{
     SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
     SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
     SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource, data::CellBitmap,
-    execution::SignedExecutionProof,
+    execution::SignedExecutionProofEnvelope,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -4154,7 +4154,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        execution_proof: Arc<SignedExecutionProof>,
+        execution_proof: Arc<SignedExecutionProofEnvelope>,
     ) {
         let beacon_block_root = execution_proof.beacon_block_root();
         let proof_type = execution_proof.proof_type();
@@ -4167,7 +4167,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(verified) => {
                 debug!(
                     %beacon_block_root,
-                    proof_type,
+                    %proof_type,
                     block_slot = %verified.block_slot,
                     "Verified execution proof from gossip"
                 );
@@ -4194,7 +4194,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     Err(error) => {
                         debug!(
                             %beacon_block_root,
-                            proof_type,
+                            %proof_type,
                             ?error,
                             "Could not cache execution proof"
                         );
@@ -4202,14 +4202,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
             }
             Err(error) => {
-                debug!(%beacon_block_root, proof_type, ?error, "Could not verify execution proof");
+                debug!(%beacon_block_root, %proof_type, ?error, "Could not verify execution proof");
                 let (acceptance, peer_action) = match &error {
                     // IGNORE: duplicates, unknown or finalized blocks.
                     ExecutionProofError::ProofAlreadySeen
                     | ExecutionProofError::ValidProofAlreadyKnown
                     | ExecutionProofError::DuplicateFromValidator { .. }
                     | ExecutionProofError::UnknownBlockRoot { .. }
-                    | ExecutionProofError::PastFinalizedSlot { .. } => {
+                    | ExecutionProofError::PastFinalizedSlot { .. }
+                    | ExecutionProofError::PayloadUnavailable { .. } => {
                         (MessageAcceptance::Ignore, None)
                     }
                     // REJECT: the proof is invalid.
