@@ -147,6 +147,46 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, EnvelopeError> {
         let envelope = &signed_envelope.message;
+
+        // Reject over-limit progressive lists before any checks that may ignore the envelope.
+        let requests = &envelope.execution_requests;
+        if requests.withdrawals.len() > T::EthSpec::max_withdrawal_requests_per_payload() {
+            return Err(EnvelopeError::OperationListTooLong {
+                kind: "withdrawal_requests",
+                length: requests.withdrawals.len(),
+                max: T::EthSpec::max_withdrawal_requests_per_payload(),
+            });
+        }
+        if requests.consolidations.len() > T::EthSpec::max_consolidation_requests_per_payload() {
+            return Err(EnvelopeError::OperationListTooLong {
+                kind: "consolidation_requests",
+                length: requests.consolidations.len(),
+                max: T::EthSpec::max_consolidation_requests_per_payload(),
+            });
+        }
+        if requests.builder_deposits.len() > T::EthSpec::max_builder_deposit_requests_per_payload()
+        {
+            return Err(EnvelopeError::OperationListTooLong {
+                kind: "builder_deposit_requests",
+                length: requests.builder_deposits.len(),
+                max: T::EthSpec::max_builder_deposit_requests_per_payload(),
+            });
+        }
+        if requests.builder_exits.len() > T::EthSpec::max_builder_exit_requests_per_payload() {
+            return Err(EnvelopeError::OperationListTooLong {
+                kind: "builder_exit_requests",
+                length: requests.builder_exits.len(),
+                max: T::EthSpec::max_builder_exit_requests_per_payload(),
+            });
+        }
+        if envelope.payload.withdrawals.len() > T::EthSpec::max_withdrawals_per_payload() {
+            return Err(EnvelopeError::OperationListTooLong {
+                kind: "withdrawals",
+                length: envelope.payload.withdrawals.len(),
+                max: T::EthSpec::max_withdrawals_per_payload(),
+            });
+        }
+
         let beacon_block_root = envelope.beacon_block_root;
         let builder_index = envelope.builder_index;
 

@@ -11,7 +11,8 @@ use beacon_chain::{
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        MakeAttestationOptions, generate_data_column_sidecars_from_block, test_spec,
+        MakeAttestationOptions, fork_name_from_env, generate_data_column_sidecars_from_block,
+        test_spec,
     },
 };
 use beacon_chain::{
@@ -1221,6 +1222,18 @@ fn unwrap_err<T, U>(result: Result<T, U>) -> U {
     }
 }
 
+fn test_deposit() -> Deposit {
+    Deposit {
+        proof: ssz_types::FixedVector::default(),
+        data: DepositData {
+            pubkey: bls::PublicKeyBytes::empty(),
+            withdrawal_credentials: Hash256::ZERO,
+            amount: 0,
+            signature: bls::SignatureBytes::empty(),
+        },
+    }
+}
+
 #[tokio::test]
 async fn block_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
@@ -1321,6 +1334,35 @@ async fn block_gossip_verification() {
         ),
         "should not import a block with a future slot"
     );
+
+    // EIP-7688 limit checks are REJECT conditions and must take precedence over the future-slot
+    // IGNORE condition.
+    if fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        let (mut block, signature) = chain_segment[block_index]
+            .beacon_block
+            .as_ref()
+            .clone()
+            .deconstruct();
+        *block.slot_mut() += 1;
+        block
+            .body_mut()
+            .deposits_push(test_deposit())
+            .expect("should add over-limit Gloas deposit");
+        assert!(matches!(
+            unwrap_err(
+                harness
+                    .chain
+                    .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
+                        block, signature,
+                    )))
+                    .await
+            ),
+            BlockError::PerBlockProcessingError(BlockProcessingError::OperationListTooLong {
+                kind: "deposits",
+                ..
+            })
+        ));
+    }
 
     /*
      * This test ensure that:
@@ -1565,16 +1607,7 @@ async fn block_gossip_verification() {
         .deconstruct();
 
     if let BeaconBlock::Gloas(gloas_block) = &mut block {
-        let deposit = Deposit {
-            proof: ssz_types::FixedVector::default(),
-            data: DepositData {
-                pubkey: bls::PublicKeyBytes::empty(),
-                withdrawal_credentials: Hash256::ZERO,
-                amount: 0,
-                signature: bls::SignatureBytes::empty(),
-            },
-        };
-        gloas_block.body.deposits = ssz_types::ProgressiveVariableList::new(vec![deposit]);
+        gloas_block.body.deposits = ssz_types::ProgressiveVariableList::new(vec![test_deposit()]);
         assert!(
             matches!(
                 unwrap_err(
