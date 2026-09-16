@@ -1019,6 +1019,7 @@ async fn payload_preparation() {
         None,
         None,
         None,
+        None,
     );
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
 }
