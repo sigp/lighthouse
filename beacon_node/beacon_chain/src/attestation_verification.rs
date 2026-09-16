@@ -332,6 +332,7 @@ struct IndexedUnaggregatedAttestation<'a, T: BeaconChainTypes> {
     indexed_attestation: IndexedAttestation<T::EthSpec>,
     subnet_id: Option<SubnetId>,
     validator_index: u64,
+    head_block: ProtoBlock,
 }
 
 /// Wraps a `SignedAggregateAndProof` that has been fully verified for propagation on the gossip
@@ -375,6 +376,7 @@ impl<T: BeaconChainTypes> Clone for IndexedUnaggregatedAttestation<'_, T> {
             indexed_attestation: self.indexed_attestation.clone(),
             subnet_id: self.subnet_id,
             validator_index: self.validator_index,
+            head_block: self.head_block.clone(),
         }
     }
 }
@@ -899,10 +901,12 @@ impl<'a, T: BeaconChainTypes> VerifiedAggregatedAttestation<'a, T> {
 
 impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
     /// Run the checks that happen before an indexed attestation is constructed.
+    ///
+    /// Returns the `ProtoBlock` for the attestation's head block.
     pub fn verify_early_checks(
         attestation: &'a SingleAttestation,
         chain: &BeaconChain<T>,
-    ) -> Result<(), Error> {
+    ) -> Result<ProtoBlock, Error> {
         let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
 
         // Check the attestation's epoch matches its target.
@@ -974,7 +978,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // Check the attestation target root is consistent with the head root.
         verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation.data)?;
 
-        Ok(())
+        Ok(head_block)
     }
 
     /// Run the checks that apply to the indexed attestation before the signature is checked.
@@ -1025,9 +1029,10 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
     ) -> Result<Self, AttestationSlashInfo<'a, T, Error>> {
         use AttestationSlashInfo::*;
 
-        if let Err(e) = Self::verify_early_checks(attestation, chain) {
-            return Err(SignatureNotCheckedSingle(attestation, e));
-        }
+        let head_block = match Self::verify_early_checks(attestation, chain) {
+            Ok(head_block) => head_block,
+            Err(e) => return Err(SignatureNotCheckedSingle(attestation, e)),
+        };
 
         let fork_name = chain
             .spec
@@ -1047,6 +1052,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             indexed_attestation,
             subnet_id,
             validator_index,
+            head_block,
         })
     }
 
@@ -1063,13 +1069,19 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
     /// Run the checks that apply after the signature has been checked.
     fn verify_late_checks(
         attestation: &'a SingleAttestation,
+        head_block: ProtoBlock,
         validator_index: u64,
         subnet_id: Option<SubnetId>,
         chain: &BeaconChain<T>,
     ) -> Result<(Attestation<T::EthSpec>, SubnetId), Error> {
-        // Check that the attester is a member of the committee
-        let (committee_opt, committees_per_slot) = chain.with_committee_cache(
-            attestation.data.target.root,
+        // Check that the attester is a member of the committee.
+        //
+        // The head block resolves to the same shuffling for the attestation's epoch as the
+        // target block would: `verify_early_checks` has confirmed that `target.root` is the
+        // head block's target checkpoint, so both are on the same chain and share the same
+        // shuffling decision root. Using the head block avoids another fork choice lookup.
+        let (committee_opt, committees_per_slot) = chain.with_committee_cache_for_block(
+            head_block,
             attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()),
             |cached_shuffling, _| {
                 let committee_cache = cached_shuffling.committee_cache.as_ref();
@@ -1182,6 +1194,7 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             indexed_attestation,
             subnet_id,
             validator_index,
+            head_block,
         } = attestation;
 
         match check_signature {
@@ -1193,11 +1206,16 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
             CheckAttestationSignature::No => (),
         };
 
-        let (unaggregated_attestation, subnet_id) =
-            match Self::verify_late_checks(attestation, validator_index, subnet_id, chain) {
-                Ok(a) => a,
-                Err(e) => return Err(SignatureValid(indexed_attestation, e)),
-            };
+        let (unaggregated_attestation, subnet_id) = match Self::verify_late_checks(
+            attestation,
+            head_block,
+            validator_index,
+            subnet_id,
+            chain,
+        ) {
+            Ok(a) => a,
+            Err(e) => return Err(SignatureValid(indexed_attestation, e)),
+        };
 
         Ok(Self {
             single_attestation: attestation,
@@ -1621,34 +1639,42 @@ where
     let attestation_epoch = attestation.data().slot.epoch(T::EthSpec::slots_per_epoch());
     let target = &attestation.data().target;
 
-    // Attestation target must be for a known block.
+    // Attestation target must be for a known block. We look the block up once here and reuse it
+    // for the committee cache below, rather than reading fork choice a second time.
     //
     // We use fork choice to find the target root, which means that we reject any attestation
     // that has a `target.root` earlier than our latest finalized root. There's no point in
     // processing an attestation that does not include our latest finalized block in its chain.
     //
     // We do not delay consideration for later, we simply drop the attestation.
-    if !chain
+    //
+    // Blocks that are still being imported are not yet in fork choice, but their `ProtoBlock`
+    // (captured from fork choice during import) is available from the early attester cache.
+    let Some(target_block) = chain
         .canonical_head
         .fork_choice_read_lock()
-        .contains_block(&target.root)
-        && !chain.early_attester_cache.contains_block(target.root)
-    {
+        .get_block(&target.root)
+        .or_else(|| chain.early_attester_cache.get_proto_block(target.root))
+    else {
         return Err(Error::UnknownTargetRoot(target.root));
-    }
+    };
 
-    chain.with_committee_cache(target.root, attestation_epoch, |cached_shuffling, _| {
-        let committee_cache = cached_shuffling.committee_cache.as_ref();
-        let committees_per_slot = committee_cache.committees_per_slot();
+    chain.with_committee_cache_for_block(
+        target_block,
+        attestation_epoch,
+        |cached_shuffling, _| {
+            let committee_cache = cached_shuffling.committee_cache.as_ref();
+            let committees_per_slot = committee_cache.committees_per_slot();
 
-        Ok(committee_cache
-            .get_beacon_committees_at_slot(attestation.data().slot)
-            .map(|committees| map_fn((committees, committees_per_slot)))
-            .unwrap_or_else(|_| {
-                Err(Error::NoCommitteeForSlotAndIndex {
-                    slot: attestation.data().slot,
-                    index: attestation.committee_index().unwrap_or(0),
-                })
-            }))
-    })?
+            Ok(committee_cache
+                .get_beacon_committees_at_slot(attestation.data().slot)
+                .map(|committees| map_fn((committees, committees_per_slot)))
+                .unwrap_or_else(|_| {
+                    Err(Error::NoCommitteeForSlotAndIndex {
+                        slot: attestation.data().slot,
+                        index: attestation.committee_index().unwrap_or(0),
+                    })
+                }))
+        },
+    )?
 }
