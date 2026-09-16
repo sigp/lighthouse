@@ -25,9 +25,10 @@ use crate::data_availability_checker::{
 };
 use crate::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
-    GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyDataColumn,
-    KzgVerifiedCustodyPartialDataColumn, KzgVerifiedPartialDataColumn,
-    PartialColumnVerificationResult, validate_partial_data_column_sidecar_for_gossip,
+    GossipVerifiedPartialDataColumn, GossipVerifiedPartialDataColumnHeader,
+    KzgVerifiedCustodyDataColumn, KzgVerifiedCustodyPartialDataColumnFulu,
+    KzgVerifiedCustodyPartialDataColumnGloas, PartialColumnVerificationResult,
+    load_gloas_payload_bid, validate_partial_data_column_sidecar_for_gossip,
 };
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::envelope_times_cache::EnvelopeTimesCache;
@@ -37,6 +38,7 @@ use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_e
 use crate::execution_proof_verification::{GossipVerifiedExecutionProof, ObservedExecutionProofs};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
+use crate::inclusion_list_store::{DependentRoot, InclusionListStore};
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -78,7 +80,9 @@ use crate::persisted_custody::persist_custody_context;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache;
-use crate::shuffling_cache::{CachedPTCs, CachedShuffling, ShufflingCache, with_cached_shuffling};
+use crate::shuffling_cache::{
+    BlockShufflingIds, CachedPTCs, CachedShuffling, ShufflingCache, with_cached_shuffling,
+};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
@@ -123,6 +127,7 @@ use serde_utils::quoted_u64::Quoted;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
+use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
 use state_processing::per_block_processing::errors::{ExitInvalid, ExitValidationError};
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, SigVerifiedOp,
@@ -450,6 +455,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Cache of pending execution payload envelopes for local block building.
     /// Envelopes are stored here during block production and eventually published.
     pub pending_payload_envelopes: RwLock<PendingPayloadEnvelopes<T::EthSpec>>,
+    /// Inclusion lists received over gossip for recent slots.
+    pub inclusion_list_store: RwLock<InclusionListStore<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
     pub observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
     /// Maintains a record of which validators we've seen proposer slashings for.
@@ -2514,7 +2521,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &chain,
                     seen_timestamp,
                 );
-                if matches!(ret, PartialColumnVerificationResult::Ok { .. }) {
+                if matches!(ret, PartialColumnVerificationResult::Ok(_)) {
                     metrics::inc_counter(
                         &metrics::PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES,
                     );
@@ -3464,52 +3471,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Process a gossip-verified partial data column by attempting to merge it into the appropriate
     /// store for its fork (the Fulu assembler, or the Gloas pending payload cache). Returns the
     /// merge result, which indicates whether any column was completed.
-    ///
-    /// `verified_header` must be `Some` for Fulu partials (the assembler needs it) and `None`
-    /// for Gloas partials.
     #[instrument(skip_all, level = "debug")]
     pub async fn process_gossip_partial_data_column(
         self: &Arc<Self>,
-        verified_partial: KzgVerifiedPartialDataColumn<T::EthSpec>,
-        verified_header: Option<GossipVerifiedPartialDataColumnHeader<T::EthSpec>>,
-        slot: Slot,
+        verified_partial: GossipVerifiedPartialDataColumn<T::EthSpec>,
     ) -> Result<ProcessedPartialColumnStatus<T::EthSpec>, BlockError> {
-        let block_root = verified_partial.block_root();
-        let column_index = verified_partial.index();
+        let slot = verified_partial.slot();
+        let column = verified_partial.as_partial_column();
+        let block_root = *column.block_root();
+        let column_index = *column.index();
         let index_str = column_index.to_string();
         metrics::inc_counter_vec_by(
             &metrics::BEACON_PARTIAL_MESSAGE_CELLS_RECEIVED_TOTAL,
             &[index_str.as_str()],
-            verified_partial.sidecar().column().len() as u64,
+            column.sidecar().column().len() as u64,
         );
 
         // Check if we have custody of this column
         let sampling_columns = self
             .custody_context
             .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()));
-        let verified_partial = if sampling_columns.contains(&column_index) {
-            KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(verified_partial)
-        } else {
+        if !sampling_columns.contains(&column_index) {
             return Ok(None);
-        };
+        }
 
         if self.is_block_data_imported(block_root, slot) {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
         let (merge_result, gloas_availability) = match verified_partial {
-            KzgVerifiedCustodyPartialDataColumn::Fulu(verified_partial) => {
+            GossipVerifiedPartialDataColumn::PreGloas { column, header } => {
+                let verified_partial =
+                    KzgVerifiedCustodyPartialDataColumnFulu::from_asserted_custody(column);
                 // Fulu: merge via the partial assembler.
                 let Some(assembler) = self.data_availability_checker.partial_assembler() else {
                     // Partial messages are apparently not activated
                     return Ok(None);
                 };
-                let Some(header) = verified_header else {
-                    return Err(BlockError::InternalError(
-                        "Fulu partial data column received without a header".to_string(),
-                    ));
-                };
-
                 let merge_result = assembler
                     .merge_partials(block_root, vec![verified_partial], header.into_header())
                     .ok_or_else(|| {
@@ -3517,11 +3515,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     })?;
                 (merge_result, None)
             }
-            KzgVerifiedCustodyPartialDataColumn::Gloas(verified_partial) => {
+            GossipVerifiedPartialDataColumn::PostGloas { column, bid } => {
+                let verified_partial =
+                    KzgVerifiedCustodyPartialDataColumnGloas::from_asserted_custody(column);
                 // Gloas: merge directly into the pending payload cache.
                 let (availability, merge_result) = self
                     .pending_payload_cache
-                    .merge_partial_data_columns(block_root, &[verified_partial])
+                    .merge_partial_data_columns(block_root, &[verified_partial], &bid)
                     .map_err(BlockError::from)?;
                 (merge_result, Some(availability))
             }
@@ -4223,9 +4223,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_name_at_slot::<T::EthSpec>(slot)
             .gloas_enabled()
         {
+            let bid = self.get_or_load_gloas_payload_bid(block_root).await?;
             let availability = self
                 .pending_payload_cache
-                .put_rpc_custody_columns(block_root, custody_columns)
+                .put_rpc_custody_columns(block_root, custody_columns, &bid)
                 .map_err(BlockError::from)?;
             Ok(self
                 .process_payload_envelope_availability(slot, availability, || Ok(()))
@@ -4247,12 +4248,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verified_proof: GossipVerifiedExecutionProof,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let GossipVerifiedExecutionProof { proof, block_slot } = verified_proof;
+        let bid = self
+            .get_or_load_gloas_payload_bid(proof.beacon_block_root())
+            .await?;
         let availability = self
             .pending_payload_cache
-            .put_execution_proof(proof)
+            .put_execution_proof(proof, &bid)
             .map_err(BlockError::from)?;
         self.process_payload_envelope_availability(block_slot, availability, || Ok(()))
             .await
+    }
+
+    /// Load a persisted Gloas bid without blocking the async runtime.
+    pub(crate) async fn get_or_load_gloas_payload_bid(
+        self: &Arc<Self>,
+        block_root: Hash256,
+    ) -> Result<Arc<SignedExecutionPayloadBid<T::EthSpec>>, BlockError> {
+        if let Some(bid) = self.pending_payload_cache.get_bid(&block_root) {
+            return Ok(bid);
+        }
+
+        let chain = self.clone();
+        self.spawn_blocking_handle(
+            move || load_gloas_payload_bid(block_root, &chain),
+            "load_gloas_payload_bid",
+        )
+        .await??
+        .ok_or_else(|| AvailabilityCheckError::MissingBid(block_root).into())
     }
 
     fn check_data_column_sidecar_header_signature_and_slashability<'a>(
@@ -7222,6 +7244,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.gossip_verified_payload_bid_cache.prune(slot);
             self.gossip_verified_proposer_preferences_cache.prune(slot);
             self.pending_payload_envelopes.write().prune(slot);
+            self.inclusion_list_store.write().prune(slot);
 
             // Don't run heavy-weight tasks during sync.
             if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot {
@@ -7339,6 +7362,112 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             shuffling_epoch,
             map_fn,
         )
+    }
+
+    /// The ordered inclusion list committee for `slot`, and the dependent root that keys it.
+    ///
+    /// `parent_block_root` must not be from a later epoch than `slot`, since `with_committee_cache`
+    /// cannot resolve a shuffling earlier than its own block's epoch.
+    ///
+    /// Takes a fork choice read lock (via `with_committee_cache`).
+    pub fn inclusion_list_committee(
+        &self,
+        parent_block_root: Hash256,
+        slot: Slot,
+    ) -> Result<(InclusionListCommittee<T::EthSpec>, DependentRoot), Error> {
+        let shuffling_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+        let committee_size = T::EthSpec::inclusion_list_committee_size();
+
+        self.with_committee_cache(
+            parent_block_root,
+            shuffling_epoch,
+            |cached_shuffling, dependent_root| {
+                let committee = cached_shuffling
+                    .committee_cache
+                    .get_inclusion_list_committee_at_slot(slot, committee_size)?
+                    .into_iter()
+                    .map(|index| index as u64)
+                    .collect::<Vec<_>>();
+
+                Ok((FixedVector::new(committee)?, dependent_root))
+            },
+        )
+    }
+
+    /// The deduplicated transactions from the inclusion lists stored for `slot`.
+    ///
+    /// Resolves the dependent root directly, since the committee cache is not needed here.
+    ///
+    /// Takes a fork choice read lock.
+    pub fn get_inclusion_list_transactions(
+        &self,
+        parent_block_root: Hash256,
+        slot: Slot,
+        only_timely: bool,
+    ) -> Result<Vec<ProgressiveVariableList<u8>>, Error> {
+        let shuffling_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+        let parent_block = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&parent_block_root)
+            .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
+
+        let dependent_root = BlockShufflingIds {
+            current: parent_block.current_epoch_shuffling_id.clone(),
+            next: parent_block.next_epoch_shuffling_id.clone(),
+            previous: None,
+            block_root: parent_block.root,
+        }
+        .id_for_epoch(shuffling_epoch)
+        .map(|id| id.shuffling_decision_block)
+        .ok_or(Error::InvalidShufflingId {
+            shuffling_epoch,
+            head_block_epoch: parent_block.slot.epoch(T::EthSpec::slots_per_epoch()),
+        })?;
+
+        Ok(self
+            .inclusion_list_store
+            .read()
+            .get_inclusion_list_transactions(slot, dependent_root, only_timely))
+    }
+
+    /// The inclusion list committee bits for `slot` as observed by this node.
+    pub fn get_inclusion_list_bits(
+        &self,
+        parent_block_root: Hash256,
+        slot: Slot,
+        only_timely: bool,
+    ) -> Result<BitVector<<T::EthSpec as EthSpec>::InclusionListCommitteeSize>, Error> {
+        let (il_committee, dependent_root) =
+            self.inclusion_list_committee(parent_block_root, slot)?;
+
+        self.inclusion_list_store
+            .read()
+            .get_inclusion_list_bits(slot, dependent_root, &il_committee, only_timely)
+            .map_err(Into::into)
+    }
+
+    /// Whether `bits` covers every inclusion list this node observed for `slot`.
+    pub fn is_inclusion_list_bits_inclusive(
+        &self,
+        parent_block_root: Hash256,
+        slot: Slot,
+        bits: &BitVector<<T::EthSpec as EthSpec>::InclusionListCommitteeSize>,
+        only_timely: bool,
+    ) -> Result<bool, Error> {
+        let (il_committee, dependent_root) =
+            self.inclusion_list_committee(parent_block_root, slot)?;
+
+        self.inclusion_list_store
+            .read()
+            .is_inclusion_list_bits_inclusive(
+                slot,
+                dependent_root,
+                &il_committee,
+                bits,
+                only_timely,
+            )
+            .map_err(Into::into)
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
