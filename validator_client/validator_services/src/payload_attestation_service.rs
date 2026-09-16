@@ -829,7 +829,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_payload_attestation_data_no_block() {
-        let mut test_harness = TestHarness::new_with_validators(1).await;
+        let mut test_harness = TestHarness::new_with_validators(1, None).await;
 
         let attestation_slot = Slot::new(1);
         // We have PTC duties
@@ -844,7 +844,7 @@ mod tests {
         // A 204 is not an error, data production returns `None` so there is nothing to publish
         let data = test_harness
             .service
-            .produce_payload_attestation_data(attestation_slot)
+            .produce_payload_attestation_data(PayloadAttestationTrigger::Deadline(attestation_slot))
             .await
             .unwrap();
         assert!(
