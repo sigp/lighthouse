@@ -7381,6 +7381,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The deduplicated transactions from the inclusion lists stored for `slot`.
     ///
     /// Resolves the dependent root directly, since the committee cache is not needed here.
+    ///
+    /// Takes a fork choice read lock.
     pub fn get_inclusion_list_transactions(
         &self,
         parent_block_root: Hash256,
