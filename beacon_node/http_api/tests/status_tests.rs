@@ -141,6 +141,7 @@ async fn el_error_on_new_payload() {
             status: PayloadStatusV1Status::Valid,
             latest_valid_hash: Some(block_hash),
             validation_error: None,
+            inclusion_list_satisfied: None,
         },
     );
     harness.process_block_result((block, blobs)).await.unwrap();
