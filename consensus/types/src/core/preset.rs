@@ -379,12 +379,15 @@ impl GloasPreset {
 pub struct HezePreset {
     #[serde(with = "serde_utils::quoted_u64")]
     pub inclusion_list_committee_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_signed_inclusion_list_size: u64,
 }
 
 impl HezePreset {
     pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
         Self {
             inclusion_list_committee_size: E::inclusion_list_committee_size() as u64,
+            max_signed_inclusion_list_size: E::max_signed_inclusion_list_size() as u64,
         }
     }
 }

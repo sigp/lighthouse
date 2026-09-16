@@ -4,3 +4,8 @@
 # ---------------------------------------------------------------
 # 2**4 (= 16) validators
 INCLUSION_LIST_COMMITTEE_SIZE: 16
+
+# Type-specific SSZ bounds
+# ---------------------------------------------------------------
+# 41,112 bytes, ~40 KiB
+MAX_SIGNED_INCLUSION_LIST_SIZE: 41112
