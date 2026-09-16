@@ -2749,7 +2749,13 @@ async fn filter_chain_segment_keeps_checkpoint_gloas_block_by_split_root() {
         .signed_execution_payload_bid()
         .unwrap();
     let columns = generate_data_column_sidecars_from_block(&checkpoint_block, &harness.chain.spec);
-    let available_envelope = AvailableEnvelope::new(Arc::new(envelope), columns, bid).unwrap();
+    let available_envelope = AvailableEnvelope::new(
+        Arc::new(envelope),
+        columns,
+        bid,
+        &harness.chain.custody_context,
+    )
+    .unwrap();
     let range_sync_block = RangeSyncBlock::Gloas {
         block: checkpoint_block,
         envelope: Some(available_envelope),
@@ -3231,7 +3237,7 @@ async fn process_chain_segment_import_fails_without_parent_envelope() {
     let available_envelope2 = AvailableEnvelope::new(
         envelope2,
         columns2,
-        &bid2,
+        bid2,
         &import_harness.chain.custody_context,
     )
     .unwrap();
@@ -3326,7 +3332,7 @@ async fn process_chain_segment_full_and_empty_transitions() {
     let available_envelope1 = AvailableEnvelope::new(
         envelope1,
         columns1,
-        &bid1,
+        bid1,
         &import_harness.chain.custody_context,
     )
     .unwrap();
@@ -3354,7 +3360,7 @@ async fn process_chain_segment_full_and_empty_transitions() {
     let available_envelope3 = AvailableEnvelope::new(
         Arc::new(envelope3),
         columns3,
-        &bid3,
+        bid3,
         &import_harness.chain.custody_context,
     )
     .unwrap();
@@ -3443,7 +3449,7 @@ async fn process_chain_segment_rejects_envelope_with_invalid_columns() {
     let available_envelope = AvailableEnvelope::new(
         envelope,
         columns,
-        &bid,
+        bid,
         &import_harness.chain.custody_context,
     )
     .unwrap();
