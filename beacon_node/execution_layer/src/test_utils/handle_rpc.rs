@@ -209,7 +209,9 @@ pub async fn handle_rpc<E: EthSpec>(
                     }
                 }
                 ForkName::Heze => {
-                    if method != ENGINE_NEW_PAYLOAD_V6 {
+                    // TODO(heze): drop V5 here once `NewPayloadRequest::Heze` is constructed. The
+                    // payload notifier still builds the Gloas request, so Heze blocks send V5.
+                    if method != ENGINE_NEW_PAYLOAD_V5 && method != ENGINE_NEW_PAYLOAD_V6 {
                         return Err((
                             format!("{} called after Heze fork!", method),
                             GENERIC_ERROR_CODE,
