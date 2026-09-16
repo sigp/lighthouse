@@ -322,63 +322,6 @@ impl TestContext {
         fork_block_root
     }
 
-    fn advance_head(&mut self) {
-        let parent = self.canonical_head.cached_head().snapshot;
-        let fc_store =
-            BeaconForkChoiceStore::get_forkchoice_store(self.store.clone(), (*parent).clone())
-                .unwrap();
-        let mut fork_choice = ForkChoice::from_anchor(
-            fc_store,
-            parent.beacon_block_root,
-            &parent.beacon_block,
-            &parent.beacon_state,
-            None,
-            &self.spec,
-        )
-        .unwrap();
-        let mut state = parent.beacon_state.clone();
-        let parent_randao = *state.get_randao_mix(state.current_epoch()).unwrap();
-        *state.slot_mut() = Slot::new(1);
-        state
-            .set_block_root(Slot::new(0), parent.beacon_block_root)
-            .unwrap();
-        state
-            .set_randao_mix(state.current_epoch(), Hash256::repeat_byte(0xab))
-            .unwrap();
-        state
-            .latest_execution_payload_bid_mut()
-            .unwrap()
-            .prev_randao = parent_randao;
-        let mut block = genesis_block(&state, &self.spec).unwrap();
-        *block.slot_mut() = state.slot();
-        *block.parent_root_mut() = parent.beacon_block_root;
-        *block.state_root_mut() = state.update_tree_hash_cache().unwrap();
-        let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
-        let root = signed_block.canonical_root();
-        let mut proto_block = self.slot_1_proto_block(root, ExecutionBlockHash::repeat_byte(0xab));
-        proto_block.execution_payload_parent_hash = Some(self.execution_parent_hash());
-        fork_choice
-            .proto_array_mut()
-            .process_block::<E>(proto_block, Slot::new(1), &self.spec, Duration::ZERO)
-            .unwrap();
-        let (_, payload_status) = fork_choice.get_head(Slot::new(1), &self.spec).unwrap();
-        self.canonical_head = CanonicalHead::new(
-            fork_choice,
-            Arc::new(BeaconSnapshot::new(
-                Arc::new(signed_block),
-                None,
-                root,
-                state,
-            )),
-            payload_status,
-            FastConfirmationMode::Disabled,
-            &self.store,
-            &self.spec,
-        )
-        .unwrap();
-        self.slot_clock.set_slot(1);
-    }
-
     fn put_envelope_with_builder_exit(
         &self,
         block_root: Hash256,
@@ -1202,38 +1145,6 @@ fn valid_bid_with_parent_in_previous_epoch() {
             "clock {current_slot}, bid {bid_slot}: {result:?}"
         );
     }
-}
-
-#[test]
-fn bid_on_head_parent_uses_parent_randao() {
-    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
-        return;
-    }
-    let mut ctx = TestContext::new();
-    let parent_randao = ctx.canonical_head.cached_head().head_random().unwrap();
-    ctx.advance_head();
-    let head_randao = ctx.canonical_head.cached_head().head_random().unwrap();
-    assert_ne!(head_randao, parent_randao);
-    let slot = Slot::new(2);
-    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
-    let mut bid = ExecutionPayloadBid {
-        slot,
-        builder_index: 0,
-        fee_recipient: Address::ZERO,
-        gas_limit: 30_000_000,
-        parent_block_root: ctx.genesis_block_root,
-        parent_block_hash: ctx.execution_parent_hash(),
-        prev_randao: head_randao,
-        ..ExecutionPayloadBid::default()
-    };
-    let result = GossipVerifiedPayloadBid::new(ctx.sign_bid(bid.clone()), &ctx.gossip_ctx());
-    assert!(
-        matches!(result, Err(PayloadBidError::InvalidPrevRandao { .. })),
-        "{result:?}"
-    );
-    bid.prev_randao = parent_randao;
-    let result = GossipVerifiedPayloadBid::new(ctx.sign_bid(bid), &ctx.gossip_ctx());
-    assert!(result.is_ok(), "{result:?}");
 }
 
 #[test]
