@@ -10,7 +10,7 @@ use execution_layer::{
     PayloadParameters,
 };
 use operation_pool::CompactAttestationRef;
-use ssz::{Encode, ProgressiveBitList};
+use ssz::{BitVector, Encode, ProgressiveBitList};
 use ssz_types::ProgressiveVariableList;
 use state_processing::common::{get_attesting_indices_from_state, get_indexed_payload_attestation};
 use state_processing::envelope_processing::verify_execution_payload_envelope;
@@ -32,10 +32,11 @@ use types::{
     Address, Attestation, AttestationGloas, AttesterSlashing, AttesterSlashingGloas, BeaconBlock,
     BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze, BeaconState,
     BeaconStateError, BlobsList, BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBidGloas, ExecutionPayloadEnvelope, ExecutionRequestsGloas, FullPayload,
-    Graffiti, Hash256, IndexedAttestation, KzgProofs, PayloadAttestation, ProposerSlashing,
-    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
-    SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadEnvelope,
+    ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, IndexedAttestation, KzgProofs,
+    PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
+    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
     SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
 
@@ -995,22 +996,67 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             should_override_builder,
         } = block_proposal_contents;
 
-        // TODO(gloas) since we are defaulting to local building, execution payment is 0
-        // execution payment should only be set to > 0 for trusted building.
-        let bid = ExecutionPayloadBidGloas::<T::EthSpec> {
-            parent_block_hash: executed_ancestor_hash,
-            parent_block_root: parent_root,
-            block_hash: payload.block_hash,
-            prev_randao: payload.prev_randao,
-            fee_recipient: Address::ZERO,
-            gas_limit: payload.gas_limit,
-            builder_index,
-            slot: produce_at_slot,
-            value: bid_value,
-            execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
-            blob_kzg_commitments,
-            execution_requests_root: execution_requests.tree_hash_root(),
-            _phantom: PhantomData,
+        let signature = Signature::infinity().map_err(BlockProductionError::BlsError)?;
+        let signed_execution_payload_bid = match state {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_)
+            | BeaconState::Fulu(_) => {
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Cannot produce an execution payload bid pre-Gloas".to_owned(),
+                ));
+            }
+            BeaconState::Gloas(_) => {
+                // TODO(gloas) since we are defaulting to local building, execution payment is 0
+                // execution payment should only be set to > 0 for trusted building.
+                let bid = ExecutionPayloadBidGloas::<T::EthSpec> {
+                    parent_block_hash: executed_ancestor_hash,
+                    parent_block_root: parent_root,
+                    block_hash: payload.block_hash,
+                    prev_randao: payload.prev_randao,
+                    fee_recipient: Address::ZERO,
+                    gas_limit: payload.gas_limit,
+                    builder_index,
+                    slot: produce_at_slot,
+                    value: bid_value,
+                    execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
+                    blob_kzg_commitments,
+                    execution_requests_root: execution_requests.tree_hash_root(),
+                    _phantom: PhantomData,
+                };
+
+                SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                    message: bid,
+                    signature,
+                })
+            }
+            BeaconState::Heze(_) => {
+                let bid = ExecutionPayloadBidHeze::<T::EthSpec> {
+                    parent_block_hash: executed_ancestor_hash,
+                    parent_block_root: parent_root,
+                    block_hash: payload.block_hash,
+                    prev_randao: payload.prev_randao,
+                    fee_recipient: Address::ZERO,
+                    gas_limit: payload.gas_limit,
+                    builder_index,
+                    slot: produce_at_slot,
+                    value: bid_value,
+                    execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
+                    blob_kzg_commitments,
+                    execution_requests_root: execution_requests.tree_hash_root(),
+                    // TODO(heze): set the bits based on the IL committee members whose
+                    // inclusion lists were considered when building the payload
+                    inclusion_list_bits: BitVector::new(),
+                    _phantom: PhantomData,
+                };
+                SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
+                    message: bid,
+                    signature,
+                })
+            }
         };
 
         // Store payload data for envelope construction after block is created
@@ -1023,10 +1069,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         Ok((
-            SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
-                message: bid,
-                signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
-            }),
+            signed_execution_payload_bid,
             LocalBuildResult {
                 payload_data,
                 payload_value,
