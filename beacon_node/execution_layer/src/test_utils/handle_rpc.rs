@@ -69,7 +69,8 @@ pub async fn handle_rpc<E: EthSpec>(
         | ENGINE_NEW_PAYLOAD_V2
         | ENGINE_NEW_PAYLOAD_V3
         | ENGINE_NEW_PAYLOAD_V4
-        | ENGINE_NEW_PAYLOAD_V5 => {
+        | ENGINE_NEW_PAYLOAD_V5
+        | ENGINE_NEW_PAYLOAD_V6 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::Bellatrix(
                     get_param::<JsonExecutionPayloadBellatrix<E>>(params, 0)
@@ -92,12 +93,12 @@ pub async fn handle_rpc<E: EthSpec>(
                             .map(|jep| JsonExecutionPayload::Electra(jep))
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V5 => {
-                    // TODO(heze):impl heze variant (probably new payload v6?)
-                    get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
-                        .map(|jep| JsonExecutionPayload::Gloas(jep))
-                        .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
-                }
+                ENGINE_NEW_PAYLOAD_V5 => get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::Gloas(jep))
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                ENGINE_NEW_PAYLOAD_V6 => get_param::<JsonExecutionPayloadHeze<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::Heze(jep))
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 _ => unreachable!(),
             };
 
@@ -208,7 +209,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     }
                 }
                 ForkName::Heze => {
-                    if method != ENGINE_NEW_PAYLOAD_V5 {
+                    if method != ENGINE_NEW_PAYLOAD_V6 {
                         return Err((
                             format!("{} called after Heze fork!", method),
                             GENERIC_ERROR_CODE,
@@ -246,9 +247,18 @@ pub async fn handle_rpc<E: EthSpec>(
                 None
             };
 
-            let response = static_response.or(dynamic_response).unwrap();
+            let mut response = static_response.or(dynamic_response).unwrap();
 
-            Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
+            if method == ENGINE_NEW_PAYLOAD_V6 {
+                // TODO(heze): make this configurable so enforcement tests can exercise an
+                // unsatisfied payload.
+                if response.status == PayloadStatusV1Status::Valid {
+                    response.inclusion_list_satisfied = Some(true);
+                }
+                Ok(serde_json::to_value(JsonPayloadStatusV2::from(response)).unwrap())
+            } else {
+                Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
+            }
         }
         ENGINE_GET_PAYLOAD_V1
         | ENGINE_GET_PAYLOAD_V2
