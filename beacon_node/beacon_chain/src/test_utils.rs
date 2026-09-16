@@ -3197,14 +3197,13 @@ where
         let has_blobs = block.num_expected_blobs() > 0;
         if !has_blobs {
             return if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
-                let bid = bid.clone_as_signed_execution_payload_bid();
                 let envelope = self
                     .chain
                     .get_payload_envelope(&block_root)
                     .unwrap()
                     .map(Arc::new)
                     .map(|envelope| {
-                        AvailableEnvelope::new(envelope, vec![], &bid, &self.chain.custody_context)
+                        AvailableEnvelope::new(envelope, vec![], bid, &self.chain.custody_context)
                     })
                     .transpose()
                     .unwrap();
@@ -3229,7 +3228,6 @@ where
                 .unwrap();
             let custody_columns = columns.into_iter().collect::<Vec<_>>();
             if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
-                let bid = bid.clone_as_signed_execution_payload_bid();
                 let envelope = self
                     .chain
                     .get_payload_envelope(&block_root)
@@ -3239,7 +3237,7 @@ where
                         AvailableEnvelope::new(
                             envelope,
                             custody_columns,
-                            &bid,
+                            bid,
                             &self.chain.custody_context,
                         )
                     })
@@ -3269,7 +3267,6 @@ where
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     ) -> Result<RangeSyncBlock<E>, BlockError> {
         if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
-            let bid = bid.clone_as_signed_execution_payload_bid();
             let columns = blob_items
                 .map(|_| generate_data_column_sidecars_from_block(&block, &self.spec))
                 .unwrap_or_default();
@@ -3279,7 +3276,7 @@ where
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e)))?
                 .map(Arc::new)
                 .map(|envelope| {
-                    AvailableEnvelope::new(envelope, columns, &bid, &self.chain.custody_context)
+                    AvailableEnvelope::new(envelope, columns, bid, &self.chain.custody_context)
                 })
                 .transpose()
                 .unwrap();

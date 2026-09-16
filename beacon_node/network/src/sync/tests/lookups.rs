@@ -1300,7 +1300,7 @@ impl TestRig {
                         AvailableEnvelope::new(
                             envelope,
                             columns.unwrap_or_default(),
-                            &bid.clone_as_signed_execution_payload_bid(),
+                            bid,
                             &self.harness.chain.custody_context,
                         )
                     })

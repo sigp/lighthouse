@@ -1,5 +1,5 @@
 use crate::execution::{ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef};
-use crate::{EthSpec, ForkName, ForkVersionDecode};
+use crate::{Epoch, EthSpec, ForkName, ForkVersionDecode, Slot};
 use bls::Signature;
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
@@ -84,6 +84,18 @@ impl<E: EthSpec> SignedExecutionPayloadBidHeze<E> {
 }
 
 impl<'a, E: EthSpec> SignedExecutionPayloadBidRef<'a, E> {
+    pub fn slot(&self) -> Slot {
+        self.message().slot()
+    }
+
+    pub fn epoch(&self) -> Epoch {
+        self.slot().epoch(E::slots_per_epoch())
+    }
+
+    pub fn num_blobs_expected(&self) -> usize {
+        self.message().blob_kzg_commitments().len()
+    }
+
     /// The bid message as a fork-agnostic reference.
     pub fn message(&self) -> ExecutionPayloadBidRef<'a, E> {
         match self {

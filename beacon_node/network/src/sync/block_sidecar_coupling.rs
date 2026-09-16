@@ -466,10 +466,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     .body()
                     .signed_execution_payload_bid()
                     // this really should never fail
-                    .map_err(|_| AvailabilityCheckError::MissingBid(block_root))?
-                    .clone_as_signed_execution_payload_bid();
+                    .map_err(|_| AvailabilityCheckError::MissingBid(block_root))?;
+
                 let available_envelope = envelope
-                    .map(|env| AvailableEnvelope::new(env, custody_columns, &bid, custody_context))
+                    .map(|env| AvailableEnvelope::new(env, custody_columns, bid, custody_context))
                     .transpose()?;
 
                 RangeSyncBlock::new_gloas(block, available_envelope)

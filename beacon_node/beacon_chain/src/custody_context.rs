@@ -11,7 +11,7 @@ use std::{
 };
 use tracing::{debug, warn};
 use types::{
-    ChainSpec, ColumnIndex, Epoch, EthSpec, SignedBeaconBlock, SignedExecutionPayloadBid, Slot,
+    ChainSpec, ColumnIndex, Epoch, EthSpec, SignedBeaconBlock, SignedExecutionPayloadBidRef, Slot,
 };
 
 /// A delay before making the CGC change effective to the data availability checker.
@@ -590,7 +590,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
 
     pub fn data_columns_required_for_bid(
         &self,
-        bid: &SignedExecutionPayloadBid<T::EthSpec>,
+        bid: SignedExecutionPayloadBidRef<T::EthSpec>,
     ) -> bool {
         bid.num_blobs_expected() > 0 && self.data_columns_required_for_epoch(bid.epoch())
     }

@@ -30,7 +30,7 @@ use strum::AsRefStr;
 use tracing::{instrument, warn};
 use types::{
     BeaconState, BeaconStateError, BuilderIndex, DataColumnSidecarList, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid,
+    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBidRef,
     SignedExecutionPayloadEnvelope, Slot,
 };
 
@@ -70,7 +70,7 @@ impl<E: EthSpec> AvailableEnvelope<E> {
     pub fn new<T>(
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         columns: DataColumnSidecarList<E>,
-        bid: &SignedExecutionPayloadBid<E>,
+        bid: SignedExecutionPayloadBidRef<E>,
         custody_context: &CustodyContext<T>,
     ) -> Result<Self, AvailabilityCheckError>
     where

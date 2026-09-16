@@ -44,7 +44,7 @@ impl<E: EthSpec> PendingComponents<E> {
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
-        if custody_context.data_columns_required_for_bid(&self.bid) {
+        if custody_context.data_columns_required_for_bid(self.bid.to_ref()) {
             custody_context.num_of_data_columns_to_sample(self.bid.epoch())
         } else {
             0
@@ -291,8 +291,12 @@ impl<E: EthSpec> PendingComponents<E> {
             }
         };
 
-        let available_envelope =
-            AvailableEnvelope::new(envelope.clone(), columns, &self.bid, custody_context)?;
+        let available_envelope = AvailableEnvelope::new(
+            envelope.clone(),
+            columns,
+            self.bid.to_ref(),
+            custody_context,
+        )?;
 
         Ok(Some(AvailableExecutedEnvelope {
             envelope: available_envelope,
