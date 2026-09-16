@@ -20,6 +20,17 @@ pub struct JustifiedBalances {
 }
 
 impl JustifiedBalances {
+    /// Spec: `get_total_active_balance`.
+    ///
+    /// Includes active slashed validators.
+    pub fn total_active_balance(&self) -> Option<u64> {
+        self.slashed_balances
+            .values()
+            .try_fold(self.total_effective_balance, |acc, &balance| {
+                acc.checked_add(balance)
+            })
+    }
+
     pub fn from_justified_state<E: EthSpec>(state: &BeaconState<E>) -> Result<Self, ArithError> {
         let current_epoch = state.current_epoch();
         let mut total_effective_balance = 0u64;
@@ -76,7 +87,7 @@ impl JustifiedBalances {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{ChainSpec, Epoch, MinimalEthSpec, Validator};
+    use types::{ChainSpec, Epoch, EthSpec, MinimalEthSpec, Validator};
 
     type E = MinimalEthSpec;
 
@@ -135,6 +146,10 @@ mod tests {
             justified_balances.slashed_balances,
             BTreeMap::from([(1, 31_000_000_000)])
         );
+        assert_eq!(
+            justified_balances.total_active_balance(),
+            Some(63_000_000_000)
+        );
     }
 
     #[test]
@@ -146,5 +161,35 @@ mod tests {
         assert_eq!(justified_balances.total_effective_balance, 63_000_000_000);
         assert_eq!(justified_balances.num_active_validators, 2);
         assert!(justified_balances.slashed_balances.is_empty());
+        assert_eq!(
+            justified_balances.total_active_balance(),
+            Some(63_000_000_000)
+        );
+    }
+
+    // https://github.com/sigp/lighthouse/issues/10057
+    #[test]
+    fn calculate_committee_fraction_includes_active_slashed_balances() {
+        use crate::calculate_committee_fraction;
+
+        let unslashed = 32_000_000_000u64;
+        let slashed = 32_000_000_000u64;
+        let boost_percent = 40u64;
+
+        let mut balances = JustifiedBalances::from_effective_balances(vec![unslashed]).unwrap();
+        balances.slashed_balances.insert(1, slashed);
+
+        let slots_per_epoch = E::slots_per_epoch();
+        let expected = (unslashed.checked_add(slashed).unwrap() / slots_per_epoch)
+            * boost_percent
+            / 100;
+        let unslashed_only = (unslashed / slots_per_epoch) * boost_percent / 100;
+
+        let actual = calculate_committee_fraction::<E>(&balances, boost_percent).unwrap();
+        assert_eq!(actual, expected);
+        assert_ne!(
+            actual, unslashed_only,
+            "must not ignore active slashed balances"
+        );
     }
 }
