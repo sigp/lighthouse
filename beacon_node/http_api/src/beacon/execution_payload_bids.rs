@@ -84,7 +84,7 @@ pub(crate) fn post_beacon_execution_payload_bids<T: BeaconChainTypes>(
                         consensus_version,
                     )
                     .map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                        warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
                     })?;
                     publish_execution_payload_bid(bid, &chain, &network_tx)
                 })
