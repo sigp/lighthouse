@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::DataColumnSidecar;
-use types::execution::{ProofType, SignedExecutionProof};
+use types::execution::{ProofType, SignedExecutionProofEnvelope};
 use types::{ColumnIndex, EthSpec, Hash256, SignedExecutionPayloadBid};
 
 /// This represents the components of a payload pending data availability.
@@ -30,7 +30,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_data_columns: HashMap<ColumnIndex, PendingColumn<E>>,
     /// Execution proofs keyed by proof type, so repeats from one prover count once. Empty
     /// without a proof engine.
-    pub execution_proofs: HashMap<ProofType, Arc<SignedExecutionProof>>,
+    pub execution_proofs: HashMap<ProofType, Arc<SignedExecutionProofEnvelope>>,
     pub reconstruction_started: bool,
     /// True once the local `getBlobs` attempt has settled. It is set whether or not the EL
     /// returned anything. Until then, republished partials request no cells, because the EL
@@ -203,7 +203,10 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Inserts an execution proof, returning the distinct proof type count, or `None` if we
     /// already had this type.
-    pub fn insert_execution_proof(&mut self, proof: Arc<SignedExecutionProof>) -> Option<usize> {
+    pub fn insert_execution_proof(
+        &mut self,
+        proof: Arc<SignedExecutionProofEnvelope>,
+    ) -> Option<usize> {
         if self
             .execution_proofs
             .insert(proof.proof_type(), proof)

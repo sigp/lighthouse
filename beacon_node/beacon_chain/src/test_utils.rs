@@ -54,9 +54,9 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use ssz_types::{ProgressiveVariableList, RuntimeVariableList, VariableList};
 use state_processing::ConsensusContext;
 use state_processing::per_block_processing::compute_timestamp_at_slot;
+use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use state_processing::per_block_processing::{
-    BlockSignatureStrategy, VerifyBlockRoot, deneb::kzg_commitment_to_versioned_hash,
-    per_block_processing,
+    BlockSignatureStrategy, VerifyBlockRoot, per_block_processing,
 };
 use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
@@ -3114,16 +3114,16 @@ where
             .expect("Gloas block should have a payload bid")
             .message;
 
-        let versioned_hashes = bid
-            .blob_kzg_commitments
-            .iter()
-            .map(kzg_commitment_to_versioned_hash)
-            .collect();
-
+        let versioned_hashes = ProgressiveVariableList::new(
+            bid.blob_kzg_commitments
+                .iter()
+                .map(kzg_commitment_to_versioned_hash)
+                .collect(),
+        );
         let request = NewPayloadRequest::Gloas(NewPayloadRequestGloas {
             execution_payload: &signed_envelope.message.payload,
             versioned_hashes,
-            parent_beacon_block_root: block.message().parent_root(),
+            parent_beacon_block_root: signed_envelope.message.parent_beacon_block_root,
             execution_requests: &signed_envelope.message.execution_requests,
         });
 
