@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use execution_layer::{NewPayloadRequest, NewPayloadRequestGloas};
 use fork_choice::PayloadVerificationStatus;
+use ssz_types::ProgressiveVariableList;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use tracing::warn;
 use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
@@ -80,11 +81,12 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             .map_err(|e| PayloadVerificationError::BeaconChainError(Box::new(e.into())))?
             .message;
 
-        let versioned_hashes = bid
-            .blob_kzg_commitments
-            .iter()
-            .map(kzg_commitment_to_versioned_hash)
-            .collect();
+        let versioned_hashes = ProgressiveVariableList::new(
+            bid.blob_kzg_commitments
+                .iter()
+                .map(kzg_commitment_to_versioned_hash)
+                .collect(),
+        );
 
         Ok(NewPayloadRequest::Gloas(NewPayloadRequestGloas {
             execution_payload: &envelope.message.payload,
