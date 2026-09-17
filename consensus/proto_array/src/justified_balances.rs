@@ -180,9 +180,8 @@ mod tests {
         balances.slashed_balances.insert(1, slashed);
 
         let slots_per_epoch = E::slots_per_epoch();
-        let expected = (unslashed.checked_add(slashed).unwrap() / slots_per_epoch)
-            * boost_percent
-            / 100;
+        let expected =
+            (unslashed.checked_add(slashed).unwrap() / slots_per_epoch) * boost_percent / 100;
         let unslashed_only = (unslashed / slots_per_epoch) * boost_percent / 100;
 
         let actual = calculate_committee_fraction::<E>(&balances, boost_percent).unwrap();
