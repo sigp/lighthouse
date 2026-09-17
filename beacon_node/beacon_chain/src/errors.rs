@@ -2,6 +2,7 @@ use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
+use crate::inclusion_list_store::Error as InclusionListStoreError;
 use crate::inclusion_list_verification::InclusionListTransactionsError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
@@ -105,6 +106,7 @@ pub enum BeaconChainError {
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
     ObservedDataSidecarsError(ObservedDataSidecarsError),
+    InclusionListStoreError(InclusionListStoreError),
     EarlyAttesterCacheError,
     PruningError(PruningError),
     ArithError(ArithError),
@@ -282,6 +284,7 @@ easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
 easy_from_to!(ObservedDataSidecarsError, BeaconChainError);
+easy_from_to!(InclusionListStoreError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
