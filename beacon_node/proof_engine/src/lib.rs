@@ -1,32 +1,50 @@
-//! Minimal EIP-8025 proof-engine client.
+//! EIP-8025 proof verification.
 //!
-//! Implements only `verify_execution_proof` from the proof-engine API
-//! (consensus-specs `_features/eip8025/proof-engine.md`). The proof engine is a trusted,
-//! locally-operated service; its verdict is authoritative for proof validity but never for
-//! payload validity.
+//! The default client delegates verification to a locally operated proof-engine service. Builds
+//! with the `ere-verifier` feature can also construct an in-process verifier backed by ERE's C
+//! API.
+
+mod config;
+#[cfg(feature = "ere-verifier")]
+pub mod ere;
 
 use sensitive_url::SensitiveUrl;
 use serde::Deserialize;
 use std::time::Duration;
-use types::execution::ExecutionProof;
+use types::execution::{ExecutionProof, ProofType};
+
+pub use config::{ExecutionProofConfig, ProofEngineConfig};
 
 pub const DEFAULT_VERIFY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const PATH_PROOF_VERIFICATIONS: &str = "/v1/execution_proof_verifications";
 
+/// Errors raised while initializing or running a proof verifier.
 #[derive(Debug)]
 pub enum ProofEngineError {
     HttpClient(String),
     InvalidUrl(String),
     InvalidResponse(String),
+    /// The configured in-process verifier could not initialize or complete verification.
+    ProofVerifierError(String),
+    /// No in-process verifier is configured for the proof's EIP-8025 proof type.
+    UnconfiguredProofType(ProofType),
 }
 
-/// Outcome of `verify_execution_proof`. `Invalid` means the artifact does not verify; it says
-/// nothing about the validity of the payload it claims to prove.
+/// Outcome of proof verification. `Invalid` means the artifact does not verify; it says nothing
+/// about the validity of the payload it claims to prove.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProofVerificationOutcome {
     Valid,
     Invalid,
+}
+
+/// Interface implemented by in-process execution-proof verifiers.
+pub trait ProofEngineT: Send + Sync + 'static {
+    fn verify_execution_proof(
+        &self,
+        proof: &ExecutionProof,
+    ) -> Result<ProofVerificationOutcome, ProofEngineError>;
 }
 
 #[derive(Deserialize)]
@@ -48,11 +66,12 @@ pub struct ProofEngine {
 }
 
 impl ProofEngine {
+    /// Construct a client for a locally operated proof-engine service.
     pub fn new(url: SensitiveUrl) -> Result<Self, ProofEngineError> {
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_VERIFY_TIMEOUT)
             .build()
-            .map_err(|e| ProofEngineError::HttpClient(e.to_string()))?;
+            .map_err(|error| ProofEngineError::HttpClient(error.to_string()))?;
         Ok(Self { client, url })
     }
 
@@ -83,12 +102,12 @@ impl ProofEngine {
             .body(proof.proof_data.to_vec())
             .send()
             .await
-            .map_err(|e| ProofEngineError::HttpClient(e.to_string()))?
+            .map_err(|error| ProofEngineError::HttpClient(error.to_string()))?
             .error_for_status()
-            .map_err(|e| ProofEngineError::HttpClient(e.to_string()))?
+            .map_err(|error| ProofEngineError::HttpClient(error.to_string()))?
             .json()
             .await
-            .map_err(|e| ProofEngineError::InvalidResponse(e.to_string()))?;
+            .map_err(|error| ProofEngineError::InvalidResponse(error.to_string()))?;
 
         Ok(match response.status {
             VerifyStatus::Valid => ProofVerificationOutcome::Valid,
