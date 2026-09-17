@@ -986,6 +986,32 @@ impl ApiTester {
 
     pub async fn test_beacon_states_validator_balances_ssz(self) -> Self {
         for state_id in self.interesting_state_ids() {
+            let all_state_opt = state_id.state(&self.chain).ok();
+            let all_ssz_result = self
+                .client
+                .get_beacon_states_validator_balances_ssz(state_id.0, None)
+                .await
+                .unwrap();
+
+            if all_ssz_result.is_some() || all_state_opt.is_some() {
+                let ssz_bytes = all_ssz_result.expect("response should exist");
+                let result = Vec::<ValidatorBalanceData>::from_ssz_bytes(&ssz_bytes)
+                    .expect("should decode SSZ validator balances");
+
+                let (state, _, _) = all_state_opt.as_ref().expect("state should exist");
+                let expected: Vec<ValidatorBalanceData> = state
+                    .balances()
+                    .iter()
+                    .enumerate()
+                    .map(|(index, balance)| ValidatorBalanceData {
+                        index: index as u64,
+                        balance: *balance,
+                    })
+                    .collect();
+
+                assert_eq!(result, expected, "{:?}", state_id);
+            }
+
             for validator_indices in self.interesting_validator_indices() {
                 let state_opt = state_id.state(&self.chain).ok();
 
@@ -1014,7 +1040,10 @@ impl ApiTester {
 
                 let ssz_result = match self
                     .client
-                    .post_beacon_states_validator_balances_ssz(state_id.0, validator_index_ids)
+                    .get_beacon_states_validator_balances_ssz(
+                        state_id.0,
+                        Some(validator_index_ids.as_slice()),
+                    )
                     .await
                 {
                     Ok(response) => response,
@@ -1026,17 +1055,40 @@ impl ApiTester {
                 }
 
                 let ssz_bytes = ssz_result.expect("response should exist");
-                let result_index_ids = Vec::<ValidatorBalanceData>::from_ssz_bytes(&ssz_bytes)
+                let get_result_index_ids = Vec::<ValidatorBalanceData>::from_ssz_bytes(&ssz_bytes)
                     .expect("should decode SSZ validator balances");
 
-                let ssz_bytes_pubkey = self
+                let get_ssz_bytes_pubkey = self
+                    .client
+                    .get_beacon_states_validator_balances_ssz(
+                        state_id.0,
+                        Some(validator_pubkey_ids.as_slice()),
+                    )
+                    .await
+                    .unwrap()
+                    .expect("response should exist");
+                let get_result_pubkey_ids =
+                    Vec::<ValidatorBalanceData>::from_ssz_bytes(&get_ssz_bytes_pubkey)
+                        .expect("should decode SSZ validator balances");
+
+                let post_ssz_bytes_index = self
+                    .client
+                    .post_beacon_states_validator_balances_ssz(state_id.0, validator_index_ids)
+                    .await
+                    .unwrap()
+                    .expect("response should exist");
+                let post_result_index_ids =
+                    Vec::<ValidatorBalanceData>::from_ssz_bytes(&post_ssz_bytes_index)
+                        .expect("should decode SSZ validator balances");
+
+                let post_ssz_bytes_pubkey = self
                     .client
                     .post_beacon_states_validator_balances_ssz(state_id.0, validator_pubkey_ids)
                     .await
                     .unwrap()
                     .expect("response should exist");
-                let result_pubkey_ids =
-                    Vec::<ValidatorBalanceData>::from_ssz_bytes(&ssz_bytes_pubkey)
+                let post_result_pubkey_ids =
+                    Vec::<ValidatorBalanceData>::from_ssz_bytes(&post_ssz_bytes_pubkey)
                         .expect("should decode SSZ validator balances");
 
                 let expected: Vec<ValidatorBalanceData> = {
@@ -1066,8 +1118,10 @@ impl ApiTester {
                     }
                 };
 
-                assert_eq!(result_index_ids, expected, "{:?}", state_id);
-                assert_eq!(result_pubkey_ids, expected, "{:?}", state_id);
+                assert_eq!(get_result_index_ids, expected, "{:?}", state_id);
+                assert_eq!(get_result_pubkey_ids, expected, "{:?}", state_id);
+                assert_eq!(post_result_index_ids, expected, "{:?}", state_id);
+                assert_eq!(post_result_pubkey_ids, expected, "{:?}", state_id);
             }
         }
         self
