@@ -671,13 +671,7 @@ impl EngineCapabilities {
 
     pub fn get_payload_bodies_by_hash_v1(&self, fork: ForkName) -> bool {
         match self {
-            Self::JsonRpc(capabilities) => {
-                if fork.gloas_enabled() {
-                    false
-                } else {
-                    capabilities.get_payload_bodies_by_hash_v1
-                }
-            }
+            Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_hash_v1,
             Self::Ssz(capabilities) => capabilities.get_payload_bodies(fork),
         }
     }

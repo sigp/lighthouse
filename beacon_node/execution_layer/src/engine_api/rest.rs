@@ -6,8 +6,8 @@ use crate::engine_api::{
     ClientVersionV1, ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT, ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
     ENGINE_GET_BLOBS_TIMEOUT, ENGINE_GET_CLIENT_VERSION_TIMEOUT, ENGINE_GET_PAYLOAD_BODIES_TIMEOUT,
     ENGINE_GET_PAYLOAD_TIMEOUT, ENGINE_NEW_PAYLOAD_TIMEOUT, Error, ExecutionPayloadBodyV1,
-    ForkchoiceUpdatedResponse, GetPayloadResponse, NewPayloadRequest, PayloadAttributes, PayloadId,
-    PayloadStatusV1, PayloadStatusV1Status,
+    ExecutionPayloadBodyV2, ForkchoiceUpdatedResponse, GetPayloadResponse, NewPayloadRequest,
+    PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
 };
 use crate::engines::ForkchoiceState;
 use crate::http::{CachedResponse, LIGHTHOUSE_JSON_CLIENT_VERSION};
@@ -558,6 +558,35 @@ impl HttpRestSsz {
             .into_bodies()
             .map_err(Error::BadResponse)
     }
+
+    pub async fn get_payload_bodies_by_hash_v2<E: EthSpec>(
+        &self,
+        fork: ForkName,
+        block_hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+        let block_hashes = block_hashes
+            .into_iter()
+            .map(|hash| hash.into_root())
+            .collect();
+        let body = SszBodiesByHashRequest::new(block_hashes)?.as_ssz_bytes();
+        let response = self
+            .rest_request(
+                Method::POST,
+                "bodies/hash",
+                Some(fork),
+                Some(body),
+                OCTET_STREAM,
+                Some(metrics::GET_PAYLOAD_BODIES_BY_HASH),
+                ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?
+            .ok_or_else(|| Error::BadResponse("unexpected 204 on /bodies/hash".to_string()))?;
+
+        SszBodiesResponse::<E>::from_ssz_bytes_by_fork(&response, fork)
+            .map_err(Error::SszDecode)?
+            .into_bodies_v2()
+            .map_err(Error::BadResponse)
+    }
 }
 
 fn fork_to_header(fork: ForkName) -> Result<&'static str, Error> {
@@ -952,6 +981,41 @@ mod tests {
                     method: "POST",
                     path: "/engine/v1/bodies/hash".to_string(),
                     fork_header: Some("osaka".to_string()),
+                    body: expected_body,
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_payload_bodies_by_hash_v2_request_conformance() {
+        let block_hashes = vec![
+            ExecutionBlockHash::repeat_byte(3),
+            ExecutionBlockHash::repeat_byte(4),
+        ];
+        let roots = block_hashes
+            .clone()
+            .into_iter()
+            .map(|hash| hash.into_root())
+            .collect::<Vec<_>>();
+        let expected_body = Bytes::from(SszBodiesByHashRequest::new(roots).unwrap().as_ssz_bytes());
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                move |client| {
+                    let block_hashes = block_hashes.clone();
+                    async move {
+                        let _ = client
+                            .get_payload_bodies_by_hash_v2::<MainnetEthSpec>(
+                                ForkName::Gloas,
+                                block_hashes,
+                            )
+                            .await;
+                    }
+                },
+                ExpectedRest {
+                    method: "POST",
+                    path: "/engine/v1/bodies/hash".to_string(),
+                    fork_header: Some("amsterdam".to_string()),
                     body: expected_body,
                 },
             )

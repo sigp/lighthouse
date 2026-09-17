@@ -163,18 +163,25 @@ impl EngineApi {
         result
     }
 
-    pub async fn get_payload_bodies_by_hash_v2(
+    pub async fn get_payload_bodies_by_hash_v2<E: EthSpec>(
         &self,
-        _fork: ForkName,
+        fork: ForkName,
         block_hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, EngineApiError> {
         let start_time = Instant::now();
-        let (transport, result) = (
-            metrics::TRANSPORT_JSON_RPC,
-            self.json_rpc
-                .get_payload_bodies_by_hash_v2(block_hashes)
-                .await,
-        );
+        let (transport, result) = match self.active_rest() {
+            Some(rest) => (
+                metrics::TRANSPORT_REST,
+                rest.get_payload_bodies_by_hash_v2::<E>(fork, block_hashes)
+                    .await,
+            ),
+            None => (
+                metrics::TRANSPORT_JSON_RPC,
+                self.json_rpc
+                    .get_payload_bodies_by_hash_v2(block_hashes)
+                    .await,
+            ),
+        };
 
         metrics::observe_timer_vec(
             &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,

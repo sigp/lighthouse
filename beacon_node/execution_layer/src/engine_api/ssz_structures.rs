@@ -39,6 +39,8 @@ pub struct SszExecutionPayloadBody<E: EthSpec> {
     pub block_access_list: VariableList<u8, E::MaxBytesPerTransaction>,
 }
 
+// SszExecutionPayloadBodyV1 <-> ExecutionPayloadBodyV1
+
 impl<E: EthSpec> From<SszExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
     fn from(value: SszExecutionPayloadBodyV1<E>) -> Self {
         Self {
@@ -55,6 +57,8 @@ impl<E: EthSpec> From<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV1<E
         }
     }
 }
+
+// SszExecutionPayloadBodyV2 <-> ExecutionPayloadBodyV1
 
 impl<E: EthSpec> From<SszExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV1<E> {
     fn from(value: SszExecutionPayloadBodyV2<E>) -> Self {
@@ -81,18 +85,139 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV
     }
 }
 
-impl<E: EthSpec> From<SszExecutionPayloadBodyV3<E>> for ExecutionPayloadBodyV1<E> {
-    fn from(value: SszExecutionPayloadBodyV3<E>) -> Self {
-        // FIXME(rest-ssz): needs `ExecutionPayloadBodyV1 += block_access_list: Option<..>`
-        // impl once block_access_list is added to ExecutionPayloadBodyV1
+// SszExecutionPayloadBodyV1 <-> ExecutionPayloadBodyV2
+
+impl<E: EthSpec> From<SszExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV2 {
+    fn from(value: SszExecutionPayloadBodyV1<E>) -> Self {
         Self {
-            transactions: value.transactions,
-            withdrawals: Some(value.withdrawals),
+            transactions: value
+                .transactions
+                .into_iter()
+                .map(|transaction| transaction.into_iter().collect())
+                .collect(),
+            withdrawals: None,
+            block_access_list: None,
         }
     }
 }
 
-//ExecutionPayloadBodyV2 <-> SszExecutionPayloadBodyV3 conversion support to be impl once the REST-SSZ spec adopts progressive containers for the Amsterdam body
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2> for SszExecutionPayloadBodyV1<E> {
+    type Error = String;
+
+    fn try_from(value: ExecutionPayloadBodyV2) -> Result<Self, String> {
+        if value.withdrawals.is_some() || value.block_access_list.is_some() {
+            return Err(
+                "cannot encode a body with withdrawals or a block access list as a Paris (V1) body"
+                    .to_string(),
+            );
+        }
+
+        let transactions = value
+            .transactions
+            .into_iter()
+            .map(|transaction| VariableList::new(transaction.to_vec()))
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(VariableList::new)
+            .map_err(|e| format!("transactions exceed SSZ bounds: {e:?}"))?;
+
+        Ok(Self { transactions })
+    }
+}
+
+// SszExecutionPayloadBodyV2 <-> ExecutionPayloadBodyV2
+
+impl<E: EthSpec> From<SszExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV2 {
+    fn from(value: SszExecutionPayloadBodyV2<E>) -> Self {
+        Self {
+            transactions: value
+                .transactions
+                .into_iter()
+                .map(|transaction| transaction.into_iter().collect())
+                .collect(),
+            withdrawals: Some(value.withdrawals.into_iter().collect()),
+            block_access_list: None,
+        }
+    }
+}
+
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2> for SszExecutionPayloadBodyV2<E> {
+    type Error = String;
+
+    fn try_from(value: ExecutionPayloadBodyV2) -> Result<Self, String> {
+        if value.block_access_list.is_some() {
+            return Err(
+                "cannot encode a body with a block access list as a Shanghai (V2) body".to_string(),
+            );
+        }
+        let withdrawals = value
+            .withdrawals
+            .ok_or_else(|| "execution payload body is missing withdrawals".to_string())?;
+
+        let transactions = value
+            .transactions
+            .into_iter()
+            .map(|transaction| VariableList::new(transaction.to_vec()))
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(VariableList::new)
+            .map_err(|e| format!("transactions exceed SSZ bounds: {e:?}"))?;
+        let withdrawals = VariableList::new(withdrawals.to_vec())
+            .map_err(|e| format!("withdrawals exceed SSZ bound: {e:?}"))?;
+
+        Ok(Self {
+            transactions,
+            withdrawals,
+        })
+    }
+}
+
+// SszExecutionPayloadBodyV3 <-> ExecutionPayloadBodyV2
+
+impl<E: EthSpec> From<SszExecutionPayloadBodyV3<E>> for ExecutionPayloadBodyV2 {
+    fn from(value: SszExecutionPayloadBodyV3<E>) -> Self {
+        Self {
+            transactions: value
+                .transactions
+                .into_iter()
+                .map(|transaction| transaction.into_iter().collect())
+                .collect(),
+            withdrawals: Some(value.withdrawals.into_iter().collect()),
+            block_access_list: Some(value.block_access_list.into_iter().collect()),
+        }
+    }
+}
+
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2> for SszExecutionPayloadBodyV3<E> {
+    type Error = String;
+
+    fn try_from(value: ExecutionPayloadBodyV2) -> Result<Self, String> {
+        let withdrawals = value
+            .withdrawals
+            .ok_or_else(|| "execution payload body is missing withdrawals".to_string())?;
+        let block_access_list = value
+            .block_access_list
+            .ok_or_else(|| "execution payload body is missing block_access_list".to_string())?;
+
+        // Repackage the unbounded progressive containers into the bounded wire lists, surfacing
+        // any element that overflows an SSZ length bound as an error.
+        let transactions = value
+            .transactions
+            .into_iter()
+            .map(|transaction| VariableList::new(transaction.to_vec()))
+            .collect::<Result<Vec<_>, _>>()
+            .and_then(VariableList::new)
+            .map_err(|e| format!("transactions exceed SSZ bounds: {e:?}"))?;
+        let withdrawals = VariableList::new(withdrawals.to_vec())
+            .map_err(|e| format!("withdrawals exceed SSZ bound: {e:?}"))?;
+        let block_access_list = VariableList::new(block_access_list.to_vec())
+            .map_err(|e| format!("block_access_list exceeds SSZ bound: {e:?}"))?;
+
+        Ok(Self {
+            transactions,
+            withdrawals,
+            block_access_list,
+        })
+    }
+}
 
 type SszExecutionRequests<E> = VariableList<
     VariableList<u8, <E as EthSpec>::MaxBytesPerTransaction>,
@@ -1033,13 +1158,41 @@ impl<E: EthSpec> SszBodiesResponse<E> {
                         .then(|| ExecutionPayloadBodyV1::from(entry.body))
                 })
                 .collect()),
+            Self::V3(_) => Err(
+                "into_bodies returns ExecutionPayloadBodyV1 which cant be used by \
+                 SszBodiesResponseV3. Please use into_bodies_v2 to get the appropriate response"
+                    .to_string(),
+            ),
+        }
+    }
+
+    pub fn into_bodies_v2(self) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, String> {
+        match self {
+            Self::V1(resp) => Ok(resp
+                .entries
+                .into_iter()
+                .map(|entry| {
+                    entry
+                        .available
+                        .then(|| ExecutionPayloadBodyV2::from(entry.body))
+                })
+                .collect()),
+            Self::V2(resp) => Ok(resp
+                .entries
+                .into_iter()
+                .map(|entry| {
+                    entry
+                        .available
+                        .then(|| ExecutionPayloadBodyV2::from(entry.body))
+                })
+                .collect()),
             Self::V3(resp) => Ok(resp
                 .entries
                 .into_iter()
                 .map(|entry| {
                     entry
                         .available
-                        .then(|| ExecutionPayloadBodyV1::from(entry.body))
+                        .then(|| ExecutionPayloadBodyV2::from(entry.body))
                 })
                 .collect()),
         }

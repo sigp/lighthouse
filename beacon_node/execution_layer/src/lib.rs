@@ -1758,7 +1758,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         self.engine()
             .request(|engine: &Engine<E>| async move {
-                engine.api.get_payload_bodies_by_hash_v2(fork, hashes).await
+                engine
+                    .api
+                    .get_payload_bodies_by_hash_v2::<E>(fork, hashes)
+                    .await
             })
             .await
             .map_err(Box::new)

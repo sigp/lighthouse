@@ -1,12 +1,15 @@
 use bytes::Bytes;
 use serde_json::json;
 use ssz::{Decode, DecodeError, Encode};
-use ssz_types::VariableList;
-use types::{EthSpec, ExecutionBlockHash, ExecutionPayload, ForkName, Hash256};
+use ssz_types::{ProgressiveVariableList, VariableList};
+use types::{
+    EthSpec, ExecutionBlockHash, ExecutionPayload, ForkName, Hash256, ProgressiveTransactions,
+    ProgressiveWithdrawals,
+};
 use warp::http::Response;
 
 use crate::engine_api::rest::header_to_fork;
-use crate::engine_api::{ExecutionPayloadBodyV1, ForkchoiceUpdatedResponse, PayloadAttributes};
+use crate::engine_api::{ExecutionPayloadBodyV2, ForkchoiceUpdatedResponse, PayloadAttributes};
 use crate::engines::ForkchoiceState;
 use crate::json_structures::{BlobAndProof, BlobAndProofV2, BlobCellsAndProofsV1, JsonCell};
 use crate::ssz_structures::*;
@@ -428,27 +431,23 @@ fn encode_bodies_response<E: EthSpec>(
     payloads: Vec<Option<ExecutionPayload<E>>>,
     fork: ForkName,
 ) -> Result<Vec<u8>, String> {
-    let bodies: Vec<(bool, ExecutionPayloadBodyV1<E>)> = payloads
+    let bodies: Vec<Option<ExecutionPayloadBodyV2>> = payloads
         .into_iter()
-        .map(|maybe_payload| match maybe_payload {
-            Some(payload) => (
-                true,
-                ExecutionPayloadBodyV1 {
-                    transactions: payload
-                        .transactions_bounded()
-                        .ok()
-                        .cloned()
-                        .unwrap_or_default(),
-                    withdrawals: payload.withdrawals_bounded().ok().cloned(),
-                },
-            ),
-            None => (
-                false,
-                ExecutionPayloadBodyV1 {
-                    transactions: Default::default(),
-                    withdrawals: None,
-                },
-            ),
+        .map(|maybe_payload| {
+            maybe_payload.map(|payload| ExecutionPayloadBodyV2 {
+                transactions: ProgressiveTransactions::new(
+                    payload
+                        .transactions()
+                        .iter()
+                        .map(|transaction| ProgressiveVariableList::new(transaction.to_vec()))
+                        .collect(),
+                ),
+                withdrawals: payload
+                    .withdrawals()
+                    .ok()
+                    .map(|withdrawals| ProgressiveWithdrawals::new(withdrawals.to_vec())),
+                block_access_list: payload.block_access_list().ok().cloned(),
+            })
         })
         .collect();
 
@@ -456,11 +455,21 @@ fn encode_bodies_response<E: EthSpec>(
         ForkName::Bellatrix => {
             let entries = bodies
                 .into_iter()
-                .map(|(available, body)| SszBodyEntryV1 {
-                    available,
-                    body: SszExecutionPayloadBodyV1::from(body),
+                .map(|body| {
+                    Ok(match body {
+                        Some(body) => SszBodyEntryV1 {
+                            available: true,
+                            body: SszExecutionPayloadBodyV1::try_from(body)?,
+                        },
+                        None => SszBodyEntryV1 {
+                            available: false,
+                            body: SszExecutionPayloadBodyV1 {
+                                transactions: VariableList::empty(),
+                            },
+                        },
+                    })
                 })
-                .collect::<Vec<_>>();
+                .collect::<Result<Vec<SszBodyEntryV1<E>>, String>>()?;
             SszBodiesResponseV1 {
                 entries: VariableList::new(entries).map_err(|e| format!("{e:?}"))?,
             }
@@ -469,24 +478,51 @@ fn encode_bodies_response<E: EthSpec>(
         ForkName::Capella | ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
             let entries = bodies
                 .into_iter()
-                .map(|(available, body)| {
-                    Ok(SszBodyEntryV2 {
-                        available,
-                        body: SszExecutionPayloadBodyV2::try_from(body)
-                            .map_err(|e| format!("{e:?}"))?,
+                .map(|body| {
+                    Ok(match body {
+                        Some(body) => SszBodyEntryV2 {
+                            available: true,
+                            body: SszExecutionPayloadBodyV2::try_from(body)?,
+                        },
+                        None => SszBodyEntryV2 {
+                            available: false,
+                            body: SszExecutionPayloadBodyV2 {
+                                transactions: VariableList::empty(),
+                                withdrawals: VariableList::empty(),
+                            },
+                        },
                     })
                 })
-                .collect::<Result<Vec<_>, String>>()?;
+                .collect::<Result<Vec<SszBodyEntryV2<E>>, String>>()?;
             SszBodiesResponseV2 {
                 entries: VariableList::new(entries).map_err(|e| format!("{e:?}"))?,
             }
             .as_ssz_bytes()
         }
-        ForkName::Gloas => {
-            return Err("amsterdam execution payload bodies are not yet supported".to_string());
-        }
-        ForkName::Heze => {
-            return Err("bogota execution payload bodies are not yet supported".to_string());
+        ForkName::Gloas | ForkName::Heze => {
+            let entries = bodies
+                .into_iter()
+                .map(|body| {
+                    Ok(match body {
+                        Some(body) => SszBodyEntryV3 {
+                            available: true,
+                            body: SszExecutionPayloadBodyV3::try_from(body)?,
+                        },
+                        None => SszBodyEntryV3 {
+                            available: false,
+                            body: SszExecutionPayloadBodyV3 {
+                                transactions: VariableList::empty(),
+                                withdrawals: VariableList::empty(),
+                                block_access_list: VariableList::empty(),
+                            },
+                        },
+                    })
+                })
+                .collect::<Result<Vec<SszBodyEntryV3<E>>, String>>()?;
+            SszBodiesResponseV3 {
+                entries: VariableList::new(entries).map_err(|e| format!("{e:?}"))?,
+            }
+            .as_ssz_bytes()
         }
         ForkName::Base | ForkName::Altair => {
             return Err(format!(
