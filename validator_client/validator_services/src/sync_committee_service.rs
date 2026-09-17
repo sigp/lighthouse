@@ -9,8 +9,9 @@ use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use task_executor::TaskExecutor;
+use tokio::sync::Mutex;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use types::{
@@ -51,10 +52,10 @@ pub struct Inner<S: ValidatorStore, T: SlotClock + 'static> {
     ///
     /// This acts as a latch that fires once upon start-up, and then never again.
     first_subscription_done: AtomicBool,
-    /// Last slot for which a sync-message attempt was made. `u64::MAX` means none.
+    /// Last slot for which a sync-message attempt was made.
     ///
-    /// Prevents a zero wait from spinning or double-publishing the same slot.
-    latest_attempted_slot: AtomicU64,
+    /// Used with `duration_to_deadline_after` so a zero wait cannot spin or double-publish.
+    latest_attempted_slot: Mutex<Option<Slot>>,
 }
 
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S, T> {
@@ -73,7 +74,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                 beacon_nodes,
                 executor,
                 first_subscription_done: AtomicBool::new(false),
-                latest_attempted_slot: AtomicU64::new(u64::MAX),
+                latest_attempted_slot: Mutex::new(None),
             }),
         }
     }
@@ -114,14 +115,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         let interval_fut = async move {
             loop {
                 if let Some(now_duration) = self.slot_clock.now_duration() {
-                    let last = self.latest_attempted_slot.load(Ordering::SeqCst);
-                    let after = (last != u64::MAX).then(|| Slot::new(last));
+                    let last = *self.latest_attempted_slot.lock().await;
                     let Some((sync_slot, duration_to_sync_message_deadline)) =
                         sync_message_deadline::<S::E>(
                             &self.slot_clock,
                             &self.duties_service.spec,
                             now_duration,
-                            after,
+                            last,
                         )
                     else {
                         error!("Failed to determine sync message deadline");
@@ -132,8 +132,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     // Wait for the fork-appropriate sync message due time.
                     sleep(duration_to_sync_message_deadline).await;
 
-                    // Sleep can overshoot into a later slot. Consume the target and skip so we
-                    // never produce a late sync message.
+                    // Skip if sleep overshot the target slot; consume so we do not retry it.
                     let now_slot = self.slot_clock.now();
                     if now_slot != Some(sync_slot) {
                         warn!(
@@ -141,14 +140,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                             ?now_slot,
                             "Missed sync committee slot due to lag"
                         );
-                        self.latest_attempted_slot
-                            .store(sync_slot.as_u64(), Ordering::SeqCst);
+                        *self.latest_attempted_slot.lock().await = Some(sync_slot);
                         continue;
                     }
 
-                    // Consume the slot after any attempt so a zero wait cannot spin the loop.
-                    self.latest_attempted_slot
-                        .store(sync_slot.as_u64(), Ordering::SeqCst);
+                    // Consume before produce so a zero wait cannot spin the loop.
+                    *self.latest_attempted_slot.lock().await = Some(sync_slot);
 
                     // Do nothing if the Altair fork has not yet occurred.
                     if !self.altair_fork_activated() {
@@ -180,7 +177,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
     async fn spawn_contribution_tasks(&self, slot: Slot) -> Result<(), String> {
         let spec = &self.duties_service.spec;
-        // Bound contribution timing to `slot`, not a later wall-clock slot.
+        // Time aggregates from `slot`, not a later wall-clock slot.
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_slot(slot + 1)

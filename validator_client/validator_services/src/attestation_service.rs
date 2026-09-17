@@ -223,8 +223,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     continue;
                 };
 
-                // Sleep can overshoot into a later slot. Consume the target only when the
-                // deadline fired so a head event for the wrong slot does not skip production.
+                // Wall-clock may disagree with `target_slot` after sleep or an early head.
+                // Consume on deadline lag or a late head; wait if the head arrived early.
                 if now_slot != target_slot {
                     if beacon_node_data.is_none() {
                         warn!(
@@ -234,24 +234,62 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         );
                         let mut last_slot = self.latest_attested_slot.lock().await;
                         *last_slot = Some(target_slot);
+                    } else if now_slot < target_slot {
+                        if let Some(wait) = self
+                            .slot_clock
+                            .duration_to_slot(target_slot)
+                            .filter(|d| !d.is_zero())
+                        {
+                            sleep(wait).await;
+                        }
+                    } else {
+                        let mut last_slot = self.latest_attested_slot.lock().await;
+                        *last_slot = Some(target_slot);
                     }
                     continue;
                 }
 
-                let mut last_slot = self.latest_attested_slot.lock().await;
-                if last_slot.is_some_and(|s| target_slot <= s) {
-                    debug!(%target_slot, "Attestation already initiated for the slot");
-                    continue;
+                {
+                    let last_slot = self.latest_attested_slot.lock().await;
+                    if last_slot.is_some_and(|s| target_slot <= s) {
+                        debug!(%target_slot, "Attestation already initiated for the slot");
+                        continue;
+                    }
                 }
 
-                if let Err(e) = self
+                match self
                     .spawn_attestation_tasks(target_slot, beacon_node_data)
                     .await
                 {
-                    crit!(error = e, "Failed to spawn attestation tasks");
+                    Ok(true) => {
+                        let mut last_slot = self.latest_attested_slot.lock().await;
+                        *last_slot = Some(target_slot);
+                    }
+                    Ok(false) => {
+                        // No duties: consume after the deadline so empty slots cannot spin.
+                        // On an early head before the due time, leave the slot open for retry.
+                        let past_due = beacon_node_data.is_some_and(|_| {
+                            self.slot_clock
+                                .now_duration()
+                                .and_then(|now| {
+                                    let due = self.slot_clock.start_of(target_slot)?.checked_add(
+                                        self.chain_spec.get_attestation_due::<S::E>(target_slot),
+                                    )?;
+                                    Some(now >= due)
+                                })
+                                .unwrap_or(true)
+                        });
+                        if beacon_node_data.is_none() || past_due {
+                            let mut last_slot = self.latest_attested_slot.lock().await;
+                            *last_slot = Some(target_slot);
+                        }
+                    }
+                    Err(e) => {
+                        crit!(error = e, "Failed to spawn attestation tasks");
+                        let mut last_slot = self.latest_attested_slot.lock().await;
+                        *last_slot = Some(target_slot);
+                    }
                 }
-                // Consume the slot after any attempt so a zero wait cannot spin the loop.
-                *last_slot = Some(target_slot);
             }
         };
 
@@ -267,8 +305,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         loop {
             match receiver.recv().await {
                 Some(head_event) => {
-                    // Only return head events for `target_slot`. A head for an earlier slot
-                    // must not trigger a late attestation.
+                    // Only accept heads for `target_slot` (not an earlier slot).
                     if head_event.slot == target_slot {
                         return Some(head_event);
                     }
@@ -284,18 +321,20 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     /// Spawn only one new task for attestation post-Electra
     /// For each required aggregates, spawn a new task that downloads, signs and uploads the
     /// aggregates to the beacon node.
+    ///
+    /// Returns `Ok(true)` if production started, `Ok(false)` if there were no duties for `slot`.
     async fn spawn_attestation_tasks(
         &self,
         slot: Slot,
         beacon_node_data: Option<(usize, Hash256)>,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         // Create and publish an `Attestation` for all validators only once
         // as the committee_index is not included in AttestationData post-Electra
         let attestation_duties: Vec<_> = self.duties_service.attesters(slot).into_iter().collect();
 
         // Return early if there is no attestation duties
         if attestation_duties.is_empty() {
-            return Ok(());
+            return Ok(false);
         }
 
         debug!(
@@ -470,7 +509,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         // production.
         self.spawn_slashing_protection_pruning_task(slot, aggregate_production_instant);
 
-        Ok(())
+        Ok(true)
     }
 
     #[instrument(

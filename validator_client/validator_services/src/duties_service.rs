@@ -79,8 +79,7 @@ const _: () = assert!({
 const MIN_ATTESTATION_SUBSCRIPTION_LOOKAHEAD: u64 = 2;
 const _: () = assert!(ATTESTATION_SUBSCRIPTION_OFFSETS[0] > MIN_ATTESTATION_SUBSCRIPTION_LOOKAHEAD);
 
-/// How long to wait before retrying index resolution when attester/sync/PTC duties would
-/// otherwise no-op on an empty index map at cold start.
+/// How long to retry index resolution at cold start while the index map is still empty.
 const INDICES_READY_RETRY: Duration = Duration::from_millis(200);
 
 // The info in the enum variants is displayed in logging, clippy thinks it's dead code.
@@ -628,8 +627,8 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
     /*
      * Spawn the task which keeps track of local block proposal duties.
      *
-     * Sleep until the next slot start before polling. A mid-slot restart must not notify
-     * BlockService for the current slot or it would attempt a late block.
+     * Sleep until the next slot before polling so a mid-slot restart does not
+     * notify BlockService for the current slot (which would attempt a late block).
      */
     let duties_service = core_duties_service.clone();
     core_duties_service.executor.spawn(
@@ -664,9 +663,8 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
     /*
      * Spawn the task which keeps track of local attestation duties.
      *
-     * Poll before sleeping so current-slot attestation production can see duties on a mid-slot
-     * restart. Resolve indices first: `poll_beacon_attesters` no-ops while the index map is
-     * empty, which would otherwise skip the current slot on a cold start.
+     * Poll before sleeping so mid-slot restarts can serve the current slot. Resolve
+     * indices first: `poll_beacon_attesters` no-ops while the index map is empty.
      */
     let duties_service = core_duties_service.clone();
     core_duties_service.executor.spawn(
@@ -698,8 +696,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
 
     // Spawn the task which keeps track of local sync committee duties.
     //
-    // Poll indices first: `poll_sync_committee_duties` no-ops while the index map is empty,
-    // which would otherwise skip the current slot on a cold start.
+    // Poll indices first: `poll_sync_committee_duties` no-ops while the index map is empty.
     let duties_service = core_duties_service.clone();
     core_duties_service.executor.spawn(
         async move {
@@ -736,8 +733,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
     // Spawn the task which keeps track of local PTC duties.
     // Only start PTC duties service if Gloas fork is scheduled.
     //
-    // Poll indices first: `poll_beacon_ptc_attesters` no-ops while the index map is empty,
-    // which would otherwise skip the current slot on a cold start.
+    // Poll indices first: `poll_beacon_ptc_attesters` no-ops while the index map is empty.
     if core_duties_service.spec.is_gloas_scheduled() {
         let duties_service = core_duties_service.clone();
         core_duties_service.executor.spawn(
@@ -797,10 +793,9 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
     }
 }
 
-/// Returns true when this VC has voting keys but none of them have resolved indices yet.
+/// Returns `true` when voting keys exist but none have resolved indices yet.
 ///
-/// An empty keystore must return false so the attester/sync/PTC loops sleep until the next slot
-/// instead of spinning.
+/// An empty keystore returns `false` so duty loops sleep until the next slot instead of spinning.
 fn waiting_for_validator_indices<S: ValidatorStore, T: SlotClock>(
     duties_service: &DutiesService<S, T>,
 ) -> bool {
@@ -821,7 +816,7 @@ fn waiting_for_validator_indices<S: ValidatorStore, T: SlotClock>(
 /// Poll validator indices. Returns `true` when the caller should fetch duties.
 ///
 /// While indices are unknown, retries every `INDICES_READY_RETRY` through the next slot,
-/// then waits until each following slot.
+/// then once per slot thereafter.
 async fn poll_indices_or_wait<S: ValidatorStore, T: SlotClock + 'static>(
     duties_service: &DutiesService<S, T>,
     fast_retry_until: &mut Option<Slot>,
