@@ -460,7 +460,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         unsigned_block: UnsignedBlock<S::E>,
         local_payload_root: Option<Hash256>,
         builder_url: Option<String>,
-    ) -> Result<(), BlockError> {
+    ) -> Result<Option<Hash256>, BlockError> {
         let signing_timer = validator_metrics::start_timer(&validator_metrics::BLOCK_SIGNING_TIMES);
 
         let res = self
@@ -480,7 +480,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     ?slot,
                     "Missing pubkey for block"
                 );
-                return Ok(());
+                return Ok(None);
             }
             Err(e) => {
                 return Err(BlockError::Recoverable(format!(
@@ -521,7 +521,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             slot = metadata.slot.as_u64(),
             "Successfully published block"
         );
-        Ok(())
+        let block_root = match &signed_block {
+            SignedBlock::Full(block) => block.signed_block().canonical_root(),
+            SignedBlock::Blinded(block) => block.canonical_root(),
+        };
+        Ok(Some(block_root))
     }
 
     #[instrument(
@@ -783,7 +787,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         let local_payload_root = envelope_step.local_payload_root();
 
-        self_ref
+        let Some(signed_block_root) = self_ref
             .sign_and_publish_block(
                 &proposer_fallback,
                 slot,
@@ -793,7 +797,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 local_payload_root,
                 builder_url,
             )
-            .await?;
+            .await?
+        else {
+            return Ok(());
+        };
 
         match envelope_step {
             EnvelopeStep::Skip => {}
@@ -809,6 +816,16 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     .await?;
             }
             EnvelopeStep::Local(contents) => {
+                // A distributed validator store can sign a different block after consensus.
+                // Its unused local envelope must not be signed or published.
+                if contents.envelope.beacon_block_root != signed_block_root {
+                    debug!(
+                        local_block_root = %contents.envelope.beacon_block_root,
+                        %signed_block_root,
+                        "Skipping local envelope for a different block"
+                    );
+                    return Ok(());
+                }
                 self_ref
                     .sign_and_publish_local_payload_envelope(
                         &proposer_fallback,
@@ -1448,12 +1465,138 @@ mod tests {
         mock_beacon_node_post_contents.expect(0).assert();
 
         test_harness.assert_signed_once(&block, Some(expected_payload_root));
+        assert_eq!(
+            test_harness
+                .service
+                .validator_store
+                .signed_envelope_block_roots(),
+            vec![block.canonical_root()]
+        );
         assert_published_contents(&proposer_node, &contents);
         assert_eq!(
             proposer_node.received_full_blocks.lock().unwrap().len(),
             1,
             "Expected one published block"
         );
+    }
+
+    #[tokio::test]
+    async fn stateless_skips_local_envelope_when_store_signs_different_block() {
+        for decided_builder_index in [BUILDER_INDEX_SELF_BUILD, 7] {
+            let mut test_harness = TestHarness::new_stateless().await;
+            let slot = Slot::new(1);
+            let block = self_build_block(&test_harness.harness.spec);
+            let contents = local_contents(&block);
+            let payload_root = contents.execution_payload_envelope.payload.tree_hash_root();
+
+            // Model a distributed store returning the cluster's decision, which may be another
+            // operator's self-build or an external bid, instead of the local candidate.
+            let mut decided_block = block.clone();
+            *decided_block.state_root_mut() = Hash256::repeat_byte(42);
+            let BeaconBlock::Gloas(gloas_block) = &mut decided_block else {
+                panic!("expected Gloas block");
+            };
+            gloas_block
+                .body
+                .signed_execution_payload_bid
+                .message
+                .builder_index = decided_builder_index;
+            assert_ne!(block.canonical_root(), decided_block.canonical_root());
+            let signed_block = test_harness
+                .harness
+                .validator_store
+                .sign_block(
+                    test_harness.harness.pubkeys[0],
+                    UnsignedBlock::Full(eth2::types::FullBlockContents::Block(
+                        decided_block.clone(),
+                    )),
+                    slot,
+                    None,
+                )
+                .await
+                .unwrap();
+            test_harness
+                .service
+                .validator_store
+                .set_next_sign_block_result(Ok(signed_block));
+
+            test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+                &ProduceBlockV4Response::BlockAndEnvelope(contents),
+                true,
+                ForkName::Gloas,
+                slot,
+            );
+            let mock_post_block = test_harness
+                .bn1()
+                .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+            let mock_post_contents = test_harness
+                .bn1()
+                .mock_post_beacon_execution_payload_envelope_contents_ssz();
+
+            test_harness.publish(slot).await;
+
+            test_harness.assert_signed_once(&block, Some(payload_root));
+            assert!(
+                test_harness
+                    .service
+                    .validator_store
+                    .signed_envelope_block_roots()
+                    .is_empty(),
+                "a losing local envelope must not reach the signer"
+            );
+            mock_post_block.expect(1).assert();
+            mock_post_contents.expect(0).assert();
+            let published = test_harness
+                .harness
+                .mock_beacon_node_1
+                .received_full_blocks
+                .lock()
+                .unwrap();
+            assert_eq!(published.len(), 1);
+            assert_eq!(
+                published[0].signed_block().canonical_root(),
+                decided_block.canonical_root()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn stateless_skips_local_envelope_when_block_signer_has_no_pubkey() {
+        let mut test_harness = TestHarness::new_stateless().await;
+        let slot = Slot::new(1);
+        let block = self_build_block(&test_harness.harness.spec);
+        let contents = local_contents(&block);
+        test_harness
+            .service
+            .validator_store
+            .set_next_sign_block_result(Err(ValidatorStoreError::UnknownPubkey(
+                test_harness.harness.pubkeys[0],
+            )));
+        test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+            &ProduceBlockV4Response::BlockAndEnvelope(contents),
+            true,
+            ForkName::Gloas,
+            slot,
+        );
+        let mock_post_block = test_harness
+            .bn1()
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_post_contents = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_contents_ssz();
+
+        test_harness.publish(slot).await;
+
+        assert!(
+            test_harness
+                .service
+                .validator_store
+                .signed_envelope_block_roots()
+                .is_empty(),
+            "no envelope should be signed when no block was signed"
+        );
+        mock_post_block.expect(0).assert();
+        mock_post_contents.expect(0).assert();
     }
 
     #[tokio::test]
