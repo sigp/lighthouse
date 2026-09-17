@@ -858,6 +858,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     /// TODO(gloas): For multi-BN setups, we need to track which beacon node produced the block
     /// and fetch the envelope from that same node. The envelope is cached per-BN,
     /// so fetching from a different BN than the one that built the block will fail.
+    /// This applies to the `Fetch` path. The `Local` path already uses proposer fallback to
+    /// publish the envelope with its blobs and proofs without relying on the producing BN's cache.
     /// See: https://github.com/sigp/lighthouse/pull/8313
     #[instrument(skip_all)]
     async fn fetch_sign_and_publish_payload_envelope(
@@ -915,7 +917,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(slot);
 
         // Publish the signed envelope
-        // TODO(gloas): Use proposer_fallback once multi-BN is supported.
+        // TODO(gloas): Use proposer_fallback for the Fetch path once multi-BN is supported (#8313).
+        // The Local path already uses proposer_fallback to publish the full contents.
         self.beacon_nodes
             .first_success(|beacon_node| {
                 let signed_envelope = signed_envelope.clone();
