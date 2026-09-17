@@ -33,13 +33,13 @@ pub trait Handler {
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
         vec![
-	    ForkName::Bellatrix,
-	    ForkName::Capella,
-	    ForkName::Deneb,
-	    ForkName::Electra,
-	    ForkName::Fulu,
-	    ForkName::Gloas,
-	]
+            ForkName::Bellatrix,
+            ForkName::Capella,
+            ForkName::Deneb,
+            ForkName::Electra,
+            ForkName::Fulu,
+            ForkName::Gloas,
+        ]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -1343,11 +1343,13 @@ impl<E: EthSpec + TypeName> Handler for LightClientDataCollectionHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-	fork_name == ForkName::Altair || fork_name == ForkName::Bellatrix || fork_name == ForkName::Capella
+        fork_name == ForkName::Altair
+            || fork_name == ForkName::Bellatrix
+            || fork_name == ForkName::Capella
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![ForkName::Gloas,]	
+        vec![ForkName::Gloas]
     }
 }
 
