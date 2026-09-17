@@ -40,6 +40,18 @@ impl ValidatorClientHarness {
     }
 
     pub async fn new_with_config(num_validators: usize, config: &ValidatorStoreConfig) -> Self {
+        Self::new_with_known_validator_count(num_validators, num_validators, config).await
+    }
+
+    pub async fn new_with_unknown_validator_indices(num_validators: usize) -> Self {
+        Self::new_with_known_validator_count(num_validators, 0, &Default::default()).await
+    }
+
+    async fn new_with_known_validator_count(
+        num_validators: usize,
+        known_validator_count: usize,
+        config: &ValidatorStoreConfig,
+    ) -> Self {
         let mut default_spec = MainnetEthSpec::default_spec();
         default_spec.gloas_fork_epoch = Some(Epoch::new(0));
         let spec = Arc::new(default_spec);
@@ -54,6 +66,7 @@ impl ValidatorClientHarness {
             spec.clone(),
             executor.clone(),
             num_validators,
+            known_validator_count,
             config,
         )
         .await;
@@ -92,6 +105,7 @@ pub async fn create_validator_store(
     spec: Arc<ChainSpec>,
     executor: task_executor::TaskExecutor,
     num_validators: usize,
+    known_validator_count: usize,
     config: &ValidatorStoreConfig,
 ) -> (Arc<S>, Vec<PublicKeyBytes>, TempDir) {
     let validator_dir = tempdir().unwrap();
@@ -157,7 +171,7 @@ pub async fn create_validator_store(
         executor,
     ));
 
-    for (i, pubkey) in pubkeys.iter().enumerate() {
+    for (i, pubkey) in pubkeys.iter().take(known_validator_count).enumerate() {
         validator_store.set_validator_index(pubkey, i as u64);
     }
 
