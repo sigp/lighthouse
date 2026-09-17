@@ -11,8 +11,6 @@ ere-verifier = ["dep:flate2", "dep:reqwest", "dep:sha2", "dep:tar"]
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 hex = { workspace = true }
-reqwest = { workspace = true }
-sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 types = { workspace = true }

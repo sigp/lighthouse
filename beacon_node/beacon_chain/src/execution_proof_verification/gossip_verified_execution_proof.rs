@@ -24,7 +24,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
     pub shuffling_cache: &'a RwLock<ShufflingCache<T::EthSpec>>,
     pub store: &'a BeaconStore<T>,
-    pub proof_engine: &'a Option<Arc<ProofEngine>>,
+    pub proof_engine: &'a Option<ProofEngine>,
     pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub spec: &'a ChainSpec,
     pub genesis_validators_root: Hash256,
@@ -37,7 +37,7 @@ pub struct GossipVerifiedExecutionProof {
 }
 
 impl GossipVerifiedExecutionProof {
-    pub async fn new<T: BeaconChainTypes>(
+    pub fn new<T: BeaconChainTypes>(
         proof: Arc<SignedExecutionProofEnvelope>,
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, Error> {
@@ -162,14 +162,9 @@ impl GossipVerifiedExecutionProof {
         }
 
         // [REJECT] The proof verifies via the proof engine.
-        //
-        // Proof verification is a fast crypto check against a localhost sidecar (and may be
-        // embedded in-process in the future), so awaiting it here does not hold up the processor
-        // significantly.
         let proof_engine = ctx.proof_engine.as_ref().ok_or(Error::ProofEngineMissing)?;
         match proof_engine
             .verify_execution_proof(&execution_proof)
-            .await
             .map_err(Error::ProofEngine)?
         {
             ProofVerificationOutcome::Invalid => return Err(Error::InvalidProof),
@@ -245,14 +240,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     pub async fn verify_execution_proof_for_gossip(
-        &self,
+        self: &Arc<Self>,
         proof: Arc<SignedExecutionProofEnvelope>,
     ) -> Result<GossipVerifiedExecutionProof, Error> {
-        GossipVerifiedExecutionProof::new(
-            proof,
-            &self.execution_proof_gossip_verification_context(),
-        )
-        .await
+        let chain = self.clone();
+        self.task_executor
+            .clone()
+            .spawn_blocking_handle(
+                move || {
+                    let ctx = chain.execution_proof_gossip_verification_context();
+                    GossipVerifiedExecutionProof::new(proof, &ctx)
+                },
+                "gossip_execution_proof_verification_handle",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .await
+            .map_err(BeaconChainError::TokioJoin)?
     }
 }
 
@@ -261,6 +264,7 @@ mod tests {
     use super::*;
     use crate::test_utils::BeaconChainHarness;
     use bls::Signature;
+    use proof_engine::{ProofEngine, test_utils::MockProofEngine};
     use types::{
         ForkName, MinimalEthSpec,
         execution::{ExecutionProofEnvelope, ProofData, ProofType},
@@ -287,14 +291,34 @@ mod tests {
     #[tokio::test]
     async fn applies_cheap_checks_before_payload_lookup() {
         let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        let valid_proof_data = vec![9];
         let harness = BeaconChainHarness::builder(E::default())
             .spec(Arc::new(spec))
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()
             .mock_execution_layer()
+            .proof_engine(Some(ProofEngine::new(MockProofEngine::new([
+                valid_proof_data.clone(),
+            ]))))
             .build();
         let chain = &harness.chain;
         let genesis_root = chain.genesis_block_root;
+
+        let mock_proof = ExecutionProof::new(
+            ProofData::new(valid_proof_data).expect("valid proof data"),
+            ProofType::RethOpenvm,
+            Hash256::default(),
+            chain.spec.deposit_chain_id,
+        );
+        assert_eq!(
+            chain
+                .proof_engine
+                .as_ref()
+                .expect("mock proof engine is installed")
+                .verify_execution_proof(&mock_proof)
+                .expect("mock proof verification succeeds"),
+            ProofVerificationOutcome::Valid
+        );
 
         assert!(
             chain

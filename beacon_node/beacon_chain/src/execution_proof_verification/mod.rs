@@ -51,7 +51,7 @@ pub enum Error {
     InvalidProof,
     /// No proof engine is configured; the node should not be subscribed to the topic.
     ProofEngineMissing,
-    /// The proof engine could not be reached or answered malformed (IGNORE).
+    /// The proof engine could not complete verification (IGNORE).
     ProofEngine(ProofEngineError),
     BeaconChainError(Box<BeaconChainError>),
 }

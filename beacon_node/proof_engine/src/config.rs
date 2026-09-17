@@ -1,10 +1,14 @@
 //! Configuration for mapping EIP-8025 proof types to ERE zkVM verifiers.
 
+use crate::{ProofEngine, ProofEngineError};
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use std::{collections::HashSet, str::FromStr};
 use types::execution::ProofType;
 
-// Program verification keys from reth stateless-validator guest v0.1.0-rc.3.
+// Hex-encoded, backend-specific verification keys for the reth stateless-validator guest
+// v0.1.0-rc.3, published by eth-act/ere-guests v0.17.0. These keys identify the exact guest
+// program accepted by each verifier and must be updated when the guest build changes.
+// The longer OpenVM key is split across literals only to keep the source readable.
 const DEFAULT_RETH_OPENVM_PROGRAM_VK: &str = concat!(
     "0025e8d0440012375702004a22c350005a7cef2700f3654950004ba3266800e754e517007b9ca23d06030619068000a2",
     "c21b53000a2fee4f0036169c2800aaaa8d6c0087fbce5b00328dc26f009fe7de5a004686562400e77e894500a128f20f",
@@ -58,10 +62,19 @@ impl ProofEngineConfig {
         &self.execution_proofs
     }
 
-    /// Build the ERE verifier this configuration describes.
-    #[cfg(feature = "ere-verifier")]
-    pub fn build_engine(&self) -> Result<crate::ere::EreProofEngine, crate::ProofEngineError> {
-        crate::ere::EreProofEngine::new(self.clone())
+    /// Build the proof engine described by this configuration.
+    pub fn build_engine(&self) -> Result<ProofEngine, ProofEngineError> {
+        #[cfg(feature = "ere-verifier")]
+        {
+            crate::ere::EreProofEngine::new(self.clone()).map(ProofEngine::new)
+        }
+
+        #[cfg(not(feature = "ere-verifier"))]
+        {
+            Err(ProofEngineError::ProofVerifierError(
+                "Lighthouse was built without `ere-verifier`".to_string(),
+            ))
+        }
     }
 }
 
