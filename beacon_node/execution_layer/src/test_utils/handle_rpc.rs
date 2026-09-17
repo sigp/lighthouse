@@ -69,7 +69,8 @@ pub async fn handle_rpc<E: EthSpec>(
         | ENGINE_NEW_PAYLOAD_V2
         | ENGINE_NEW_PAYLOAD_V3
         | ENGINE_NEW_PAYLOAD_V4
-        | ENGINE_NEW_PAYLOAD_V5 => {
+        | ENGINE_NEW_PAYLOAD_V5
+        | ENGINE_NEW_PAYLOAD_V6 => {
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::Bellatrix(
                     get_param::<JsonExecutionPayloadBellatrix<E>>(params, 0)
@@ -92,12 +93,12 @@ pub async fn handle_rpc<E: EthSpec>(
                             .map(|jep| JsonExecutionPayload::Electra(jep))
                     })
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V5 => {
-                    // TODO(heze):impl heze variant (probably new payload v6?)
-                    get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
-                        .map(|jep| JsonExecutionPayload::Gloas(jep))
-                        .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
-                }
+                ENGINE_NEW_PAYLOAD_V5 => get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::Gloas(jep))
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
+                ENGINE_NEW_PAYLOAD_V6 => get_param::<JsonExecutionPayloadHeze<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::Heze(jep))
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
                 _ => unreachable!(),
             };
 
@@ -208,7 +209,9 @@ pub async fn handle_rpc<E: EthSpec>(
                     }
                 }
                 ForkName::Heze => {
-                    if method != ENGINE_NEW_PAYLOAD_V5 {
+                    // TODO(heze): drop V5 here once `NewPayloadRequest::Heze` is constructed. The
+                    // payload notifier still builds the Gloas request, so Heze blocks send V5.
+                    if method != ENGINE_NEW_PAYLOAD_V5 && method != ENGINE_NEW_PAYLOAD_V6 {
                         return Err((
                             format!("{} called after Heze fork!", method),
                             GENERIC_ERROR_CODE,
@@ -218,9 +221,18 @@ pub async fn handle_rpc<E: EthSpec>(
                 _ => unreachable!(),
             };
 
-            let status = ctx.core_new_payload(request.try_into().unwrap())?;
+            let mut status = ctx.core_new_payload(request.try_into().unwrap())?;
 
-            Ok(serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap())
+            if method == ENGINE_NEW_PAYLOAD_V6 {
+                // TODO(heze): make this configurable so enforcement tests can exercise an
+                // unsatisfied payload.
+                if status.status == PayloadStatusV1Status::Valid {
+                    status.inclusion_list_satisfied = Some(true);
+                }
+                Ok(serde_json::to_value(JsonPayloadStatusV2::from(status)).unwrap())
+            } else {
+                Ok(serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap())
+            }
         }
         ENGINE_GET_PAYLOAD_V1
         | ENGINE_GET_PAYLOAD_V2
@@ -377,7 +389,8 @@ pub async fn handle_rpc<E: EthSpec>(
         ENGINE_FORKCHOICE_UPDATED_V1
         | ENGINE_FORKCHOICE_UPDATED_V2
         | ENGINE_FORKCHOICE_UPDATED_V3
-        | ENGINE_FORKCHOICE_UPDATED_V4 => {
+        | ENGINE_FORKCHOICE_UPDATED_V4
+        | ENGINE_FORKCHOICE_UPDATED_V5 => {
             let forkchoice_state: JsonForkchoiceStateV1 =
                 get_param(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
             let payload_attributes = match method {
@@ -427,6 +440,11 @@ pub async fn handle_rpc<E: EthSpec>(
                 ENGINE_FORKCHOICE_UPDATED_V4 => {
                     get_param::<Option<JsonPayloadAttributesV4>>(params, 1)
                         .map(|opt| opt.map(JsonPayloadAttributes::V4))
+                        .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
+                }
+                ENGINE_FORKCHOICE_UPDATED_V5 => {
+                    get_param::<Option<JsonPayloadAttributesV5>>(params, 1)
+                        .map(|opt| opt.map(JsonPayloadAttributes::V5))
                         .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?
                 }
                 _ => unreachable!(),
@@ -505,9 +523,9 @@ pub async fn handle_rpc<E: EthSpec>(
                         }
                     }
                     ForkName::Heze => {
-                        if method != ENGINE_FORKCHOICE_UPDATED_V4 {
+                        if method != ENGINE_FORKCHOICE_UPDATED_V5 {
                             return Err((
-                                format!("{} called after Heze fork! Use V4.", method),
+                                format!("{} called after Heze fork! Use V5.", method),
                                 FORK_REQUEST_MISMATCH_ERROR_CODE,
                             ));
                         }

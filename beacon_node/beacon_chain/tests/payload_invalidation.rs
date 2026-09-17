@@ -120,6 +120,7 @@ impl InvalidPayloadRig {
             None,
             None,
             None,
+            None,
         );
         (state, attributes)
     }
@@ -1009,6 +1010,7 @@ async fn payload_preparation() {
             .get_randao_mix(head.beacon_state.current_epoch())
             .unwrap(),
         fee_recipient,
+        None,
         None,
         None,
         None,

@@ -536,6 +536,7 @@ impl<E: EthSpec> TryFrom<SszPayloadStatusV1<E>> for PayloadStatusV1 {
                 .validation_error
                 .first()
                 .map(|bytes| String::from_utf8_lossy(bytes).into_owned()),
+            inclusion_list_satisfied: None,
         })
     }
 }

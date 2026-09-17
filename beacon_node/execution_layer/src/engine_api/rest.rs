@@ -1066,6 +1066,7 @@ mod tests {
             Some(Hash256::repeat_byte(5)),
             None,
             None,
+            None,
         );
         let expected_body = Bytes::from(
             SszForkchoiceUpdate::new(ForkName::Deneb, state, Some(attributes.clone()))
@@ -1291,6 +1292,7 @@ mod tests {
                 status: PayloadStatusV1Status::Valid,
                 latest_valid_hash: None,
                 validation_error: None,
+                inclusion_list_satisfied: None,
             },
         );
         tester
@@ -1319,6 +1321,7 @@ mod tests {
             Some(Hash256::repeat_byte(5)),
             None,
             None,
+            None,
         );
         let tester = RestTester::new(true);
         tester.server.set_fcu_payload_status(
@@ -1327,6 +1330,7 @@ mod tests {
                 status: PayloadStatusV1Status::Valid,
                 latest_valid_hash: None,
                 validation_error: None,
+                inclusion_list_satisfied: None,
             },
         );
         tester
