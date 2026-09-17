@@ -22,7 +22,7 @@ use types::{
     LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
     LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
     LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, SignedInclusionList,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -284,6 +284,9 @@ pub enum Protocol {
     /// The `DataColumnSidecarsByRange` protocol name.
     #[strum(serialize = "data_column_sidecars_by_range")]
     DataColumnsByRange,
+    /// The `InclusionListsByIndices` protocol name.
+    #[strum(serialize = "inclusion_lists_by_indices")]
+    InclusionListsByIndices,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -317,6 +320,7 @@ impl Protocol {
             Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
             Protocol::DataColumnsByRoot => Some(ResponseTermination::DataColumnsByRoot),
             Protocol::DataColumnsByRange => Some(ResponseTermination::DataColumnsByRange),
+            Protocol::InclusionListsByIndices => Some(ResponseTermination::InclusionListsByIndices),
             Protocol::Ping => None,
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
@@ -352,6 +356,7 @@ pub enum SupportedProtocol {
     BlobsByRootV1,
     DataColumnsByRootV1,
     DataColumnsByRangeV1,
+    InclusionListsByIndicesV1,
     PingV1,
     MetaDataV1,
     MetaDataV2,
@@ -379,6 +384,7 @@ impl SupportedProtocol {
             SupportedProtocol::BlobsByRootV1 => "1",
             SupportedProtocol::DataColumnsByRootV1 => "1",
             SupportedProtocol::DataColumnsByRangeV1 => "1",
+            SupportedProtocol::InclusionListsByIndicesV1 => "1",
             SupportedProtocol::PingV1 => "1",
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
@@ -406,6 +412,7 @@ impl SupportedProtocol {
             SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
             SupportedProtocol::DataColumnsByRootV1 => Protocol::DataColumnsByRoot,
             SupportedProtocol::DataColumnsByRangeV1 => Protocol::DataColumnsByRange,
+            SupportedProtocol::InclusionListsByIndicesV1 => Protocol::InclusionListsByIndices,
             SupportedProtocol::PingV1 => Protocol::Ping,
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
@@ -467,6 +474,12 @@ impl SupportedProtocol {
                     Encoding::SSZSnappy,
                 ),
             ]);
+        }
+        if fork_context.fork_exists(ForkName::Heze) {
+            supported.push(ProtocolId::new(
+                SupportedProtocol::InclusionListsByIndicesV1,
+                Encoding::SSZSnappy,
+            ));
         }
         // BeaconBlocksByHead is new in Fulu (consensus-specs PR 5181).
         if fork_context.fork_exists(ForkName::Fulu) {
@@ -602,6 +615,10 @@ impl ProtocolId {
                 DataColumnsByRangeRequest::ssz_min_len(),
                 DataColumnsByRangeRequest::ssz_max_len::<E>(),
             ),
+            Protocol::InclusionListsByIndices => RpcLimits::new(
+                <InclusionListsByIndicesRequest<E> as Encode>::ssz_fixed_len(),
+                <InclusionListsByIndicesRequest<E> as Encode>::ssz_fixed_len(),
+            ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -641,6 +658,7 @@ impl ProtocolId {
             Protocol::DataColumnsByRange => {
                 rpc_data_column_limits::<E>(fork_context.current_fork_epoch(), &fork_context.spec)
             }
+            Protocol::InclusionListsByIndices => rpc_inclusion_list_limits(&fork_context.spec),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -677,6 +695,7 @@ impl ProtocolId {
             | SupportedProtocol::BlobsByRootV1
             | SupportedProtocol::DataColumnsByRootV1
             | SupportedProtocol::DataColumnsByRangeV1
+            | SupportedProtocol::InclusionListsByIndicesV1
             | SupportedProtocol::LightClientBootstrapV1
             | SupportedProtocol::LightClientOptimisticUpdateV1
             | SupportedProtocol::LightClientFinalityUpdateV1
@@ -722,6 +741,13 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
             RpcLimits::new(*BLOB_SIDECAR_SIZE, *BLOB_SIDECAR_SIZE)
         }
     }
+}
+
+pub fn rpc_inclusion_list_limits(spec: &ChainSpec) -> RpcLimits {
+    RpcLimits::new(
+        SignedInclusionList::min_size(),
+        SignedInclusionList::max_size(spec.max_transactions_bytes_per_inclusion_list as usize),
+    )
 }
 
 pub fn rpc_data_column_limits<E: EthSpec>(
@@ -828,6 +854,7 @@ pub enum RequestType<E: EthSpec> {
     BlobsByRoot(BlobsByRootRequest),
     DataColumnsByRoot(DataColumnsByRootRequest<E>),
     DataColumnsByRange(DataColumnsByRangeRequest),
+    InclusionListsByIndices(InclusionListsByIndicesRequest<E>),
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,
     LightClientFinalityUpdate,
@@ -854,6 +881,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
             RequestType::DataColumnsByRoot(req) => req.max_requested() as u64,
             RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),
+            RequestType::InclusionListsByIndices(req) => req.max_requested(),
             RequestType::Ping(_) => 1,
             RequestType::MetaData(_) => 1,
             RequestType::LightClientBootstrap(_) => 1,
@@ -886,6 +914,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
             RequestType::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
             RequestType::DataColumnsByRange(_) => SupportedProtocol::DataColumnsByRangeV1,
+            RequestType::InclusionListsByIndices(_) => SupportedProtocol::InclusionListsByIndicesV1,
             RequestType::Ping(_) => SupportedProtocol::PingV1,
             RequestType::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
@@ -920,6 +949,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             RequestType::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
             RequestType::DataColumnsByRange(_) => ResponseTermination::DataColumnsByRange,
+            RequestType::InclusionListsByIndices(_) => ResponseTermination::InclusionListsByIndices,
             RequestType::Status(_) => unreachable!(),
             RequestType::Goodbye(_) => unreachable!(),
             RequestType::Ping(_) => unreachable!(),
@@ -980,6 +1010,10 @@ impl<E: EthSpec> RequestType<E> {
                 SupportedProtocol::DataColumnsByRangeV1,
                 Encoding::SSZSnappy,
             )],
+            RequestType::InclusionListsByIndices(_) => vec![ProtocolId::new(
+                SupportedProtocol::InclusionListsByIndicesV1,
+                Encoding::SSZSnappy,
+            )],
             RequestType::Ping(_) => vec![ProtocolId::new(
                 SupportedProtocol::PingV1,
                 Encoding::SSZSnappy,
@@ -1021,6 +1055,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlobsByRoot(_) => false,
             RequestType::DataColumnsByRoot(_) => false,
             RequestType::DataColumnsByRange(_) => false,
+            RequestType::InclusionListsByIndices(_) => false,
             RequestType::Ping(_) => true,
             RequestType::MetaData(_) => true,
             RequestType::LightClientBootstrap(_) => true,
@@ -1141,6 +1176,9 @@ impl<E: EthSpec> std::fmt::Display for RequestType<E> {
             RequestType::DataColumnsByRange(req) => {
                 write!(f, "Data columns by range: {:?}", req)
             }
+            RequestType::InclusionListsByIndices(req) => {
+                write!(f, "Inclusion lists by indices: {:?}", req)
+            }
             RequestType::Ping(ping) => write!(f, "Ping: {}", ping.data),
             RequestType::MetaData(_) => write!(f, "MetaData request"),
             RequestType::LightClientBootstrap(bootstrap) => {
@@ -1202,6 +1240,8 @@ mod tests {
             PayloadEnvelopesByRangeV1 | PayloadEnvelopesByRootV1 => {
                 fork_context.fork_exists(ForkName::Gloas)
             }
+
+            InclusionListsByIndicesV1 => fork_context.fork_exists(ForkName::Heze),
 
             BlocksByHeadV1 => fork_context.fork_exists(ForkName::Fulu),
 
