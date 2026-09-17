@@ -127,6 +127,7 @@ impl From<PayloadStatus> for PayloadStatusV1 {
             status: status.status.into(),
             latest_valid_hash: status.latest_valid_hash,
             validation_error: status.validation_error,
+            inclusion_list_satisfied: None,
         }
     }
 }
@@ -1282,6 +1283,7 @@ impl<E: EthSpec> Tester<E> {
                     status: JsonPayloadStatusV1Status::Valid.into(),
                     latest_valid_hash: Some(block_hash),
                     validation_error: None,
+                    inclusion_list_satisfied: None,
                 },
             );
         }
