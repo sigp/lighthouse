@@ -23,22 +23,39 @@ pub struct SignBlockCall {
     pub local_payload_root: Option<Hash256>,
 }
 
-/// A `ValidatorStore` that delegates to `inner` and records the `sign_block` calls it receives.
-pub struct RecordingValidatorStore<S> {
+type SignBlockResult<S> =
+    Result<SignedBlock<<S as ValidatorStore>::E>, StoreError<<S as ValidatorStore>::Error>>;
+
+/// A `ValidatorStore` that records block and envelope signing calls and delegates to `inner`.
+pub struct RecordingValidatorStore<S: ValidatorStore> {
     inner: Arc<S>,
     sign_block_calls: Mutex<Vec<SignBlockCall>>,
+    next_sign_block_result: Mutex<Option<SignBlockResult<S>>>,
+    signed_envelope_block_roots: Mutex<Vec<Hash256>>,
 }
 
-impl<S> RecordingValidatorStore<S> {
+impl<S: ValidatorStore> RecordingValidatorStore<S> {
     pub fn new(inner: Arc<S>) -> Self {
         Self {
             inner,
             sign_block_calls: Mutex::new(Vec::new()),
+            next_sign_block_result: Mutex::new(None),
+            signed_envelope_block_roots: Mutex::new(Vec::new()),
         }
     }
 
     pub fn sign_block_calls(&self) -> Vec<SignBlockCall> {
         self.sign_block_calls.lock().unwrap().clone()
+    }
+
+    /// Override the next block signing result, for example when a DVT cluster chooses another block.
+    pub fn set_next_sign_block_result(&self, result: SignBlockResult<S>) {
+        *self.next_sign_block_result.lock().unwrap() = Some(result);
+    }
+
+    /// Block roots of the envelopes passed to the signer, including failed signing attempts.
+    pub fn signed_envelope_block_roots(&self) -> Vec<Hash256> {
+        self.signed_envelope_block_roots.lock().unwrap().clone()
     }
 }
 
@@ -105,6 +122,10 @@ impl<S: ValidatorStore + 'static> ValidatorStore for RecordingValidatorStore<S> 
             block_root: block.block_root(),
             local_payload_root,
         });
+        let result = self.next_sign_block_result.lock().unwrap().take();
+        if let Some(result) = result {
+            return result;
+        }
         self.inner
             .sign_block(validator_pubkey, block, current_slot, local_payload_root)
             .await
@@ -181,6 +202,10 @@ impl<S: ValidatorStore + 'static> ValidatorStore for RecordingValidatorStore<S> 
         validator_pubkey: PublicKeyBytes,
         envelope: ExecutionPayloadEnvelope<Self::E>,
     ) -> Result<SignedExecutionPayloadEnvelope<Self::E>, StoreError<Self::Error>> {
+        self.signed_envelope_block_roots
+            .lock()
+            .unwrap()
+            .push(envelope.beacon_block_root);
         self.inner
             .sign_execution_payload_envelope(validator_pubkey, envelope)
             .await
