@@ -6,6 +6,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
 [features]
 ere-verifier = ["dep:flate2", "dep:reqwest", "dep:sha2", "dep:tar"]
+test-utils = []
 
 [dependencies]
 ethereum_serde_utils = { workspace = true }

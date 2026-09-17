@@ -3,6 +3,7 @@
 mod config;
 #[cfg(feature = "ere-verifier")]
 pub mod ere;
+#[cfg(feature = "test-utils")]
 pub mod test_utils;
 
 use std::sync::Arc;
