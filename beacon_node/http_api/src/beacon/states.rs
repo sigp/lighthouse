@@ -779,17 +779,32 @@ pub fn post_beacon_state_validator_balances<T: BeaconChainTypes>(
         .and(warp::path("validator_balances"))
         .and(warp::path::end())
         .and(warp_utils::json::json_no_body())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             query: ValidatorBalancesRequestBody| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    crate::validators::get_beacon_state_validator_balances(
+             query: ValidatorBalancesRequestBody,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let result = crate::validators::get_beacon_state_validator_balances(
                         state_id,
                         chain,
                         Some(&query.ids),
-                    )
+                    )?;
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(result.data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&result).into_response()),
+                    }
                 })
             },
         )
