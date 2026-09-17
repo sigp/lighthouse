@@ -2653,6 +2653,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "decentralized_checkpoint_sync_client"
+version = "8.2.2"
+dependencies = [
+ "bls",
+ "decentralized_checkpoint_sync",
+ "merkle_proof",
+ "slot_clock",
+ "thiserror 2.0.17",
+ "tokio",
+ "tree_hash",
+ "types",
+]
+
+[[package]]
 name = "delay_map"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

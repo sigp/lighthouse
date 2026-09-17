@@ -1,0 +1,16 @@
+[package]
+name = "decentralized_checkpoint_sync_client"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+thiserror = { workspace = true }
+types = { workspace = true }
+
+[dev-dependencies]
+bls = { workspace = true }
+decentralized_checkpoint_sync = { workspace = true }
+merkle_proof = { workspace = true }
+slot_clock = { workspace = true }
+tokio = { workspace = true }
+tree_hash = { workspace = true }
