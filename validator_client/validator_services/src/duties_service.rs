@@ -2163,6 +2163,11 @@ async fn notify_block_production_service<S: ValidatorStore>(
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::future::{Ready, ready};
+    use types::test_utils::generate_deterministic_keypair;
+
+    type InclusionListDutiesMap = RwLock<HashMap<Epoch, (DependentRoot, Vec<InclusionListDuty>)>>;
+    type FetchDutiesResult = Result<DutiesResponse<Vec<InclusionListDuty>>, ()>;
 
     #[test]
     fn subscription_slots_exact() {
@@ -2242,5 +2247,260 @@ mod test {
         let subscription_slots = SubscriptionSlots::new(duty_slot + 1, current_slot);
         assert_eq!(subscription_slots.slots.len(), 1);
         assert!(subscription_slots.should_send_subscription_at(current_slot + 1),);
+    }
+
+    /// Generate `n` local validators' details, containing their indices and their pubkeys.
+    fn local_validators(n: usize) -> (Vec<u64>, Vec<PublicKeyBytes>) {
+        let indices = (0..n as u64).collect();
+        let pubkeys = (0..n)
+            .map(|i| generate_deterministic_keypair(i).pk.compress())
+            .collect();
+        (indices, pubkeys)
+    }
+
+    /// One inclusion list duty per pubkey, with `validator_index` equal to its position.
+    fn inclusion_list_duties(pubkeys: &[PublicKeyBytes]) -> Vec<InclusionListDuty> {
+        pubkeys
+            .iter()
+            .enumerate()
+            .map(|(i, pubkey)| InclusionListDuty {
+                pubkey: *pubkey,
+                validator_index: i as u64,
+                slot: Slot::new(0),
+            })
+            .collect()
+    }
+
+    /// Returns a `fetch_duties` function that answers like the endpoint does:
+    /// retrieve only the duties of the requested validator indices, under `dependent_root`.
+    fn mock_fetch_duties(
+        dependent_root: DependentRoot,
+        duties: Vec<InclusionListDuty>,
+    ) -> impl Fn(Epoch, Vec<u64>) -> Ready<FetchDutiesResult> {
+        move |_epoch, validator_indices| {
+            let data = duties
+                .iter()
+                .filter(|duty| validator_indices.contains(&duty.validator_index))
+                .cloned()
+                .collect();
+            ready(Ok(DutiesResponse {
+                dependent_root,
+                execution_optimistic: Some(false),
+                data,
+            }))
+        }
+    }
+
+    fn sorted(duties: &[InclusionListDuty]) -> Vec<InclusionListDuty> {
+        let mut duties = duties.to_vec();
+        duties.sort_by_key(|duty| duty.validator_index);
+        duties
+    }
+
+    #[tokio::test]
+    async fn poll_duties_for_epoch_with_no_indices_is_noop() {
+        let epoch = Epoch::new(1);
+        let (_, pubkeys) = local_validators(10);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let duties_map = InclusionListDutiesMap::default();
+
+        let dependent_root = Hash256::repeat_byte(1);
+        let duties = inclusion_list_duties(&pubkeys);
+        let fetch_duties = async |_epoch: Epoch, _validator_indices: Vec<u64>| {
+            // the function should not be executed if local_indices is an empty array
+            Ok::<_, ()>(DutiesResponse {
+                dependent_root,
+                execution_optimistic: Some(false),
+                data: duties.clone(),
+            })
+        };
+
+        // polling with an empty local_indices list should trigger an early return
+        poll_lookahead_duties_for_epoch(epoch, &[], &local_pubkeys, &duties_map, fetch_duties)
+            .await
+            .unwrap();
+
+        // nothing was stored in the duties map
+        assert!(duties_map.read().is_empty());
+    }
+
+    #[tokio::test]
+    async fn poll_duties_for_epoch_populates_empty_duties_map() {
+        let epoch = Epoch::new(1);
+        let (local_indices, pubkeys) = local_validators(10);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let duties_map = InclusionListDutiesMap::default();
+
+        let expected_dependent_root = Hash256::repeat_byte(1);
+        let expected_duties = inclusion_list_duties(&pubkeys);
+        let fetch_duties = mock_fetch_duties(expected_dependent_root, expected_duties.clone());
+
+        poll_lookahead_duties_for_epoch(
+            epoch,
+            &local_indices,
+            &local_pubkeys,
+            &duties_map,
+            fetch_duties,
+        )
+        .await
+        .unwrap();
+
+        let map = duties_map.read();
+        let (dependent_root, duties) = map.get(&epoch).expect("should have duties for epoch");
+        assert_eq!(*dependent_root, expected_dependent_root);
+        // the duties map stores probe + the full-fetch results concatenated,
+        // so we need to sort the stored duties before comparing
+        assert_eq!(sorted(duties), expected_duties);
+    }
+
+    #[tokio::test]
+    async fn poll_duties_for_epoch_same_root_keeps_stored_duties() {
+        let epoch = Epoch::new(1);
+        let validators_count = 10;
+        let (local_indices, pubkeys) = local_validators(validators_count);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let dependent_root = Hash256::repeat_byte(1);
+
+        // The map already holds duties for the epoch and `dependent_root`
+        let stored_duties = inclusion_list_duties(&pubkeys);
+        let duties_map = InclusionListDutiesMap::default();
+        duties_map
+            .write()
+            .insert(epoch, (dependent_root, stored_duties.clone()));
+
+        let newer_duties: Vec<InclusionListDuty> = stored_duties
+            .iter()
+            .map(|duty| InclusionListDuty {
+                slot: Slot::new(1),
+                validator_index: duty.validator_index,
+                pubkey: duty.pubkey,
+            })
+            .collect();
+        let fetch_duties = mock_fetch_duties(dependent_root, newer_duties);
+
+        poll_lookahead_duties_for_epoch(
+            epoch,
+            &local_indices,
+            &local_pubkeys,
+            &duties_map,
+            fetch_duties,
+        )
+        .await
+        .unwrap();
+
+        // The duties corresponding to the epoch and the `dependent_root` should be unchanged
+        let map = duties_map.read();
+        let (root, duties) = map.get(&epoch).expect("should have duties for epoch");
+        assert_eq!(*root, dependent_root);
+        assert_eq!(sorted(duties), stored_duties);
+    }
+
+    #[tokio::test]
+    async fn poll_duties_for_epoch_changed_dependent_root_updates_duties() {
+        let epoch = Epoch::new(1);
+        let validators_count = 10;
+        let (local_indices, pubkeys) = local_validators(validators_count);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let first_dependent_root = Hash256::repeat_byte(1);
+        let second_dependent_root = Hash256::repeat_byte(2);
+
+        // The map already holds duties for the epoch and `first_dependent_root`
+        let stored_duties = inclusion_list_duties(&pubkeys);
+        let duties_map = InclusionListDutiesMap::default();
+        duties_map
+            .write()
+            .insert(epoch, (first_dependent_root, stored_duties.clone()));
+
+        let new_duties: Vec<InclusionListDuty> = stored_duties
+            .iter()
+            .map(|duty| InclusionListDuty {
+                slot: Slot::new(1),
+                validator_index: duty.validator_index,
+                pubkey: duty.pubkey,
+            })
+            .collect();
+
+        let fetch_duties = mock_fetch_duties(second_dependent_root, new_duties.clone());
+
+        poll_lookahead_duties_for_epoch(
+            epoch,
+            &local_indices,
+            &local_pubkeys,
+            &duties_map,
+            fetch_duties,
+        )
+        .await
+        .unwrap();
+
+        // The duties corresponding to the epoch should now be changed to the ones corresponding
+        // to the `second_dependent_root`
+        let map = duties_map.read();
+        let (root, duties) = map.get(&epoch).expect("should have duties for epoch");
+        assert_eq!(*root, second_dependent_root);
+        assert_eq!(sorted(duties), new_duties);
+    }
+
+    #[tokio::test]
+    async fn poll_duties_for_epoch_only_stores_local_validators_duties() {
+        let epoch = Epoch::new(1);
+        let (local_indices, pubkeys) = local_validators(10);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let external_pubkeys: HashSet<PublicKeyBytes> = (10..15)
+            .map(|i| generate_deterministic_keypair(i).pk.compress())
+            .collect();
+        let all_pubkeys: HashSet<PublicKeyBytes> =
+            local_pubkeys.union(&external_pubkeys).copied().collect();
+        let duties_map = InclusionListDutiesMap::default();
+
+        let expected_dependent_root = Hash256::repeat_byte(1);
+        let expected_duties = inclusion_list_duties(&pubkeys);
+        let fetch_duties = mock_fetch_duties(expected_dependent_root, expected_duties.clone());
+
+        poll_lookahead_duties_for_epoch(
+            epoch,
+            &local_indices,
+            &all_pubkeys,
+            &duties_map,
+            fetch_duties,
+        )
+        .await
+        .unwrap();
+
+        let map = duties_map.read();
+        let (dependent_root, duties) = map.get(&epoch).expect("should have duties for epoch");
+        assert_eq!(*dependent_root, expected_dependent_root);
+        assert_eq!(sorted(duties), expected_duties);
+    }
+    #[tokio::test]
+    async fn poll_duties_for_epoch_fetch_error_leaves_map_unchanged() {
+        let epoch = Epoch::new(1);
+        let (local_indices, pubkeys) = local_validators(10);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let dependent_root = Hash256::repeat_byte(1);
+
+        let stored_duties = inclusion_list_duties(&pubkeys);
+        let duties_map = InclusionListDutiesMap::default();
+        duties_map
+            .write()
+            .insert(epoch, (dependent_root, stored_duties.clone()));
+
+        let fetch_duties = async |_epoch: Epoch, _validator_indices: Vec<u64>| {
+            Err::<DutiesResponse<Vec<InclusionListDuty>>, ()>(())
+        };
+
+        let result = poll_lookahead_duties_for_epoch(
+            epoch,
+            &local_indices,
+            &local_pubkeys,
+            &duties_map,
+            fetch_duties,
+        )
+        .await;
+        assert!(result.is_err());
+
+        let map = duties_map.read();
+        let (root, duties) = map.get(&epoch).expect("should have duties for epoch");
+        assert_eq!(*root, dependent_root);
+        assert_eq!(sorted(duties), stored_duties);
     }
 }
