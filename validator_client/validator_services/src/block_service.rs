@@ -259,7 +259,7 @@ struct LocalPayloadContents<E: EthSpec> {
 
 /// What to do about the execution payload envelope once the block is published.
 enum EnvelopeStep<E: EthSpec> {
-    /// Nothing to publish: pre-Gloas, an external builder, or no contents were returned.
+    /// Nothing to publish: pre-Gloas or an external builder.
     Skip,
     /// Fetch the envelope from the beacon node by this block root.
     Fetch(Hash256),
@@ -298,14 +298,16 @@ impl<E: EthSpec> EnvelopeStep<E> {
                     .signed_execution_payload_bid()
                     .is_ok_and(|bid| bid.message.builder_index == BUILDER_INDEX_SELF_BUILD)
                 {
-                    // Inconsistent response: publish the block, the envelope cannot be signed.
                     warn!(
                         slot = slot.as_u64(),
                         "Beacon node omitted the payload contents for a self-built block, \
-                         the execution payload envelope will not be published"
+                         falling back to fetching the execution payload envelope"
                     );
+                    let block_root = block.canonical_root();
+                    (block, Self::Fetch(block_root))
+                } else {
+                    (block, Self::Skip)
                 }
-                (block, Self::Skip)
             }
             (false, response) => {
                 let block = response.into_block();
@@ -806,6 +808,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             EnvelopeStep::Skip => {}
             // TODO(gloas): only fetch when the bid is self-build (#9948).
             EnvelopeStep::Fetch(beacon_block_root) => {
+                // The producing node's cache is only useful if the local candidate was signed.
+                if beacon_block_root != signed_block_root {
+                    debug!(
+                        local_block_root = %beacon_block_root,
+                        %signed_block_root,
+                        "Skipping envelope fetch for a different block"
+                    );
+                    return Ok(());
+                }
                 self_ref
                     .fetch_sign_and_publish_payload_envelope(
                         &proposer_fallback,
@@ -1255,13 +1266,11 @@ mod tests {
         assert_eq!(received[0].blobs, contents.blobs);
     }
 
-    /// In stateless mode a `BlockOnly` response publishes the block alone with no payload root.
-    async fn assert_stateless_block_only(
-        make_block: impl FnOnce(&ChainSpec) -> BeaconBlock<MainnetEthSpec>,
-    ) {
+    #[tokio::test]
+    async fn stateless_external_builder_bid_publishes_block_only() {
         let mut test_harness = TestHarness::new_stateless().await;
         let slot = Slot::new(1);
-        let block = make_block(&test_harness.harness.spec);
+        let block = BeaconBlock::empty(&test_harness.harness.spec);
 
         test_harness.bn1().mock_post_validator_blocks_v4_ssz(
             &block_only(&block),
@@ -1480,10 +1489,12 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn stateless_skips_local_envelope_when_store_signs_different_block() {
+    async fn assert_skips_envelope_when_store_signs_different_block(
+        stateless: bool,
+        with_contents: bool,
+    ) {
         for decided_builder_index in [BUILDER_INDEX_SELF_BUILD, 7] {
-            let mut test_harness = TestHarness::new_stateless().await;
+            let mut test_harness = TestHarness::new(1, stateless, None).await;
             let slot = Slot::new(1);
             let block = self_build_block(&test_harness.harness.spec);
             let contents = local_contents(&block);
@@ -1520,9 +1531,21 @@ mod tests {
                 .validator_store
                 .set_next_sign_block_result(Ok(signed_block));
 
+            let mock_get_envelope = test_harness
+                .bn1()
+                .mock_get_validator_execution_payload_envelope_ssz(
+                    &contents.execution_payload_envelope,
+                    slot,
+                    block.canonical_root(),
+                );
+            let response = if with_contents {
+                ProduceBlockV4Response::BlockAndEnvelope(contents)
+            } else {
+                block_only(&block)
+            };
             test_harness.bn1().mock_post_validator_blocks_v4_ssz(
-                &ProduceBlockV4Response::BlockAndEnvelope(contents),
-                true,
+                &response,
+                stateless,
                 ForkName::Gloas,
                 slot,
             );
@@ -1532,10 +1555,14 @@ mod tests {
             let mock_post_contents = test_harness
                 .bn1()
                 .mock_post_beacon_execution_payload_envelope_contents_ssz();
+            let mock_post_bare_envelope = test_harness
+                .bn1()
+                .mock_post_beacon_execution_payload_envelope_ssz();
 
             test_harness.publish(slot).await;
 
-            test_harness.assert_signed_once(&block, Some(payload_root));
+            test_harness
+                .assert_signed_once(&block, (stateless && with_contents).then_some(payload_root));
             assert!(
                 test_harness
                     .service
@@ -1545,7 +1572,9 @@ mod tests {
                 "a losing local envelope must not reach the signer"
             );
             mock_post_block.expect(1).assert();
+            mock_get_envelope.expect(0).assert();
             mock_post_contents.expect(0).assert();
+            mock_post_bare_envelope.expect(0).assert();
             let published = test_harness
                 .harness
                 .mock_beacon_node_1
@@ -1558,6 +1587,21 @@ mod tests {
                 decided_block.canonical_root()
             );
         }
+    }
+
+    #[tokio::test]
+    async fn stateless_skips_local_envelope_when_store_signs_different_block() {
+        assert_skips_envelope_when_store_signs_different_block(true, true).await;
+    }
+
+    #[tokio::test]
+    async fn stateless_skips_fetched_envelope_when_store_signs_different_block() {
+        assert_skips_envelope_when_store_signs_different_block(true, false).await;
+    }
+
+    #[tokio::test]
+    async fn stateful_skips_fetched_envelope_when_store_signs_different_block() {
+        assert_skips_envelope_when_store_signs_different_block(false, false).await;
     }
 
     #[tokio::test]
@@ -1723,13 +1767,56 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stateless_external_builder_bid_publishes_block_only() {
-        assert_stateless_block_only(BeaconBlock::empty).await;
-    }
+    async fn stateless_self_build_without_inline_contents_fetches_envelope() {
+        let mut test_harness = TestHarness::new_stateless().await;
+        let slot = Slot::new(1);
+        let block = self_build_block(&test_harness.harness.spec);
+        let envelope = local_contents(&block).execution_payload_envelope;
+        test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+            &block_only(&block),
+            true,
+            ForkName::Gloas,
+            slot,
+        );
+        let mock_post_block = test_harness
+            .bn1()
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_get_envelope = test_harness
+            .bn1()
+            .mock_get_validator_execution_payload_envelope_ssz(
+                &envelope,
+                slot,
+                block.canonical_root(),
+            );
+        let mock_post_bare_envelope = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_ssz();
+        let mock_post_contents = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_contents_ssz();
 
-    #[tokio::test]
-    async fn stateless_self_build_without_inline_contents_publishes_block_only() {
-        assert_stateless_block_only(self_build_block).await;
+        test_harness.publish(slot).await;
+
+        mock_post_block.expect(1).assert();
+        mock_get_envelope.expect(1).assert();
+        mock_post_bare_envelope.expect(1).assert();
+        mock_post_contents.expect(0).assert();
+        test_harness.assert_signed_once(&block, None);
+        assert_eq!(
+            test_harness
+                .service
+                .validator_store
+                .signed_envelope_block_roots(),
+            vec![block.canonical_root()]
+        );
+        let published = test_harness
+            .harness
+            .mock_beacon_node_1
+            .execution_payload_envelope
+            .lock()
+            .unwrap();
+        assert_eq!(published.len(), 1);
+        assert_eq!(published[0].message, envelope);
     }
 
     #[tokio::test]
