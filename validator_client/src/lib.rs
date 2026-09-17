@@ -531,7 +531,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .graffiti_file(config.graffiti_file.clone())
             .graffiti_policy(config.graffiti_policy)
             .configured_builders(configured_builders.clone())
-            .request_auth_cache(request_auth_cache.clone());
+            .request_auth_cache(request_auth_cache.clone())
+            .stateless_block_production(config.stateless_block_production);
 
         // If we have proposer nodes, add them to the block service builder.
         if proposer_nodes_num > 0 {
