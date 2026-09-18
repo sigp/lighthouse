@@ -799,7 +799,8 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let executor = context.executor.clone();
             let config = validator_client::Config::from_cli(matches, &validator_client_config)
-                .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
+                .map_err(|e| format!("Unable to initialize validator config: {}", e))?
+                .with_user_agent(VERSION.to_string());
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
 
@@ -837,6 +838,7 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let executor = context.executor.clone();
             let mut config = beacon_node::get_config::<E>(matches, &context)?;
+            config.user_agent = VERSION.to_string();
             config.logger_config = logger_config;
             // Dump configs if `dump-config` or `dump-chain-config` flags are set
             clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
