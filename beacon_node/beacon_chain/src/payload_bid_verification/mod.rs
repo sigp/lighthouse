@@ -92,6 +92,9 @@ pub enum PayloadBidError {
     },
     /// The bids prev randao value is invalid
     InvalidPrevRandao { slot: Slot },
+    /// The bid's `inclusion_list_bits` are not inclusive of the node's view of the inclusion
+    /// lists for the slot preceding the bid's slot
+    InclusionListBitsNotInclusive { slot: Slot },
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
     /// The bid's variant does not match the fork at its slot.

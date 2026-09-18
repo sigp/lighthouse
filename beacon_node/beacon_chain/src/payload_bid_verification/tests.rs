@@ -7,22 +7,22 @@ use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use kzg::KzgCommitment;
 use slot_clock::{SlotClock, TestingSlotClock};
-use ssz::Encode;
+use ssz::{BitVector, Encode};
 use ssz_types::ProgressiveVariableList;
 use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig, StoreOp};
 use types::{
     Address, BuilderExitRequest, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
+    ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
     ExecutionPayloadEnvelope, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName,
-    Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
+    Hash256, InclusionList, InclusionListCommittee, MinimalEthSpec, ProgressiveTransactions,
+    ProposerPreferences, RelativeEpoch, SignedBeaconBlock, SignedExecutionPayloadBid,
     SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedRoot, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    SignedInclusionList, SignedProposerPreferences, SignedRoot, Slot,
+    consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
-use proto_array::{Block as ProtoBlock, ExecutionStatus};
-use types::AttestationShufflingId;
-
+use crate::inclusion_list_store::InclusionListStore;
 use crate::{
     beacon_fork_choice_store::BeaconForkChoiceStore,
     beacon_snapshot::BeaconSnapshot,
@@ -43,6 +43,9 @@ use crate::{
     },
     test_utils::{EphemeralHarnessType, fork_name_from_env, test_spec},
 };
+use parking_lot::RwLock;
+use proto_array::{Block as ProtoBlock, ExecutionStatus};
+use types::AttestationShufflingId;
 
 type E = MinimalEthSpec;
 type T = EphemeralHarnessType<E>;
@@ -65,6 +68,7 @@ struct TestContext {
     genesis_block_root: Hash256,
     inactive_builder_index: u64,
     store: crate::BeaconStore<T>,
+    inclusion_list_store: RwLock<InclusionListStore<E>>,
 }
 
 fn builder_withdrawal_credentials(pubkey: &bls::PublicKey, spec: &ChainSpec) -> Hash256 {
@@ -187,6 +191,8 @@ impl TestContext {
             spec.get_slot_duration(),
         );
 
+        let inclusion_list_store = RwLock::new(InclusionListStore::new(&spec));
+
         Self {
             canonical_head,
             observed_execution_payloads,
@@ -198,6 +204,7 @@ impl TestContext {
             genesis_block_root: block_root,
             inactive_builder_index,
             store,
+            inclusion_list_store,
         }
     }
 
@@ -229,6 +236,7 @@ impl TestContext {
             slot_clock: &self.slot_clock,
             spec: &self.spec,
             store: &self.store,
+            inclusion_list_store: &self.inclusion_list_store,
         }
     }
 
@@ -368,6 +376,35 @@ fn make_signed_preferences(
         },
         signature: Signature::empty(),
     })
+}
+
+fn seed_inclusion_list(
+    ctx: &TestContext,
+    slot: Slot,
+    validator_index: u64,
+    is_timely: bool,
+) -> InsertOutcome {
+    let cached_head = ctx.canonical_head.cached_head();
+    let head_state = &cached_head.snapshot.beacon_state;
+    let relative_epoch =
+        RelativeEpoch::from_epoch(head_state.current_epoch(), slot.epoch(E::slots_per_epoch()))
+            .expect("inclusion list slot should be within one epoch of the head");
+    let dependent_root = head_state
+        .attester_shuffling_decision_root(cached_head.head_block_root(), relative_epoch)
+        .expect("should compute attester shuffling decision root");
+
+    let signed_inclusion_list = SignedInclusionList {
+        message: InclusionList {
+            slot,
+            validator_index,
+            dependent_root,
+            transactions: ProgressiveTransactions::default(),
+        },
+        signature: Signature::empty(),
+    };
+    ctx.inclusion_list_store
+        .write()
+        .process_inclusion_list(signed_inclusion_list, is_timely)
 }
 
 fn seed_preferences(ctx: &TestContext, slot: Slot, fee_recipient: Address, gas_limit: u64) {
@@ -1243,18 +1280,33 @@ fn valid_bid_with_parent_in_previous_epoch() {
         let slot = Slot::new(bid_slot);
         seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
         let parent_state = &ctx.canonical_head.cached_head().snapshot.beacon_state;
-        let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
-            slot,
-            builder_index: 0,
-            fee_recipient: Address::ZERO,
-            gas_limit: 30_000_000,
-            parent_block_root: ctx.genesis_block_root,
-            parent_block_hash: ctx.execution_parent_hash(),
-            prev_randao: *parent_state
-                .get_randao_mix(parent_state.current_epoch())
-                .unwrap(),
-            ..ExecutionPayloadBidGloas::default()
-        });
+        let prev_randao = *parent_state
+            .get_randao_mix(parent_state.current_epoch())
+            .unwrap();
+        let bid = if ctx.spec.fork_name_at_slot::<E>(slot).heze_enabled() {
+            ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
+                slot,
+                builder_index: 0,
+                fee_recipient: Address::ZERO,
+                gas_limit: 30_000_000,
+                parent_block_root: ctx.genesis_block_root,
+                parent_block_hash: ctx.execution_parent_hash(),
+                prev_randao,
+                ..ExecutionPayloadBidHeze::default()
+            })
+        } else {
+            ExecutionPayloadBid::Gloas(ExecutionPayloadBidGloas {
+                slot,
+                builder_index: 0,
+                fee_recipient: Address::ZERO,
+                gas_limit: 30_000_000,
+                parent_block_root: ctx.genesis_block_root,
+                parent_block_hash: ctx.execution_parent_hash(),
+                prev_randao,
+                ..ExecutionPayloadBidGloas::default()
+            })
+        };
+        let bid = ctx.sign_bid(bid);
         let result = GossipVerifiedPayloadBid::new(bid, &ctx.gossip_ctx());
         assert!(
             result.is_ok(),
@@ -1372,4 +1424,24 @@ fn bid_equal_to_cached_value_rejected() {
             incoming_value: 100,
         })
     ));
+
+    #[test]
+    fn il_bits_inclusivity_checks_are_not_applied_for_gloas_bids() {
+        todo!()
+    }
+
+    #[test]
+    fn bid_il_bits_not_inclusive() {
+        todo!()
+    }
+
+    #[test]
+    fn bid_il_bits_are_inclusive() {
+        todo!()
+    }
+
+    #[test]
+    fn il_bits_inclusivity_check_applied_to_slot_prior_to_bid_slot() {
+        todo!()
+    }
 }

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::inclusion_list_store::InclusionListStore;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconStore, CachedHead, CanonicalHead,
     canonical_head::ForkChoiceReadGuard,
@@ -12,6 +13,7 @@ use crate::{
 };
 use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
+use parking_lot::RwLock;
 use proto_array::{Block as ProtoBlock, PayloadBlockHash};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
@@ -20,7 +22,7 @@ use state_processing::signature_sets::{
 use tracing::debug;
 use types::{
     BeaconState, Builder, ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionRequestsGloas,
-    SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
+    RelativeEpoch, SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
@@ -265,6 +267,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub observed_execution_payloads: &'a ObservedExecutionPayloads,
     pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache<T::EthSpec>,
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
+    pub inclusion_list_store: &'a RwLock<InclusionListStore<T::EthSpec>>,
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
     pub store: &'a BeaconStore<T>,
@@ -459,6 +462,46 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             });
         }
 
+        // [IGNORE] `bid.inclusion_list_bits` is inclusive of the node's view of the inclusion
+        // lists for the slot preceding the bid's slot.
+        if ctx
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(bid_slot)
+            .heze_enabled()
+        {
+            let inclusion_list_bits = signed_bid.message().inclusion_list_bits()?;
+            let inclusion_list_slot = bid_slot.saturating_sub(1u64);
+            let inclusion_list_epoch = inclusion_list_slot.epoch(T::EthSpec::slots_per_epoch());
+            let relative_epoch =
+                RelativeEpoch::from_epoch(head_state.current_epoch(), inclusion_list_epoch)
+                    .map_err(|e| {
+                        PayloadBidError::InternalError(format!(
+                            "inclusion list epoch {inclusion_list_epoch} out of range: {e:?}"
+                        ))
+                    })?;
+            let inclusion_list_dependent_root = head_state
+                .attester_shuffling_decision_root(cached_head.head_block_root(), relative_epoch)?;
+            let inclusion_list_committee =
+                head_state.get_inclusion_list_committee(inclusion_list_slot)?;
+
+            let inclusive = ctx
+                .inclusion_list_store
+                .read()
+                .is_inclusion_list_bits_inclusive(
+                    inclusion_list_slot,
+                    inclusion_list_dependent_root,
+                    &inclusion_list_committee,
+                    inclusion_list_bits,
+                    true,
+                )
+                .map_err(|e| {
+                    PayloadBidError::InternalError(format!("inclusion list store: {e:?}"))
+                })?;
+            if !inclusive {
+                return Err(PayloadBidError::InclusionListBitsNotInclusive { slot: bid_slot });
+            }
+        }
+
         execution_payload_bid_signature_set(
             head_state,
             |i| get_builder_pubkey_from_state(head_state, i),
@@ -489,6 +532,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             gossip_verified_payload_bid_cache: &self.gossip_verified_payload_bid_cache,
             gossip_verified_proposer_preferences_cache: &self
                 .gossip_verified_proposer_preferences_cache,
+            inclusion_list_store: &self.inclusion_list_store,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
             store: &self.store,
