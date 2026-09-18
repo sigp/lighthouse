@@ -2819,11 +2819,11 @@ fn invalid_block_roots_default_mainnet() {
 }
 
 #[test]
-fn disable_mplex_default() {
+fn enable_mplex_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.network.enable_mplex);
+            assert!(config.network.enable_mplex);
         })
 }
 
