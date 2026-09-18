@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use fixed_bytes::FixedBytesExtended;
 use lighthouse_network::{
-    NETWORK_KEY_FILENAME, NetworkConfig,
+    Enr, NETWORK_KEY_FILENAME, NetworkConfig,
     discovery::{CombinedKey, ENR_FILENAME, build_enr},
     libp2p::identity::secp256k1,
 };
@@ -11,6 +11,40 @@ use std::path::PathBuf;
 use std::{fs, net::Ipv4Addr};
 use std::{fs::File, num::NonZeroU16};
 use types::{ChainSpec, EnrForkId, Epoch, EthSpec, Hash256};
+
+/// Builds the ENR for a pre-genesis boot node listening on `ip`.
+///
+/// The node is IPv4-only, so the ports go in the IPv4 ENR fields.
+fn build_bootnode_enr<E: EthSpec>(
+    enr_key: &CombinedKey,
+    ip: Ipv4Addr,
+    udp_port: NonZeroU16,
+    tcp_port: NonZeroU16,
+    genesis_fork_version: [u8; 4],
+    spec: &ChainSpec,
+) -> Result<Enr, String> {
+    let mut config = NetworkConfig::default();
+    config.enr_address = (Some(ip), None);
+    config.enr_udp4_port = Some(udp_port);
+    config.enr_tcp4_port = Some(tcp_port);
+
+    let genesis_fork_digest = spec.compute_fork_digest(Hash256::zero(), Epoch::new(0));
+    let enr_fork_id = EnrForkId {
+        fork_digest: genesis_fork_digest,
+        next_fork_version: genesis_fork_version,
+        next_fork_epoch: Epoch::max_value(), // FAR_FUTURE_EPOCH
+    };
+
+    build_enr::<E>(
+        enr_key,
+        &config,
+        &enr_fork_id,
+        spec.custody_requirement,
+        genesis_fork_digest,
+        spec,
+    )
+    .map_err(|e| format!("Unable to create ENR: {:?}", e))
+}
 
 pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), String> {
     let ip: Ipv4Addr = clap_utils::parse_required(matches, "ip")?;
@@ -27,28 +61,10 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), Str
         ));
     }
 
-    let mut config = NetworkConfig::default();
-    config.enr_address = (Some(ip), None);
-    config.enr_udp4_port = Some(udp_port);
-    config.enr_tcp6_port = Some(tcp_port);
-
     let secp256k1_keypair = secp256k1::Keypair::generate();
     let enr_key = CombinedKey::from_secp256k1(&secp256k1_keypair);
-    let genesis_fork_digest = spec.compute_fork_digest(Hash256::zero(), Epoch::new(0));
-    let enr_fork_id = EnrForkId {
-        fork_digest: genesis_fork_digest,
-        next_fork_version: genesis_fork_version,
-        next_fork_epoch: Epoch::max_value(), // FAR_FUTURE_EPOCH
-    };
-    let enr = build_enr::<E>(
-        &enr_key,
-        &config,
-        &enr_fork_id,
-        spec.custody_requirement,
-        genesis_fork_digest,
-        spec,
-    )
-    .map_err(|e| format!("Unable to create ENR: {:?}", e))?;
+    let enr =
+        build_bootnode_enr::<E>(&enr_key, ip, udp_port, tcp_port, genesis_fork_version, spec)?;
 
     fs::create_dir_all(&output_dir).map_err(|e| format!("Unable to create output-dir: {:?}", e))?;
 
@@ -67,4 +83,36 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), Str
         .map_err(|e| format!("Unable to write key to {}: {:?}", NETWORK_KEY_FILENAME, e))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::MainnetEthSpec;
+
+    #[test]
+    fn enr_advertises_the_supplied_ports_on_ipv4() {
+        let spec = ChainSpec::mainnet();
+        let enr_key = CombinedKey::from_secp256k1(&secp256k1::Keypair::generate());
+        let ip = Ipv4Addr::new(10, 0, 0, 1);
+        let udp_port = NonZeroU16::new(4242).unwrap();
+        let tcp_port = NonZeroU16::new(4243).unwrap();
+
+        let enr = build_bootnode_enr::<MainnetEthSpec>(
+            &enr_key,
+            ip,
+            udp_port,
+            tcp_port,
+            [0, 0, 0, 0],
+            &spec,
+        )
+        .unwrap();
+
+        assert_eq!(enr.ip4(), Some(ip));
+        assert_eq!(enr.udp4(), Some(udp_port.get()));
+        // The TCP port must land in the IPv4 field, otherwise the ENR has no dialable
+        // TCP multiaddr and peers can discover the boot node but never connect to it.
+        assert_eq!(enr.tcp4(), Some(tcp_port.get()));
+        assert_eq!(enr.tcp6(), None);
+    }
 }
