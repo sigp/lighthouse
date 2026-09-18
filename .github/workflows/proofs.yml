@@ -1,0 +1,135 @@
+name: proofs
+
+# Builds the slashing protection proofs, audits their axioms, and regenerates the Aeneas model
+# from the Rust to catch drift. The toolchain (Lean, mathlib, OCaml, Charon, Aeneas, a pinned
+# rustc nightly) is far too heavy to run on every PR, so this only runs when the verified
+# function or the proofs change.
+on:
+  push:
+    branches:
+      - unstable
+      - stable
+    paths:
+      - 'validator_client/slashing_protection/src/attestation_rules.rs'
+      - 'validator_client/slashing_protection/proofs/**'
+      - '.github/workflows/proofs.yml'
+  pull_request:
+    paths:
+      - 'validator_client/slashing_protection/src/attestation_rules.rs'
+      - 'validator_client/slashing_protection/proofs/**'
+      - '.github/workflows/proofs.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PROOFS_DIR: validator_client/slashing_protection/proofs
+  # Charon is pinned to the commit this Aeneas revision expects. Aeneas itself is pinned in
+  # proofs/lakefile.toml, which is the single source of truth and is read below.
+  CHARON_REV: fea3fc68d445181cf4ce094855a43a17192a2b12
+
+jobs:
+  slashing-protection-proofs:
+    name: slashing protection proofs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Read the pinned Aeneas revision from lakefile.toml
+        run: |
+          set -euo pipefail
+          rev=$(sed -n '/name = "aeneas"/,/^$/s/^rev = "\(.*\)"/\1/p' "$PROOFS_DIR/lakefile.toml")
+          if [ -z "$rev" ]; then
+            echo "::error::could not read the aeneas rev from $PROOFS_DIR/lakefile.toml"
+            exit 1
+          fi
+          echo "AENEAS_REV=$rev" >> "$GITHUB_ENV"
+
+      - name: Install elan
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if curl -sSfL https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain none; then
+              break
+            fi
+            [ "$attempt" -lt 3 ] && sleep 15
+          done
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Cache the Lean build
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PROOFS_DIR }}/.lake
+          key: lake-${{ runner.os }}-${{ hashFiles(format('{0}/lakefile.toml', env.PROOFS_DIR), format('{0}/lake-manifest.json', env.PROOFS_DIR), format('{0}/lean-toolchain', env.PROOFS_DIR)) }}
+
+      - name: Build the proofs
+        working-directory: ${{ env.PROOFS_DIR }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if lake exe cache get; then
+              break
+            fi
+            [ "$attempt" -lt 3 ] && sleep 15
+          done
+          lake build
+
+      # AxiomAudit.lean walks every theorem and fails elaboration on a disallowed axiom or a
+      # `sorry`. Run it directly as well as through `lake build`, since Lake can replay a
+      # cached log instead of re-elaborating.
+      - name: Run the axiom audit
+        working-directory: ${{ env.PROOFS_DIR }}
+        run: lake env lean SlashingProofs/AxiomAudit.lean
+
+      # Charon and Aeneas are built once and cached. `charon-driver` is a rustc driver linked
+      # against the nightly in Charon's rust-toolchain file, so that toolchain is cached with
+      # the binaries. Restoring the binaries alone leaves the driver unable to start.
+      - name: Cache Charon and Aeneas
+        id: tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/verif/charon/rust-toolchain
+            ~/verif/charon/rust-toolchain.toml
+            ~/verif/charon/charon/target/release/charon
+            ~/verif/charon/charon/target/release/charon-driver
+            ~/verif/aeneas/src/_build/default/main.exe
+            ~/.rustup/toolchains
+          key: verif-tools-${{ runner.os }}-${{ env.CHARON_REV }}-${{ env.AENEAS_REV }}
+
+      - name: Build Charon and Aeneas
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p ~/verif && cd ~/verif
+          git clone https://github.com/AeneasVerif/charon
+          git -C charon checkout "$CHARON_REV"
+          (cd charon/charon && cargo build --release)
+          git clone https://github.com/AeneasVerif/aeneas
+          git -C aeneas checkout "$AENEAS_REV"
+          ln -sfn ~/verif/charon ~/verif/aeneas/charon
+          # ubuntu-latest ships neither opam nor OCaml. domainslib needs OCaml >= 5.0.
+          sudo apt-get update -qq && sudo apt-get install -y -qq opam
+          opam init -y --bare --disable-sandboxing
+          opam switch create aeneas 5.2.0 -y
+          # The list from the Aeneas README. Its .opam files are dune-generated and list only dune.
+          opam install -y --switch=aeneas --assume-depexts \
+            calendar core_unix domainslib easy_logging menhir ocamlformat.0.27.0 ocamlgraph odoc \
+            ppx_deriving ppx_deriving_yojson progress unionFind visitors yojson zarith
+          (cd ~/verif/aeneas/src && opam exec --switch=aeneas -- dune build)
+
+      # Re-derive the model from the Rust. This is what ties the theorem to the current source.
+      - name: Regenerate Generated.lean and diff
+        run: |
+          set -euo pipefail
+          export CHARON="$HOME/verif/charon/charon/target/release/charon"
+          export AENEAS="$HOME/verif/aeneas/src/_build/default/main.exe"
+          "$PROOFS_DIR/regenerate.sh"
+          git diff --exit-code -- "$PROOFS_DIR/SlashingProofs/Generated.lean" \
+            || { echo "::error::$PROOFS_DIR/SlashingProofs/Generated.lean is stale. Run $PROOFS_DIR/regenerate.sh and commit the result."; exit 1; }
