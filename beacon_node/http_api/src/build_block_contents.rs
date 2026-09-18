@@ -13,8 +13,6 @@ pub fn build_block_contents<E: EthSpec>(
         }
 
         BeaconBlockResponseWrapper::Full(block) => {
-            // TODO(gloas): revisit when produceBlockV4 PR is finalised
-            // https://github.com/ethereum/beacon-APIs/pull/580
             if fork_name.deneb_enabled() && !fork_name.gloas_enabled() {
                 let BeaconBlockResponse {
                     block,
