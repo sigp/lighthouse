@@ -392,11 +392,14 @@ impl ForkChoiceTest {
             .unwrap()
             .message()
             .state_root();
-        let state = harness
+        let mut state = harness
             .chain
             .store
             .get_state(&state_root, None, CACHE_STATE_IN_TESTS)
             .unwrap()
+            .unwrap();
+        state
+            .build_total_active_balance_cache(&harness.chain.spec)
             .unwrap();
         let current_epoch = state.current_epoch();
         let mut num_active_validators = 0u64;
@@ -433,6 +436,10 @@ impl ForkChoiceTest {
             justified_balances.num_active_validators
         );
         assert_eq!(slashed_balances, justified_balances.slashed_balances);
+        assert_eq!(
+            justified_balances.total_active_balance().unwrap(),
+            state.get_total_active_balance().unwrap(),
+        );
     }
 
     /// Returns an attestation that is valid for some slot in the given `chain`.
