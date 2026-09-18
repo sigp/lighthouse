@@ -192,24 +192,45 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
         published_preferences: &mut PublishedBuilderPreferencesCache,
     ) {
         let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
-        let mut pending_entries_by_fork = BTreeMap::<ForkName, Vec<BuilderPreferenceEntry>>::new();
+        // Entries are grouped by the fork of the epoch their proposal slot falls in, and each
+        // group is submitted under that fork's `Eth-Consensus-Version`: the header names the fork
+        // the preferences belong to (beacon-APIs #630), and builders decode the forwarded
+        // submission by it (builder-specs #165), so lookahead entries gathered in the epoch
+        // before a fork go out under the new fork, not the one active at submission time —
+        // matching the proposer-preferences service's per-epoch publishing. Outside a
+        // fork-boundary epoch both epochs share a fork, so this is still one flat request.
+        let mut pending_groups: Vec<(ForkName, Vec<BuilderPreferenceEntry>)> = Vec::new();
 
-        for epoch in [current_epoch, current_epoch + 1] {
+        for (epoch, fork_name) in [
+            (
+                current_epoch,
+                self.inner.chain_spec.fork_name_at_epoch(current_epoch),
+            ),
+            (
+                current_epoch + 1,
+                self.inner.chain_spec.fork_name_at_epoch(current_epoch + 1),
+            ),
+        ] {
+            if !fork_name.gloas_enabled() {
+                continue;
+            }
+
             let proposers = match self.inner.duties_service.proposers.read().get(&epoch) {
                 Some((_, proposers)) => proposers.clone(),
                 None => continue,
             };
 
+            let mut epoch_entries: Vec<BuilderPreferenceEntry> = Vec::new();
             for proposer_data in &proposers {
                 let slot = proposer_data.slot;
-                let pubkey = proposer_data.pubkey;
+                // A duty whose slot has passed is dead. The caches prune below `current_slot`
+                // every poll, so without this guard each elapsed duty would be re-signed and
+                // re-submitted (and rejected by builders) every remaining slot of its epoch —
+                // and its failing chunk would keep every cohabiting entry unmarked.
                 if slot < current_slot {
                     continue;
                 }
-                let proposal_fork = self.inner.chain_spec.fork_name_at_slot::<S::E>(slot);
-                if !proposal_fork.gloas_enabled() {
-                    continue;
-                }
+                let pubkey = proposer_data.pubkey;
 
                 // Resolve and sign the whole builder config for this proposer/slot. Auths are
                 // cached, so builders already published for this slot cost only a cache hit.
@@ -239,21 +260,30 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
                         // already published, skip
                         continue;
                     }
-                    pending_entries_by_fork
-                        .entry(proposal_fork)
-                        .or_default()
-                        .push(BuilderPreferenceEntry::from_builder_entry(
-                            pubkey,
-                            entry.clone(),
-                        ));
+                    epoch_entries.push(BuilderPreferenceEntry::from_builder_entry(
+                        pubkey,
+                        entry.clone(),
+                    ));
                 }
             }
+
+            if epoch_entries.is_empty() {
+                continue;
+            }
+            match pending_groups.last_mut() {
+                Some((fork, entries)) if *fork == fork_name => entries.extend(epoch_entries),
+                _ => pending_groups.push((fork_name, epoch_entries)),
+            }
+        }
+
+        if pending_groups.is_empty() {
+            return;
         }
 
         // One submission carries at most `MAX_SUBMITTED_BUILDER_PREFERENCES` entries (beacon-APIs
         // #630), so submit in bounded chunks. Each chunk is best-effort: a failed chunk is logged
         // and does not stop the rest.
-        for (fork_name, pending_entries) in pending_entries_by_fork {
+        for (fork_name, pending_entries) in pending_groups {
             for chunk in pending_entries.chunks(MAX_SUBMITTED_BUILDER_PREFERENCES) {
                 self.publish_chunk(
                     current_slot,
@@ -502,8 +532,8 @@ mod tests {
 
         fn received_slots(&self, beacon_node: usize) -> Vec<Vec<Slot>> {
             let received = match beacon_node {
-                1 => &self.harness.mock_beacon_node_1.received_builder_preferences,
-                2 => &self.harness.mock_beacon_node_2.received_builder_preferences,
+                1 => &self.harness.mock_beacon_node_1.builder_preferences,
+                2 => &self.harness.mock_beacon_node_2.builder_preferences,
                 _ => panic!("unknown beacon node"),
             };
             received
@@ -521,7 +551,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn future_gloas_preferences_use_their_proposal_fork() {
+    async fn lookahead_entries_submit_under_their_epochs_fork() {
         let slots_per_epoch = <S as ValidatorStore>::E::slots_per_epoch();
         let gloas_epoch = Epoch::new(1);
         let current_slot = Slot::new(slots_per_epoch - 1);
@@ -535,6 +565,10 @@ mod tests {
             .harness
             .mock_beacon_node_1
             .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, 200, "");
+        let other_fork = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_builder_preferences_any_fork();
         let mut published = PublishedBuilderPreferencesCache::new();
         test_harness
             .service
@@ -542,11 +576,12 @@ mod tests {
             .await;
 
         mock.expect(1).assert();
+        other_fork.expect(0).assert();
         assert_eq!(test_harness.received_slots(1), vec![vec![first_gloas_slot]]);
     }
 
     #[tokio::test]
-    async fn passed_proposal_slots_are_not_submitted() {
+    async fn past_duties_are_skipped() {
         let current_slot = Slot::new(2);
         let mut test_harness = TestHarness::new(3, Epoch::new(0)).await;
         test_harness.set_slot(current_slot);

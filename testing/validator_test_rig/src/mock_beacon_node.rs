@@ -1,7 +1,4 @@
-use eth2::types::{
-    BuilderPreferenceEntry, GenericResponse, PublishBlockRequest, SubmittedBuilderPreferences,
-    SyncingData,
-};
+use eth2::types::{GenericResponse, PublishBlockRequest, SubmittedBuilderPreferences, SyncingData};
 use eth2::{BLOB_DATA_INCLUDED_HEADER, BeaconNodeHttpClient, CONSENSUS_VERSION_HEADER, Timeouts};
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
@@ -27,7 +24,7 @@ pub struct MockBeaconNode<E: EthSpec> {
     pub received_full_blocks: Arc<Mutex<Vec<PublishBlockRequest<E>>>>,
     pub execution_payload_envelope: Arc<Mutex<Vec<SignedExecutionPayloadEnvelope<E>>>>,
     pub payload_attestation_message: Arc<Mutex<Vec<PayloadAttestationMessage>>>,
-    pub received_builder_preferences: Arc<Mutex<Vec<Vec<BuilderPreferenceEntry>>>>,
+    pub builder_preferences: Arc<Mutex<Vec<SubmittedBuilderPreferences>>>,
 }
 
 impl<E: EthSpec> MockBeaconNode<E> {
@@ -46,7 +43,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             received_full_blocks: Arc::new(Mutex::new(Vec::new())),
             execution_payload_envelope: Arc::new(Mutex::new(Vec::new())),
             payload_attestation_message: Arc::new(Mutex::new(Vec::new())),
-            received_builder_preferences: Arc::new(Mutex::new(Vec::new())),
+            builder_preferences: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -329,6 +326,96 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
+    /// Mocks `POST /eth/v1/validator/builder_preferences` (SSZ).
+    pub fn mock_post_validator_builder_preferences_ssz(
+        &mut self,
+        fork_name: ForkName,
+        status: u16,
+        response_body: &str,
+    ) -> Mock {
+        self.mock_post_validator_builder_preferences_ssz_with_hook(
+            fork_name,
+            status,
+            response_body,
+            || {},
+        )
+    }
+
+    /// Mocks `POST /eth/v1/validator/builder_preferences` (SSZ) and runs `hook` after receipt.
+    pub fn mock_post_validator_builder_preferences_ssz_with_hook<F>(
+        &mut self,
+        fork_name: ForkName,
+        status: u16,
+        response_body: &str,
+        hook: F,
+    ) -> Mock
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        let builder_preferences = Arc::clone(&self.builder_preferences);
+        let response_body = response_body.as_bytes().to_vec();
+
+        self.server
+            .mock("POST", "/eth/v1/validator/builder_preferences")
+            .match_header("content-type", "application/octet-stream")
+            .match_header(
+                CONSENSUS_VERSION_HEADER,
+                Matcher::Exact(fork_name.to_string()),
+            )
+            .with_status(status as usize)
+            .with_header("content-type", "application/json")
+            .with_body_from_request(move |request| {
+                let body = request.body().expect("Failed to get request body");
+                let entries = SubmittedBuilderPreferences::from_ssz_bytes(body)
+                    .expect("Failed to deserialize builder preferences as SSZ");
+                builder_preferences.lock().unwrap().push(entries);
+                hook();
+                response_body.clone()
+            })
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/builder_preferences` (JSON).
+    pub fn mock_post_validator_builder_preferences_json(
+        &mut self,
+        fork_name: ForkName,
+        status: u16,
+        response_body: &str,
+    ) -> Mock {
+        let builder_preferences = Arc::clone(&self.builder_preferences);
+        let response_body = response_body.as_bytes().to_vec();
+
+        self.server
+            .mock("POST", "/eth/v1/validator/builder_preferences")
+            .match_header("content-type", "application/json")
+            .match_header(
+                CONSENSUS_VERSION_HEADER,
+                Matcher::Exact(fork_name.to_string()),
+            )
+            .with_status(status as usize)
+            .with_header("content-type", "application/json")
+            .with_body_from_request(move |request| {
+                let body = request.body().expect("Failed to get request body");
+                let entries: SubmittedBuilderPreferences = serde_json::from_slice(body)
+                    .expect("Failed to deserialize builder preferences as JSON");
+                builder_preferences.lock().unwrap().push(entries);
+                response_body.clone()
+            })
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/builder_preferences` regardless of headers. Registered after
+    /// a fork-matched mock, it catches submissions labeled with any other fork.
+    pub fn mock_post_validator_builder_preferences_any_fork(&mut self) -> Mock {
+        self.server
+            .mock(
+                "POST",
+                Matcher::Regex(r"^/eth/v1/validator/builder_preferences$".to_string()),
+            )
+            .with_status(200)
+            .create()
+    }
+
     /// Mocks `POST /eth/v1/beacon/pool/payload_attestations`
     pub fn mock_post_beacon_pool_payload_attestations(&mut self) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/beacon/pool/payload_attestations$").unwrap();
@@ -428,90 +515,6 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .match_header(BLOB_DATA_INCLUDED_HEADER, "false")
             .with_status(500)
             .with_body(r#"{"message":"Internal server error"}"#)
-            .create()
-    }
-
-    /// Mocks `POST /eth/v1/validator/builder_preferences` (SSZ).
-    pub fn mock_post_validator_builder_preferences_ssz(
-        &mut self,
-        fork_name: ForkName,
-        status: u16,
-        response_body: &str,
-    ) -> Mock {
-        self.mock_post_validator_builder_preferences_ssz_with_hook(
-            fork_name,
-            status,
-            response_body,
-            || {},
-        )
-    }
-
-    /// Mocks `POST /eth/v1/validator/builder_preferences` (SSZ) and runs `hook` after receipt.
-    pub fn mock_post_validator_builder_preferences_ssz_with_hook<F>(
-        &mut self,
-        fork_name: ForkName,
-        status: u16,
-        response_body: &str,
-        hook: F,
-    ) -> Mock
-    where
-        F: Fn() + Send + Sync + 'static,
-    {
-        let received_builder_preferences = Arc::clone(&self.received_builder_preferences);
-        let response_body = response_body.as_bytes().to_vec();
-
-        self.server
-            .mock("POST", "/eth/v1/validator/builder_preferences")
-            .match_header("content-type", "application/octet-stream")
-            .match_header(
-                CONSENSUS_VERSION_HEADER,
-                Matcher::Exact(fork_name.to_string()),
-            )
-            .with_status(status as usize)
-            .with_header("content-type", "application/json")
-            .with_body_from_request(move |request| {
-                let body = request.body().expect("Failed to get request body");
-                let entries = SubmittedBuilderPreferences::from_ssz_bytes(body)
-                    .expect("Failed to deserialize builder preferences as SSZ");
-                received_builder_preferences
-                    .lock()
-                    .unwrap()
-                    .push(entries.to_vec());
-                hook();
-                response_body.clone()
-            })
-            .create()
-    }
-
-    /// Mocks `POST /eth/v1/validator/builder_preferences` (JSON).
-    pub fn mock_post_validator_builder_preferences_json(
-        &mut self,
-        fork_name: ForkName,
-        status: u16,
-        response_body: &str,
-    ) -> Mock {
-        let received_builder_preferences = Arc::clone(&self.received_builder_preferences);
-        let response_body = response_body.as_bytes().to_vec();
-
-        self.server
-            .mock("POST", "/eth/v1/validator/builder_preferences")
-            .match_header("content-type", "application/json")
-            .match_header(
-                CONSENSUS_VERSION_HEADER,
-                Matcher::Exact(fork_name.to_string()),
-            )
-            .with_status(status as usize)
-            .with_header("content-type", "application/json")
-            .with_body_from_request(move |request| {
-                let body = request.body().expect("Failed to get request body");
-                let entries: SubmittedBuilderPreferences = serde_json::from_slice(body)
-                    .expect("Failed to deserialize builder preferences as JSON");
-                received_builder_preferences
-                    .lock()
-                    .unwrap()
-                    .push(entries.to_vec());
-                response_body.clone()
-            })
             .create()
     }
 
