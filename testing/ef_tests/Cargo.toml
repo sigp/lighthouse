@@ -17,6 +17,7 @@ beacon_chain = { workspace = true, features = ["ef_tests"] }
 bls = { workspace = true }
 compare_fields = { workspace = true }
 context_deserialize = { workspace = true }
+decentralized_checkpoint_sync = { workspace = true }
 educe = { workspace = true }
 eth2_network_config = { workspace = true }
 ethereum_ssz = { workspace = true }
