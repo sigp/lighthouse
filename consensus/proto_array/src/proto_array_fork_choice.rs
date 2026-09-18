@@ -551,6 +551,20 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("Failed to process execution payload: {:?}", e))
     }
 
+    /// Revert marking the gloas payload as valid and received.
+    ///
+    /// This should only be called with the envelope was failed to be written to disk
+    pub fn on_payload_envelope_write_failed(&mut self, block_root: Hash256) -> Result<(), String> {
+        self.proto_array
+            .on_payload_envelope_write_failed(block_root)
+            .map_err(|e| {
+                format!(
+                    "Failed to revert fork choice after payload envelope write failure: {:?}",
+                    e
+                )
+            })
+    }
+
     /// See `ProtoArray::propagate_execution_payload_validation` for documentation.
     pub fn process_execution_payload_validation(
         &mut self,
