@@ -1495,27 +1495,42 @@ mod tests {
 
     #[test]
     fn test_is_full_validator_set_covered() {
-        // 32 slots = full epoch
-        assert!(is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(31)).unwrap());
-        // 33 slots crossing boundary
-        assert!(is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(32)).unwrap());
+        let slots_per_epoch = E::slots_per_epoch();
+        // Full epoch
+        assert!(
+            is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(slots_per_epoch - 1))
+                .unwrap()
+        );
+        // Crossing an epoch boundary
+        assert!(
+            is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(slots_per_epoch)).unwrap()
+        );
         // Single slot — not full
         assert!(!is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(0)).unwrap());
-        // 31 slots — not full
-        assert!(!is_full_validator_set_covered::<E>(Slot::new(1), Slot::new(31)).unwrap());
+        // One slot short — not full
+        assert!(
+            !is_full_validator_set_covered::<E>(Slot::new(1), Slot::new(slots_per_epoch - 1))
+                .unwrap()
+        );
     }
 
     #[test]
     fn test_estimate_committee_weight_same_epoch() {
-        let total = 32_000_000_000u64; // 32B gwei
-        // 1 slot out of 32 => total/32 = 1B
+        let slots_per_epoch = E::slots_per_epoch();
+        // The total should divide evenly across the epoch. 32B gwei on Mainnet, 1B per slot.
+        let total = slots_per_epoch * 1_000_000_000;
+
         let w = estimate_committee_weight_between_slots::<E>(total, Slot::new(0), Slot::new(0))
             .unwrap();
-        assert_eq!(w, 1_000_000_000);
+        assert_eq!(w, total / slots_per_epoch);
 
         // Full epoch => total
-        let w = estimate_committee_weight_between_slots::<E>(total, Slot::new(0), Slot::new(31))
-            .unwrap();
+        let w = estimate_committee_weight_between_slots::<E>(
+            total,
+            Slot::new(0),
+            Slot::new(slots_per_epoch - 1),
+        )
+        .unwrap();
         assert_eq!(w, total);
     }
 
