@@ -40,6 +40,7 @@ members = [
     "common/monitoring_api",
     "common/network_utils",
     "common/oneshot_broadcast",
+    "common/perf_benchmarking",
     "common/pretty_reqwest_error",
     "common/slot_clock",
     "common/system_health",
@@ -201,6 +202,8 @@ opentelemetry_sdk = "0.30.0"
 operation_pool = { path = "beacon_node/operation_pool" }
 parking_lot = "0.12"
 paste = "1"
+perf_benchmarking = { path = "common/perf_benchmarking" }
+perf-event = "0.4"
 pretty_reqwest_error = { path = "common/pretty_reqwest_error" }
 prometheus = { version = "0.13", default-features = false }
 proof_engine = { path = "beacon_node/proof_engine" }
