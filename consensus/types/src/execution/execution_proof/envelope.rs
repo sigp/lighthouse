@@ -63,10 +63,10 @@ mod tests {
 
     #[test]
     fn signed_envelope_json_quotes_integers() {
-        let envelope = signed_envelope(ProofType::RethSp1);
+        let envelope = signed_envelope(ProofType::RethSP1);
 
         let json = serde_json::to_value(&envelope).expect("serializes");
-        assert_eq!(json["message"]["proof_type"], "2");
+        assert_eq!(json["message"]["proof_type"], "5");
         assert_eq!(json["validator_index"], "7");
 
         let decoded: SignedExecutionProofEnvelope =
@@ -78,7 +78,7 @@ mod tests {
     fn envelope_with_unassigned_proof_type_does_not_decode() {
         // EIP-8025 gossip validation says "[REJECT] The proof type is supported". That rule is
         // enforced here, by the codec, so an unassigned proof type never reaches validation.
-        let envelope = signed_envelope(ProofType::RethSp1);
+        let envelope = signed_envelope(ProofType::RethSP1);
         let encoded = envelope.as_ssz_bytes();
         // The message is the only variable-size field, so its offset leads the encoding, and the
         // proof data offset leads the message.
@@ -90,11 +90,11 @@ mod tests {
         let offset = message_offset + BYTES_PER_LENGTH_OFFSET;
         assert_eq!(
             encoded[offset],
-            ProofType::RethSp1.to_u8(),
+            ProofType::RethSP1.to_u8(),
             "located the proof type byte"
         );
 
-        for unassigned in [0u8, 4, u8::MAX] {
+        for unassigned in [0u8, 8, u8::MAX] {
             let mut corrupted = encoded.clone();
             corrupted[offset] = unassigned;
             assert!(
@@ -120,7 +120,7 @@ mod tests {
         let envelope = SignedExecutionProofEnvelope {
             message: ExecutionProofEnvelope {
                 proof_data,
-                proof_type: ProofType::RethOpenvm,
+                proof_type: ProofType::RethOpenVM,
                 beacon_block_root: Hash256::zero(),
             },
             validator_index: 0,

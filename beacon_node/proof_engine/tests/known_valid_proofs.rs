@@ -1,9 +1,12 @@
 //! End-to-end verification of known-valid execution proofs.
 //!
-//! The fixtures are reth stateless-validator guest artifacts published by `eth-act/ere-guests`
-//! at tag `v0.17.0`, the tag this crate's verifier is built from. They are embedded only in this
-//! integration-test target so every built-in program verification key is exercised without adding
-//! proof data to the production client.
+//! The fixtures are Ethrex v26.0.0 and reth v0.1.0-rc.3 guest artifacts copied from
+//! `eth-act/zkboost` at commit `7f99d70a679bd0c0e8951f9d2797183340f80262`. Their program
+//! verification keys are registered by `eth-act/ere-guests` v0.17.0 and verified here with ERE
+//! v0.17.1, the verifier release pinned by this crate. zkBoost does not publish a Zesu proof
+//! fixture at that commit, so Zesu is covered by configuration tests but not by this known-valid
+//! proof suite. The fixtures are embedded only in this integration-test target, so proof data does
+//! not become part of the production client.
 #![cfg(feature = "ere-verifier")]
 
 use proof_engine::{ProofEngineConfig, ProofVerificationOutcome};
@@ -14,13 +17,26 @@ use types::execution::{ExecutionProof, ProofData, ProofType, PublicInput};
 
 const PUBLIC_VALUES: &[u8] = include_bytes!("fixtures/public_values.bin");
 
-const PROOFS: [(ProofType, &[u8]); 3] = [
+/// The proof fixture for each proof type for which zkBoost publishes an artifact.
+const PROOFS: [(ProofType, &[u8]); 6] = [
     (
-        ProofType::RethOpenvm,
+        ProofType::EthrexOpenVM,
+        include_bytes!("fixtures/stateless-validator-ethrex-openvm-v2.1.0-preview.proof"),
+    ),
+    (
+        ProofType::EthrexSP1,
+        include_bytes!("fixtures/stateless-validator-ethrex-sp1-v6.4.0.proof"),
+    ),
+    (
+        ProofType::EthrexZisk,
+        include_bytes!("fixtures/stateless-validator-ethrex-zisk-v1.1.0-alpha.proof"),
+    ),
+    (
+        ProofType::RethOpenVM,
         include_bytes!("fixtures/stateless-validator-reth-openvm-v2.1.0-preview.proof"),
     ),
     (
-        ProofType::RethSp1,
+        ProofType::RethSP1,
         include_bytes!("fixtures/stateless-validator-reth-sp1-v6.4.0.proof"),
     ),
     (
@@ -146,7 +162,7 @@ fn corrupted_sp1_nested_lengths_are_rejected() {
         .expect("engine initializes");
     let valid = PROOFS
         .iter()
-        .find_map(|(proof_type, data)| (*proof_type == ProofType::RethSp1).then_some(*data))
+        .find_map(|(proof_type, data)| (*proof_type == ProofType::RethSP1).then_some(*data))
         .expect("SP1 proof fixture is present");
 
     for offset in [8usize, 64, 256, 1024, 4096] {
@@ -156,7 +172,7 @@ fn corrupted_sp1_nested_lengths_are_rejected() {
         }
         let proof = ExecutionProof {
             proof_data: ProofData::new(data).expect("fixture is within the proof size bound"),
-            proof_type: ProofType::RethSp1,
+            proof_type: ProofType::RethSP1,
             public_input: public_input(),
         };
         assert_eq!(

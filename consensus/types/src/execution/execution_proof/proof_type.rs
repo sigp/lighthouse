@@ -41,13 +41,22 @@ pub enum ZkvmKind {
 )]
 #[serde(try_from = "u8", into = "u8")]
 #[repr(u8)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum ProofType {
+    /// ethrex stateless validator proven on OpenVM.
+    EthrexOpenVM = 1,
+    /// ethrex stateless validator proven on SP1.
+    EthrexSP1 = 2,
+    /// ethrex stateless validator proven on Zisk.
+    EthrexZisk = 3,
     /// reth stateless validator proven on OpenVM.
-    RethOpenvm = 1,
+    RethOpenVM = 4,
     /// reth stateless validator proven on SP1.
-    RethSp1 = 2,
+    RethSP1 = 5,
     /// reth stateless validator proven on Zisk.
-    RethZisk = 3,
+    RethZisk = 6,
+    /// Zesu stateless validator proven on Zisk.
+    ZesuZisk = 7,
 }
 
 impl ProofType {
@@ -59,9 +68,9 @@ impl ProofType {
     /// The proof system this proof type is verified with.
     pub const fn zkvm(self) -> ZkvmKind {
         match self {
-            Self::RethOpenvm => ZkvmKind::Openvm,
-            Self::RethSp1 => ZkvmKind::Sp1,
-            Self::RethZisk => ZkvmKind::Zisk,
+            Self::EthrexOpenVM | Self::RethOpenVM => ZkvmKind::Openvm,
+            Self::EthrexSP1 | Self::RethSP1 => ZkvmKind::Sp1,
+            Self::EthrexZisk | Self::RethZisk | Self::ZesuZisk => ZkvmKind::Zisk,
         }
     }
 
@@ -99,7 +108,7 @@ impl From<ProofType> for u8 {
 
 // `ssz(enum_behaviour = "tag")` cannot be used here: it encodes the variant *index*, not the
 // assigned discriminant, and rejects explicit selectors, so proof types would go on the wire as
-// 0, 1, 2 instead of 1, 2, 3.
+// consecutive indices instead of their assigned discriminants.
 impl SszEncode for ProofType {
     fn is_ssz_fixed_len() -> bool {
         true
@@ -175,9 +184,13 @@ mod tests {
         assert_eq!(
             ProofType::all(),
             [
-                ProofType::RethOpenvm,
-                ProofType::RethSp1,
-                ProofType::RethZisk
+                ProofType::EthrexOpenVM,
+                ProofType::EthrexSP1,
+                ProofType::EthrexZisk,
+                ProofType::RethOpenVM,
+                ProofType::RethSP1,
+                ProofType::RethZisk,
+                ProofType::ZesuZisk,
             ]
         );
 
@@ -188,7 +201,7 @@ mod tests {
             assert_eq!(ProofType::try_from(encoding), Ok(*proof_type));
         }
 
-        for unassigned in [0, 4, u8::MAX] {
+        for unassigned in [0, 8, u8::MAX] {
             assert_eq!(
                 ProofType::try_from(unassigned),
                 Err(UnassignedProofType(unassigned))
@@ -198,16 +211,29 @@ mod tests {
 
     #[test]
     fn proof_type_display_uses_variant_name() {
-        assert_eq!(ProofType::RethOpenvm.to_string(), "RethOpenvm");
-        assert_eq!(ProofType::RethSp1.to_string(), "RethSp1");
+        assert_eq!(ProofType::EthrexOpenVM.to_string(), "EthrexOpenVM");
+        assert_eq!(ProofType::EthrexSP1.to_string(), "EthrexSP1");
+        assert_eq!(ProofType::EthrexZisk.to_string(), "EthrexZisk");
+        assert_eq!(ProofType::RethOpenVM.to_string(), "RethOpenVM");
+        assert_eq!(ProofType::RethSP1.to_string(), "RethSP1");
         assert_eq!(ProofType::RethZisk.to_string(), "RethZisk");
+        assert_eq!(ProofType::ZesuZisk.to_string(), "ZesuZisk");
     }
 
     #[test]
     fn every_proof_type_names_its_proof_system() {
-        assert_eq!(ProofType::RethOpenvm.zkvm(), ZkvmKind::Openvm);
-        assert_eq!(ProofType::RethSp1.zkvm(), ZkvmKind::Sp1);
-        assert_eq!(ProofType::RethZisk.zkvm(), ZkvmKind::Zisk);
+        let expected = [
+            (ProofType::EthrexOpenVM, ZkvmKind::Openvm),
+            (ProofType::EthrexSP1, ZkvmKind::Sp1),
+            (ProofType::EthrexZisk, ZkvmKind::Zisk),
+            (ProofType::RethOpenVM, ZkvmKind::Openvm),
+            (ProofType::RethSP1, ZkvmKind::Sp1),
+            (ProofType::RethZisk, ZkvmKind::Zisk),
+            (ProofType::ZesuZisk, ZkvmKind::Zisk),
+        ];
+        for (proof_type, zkvm) in expected {
+            assert_eq!(proof_type.zkvm(), zkvm);
+        }
     }
 
     #[test]
@@ -222,12 +248,12 @@ mod tests {
         }
 
         // Unassigned encodings are rejected by the codec, and the tree hash matches the `u8`.
-        for unassigned in [0u8, 4, u8::MAX] {
+        for unassigned in [0u8, 8, u8::MAX] {
             assert!(ProofType::from_ssz_bytes(&[unassigned]).is_err());
         }
         assert_eq!(
-            ProofType::RethSp1.tree_hash_root(),
-            ProofType::RethSp1.to_u8().tree_hash_root()
+            ProofType::RethSP1.tree_hash_root(),
+            ProofType::RethSP1.to_u8().tree_hash_root()
         );
     }
 }

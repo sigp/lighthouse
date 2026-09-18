@@ -69,7 +69,7 @@ mod tests {
     #[test]
     fn execution_proof_constructor_uses_proof_and_public_input_context() {
         let proof_data = ProofData::new(vec![1, 2, 3]).expect("valid proof data");
-        let proof_type = ProofType::RethOpenvm;
+        let proof_type = ProofType::RethOpenVM;
         let new_payload_request_root = Hash256::repeat_byte(0x22);
 
         let proof =

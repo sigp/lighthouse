@@ -50,7 +50,7 @@ mod tests {
         let cloned_engine = proof_engine.clone();
         let proof = ExecutionProof::new(
             ProofData::new(valid_data).expect("proof data within bound"),
-            ProofType::RethSp1,
+            ProofType::RethSP1,
             Hash256::default(),
             1,
         );

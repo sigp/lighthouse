@@ -158,7 +158,7 @@ mod tests {
         let slot = Slot::new(5);
 
         assert_eq!(
-            cache.check(proof_root, block_root, ProofType::RethOpenvm, 0, slot),
+            cache.check(proof_root, block_root, ProofType::RethOpenVM, 0, slot),
             Ok(ProofObservation::New),
             "unknown proof is new"
         );
@@ -166,7 +166,7 @@ mod tests {
             cache.observe_signature_verified_proof(
                 proof_root,
                 block_root,
-                ProofType::RethOpenvm,
+                ProofType::RethOpenVM,
                 0,
                 slot
             ),
@@ -177,7 +177,7 @@ mod tests {
             cache.observe_signature_verified_proof(
                 proof_root,
                 block_root,
-                ProofType::RethOpenvm,
+                ProofType::RethOpenVM,
                 0,
                 slot
             ),
@@ -186,13 +186,13 @@ mod tests {
         );
         assert_eq!(cache.items.len(), 1, "only one block should be present");
         assert_eq!(
-            cache.has_valid_proof(block_root, ProofType::RethOpenvm, slot),
+            cache.has_valid_proof(block_root, ProofType::RethOpenVM, slot),
             Ok(false),
             "no valid proof has been observed"
         );
 
         assert_eq!(
-            cache.check(proof_root, block_root, ProofType::RethOpenvm, 0, slot),
+            cache.check(proof_root, block_root, ProofType::RethOpenVM, 0, slot),
             Ok(ProofObservation::ProofAlreadySeen),
             "same proof root is a duplicate regardless of validator"
         );
@@ -200,7 +200,7 @@ mod tests {
             cache.check(
                 Hash256::repeat_byte(3),
                 block_root,
-                ProofType::RethOpenvm,
+                ProofType::RethOpenVM,
                 0,
                 slot
             ),
@@ -211,7 +211,7 @@ mod tests {
             cache.check(
                 Hash256::repeat_byte(3),
                 block_root,
-                ProofType::RethOpenvm,
+                ProofType::RethOpenVM,
                 1,
                 slot
             ),
@@ -223,16 +223,16 @@ mod tests {
             cache.observe_signature_verified_proof(
                 Hash256::repeat_byte(4),
                 block_root,
-                ProofType::RethOpenvm,
+                ProofType::RethOpenVM,
                 1,
                 slot,
             ),
             Ok(true),
             "valid proof is newly observed"
         );
-        cache.observe_valid_proof(block_root, ProofType::RethOpenvm);
+        cache.observe_valid_proof(block_root, ProofType::RethOpenVM);
         assert_eq!(
-            cache.has_valid_proof(block_root, ProofType::RethOpenvm, slot),
+            cache.has_valid_proof(block_root, ProofType::RethOpenVM, slot),
             Ok(true),
             "valid proof is known"
         );
@@ -240,7 +240,7 @@ mod tests {
             cache.check(
                 Hash256::repeat_byte(3),
                 block_root,
-                ProofType::RethOpenvm,
+                ProofType::RethOpenVM,
                 1,
                 slot
             ),
@@ -251,7 +251,7 @@ mod tests {
             cache.check(
                 Hash256::repeat_byte(3),
                 block_root,
-                ProofType::RethSp1,
+                ProofType::RethSP1,
                 1,
                 slot
             ),
@@ -271,7 +271,7 @@ mod tests {
             .observe_signature_verified_proof(
                 proof_root,
                 block_root,
-                ProofType::RethOpenvm,
+                ProofType::RethOpenVM,
                 0,
                 slot,
             )
@@ -300,7 +300,7 @@ mod tests {
             cache.observe_signature_verified_proof(
                 proof_root,
                 block_root,
-                ProofType::RethOpenvm,
+                ProofType::RethOpenVM,
                 0,
                 slot
             ),

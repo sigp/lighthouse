@@ -116,7 +116,7 @@ mod tests {
     fn public_input() -> PublicInput {
         ExecutionProof::new(
             ProofData::new(vec![1]).expect("proof data within bound"),
-            ProofType::RethSp1,
+            ProofType::RethSP1,
             Hash256::repeat_byte(0x33),
             1,
         )
@@ -135,7 +135,7 @@ mod tests {
             .expect("default verifiers initialize");
         let proof = ExecutionProof::new(
             ProofData::new(vec![0xff]).expect("proof data within bound"),
-            ProofType::RethSp1,
+            ProofType::RethSP1,
             Hash256::default(),
             1,
         );
