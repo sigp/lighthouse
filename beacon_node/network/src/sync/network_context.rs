@@ -284,6 +284,7 @@ pub enum RangeBlockComponent<E: EthSpec> {
     PayloadEnvelope(
         PayloadEnvelopesByRangeRequestId,
         RpcResponseResult<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
+        PeerId,
     ),
 }
 
@@ -666,15 +667,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         ))
                     })
             }),
-            RangeBlockComponent::PayloadEnvelope(req_id, resp) => resp.and_then(|envelopes| {
-                request
-                    .add_payload_envelopes(req_id, envelopes)
-                    .map_err(|e| {
-                        RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
-                            e,
-                        ))
-                    })
-            }),
+            RangeBlockComponent::PayloadEnvelope(req_id, resp, peer_id) => {
+                resp.and_then(|envelopes| {
+                    request
+                        .add_payload_envelopes(req_id, envelopes, peer_id)
+                        .map_err(|e| {
+                            RpcResponseError::BlockComponentCouplingError(
+                                CouplingError::InternalError(e),
+                            )
+                        })
+                })
+            }
         };
         if let Err(e) = add_result {
             return Some(Err(e));
