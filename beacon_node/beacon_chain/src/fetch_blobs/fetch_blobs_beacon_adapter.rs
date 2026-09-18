@@ -161,7 +161,7 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .get_engine_capabilities(None)
             .await
             .map_err(FetchEngineBlobError::RequestFailed)
-            .map(|caps| caps.get_blobs_v3)
+            .map(|caps| caps.get_blobs_v3())
     }
 
     pub(crate) async fn supports_get_blobs_v4(&self) -> Result<bool, FetchEngineBlobError> {
@@ -175,6 +175,6 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .get_engine_capabilities(None)
             .await
             .map_err(FetchEngineBlobError::RequestFailed)
-            .map(|caps| caps.get_blobs_v4)
+            .map(|caps| caps.get_blobs_v4())
     }
 }
