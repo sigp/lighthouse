@@ -46,7 +46,7 @@ fn resolve_ids_to_indices<T: BeaconChainTypes>(
 fn collect_validators<E: EthSpec, R>(
     state: &BeaconState<E>,
     indices: Option<BTreeSet<usize>>,
-    mut f: impl FnMut(usize, &Validator) -> Option<R>,
+    f: impl Fn(usize, &Validator) -> Option<R>,
 ) -> Vec<R> {
     match indices {
         None => state
@@ -66,7 +66,7 @@ fn collect_validators<E: EthSpec, R>(
 fn collect_validators_with_balances<E: EthSpec, R>(
     state: &BeaconState<E>,
     indices: Option<BTreeSet<usize>>,
-    mut f: impl FnMut(usize, &Validator, u64) -> Option<R>,
+    f: impl Fn(usize, &Validator, u64) -> Option<R>,
 ) -> Vec<R> {
     match indices {
         None => state
