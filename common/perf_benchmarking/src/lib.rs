@@ -120,6 +120,7 @@ impl HardwareCounter {
     }
 }
 
+// This is the main thing connecting the perf-event to Criterion
 // The following are required methods to implement the trait Measurement
 // https://docs.rs/criterion/0.8.2/criterion/measurement/trait.Measurement.html
 impl Measurement for HardwareCounter {
