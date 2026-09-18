@@ -290,8 +290,8 @@ type PtcMap = HashMap<Epoch, PtcDuties>;
 pub struct PtcDuties {
     pub(crate) dependent_root: DependentRoot,
     pub(crate) duties: Vec<PtcDuty>,
-    // An empty assignment list still counts as checked. Inferring this set from duties
-    // would keep fetching validators who have no PTC assignment in the epoch.
+    /// An empty assignment list still counts as checked. Inferring this set from duties
+    /// would keep fetching validators who have no PTC assignment in the epoch.
     pub(crate) queried_validators: HashSet<u64>,
 }
 
@@ -1903,17 +1903,21 @@ async fn poll_beacon_ptc_attesters_for_epoch<
         post_validator_duties_ptc(duties_service, epoch, initial_indices_to_request).await?;
     let dependent_root = response.dependent_root;
 
-    let needs_update = {
+    let (previous_root, new_validator_count) = {
         let ptc_duties = duties_service.ptc_duties.read();
-        ptc_duties.get(&epoch).is_none_or(|cached| {
-            cached.dependent_root != dependent_root
-                || local_indices
+        match ptc_duties.get(&epoch) {
+            Some(cached) => (
+                Some(cached.dependent_root),
+                local_indices
                     .iter()
-                    .any(|index| !cached.queried_validators.contains(index))
-        })
+                    .filter(|index| !cached.queried_validators.contains(*index))
+                    .count(),
+            ),
+            None => (None, local_indices.len()),
+        }
     };
 
-    if !needs_update {
+    if previous_root == Some(dependent_root) && new_validator_count == 0 {
         return Ok(());
     }
 
@@ -1951,6 +1955,24 @@ async fn poll_beacon_ptc_attesters_for_epoch<
         num_new_duties = new_duties.len(),
         "Downloaded PTC duties"
     );
+
+    if let Some(old_root) = previous_root
+        && old_root != dependent_root
+    {
+        debug!(
+            %epoch,
+            %old_root,
+            new_root = %dependent_root,
+            "PTC dependent root changed, replacing all duties"
+        );
+    }
+    if new_validator_count > 0 {
+        debug!(
+            %epoch,
+            new_validator_count,
+            "PTC duties refreshed for newly discovered validator indices"
+        );
+    }
 
     duties_service.ptc_duties.write().insert(
         epoch,
@@ -2024,16 +2046,13 @@ mod test {
 
     #[tokio::test]
     async fn ptc_duties_refresh_when_validator_index_is_discovered() {
-        let mut harness = ValidatorClientHarness::new_with_unknown_validator_indices(2).await;
+        let mut harness = ValidatorClientHarness::new(2).await;
         let service = build_duties_service(&harness);
         let epoch = Epoch::new(0);
         let dependent_root = Hash256::ZERO;
         let pubkeys = harness.pubkeys.iter().copied().collect();
         let first_duty = ptc_duty(&harness, 0, 19);
         let newly_discovered_duty = ptc_duty(&harness, 1, 2);
-        harness
-            .validator_store
-            .set_validator_index(&harness.pubkeys[0], 0);
         let first_response = harness.mock_beacon_node_1.mock_post_validator_duties_ptc(
             epoch,
             &[0],
@@ -2054,9 +2073,6 @@ mod test {
                 .is_empty()
         );
 
-        harness
-            .validator_store
-            .set_validator_index(&harness.pubkeys[1], 1);
         let new_response = harness.mock_beacon_node_1.mock_post_validator_duties_ptc(
             epoch,
             &[1],
