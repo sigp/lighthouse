@@ -11,7 +11,7 @@ use perf_benchmarking::{HardwareCounter, Metric};
 use types::MainnetEthSpec;
 
 /// Number of validators in the benchmark chain's genesis state.
-const VALIDATOR_COUNT: usize = 1_00_000;
+const VALIDATOR_COUNT: usize = 100_000;
 
 fn bench_validator_balances<M: Measurement + 'static>(c: &mut Criterion<M>, prefix: &str) {
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
