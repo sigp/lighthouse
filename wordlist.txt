@@ -214,6 +214,7 @@ presign
 presigned
 pubkey
 pubkeys
+punycode
 rc
 redb
 reimport
