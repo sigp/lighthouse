@@ -710,6 +710,36 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
+    /// `GET beacon/states/{state_id}/validator_balances?id`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_validator_balances_ssz(
+        &self,
+        state_id: StateId,
+        ids: Option<&[ValidatorId]>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validator_balances");
+
+        if let Some(ids) = ids {
+            let id_string = ids
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("id", &id_string);
+        }
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
+    }
+
     /// TESTING ONLY: This request should fail with a 415 response code.
     pub async fn post_beacon_states_validator_balances_with_ssz_header(
         &self,
@@ -751,6 +781,29 @@ impl BeaconNodeHttpClient {
         let request = ValidatorBalancesRequestBody { ids };
 
         self.post_with_opt_response(path, &request).await
+    }
+
+    /// `POST beacon/states/{state_id}/validator_balances`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_states_validator_balances_ssz(
+        &self,
+        state_id: StateId,
+        ids: Vec<ValidatorId>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validator_balances");
+
+        let request = ValidatorBalancesRequestBody { ids };
+
+        self.post_bytes_opt_accept_header(path, &request, Accept::Ssz, self.timeouts.default)
+            .await
     }
 
     /// `POST beacon/states/{state_id}/validator_identities`
