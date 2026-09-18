@@ -11,7 +11,7 @@ use eth2::types::{
 };
 use reqwest::{Response, StatusCode};
 use slot_clock::SlotClock;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
@@ -20,41 +20,21 @@ use types::{ChainSpec, EthSpec, ForkName, Slot};
 use validator_metrics::{ENDPOINT_ERRORS, ENDPOINT_REQUESTS, inc_counter_vec};
 use validator_store::ValidatorStore;
 
-/// The non-slot part of a published entry's identity: the proposer pubkey plus the decomposed
-/// `BuilderPreferenceEntry` with its `slot` factored out to the enclosing map's key.
-/// - `pubkey`: the proposer the entry was submitted for
-/// - `url`: `entry.url`
-/// - `auth_data`: `entry.auth.message.data`
-/// - `max_execution_payment`: `entry.max_execution_payment`
-///
-/// See [`PublishedBuilderPreferencesCache`] for how `entry.auth` decomposes into `auth_data` here
-/// and `slot` at the map level, and why the `auth` signature is dropped.
+/// Identifies a builder preference within one proposal slot.
 #[derive(PartialEq, Eq, Hash)]
 struct InnerPreferencesKey {
     pubkey: PublicKeyBytes,
     url: BuilderUrl,
     auth_data: RequestAuthData,
-    max_execution_payment: u64,
 }
 
-/// De-duplicates the `BuilderPreferenceEntry`s we've already published, so we don't re-send one.
+/// Tracks the last execution payment cap published for each slot, proposer, URL and auth data.
 ///
-/// The identity of a published entry is `(proposer_pubkey, decompose(entry))`. That decomposition is
-/// split across the two levels of this map:
-/// - `entry.auth.message.slot` becomes the outer `BTreeMap<Slot, _>` key;
-/// - the rest — `proposer_pubkey`, `entry.url`, `entry.auth.message.data`, and
-///   `entry.max_execution_payment` — forms the [`InnerPreferencesKey`] held in the per-slot set.
-///
-/// So `entry.auth` decomposes into its `slot` (the map key) and its `data`/`auth_data` (in the inner
-/// key); the `auth` signature is dropped, as it is a deterministic function of the proposer, the
-/// `auth_data`, and the slot and so adds no identity.
-///
-/// Operators may change their builder config at any time. Because this identity captures every entry
-/// field that reaches a builder, any edit yields a new key that won't match a previously-sent entry,
-/// so the updated preference is published again.
+/// A changed cap replaces the previous value, so restoring an earlier configuration publishes it
+/// again. The signature is determined by the proposer, auth data and slot, so it adds no identity.
 #[derive(Default)]
 struct PublishedBuilderPreferencesCache {
-    cache: BTreeMap<Slot, HashSet<InnerPreferencesKey>>,
+    cache: BTreeMap<Slot, HashMap<InnerPreferencesKey, u64>>,
 }
 
 impl PublishedBuilderPreferencesCache {
@@ -68,14 +48,23 @@ impl PublishedBuilderPreferencesCache {
         pubkey: PublicKeyBytes,
         builder_entry: &BuilderEntry,
     ) -> bool {
-        self.cache.get(&slot).is_some_and(|set| {
-            set.contains(&InnerPreferencesKey {
+        self.cache.get(&slot).is_some_and(|entries| {
+            entries.get(&InnerPreferencesKey {
                 pubkey,
                 url: builder_entry.url.clone(),
                 auth_data: builder_entry.auth.message.data.clone(),
-                max_execution_payment: builder_entry.max_execution_payment,
-            })
+            }) == Some(&builder_entry.max_execution_payment)
         })
+    }
+
+    pub fn forget(&mut self, entry: &BuilderPreferenceEntry) {
+        if let Some(entries) = self.cache.get_mut(&entry.auth.message.slot) {
+            entries.remove(&InnerPreferencesKey {
+                pubkey: entry.proposer_pubkey,
+                url: entry.url.clone(),
+                auth_data: entry.auth.message.data.clone(),
+            });
+        }
     }
 
     pub fn mark_sent(
@@ -88,9 +77,11 @@ impl PublishedBuilderPreferencesCache {
             pubkey,
             url: builder_preferences_entry.url,
             auth_data: builder_preferences_entry.auth.message.data,
-            max_execution_payment: builder_preferences_entry.max_execution_payment,
         };
-        self.cache.entry(slot).or_default().insert(inner_key);
+        self.cache
+            .entry(slot)
+            .or_default()
+            .insert(inner_key, builder_preferences_entry.max_execution_payment);
     }
 
     pub fn prune(&mut self, current_slot: Slot) {
@@ -185,7 +176,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
     }
 
     /// Publish builder preferences for `current_epoch` and `current_epoch + 1`.
-    /// Will only publish a given `(proposer, builder, max_execution_payment)` preference once.
+    /// Skips a builder preference when its execution payment cap has not changed.
     async fn poll_and_publish_preferences(
         &self,
         current_slot: Slot,
@@ -239,7 +230,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
                 let config = self
                     .inner
                     .configured_builders
-                    .builder_config(|auth_data| {
+                    .builder_config(&pubkey, |auth_data| {
                         self.inner.request_auth_cache.get_or_sign(
                             slot,
                             pubkey,
@@ -318,6 +309,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
                     // Unreachable: the caller bounds each chunk, and retries only remove entries.
                     return;
                 };
+
+                // A failed request can still reach a builder. Forget the previous cap before sending
+                // its replacement, so a later configuration change cannot suppress a needed update.
+                for entry in entries.iter() {
+                    published_preferences.forget(entry);
+                }
 
                 inc_counter_vec(&ENDPOINT_REQUESTS, &[beacon_node.server().redacted()]);
                 let result = if use_json {
@@ -429,7 +426,7 @@ mod tests {
     use super::*;
     use crate::duties_service::DutiesServiceBuilder;
     use crate::request_auth_cache::RequestAuthCache;
-    use builder_store::BuilderDefinition;
+    use builder_store::{BuilderDefinition, ValidatorBuilderConfig, ValidatorBuilderDefinition};
     use builder_types::BuilderUrl;
     use eth2::types::ProposerData;
     use std::str::FromStr;
@@ -739,5 +736,105 @@ mod tests {
             test_harness.received_slots(1),
             vec![vec![current_slot, Slot::new(1)], vec![Slot::new(1)]]
         );
+    }
+
+    #[tokio::test]
+    async fn builder_config_updates_apply_to_upcoming_duties() {
+        let mut test_harness = TestHarness::new(1, Epoch::new(0)).await;
+        test_harness.set_slot(Slot::new(2));
+        test_harness.insert_duties(Epoch::new(0), vec![(0, Slot::new(0)), (0, Slot::new(3))]);
+        let service = &test_harness.service;
+        let configured_builders = &service.inner.configured_builders;
+        let mock = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, 200, "");
+
+        let mut published = PublishedBuilderPreferencesCache::new();
+        // Poll from slot 2: the slot-0 duty has elapsed, the slot-3 duty has not.
+        service
+            .poll_and_publish_preferences(Slot::new(2), &mut published)
+            .await;
+
+        let validator_config = ValidatorBuilderConfig {
+            builders: Some(vec![ValidatorBuilderDefinition {
+                url: "http://builder.example.com".parse().unwrap(),
+                auth_data: None,
+                builder_pubkeys: vec![],
+                max_execution_payment: Some(20),
+                min_bid: None,
+                builder_boost_factor: None,
+            }]),
+            ..Default::default()
+        };
+        configured_builders
+            .set_validator_config(&test_harness.harness.pubkeys[0], validator_config.clone())
+            .unwrap();
+        service
+            .poll_and_publish_preferences(Slot::new(2), &mut published)
+            .await;
+
+        configured_builders
+            .delete_validator_config(&test_harness.harness.pubkeys[0])
+            .unwrap();
+        service
+            .poll_and_publish_preferences(Slot::new(2), &mut published)
+            .await;
+        // An unchanged configuration must not trigger another submission.
+        service
+            .poll_and_publish_preferences(Slot::new(2), &mut published)
+            .await;
+
+        let mock = mock.expect(3);
+        mock.assert();
+        mock.remove();
+
+        // A failed update must stay retryable and must not suppress a later restore.
+        let failed_mock = mock.with_status(500).with_body("").expect(2).create();
+        configured_builders
+            .set_validator_config(&test_harness.harness.pubkeys[0], validator_config)
+            .unwrap();
+        for _ in 0..2 {
+            service
+                .poll_and_publish_preferences(Slot::new(2), &mut published)
+                .await;
+        }
+        failed_mock.assert();
+        failed_mock.remove();
+
+        let restored_mock = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_builder_preferences_ssz(ForkName::Gloas, 200, "");
+        configured_builders
+            .delete_validator_config(&test_harness.harness.pubkeys[0])
+            .unwrap();
+        service
+            .poll_and_publish_preferences(Slot::new(2), &mut published)
+            .await;
+        restored_mock.assert();
+        let received = test_harness
+            .harness
+            .mock_beacon_node_1
+            .builder_preferences
+            .lock()
+            .unwrap();
+        assert_eq!(received.len(), 4);
+        assert_eq!(
+            received
+                .iter()
+                .map(|entries| entries[0].max_execution_payment)
+                .collect::<Vec<_>>(),
+            vec![1, 20, 1, 1]
+        );
+        for entries in received.iter() {
+            assert_eq!(
+                entries.len(),
+                1,
+                "only the upcoming duty should be submitted"
+            );
+            assert_eq!(entries[0].auth.message.slot, Slot::new(3));
+            assert_eq!(entries[0].proposer_pubkey, test_harness.harness.pubkeys[0]);
+        }
     }
 }
