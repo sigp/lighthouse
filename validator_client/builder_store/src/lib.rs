@@ -36,7 +36,7 @@ impl BuilderStore {
     /// auth via `sign`.
     ///
     /// Per-builder `min_bid`/`builder_boost_factor` inherit the global defaults when unset, and each
-    /// builder's `auth_data` defaults to the UTF-8 bytes of its URL when unset. `sign` receives a
+    /// builder's `auth_data` defaults to its lowercase ASCII hostname when unset. `sign` receives a
     /// builder's opaque auth `data` and returns the corresponding `SignedRequestAuth` — in
     /// practice signed for the current proposer/slot and cached.
     ///
@@ -71,10 +71,22 @@ impl BuilderStore {
         // network round trip, and the signatures are independent, so signing in sequence would put
         // up to `MaxBuilderEntries` serial round trips on the block-production critical path.
         let signed = futures::future::join_all(definitions.into_iter().filter_map(|definition| {
-            let auth_data = definition
+            let auth_data = match definition
                 .auth_data
                 .clone()
-                .unwrap_or_else(|| definition.url.to_default_auth_data());
+                .map(Ok)
+                .unwrap_or_else(|| definition.url.to_default_auth_data())
+            {
+                Ok(data) => data,
+                Err(error) => {
+                    error!(
+                        error = ?error,
+                        builder_url = %definition.url,
+                        "Failed to derive builder auth_data; omitting builder from config"
+                    );
+                    return None;
+                }
+            };
             // A zero-length auth `data` is invalid on the wire (beacon-specs #165 / beacon-APIs
             // #630); the beacon node would reject the whole request body, so drop the builder here.
             if auth_data.is_empty() {
@@ -402,6 +414,87 @@ mod tests {
             }));
         assert_eq!(inherited.builders.len(), 1);
         assert_eq!(inherited.builders[0].max_execution_payment, 7);
+    }
+
+    #[test]
+    fn global_and_validator_auth_data_use_hostname_or_exact_override() {
+        let directory = tempdir().unwrap();
+        let store = BuilderStore::open_or_create(directory.path()).unwrap();
+        let validator = Keypair::random().pk.compress();
+        let url = "HTTPS://Builder.Example:443/path?query#fragment";
+        store.insert(global_builder(url, 9)).unwrap();
+
+        let inherited =
+            futures::executor::block_on(store.builder_config(&validator, |data| async move {
+                Ok::<_, ()>(signed_auth(data))
+            }));
+        assert_eq!(
+            &*inherited.builders[0].auth.message.data,
+            b"builder.example"
+        );
+        assert_eq!(inherited.builders[0].url.as_str().unwrap(), url);
+
+        for explicit in [
+            None,
+            Some(b"builder.example".to_vec()),
+            Some(vec![0xff, 0x00, b'A']),
+        ] {
+            let expected = explicit
+                .clone()
+                .unwrap_or_else(|| b"builder.example".to_vec());
+            let mut builder = validator_builder(url);
+            builder.auth_data = explicit.map(|bytes| RequestAuthData::new(bytes).unwrap());
+            store
+                .set_validator_config(
+                    &validator,
+                    ValidatorBuilderConfig {
+                        builders: Some(vec![builder]),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            let config =
+                futures::executor::block_on(store.builder_config(&validator, |data| async move {
+                    Ok::<_, ()>(signed_auth(data))
+                }));
+            assert_eq!(&*config.builders[0].auth.message.data, expected.as_slice());
+            assert_eq!(
+                config.builders[0].max_execution_payment,
+                if expected == b"builder.example" { 9 } else { 0 }
+            );
+        }
+    }
+
+    #[test]
+    fn unicode_hostname_needs_explicit_auth_data() {
+        let directory = tempdir().unwrap();
+        let store = BuilderStore::open_or_create(directory.path()).unwrap();
+        let validator = Keypair::random().pk.compress();
+        let url = "https://bücher.example/";
+        assert!(matches!(
+            store.insert(global_builder(url, 9)),
+            Err(Error::InvalidBuilderUrl(_))
+        ));
+        let mut config = ValidatorBuilderConfig {
+            builders: Some(vec![validator_builder(url)]),
+            ..Default::default()
+        };
+        assert!(matches!(
+            store.set_validator_config(&validator, config.clone()),
+            Err(Error::InvalidBuilderUrl(_))
+        ));
+        let explicit = RequestAuthData::new(vec![0xff, 0x00, b'A']).unwrap();
+        let mut global = global_builder(url, 9);
+        global.auth_data = Some(explicit.clone());
+        store.insert(global).unwrap();
+        config.builders.as_mut().unwrap()[0].auth_data = Some(explicit.clone());
+        store.set_validator_config(&validator, config).unwrap();
+        let signed =
+            futures::executor::block_on(store.builder_config(&validator, |data| async move {
+                Ok::<_, ()>(signed_auth(data))
+            }));
+        assert_eq!(signed.builders[0].auth.message.data, explicit);
+        assert_eq!(signed.builders[0].max_execution_payment, 9);
     }
 
     #[test]

@@ -52,9 +52,8 @@ pub struct BuilderDefinition {
     /// The URL the beacon node uses to contact this builder. Routing metadata; never signed.
     pub url: BuilderUrl,
     /// Opaque authentication data signed into `RequestAuth.data`, agreed with the builder out of
-    /// band, as a `0x`-prefixed hex string. When unset, it defaults to the UTF-8 bytes of `url`
-    /// (the builder-specs #165 default). Must be non-empty when set: a zero-length `data` is
-    /// invalid on the wire.
+    /// band, as a `0x`-prefixed hex string. When unset, it defaults to the lowercase ASCII hostname
+    /// of `url`. Must be non-empty when set: a zero-length `data` is invalid on the wire.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -421,7 +420,9 @@ impl BuilderConfigFile {
         let auth_data = builder
             .auth_data
             .clone()
-            .unwrap_or_else(|| builder.url.to_default_auth_data());
+            .map(Ok)
+            .unwrap_or_else(|| builder.url.to_default_auth_data())
+            .ok()?;
         self.builders
             .iter()
             .filter(|global| global.enabled)
@@ -430,8 +431,9 @@ impl BuilderConfigFile {
                     && global
                         .auth_data
                         .clone()
+                        .map(Ok)
                         .unwrap_or_else(|| global.url.to_default_auth_data())
-                        == auth_data
+                        .is_ok_and(|global_auth| global_auth == auth_data)
             })
             .map(|global| global.max_execution_payment)
     }
@@ -453,7 +455,9 @@ fn validate_builder_definition(
 
     let auth = auth_data
         .clone()
-        .unwrap_or_else(|| url.to_default_auth_data());
+        .map(Ok)
+        .unwrap_or_else(|| url.to_default_auth_data())
+        .map_err(|_| Error::InvalidBuilderUrl(url.clone()))?;
     // Two entries cannot contain the same URL and auth data.
     if !seen_auth_urls.insert((url.clone(), auth)) {
         return Err(Error::DuplicateBuilderAuth(url.clone()));

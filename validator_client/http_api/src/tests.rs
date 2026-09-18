@@ -1060,6 +1060,10 @@ async fn builder_configuration_lifecycle() {
     let inherited_builders = inherited.builders.as_ref().unwrap();
     assert_eq!(inherited_builders.len(), 1);
     assert_eq!(
+        &**inherited_builders[0].auth_data.as_ref().unwrap(),
+        b"global-builder.example"
+    );
+    assert_eq!(
         inherited_builders[0].max_execution_payment.unwrap().value,
         7
     );
@@ -1073,6 +1077,28 @@ async fn builder_configuration_lifecycle() {
     assert_eq!(
         tester.client.get_builder_config(&validator).await.unwrap(),
         inherited
+    );
+
+    let hostname_default = BuilderConfig {
+        builders: Some(vec![builder_entry(
+            "HTTPS://Builder.Example:443/path?query#fragment",
+        )]),
+        ..Default::default()
+    };
+    tester
+        .client
+        .post_builder_config(&validator, &hostname_default)
+        .await
+        .unwrap();
+    let resolved = tester.client.get_builder_config(&validator).await.unwrap();
+    let resolved_builder = &resolved.builders.as_ref().unwrap()[0];
+    assert_eq!(
+        &**resolved_builder.auth_data.as_ref().unwrap(),
+        b"builder.example"
+    );
+    assert_eq!(
+        resolved_builder.url,
+        hostname_default.builders.as_ref().unwrap()[0].url
     );
 
     let custom = BuilderConfig {

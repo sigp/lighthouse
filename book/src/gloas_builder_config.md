@@ -39,7 +39,7 @@ builders:
     builder_boost_factor: 120           # override the global for this builder
     builder_pubkeys:                    # optional — reject a bid not signed by one of these keys
       - "0xa1b2c3d4..."
-    # auth_data: "0x68747470..."        # optional — defaults to the UTF-8 bytes of `url`
+    # auth_data: "0x6275696c..."        # optional — defaults to the hostname of `url`
 
 # Optional per-validator configuration.
 # validator_configs:
@@ -72,10 +72,19 @@ builders:
 | `min_bid` | no | *(global)* | Override the global minimum bid for this builder. |
 | `builder_boost_factor` | no | *(global)* | Override the global boost factor for this builder. |
 | `builder_pubkeys` | no | *(empty)* | The builder's BLS public keys, hex-encoded. If non-empty, a returned bid **not** signed by one of them is rejected. |
-| `auth_data` | no | *(UTF-8 of `url`)* | Opaque authentication data, hex-encoded, agreed with the builder out of band. Signed into the request. Must be non-empty when set. Defaults to the UTF-8 bytes of `url`. |
+| `auth_data` | no | *(hostname of `url`)* | Opaque authentication data, hex-encoded, agreed with the builder out of band. Signed into the request. Must be non-empty when set. Defaults to the lowercase ASCII hostname of `url`. |
 
 All byte fields (`builder_pubkeys` entries, `auth_data`) are `0x`-prefixed hex strings. All payment values
 (`min_bid`, `max_execution_payment`) are in gwei.
+
+The default `auth_data` excludes the URL's scheme, credentials, port, path, query and fragment.
+For example, both `https://builder.example.com` and `https://builder.example.com/` use
+`builder.example.com`. Internationalized hostnames must use punycode. IPv6 addresses use compressed,
+bracketed hexadecimal form, such as `[::1]` or `[::ffff:c000:201]`.
+
+A builder that uses a different identity must agree explicit `auth_data` with the validator operator.
+Explicit values are signed exactly as configured. See the
+[default auth data specification](https://github.com/ethereum/builder-specs/pull/168).
 
 ## How bids are selected
 

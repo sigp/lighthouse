@@ -14,9 +14,7 @@ pub fn get<T: 'static + SlotClock + Clone, E: EthSpec>(
     configured_builders: BuilderStore,
 ) -> Result<api_types::BuilderConfig, warp::Rejection> {
     let validator_pubkey = require_validator(&validator_pubkey, &validator_store)?;
-    Ok(into_api_builder_config(
-        configured_builders.get_validator_config(&validator_pubkey),
-    ))
+    into_api_builder_config(configured_builders.get_validator_config(&validator_pubkey))
 }
 
 pub fn set<T: 'static + SlotClock + Clone, E: EthSpec>(
@@ -79,7 +77,9 @@ fn into_store_builder_config(config: api_types::BuilderConfig) -> ValidatorBuild
     }
 }
 
-fn into_api_builder_config(config: ResolvedBuilderConfig) -> api_types::BuilderConfig {
+fn into_api_builder_config(
+    config: ResolvedBuilderConfig,
+) -> Result<api_types::BuilderConfig, warp::Rejection> {
     let ResolvedBuilderConfig {
         min_bid,
         builder_boost_factor,
@@ -87,33 +87,40 @@ fn into_api_builder_config(config: ResolvedBuilderConfig) -> api_types::BuilderC
     } = config;
     let builders = builders
         .into_iter()
-        .map(|builder| api_types::BuilderEntry {
-            auth_data: Some(
-                builder
-                    .auth_data
-                    .unwrap_or_else(|| builder.url.to_default_auth_data()),
-            ),
-            builder_pubkeys: Some(builder.builder_pubkeys),
-            max_execution_payment: Some(api_types::Quoted {
-                value: builder.max_execution_payment,
-            }),
-            min_bid: Some(api_types::Quoted {
-                value: builder.min_bid.unwrap_or(min_bid),
-            }),
-            builder_boost_factor: Some(api_types::Quoted {
-                value: builder.builder_boost_factor.unwrap_or(builder_boost_factor),
-            }),
-            url: builder.url,
+        .map(|builder| {
+            let auth_data = builder
+                .auth_data
+                .map(Ok)
+                .unwrap_or_else(|| builder.url.to_default_auth_data())
+                .map_err(|error| {
+                    warp_utils::reject::custom_server_error(format!(
+                        "Could not derive builder auth_data: {error:?}"
+                    ))
+                })?;
+            Ok(api_types::BuilderEntry {
+                auth_data: Some(auth_data),
+                builder_pubkeys: Some(builder.builder_pubkeys),
+                max_execution_payment: Some(api_types::Quoted {
+                    value: builder.max_execution_payment,
+                }),
+                min_bid: Some(api_types::Quoted {
+                    value: builder.min_bid.unwrap_or(min_bid),
+                }),
+                builder_boost_factor: Some(api_types::Quoted {
+                    value: builder.builder_boost_factor.unwrap_or(builder_boost_factor),
+                }),
+                url: builder.url,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, warp::Rejection>>()?;
 
-    api_types::BuilderConfig {
+    Ok(api_types::BuilderConfig {
         min_bid: Some(api_types::Quoted { value: min_bid }),
         builder_boost_factor: Some(api_types::Quoted {
             value: builder_boost_factor,
         }),
         builders: Some(builders),
-    }
+    })
 }
 
 fn builder_store_rejection(error: builder_store::Error) -> warp::Rejection {
