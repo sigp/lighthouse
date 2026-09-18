@@ -12,6 +12,7 @@ alloy-primitives = { workspace = true }
 ethereum_hashing = { workspace = true }
 fixed_bytes = { workspace = true }
 safe_arith = { workspace = true }
+tree_hash = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
