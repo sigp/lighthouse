@@ -6121,9 +6121,7 @@ async fn test_gloas_block_and_envelope_storage_generic(
 
         // Process the envelope.
         let envelope = envelope.expect("Gloas block should have envelope");
-        harness
-            .process_envelope(block_root, envelope, &post_block_state, state_root)
-            .await;
+        harness.process_envelope(block_root, envelope).await;
 
         block_roots.push(block_root);
         state = post_block_state;
@@ -6202,9 +6200,7 @@ async fn test_gloas_block_replay_with_envelopes() {
         states.insert(slot, (state_root, block_state.clone()));
 
         let envelope = envelope.expect("Gloas block should have envelope");
-        harness
-            .process_envelope(block_root, envelope, &block_state, state_root)
-            .await;
+        harness.process_envelope(block_root, envelope).await;
 
         last_block_root = block_root;
         state = block_state;
@@ -6289,9 +6285,7 @@ async fn test_gloas_hot_state_hierarchy() {
         );
 
         let envelope = envelope.expect("Gloas block should have envelope");
-        harness
-            .process_envelope(block_root, envelope, &block_state, state_root)
-            .await;
+        harness.process_envelope(block_root, envelope).await;
 
         last_block_root = block_root;
         state = block_state;
