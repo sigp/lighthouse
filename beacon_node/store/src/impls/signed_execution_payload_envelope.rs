@@ -1,11 +1,11 @@
 use ssz::{Decode, Encode};
-use types::{EthSpec, SignedExecutionPayloadEnvelope};
+use types::{EthSpec, SignedExecutionPayloadEnvelopeSummary};
 
 use crate::{DBColumn, Error, StoreItem};
 
-impl<E: EthSpec> StoreItem for SignedExecutionPayloadEnvelope<E> {
+impl<E: EthSpec> StoreItem for SignedExecutionPayloadEnvelopeSummary<E> {
     fn db_column() -> DBColumn {
-        DBColumn::PayloadEnvelope
+        DBColumn::PayloadSummary
     }
 
     fn as_store_bytes(&self) -> Vec<u8> {

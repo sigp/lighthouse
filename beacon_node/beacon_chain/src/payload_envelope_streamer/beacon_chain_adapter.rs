@@ -1,13 +1,18 @@
 use std::sync::Arc;
 
+use execution_layer::ExecutionPayloadBodyV2;
 #[cfg(test)]
 use mockall::automock;
 use task_executor::TaskExecutor;
-use types::{Hash256, SignedExecutionPayloadEnvelope, Slot};
+use types::{
+    ExecutionBlockHash, ExecutionPayloadGloas, Hash256, SignedExecutionPayloadEnvelopeSummary, Slot,
+};
 
+use super::Error;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 
-/// An adapter to the `BeaconChain` functionalities to remove `BeaconChain` from direct dependency to enable testing envelope streamer logic.
+/// Exposes the `BeaconChain` functionality required by the payload envelope streamer without
+/// coupling its reconstruction logic directly to `BeaconChain`.
 pub(crate) struct EnvelopeStreamerBeaconAdapter<T: BeaconChainTypes> {
     chain: Arc<BeaconChain<T>>,
 }
@@ -22,11 +27,34 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
         &self.chain.task_executor
     }
 
-    pub(crate) fn get_payload_envelope(
+    pub(crate) fn get_payload_envelope_summary(
         &self,
         root: &Hash256,
-    ) -> Result<Option<SignedExecutionPayloadEnvelope<T::EthSpec>>, store::Error> {
-        self.chain.store.get_payload_envelope(root)
+    ) -> Result<Option<SignedExecutionPayloadEnvelopeSummary<T::EthSpec>>, store::Error> {
+        self.chain.store.get_payload_envelope_summary(root)
+    }
+
+    pub(crate) fn get_envelope_payload(
+        &self,
+        root: &Hash256,
+    ) -> Result<Option<ExecutionPayloadGloas<T::EthSpec>>, store::Error> {
+        self.chain.store.get_envelope_payload(root)
+    }
+
+    pub(crate) async fn get_payload_bodies_by_hash_v2(
+        &self,
+        block_hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, BeaconChainError> {
+        let execution_layer = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .ok_or(BeaconChainError::ExecutionLayerMissing)?;
+
+        execution_layer
+            .get_payload_bodies_by_hash_v2(block_hashes)
+            .await
+            .map_err(|error| Error::PayloadBodiesByHashV2Failure(Box::new(error)).into())
     }
 
     pub(crate) fn get_split_slot(&self) -> Slot {
