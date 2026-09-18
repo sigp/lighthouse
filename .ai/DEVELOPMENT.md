@@ -146,6 +146,11 @@ Avoid using the rayon global thread pool - it causes CPU oversubscription when b
 - Use spans per meaningful computation step, not every function
 - **Never** use `span.enter()` or `span.entered()` in async tasks
 
+### Milhouse Lists
+
+- To start partway through a Milhouse list, use `iter_from(index)`. `iter().skip(index)` walks the skipped prefix.
+- Preserve absolute indices when enumerating the suffix. Check end and beyond-end starts, and pending updates in both fixed and progressive lists.
+
 ### Documentation
 
 - All `TODO` comments must link to a GitHub issue

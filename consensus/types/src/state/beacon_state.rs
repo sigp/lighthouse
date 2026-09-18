@@ -36,7 +36,7 @@ use crate::{
     execution::{
         Eth1Data, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, InclusionListCommittee,
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     light_client::consts::{
@@ -1223,7 +1223,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_inclusion_list_committee(
         &self,
         slot: Slot,
-    ) -> Result<FixedVector<u64, E::InclusionListCommitteeSize>, BeaconStateError> {
+    ) -> Result<InclusionListCommittee<E>, BeaconStateError> {
         let cache = self.committee_cache_at_slot(slot)?;
         let committee =
             cache.get_inclusion_list_committee_at_slot(slot, E::inclusion_list_committee_size())?;

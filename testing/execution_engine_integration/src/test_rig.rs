@@ -321,6 +321,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                     None,
                     None,
                     None,
+                    None,
                 ),
             )
             .await;
@@ -365,6 +366,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             prev_randao,
             suggested_fee_recipient,
             Some(vec![]),
+            None,
             None,
             None,
             None,
@@ -530,6 +532,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             None,
             None,
             None,
+            None,
         );
 
         let payload_parameters = PayloadParameters {
@@ -589,6 +592,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             prev_randao,
             Address::repeat_byte(42),
             Some(vec![]),
+            None,
             None,
             None,
             None,

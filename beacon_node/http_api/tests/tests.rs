@@ -5131,6 +5131,130 @@ impl ApiTester {
         self
     }
 
+    /// The `POST validator/builder_preferences` URL, for raw requests that bypass the eth2 client
+    /// (which always sets the required header).
+    fn builder_preferences_url(&self) -> reqwest::Url {
+        let mut url = self.client.server().expose_full().clone();
+        url.path_segments_mut()
+            .unwrap()
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push("builder_preferences");
+        url
+    }
+
+    /// A `BuilderPreferenceEntry` that passes the endpoint's body validation.
+    fn valid_builder_preference_entry() -> eth2::types::BuilderPreferenceEntry {
+        eth2::types::BuilderPreferenceEntry {
+            proposer_pubkey: PublicKeyBytes::empty(),
+            url: "http://builder.example.com".parse().unwrap(),
+            auth: eth2::types::SignedRequestAuth {
+                message: eth2::types::RequestAuth {
+                    data: eth2::types::RequestAuthData::new(b"http://builder.example.com".to_vec())
+                        .unwrap(),
+                    slot: Slot::new(0),
+                },
+                signature: Signature::empty(),
+            },
+            max_execution_payment: 0,
+        }
+    }
+
+    pub async fn test_builder_preferences_missing_consensus_version_header_returns_400(
+        self,
+    ) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        // A valid body, but no `Eth-Consensus-Version` header: the header is required
+        // (beacon-APIs #630), so the request must fail with a 400.
+        let response = reqwest::Client::new()
+            .post(self.builder_preferences_url())
+            .json(&vec![Self::valid_builder_preference_entry()])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        self
+    }
+
+    pub async fn test_builder_preferences_zero_length_entry_fields_return_400(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        // A zero-length `url` and a zero-length auth `data` each make the body invalid
+        // (beacon-APIs #630), so the request must fail with a 400.
+        let mut empty_url_entry = Self::valid_builder_preference_entry();
+        empty_url_entry.url = "".parse().unwrap();
+        let mut empty_data_entry = Self::valid_builder_preference_entry();
+        empty_data_entry.auth.message.data = eth2::types::RequestAuthData::default();
+
+        for bad_entry in [empty_url_entry, empty_data_entry] {
+            let response = reqwest::Client::new()
+                .post(self.builder_preferences_url())
+                .header(eth2::CONSENSUS_VERSION_HEADER, "gloas")
+                .json(&vec![bad_entry])
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+
+        self
+    }
+
+    pub async fn test_builder_preferences_oversize_list_returns_400(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        // The submission list is bounded at `MAX_SUBMITTED_BUILDER_PREFERENCES` entries
+        // (beacon-APIs #630); one more is an invalid body.
+        let entries = vec![
+            Self::valid_builder_preference_entry();
+            eth2::types::MAX_SUBMITTED_BUILDER_PREFERENCES + 1
+        ];
+        let response = reqwest::Client::new()
+            .post(self.builder_preferences_url())
+            .header(eth2::CONSENSUS_VERSION_HEADER, "gloas")
+            .json(&entries)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        self
+    }
+
+    pub async fn test_builder_preferences_without_builder_service_returns_400(self) -> Self {
+        if !self.chain.spec.is_gloas_scheduled() {
+            return self;
+        }
+
+        // The test harness never wires a builder service into the chain, so a well-formed
+        // submission reaches the handler and must be rejected as a client-side misconfiguration
+        // (400 with a self-explanatory message), not a 500.
+        let response = reqwest::Client::new()
+            .post(self.builder_preferences_url())
+            .header(eth2::CONSENSUS_VERSION_HEADER, "gloas")
+            .json(&vec![Self::valid_builder_preference_entry()])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = response.text().await.unwrap();
+        assert!(
+            body.contains("no builder service"),
+            "unexpected error body: {body}"
+        );
+
+        self
+    }
+
     pub async fn test_envelope_post_when_syncing_returns_503(mut self) -> Self {
         if !self.chain.spec.is_gloas_scheduled() {
             return self;
@@ -10285,6 +10409,14 @@ async fn envelope_api() {
         .test_block_production_v4_missing_consensus_version_header_returns_400()
         .await
         .test_block_production_v4_zero_length_entry_fields_return_400()
+        .await
+        .test_builder_preferences_missing_consensus_version_header_returns_400()
+        .await
+        .test_builder_preferences_zero_length_entry_fields_return_400()
+        .await
+        .test_builder_preferences_oversize_list_returns_400()
+        .await
+        .test_builder_preferences_without_builder_service_returns_400()
         .await
         .test_envelope_post_consensus_invalid_returns_400_no_broadcast()
         .await
