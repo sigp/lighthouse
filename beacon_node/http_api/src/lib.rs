@@ -107,6 +107,7 @@ use types::{
     SignedBlindedBeaconBlock,
 };
 use validator::execution_payload_envelopes::get_validator_execution_payload_envelopes;
+pub use validators::get_beacon_state_validator_balances;
 use version::{
     ResponseIncludesVersion, V1, V2, V4, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
