@@ -85,7 +85,7 @@ and also considers bids seen over p2p. For each candidate bid:
 - **`min_bid`** — a bid whose total value is below the applicable `min_bid` is ranked behind any
   floor-clearing candidate (including the local block) rather than dropped, so it wins only when
   nothing else is viable (e.g. the local build failed). Direct builders use their own (or the
-  inherited global) value; p2p bids use the global value.
+  inherited per-validator) value; p2p bids use the validator's `min_bid`.
 - **`builder_boost_factor`** — the surviving bid's value is scaled by its boost factor
   (`boost × value ÷ 100`) before being compared against the locally-built block. A factor below
   `100` favors the local block; above `100` favors the builder; `0` always prefers local;
@@ -98,4 +98,4 @@ and also considers bids seen over p2p. For each candidate bid:
   one of these keys or it is discarded.
 
 The highest-value bid after these rules wins. Per-builder `min_bid`/`builder_boost_factor` apply
-only to bids requested directly by URL; p2p bids are governed by the global values.
+only to bids requested directly by URL. For p2p bids, per-validator defaults override the global values.

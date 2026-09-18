@@ -2,6 +2,7 @@ use crate::request_auth_cache::RequestAuthCache;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
 use bls::PublicKeyBytes;
 use builder_store::BuilderStore;
+use builder_types::SignedRequestAuth;
 use eth2::BeaconNodeHttpClient;
 use eth2::types::GraffitiPolicy;
 use graffiti_file::{GraffitiFile, determine_graffiti};
@@ -16,8 +17,42 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
-use types::{BlockType, ChainSpec, EthSpec, Graffiti, Hash256, Slot};
+use types::{
+    BlockType, ChainSpec, EthSpec, Graffiti, Hash256, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
+
+/// Hard deadline on signing a single builder's request auth during block production.
+///
+/// Request-auth signing is optional — the proposal proceeds with a local or p2p payload without
+/// it — and the [`RequestAuthCache`] is pre-warmed by the builder-preferences service, so a signer
+/// round trip here is already the exception. The signer request itself may have no timeout of its
+/// own (`request_timeout_ms` defaults to none for web3signer validators), so without a deadline a
+/// stalled signer could hold block production past the slot. The mandatory signatures (randao, the
+/// block itself) are unaffected by this.
+///
+/// The value is priced against the serial pre-publish chain, not the slot: this wait precedes the
+/// production request (which holds its own builder bid timeout), block signing, and publish, all
+/// of which must land within the attestation deadline. 200ms clears a same-host or LAN signer,
+/// including a cold connection, while bounding what a degraded one can take from that budget.
+const REQUEST_AUTH_SIGN_TIMEOUT: Duration = Duration::from_millis(200);
+
+/// Run one builder's request-auth `sign` future under [`REQUEST_AUTH_SIGN_TIMEOUT`].
+///
+/// A deadline miss becomes an ordinary error, so the caller's log-and-omit path drops just that
+/// builder from the proposal; a cache hit resolves immediately and never sees the deadline.
+async fn sign_request_auth_with_deadline<Fut, E>(sign: Fut) -> Result<SignedRequestAuth, String>
+where
+    Fut: Future<Output = Result<SignedRequestAuth, E>>,
+    E: Debug,
+{
+    match tokio::time::timeout(REQUEST_AUTH_SIGN_TIMEOUT, sign).await {
+        Ok(result) => result.map_err(|e| format!("{e:?}")),
+        Err(_elapsed) => Err(format!(
+            "request auth signing timed out after {REQUEST_AUTH_SIGN_TIMEOUT:?}"
+        )),
+    }
+}
 
 #[derive(Debug)]
 pub enum BlockError {
@@ -498,11 +533,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             // body is reused on the SSZ-to-JSON fallback and on every proposer-fallback BN). With
             // no builders configured this resolves to an empty list, so the proposal still falls
             // back to a local or p2p payload. Per-builder sign failures are logged and omitted
-            // inside `builder_config`, so this never fails the proposal.
+            // inside `builder_config`, and each sign runs under `REQUEST_AUTH_SIGN_TIMEOUT`, so
+            // neither a failed nor a stalled signer ever fails (or stalls) the proposal.
             let builder_config = self_ref
                 .configured_builders
-                .builder_config(&validator_pubkey, |auth_data| {
-                    self_ref.request_auth_cache.get_or_sign(
+                .builder_config(&validator_pubkey, |auth_data| async move {
+                    sign_request_auth_with_deadline(self_ref.request_auth_cache.get_or_sign(
                         slot,
                         validator_pubkey,
                         auth_data,
@@ -511,7 +547,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                 .validator_store
                                 .sign_request_auth_v1(validator_pubkey, request_auth_v1)
                         },
-                    )
+                    ))
+                    .await
                 })
                 .await;
             debug!(
@@ -679,10 +716,42 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             ));
         }
 
-        // Capture before `sign_and_publish_block` moves `unsigned_block`.
-        let produced_block_root = fork_name
-            .gloas_enabled()
-            .then(|| unsigned_block.block_root());
+        // Capture before `sign_and_publish_block` moves `unsigned_block`. Only a self-built block
+        // (`builder_index == BUILDER_INDEX_SELF_BUILD`) has an envelope for the proposer to fetch,
+        // sign, and reveal: when a builder's bid won, that builder releases the envelope, and the
+        // proposer is done once the block is published.
+        let self_build_block_root = if fork_name.gloas_enabled() {
+            let builder_index = match &unsigned_block {
+                UnsignedBlock::Full(contents) => contents
+                    .block()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .map(|bid| bid.message.builder_index)
+                    .ok(),
+                UnsignedBlock::Blinded(_) => None,
+            };
+            match builder_index {
+                Some(BUILDER_INDEX_SELF_BUILD) => Some(unsigned_block.block_root()),
+                Some(builder_index) => {
+                    info!(
+                        slot = slot.as_u64(),
+                        builder_index, "Builder bid won; the builder reveals the payload envelope"
+                    );
+                    None
+                }
+                None => {
+                    // A Gloas block always carries a bid; not finding one here is a wiring bug.
+                    // Skip the envelope step rather than chase an envelope that cannot exist.
+                    warn!(
+                        slot = slot.as_u64(),
+                        "Produced Gloas block has no readable payload bid; skipping envelope"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         self_ref
             .sign_and_publish_block(
@@ -695,10 +764,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             )
             .await?;
 
-        // TODO(gloas) we only need to fetch, sign and publish the envelope in the local building case.
-        // Right now we always default to local building. Once we implement trustless/trusted builder logic
-        // we should check the bid for index == BUILDER_INDEX_SELF_BUILD
-        if let Some(beacon_block_root) = produced_block_root {
+        if let Some(beacon_block_root) = self_build_block_root {
             self_ref
                 .fetch_sign_and_publish_payload_envelope(
                     &proposer_fallback,
@@ -904,6 +970,30 @@ mod tests {
     use types::{BeaconBlock, ExecutionPayloadEnvelope, ForkName, Slot};
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
 
+    #[tokio::test]
+    async fn request_auth_sign_deadline_drops_stalled_signer() {
+        // A signer that never answers must be cut off at the deadline, not allowed to stall
+        // block production for the slot.
+        let result = sign_request_auth_with_deadline::<_, String>(std::future::pending()).await;
+        assert!(result.unwrap_err().contains("timed out"));
+    }
+
+    #[tokio::test]
+    async fn request_auth_sign_deadline_passes_fast_result() {
+        let signed = SignedRequestAuth {
+            message: builder_types::RequestAuth {
+                data: builder_types::RequestAuthData::new(b"http://builder.example.com".to_vec())
+                    .unwrap(),
+                slot: Slot::new(0),
+            },
+            signature: bls::Signature::empty(),
+        };
+        let result =
+            sign_request_auth_with_deadline::<_, String>(std::future::ready(Ok(signed.clone())))
+                .await;
+        assert_eq!(result.unwrap(), signed);
+    }
+
     struct TestHarness {
         harness: ValidatorClientHarness,
         service: BlockService<S, ManualSlotClock>,
@@ -1009,7 +1099,17 @@ mod tests {
 
         let slot = Slot::new(1);
         let validator_pubkey = test_harness.harness.pubkeys[0];
-        let block = BeaconBlock::empty(&test_harness.harness.spec);
+        // A self-built block: only then does the proposer fetch, sign, and publish the envelope
+        // (a builder-won bid's envelope is revealed by the builder instead).
+        let mut block = BeaconBlock::empty(&test_harness.harness.spec);
+        let BeaconBlock::Gloas(inner) = &mut block else {
+            panic!("harness spec should produce a Gloas block");
+        };
+        inner
+            .body
+            .signed_execution_payload_bid
+            .message
+            .builder_index = BUILDER_INDEX_SELF_BUILD;
         let envelope = ExecutionPayloadEnvelope::empty();
 
         test_harness
@@ -1064,6 +1164,56 @@ mod tests {
             .lock()
             .unwrap();
         assert_eq!(received_envelopes.len(), 1, "Expected one envelope");
+    }
+
+    #[tokio::test]
+    async fn builder_won_block_publishes_without_envelope() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let slot = Slot::new(1);
+        let validator_pubkey = test_harness.harness.pubkeys[0];
+        // `BeaconBlock::empty` carries a default bid (`builder_index: 0`) — a block whose payload
+        // bid was won by a builder. The builder reveals the envelope, so the proposal must succeed
+        // without the VC fetching or publishing one.
+        let block = BeaconBlock::empty(&test_harness.harness.spec);
+        let envelope = ExecutionPayloadEnvelope::empty();
+
+        test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_blocks_v4_ssz(&block, ForkName::Gloas, slot);
+        let mock_post_block = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_get_envelope = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_execution_payload_envelope_ssz(
+                &envelope,
+                slot,
+                block.canonical_root(),
+            );
+        let mock_post_envelope = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_execution_payload_envelope_ssz();
+
+        let result = test_harness
+            .service
+            .clone()
+            .get_validator_block_and_publish_block(slot, validator_pubkey, None)
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "builder-won proposal should succeed without an envelope: {:?}",
+            result.err()
+        );
+
+        mock_post_block.expect(1).assert();
+        mock_get_envelope.expect(0).assert();
+        mock_post_envelope.expect(0).assert();
     }
 
     #[tokio::test]

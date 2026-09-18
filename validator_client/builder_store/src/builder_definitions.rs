@@ -7,6 +7,7 @@ use std::fs::{File, create_dir_all};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use tracing::error;
 
 /// The file name for the serialized `BuilderConfigFile` struct.
 pub const BUILDERS_FILENAME: &str = "builder_definitions.yml";
@@ -344,12 +345,28 @@ impl BuilderConfigFile {
                 .builders
                 .iter()
                 .filter(|builder| {
-                    builder.enabled
-                        && BuilderPubkeys::new(builder.builder_pubkeys.clone()).is_ok()
-                        && !builder
-                            .auth_data
-                            .as_ref()
-                            .is_some_and(|auth_data| auth_data.is_empty())
+                    if !builder.enabled {
+                        return false;
+                    }
+                    if BuilderPubkeys::new(builder.builder_pubkeys.clone()).is_err() {
+                        error!(
+                            builder_url = %builder.url,
+                            "Too many builder pubkeys; omitting builder from config"
+                        );
+                        return false;
+                    }
+                    if builder
+                        .auth_data
+                        .as_ref()
+                        .is_some_and(|auth_data| auth_data.is_empty())
+                    {
+                        error!(
+                            builder_url = %builder.url,
+                            "Zero-length auth_data is invalid; omitting builder from config"
+                        );
+                        return false;
+                    }
+                    true
                 })
                 .map(|builder| {
                     let mut builder = builder.clone();

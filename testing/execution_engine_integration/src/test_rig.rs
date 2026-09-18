@@ -321,6 +321,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                     None,
                     None,
                     None,
+                    None,
                 ),
             )
             .await;
@@ -365,6 +366,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             prev_randao,
             suggested_fee_recipient,
             Some(vec![]),
+            None,
             None,
             None,
             None,
@@ -530,6 +532,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             None,
             None,
             None,
+            None,
         );
 
         let payload_parameters = PayloadParameters {
@@ -589,6 +592,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             prev_randao,
             Address::repeat_byte(42),
             Some(vec![]),
+            None,
             None,
             None,
             None,
@@ -730,9 +734,9 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
         .unwrap();
 
     assert!(
-        // if the engine doesn't have these capabilities, we need to update the client in our tests
-        capabilities.get_payload_bodies_by_hash_v1 && capabilities.get_payload_bodies_by_range_v1,
-        "Testing engine does not support payload bodies methods"
+        // if the engine doesn't have this capability, we need to update the client in our tests
+        capabilities.get_payload_bodies_by_hash_v1,
+        "Testing engine does not support payload bodies by hash"
     );
 
     let mut bodies = ee
