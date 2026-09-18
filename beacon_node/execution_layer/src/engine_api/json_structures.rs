@@ -1081,7 +1081,7 @@ pub const CUSTODY_COLUMNS_BITARRAY_BYTES: usize = 16;
 /// EIP-8070 - bitarray of length `CELLS_PER_EXT_BLOB` (=128). Bit `i` of
 /// byte `i / 8` (LSB-first within each byte) indicates column `i`. Used as
 /// the `indices_bitarray` parameter of `engine_getBlobsV4` and the
-/// `custodyColumns` parameter of `engine_forkchoiceUpdatedV4`.
+/// `custodyColumns` parameter of `engine_forkchoiceUpdatedV4` and later.
 ///  The TryFrom impl safeguards against invalid input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]

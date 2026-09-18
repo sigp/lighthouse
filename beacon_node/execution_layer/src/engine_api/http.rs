@@ -1210,19 +1210,35 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    /// Encode the custody column indices as the `custodyColumns` bitarray parameter of
+    /// `engine_forkchoiceUpdatedV4` and later (EIP-8070).
+    ///
+    /// Returns `None` when no custody columns were supplied or when the conversion failed.
+    /// The EL treats `null` as a no-op for its custody set.
+    fn custody_columns_param(
+        custody_columns: Option<&[ColumnIndex]>,
+        method: &'static str,
+    ) -> Option<CustodyColumnsBitArray> {
+        custody_columns
+            .map(CustodyColumnsBitArray::try_from)
+            .transpose()
+            .unwrap_or_else(|err| {
+                error!(
+                    ?err,
+                    method, "Failed to convert custody columns for forkchoice update"
+                );
+                None
+            })
+    }
+
     pub async fn forkchoice_updated_v4(
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
         custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let custody_columns = custody_columns
-            .map(CustodyColumnsBitArray::try_from)
-            .transpose()
-            .unwrap_or_else(|err| {
-                error!(?err, "Failed to convert custody columns for fcuV4");
-                None
-            });
+        let custody_columns =
+            Self::custody_columns_param(custody_columns, ENGINE_FORKCHOICE_UPDATED_V4);
 
         let params = json!([
             JsonForkchoiceStateV1::from(forkchoice_state),
@@ -1245,11 +1261,15 @@ impl HttpJsonRpc {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let custody_columns =
+            Self::custody_columns_param(custody_columns, ENGINE_FORKCHOICE_UPDATED_V5);
+
         let params = json!([
             JsonForkchoiceStateV1::from(forkchoice_state),
             payload_attributes.map(JsonPayloadAttributes::from),
-            null
+            custody_columns
         ]);
 
         let response: JsonForkchoiceUpdatedV2Response = self
@@ -1602,8 +1622,12 @@ impl HttpJsonRpc {
                 }
                 PayloadAttributes::V5(_) => {
                     if engine_capabilities.forkchoice_updated_v5 {
-                        self.forkchoice_updated_v5(forkchoice_state, maybe_payload_attributes)
-                            .await
+                        self.forkchoice_updated_v5(
+                            forkchoice_state,
+                            maybe_payload_attributes,
+                            custody_columns,
+                        )
+                        .await
                     } else {
                         Err(Error::RequiredMethodUnsupported(
                             "engine_forkchoiceUpdatedV5",
@@ -1612,7 +1636,7 @@ impl HttpJsonRpc {
                 }
             }
         } else if engine_capabilities.forkchoice_updated_v5 {
-            self.forkchoice_updated_v5(forkchoice_state, maybe_payload_attributes)
+            self.forkchoice_updated_v5(forkchoice_state, maybe_payload_attributes, custody_columns)
                 .await
         } else if engine_capabilities.forkchoice_updated_v4 {
             self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes, custody_columns)
@@ -2034,6 +2058,9 @@ mod test {
             }))
         };
 
+        // Columns 0, 7, 8 and 127: first byte 0x81, second byte 0x01, last byte 0x80.
+        let custody_columns: [ColumnIndex; 4] = [0, 7, 8, 127];
+
         Tester::new(true)
             .assert_request_equals(
                 |client| async move {
@@ -2045,6 +2072,7 @@ mod test {
                                 finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             payload_attributes(),
+                            Some(&custody_columns),
                         )
                         .await;
                 },
@@ -2067,7 +2095,7 @@ mod test {
                         "targetGasLimit": "0x1c9c380",
                         "inclusionListTransactions": ["0x02f86f"],
                     },
-                    null]
+                    "0x81010000000000000000000000000080"]
                 }),
             )
             .await
@@ -2095,6 +2123,7 @@ mod test {
                                 finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             payload_attributes(),
+                            None,
                         )
                         .await
                         .unwrap();
@@ -2124,6 +2153,7 @@ mod test {
                             finalized_block_hash: ExecutionBlockHash::zero(),
                         },
                         payload_attributes(),
+                        None,
                     )
                     .await
             })
