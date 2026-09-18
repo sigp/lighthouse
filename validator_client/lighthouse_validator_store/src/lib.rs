@@ -74,6 +74,7 @@ pub struct LighthouseValidatorStore<T, E> {
     slot_clock: T,
     fee_recipient_process: Option<Address>,
     gas_limit: Option<u64>,
+    gas_limit_last_warned_epoch: Arc<Mutex<Option<Epoch>>>,
     builder_proposals: bool,
     enable_web3signer_slashing_protection: bool,
     prefer_builder_proposals: bool,
@@ -106,6 +107,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             slot_clock,
             fee_recipient_process: config.fee_recipient,
             gas_limit: config.gas_limit,
+            gas_limit_last_warned_epoch: Arc::new(Mutex::new(None)),
             builder_proposals: config.builder_proposals,
             enable_web3signer_slashing_protection: config.enable_web3signer_slashing_protection,
             prefer_builder_proposals: config.prefer_builder_proposals,
@@ -329,19 +331,53 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     ///
     /// 1. validator_definitions.yml
     /// 2. process level gas limit
-    /// 3. `DEFAULT_GAS_LIMIT`
+    /// 3. the gas limit schedule (EIP-8261) at the current epoch
+    /// 4. `DEFAULT_GAS_LIMIT`
     pub fn get_gas_limit(&self, validator_pubkey: &PublicKeyBytes) -> u64 {
         self.get_gas_limit_defaulting(self.validators.read().gas_limit(validator_pubkey))
     }
 
     fn get_gas_limit_defaulting(&self, gas_limit: Option<u64>) -> u64 {
+        let current_epoch = self
+            .slot_clock
+            .now()
+            .map(|slot| slot.epoch(E::slots_per_epoch()));
+        let scheduled_gas_limit =
+            current_epoch.and_then(|epoch| self.spec.get_scheduled_gas_limit(epoch));
         // If there is a `gas_limit` in the validator definitions yaml
-        // file, use that value.
-        gas_limit
-            // If there's nothing in the file, try the process-level default value.
-            .or(self.gas_limit)
-            // If there's no process-level default, use the `DEFAULT_GAS_LIMIT`.
-            .unwrap_or(DEFAULT_GAS_LIMIT)
+        // file, use that value. If there's nothing in the file, try the
+        // process-level value.
+        let configured_gas_limit = gas_limit.or(self.gas_limit);
+        match (configured_gas_limit, scheduled_gas_limit) {
+            (Some(configured), Some(scheduled)) => {
+                // The scheduled gas limit is a recommended maximum, not a rule. Warn but
+                // honor the configured value.
+                if configured > scheduled {
+                    self.warn_once_per_epoch(current_epoch, configured, scheduled);
+                }
+                configured
+            }
+            (Some(configured), None) => configured,
+            (None, Some(scheduled)) => scheduled,
+            (None, None) => DEFAULT_GAS_LIMIT,
+        }
+    }
+
+    fn warn_once_per_epoch(
+        &self,
+        current_epoch: Option<Epoch>,
+        configured_gas_limit: u64,
+        scheduled_gas_limit: u64,
+    ) {
+        let mut last_warned_epoch = self.gas_limit_last_warned_epoch.lock();
+        if *last_warned_epoch != current_epoch {
+            *last_warned_epoch = current_epoch;
+            warn!(
+                configured_gas_limit,
+                scheduled_gas_limit,
+                "Configured gas limit exceeds the recommended maximum from the gas limit schedule"
+            );
+        }
     }
 
     /// Returns a `bool` for the given public key that denotes whether this validator should use the
@@ -1526,5 +1562,141 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             message: request_auth_v1,
             signature,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use account_utils::validator_definitions::ValidatorDefinitions;
+    use bls::FixedBytesExtended;
+    use slot_clock::TestingSlotClock;
+    use std::time::Duration;
+    use task_executor::test_utils::TestRuntime;
+    use tempfile::{TempDir, tempdir};
+    use types::{Epoch, GasLimitSchedule, GasLimitScheduleEntry, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+
+    const GLOAS_FORK_EPOCH: u64 = 4;
+    const SCHEDULED_GAS_LIMIT: u64 = 70_000_000;
+    const LATER_SCHEDULED_GAS_LIMIT: u64 = 80_000_000;
+    const LATER_SCHEDULE_EPOCH: u64 = 6;
+
+    fn gloas_spec_with_schedule(schedule: Vec<GasLimitScheduleEntry>) -> ChainSpec {
+        let mut spec = E::default_spec();
+        spec.gloas_fork_epoch = Some(Epoch::new(GLOAS_FORK_EPOCH));
+        spec.gas_limit_schedule = GasLimitSchedule::new(schedule);
+        spec
+    }
+
+    fn default_schedule() -> Vec<GasLimitScheduleEntry> {
+        vec![
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(GLOAS_FORK_EPOCH),
+                gas_limit: SCHEDULED_GAS_LIMIT,
+            },
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(LATER_SCHEDULE_EPOCH),
+                gas_limit: LATER_SCHEDULED_GAS_LIMIT,
+            },
+        ]
+    }
+
+    async fn build_store(
+        spec: ChainSpec,
+        process_gas_limit: Option<u64>,
+        slot_clock: TestingSlotClock,
+    ) -> (LighthouseValidatorStore<TestingSlotClock, E>, TempDir) {
+        let validator_dir = tempdir().unwrap();
+        let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
+        let initialized_validators = InitializedValidators::from_definitions(
+            validator_defs,
+            validator_dir.path().into(),
+            Default::default(),
+        )
+        .await
+        .unwrap();
+        let slashing_protection =
+            SlashingDatabase::open_or_create(&validator_dir.path().join("slashing.sqlite"))
+                .unwrap();
+        let config = Config {
+            gas_limit: process_gas_limit,
+            ..Config::default()
+        };
+        let test_runtime = TestRuntime::default();
+        let store = LighthouseValidatorStore::new(
+            initialized_validators,
+            slashing_protection,
+            Hash256::zero(),
+            Arc::new(spec),
+            None,
+            slot_clock,
+            &config,
+            test_runtime.task_executor.clone(),
+        );
+        (store, validator_dir)
+    }
+
+    fn slot_clock_at_epoch(epoch: u64) -> TestingSlotClock {
+        let clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_secs(12),
+        );
+        clock.set_slot(Epoch::new(epoch).start_slot(E::slots_per_epoch()).as_u64());
+        clock
+    }
+
+    #[tokio::test]
+    async fn gas_limit_schedule_acts_as_default() {
+        let spec = gloas_spec_with_schedule(default_schedule());
+        let clock = slot_clock_at_epoch(0);
+        let (store, _dir) = build_store(spec, None, clock.clone()).await;
+        let pubkey = PublicKeyBytes::empty();
+
+        // Before the Gloas fork the schedule is inactive.
+        assert_eq!(store.get_gas_limit(&pubkey), DEFAULT_GAS_LIMIT);
+
+        // At the Gloas fork the first schedule entry becomes the default.
+        clock.set_slot(
+            Epoch::new(GLOAS_FORK_EPOCH)
+                .start_slot(E::slots_per_epoch())
+                .as_u64(),
+        );
+        assert_eq!(store.get_gas_limit(&pubkey), SCHEDULED_GAS_LIMIT);
+
+        // The default switches at the next entry's epoch without a restart.
+        clock.set_slot(
+            Epoch::new(LATER_SCHEDULE_EPOCH)
+                .start_slot(E::slots_per_epoch())
+                .as_u64(),
+        );
+        assert_eq!(store.get_gas_limit(&pubkey), LATER_SCHEDULED_GAS_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn configured_gas_limit_takes_precedence_over_schedule() {
+        let spec = gloas_spec_with_schedule(default_schedule());
+        let clock = slot_clock_at_epoch(GLOAS_FORK_EPOCH);
+        let process_gas_limit = 100_000_000;
+        let (store, _dir) = build_store(spec, Some(process_gas_limit), clock).await;
+
+        assert_eq!(
+            store.get_gas_limit(&PublicKeyBytes::empty()),
+            process_gas_limit
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_schedule_falls_back_to_default_gas_limit() {
+        let spec = gloas_spec_with_schedule(vec![]);
+        let clock = slot_clock_at_epoch(GLOAS_FORK_EPOCH);
+        let (store, _dir) = build_store(spec, None, clock).await;
+
+        assert_eq!(
+            store.get_gas_limit(&PublicKeyBytes::empty()),
+            DEFAULT_GAS_LIMIT
+        );
     }
 }

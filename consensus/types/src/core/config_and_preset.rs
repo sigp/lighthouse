@@ -59,6 +59,11 @@ impl ConfigAndPreset {
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
 
+        if !spec.is_gloas_scheduled() {
+            // Remove gas limit schedule for backwards-compatibility.
+            config.gas_limit_schedule.set_skip_serializing();
+        }
+
         if spec.is_heze_scheduled() {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
             let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
