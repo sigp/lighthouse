@@ -15,7 +15,6 @@ bs58 = "0.4.0"
 bytes = { workspace = true }
 context_deserialize = { workspace = true }
 directory = { workspace = true }
-either = { workspace = true }
 eth2 = { workspace = true, features = ["lighthouse", "network"] }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
@@ -56,10 +55,16 @@ warp = { workspace = true }
 warp_utils = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
 fork_choice = { workspace = true }
 genesis = { workspace = true }
+perf_benchmarking = { workspace = true }
 proto_array = { workspace = true }
 
 [[test]]
 name = "bn_http_api_tests"
 path = "tests/main.rs"
+
+[[bench]]
+name = "bench"
+harness = false
