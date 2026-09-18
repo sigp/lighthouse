@@ -905,7 +905,7 @@ impl<'a> From<&'a JsonWithdrawal> for EncodableJsonWithdrawal<'a> {
 }
 
 #[superstruct(
-    variants(V1, V2, V3, V4),
+    variants(V1, V2, V3, V4, V5),
     variant_attributes(
         derive(Debug, Clone, PartialEq, Serialize, Deserialize),
         serde(rename_all = "camelCase")
@@ -921,16 +921,19 @@ pub struct JsonPayloadAttributes {
     pub prev_randao: Hash256,
     #[serde(with = "serde_utils::address_hex")]
     pub suggested_fee_recipient: Address,
-    #[superstruct(only(V2, V3, V4))]
+    #[superstruct(only(V2, V3, V4, V5))]
     pub withdrawals: Vec<JsonWithdrawal>,
-    #[superstruct(only(V3, V4))]
+    #[superstruct(only(V3, V4, V5))]
     pub parent_beacon_block_root: Hash256,
-    #[superstruct(only(V4))]
+    #[superstruct(only(V4, V5))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub slot_number: u64,
-    #[superstruct(only(V4))]
+    #[superstruct(only(V4, V5))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub target_gas_limit: u64,
+    #[superstruct(only(V5))]
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub inclusion_list_transactions: ProgressiveTransactions,
 }
 
 impl From<PayloadAttributes> for JsonPayloadAttributes {
@@ -962,6 +965,16 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 parent_beacon_block_root: pa.parent_beacon_block_root,
                 slot_number: pa.slot_number,
                 target_gas_limit: pa.target_gas_limit,
+            }),
+            PayloadAttributes::V5(pa) => Self::V5(JsonPayloadAttributesV5 {
+                timestamp: pa.timestamp,
+                prev_randao: pa.prev_randao,
+                suggested_fee_recipient: pa.suggested_fee_recipient,
+                withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
+                parent_beacon_block_root: pa.parent_beacon_block_root,
+                slot_number: pa.slot_number,
+                target_gas_limit: pa.target_gas_limit,
+                inclusion_list_transactions: pa.inclusion_list_transactions,
             }),
         }
     }
@@ -996,6 +1009,16 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 parent_beacon_block_root: jpa.parent_beacon_block_root,
                 slot_number: jpa.slot_number,
                 target_gas_limit: jpa.target_gas_limit,
+            }),
+            JsonPayloadAttributes::V5(jpa) => Self::V5(PayloadAttributesV5 {
+                timestamp: jpa.timestamp,
+                prev_randao: jpa.prev_randao,
+                suggested_fee_recipient: jpa.suggested_fee_recipient,
+                withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
+                parent_beacon_block_root: jpa.parent_beacon_block_root,
+                slot_number: jpa.slot_number,
+                target_gas_limit: jpa.target_gas_limit,
+                inclusion_list_transactions: jpa.inclusion_list_transactions,
             }),
         }
     }
@@ -1180,6 +1203,15 @@ pub struct JsonPayloadStatusV1 {
     pub validation_error: Option<String>,
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonPayloadStatusV2 {
+    pub status: JsonPayloadStatusV1Status,
+    pub latest_valid_hash: Option<ExecutionBlockHash>,
+    pub validation_error: Option<String>,
+    pub inclusion_list_satisfied: Option<bool>,
+}
+
 impl From<PayloadStatusV1Status> for JsonPayloadStatusV1Status {
     fn from(e: PayloadStatusV1Status) -> Self {
         match e {
@@ -1210,12 +1242,33 @@ impl From<PayloadStatusV1> for JsonPayloadStatusV1 {
             status,
             latest_valid_hash,
             validation_error,
+            // Deliberately dropped because the V1 wire format cannot carry it.
+            inclusion_list_satisfied: _,
         } = p;
 
         Self {
             status: status.into(),
             latest_valid_hash,
             validation_error,
+        }
+    }
+}
+
+impl From<PayloadStatusV2> for JsonPayloadStatusV2 {
+    fn from(p: PayloadStatusV2) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let PayloadStatusV2 {
+            status,
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
+        } = p;
+
+        Self {
+            status: status.into(),
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
         }
     }
 }
@@ -1233,8 +1286,36 @@ impl From<JsonPayloadStatusV1> for PayloadStatusV1 {
             status: status.into(),
             latest_valid_hash,
             validation_error,
+            // The V1 wire format carries no inclusion list information.
+            inclusion_list_satisfied: None,
         }
     }
+}
+
+impl From<JsonPayloadStatusV2> for PayloadStatusV2 {
+    fn from(j: JsonPayloadStatusV2) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonPayloadStatusV2 {
+            status,
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
+        } = j;
+
+        Self {
+            status: status.into(),
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonForkchoiceUpdatedV2Response {
+    pub payload_status: JsonPayloadStatusV2,
+    pub payload_id: Option<TransparentJsonPayloadId>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -1258,6 +1339,22 @@ impl From<JsonForkchoiceUpdatedV1Response> for ForkchoiceUpdatedResponse {
         }
     }
 }
+
+impl From<JsonForkchoiceUpdatedV2Response> for ForkchoiceUpdatedResponse {
+    fn from(j: JsonForkchoiceUpdatedV2Response) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonForkchoiceUpdatedV2Response {
+            payload_status: status,
+            payload_id,
+        } = j;
+
+        Self {
+            payload_status: status.into(),
+            payload_id: payload_id.map(Into::into),
+        }
+    }
+}
+
 impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     fn from(f: ForkchoiceUpdatedResponse) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
@@ -1843,5 +1940,73 @@ mod tests {
         let zero = CustodyColumnsBitArray::try_from([].as_slice()).unwrap();
         let zero_json = serde_json::to_string(&zero).unwrap();
         assert_eq!(zero_json, "\"0x00000000000000000000000000000000\"");
+    }
+}
+
+#[cfg(test)]
+mod payload_status_tests {
+    use super::*;
+
+    /// Engine responses before `engine_newPayloadV6` do not carry `inclusionListSatisfied`.
+    #[test]
+    fn v1_response_carries_no_inclusion_list_information() {
+        let json = serde_json::json!({
+            "status": "VALID",
+            "latestValidHash": null,
+            "validationError": null,
+        });
+
+        let status: JsonPayloadStatusV1 = serde_json::from_value(json).unwrap();
+
+        assert_eq!(PayloadStatusV1::from(status).inclusion_list_satisfied, None);
+    }
+
+    #[test]
+    fn v1_response_does_not_serialize_inclusion_list_satisfied() {
+        let status = PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: None,
+            validation_error: None,
+            inclusion_list_satisfied: Some(true),
+        };
+
+        let json = serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap();
+
+        assert!(json.get("inclusionListSatisfied").is_none());
+    }
+
+    #[test]
+    fn v2_response_serializes_inclusion_list_satisfied() {
+        let status = PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: None,
+            validation_error: None,
+            inclusion_list_satisfied: Some(true),
+        };
+
+        let json = serde_json::to_value(JsonPayloadStatusV2::from(status)).unwrap();
+
+        assert_eq!(
+            json.get("inclusionListSatisfied"),
+            Some(&serde_json::json!(true))
+        );
+    }
+
+    #[test]
+    fn v2_response_round_trips_inclusion_list_satisfied() {
+        let json = serde_json::json!({
+            "status": "VALID",
+            "latestValidHash": null,
+            "validationError": null,
+            "inclusionListSatisfied": true,
+        });
+
+        let status: JsonPayloadStatusV2 = serde_json::from_value(json).unwrap();
+
+        assert_eq!(status.inclusion_list_satisfied, Some(true));
+        assert_eq!(
+            PayloadStatusV1::from(status).inclusion_list_satisfied,
+            Some(true)
+        );
     }
 }
