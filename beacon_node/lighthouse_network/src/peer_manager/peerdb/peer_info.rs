@@ -499,9 +499,9 @@ impl<E: EthSpec> PeerInfo<E> {
         Ok(())
     }
 
-    /// Modifies the status to Connected and increases the number of ingoing
+    /// Modifies the status to Connected and increases the number of incoming
     /// connections by one
-    pub(super) fn connect_ingoing(&mut self, multiaddr: Multiaddr) {
+    pub(super) fn connect_incoming(&mut self, multiaddr: Multiaddr) {
         self.seen_multiaddrs.insert(multiaddr.clone());
 
         match &mut self.connection_status {
@@ -582,7 +582,7 @@ pub enum PeerConnectionStatus {
     Connected {
         /// The multiaddr that we are connected via.
         multiaddr: Multiaddr,
-        /// number of ingoing connections.
+        /// number of incoming connections.
         n_in: u8,
         /// number of outgoing connections.
         n_out: u8,
