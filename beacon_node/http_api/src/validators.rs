@@ -41,40 +41,49 @@ fn resolve_ids_to_indices<T: BeaconChainTypes>(
     Ok(Some(indices))
 }
 
-// Yields an iterator of validators with its validator index
-fn iter_validators<E: EthSpec>(
+// Collects `f(index, validator)` over the requested validators, or over all validators when
+// `indices` is `None`.
+fn collect_validators<E: EthSpec, R>(
     state: &BeaconState<E>,
     indices: Option<BTreeSet<usize>>,
-) -> Box<dyn Iterator<Item = (usize, &Validator)> + '_> {
+    mut f: impl FnMut(usize, &Validator) -> Option<R>,
+) -> Vec<R> {
     match indices {
-        None => Box::new(state.validators().iter().enumerate()),
-        Some(indices) => Box::new(
-            indices
-                .into_iter()
-                .filter_map(move |index| Some((index, state.validators().get(index)?))),
-        ),
+        None => state
+            .validators()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, validator)| f(index, validator))
+            .collect(),
+        Some(indices) => indices
+            .into_iter()
+            .filter_map(|index| f(index, state.validators().get(index)?))
+            .collect(),
     }
 }
 
-// Yields an iterator of validators with its validator index and balance
-fn iter_validators_with_balances<E: EthSpec>(
+// As `collect_validators`, but also passes each validator's balance to `f`.
+fn collect_validators_with_balances<E: EthSpec, R>(
     state: &BeaconState<E>,
     indices: Option<BTreeSet<usize>>,
-) -> Box<dyn Iterator<Item = (usize, &Validator, u64)> + '_> {
+    mut f: impl FnMut(usize, &Validator, u64) -> Option<R>,
+) -> Vec<R> {
     match indices {
-        None => Box::new(
-            state
-                .validators()
-                .iter()
-                .zip(state.balances().iter())
-                .enumerate()
-                .map(|(index, (validator, balance))| (index, validator, *balance)),
-        ),
-        Some(indices) => Box::new(indices.into_iter().filter_map(move |index| {
-            let validator = state.validators().get(index)?;
-            let balance = *state.balances().get(index)?;
-            Some((index, validator, balance))
-        })),
+        None => state
+            .validators()
+            .iter()
+            .zip(state.balances().iter())
+            .enumerate()
+            .filter_map(|(index, (validator, balance))| f(index, validator, *balance))
+            .collect(),
+        Some(indices) => indices
+            .into_iter()
+            .filter_map(|index| {
+                let validator = state.validators().get(index)?;
+                let balance = *state.balances().get(index)?;
+                f(index, validator, balance)
+            })
+            .collect(),
     }
 }
 
@@ -99,9 +108,11 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                     .map(HashSet::from_iter);
 
                 Ok((
-                    iter_validators_with_balances(state, indices)
-                        // filter by status(es) if provided and map the result
-                        .filter_map(|(index, validator, balance)| {
+                    // filter by status(es) if provided and map the result
+                    collect_validators_with_balances(
+                        state,
+                        indices,
+                        |index, validator, balance| {
                             let status = api_types::ValidatorStatus::from_validator(
                                 validator,
                                 epoch,
@@ -124,8 +135,8 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                             } else {
                                 None
                             }
-                        })
-                        .collect::<Vec<_>>(),
+                        },
+                    ),
                     execution_optimistic,
                     finalized,
                 ))
@@ -151,12 +162,16 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
                 let indices = resolve_ids_to_indices(&chain, state, optional_ids)?;
 
                 Ok((
-                    iter_validators_with_balances(state, indices)
-                        .map(|(index, _validator, balance)| ValidatorBalanceData {
-                            index: index as u64,
-                            balance,
-                        })
-                        .collect::<Vec<_>>(),
+                    collect_validators_with_balances(
+                        state,
+                        indices,
+                        |index, _validator, balance| {
+                            Some(ValidatorBalanceData {
+                                index: index as u64,
+                                balance,
+                            })
+                        },
+                    ),
                     execution_optimistic,
                     finalized,
                 ))
@@ -182,13 +197,13 @@ pub fn get_beacon_state_validator_identities<T: BeaconChainTypes>(
                 let indices = resolve_ids_to_indices(&chain, state, optional_ids)?;
 
                 Ok((
-                    iter_validators(state, indices)
-                        .map(|(index, validator)| ValidatorIdentityData {
+                    collect_validators(state, indices, |index, validator| {
+                        Some(ValidatorIdentityData {
                             index: index as u64,
                             pubkey: validator.pubkey,
                             activation_epoch: validator.activation_epoch,
                         })
-                        .collect::<Vec<_>>(),
+                    }),
                     execution_optimistic,
                     finalized,
                 ))
