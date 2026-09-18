@@ -726,7 +726,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     .block()
                     .body()
                     .signed_execution_payload_bid()
-                    .map(|bid| bid.message.builder_index)
+                    .map(|bid| bid.message().builder_index())
                     .ok(),
                 UnsignedBlock::Blinded(_) => None,
             };
