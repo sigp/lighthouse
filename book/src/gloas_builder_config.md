@@ -77,14 +77,14 @@ builders:
 All byte fields (`builder_pubkeys` entries, `auth_data`) are `0x`-prefixed hex strings. All payment values
 (`min_bid`, `max_execution_payment`) are in gwei.
 
-The default `auth_data` excludes the URL's scheme, credentials, port, path, query and fragment.
+The default `auth_data` excludes the scheme, credentials, port, path, query and fragment of the URL.
 For example, both `https://builder.example.com` and `https://builder.example.com/` use
-`builder.example.com`. Internationalized hostnames must use punycode. IPv6 addresses use compressed,
+`builder.example.com`. An internationalized hostname must use punycode. IPv6 addresses use compressed,
 bracketed hexadecimal form, such as `[::1]` or `[::ffff:c000:201]`.
 
 A builder that uses a different identity must agree explicit `auth_data` with the validator operator.
 Explicit values are signed exactly as configured. See the
-[default auth data specification](https://github.com/ethereum/builder-specs/pull/168).
+[default authentication data specification](https://github.com/ethereum/builder-specs/pull/168).
 
 ## How bids are selected
 
