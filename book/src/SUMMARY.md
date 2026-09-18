@@ -49,6 +49,7 @@
   * [Redundancy](./advanced_redundancy.md)
   * [Release Candidates](./advanced_release_candidates.md)
   * [MEV](./advanced_builders.md)
+  * [Gloas Builder Configuration](./gloas_builder_config.md)
   * [Late Block Re-orgs](./advanced_re-orgs.md)
   * [Blobs](./advanced_blobs.md)
 * [Command Line Reference (CLI)](./help_general.md)
