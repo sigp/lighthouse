@@ -1007,13 +1007,18 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
                 let duty = &duty_and_proof.duty;
                 let is_aggregator = duty_and_proof.selection_proof.is_some();
 
-                subscriptions.push(BeaconCommitteeSubscription {
+                let beacon_committee = BeaconCommitteeSubscription {
                     validator_index: duty.validator_index,
                     committee_index: duty.committee_index,
                     committees_at_slot: duty.committees_at_slot,
                     slot: duty.slot,
                     is_aggregator,
-                });
+                };
+                subscriptions.push(beacon_committee.clone());
+                debug!(
+                    subscription = ?beacon_committee,
+                    "Beacon committee subscription",
+                );
                 subscription_slots_to_confirm.push(duty_and_proof.subscription_slots.clone());
             });
     }
@@ -1228,7 +1233,17 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
     let subservice = duties_service.clone();
     duties_service.executor.spawn(
         async move {
-            fill_in_selection_proofs(subservice, new_duties, dependent_root).await;
+            if subservice.selection_proof_config.selections_endpoint {
+                fill_in_selection_proofs_selections_endpoint(
+                    subservice,
+                    new_duties,
+                    dependent_root,
+                    epoch,
+                )
+                .await;
+            } else {
+                fill_in_selection_proofs(subservice, new_duties, dependent_root).await;
+            }
         },
         "duties_service_selection_proofs_background",
     );
@@ -1427,10 +1442,6 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
     // of selection proofs and insert them into the duties service `attesters` map.
     let slot_clock = &duties_service.slot_clock;
 
-    // Create a HashMap for BeaconCommitteeSelection to match the duty later for distributed case involving middleware
-    let mut selection_hashmap = HashMap::new();
-    let mut call_selection_endpoint = false;
-
     while !duties_by_slot.is_empty() {
         if let Some(duration) = slot_clock.duration_to_next_slot() {
             sleep(
@@ -1446,17 +1457,8 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 
             let lookahead_slot = current_slot + selection_lookahead;
 
-            let relevant_duties = if duties_service.selection_proof_config.parallel_sign {
-                // Remove old slot duties and only keep current duties in distributed mode
-                duties_by_slot
-                    .remove(&lookahead_slot)
-                    .map(|duties| BTreeMap::from([(lookahead_slot, duties)]))
-                    .unwrap_or_default()
-            } else {
-                let mut duties = duties_by_slot.split_off(&lookahead_slot);
-                std::mem::swap(&mut duties, &mut duties_by_slot);
-                duties
-            };
+            let mut relevant_duties = duties_by_slot.split_off(&lookahead_slot);
+            std::mem::swap(&mut relevant_duties, &mut duties_by_slot);
 
             let batch_size = relevant_duties.values().map(Vec::len).sum::<usize>();
 
@@ -1469,77 +1471,8 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                 &[validator_metrics::ATTESTATION_SELECTION_PROOFS],
             );
 
-            // for distributed case that uses the selections_endpoint
-            if duties_service.selection_proof_config.selections_endpoint {
-                // Using lookahead_slot to determine if it is the first slot of an epoch
-                let is_lookahead_slot_epoch_start = lookahead_slot % S::E::slots_per_epoch() == 0;
-
-                // Call the selection endpoint only at the first slot of an epoch or when it errors
-                if is_lookahead_slot_epoch_start || call_selection_endpoint {
-                    let beacon_committee_selections =
-                        make_beacon_committee_selection(&duties_service, &duties).await;
-
-                    let selections = match beacon_committee_selections {
-                        Ok(selections) => selections,
-                        Err(e) => {
-                            error!(
-                                error = ?e,
-                                "Failed to fetch selection proofs"
-                            );
-                            // If calling the endpoint fails, change to true so that it will retry the next slot
-                            call_selection_endpoint = true;
-                            continue;
-                        }
-                    };
-
-                    for selection in &selections {
-                        // This is a full_selection_proof returned by middleware
-                        let selection_proof =
-                            SelectionProof::from(selection.selection_proof.clone());
-                        selection_hashmap
-                            .insert((selection.validator_index, selection.slot), selection_proof);
-                    }
-                    // Once we have the selection_proof, we don't call the selections_endpoint again
-                    call_selection_endpoint = false;
-                }
-
-                for duty in relevant_duties.into_values().flatten() {
-                    let key = (duty.validator_index, duty.slot);
-
-                    let result = if let Some(selection_proof) = selection_hashmap.remove(&key) {
-                        match selection_proof
-                            .is_aggregator(duty.committee_length as usize, &duties_service.spec)
-                            .map_err(Error::<S::Error>::InvalidModulo)
-                        {
-                            // Aggregator, return the result
-                            Ok(true) => Ok((duty, Some(selection_proof))),
-                            // Not an aggregator, do nothing and continue
-                            Ok(false) => continue,
-                            Err(_) => return,
-                        }
-                    } else {
-                        Err(Error::FailedToProduceSelectionProof(
-                            ValidatorStoreError::Middleware(format!(
-                                "Missing selection proof for validator {} slot {}",
-                                duty.validator_index, duty.slot
-                            )),
-                        ))
-                    };
-
-                    let mut attesters = duties_service.attesters.write();
-                    // if process_duty_and_proof returns false, exit the loop
-                    if !process_duty_and_proof::<S>(
-                        &mut attesters,
-                        result,
-                        dependent_root,
-                        current_slot,
-                    ) {
-                        return;
-                    }
-                }
-            }
             // For distributed case that uses parallel_sign
-            else if duties_service.selection_proof_config.parallel_sign {
+            if duties_service.selection_proof_config.parallel_sign {
                 let mut duty_and_proof_results = relevant_duties
                     .into_values()
                     .flatten()
@@ -1609,6 +1542,115 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
             // us an opportunity for the clock to eventually come good.
             sleep(duties_service.slot_clock.slot_duration()).await;
         }
+    }
+}
+
+/// fill_in_selection_proofs involving middleware (DVT mode)
+async fn fill_in_selection_proofs_selections_endpoint<
+    S: ValidatorStore + 'static,
+    T: SlotClock + 'static,
+>(
+    duties_service: Arc<DutiesService<S, T>>,
+    duties: Vec<AttesterData>,
+    dependent_root: Hash256,
+    epoch: Epoch,
+) {
+    let slot_clock = &duties_service.slot_clock;
+    let epoch_start_slot = epoch.start_slot(S::E::slots_per_epoch());
+    let epoch_end_slot = epoch.end_slot(S::E::slots_per_epoch());
+
+    loop {
+        let Some(current_slot) = slot_clock.now() else {
+            continue;
+        };
+
+        // If the current slot already passed the epoch, return early so we don't call the selections endpoint for stale duties
+        if current_slot > epoch_end_slot {
+            return;
+        }
+
+        let timer = validator_metrics::start_timer_vec(
+            &validator_metrics::DUTIES_SERVICE_TIMES,
+            &[validator_metrics::ATTESTATION_SELECTION_PROOFS],
+        );
+
+        let beacon_committee_selections =
+            match make_beacon_committee_selection(&duties_service, &duties).await {
+                Ok(selections) => selections,
+                Err(e) => {
+                    error!(
+                        error = ?e,
+                        %epoch,
+                        "Failed to fetch selection proofs"
+                    );
+                    // If fails, retry at the next slot.
+                    let duration_to_next_slot = slot_clock
+                        .duration_to_next_slot()
+                        .unwrap_or_else(|| slot_clock.slot_duration());
+                    sleep(duration_to_next_slot).await;
+                    continue;
+                }
+            };
+
+        // Create a full_selection_proofs hashmap. Key is (validator_index (type u64), Slot) and Value is full_selection_proof
+        let mut selection_hashmap = beacon_committee_selections
+            .into_iter()
+            .map(|selection| {
+                (
+                    (selection.validator_index, selection.slot),
+                    SelectionProof::from(selection.selection_proof),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+
+        for duty in &duties {
+            let key = (duty.validator_index, duty.slot);
+            let result = match selection_hashmap.remove(&key) {
+                Some(selection_proof) => match selection_proof
+                    .is_aggregator(duty.committee_length as usize, &duties_service.spec)
+                {
+                    // Aggregator, return the result
+                    Ok(true) => Ok((duty.clone(), Some(selection_proof))),
+                    // Not an aggregator, do nothing and continue
+                    Ok(false) => continue,
+                    Err(e) => Err(Error::InvalidModulo(e)),
+                },
+                None => Err(Error::FailedToProduceSelectionProof(
+                    ValidatorStoreError::Middleware(format!(
+                        "Missing selection proof for validator {} slot {}",
+                        duty.validator_index, duty.slot
+                    )),
+                )),
+            };
+
+            let mut attesters = duties_service.attesters.write();
+            // if process_duty_and_proof returns false, exit the loop
+            if !process_duty_and_proof::<S>(&mut attesters, result, dependent_root, current_slot) {
+                return;
+            }
+        }
+
+        let time_taken_ms =
+            Duration::from_secs_f64(timer.map_or(0.0, |t| t.stop_and_record())).as_millis();
+        debug!(
+            batch_size = duties.len(),
+            %epoch,
+            time_taken_ms,
+            "Computed attestation full selection proofs"
+        );
+
+        let is_epoch_started = current_slot >= epoch_start_slot;
+        // for current epoch request, return early when the task is successful
+        // for next epoch request, this will be false and we wait till the next epoch to call the endpoint again
+        if is_epoch_started {
+            return;
+        }
+
+        // Wait until the next epoch such that the next epoch becomes the current epoch
+        let duration_to_next_epoch = slot_clock
+            .duration_to_slot(epoch_start_slot)
+            .unwrap_or_else(|| slot_clock.slot_duration());
+        sleep(duration_to_next_epoch).await;
     }
 }
 
