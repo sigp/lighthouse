@@ -1,4 +1,7 @@
-use eth2::types::{GenericResponse, PublishBlockRequest, SubmittedBuilderPreferences, SyncingData};
+use eth2::types::{
+    DutiesResponse, GenericResponse, PtcDuty, PublishBlockRequest, SubmittedBuilderPreferences,
+    SyncingData,
+};
 use eth2::{BLOB_DATA_INCLUDED_HEADER, BeaconNodeHttpClient, CONSENSUS_VERSION_HEADER, Timeouts};
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
@@ -11,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
 use types::{
-    BeaconBlock, ChainSpec, ConfigAndPreset, EthSpec, ExecutionPayloadEnvelope, ForkName, Hash256,
-    PayloadAttestationData, PayloadAttestationMessage, SignedBlindedBeaconBlock,
+    BeaconBlock, ChainSpec, ConfigAndPreset, Epoch, EthSpec, ExecutionPayloadEnvelope, ForkName,
+    Hash256, PayloadAttestationData, PayloadAttestationMessage, SignedBlindedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot,
 };
 
@@ -102,6 +105,32 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(200)
             .with_body(serde_json::to_string(&data).unwrap())
             .create();
+    }
+
+    pub fn mock_post_validator_duties_ptc(
+        &mut self,
+        epoch: Epoch,
+        validator_indices: &[u64],
+        dependent_root: Hash256,
+        duties: Vec<PtcDuty>,
+    ) -> Mock {
+        let indices: Vec<_> = validator_indices.iter().map(u64::to_string).collect();
+        let response = DutiesResponse {
+            dependent_root,
+            execution_optimistic: Some(false),
+            data: duties,
+        };
+
+        self.server
+            .mock(
+                "POST",
+                format!("/eth/v1/validator/duties/ptc/{epoch}").as_str(),
+            )
+            .match_body(Matcher::Json(serde_json::to_value(indices).unwrap()))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(&response).unwrap())
+            .create()
     }
 
     /// Mocks `POST /eth/v4/validator/blocks/{slot}`

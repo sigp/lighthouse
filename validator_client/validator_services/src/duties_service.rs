@@ -285,7 +285,15 @@ type DependentRoot = Hash256;
 
 type AttesterMap = HashMap<PublicKeyBytes, HashMap<Epoch, (DependentRoot, DutyAndProof)>>;
 type ProposerMap = HashMap<Epoch, (DependentRoot, Vec<ProposerData>)>;
-type PtcMap = HashMap<Epoch, (DependentRoot, Vec<PtcDuty>)>;
+type PtcMap = HashMap<Epoch, PtcDuties>;
+
+pub struct PtcDuties {
+    pub(crate) dependent_root: DependentRoot,
+    pub(crate) duties: Vec<PtcDuty>,
+    /// An empty assignment list still counts as checked. Inferring this set from duties
+    /// would keep fetching validators who have no PTC assignment in the epoch.
+    pub(crate) queried_validators: HashSet<u64>,
+}
 
 pub struct DutiesServiceBuilder<S, T> {
     /// Provides the canonical list of locally-managed validators.
@@ -496,7 +504,7 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
         self.ptc_duties
             .read()
             .get(&epoch)
-            .map(|(_, duties)| duties.len())
+            .map(|duties| duties.duties.len())
             .unwrap_or(0)
     }
 
@@ -572,8 +580,9 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
         self.ptc_duties
             .read()
             .get(&epoch)
-            .map(|(_, ptc_duties)| {
+            .map(|ptc_duties| {
                 ptc_duties
+                    .duties
                     .iter()
                     .filter(|ptc_duty| ptc_duty.slot == slot)
                     .cloned()
@@ -1887,9 +1896,6 @@ async fn poll_beacon_ptc_attesters_for_epoch<
         &[validator_metrics::UPDATE_PTC_FETCH],
     );
 
-    // TODO(gloas) Unlike attester duties which use `get_uninitialized_validators` to detect
-    // newly-added validators, PTC duties only check dependent_root changes. Validators added
-    // mid-epoch won't get PTC duties until the next epoch boundary. We should probably fix this.
     let initial_indices_to_request =
         &local_indices[0..min(INITIAL_PTC_DUTIES_QUERY_SIZE, local_indices.len())];
 
@@ -1897,41 +1903,36 @@ async fn poll_beacon_ptc_attesters_for_epoch<
         post_validator_duties_ptc(duties_service, epoch, initial_indices_to_request).await?;
     let dependent_root = response.dependent_root;
 
-    // Check if we need to update duties for this epoch and collect validators to update.
-    // We update if we have no epoch data OR if the dependent_root changed.
-    let validators_to_update = {
-        // Avoid holding the read-lock for any longer than required.
+    let (previous_root, new_validator_count) = {
         let ptc_duties = duties_service.ptc_duties.read();
-        let needs_update = ptc_duties.get(&epoch).is_none_or(|(prior_root, _duties)| {
-            // Update if dependent_root changed
-            *prior_root != dependent_root
-        });
-
-        if needs_update {
-            local_pubkeys.iter().collect::<Vec<_>>()
-        } else {
-            Vec::new()
+        match ptc_duties.get(&epoch) {
+            Some(cached) => (
+                Some(cached.dependent_root),
+                local_indices
+                    .iter()
+                    .filter(|index| !cached.queried_validators.contains(*index))
+                    .count(),
+            ),
+            None => (None, local_indices.len()),
         }
     };
 
-    if validators_to_update.is_empty() {
-        // No validators have conflicting (epoch, dependent_root) values for this epoch.
+    if previous_root == Some(dependent_root) && new_validator_count == 0 {
         return Ok(());
     }
 
-    // Make a request for all indices that require updating which we have not already made a request for.
-    let indices_to_request = validators_to_update
+    // Query and cache the same index snapshot. Discovery can add indices while the
+    // requests are in flight; those validators must remain eligible for the next poll.
+    let indices_to_request = local_indices
         .iter()
-        .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
+        .copied()
         .filter(|validator_index| !initial_indices_to_request.contains(validator_index))
         .collect::<Vec<_>>();
 
-    // Filter the initial duties by their relevance so that we don't hit warnings about
-    // overwriting duties.
     let new_initial_duties = response
         .data
         .into_iter()
-        .filter(|duty| validators_to_update.contains(&&duty.pubkey));
+        .filter(|duty| local_pubkeys.contains(&duty.pubkey));
 
     let mut new_duties = if !indices_to_request.is_empty() {
         post_validator_duties_ptc(duties_service, epoch, indices_to_request.as_slice())
@@ -1955,31 +1956,32 @@ async fn poll_beacon_ptc_attesters_for_epoch<
         "Downloaded PTC duties"
     );
 
-    // Update duties - we only reach here if dependent_root changed or epoch is missing
-    let mut ptc_duties = duties_service.ptc_duties.write();
-
-    match ptc_duties.entry(epoch) {
-        hash_map::Entry::Occupied(mut entry) => {
-            // Dependent root must have changed, so we do complete replacement.
-            // We cannot support partial updates for the same dependent_root.
-            // The beacon node may return incomplete duty lists and we cannot distinguish between "no duties" and
-            // "duties not included in this response". We could query all local validators in each
-            // `post_validator_duties_ptc` call regardless of dependent_root changes, but the bandwidth
-            // cost is likely not justified since PTC assignments are sparse.
-            let (existing_root, _existing_duties) = entry.get();
-            debug!(
-                old_root = %existing_root,
-                new_root = %dependent_root,
-                "PTC dependent root changed, replacing all duties"
-            );
-
-            *entry.get_mut() = (dependent_root, new_duties);
-        }
-        hash_map::Entry::Vacant(entry) => {
-            // No existing duties for this epoch
-            entry.insert((dependent_root, new_duties));
-        }
+    if let Some(old_root) = previous_root
+        && old_root != dependent_root
+    {
+        debug!(
+            %epoch,
+            %old_root,
+            new_root = %dependent_root,
+            "PTC dependent root changed, replacing all duties"
+        );
     }
+    if new_validator_count > 0 {
+        debug!(
+            %epoch,
+            new_validator_count,
+            "PTC duties refreshed for newly discovered validator indices"
+        );
+    }
+
+    duties_service.ptc_duties.write().insert(
+        epoch,
+        PtcDuties {
+            dependent_root,
+            duties: new_duties,
+            queried_validators: local_indices.iter().copied().collect(),
+        },
+    );
 
     Ok(())
 }
@@ -2016,6 +2018,202 @@ async fn notify_block_production_service<S: ValidatorStore>(
 #[cfg(test)]
 mod test {
     use super::*;
+    use slot_clock::ManualSlotClock;
+    use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
+
+    fn build_duties_service(
+        harness: &ValidatorClientHarness,
+    ) -> Arc<DutiesService<S, ManualSlotClock>> {
+        Arc::new(
+            DutiesServiceBuilder::new()
+                .validator_store(harness.validator_store.clone())
+                .slot_clock(harness.slot_clock.clone())
+                .beacon_nodes(harness.beacon_nodes.clone())
+                .executor(harness.test_runtime.task_executor.clone())
+                .spec(harness.spec.clone())
+                .build()
+                .unwrap(),
+        )
+    }
+
+    fn ptc_duty(harness: &ValidatorClientHarness, validator_index: usize, slot: u64) -> PtcDuty {
+        PtcDuty {
+            pubkey: harness.pubkeys[validator_index],
+            validator_index: validator_index as u64,
+            slot: Slot::new(slot),
+        }
+    }
+
+    #[tokio::test]
+    async fn ptc_duties_refresh_when_validator_index_is_discovered() {
+        let mut harness = ValidatorClientHarness::new(2).await;
+        let service = build_duties_service(&harness);
+        let epoch = Epoch::new(0);
+        let dependent_root = Hash256::ZERO;
+        let pubkeys = harness.pubkeys.iter().copied().collect();
+        let first_duty = ptc_duty(&harness, 0, 19);
+        let newly_discovered_duty = ptc_duty(&harness, 1, 2);
+        let first_response = harness.mock_beacon_node_1.mock_post_validator_duties_ptc(
+            epoch,
+            &[0],
+            dependent_root,
+            vec![first_duty.clone()],
+        );
+
+        poll_beacon_ptc_attesters_for_epoch(&service, epoch, &[0], &pubkeys)
+            .await
+            .unwrap();
+        assert_eq!(
+            service.get_ptc_duties_for_slot(first_duty.slot),
+            vec![first_duty.clone()]
+        );
+        assert!(
+            service
+                .get_ptc_duties_for_slot(newly_discovered_duty.slot)
+                .is_empty()
+        );
+
+        let new_response = harness.mock_beacon_node_1.mock_post_validator_duties_ptc(
+            epoch,
+            &[1],
+            dependent_root,
+            vec![newly_discovered_duty.clone()],
+        );
+        poll_beacon_ptc_attesters_for_epoch(&service, epoch, &[0, 1], &pubkeys)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            service.get_ptc_duties_for_slot(newly_discovered_duty.slot),
+            vec![newly_discovered_duty],
+            "new validator indices need duties even when the dependent root is unchanged",
+        );
+        assert_eq!(
+            service.get_ptc_duties_for_slot(first_duty.slot),
+            vec![first_duty]
+        );
+        poll_beacon_ptc_attesters_for_epoch(&service, epoch, &[0, 1], &pubkeys)
+            .await
+            .unwrap();
+        first_response.expect(3).assert();
+        new_response.expect(1).assert();
+    }
+
+    #[tokio::test]
+    async fn ptc_duties_cache_validators_without_assignments() {
+        let mut harness = ValidatorClientHarness::new(2).await;
+        let service = build_duties_service(&harness);
+        let epoch = Epoch::new(0);
+        let pubkeys = harness.pubkeys.iter().copied().collect();
+        let probe = harness.mock_beacon_node_1.mock_post_validator_duties_ptc(
+            epoch,
+            &[0],
+            Hash256::ZERO,
+            vec![],
+        );
+        let remaining = harness.mock_beacon_node_1.mock_post_validator_duties_ptc(
+            epoch,
+            &[1],
+            Hash256::ZERO,
+            vec![],
+        );
+
+        for _ in 0..2 {
+            poll_beacon_ptc_attesters_for_epoch(&service, epoch, &[0, 1], &pubkeys)
+                .await
+                .unwrap();
+            assert_eq!(service.ptc_count(epoch), 0);
+        }
+
+        probe.expect(2).assert();
+        remaining.expect(1).assert();
+    }
+
+    #[tokio::test]
+    async fn ptc_duties_refresh_replaces_assignments_on_dependent_root_change() {
+        let mut harness = ValidatorClientHarness::new(1).await;
+        let service = build_duties_service(&harness);
+        let epoch = Epoch::new(0);
+        let pubkeys = harness.pubkeys.iter().copied().collect();
+        let old_duty = ptc_duty(&harness, 0, 19);
+        let new_duty = ptc_duty(&harness, 0, 2);
+        let old_response = harness.mock_beacon_node_1.mock_post_validator_duties_ptc(
+            epoch,
+            &[0],
+            Hash256::ZERO,
+            vec![old_duty.clone()],
+        );
+        poll_beacon_ptc_attesters_for_epoch(&service, epoch, &[0], &pubkeys)
+            .await
+            .unwrap();
+        old_response.expect(1).assert();
+        harness.mock_beacon_node_1.reset_mocks();
+
+        let new_response = harness.mock_beacon_node_1.mock_post_validator_duties_ptc(
+            epoch,
+            &[0],
+            Hash256::repeat_byte(1),
+            vec![new_duty.clone()],
+        );
+        poll_beacon_ptc_attesters_for_epoch(&service, epoch, &[0], &pubkeys)
+            .await
+            .unwrap();
+
+        assert!(service.get_ptc_duties_for_slot(old_duty.slot).is_empty());
+        assert_eq!(
+            service.get_ptc_duties_for_slot(new_duty.slot),
+            vec![new_duty]
+        );
+        new_response.expect(1).assert();
+    }
+
+    #[tokio::test]
+    async fn ptc_duties_retry_failed_refresh_without_losing_cached_assignments() {
+        let mut harness = ValidatorClientHarness::new(2).await;
+        let service = build_duties_service(&harness);
+        let epoch = Epoch::new(0);
+        let pubkeys = harness.pubkeys.iter().copied().collect();
+        let old_duty = ptc_duty(&harness, 0, 19);
+        let new_duty = ptc_duty(&harness, 1, 2);
+        let first_response = harness.mock_beacon_node_1.mock_post_validator_duties_ptc(
+            epoch,
+            &[0],
+            Hash256::ZERO,
+            vec![old_duty.clone()],
+        );
+        poll_beacon_ptc_attesters_for_epoch(&service, epoch, &[0], &pubkeys)
+            .await
+            .unwrap();
+
+        // No response is installed for the newly discovered validator yet.
+        assert!(
+            poll_beacon_ptc_attesters_for_epoch(&service, epoch, &[0, 1], &pubkeys)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            service.get_ptc_duties_for_slot(old_duty.slot),
+            vec![old_duty]
+        );
+        assert_eq!(service.ptc_count(epoch), 1);
+
+        let new_response = harness.mock_beacon_node_1.mock_post_validator_duties_ptc(
+            epoch,
+            &[1],
+            Hash256::ZERO,
+            vec![new_duty.clone()],
+        );
+        poll_beacon_ptc_attesters_for_epoch(&service, epoch, &[0, 1], &pubkeys)
+            .await
+            .unwrap();
+        assert_eq!(
+            service.get_ptc_duties_for_slot(new_duty.slot),
+            vec![new_duty]
+        );
+        assert_eq!(service.ptc_count(epoch), 2);
+        first_response.expect(3).assert();
+        new_response.expect(1).assert();
+    }
 
     #[test]
     fn subscription_slots_exact() {
