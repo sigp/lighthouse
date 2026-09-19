@@ -117,15 +117,19 @@ where
             loop {
                 match receiver.recv().await {
                     Some(payload_available_event) => {
-                        // Only trigger on current-slot events
+                        // Current-slot events only, and only once Gloas is active.
                         let Some(current_slot) = self.slot_clock.now() else {
                             error!("Failed to read slot clock; ignoring payload available event");
                             continue;
                         };
-                        if payload_available_event.slot == current_slot {
+                        if payload_available_event.slot == current_slot
+                            && self
+                                .chain_spec
+                                .fork_name_at_slot::<S::E>(current_slot)
+                                .gloas_enabled()
+                        {
                             return payload_available_event;
                         }
-                        // Stale event — keep waiting for the deadline
                     }
                     None => {
                         error!("Payload available channel closed, deadline attestations only");
@@ -213,54 +217,73 @@ where
         let slot_duration = self.chain_spec.get_slot_duration();
         let payload_attestation_due = self.chain_spec.get_payload_attestation_due();
 
-        let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() else {
+        let Some(now) = self.slot_clock.now_duration() else {
             error!("Failed to read slot clock");
             sleep(slot_duration).await;
             return None;
         };
 
-        let Some(current_slot) = self.slot_clock.now() else {
-            error!("Failed to read slot clock after trigger");
+        let last = *self.latest_voted_slot.lock().await;
+        let Some((mut attestation_slot, mut wait)) =
+            self.slot_clock
+                .duration_to_deadline_after(now, |_| payload_attestation_due, last)
+        else {
+            error!("Failed to determine payload attestation deadline");
+            sleep(slot_duration).await;
             return None;
         };
 
         // TODO(gloas) we can delete all gloas gating logic after mainnet forks to gloas
-        // At each slot we sleep for `duration_to_next_slot + payload_attestation_due`.
-        // So we evaluate if gloas is enabled at `current_slot + 1` to ensure that we don't
-        // skip PTC duties at the fork slot.
-        let attestation_slot = current_slot + 1;
-
+        // Pre-Gloas deadlines are skipped; wait for the fork slot so PTC is not missed there.
         if !self
             .chain_spec
             .fork_name_at_slot::<S::E>(attestation_slot)
             .gloas_enabled()
         {
-            let sleep_duration = self
-                .chain_spec
-                .gloas_fork_epoch
-                .and_then(|fork_epoch| {
-                    let pre_fork_slot = fork_epoch
-                        .start_slot(S::E::slots_per_epoch())
-                        .saturating_sub(1u64);
-                    self.slot_clock.duration_to_slot(pre_fork_slot)
-                })
-                .unwrap_or(slot_duration);
-            sleep(sleep_duration).await;
-            return None;
+            let Some(fork_epoch) = self.chain_spec.gloas_fork_epoch else {
+                sleep(slot_duration).await;
+                return None;
+            };
+            let fork_slot = fork_epoch.start_slot(S::E::slots_per_epoch());
+            if last.is_some_and(|s| fork_slot <= s) {
+                sleep(
+                    self.slot_clock
+                        .duration_to_next_slot()
+                        .unwrap_or(slot_duration),
+                )
+                .await;
+                return None;
+            }
+            let Some(fork_wait) = self
+                .slot_clock
+                .start_of(fork_slot)
+                .and_then(|start| start.checked_add(payload_attestation_due))
+                .and_then(|deadline| deadline.checked_sub(now))
+            else {
+                sleep(
+                    self.slot_clock
+                        .duration_to_next_slot()
+                        .unwrap_or(slot_duration),
+                )
+                .await;
+                return None;
+            };
+            attestation_slot = fork_slot;
+            wait = fork_wait;
         }
 
-        sleep(duration_to_next_slot + payload_attestation_due).await;
+        sleep(wait).await;
 
-        let Some(post_sleep_slot) = self.slot_clock.now() else {
-            error!("Failed to read slot clock after sleep");
-            return None;
-        };
-        if post_sleep_slot != attestation_slot {
+        // Skip if sleep overshot the target slot; consume so we do not retry it.
+        let now_slot = self.slot_clock.now();
+        if now_slot != Some(attestation_slot) {
             warn!(
                 %attestation_slot,
-                %post_sleep_slot,
-                "Skipping payload attestation, slot clock drifted during sleep"
+                ?now_slot,
+                "Missed payload attestation slot due to lag"
             );
+            let mut last_slot = self.latest_voted_slot.lock().await;
+            *last_slot = Some(attestation_slot);
             return None;
         }
 
@@ -574,26 +597,52 @@ mod tests {
         let service_wait = service.wait_for_attestation_slot();
         tokio::pin!(service_wait);
 
-        // This first call of .now_or_never() starts the timer and registers the sleep timer with tokio
-        // It calls sleep(duration_to_next_slot + payload_attestation_due).await which registers a timer with a deadline of 21s
+        // Current-slot deadline (Gloas is enabled at genesis in this harness).
         assert!(service_wait.as_mut().now_or_never().is_none());
 
-        let duration_to_next_slot = harness.service.slot_clock.duration_to_next_slot().unwrap();
         let payload_attestation_due = harness.service.chain_spec.get_payload_attestation_due();
-        let duration_to_wait = duration_to_next_slot + payload_attestation_due;
-        // Advance both slot_clock and tokio::time to 21s (the sleep deadline)
-        // The timer hasn't fired yet because tokio requires time to be strictly past the deadline.
-        // so the following assert! should return None
-        // This verifies that the function wait_for_attestation_slot waits for the correct duration before returning a slot.
-        advance_time(&harness.service.slot_clock, duration_to_wait).await;
+        // Tokio timers fire only once time is strictly past the deadline.
+        advance_time(&harness.service.slot_clock, payload_attestation_due).await;
         assert!(
             service_wait.as_mut().now_or_never().is_none(),
             "Function should return None before the sleep duration has elapsed"
         );
 
-        // Advance time for 1 more second, the sleep should have completed and the function should return Some(attestation_slot)
-        // slot_clock is now at 22s, which is slot 1
-        // Removing this advance_time should cause the following assert_eq! to fail
+        advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            Some(Slot::new(0))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_attestation_slot_after_deadline_uses_next_slot() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_validators(1, None).await;
+        let payload_attestation_due = harness.service.chain_spec.get_payload_attestation_due();
+        // Start after the current slot's PTC deadline.
+        advance_time(
+            &harness.service.slot_clock,
+            payload_attestation_due + Duration::from_millis(1),
+        )
+        .await;
+
+        let service_wait = harness.service.wait_for_attestation_slot();
+        tokio::pin!(service_wait);
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        let (target_slot, wait) = harness
+            .service
+            .slot_clock
+            .duration_to_deadline(harness.service.slot_clock.now_duration().unwrap(), |_| {
+                payload_attestation_due
+            })
+            .unwrap();
+        assert_eq!(target_slot, Slot::new(1));
+
+        advance_time(&harness.service.slot_clock, wait).await;
+        assert!(service_wait.as_mut().now_or_never().is_none());
         advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
         assert_eq!(
             service_wait.as_mut().now_or_never().unwrap(),
@@ -601,45 +650,81 @@ mod tests {
         );
     }
 
-    // The first Gloas slot must not be skipped: the iteration running in the last pre-Gloas
-    // slot has to arm the attestation for the fork slot.
+    #[tokio::test]
+    async fn test_wait_for_attestation_slot_after_consumed_slot_uses_next() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_validators(1, None).await;
+        let payload_attestation_due = harness.service.chain_spec.get_payload_attestation_due();
+        *harness.service.latest_voted_slot.lock().await = Some(Slot::new(0));
+
+        let service_wait = harness.service.wait_for_attestation_slot();
+        tokio::pin!(service_wait);
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        let (target_slot, wait) = harness
+            .service
+            .slot_clock
+            .duration_to_deadline_after(
+                harness.service.slot_clock.now_duration().unwrap(),
+                |_| payload_attestation_due,
+                Some(Slot::new(0)),
+            )
+            .unwrap();
+        assert_eq!(target_slot, Slot::new(1));
+
+        advance_time(&harness.service.slot_clock, wait).await;
+        assert!(service_wait.as_mut().now_or_never().is_none());
+        advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            Some(Slot::new(1))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_wait_for_attestation_slot_lag_skips_and_consumes() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_validators(1, None).await;
+        let slot_duration = harness.service.chain_spec.get_slot_duration();
+
+        let service_wait = harness.service.wait_for_attestation_slot();
+        tokio::pin!(service_wait);
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        // Overshoot slot 0 so the wait completes in slot 1.
+        advance_time(
+            &harness.service.slot_clock,
+            slot_duration + Duration::from_secs(1),
+        )
+        .await;
+        assert_eq!(service_wait.as_mut().now_or_never().unwrap(), None);
+        assert_eq!(
+            *harness.service.latest_voted_slot.lock().await,
+            Some(Slot::new(0))
+        );
+    }
+
     // See https://github.com/sigp/lighthouse/issues/9584
     #[tokio::test]
     async fn test_wait_for_attestation_slot_at_fork_boundary() {
         tokio::time::pause();
 
-        // Gloas activates at epoch 1, i.e. fork slot 32. The clock starts at slot 0.
+        // Gloas at epoch 1 (fork slot 32); clock starts at slot 0.
         let harness =
             TestHarness::create_validators_with_gloas_fork_epoch(1, None, Epoch::new(1)).await;
         let service = &harness.service;
         let slot_clock = &harness.service.slot_clock;
+        let payload_attestation_due = harness.service.chain_spec.get_payload_attestation_due();
 
-        // First iteration: the next slot (1) is pre-Gloas, so the service sleeps until one
-        // slot before the fork (slot 31 starts at 372s) and returns None.
+        // Should arm the fork slot PTC deadline (slot 32 starts at 384s).
         let service_wait = service.wait_for_attestation_slot();
         tokio::pin!(service_wait);
         assert!(service_wait.as_mut().now_or_never().is_none());
 
-        advance_time(slot_clock, Duration::from_secs(372)).await;
-        assert!(
-            service_wait.as_mut().now_or_never().is_none(),
-            "Pre-Gloas sleep should not end before one slot ahead of the fork"
-        );
-        advance_time(slot_clock, Duration::from_secs(1)).await;
-        assert_eq!(
-            service_wait.as_mut().now_or_never().unwrap(),
-            None,
-            "Pre-Gloas iteration should wake at the last pre-fork slot and return None"
-        );
-        assert_eq!(slot_clock.now().unwrap(), Slot::new(31));
-
-        // Second iteration: runs during slot 31, so it arms the attestation for the first
-        // Gloas slot (32) and wakes 75% into it (slot 32 starts at 384s, due at 393s).
-        let service_wait = service.wait_for_attestation_slot();
-        tokio::pin!(service_wait);
-        assert!(service_wait.as_mut().now_or_never().is_none());
-
-        advance_time(slot_clock, Duration::from_secs(20)).await;
+        let fork_deadline = Duration::from_secs(384) + payload_attestation_due;
+        advance_time(slot_clock, fork_deadline).await;
         assert!(
             service_wait.as_mut().now_or_never().is_none(),
             "Should not fire before the payload attestation deadline of the fork slot"
