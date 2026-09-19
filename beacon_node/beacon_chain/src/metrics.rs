@@ -523,6 +523,16 @@ pub static PAYLOAD_ATTESTATION_PRODUCTION_SECONDS: LazyLock<Result<Histogram>> =
     });
 
 /*
+ * Inclusion List Production
+ */
+pub static INCLUSION_LIST_PRODUCTION_SECONDS: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_inclusion_list_production_seconds",
+        "Full runtime of inclusion list production",
+    )
+});
+
+/*
  * Fork Choice
  */
 pub static FORK_CHOICE_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
