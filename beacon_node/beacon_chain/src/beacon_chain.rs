@@ -6792,8 +6792,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             let inclusion_list_transactions = if prepare_slot_fork.heze_enabled() {
-                // TODO(heze): populate from the inclusion list store
-                Some(ProgressiveTransactions::empty())
+                let chain = self.clone();
+                let transactions = self
+                    .spawn_blocking_handle(
+                        move || chain.proposer_inclusion_list_transactions(head_root, current_slot),
+                        "prepare_beacon_proposer_inclusion_list_transactions",
+                    )
+                    .await?;
+                Some(transactions)
             } else {
                 None
             };
@@ -7475,6 +7481,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 only_timely,
             )
             .map_err(Into::into)
+    }
+
+    /// Provides the inclusion list transactions for a payload built on `parent_root`
+    /// at `slot + 1`
+    /// The return value falls back to an empty list if fetching the inclusion list transactions fails
+    pub fn proposer_inclusion_list_transactions(
+        &self,
+        parent_root: Hash256,
+        slot: Slot,
+    ) -> ProgressiveTransactions {
+        self.get_inclusion_list_transactions(parent_root, slot, false)
+            .map(ProgressiveTransactions::from)
+            .unwrap_or_else(|e| {
+                warn!(
+                    ?parent_root,
+                    %slot,
+                    error = ?e,
+                    "Failed to read inclusion lists, building payload without them"
+                );
+                ProgressiveTransactions::empty()
+            })
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
