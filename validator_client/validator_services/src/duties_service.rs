@@ -1111,7 +1111,7 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
 
     let response =
         post_validator_duties_attester(duties_service, epoch, initial_indices_to_request).await?;
-    let dependent_root = response.dependent_root;
+    let probe_dependent_root = response.dependent_root;
 
     // Find any validators which have conflicting (epoch, dependent_root) values or missing duties for the epoch.
     let validators_to_update: Vec<_> = {
@@ -1123,7 +1123,7 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
                 attesters.get(pubkey).is_none_or(|duties| {
                     duties
                         .get(&epoch)
-                        .is_none_or(|(prior, _)| *prior != dependent_root)
+                        .is_none_or(|(prior, _)| *prior != probe_dependent_root)
                 })
             })
             .collect::<Vec<_>>()
@@ -1134,29 +1134,49 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
         return Ok(());
     }
 
-    // Make a request for all indices that require updating which we have not already made a request
-    // for.
-    let indices_to_request = validators_to_update
+    let indices_needing_refresh: Vec<_> = validators_to_update
         .iter()
         .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
-        .filter(|validator_index| !initial_indices_to_request.contains(validator_index))
-        .collect::<Vec<_>>();
+        .collect();
 
-    // Filter the initial duties by their relevance so that we don't hit the warning below about
-    // overwriting duties. There was previously a bug here.
-    let new_initial_duties = response
-        .data
-        .into_iter()
-        .filter(|duty| validators_to_update.contains(&&duty.pubkey));
+    // If the probe did not cover every validator that needs updating, fetch them all in one
+    // request. Do not merge with the probe response: the two requests may observe different
+    // dependent roots (fallback BN or re-org between calls).
+    let needs_coherent_refresh = indices_needing_refresh
+        .iter()
+        .any(|index| !initial_indices_to_request.contains(index));
 
-    let mut new_duties = if !indices_to_request.is_empty() {
-        post_validator_duties_attester(duties_service, epoch, indices_to_request.as_slice())
-            .await?
+    let (dependent_root, new_duties) = if !needs_coherent_refresh {
+        // Filter the initial duties by their relevance so that we don't hit the warning below about
+        // overwriting duties. There was previously a bug here.
+        let new_duties = response
             .data
+            .into_iter()
+            .filter(|duty| validators_to_update.contains(&&duty.pubkey))
+            .collect::<Vec<_>>();
+        (probe_dependent_root, new_duties)
     } else {
-        vec![]
+        let bulk_response = post_validator_duties_attester(
+            duties_service,
+            epoch,
+            indices_needing_refresh.as_slice(),
+        )
+        .await?;
+        if bulk_response.dependent_root != probe_dependent_root {
+            debug!(
+                probe_dependent_root = %probe_dependent_root,
+                bulk_dependent_root = %bulk_response.dependent_root,
+                "Attester duty dependent_root mismatch"
+            );
+        }
+        let dependent_root = bulk_response.dependent_root;
+        let new_duties = bulk_response
+            .data
+            .into_iter()
+            .filter(|duty| validators_to_update.contains(&&duty.pubkey))
+            .collect::<Vec<_>>();
+        (dependent_root, new_duties)
     };
-    new_duties.extend(new_initial_duties);
 
     drop(fetch_timer);
 
@@ -1895,7 +1915,7 @@ async fn poll_beacon_ptc_attesters_for_epoch<
 
     let response =
         post_validator_duties_ptc(duties_service, epoch, initial_indices_to_request).await?;
-    let dependent_root = response.dependent_root;
+    let probe_dependent_root = response.dependent_root;
 
     // Check if we need to update duties for this epoch and collect validators to update.
     // We update if we have no epoch data OR if the dependent_root changed.
@@ -1904,7 +1924,7 @@ async fn poll_beacon_ptc_attesters_for_epoch<
         let ptc_duties = duties_service.ptc_duties.read();
         let needs_update = ptc_duties.get(&epoch).is_none_or(|(prior_root, _duties)| {
             // Update if dependent_root changed
-            *prior_root != dependent_root
+            *prior_root != probe_dependent_root
         });
 
         if needs_update {
@@ -1919,28 +1939,44 @@ async fn poll_beacon_ptc_attesters_for_epoch<
         return Ok(());
     }
 
-    // Make a request for all indices that require updating which we have not already made a request for.
-    let indices_to_request = validators_to_update
+    let indices_needing_refresh: Vec<_> = validators_to_update
         .iter()
         .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
-        .filter(|validator_index| !initial_indices_to_request.contains(validator_index))
-        .collect::<Vec<_>>();
+        .collect();
 
-    // Filter the initial duties by their relevance so that we don't hit warnings about
-    // overwriting duties.
-    let new_initial_duties = response
-        .data
-        .into_iter()
-        .filter(|duty| validators_to_update.contains(&&duty.pubkey));
+    // If the probe did not cover every validator that needs updating, fetch them all in one
+    // request. Do not merge with the probe response: the two requests may observe different
+    // dependent roots (fallback BN or re-org between calls).
+    let needs_coherent_refresh = indices_needing_refresh
+        .iter()
+        .any(|index| !initial_indices_to_request.contains(index));
 
-    let mut new_duties = if !indices_to_request.is_empty() {
-        post_validator_duties_ptc(duties_service, epoch, indices_to_request.as_slice())
-            .await?
+    let (dependent_root, new_duties) = if !needs_coherent_refresh {
+        let new_duties = response
             .data
+            .into_iter()
+            .filter(|duty| validators_to_update.contains(&&duty.pubkey))
+            .collect::<Vec<_>>();
+        (probe_dependent_root, new_duties)
     } else {
-        vec![]
+        let bulk_response =
+            post_validator_duties_ptc(duties_service, epoch, indices_needing_refresh.as_slice())
+                .await?;
+        if bulk_response.dependent_root != probe_dependent_root {
+            debug!(
+                probe_dependent_root = %probe_dependent_root,
+                bulk_dependent_root = %bulk_response.dependent_root,
+                "PTC duty dependent_root mismatch"
+            );
+        }
+        let dependent_root = bulk_response.dependent_root;
+        let new_duties = bulk_response
+            .data
+            .into_iter()
+            .filter(|duty| validators_to_update.contains(&&duty.pubkey))
+            .collect::<Vec<_>>();
+        (dependent_root, new_duties)
     };
-    new_duties.extend(new_initial_duties);
 
     drop(fetch_timer);
 
