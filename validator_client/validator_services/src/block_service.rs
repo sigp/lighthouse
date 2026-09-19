@@ -537,7 +537,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             // neither a failed nor a stalled signer ever fails (or stalls) the proposal.
             let builder_config = self_ref
                 .configured_builders
-                .builder_config(|auth_data| async move {
+                .builder_config(&validator_pubkey, |auth_data| async move {
                     sign_request_auth_with_deadline(self_ref.request_auth_cache.get_or_sign(
                         slot,
                         validator_pubkey,
