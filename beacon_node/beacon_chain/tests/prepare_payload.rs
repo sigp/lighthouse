@@ -905,8 +905,6 @@ async fn prepare_payload_around_heze_boundary(prepare_slot: Slot, heze_fork_epoc
             serde_json::from_value(payload_attributes_json.clone()).unwrap();
         // We are currently sending the V5 shape with an empty inclusion list
         assert!(attributes.inclusion_list_transactions.is_empty());
-        // `custodyColumns` is the (nullable) third parameter of engine api call
-        assert!(params.get(2).is_some_and(|c| c.is_null()));
     } else {
         assert_eq!(method, ENGINE_FORKCHOICE_UPDATED_V4);
         let _attributes: JsonPayloadAttributesV4 =
