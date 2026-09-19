@@ -22,7 +22,7 @@ use types::{
     LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
     SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
-    SignedBeaconBlockGloas, SignedBeaconBlockHeze,
+    SignedBeaconBlockGloas, SignedBeaconBlockHeze, SignedInclusionList,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -84,6 +84,7 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
                 RpcSuccessResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::DataColumnsByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::DataColumnsByRange(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::InclusionListsByIndices(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::LightClientOptimisticUpdate(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::LightClientFinalityUpdate(res) => res.as_ssz_bytes(),
@@ -367,6 +368,7 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
             RequestType::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
             RequestType::DataColumnsByRange(req) => req.as_ssz_bytes(),
             RequestType::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
+            RequestType::InclusionListsByIndices(req) => req.as_ssz_bytes(),
             RequestType::Ping(req) => req.as_ssz_bytes(),
             RequestType::LightClientBootstrap(req) => req.as_ssz_bytes(),
             RequestType::LightClientUpdatesByRange(req) => req.as_ssz_bytes(),
@@ -594,6 +596,11 @@ fn handle_rpc_request<E: EthSpec>(
                     )?,
             },
         ))),
+        SupportedProtocol::InclusionListsByIndicesV1 => {
+            Ok(Some(RequestType::InclusionListsByIndices(
+                InclusionListsByIndicesRequest::from_ssz_bytes(decoded_buffer)?,
+            )))
+        }
         SupportedProtocol::PingV1 => Ok(Some(RequestType::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -788,6 +795,27 @@ fn handle_rpc_response<E: EthSpec>(
                     Err(RPCError::ErrorResponse(
                         RpcErrorResponse::InvalidRequest,
                         "Invalid fork name for data columns by range".to_string(),
+                    ))
+                }
+            }
+            None => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                format!(
+                    "No context bytes provided for {:?} response",
+                    versioned_protocol
+                ),
+            )),
+        },
+        SupportedProtocol::InclusionListsByIndicesV1 => match fork_name {
+            Some(fork_name) => {
+                if fork_name.heze_enabled() {
+                    Ok(Some(RpcSuccessResponse::InclusionListsByIndices(Arc::new(
+                        SignedInclusionList::from_ssz_bytes(decoded_buffer)?,
+                    ))))
+                } else {
+                    Err(RPCError::ErrorResponse(
+                        RpcErrorResponse::InvalidRequest,
+                        "Invalid fork name for inclusion lists by indices".to_string(),
                     ))
                 }
             }
@@ -1002,7 +1030,7 @@ mod tests {
         SignedBeaconBlockHeader, Slot,
         data::{BlobIdentifier, Cell},
     };
-    use types::{BlobSidecar, DataColumnSidecarFulu};
+    use types::{BlobSidecar, DataColumnSidecarFulu, InclusionList, InclusionListBits};
 
     type Spec = types::MainnetEthSpec;
 
@@ -1192,6 +1220,31 @@ mod tests {
         .unwrap()
     }
 
+    fn ilbindices_request() -> InclusionListsByIndicesRequest<Spec> {
+        let mut indices = InclusionListBits::<Spec>::new();
+        indices.set(0, true).unwrap();
+        indices.set(3, true).unwrap();
+        InclusionListsByIndicesRequest {
+            slot: Slot::new(1),
+            dependent_root: Hash256::zero(),
+            indices,
+        }
+    }
+
+    fn empty_signed_inclusion_list(spec: &ChainSpec) -> Arc<SignedInclusionList> {
+        // The context bytes are derived from the inclusion list slot, so it must be set here.
+        Arc::new(SignedInclusionList {
+            message: InclusionList {
+                slot: spec
+                    .heze_fork_epoch
+                    .expect("heze fork epoch must be set")
+                    .start_slot(Spec::slots_per_epoch()),
+                ..InclusionList::default()
+            },
+            signature: Signature::empty(),
+        })
+    }
+
     fn ping_message() -> Ping {
         Ping { data: 1 }
     }
@@ -1354,6 +1407,9 @@ mod tests {
             }
             RequestType::DataColumnsByRange(dcbrange) => {
                 assert_eq!(decoded, RequestType::DataColumnsByRange(dcbrange))
+            }
+            RequestType::InclusionListsByIndices(ilbindices) => {
+                assert_eq!(decoded, RequestType::InclusionListsByIndices(ilbindices))
             }
             RequestType::Ping(ping) => {
                 assert_eq!(decoded, RequestType::Ping(ping))
@@ -1672,6 +1728,52 @@ mod tests {
                 empty_data_column_sidecar(&chain_spec)
             ))),
         );
+    }
+
+    #[test]
+    fn inclusion_lists_by_indices_response_round_trips() {
+        let chain_spec = spec_with_all_forks_enabled();
+
+        assert_eq!(
+            encode_then_decode_response(
+                SupportedProtocol::InclusionListsByIndicesV1,
+                RpcResponse::Success(RpcSuccessResponse::InclusionListsByIndices(
+                    empty_signed_inclusion_list(&chain_spec)
+                )),
+                ForkName::Heze,
+                &chain_spec,
+            ),
+            Ok(Some(RpcSuccessResponse::InclusionListsByIndices(
+                empty_signed_inclusion_list(&chain_spec)
+            ))),
+        );
+    }
+
+    #[test]
+    fn inclusion_lists_by_indices_response_is_rejected_before_heze() {
+        let chain_spec = spec_with_all_forks_enabled();
+
+        // A pre-Heze slot produces a pre-Heze fork digest, so the response must be rejected.
+        let pre_heze = Arc::new(SignedInclusionList {
+            message: InclusionList {
+                slot: chain_spec
+                    .gloas_fork_epoch
+                    .expect("gloas fork epoch must be set")
+                    .start_slot(Spec::slots_per_epoch()),
+                ..InclusionList::default()
+            },
+            signature: Signature::empty(),
+        });
+
+        assert!(matches!(
+            encode_then_decode_response(
+                SupportedProtocol::InclusionListsByIndicesV1,
+                RpcResponse::Success(RpcSuccessResponse::InclusionListsByIndices(pre_heze)),
+                ForkName::Heze,
+                &chain_spec,
+            ),
+            Err(RPCError::ErrorResponse(RpcErrorResponse::InvalidRequest, _))
+        ));
     }
 
     // Test RPCResponse encoding/decoding for V1 messages
@@ -2105,6 +2207,7 @@ mod tests {
             RequestType::MetaData(MetadataRequest::new_v1()),
             RequestType::BlobsByRange(blbrange_request()),
             RequestType::DataColumnsByRange(dcbrange_request()),
+            RequestType::InclusionListsByIndices(ilbindices_request()),
             RequestType::MetaData(MetadataRequest::new_v2()),
             RequestType::BlocksByHead(BlocksByHeadRequest {
                 beacon_root: Hash256::zero(),
