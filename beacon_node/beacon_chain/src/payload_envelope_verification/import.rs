@@ -61,7 +61,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .message()
                 .body()
                 .signed_execution_payload_bid()?
-                .clone(),
+                .clone_as_signed_execution_payload_bid(),
         );
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,

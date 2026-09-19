@@ -331,6 +331,7 @@ pub struct ChainSpec {
      * Networking Gloas
      */
     pub max_request_payloads: u64,
+    pub max_signed_execution_payload_bid_size: u64,
 
     /*
      * Networking Heze
@@ -338,6 +339,7 @@ pub struct ChainSpec {
     pub max_transactions_bytes_per_inclusion_list: u64,
     pub max_request_inclusion_list: u64,
     pub min_slots_for_inclusion_lists_requests: u64,
+    pub max_signed_execution_payload_bid_size_heze: u64,
 
     /*
      * Networking Derived
@@ -476,6 +478,14 @@ impl ChainSpec {
             self.inactivity_penalty_quotient_altair
         } else {
             self.inactivity_penalty_quotient
+        }
+    }
+
+    pub fn max_signed_execution_payload_bid_size_for_fork(&self, fork_name: ForkName) -> usize {
+        if fork_name.heze_enabled() {
+            self.max_signed_execution_payload_bid_size_heze as usize
+        } else {
+            self.max_signed_execution_payload_bid_size as usize
         }
     }
 
@@ -1412,6 +1422,7 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             max_request_payloads: 128,
+            max_signed_execution_payload_bid_size: 196932,
 
             /*
              * Heze hard fork params
@@ -1420,6 +1431,7 @@ impl ChainSpec {
             heze_fork_epoch: None,
             max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
+            max_signed_execution_payload_bid_size_heze: 196934,
             min_slots_for_inclusion_lists_requests: 1,
 
             /*
@@ -1868,6 +1880,7 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             max_request_payloads: 128,
+            max_signed_execution_payload_bid_size: 196932,
 
             /*
              * Heze hard fork params
@@ -1876,6 +1889,7 @@ impl ChainSpec {
             heze_fork_epoch: None,
             max_transactions_bytes_per_inclusion_list: 8192,
             max_request_inclusion_list: 16,
+            max_signed_execution_payload_bid_size_heze: 196934,
             min_slots_for_inclusion_lists_requests: 1,
 
             /*

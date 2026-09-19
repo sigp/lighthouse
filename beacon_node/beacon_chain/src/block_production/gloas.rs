@@ -10,7 +10,7 @@ use execution_layer::{
     PayloadParameters,
 };
 use operation_pool::CompactAttestationRef;
-use ssz::{Encode, ProgressiveBitList};
+use ssz::{BitVector, Encode, ProgressiveBitList};
 use ssz_types::ProgressiveVariableList;
 use state_processing::common::{get_attesting_indices_from_state, get_indexed_payload_attestation};
 use state_processing::envelope_processing::verify_execution_payload_envelope;
@@ -32,11 +32,13 @@ use types::{
     Address, Attestation, AttestationGloas, AttesterSlashing, AttesterSlashingGloas, BeaconBlock,
     BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze, BeaconState,
     BeaconStateError, BlobsList, BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionRequestsGloas, FullPayload, Graffiti,
-    Hash256, IndexedAttestation, KzgProofs, PayloadAttestation, ProgressiveTransactions,
-    ProposerSlashing, RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal, Withdrawals,
+    ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadEnvelope,
+    ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, IndexedAttestation, KzgProofs,
+    PayloadAttestation, ProgressiveTransactions, ProposerSlashing, RelativeEpoch,
+    SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal,
+    Withdrawals,
 };
 
 use builder_client::BidRequestContext;
@@ -252,9 +254,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Distinct from the beacon-chain parent (`parent_root`); on the wire this becomes the
         // bid's `parent_block_hash` and the builder request's `parent_hash` path parameter.
         let executed_ancestor_hash = if should_build_on_full || parent_is_pre_gloas {
-            parent_bid.block_hash
+            parent_bid.block_hash()
         } else {
-            parent_bid.parent_block_hash
+            parent_bid.parent_block_hash()
         };
 
         // The per-proposal context addressing each `getExecutionPayloadBid`.
@@ -450,7 +452,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // building on the parent's payload) so that attestation packing scores head votes like
             // block processing does.
             if should_build_on_full {
-                let parent_slot = state.latest_execution_payload_bid()?.slot;
+                let parent_slot = state.latest_execution_payload_bid()?.slot();
                 let availability_index =
                     parent_slot.as_usize() % T::EthSpec::slots_per_historical_root();
                 state
@@ -718,56 +720,82 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Cannot construct a block pre-Gloas".to_owned(),
                 ));
             }
-            BeaconState::Gloas(_) => BeaconBlock::Gloas(BeaconBlockGloas {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root: Hash256::ZERO,
-                body: BeaconBlockBodyGloas {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    // The operation list lengths are bounded by the op pool packing limits above.
-                    proposer_slashings: ProgressiveVariableList::from_iter(proposer_slashings),
-                    attester_slashings: ProgressiveVariableList::from_iter(attester_slashings),
-                    attestations: ProgressiveVariableList::from_iter(attestations),
-                    deposits: ProgressiveVariableList::from_iter(deposits),
-                    voluntary_exits: ProgressiveVariableList::from_iter(voluntary_exits),
-                    sync_aggregate,
-                    bls_to_execution_changes: ProgressiveVariableList::from_iter(
-                        bls_to_execution_changes,
-                    ),
-                    parent_execution_requests,
-                    signed_execution_payload_bid,
-                    payload_attestations: ProgressiveVariableList::from_iter(payload_attestations),
-                    _phantom: PhantomData::<FullPayload<T::EthSpec>>,
-                },
-            }),
-            BeaconState::Heze(_) => BeaconBlock::Heze(BeaconBlockHeze {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root: Hash256::ZERO,
-                body: BeaconBlockBodyHeze {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    // The operation list lengths are bounded by the op pool packing limits above.
-                    proposer_slashings: ProgressiveVariableList::from_iter(proposer_slashings),
-                    attester_slashings: ProgressiveVariableList::from_iter(attester_slashings),
-                    attestations: ProgressiveVariableList::from_iter(attestations),
-                    deposits: ProgressiveVariableList::from_iter(deposits),
-                    voluntary_exits: ProgressiveVariableList::from_iter(voluntary_exits),
-                    sync_aggregate,
-                    bls_to_execution_changes: ProgressiveVariableList::from_iter(
-                        bls_to_execution_changes,
-                    ),
-                    parent_execution_requests,
-                    signed_execution_payload_bid,
-                    payload_attestations: ProgressiveVariableList::from_iter(payload_attestations),
-                    _phantom: PhantomData::<FullPayload<T::EthSpec>>,
-                },
-            }),
+            BeaconState::Gloas(_) => {
+                let SignedExecutionPayloadBid::Gloas(signed_execution_payload_bid) =
+                    signed_execution_payload_bid
+                else {
+                    return Err(BlockProductionError::InvalidBlockVariant(
+                        "Cannot construct a Gloas block with a non-Gloas execution payload bid"
+                            .to_string(),
+                    ));
+                };
+
+                BeaconBlock::Gloas(BeaconBlockGloas {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::ZERO,
+                    body: BeaconBlockBodyGloas {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        // The operation list lengths are bounded by the op pool packing limits above.
+                        proposer_slashings: ProgressiveVariableList::from_iter(proposer_slashings),
+                        attester_slashings: ProgressiveVariableList::from_iter(attester_slashings),
+                        attestations: ProgressiveVariableList::from_iter(attestations),
+                        deposits: ProgressiveVariableList::from_iter(deposits),
+                        voluntary_exits: ProgressiveVariableList::from_iter(voluntary_exits),
+                        sync_aggregate,
+                        bls_to_execution_changes: ProgressiveVariableList::from_iter(
+                            bls_to_execution_changes,
+                        ),
+                        parent_execution_requests,
+                        signed_execution_payload_bid,
+                        payload_attestations: ProgressiveVariableList::from_iter(
+                            payload_attestations,
+                        ),
+                        _phantom: PhantomData::<FullPayload<T::EthSpec>>,
+                    },
+                })
+            }
+            BeaconState::Heze(_) => {
+                let SignedExecutionPayloadBid::Heze(signed_execution_payload_bid) =
+                    signed_execution_payload_bid
+                else {
+                    return Err(BlockProductionError::InvalidBlockVariant(
+                        "Cannot construct a Heze block with a non-Heze execution payload bid"
+                            .to_string(),
+                    ));
+                };
+
+                BeaconBlock::Heze(BeaconBlockHeze {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::ZERO,
+                    body: BeaconBlockBodyHeze {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        // The operation list lengths are bounded by the op pool packing limits above.
+                        proposer_slashings: ProgressiveVariableList::from_iter(proposer_slashings),
+                        attester_slashings: ProgressiveVariableList::from_iter(attester_slashings),
+                        attestations: ProgressiveVariableList::from_iter(attestations),
+                        deposits: ProgressiveVariableList::from_iter(deposits),
+                        voluntary_exits: ProgressiveVariableList::from_iter(voluntary_exits),
+                        sync_aggregate,
+                        bls_to_execution_changes: ProgressiveVariableList::from_iter(
+                            bls_to_execution_changes,
+                        ),
+                        parent_execution_requests,
+                        signed_execution_payload_bid,
+                        payload_attestations: ProgressiveVariableList::from_iter(
+                            payload_attestations,
+                        ),
+                        _phantom: PhantomData::<FullPayload<T::EthSpec>>,
+                    },
+                })
+            }
         };
 
         let signed_beacon_block = SignedBeaconBlock::from_block(
@@ -969,22 +997,67 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             should_override_builder,
         } = block_proposal_contents;
 
-        // TODO(gloas) since we are defaulting to local building, execution payment is 0
-        // execution payment should only be set to > 0 for trusted building.
-        let bid = ExecutionPayloadBid::<T::EthSpec> {
-            parent_block_hash: executed_ancestor_hash,
-            parent_block_root: parent_root,
-            block_hash: payload.block_hash,
-            prev_randao: payload.prev_randao,
-            fee_recipient: Address::ZERO,
-            gas_limit: payload.gas_limit,
-            builder_index,
-            slot: produce_at_slot,
-            value: bid_value,
-            execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
-            blob_kzg_commitments,
-            execution_requests_root: execution_requests.tree_hash_root(),
-            _phantom: PhantomData,
+        let signature = Signature::infinity().map_err(BlockProductionError::BlsError)?;
+        let signed_execution_payload_bid = match state {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_)
+            | BeaconState::Fulu(_) => {
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Cannot produce an execution payload bid pre-Gloas".to_owned(),
+                ));
+            }
+            BeaconState::Gloas(_) => {
+                // TODO(gloas) since we are defaulting to local building, execution payment is 0
+                // execution payment should only be set to > 0 for trusted building.
+                let bid = ExecutionPayloadBidGloas::<T::EthSpec> {
+                    parent_block_hash: executed_ancestor_hash,
+                    parent_block_root: parent_root,
+                    block_hash: payload.block_hash,
+                    prev_randao: payload.prev_randao,
+                    fee_recipient: Address::ZERO,
+                    gas_limit: payload.gas_limit,
+                    builder_index,
+                    slot: produce_at_slot,
+                    value: bid_value,
+                    execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
+                    blob_kzg_commitments,
+                    execution_requests_root: execution_requests.tree_hash_root(),
+                    _phantom: PhantomData,
+                };
+
+                SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                    message: bid,
+                    signature,
+                })
+            }
+            BeaconState::Heze(_) => {
+                let bid = ExecutionPayloadBidHeze::<T::EthSpec> {
+                    parent_block_hash: executed_ancestor_hash,
+                    parent_block_root: parent_root,
+                    block_hash: payload.block_hash,
+                    prev_randao: payload.prev_randao,
+                    fee_recipient: Address::ZERO,
+                    gas_limit: payload.gas_limit,
+                    builder_index,
+                    slot: produce_at_slot,
+                    value: bid_value,
+                    execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
+                    blob_kzg_commitments,
+                    execution_requests_root: execution_requests.tree_hash_root(),
+                    // TODO(heze): set the bits based on the IL committee members whose
+                    // inclusion lists were considered when building the payload
+                    inclusion_list_bits: BitVector::new(),
+                    _phantom: PhantomData,
+                };
+                SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
+                    message: bid,
+                    signature,
+                })
+            }
         };
 
         // Store payload data for envelope construction after block is created
@@ -997,10 +1070,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         Ok((
-            SignedExecutionPayloadBid {
-                message: bid,
-                signature: Signature::infinity().map_err(BlockProductionError::BlsError)?,
-            },
+            signed_execution_payload_bid,
             LocalBuildResult {
                 payload_data,
                 payload_value,
@@ -1066,7 +1136,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // eligibility or coverage can go stale before production. Re-check against the production
             // state and drop it if it would now fail `per_block_processing`, so a stale gossip bid
             // can't outrank a viable candidate and sink the whole proposal.
-            match verify_bid_state_conditions(&gossip_bid.message, state, &self.spec) {
+            match verify_bid_state_conditions(gossip_bid.message(), state, &self.spec) {
                 Ok(_) => {
                     externals.push(BidCandidate::gossip(
                         gossip_bid,
@@ -1086,7 +1156,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The parent's exit requests apply to the state before this block's bid is processed, so a
         // bid from a builder the parent payload exits fails `process_execution_payload_bid`.
         externals.retain(|candidate| {
-            let builder_index = candidate.signed_bid.message.builder_index;
+            let builder_index = candidate.signed_bid.message().builder_index();
             let exit_requested = state
                 .get_builder(builder_index)
                 .is_ok_and(|builder| builder_exit_requested(builder, parent_execution_requests));
@@ -1238,7 +1308,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     let random = *state.get_randao_mix(current_epoch)?;
 
     let parent_bid = state.latest_execution_payload_bid()?;
-    let is_parent_block_full = parent_block_hash == parent_bid.block_hash;
+    let is_parent_block_full = parent_block_hash == parent_bid.block_hash();
 
     let withdrawals = if is_parent_block_full {
         if let Some(envelope) = parent_envelope {

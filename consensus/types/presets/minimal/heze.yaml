@@ -4,3 +4,8 @@
 # ---------------------------------------------------------------
 # 2**4 (= 16) validators
 INCLUSION_LIST_COMMITTEE_SIZE: 16
+
+# Networking
+# ---------------------------------------------------------------
+# 196,934 bytes, ~192 KiB
+MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE_HEZE: 196934

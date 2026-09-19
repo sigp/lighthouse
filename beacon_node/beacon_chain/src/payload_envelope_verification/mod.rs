@@ -30,7 +30,7 @@ use strum::AsRefStr;
 use tracing::{instrument, warn};
 use types::{
     BeaconState, BeaconStateError, BuilderIndex, DataColumnSidecarList, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid,
+    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBidRef,
     SignedExecutionPayloadEnvelope, Slot,
 };
 
@@ -70,7 +70,7 @@ impl<E: EthSpec> AvailableEnvelope<E> {
     pub fn new<T>(
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         columns: DataColumnSidecarList<E>,
-        bid: &SignedExecutionPayloadBid<E>,
+        bid: SignedExecutionPayloadBidRef<E>,
         custody_context: &CustodyContext<T>,
     ) -> Result<Self, AvailabilityCheckError>
     where
@@ -412,10 +412,10 @@ pub fn build_new_payload_request<'a, E: EthSpec>(
         .body()
         .signed_execution_payload_bid()
         .map_err(|e| EnvelopeError::BeaconChainError(Box::new(BeaconChainError::from(e))))?
-        .message;
+        .message();
 
     let versioned_hashes = bid
-        .blob_kzg_commitments
+        .blob_kzg_commitments()
         .iter()
         .map(state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash)
         .collect();
@@ -455,7 +455,7 @@ mod payload_hash_tests {
     use types::{
         BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionPayloadEnvelope,
         ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-        Graffiti, Hash256, MinimalEthSpec, SignedBeaconBlock, SignedExecutionPayloadBid,
+        Graffiti, Hash256, MinimalEthSpec, SignedBeaconBlock, SignedExecutionPayloadBidGloas,
         SignedExecutionPayloadEnvelope, Slot, SyncAggregate,
     };
 
@@ -483,7 +483,7 @@ mod payload_hash_tests {
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: ProgressiveVariableList::empty(),
                 parent_execution_requests: ExecutionRequestsGloas::default(),
-                signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
+                signed_execution_payload_bid: SignedExecutionPayloadBidGloas::empty(),
                 payload_attestations: ProgressiveVariableList::empty(),
                 _phantom: PhantomData,
             },

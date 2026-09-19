@@ -3046,7 +3046,6 @@ async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
         .body()
         .signed_execution_payload_bid()
         .unwrap();
-
     let available_envelope = AvailableEnvelope::new(
         Arc::new(envelope),
         columns,

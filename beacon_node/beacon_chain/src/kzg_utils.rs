@@ -465,7 +465,7 @@ pub fn blobs_to_partial_data_columns<E: EthSpec>(
         }
         PartialHeaderOrBid::Bid(bid) => build_partial_data_columns_gloas(
             block_root,
-            bid.message.slot,
+            bid.slot(),
             blob_cells_and_proofs_vec,
             spec,
         )
