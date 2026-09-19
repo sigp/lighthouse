@@ -466,6 +466,9 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE` constant for this specification.
     fn max_signed_execution_payload_bid_size() -> usize;
 
+    /// Returns the `MAX_SIGNED_INCLUSION_LIST_SIZE` constant for this specification.
+    fn max_signed_inclusion_list_size() -> usize;
+
     /// Returns the `PAYLOAD_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
     fn payload_timely_threshold() -> usize {
         Self::PTCSize::to_usize() / 2
@@ -585,6 +588,10 @@ impl EthSpec for MainnetEthSpec {
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
     }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
+    }
 }
 
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
@@ -685,6 +692,10 @@ impl EthSpec for MinimalEthSpec {
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
     }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
+    }
 }
 
 /// Gnosis Beacon Chain specifications.
@@ -781,6 +792,10 @@ impl EthSpec for GnosisEthSpec {
 
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
+    }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
     }
 }
 
