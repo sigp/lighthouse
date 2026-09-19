@@ -45,6 +45,7 @@ use crate::{
 };
 use parking_lot::RwLock;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
+use state_processing::AllCaches;
 use types::AttestationShufflingId;
 
 type E = MinimalEthSpec;
@@ -147,6 +148,10 @@ impl TestContext {
         let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
         let block_root = signed_block.canonical_root();
 
+        state
+            .build_all_caches(&spec)
+            .expect("should build state caches");
+
         let snapshot = BeaconSnapshot::new(
             Arc::new(signed_block.clone()),
             None,
@@ -208,23 +213,33 @@ impl TestContext {
         }
     }
 
-    fn sign_bid(&self, bid: ExecutionPayloadBidGloas<E>) -> Arc<SignedExecutionPayloadBid<E>> {
+    fn sign_bid(&self, bid: ExecutionPayloadBid<E>) -> Arc<SignedExecutionPayloadBid<E>> {
         let head = self.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
         let domain = self.spec.get_domain(
-            bid.slot.epoch(E::slots_per_epoch()),
+            bid.slot().epoch(E::slots_per_epoch()),
             Domain::BeaconBuilder,
             &state.fork(),
             state.genesis_validators_root(),
         );
-        let message = ExecutionPayloadBidRef::Gloas(&bid).signing_root(domain);
-        let signature = self.keypairs[bid.builder_index as usize].sk.sign(message);
-        Arc::new(SignedExecutionPayloadBid::Gloas(
-            SignedExecutionPayloadBidGloas {
-                message: bid,
-                signature,
-            },
-        ))
+
+        let message = bid.signing_root(domain);
+        let signature = self.keypairs[bid.builder_index() as usize].sk.sign(message);
+
+        match bid {
+            ExecutionPayloadBid::Gloas(bid) => Arc::new(SignedExecutionPayloadBid::Gloas(
+                SignedExecutionPayloadBidGloas {
+                    message: bid,
+                    signature,
+                },
+            )),
+            ExecutionPayloadBid::Heze(bid) => Arc::new(SignedExecutionPayloadBid::Heze(
+                SignedExecutionPayloadBidHeze {
+                    message: bid,
+                    signature,
+                },
+            )),
+        }
     }
 
     fn gossip_ctx(&self) -> GossipVerificationContext<'_, T> {
@@ -250,6 +265,14 @@ impl TestContext {
             .expect("should read current epoch randao mix")
     }
 
+    fn inclusion_list_committee(&self, slot: Slot) -> InclusionListCommittee<E> {
+        let head = self.canonical_head.cached_head();
+        head.snapshot
+            .beacon_state
+            .get_inclusion_list_committee(slot)
+            .expect("should read the inclusion list committee for the slot")
+    }
+
     fn execution_parent_hash(&self) -> ExecutionBlockHash {
         let head = self.canonical_head.cached_head();
         *head
@@ -257,6 +280,44 @@ impl TestContext {
             .beacon_state
             .latest_block_hash()
             .expect("should have a Gloas execution block hash")
+    }
+
+    fn make_bid(
+        &self,
+        slot: Slot,
+        builder_index: u64,
+        fee_recipient: Address,
+        gas_limit: u64,
+        value: u64,
+        parent_block_root: Hash256,
+    ) -> ExecutionPayloadBid<E> {
+        let parent_block_hash = self.execution_parent_hash();
+        let prev_randao = self.expected_prev_randao();
+        if self.spec.fork_name_at_slot::<E>(slot).heze_enabled() {
+            ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
+                slot,
+                builder_index,
+                fee_recipient,
+                gas_limit,
+                value,
+                parent_block_root,
+                parent_block_hash,
+                prev_randao,
+                ..ExecutionPayloadBidHeze::default()
+            })
+        } else {
+            ExecutionPayloadBid::Gloas(ExecutionPayloadBidGloas {
+                slot,
+                builder_index,
+                fee_recipient,
+                gas_limit,
+                value,
+                parent_block_root,
+                parent_block_hash,
+                prev_randao,
+                ..ExecutionPayloadBidGloas::default()
+            })
+        }
     }
 
     fn make_signed_bid(
@@ -268,22 +329,30 @@ impl TestContext {
         value: u64,
         parent_block_root: Hash256,
     ) -> Arc<SignedExecutionPayloadBid<E>> {
-        Arc::new(SignedExecutionPayloadBid::Gloas(
-            SignedExecutionPayloadBidGloas {
-                message: ExecutionPayloadBidGloas {
-                    slot,
-                    builder_index,
-                    fee_recipient,
-                    gas_limit,
-                    value,
-                    parent_block_root,
-                    parent_block_hash: self.execution_parent_hash(),
-                    prev_randao: self.expected_prev_randao(),
-                    ..ExecutionPayloadBidGloas::default()
-                },
-                signature: Signature::empty(),
+        let signature = Signature::empty();
+        Arc::new(
+            match self.make_bid(
+                slot,
+                builder_index,
+                fee_recipient,
+                gas_limit,
+                value,
+                parent_block_root,
+            ) {
+                ExecutionPayloadBid::Gloas(message) => {
+                    SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                        message,
+                        signature,
+                    })
+                }
+                ExecutionPayloadBid::Heze(message) => {
+                    SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
+                        message,
+                        signature,
+                    })
+                }
             },
-        ))
+        )
     }
 
     fn slot_1_proto_block(
@@ -378,12 +447,26 @@ fn make_signed_preferences(
     })
 }
 
-fn seed_inclusion_list(
-    ctx: &TestContext,
-    slot: Slot,
-    validator_index: u64,
-    is_timely: bool,
-) -> InsertOutcome {
+/// The inclusion list bits claiming `validator_indices`: every committee position held by one of
+/// them is set, the way the store derives its own view.
+fn inclusion_list_bits_for_validators(
+    inclusion_list_committee: &InclusionListCommittee<E>,
+    validator_indices: &[u64],
+) -> BitVector<<E as EthSpec>::InclusionListCommitteeSize> {
+    let mut inclusion_list_bits = BitVector::<<E as EthSpec>::InclusionListCommitteeSize>::new();
+
+    for (position, validator_index) in inclusion_list_committee.iter().enumerate() {
+        if validator_indices.contains(validator_index) {
+            inclusion_list_bits
+                .set(position, true)
+                .expect("position within committee size");
+        }
+    }
+
+    inclusion_list_bits
+}
+
+fn seed_inclusion_list(ctx: &TestContext, slot: Slot, validator_indices: &[u64], is_timely: bool) {
     let cached_head = ctx.canonical_head.cached_head();
     let head_state = &cached_head.snapshot.beacon_state;
     let relative_epoch =
@@ -393,18 +476,22 @@ fn seed_inclusion_list(
         .attester_shuffling_decision_root(cached_head.head_block_root(), relative_epoch)
         .expect("should compute attester shuffling decision root");
 
-    let signed_inclusion_list = SignedInclusionList {
-        message: InclusionList {
-            slot,
-            validator_index,
-            dependent_root,
-            transactions: ProgressiveTransactions::default(),
-        },
-        signature: Signature::empty(),
-    };
-    ctx.inclusion_list_store
-        .write()
-        .process_inclusion_list(signed_inclusion_list, is_timely)
+    for index in validator_indices {
+        let signed_inclusion_list = SignedInclusionList {
+            message: InclusionList {
+                slot,
+                validator_index: *index,
+                dependent_root,
+                // we're seeding empty inclusion lists since the execution payload bid verifications
+                // focus only on the inclusion list bits
+                transactions: ProgressiveTransactions::default(),
+            },
+            signature: Signature::empty(),
+        };
+        ctx.inclusion_list_store
+            .write()
+            .process_inclusion_list(signed_inclusion_list, is_timely);
+    }
 }
 
 fn seed_preferences(ctx: &TestContext, slot: Slot, fee_recipient: Address, gas_limit: u64) {
@@ -490,17 +577,14 @@ fn same_builder_new_parent_tuple_not_blocked() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
+    let bid = ctx.sign_bid(ctx.make_bid(
         slot,
-        builder_index: 0,
-        fee_recipient: Address::ZERO,
-        gas_limit: 30_000_000,
-        value: 0,
-        parent_block_root: ctx.genesis_block_root,
-        parent_block_hash: ctx.execution_parent_hash(),
-        prev_randao: ctx.expected_prev_randao(),
-        ..ExecutionPayloadBidGloas::default()
-    });
+        0,
+        Address::ZERO,
+        30_000_000,
+        0,
+        ctx.genesis_block_root,
+    ));
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(
         result.is_ok(),
@@ -647,17 +731,14 @@ fn gas_limit_mismatch() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
+    let bid = ctx.sign_bid(ctx.make_bid(
         slot,
-        builder_index: 0,
-        fee_recipient: Address::ZERO,
-        gas_limit: 50_000_000,
-        value: 100,
-        parent_block_root: ctx.genesis_block_root,
-        parent_block_hash: ctx.execution_parent_hash(),
-        prev_randao: ctx.expected_prev_randao(),
-        ..ExecutionPayloadBidGloas::default()
-    });
+        0,
+        Address::ZERO,
+        50_000_000,
+        100,
+        ctx.genesis_block_root,
+    ));
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(matches!(result, Err(PayloadBidError::InvalidGasLimit)));
     assert_eq!(
@@ -1245,17 +1326,14 @@ fn valid_bid_after_empty_genesis_uses_parent_payload_gas_limit() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid = ctx.sign_bid(ExecutionPayloadBidGloas {
+    let bid = ctx.sign_bid(ctx.make_bid(
         slot,
-        builder_index: 0,
-        fee_recipient: Address::ZERO,
-        gas_limit: 30_000_000,
-        value: 0,
-        parent_block_root: ctx.genesis_block_root,
-        parent_block_hash: ctx.execution_parent_hash(),
-        prev_randao: ctx.expected_prev_randao(),
-        ..ExecutionPayloadBidGloas::default()
-    });
+        0,
+        Address::ZERO,
+        30_000_000,
+        0,
+        ctx.genesis_block_root,
+    ));
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(
         result.is_ok(),
@@ -1325,17 +1403,14 @@ fn two_builders_coexist_in_cache() {
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
-    let bid_0 = ctx.sign_bid(ExecutionPayloadBidGloas {
+    let bid_0 = ctx.sign_bid(ctx.make_bid(
         slot,
-        builder_index: 0,
-        fee_recipient: Address::ZERO,
-        gas_limit: 30_000_000,
-        value: 0,
-        parent_block_root: ctx.genesis_block_root,
-        parent_block_hash: ctx.execution_parent_hash(),
-        prev_randao: ctx.expected_prev_randao(),
-        ..ExecutionPayloadBidGloas::default()
-    });
+        0,
+        Address::ZERO,
+        30_000_000,
+        0,
+        ctx.genesis_block_root,
+    ));
     let result_0 = GossipVerifiedPayloadBid::new(bid_0, &gossip);
     assert!(
         result_0.is_ok(),
@@ -1344,17 +1419,14 @@ fn two_builders_coexist_in_cache() {
     );
 
     // Builder 1 must bid strictly higher than builder 0's cached value.
-    let bid_1 = ctx.sign_bid(ExecutionPayloadBidGloas {
+    let bid_1 = ctx.sign_bid(ctx.make_bid(
         slot,
-        builder_index: 1,
-        fee_recipient: Address::ZERO,
-        gas_limit: 30_000_000,
-        value: 1,
-        parent_block_root: ctx.genesis_block_root,
-        parent_block_hash: ctx.execution_parent_hash(),
-        prev_randao: ctx.expected_prev_randao(),
-        ..ExecutionPayloadBidGloas::default()
-    });
+        1,
+        Address::ZERO,
+        30_000_000,
+        1,
+        ctx.genesis_block_root,
+    ));
     let result_1 = GossipVerifiedPayloadBid::new(bid_1, &gossip);
     assert!(
         result_1.is_ok(),
@@ -1424,24 +1496,291 @@ fn bid_equal_to_cached_value_rejected() {
             incoming_value: 100,
         })
     ));
+}
 
-    #[test]
-    fn il_bits_inclusivity_checks_are_not_applied_for_gloas_bids() {
-        todo!()
+#[test]
+fn il_bits_inclusivity_checks_are_not_applied_for_gloas_bids() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled() && !f.heze_enabled()) {
+        return;
     }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+    let slot = Slot::new(1);
+    seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+    seed_inclusion_list(&ctx, slot - 1, &[0], true);
 
-    #[test]
-    fn bid_il_bits_not_inclusive() {
-        todo!()
-    }
+    // the bid doesn't contain any inclusion list bits, so it's by definition not inclusive
+    // of the inclusion list bits stored in the inclusion list store
+    let bid = ctx.sign_bid(ctx.make_bid(
+        slot,
+        0,
+        Address::ZERO,
+        30_000_000,
+        0,
+        ctx.genesis_block_root,
+    ));
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "expected Ok, got: {:?}",
+        result.unwrap_err()
+    );
+}
 
-    #[test]
-    fn bid_il_bits_are_inclusive() {
-        todo!()
+#[test]
+fn bid_il_bits_not_inclusive() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
     }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
 
-    #[test]
-    fn il_bits_inclusivity_check_applied_to_slot_prior_to_bid_slot() {
-        todo!()
+    let bid_slot = Slot::new(1);
+    let inclusion_list_slot = bid_slot - 1;
+    let inclusion_list_committee = ctx.inclusion_list_committee(inclusion_list_slot);
+
+    seed_inclusion_list(
+        &ctx,
+        inclusion_list_slot,
+        &inclusion_list_committee[0..3],
+        true,
+    );
+    seed_preferences(&ctx, bid_slot, Address::ZERO, 30_000_000);
+
+    let bid = ctx.sign_bid(ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
+        slot: bid_slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        value: 0,
+        parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
+        prev_randao: ctx.expected_prev_randao(),
+        // inclusion list bits vector only claims the IL committee members with indices 0 and 1
+        inclusion_list_bits: inclusion_list_bits_for_validators(
+            &inclusion_list_committee,
+            &inclusion_list_committee[0..2],
+        ),
+        ..ExecutionPayloadBidHeze::default()
+    }));
+
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        matches!(
+            result,
+            Err(PayloadBidError::InclusionListBitsNotInclusive{ slot }) if slot == bid_slot
+        ),
+        "unexpected result: {result:?}"
+    );
+}
+
+#[test]
+fn bid_il_bits_are_inclusive() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
     }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+
+    let bid_slot = Slot::new(1);
+    let inclusion_list_slot = bid_slot - 1;
+    let inclusion_list_committee = ctx.inclusion_list_committee(inclusion_list_slot);
+
+    seed_inclusion_list(
+        &ctx,
+        inclusion_list_slot,
+        &inclusion_list_committee[0..2],
+        true,
+    );
+    seed_preferences(&ctx, bid_slot, Address::ZERO, 30_000_000);
+
+    let bid = ctx.sign_bid(ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
+        slot: bid_slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        value: 0,
+        parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
+        prev_randao: ctx.expected_prev_randao(),
+        inclusion_list_bits: inclusion_list_bits_for_validators(
+            &inclusion_list_committee,
+            &inclusion_list_committee[0..2],
+        ),
+        ..ExecutionPayloadBidHeze::default()
+    }));
+
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "expected Ok, got: {:?}",
+        result.unwrap_err()
+    );
+}
+
+#[test]
+fn bid_il_bits_checked_against_slot_before_bid() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+
+    let bid_slot = Slot::new(1);
+    seed_preferences(&ctx, bid_slot, Address::ZERO, 30_000_000);
+
+    // lists stored for the bid's own slot must not be consulted
+    // the check looks at the slot preceding the bid's slot, which holds nothing in our case
+    let inclusion_list_committee = ctx.inclusion_list_committee(bid_slot);
+    seed_inclusion_list(&ctx, bid_slot, &inclusion_list_committee[..3], true);
+
+    // the bid claims nothing, so it would fail against the seeded slot if that were consulted
+    let bid = ctx.sign_bid(ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
+        slot: bid_slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        value: 0,
+        parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
+        prev_randao: ctx.expected_prev_randao(),
+        ..ExecutionPayloadBidHeze::default()
+    }));
+
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "bid should pass, only the prior slot's lists are checked: {:?}",
+        result.unwrap_err()
+    );
+}
+
+#[test]
+fn bid_il_bits_checks_consider_only_timely_inclusion_lists() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+
+    let bid_slot = Slot::new(1);
+    let inclusion_list_slot = bid_slot - 1;
+    let inclusion_list_committee = ctx.inclusion_list_committee(inclusion_list_slot);
+
+    seed_inclusion_list(
+        &ctx,
+        inclusion_list_slot,
+        &inclusion_list_committee[0..2],
+        true,
+    );
+    seed_inclusion_list(
+        &ctx,
+        inclusion_list_slot,
+        &inclusion_list_committee[2..4],
+        false,
+    );
+    seed_preferences(&ctx, bid_slot, Address::ZERO, 30_000_000);
+
+    let bid = ctx.sign_bid(ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
+        slot: bid_slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        value: 0,
+        parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
+        prev_randao: ctx.expected_prev_randao(),
+        // the bid only claims the bits matching the inclusion list committee indices
+        // of the validators that sent timely inclusion lists
+        inclusion_list_bits: inclusion_list_bits_for_validators(
+            &inclusion_list_committee,
+            &inclusion_list_committee[0..2],
+        ),
+        ..ExecutionPayloadBidHeze::default()
+    }));
+
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "expected Ok, got: {:?}",
+        result.unwrap_err()
+    );
+}
+
+#[test]
+fn bid_il_bits_empty_claim_passes_against_empty_store() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+
+    let bid_slot = Slot::new(1);
+    seed_preferences(&ctx, bid_slot, Address::ZERO, 30_000_000);
+
+    // nothing stored for the slot preceding the bid's slot and nothing claimed by the bid;
+    // this is the situation of the first Heze bid at the fork boundary
+    let bid = ctx.sign_bid(ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
+        slot: bid_slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        value: 0,
+        parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
+        prev_randao: ctx.expected_prev_randao(),
+        ..ExecutionPayloadBidHeze::default()
+    }));
+
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "expected Ok, got: {:?}",
+        result.unwrap_err()
+    );
+}
+
+#[test]
+fn bid_il_bits_claiming_more_than_stored_are_inclusive() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+
+    let bid_slot = Slot::new(1);
+    let inclusion_list_slot = bid_slot - 1;
+    let inclusion_list_committee = ctx.inclusion_list_committee(inclusion_list_slot);
+
+    seed_inclusion_list(
+        &ctx,
+        inclusion_list_slot,
+        &inclusion_list_committee[0..2],
+        true,
+    );
+    seed_preferences(&ctx, bid_slot, Address::ZERO, 30_000_000);
+
+    // inclusivity is one-directional: the bid may claim members the node holds no list from
+    let bid = ctx.sign_bid(ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
+        slot: bid_slot,
+        builder_index: 0,
+        fee_recipient: Address::ZERO,
+        gas_limit: 30_000_000,
+        value: 0,
+        parent_block_root: ctx.genesis_block_root,
+        parent_block_hash: ctx.execution_parent_hash(),
+        prev_randao: ctx.expected_prev_randao(),
+        inclusion_list_bits: inclusion_list_bits_for_validators(
+            &inclusion_list_committee,
+            &inclusion_list_committee,
+        ),
+        ..ExecutionPayloadBidHeze::default()
+    }));
+
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "expected Ok, got: {:?}",
+        result.unwrap_err()
+    );
 }
