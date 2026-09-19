@@ -369,7 +369,7 @@ impl Default for Config {
             metrics_enabled: false,
             enable_light_client_server: true,
             enable_execution_proof: false,
-            enable_mplex: false,
+            enable_mplex: true,
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,

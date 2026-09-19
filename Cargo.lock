@@ -9890,6 +9890,7 @@ dependencies = [
  "axum_utils",
  "beacon_node_fallback",
  "bls",
+ "builder_store",
  "deposit_contract",
  "directory",
  "dirs",
