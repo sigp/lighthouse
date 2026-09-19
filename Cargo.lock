@@ -3531,6 +3531,7 @@ dependencies = [
  "eth2",
  "ethereum_serde_utils",
  "ethereum_ssz",
+ "ethereum_ssz_derive",
  "fixed_bytes",
  "fork_choice",
  "hash-db",
@@ -3690,6 +3691,16 @@ version = "0.1.0"
 dependencies = [
  "winapi",
  "windows-acl",
+]
+
+[[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]
@@ -7203,9 +7214,16 @@ dependencies = [
 name = "proof_engine"
 version = "0.1.0"
 dependencies = [
+ "ethereum_serde_utils",
+ "ethereum_ssz",
+ "flate2",
+ "hex",
  "reqwest",
- "sensitive_url",
  "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "tree_hash",
  "types",
 ]
 
@@ -7957,7 +7975,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9003,6 +9021,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
+name = "tar"
+version = "0.4.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
+dependencies = [
+ "filetime",
+ "libc",
+]
+
+[[package]]
 name = "target_check"
 version = "0.1.0"
 dependencies = [
@@ -9675,6 +9703,7 @@ dependencies = [
  "smallvec",
  "ssz_types",
  "state_processing",
+ "strum",
  "superstruct",
  "swap_or_not_shuffle",
  "tempfile",

@@ -8,9 +8,11 @@ use beacon_chain::test_utils::{
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
 use std::sync::Arc;
-use types::execution::{ExecutionProof, ProofData, PublicInput, SignedExecutionProof};
+use types::execution::{
+    ExecutionProofEnvelope, ProofData, ProofType, SignedExecutionProofEnvelope,
+};
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, MinimalEthSpec, Slot,
+    Address, BlockImportSource, Epoch, ExecPayload, ForkName, MinimalEthSpec, Slot,
     WithdrawalRequest,
 };
 
@@ -163,13 +165,10 @@ async fn lookup_imports_gloas_payload_after_restart() {
     );
     let proof_status = chain
         .check_execution_proof_availability_and_import(GossipVerifiedExecutionProof {
-            proof: Arc::new(SignedExecutionProof {
-                message: ExecutionProof {
+            proof: Arc::new(SignedExecutionProofEnvelope {
+                message: ExecutionProofEnvelope {
                     proof_data: ProofData::new(vec![1]).expect("proof data"),
-                    proof_type: 0,
-                    public_input: PublicInput {
-                        new_payload_request_root: Hash256::random(),
-                    },
+                    proof_type: ProofType::RethOpenVM,
                     beacon_block_root: block_root,
                 },
                 validator_index: 0,

@@ -846,12 +846,14 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("proof-engine-endpoint")
-                .long("proof-engine-endpoint")
-                .value_name("PROOF-ENGINE-ENDPOINT")
-                .help("Server endpoint for an EIP-8025 proof engine used to verify execution \
-                       proofs. When present, the node subscribes to the execution_proof gossip \
-                       topic and propagates proofs that verify. Experimental.")
+            Arg::new("proof-engine")
+                .long("proof-engine")
+                .value_name("PATH")
+                .num_args(0..=1)
+                .default_missing_value("")
+                .help("Enable the experimental in-process EIP-8025 proof engine. If PATH is \
+                       omitted, use the built-in reth verifier configuration for OpenVM, SP1, \
+                       and Zisk. Otherwise, PATH must contain a JSON ProofEngineConfig.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1680,4 +1682,41 @@ pub fn cli_app() -> Command {
                 .hide(true)
         )
         .group(ArgGroup::new("enable_http").args(["http", "gui", "staking"]).multiple(true))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cli_app;
+
+    #[test]
+    fn proof_engine_accepts_optional_config_path() {
+        let default = cli_app()
+            .try_get_matches_from([
+                "beacon_node",
+                "--proof-engine",
+                "--execution-endpoint",
+                "http://localhost:8551",
+            ])
+            .expect("proof engine without a path is valid");
+        assert_eq!(
+            default
+                .get_one::<String>("proof-engine")
+                .map(String::as_str),
+            Some("")
+        );
+
+        let custom = cli_app()
+            .try_get_matches_from([
+                "beacon_node",
+                "--proof-engine",
+                "proof-engine.json",
+                "--execution-endpoint",
+                "http://localhost:8551",
+            ])
+            .expect("proof engine with a path is valid");
+        assert_eq!(
+            custom.get_one::<String>("proof-engine").map(String::as_str),
+            Some("proof-engine.json")
+        );
+    }
 }
