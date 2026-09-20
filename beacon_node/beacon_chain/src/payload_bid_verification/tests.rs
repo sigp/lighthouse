@@ -1507,10 +1507,12 @@ fn il_bits_inclusivity_checks_are_not_applied_for_gloas_bids() {
     let gossip = ctx.gossip_ctx();
     let slot = Slot::new(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
-    seed_inclusion_list(&ctx, slot - 1, &[0], true);
 
-    // the bid doesn't contain any inclusion list bits, so it's by definition not inclusive
-    // of the inclusion list bits stored in the inclusion list store
+    // a gloas bid carries no inclusion list bits, so it could never claim the stored list
+    // the check would reject it at Heze, so `Ok` proves the check was not applied
+    let inclusion_list_committee = ctx.inclusion_list_committee(slot - 1);
+    seed_inclusion_list(&ctx, slot - 1, &[inclusion_list_committee[0]], true);
+
     let bid = ctx.sign_bid(ctx.make_bid(
         slot,
         0,
