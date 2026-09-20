@@ -28,6 +28,7 @@ pub struct Step {
 pub struct ScriptedSource {
     steps: VecDeque<Step>,
     pub requests: Vec<(Request, RequestLimits)>,
+    pub on_request: Option<Box<dyn FnMut() + Send>>,
 }
 
 impl ScriptedSource {
@@ -35,6 +36,7 @@ impl ScriptedSource {
         Self {
             steps: steps.into_iter().collect(),
             requests: vec![],
+            on_request: None,
         }
     }
 
@@ -49,6 +51,9 @@ impl ScriptedSource {
             step.request, request,
             "source request does not match script"
         );
+        if let Some(on_request) = &mut self.on_request {
+            on_request();
+        }
         let bytes_received = match &step.result {
             Ok(response) => response.bytes_received,
             Err(error) => error.bytes_received,

@@ -1,5 +1,30 @@
+use decentralized_checkpoint_sync::LightClientSyncError;
 use std::time::Duration;
-use types::ForkName;
+use types::{ForkName, Slot};
+
+/// Bootstrap acquisition failures retain the source and core verification error boundaries.
+#[derive(Debug, thiserror::Error)]
+pub enum BootstrapError {
+    #[error(transparent)]
+    Policy(#[from] PolicyError),
+    #[error(transparent)]
+    Source(#[from] SourceError),
+    #[error(transparent)]
+    Verification(#[from] LightClientSyncError),
+    #[error("current slot is unavailable from the local clock")]
+    ClockUnavailable,
+    #[error("local clock moved backwards from slot {previous} to {current}")]
+    ClockWentBackwards { previous: Slot, current: Slot },
+    #[error("bootstrap slot {bootstrap_slot} exceeds local current slot {current_slot}")]
+    FutureBootstrap {
+        bootstrap_slot: Slot,
+        current_slot: Slot,
+    },
+    #[error("bootstrap verification requires a Tokio runtime: {0}")]
+    RuntimeUnavailable(#[from] tokio::runtime::TryCurrentError),
+    #[error("bootstrap verification worker failed: {0}")]
+    Worker(#[from] tokio::task::JoinError),
+}
 
 /// Configuration errors, separate from source failures and core verification errors.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]

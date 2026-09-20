@@ -1,5 +1,8 @@
 use super::E;
 use bls::{AggregatePublicKey, Keypair};
+use decentralized_checkpoint_sync::{
+    LightClientStore, LightClientStoreSchema, initialize_light_client_store,
+};
 use merkle_proof::MerkleTree;
 use slot_clock::{ManualSlotClock, SlotClock};
 use std::{sync::Arc, time::Duration};
@@ -24,6 +27,17 @@ pub struct Fixture {
 }
 
 impl Fixture {
+    pub fn store(&self) -> LightClientStore<E> {
+        initialize_light_client_store(
+            self.trusted_root,
+            &self.bootstrap,
+            ForkName::Altair,
+            LightClientStoreSchema::Altair,
+            &self.spec,
+        )
+        .unwrap()
+    }
+
     pub fn new() -> Self {
         let spec = ForkName::Altair.make_genesis_spec(E::default_spec());
         let genesis_validators_root = Hash256::repeat_byte(42);

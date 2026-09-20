@@ -4,13 +4,13 @@ version = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
+decentralized_checkpoint_sync = { workspace = true }
+slot_clock = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 types = { workspace = true }
 
 [dev-dependencies]
 bls = { workspace = true }
-decentralized_checkpoint_sync = { workspace = true }
 merkle_proof = { workspace = true }
-slot_clock = { workspace = true }
-tokio = { workspace = true }
 tree_hash = { workspace = true }

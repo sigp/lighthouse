@@ -1,17 +1,19 @@
+#[path = "consumer/bootstrap.rs"]
+mod bootstrap;
 mod common;
 
-use common::{E, Fixture, Request, Response, ScriptedSource, Step};
+use common::{E, Fixture, Request, Response, ScriptedSource, Step, policy};
 use decentralized_checkpoint_sync::{
     LightClientStoreSchema, LightClientSyncError, initialize_light_client_store,
     process_light_client_finality_update, process_light_client_update,
     validate_light_client_update,
 };
 use decentralized_checkpoint_sync_client::{
-    LightClientData, LightClientDataSource, RequestLimits, SourceError, SourceErrorKind,
-    SourceResponse, UpdateRange,
+    BootstrapError, LightClientData, LightClientDataSource, RequestLimits, SourceError,
+    SourceErrorKind, SourceResponse, UpdateRange, bootstrap_light_client_store,
 };
 use slot_clock::SlotClock;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use types::{ForkName, Hash256, LightClientUpdate, Slot, SyncAggregate};
 
 fn data<T>(data: T) -> LightClientData<T> {
@@ -22,7 +24,7 @@ fn data<T>(data: T) -> LightClientData<T> {
 }
 
 fn limits() -> RequestLimits {
-    RequestLimits::new(Duration::from_secs(5), 1_024).unwrap()
+    policy().request_limits
 }
 
 fn step(request: Request, response: Response) -> Step {
@@ -72,14 +74,7 @@ async fn scripted_reads_preserve_requests_and_produce_real_verifiable_data() {
         &fixture.spec,
     )
     .unwrap();
-    let mut finality_store = initialize_light_client_store(
-        fixture.trusted_root,
-        &bootstrap.data.data,
-        bootstrap.data.data_fork,
-        LightClientStoreSchema::Altair,
-        &fixture.spec,
-    )
-    .unwrap();
+    let mut finality_store = fixture.store();
     let updates = require_send(source.get_updates(range, limits()))
         .await
         .unwrap();
@@ -151,14 +146,7 @@ async fn successful_source_read_does_not_authenticate_an_invalid_signature() {
         Response::Updates(vec![data(fixture.update.clone())]),
     )]);
     let response = source.get_updates(range, limits()).await.unwrap();
-    let mut store = initialize_light_client_store(
-        fixture.trusted_root,
-        &fixture.bootstrap,
-        ForkName::Altair,
-        LightClientStoreSchema::Altair,
-        &fixture.spec,
-    )
-    .unwrap();
+    let mut store = fixture.store();
     // Store deliberately exposes neither Clone nor mutable fields to external consumers.
     let before = format!("{store:?}");
     let update = response.data.first().unwrap();
@@ -178,7 +166,9 @@ async fn successful_source_read_does_not_authenticate_an_invalid_signature() {
 }
 
 #[tokio::test]
-async fn source_preserves_error_category_cause_and_failed_response_accounting() {
+async fn bootstrap_preserves_source_error_category_cause_and_failed_response_accounting() {
+    let fixture = Fixture::new();
+    let spec = Arc::new(fixture.spec.clone());
     for kind in [
         SourceErrorKind::Unavailable,
         SourceErrorKind::Transient {
@@ -189,14 +179,25 @@ async fn source_preserves_error_category_cause_and_failed_response_accounting() 
         SourceErrorKind::Configuration,
     ] {
         let mut source = ScriptedSource::new([Step {
-            request: Request::Finality,
+            request: Request::Bootstrap(fixture.trusted_root),
             result: Err(SourceError {
                 kind: kind.clone(),
                 bytes_received: 27,
                 source: Some(Box::new(std::io::Error::other("scripted failure"))),
             }),
         }]);
-        let error = source.get_finality_update(limits()).await.unwrap_err();
+        let error = bootstrap_light_client_store(
+            &mut source,
+            fixture.trusted_root,
+            spec.clone(),
+            &fixture.clock,
+            &policy(),
+        )
+        .await
+        .unwrap_err();
+        let BootstrapError::Source(error) = error else {
+            panic!("expected source error, got {error:?}");
+        };
         assert_eq!(error.kind, kind);
         assert_eq!(error.bytes_received, 27);
         assert_eq!(error.source.unwrap().to_string(), "scripted failure");

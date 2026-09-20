@@ -1,23 +1,11 @@
+#[path = "common/policy.rs"]
+mod config;
+
+use config::policy;
 use decentralized_checkpoint_sync_client::{PolicyError, RequestLimits, SyncPolicy, UpdateRange};
 use std::time::{Duration, Instant};
 
 type PolicyChange = fn(&mut SyncPolicy);
-
-fn policy() -> SyncPolicy {
-    SyncPolicy {
-        max_finalized_lag_slots: 64,
-        max_updates_per_request: 8,
-        request_limits: RequestLimits::new(Duration::from_secs(5), 1_024).unwrap(),
-        sync_timeout: Duration::from_secs(60),
-        max_requests: 32,
-        max_updates: 256,
-        max_total_response_bytes: 32_768,
-        max_no_progress_requests: 4,
-        max_retries: 2,
-        initial_retry_delay: Duration::from_millis(100),
-        max_retry_delay: Duration::from_secs(2),
-    }
-}
 
 #[test]
 fn update_ranges_have_checked_exclusive_ends() {
