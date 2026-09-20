@@ -16,7 +16,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, info, warn};
-use types::{EthSpec, ExecutionBlockHash, ForkName};
+use types::{ColumnIndex, EthSpec, ExecutionBlockHash, ForkName};
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
@@ -178,11 +178,17 @@ impl<E: EthSpec> Engine<E> {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
         fork: ForkName,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api
-            .forkchoice_updated::<E>(forkchoice_state, payload_attributes.clone(), fork)
+            .forkchoice_updated::<E>(
+                forkchoice_state,
+                payload_attributes.clone(),
+                custody_columns,
+                fork
+            )
             .await?;
 
         if let Some(payload_id) = response.payload_id {
@@ -220,12 +226,16 @@ impl<E: EthSpec> Engine<E> {
 
             info!(?forkchoice_state, "Issuing forkchoiceUpdated");
 
-            // For simplicity, payload attributes are never included in this call. It may be
-            // reasonable to include them in the future.
+            // For simplicity, payload attributes and custody columns are never included in this
+            // call. It may be reasonable to include them in the future.
             if let Err(e) = self
+                
                 .api
-                .forkchoice_updated::<E>(forkchoice_state, None, fork)
+                
+                .forkchoice_updated::<E>(forkchoice_state, None, None, fork)
+                
                 .await
+           
             {
                 debug!(
                     error = ?e,

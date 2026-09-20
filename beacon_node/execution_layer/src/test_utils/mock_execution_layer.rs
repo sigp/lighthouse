@@ -249,6 +249,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
                 ForkName::Bellatrix,
             )
             .await
@@ -527,6 +528,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 slot,
                 head_block_root,
                 fork_choice::PayloadStatus::Pending,
+                &[],
                 fork,
             )
             .await

@@ -339,6 +339,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 Slot::new(0),
                 Hash256::zero(),
                 head_payload_status,
+                &[],
                 TEST_FORK,
             )
             .await
@@ -422,6 +423,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
                 TEST_FORK,
             )
             .await
@@ -465,6 +467,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
                 TEST_FORK,
             )
             .await
@@ -623,6 +626,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
                 TEST_FORK,
             )
             .await
@@ -662,6 +666,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
                 TEST_FORK,
             )
             .await
@@ -717,6 +722,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
                 TEST_FORK,
             )
             .await

@@ -57,9 +57,9 @@ use types::{
     SignedBlindedBeaconBlock,
 };
 use types::{
-    BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
-    FullPayload, ProposerPreparationData, Slot,
+    BeaconStateError, BlindedPayload, ChainSpec, ColumnIndex, Epoch, ExecPayload,
+    ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
+    ExecutionPayloadFulu, ExecutionPayloadGloas, FullPayload, ProposerPreparationData, Slot,
 };
 
 mod block_hash;
@@ -1369,6 +1369,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         .notify_forkchoice_updated(
                             fork_choice_state,
                             Some(payload_attributes.clone()),
+                            None,
                             current_fork,
                         )
                         .await?;
@@ -1607,6 +1608,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         current_slot: Slot,
         head_block_root: Hash256,
         head_payload_status: fork_choice::PayloadStatus,
+        custody_columns: &[ColumnIndex],
         fork: ForkName,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
@@ -1657,7 +1659,12 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .engine()
             .request(|engine| async move {
                 engine
-                    .notify_forkchoice_updated(forkchoice_state, payload_attributes, fork)
+                    .notify_forkchoice_updated(
+                        forkchoice_state,
+                        payload_attributes,
+                        Some(custody_columns),
+                        fork
+                    )
                     .await
             })
             .await;

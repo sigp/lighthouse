@@ -627,8 +627,7 @@ impl<E: EthSpec> SszGetPayloadResponse<E> {
                 SszGetPayloadResponseElectra::from_ssz_bytes(bytes).map(Self::Electra)
             }
             ForkName::Fulu => SszGetPayloadResponseFulu::from_ssz_bytes(bytes).map(Self::Fulu),
-            ForkName::Gloas => SszGetPayloadResponseGloas::from_ssz_bytes(bytes).map(Self::Gloas),
-            ForkName::Heze => SszGetPayloadResponseHeze::from_ssz_bytes(bytes).map(Self::Heze),
+            ForkName::Gloas | ForkName::Heze => SszGetPayloadResponseGloas::from_ssz_bytes(bytes).map(Self::Gloas),
             ForkName::Base | ForkName::Altair => Err(DecodeError::BytesInvalid(format!(
                 "unsupported fork for get_payload response: {fork}"
             ))),
@@ -801,14 +800,6 @@ pub struct SszForkchoiceUpdate {
     pub payload_attributes: VariableList<PayloadAttributesV3, U1>,
 }
 
-/// Amsterdam SSZ `engine_forkchoiceUpdated` request body (adds `custody_columns`).
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct SszForkchoiceUpdateAmsterdam<E: EthSpec> {
-    pub forkchoice_state: ForkchoiceState,
-    pub payload_attributes: VariableList<PayloadAttributesV4, U1>,
-    pub custody_columns: VariableList<BitVector<E::CellsPerExtBlob>, U1>,
-}
-
 impl SszForkchoiceUpdate {
     pub fn new(
         fork: ForkName,
@@ -869,23 +860,86 @@ impl SszForkchoiceUpdate {
     }
 }
 
-impl<E: EthSpec> SszForkchoiceUpdateAmsterdam<E> {
+/// Amsterdam SSZ `engine_forkchoiceUpdated` request body (adds `custody_columns`).
+#[superstruct(
+    variants(Gloas, Heze),
+    variant_attributes(derive(Clone, Debug, Encode, Decode, PartialEq),),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
+#[derive(Clone, Debug, Encode, Decode, PartialEq)]
+#[ssz(enum_behaviour = "transparent")]
+pub struct SszForkchoiceUpdateCustodyColumns<E: EthSpec> {
+    pub forkchoice_state: ForkchoiceState,
+    #[superstruct(only(Gloas), partial_getter(rename = "payload_attributes_gloas"))]
+    pub payload_attributes: VariableList<PayloadAttributesV4, U1>,
+    #[superstruct(only(Heze), partial_getter(rename = "payload_attributes_heze"))]
+    pub payload_attributes: VariableList<PayloadAttributesV5, U1>,
+    #[superstruct(only(Gloas, Heze))]
+    pub custody_columns: VariableList<BitVector<E::CellsPerExtBlob>, U1>,
+}
+
+impl<E: EthSpec> SszForkchoiceUpdateCustodyColumns<E> {
     pub fn new(
+        fork: ForkName,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
-        custody_columns: Option<BitVector<E::CellsPerExtBlob>>,
+        custody_columns: Option<CustodyColumnsBitArray>,
     ) -> Result<Self, Error> {
-        Ok(Self {
-            forkchoice_state,
-            payload_attributes: VariableList::new(
-                payload_attributes
-                    .map(|attributes| attributes.as_v4().cloned())
-                    .transpose()?
-                    .into_iter()
-                    .collect(),
-            )?,
-            custody_columns: VariableList::new(custody_columns.into_iter().collect())?,
-        })
+        let update = match fork {
+            ForkName::Gloas => {
+                let custody_columns: Option<BitVector<E::CellsPerExtBlob>> = if let Some(bit_array) = custody_columns {
+                    Some(custody_columns_to_bit_vector::<E>(bit_array)?)
+                } else {
+                    None
+                };
+
+                let payload_attributes = VariableList::new(
+                    payload_attributes
+                        .map(|attributes| attributes.as_v4().cloned())
+                        .transpose()?
+                        .into_iter()
+                        .collect(),
+                )?;
+
+                Self::Gloas(
+                    SszForkchoiceUpdateCustodyColumnsGloas {
+                        forkchoice_state,
+                        payload_attributes,
+                        custody_columns: VariableList::new(custody_columns.into_iter().collect())?
+                    }
+                )
+            },
+            ForkName::Heze => {
+                let custody_columns: Option<BitVector<E::CellsPerExtBlob>> = if let Some(bit_array) = custody_columns {
+                    Some(custody_columns_to_bit_vector::<E>(bit_array)?)
+                } else {
+                    None
+                };
+
+                let payload_attributes = VariableList::new(
+                    payload_attributes
+                        .map(|attributes| attributes.as_v5().cloned())
+                        .transpose()?
+                        .into_iter()
+                        .collect(),
+                )?;
+
+                Self::Heze(
+                    SszForkchoiceUpdateCustodyColumnsHeze {
+                        forkchoice_state,
+                        payload_attributes,
+                        custody_columns: VariableList::new(custody_columns.into_iter().collect())?
+                    }
+                )
+            }
+            other => {
+                return Err(Error::UnsupportedForkVariant(format!(
+                    "no post-Amsterdam forkchoice update for {other}"
+                )));
+            }
+        };
+        Ok(update)
     }
 }
 
@@ -944,17 +998,7 @@ impl<E: EthSpec> SszBlobsRequest<E> {
         versioned_hashes: Vec<Hash256>,
         indices_bitarray: CustodyColumnsBitArray,
     ) -> Result<SszBlobsRequestV2<E>, ssz_types::Error> {
-        // Re-encode the custody bitarray as an SSZ `Bitvector[CELLS_PER_EXT_BLOB]`. Both are 128
-        // bits wide, so `set` is always in bounds; the error is mapped, not `unwrap`ped, to avoid
-        // a panic.
-        let mut indices = BitVector::<E::CellsPerExtBlob>::new();
-        let len = indices.len();
-        for column in indices_bitarray.iter_set_bits() {
-            let column = column as usize;
-            indices
-                .set(column, true)
-                .map_err(|_| ssz_types::Error::OutOfBounds { i: column, len })?;
-        }
+        let indices = custody_columns_to_bit_vector::<E>(indices_bitarray)?;
         Ok(SszBlobsRequestV2 {
             versioned_hashes: VariableList::new(versioned_hashes)?,
             indices_bitarray: indices,
@@ -1301,6 +1345,20 @@ fn fork_from_header(header: &str) -> Option<ForkName> {
         "amsterdam" => ForkName::Gloas,
         _ => return None,
     })
+}
+
+fn custody_columns_to_bit_vector<E: EthSpec>(
+    bit_array: CustodyColumnsBitArray
+) -> Result<BitVector<E::CellsPerExtBlob>, ssz_types::Error> {
+    let mut indices = BitVector::<E::CellsPerExtBlob>::new();
+    let len = indices.len();
+    for column in bit_array.iter_set_bits() {
+        let column = column as usize;
+        indices
+            .set(column, true)
+            .map_err(|_| ssz_types::Error::OutOfBounds { i: column, len })?;
+    }
+    Ok(indices)
 }
 
 impl From<JsonCapabilities> for SszCapabilities {

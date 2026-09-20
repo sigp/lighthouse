@@ -16,7 +16,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::warn;
-use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256, ProgressiveTransactions};
+use types::{ColumnIndex, EthSpec, ExecutionBlockHash, ForkName, Hash256, ProgressiveTransactions};
 
 /// Resolved `engine_*` transport. Only set when `rest` is `Some`; `eth_*` always use JSON-RPC.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -108,6 +108,7 @@ impl EngineApi {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
         fork: ForkName,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let start_time = Instant::now();
@@ -117,14 +118,14 @@ impl EngineApi {
                 let _fcu_guard = self.fcu_lock.lock().await;
                 (
                     metrics::TRANSPORT_REST,
-                    rest.forkchoice_updated::<E>(fork, forkchoice_state, payload_attributes)
+                    rest.forkchoice_updated::<E>(fork, forkchoice_state, payload_attributes, custody_columns)
                         .await,
                 )
             }
             None => (
                 metrics::TRANSPORT_JSON_RPC,
                 self.json_rpc
-                    .forkchoice_updated(forkchoice_state, payload_attributes)
+                    .forkchoice_updated(forkchoice_state, payload_attributes, custody_columns)
                     .await,
             ),
         };

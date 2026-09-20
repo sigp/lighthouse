@@ -280,7 +280,7 @@ fn decode_forkchoice_updated<E: EthSpec>(
             )
         }
         ForkName::Gloas => {
-            let update = SszForkchoiceUpdateAmsterdam::<E>::from_ssz_bytes(body)?;
+            let update = SszForkchoiceUpdateCustodyColumnsGloas::<E>::from_ssz_bytes(body)?;
             let attributes = update.payload_attributes.first().cloned();
             (
                 update.forkchoice_state,
@@ -288,11 +288,11 @@ fn decode_forkchoice_updated<E: EthSpec>(
             )
         }
         ForkName::Heze => {
-            let update = SszForkchoiceUpdateAmsterdam::<E>::from_ssz_bytes(body)?;
+            let update = SszForkchoiceUpdateCustodyColumnsHeze::<E>::from_ssz_bytes(body)?;
             let attributes = update.payload_attributes.first().cloned();
             (
                 update.forkchoice_state,
-                attributes.map(PayloadAttributes::V4),
+                attributes.map(PayloadAttributes::V5),
             )
         }
         ForkName::Base | ForkName::Altair => {

@@ -997,6 +997,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 slot - 1,
                 head_block_root,
                 head_payload_status,
+                &[],
                 fork,
             )
             .await

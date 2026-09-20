@@ -78,6 +78,7 @@ members = [
     "testing/web3signer_tests",
     "validator_client",
     "validator_client/beacon_node_fallback",
+    "validator_client/builder_store",
     "validator_client/doppelganger_service",
     "validator_client/graffiti_file",
     "validator_client/http_api",
@@ -120,6 +121,7 @@ bincode = "1"
 bitvec = "1"
 bls = { path = "crypto/bls" }
 builder_client = { path = "beacon_node/builder_client" }
+builder_store = { path = "validator_client/builder_store" }
 builder_types = { path = "common/builder_types" }
 byteorder = "1"
 bytes = "1.11.1"
@@ -147,7 +149,7 @@ eth2_keystore = { path = "crypto/eth2_keystore" }
 eth2_network_config = { path = "common/eth2_network_config" }
 eth2_wallet = { path = "crypto/eth2_wallet" }
 ethereum_hashing = "0.8.0"
-ethereum_serde_utils = "0.8.0"
+ethereum_serde_utils = "0.8.1"
 ethereum_ssz = { version = "0.10.0", features = ["context_deserialize"] }
 ethereum_ssz_derive = "0.10.0"
 execution_layer = { path = "beacon_node/execution_layer" }

@@ -1303,7 +1303,7 @@ pub const CUSTODY_COLUMNS_BITARRAY_BYTES: usize = 16;
 /// EIP-8070 - bitarray of length `CELLS_PER_EXT_BLOB` (=128). Bit `i` of
 /// byte `i / 8` (LSB-first within each byte) indicates column `i`. Used as
 /// the `indices_bitarray` parameter of `engine_getBlobsV4` and the
-/// `custodyColumns` parameter of `engine_forkchoiceUpdatedV4`.
+/// `custodyColumns` parameter of `engine_forkchoiceUpdatedV4` and later.
 ///  The TryFrom impl safeguards against invalid input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -2118,6 +2118,50 @@ mod tests {
                 "blockAccessList": null,
             })
         );
+    }
+
+    #[test]
+    fn custody_columns_bitarray_from_indices_round_trip() {
+        // Set bits 0, 7, 8, 64, 127. These touch every byte boundary case.
+        let indices: Vec<ColumnIndex> = vec![0, 7, 8, 64, 127];
+        let bitarray = CustodyColumnsBitArray::try_from(indices.as_slice()).unwrap();
+
+        // Check raw bytes:
+        // bit 0 -> byte 0 bit 0 (0x01) | bit 7 -> byte 0 bit 7 (0x80) => byte 0 = 0x81
+        // bit 8 -> byte 1 bit 0 (0x01)                                => byte 1 = 0x01
+        // bit 64 -> byte 8 bit 0 (0x01)                               => byte 8 = 0x01
+        // bit 127 -> byte 15 bit 7 (0x80)                             => byte 15 = 0x80
+        assert_eq!(bitarray.0[0], 0x81);
+        assert_eq!(bitarray.0[1], 0x01);
+        assert_eq!(bitarray.0[8], 0x01);
+        assert_eq!(bitarray.0[15], 0x80);
+
+        // iter_set_bits round-trip
+        let round_tripped: Vec<ColumnIndex> = bitarray.iter_set_bits().collect();
+        assert_eq!(round_tripped, indices);
+
+        // Out-of-range indices cause an error.
+        let too_high = CustodyColumnsBitArray::try_from([42, 128, 200].as_slice()).unwrap_err();
+        assert_eq!(too_high.0, 128);
+
+        // Empty input is zero.
+        let empty = CustodyColumnsBitArray::try_from([].as_slice()).unwrap();
+        assert_eq!(empty.0, [0u8; 16]);
+    }
+
+    #[test]
+    fn custody_columns_bitarray_hex_serde() {
+        // Set just bit 0 -> first byte 0x01, rest zeros.
+        let bitarray = CustodyColumnsBitArray::try_from([0].as_slice()).unwrap();
+        let json = serde_json::to_string(&bitarray).unwrap();
+        assert_eq!(json, "\"0x01000000000000000000000000000000\"");
+        let parsed: CustodyColumnsBitArray = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, bitarray);
+
+        // Null-equivalent (zero bitarray) still serializes as hex (not null).
+        let zero = CustodyColumnsBitArray::try_from([].as_slice()).unwrap();
+        let zero_json = serde_json::to_string(&zero).unwrap();
+        assert_eq!(zero_json, "\"0x00000000000000000000000000000000\"");
     }
 }
 

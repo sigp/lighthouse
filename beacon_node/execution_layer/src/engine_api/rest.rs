@@ -25,8 +25,8 @@ use ssz::{Decode, Encode};
 use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tracing::info;
-use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256};
+use tracing::{error, info};
+use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256, ColumnIndex};
 
 const BASE: &str = "/engine/v1";
 const ETH_EXECUTION_VERSION: &str = "Eth-Execution-Version";
@@ -391,9 +391,13 @@ impl HttpRestSsz {
         fork: ForkName,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let custody_columns =
+            Self::custody_columns_param(custody_columns, fork);
+
         let body = if fork >= ForkName::Gloas {
-            SszForkchoiceUpdateAmsterdam::<E>::new(forkchoice_state, payload_attributes, None)?
+            SszForkchoiceUpdateCustodyColumns::<E>::new(fork, forkchoice_state, payload_attributes, custody_columns)?
                 .as_ssz_bytes()
         } else {
             SszForkchoiceUpdate::new(fork, forkchoice_state, payload_attributes)?.as_ssz_bytes()
@@ -429,6 +433,22 @@ impl HttpRestSsz {
         }
 
         Ok(response)
+    }
+
+    fn custody_columns_param(
+        custody_columns: Option<&[ColumnIndex]>,
+        fork: ForkName,
+    ) -> Option<CustodyColumnsBitArray> {
+        custody_columns
+            .map(CustodyColumnsBitArray::try_from)
+            .transpose()
+            .unwrap_or_else(|err| {
+                error!(
+                    ?err,
+                    %fork, "Failed to convert custody columns for forkchoice update"
+                );
+                None
+            })
     }
 
     pub async fn get_payload<E: EthSpec>(
@@ -1042,7 +1062,7 @@ mod tests {
             .assert_ssz_request_equals(
                 move |client| async move {
                     let _ = client
-                        .forkchoice_updated::<MainnetEthSpec>(ForkName::Deneb, state, None)
+                        .forkchoice_updated::<MainnetEthSpec>(ForkName::Deneb, state, None, None)
                         .await;
                 },
                 ExpectedRest {
@@ -1083,6 +1103,7 @@ mod tests {
                                 ForkName::Deneb,
                                 state,
                                 Some(attributes),
+                                None
                             )
                             .await;
                     }
@@ -1101,7 +1122,7 @@ mod tests {
     async fn forkchoice_updated_amsterdam_request_conformance() {
         let state = forkchoice_state();
         let expected_body = Bytes::from(
-            SszForkchoiceUpdateAmsterdam::<MainnetEthSpec>::new(state, None, None)
+            SszForkchoiceUpdateCustodyColumns::<MainnetEthSpec>::new(ForkName::Gloas, state, None, None)
                 .unwrap()
                 .as_ssz_bytes(),
         );
@@ -1109,7 +1130,7 @@ mod tests {
             .assert_ssz_request_equals(
                 move |client| async move {
                     let _ = client
-                        .forkchoice_updated::<MainnetEthSpec>(ForkName::Gloas, state, None)
+                        .forkchoice_updated::<MainnetEthSpec>(ForkName::Gloas, state, None, None)
                         .await;
                 },
                 ExpectedRest {
@@ -1299,7 +1320,7 @@ mod tests {
             .assert_ssz_response(
                 move |client| async move {
                     client
-                        .forkchoice_updated::<MainnetEthSpec>(ForkName::Fulu, state, None)
+                        .forkchoice_updated::<MainnetEthSpec>(ForkName::Fulu, state, None, None)
                         .await
                 },
                 |response| {
@@ -1343,6 +1364,7 @@ mod tests {
                                 ForkName::Fulu,
                                 state,
                                 Some(attributes),
+                                None
                             )
                             .await
                     }
