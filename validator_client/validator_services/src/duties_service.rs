@@ -1146,16 +1146,15 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
         .iter()
         .any(|index| !initial_indices_to_request.contains(index));
 
-    let (dependent_root, new_duties) = if !needs_coherent_refresh {
-        // Filter the initial duties by their relevance so that we don't hit the warning below about
-        // overwriting duties. There was previously a bug here.
-        let new_duties = response
-            .data
-            .into_iter()
-            .filter(|duty| validators_to_update.contains(&&duty.pubkey))
-            .collect::<Vec<_>>();
-        (probe_dependent_root, new_duties)
-    } else {
+    // Filter the initial duties by their relevance so that we don't hit the warning below about
+    // overwriting duties. There was previously a bug here.
+    let probe_duties = response
+        .data
+        .into_iter()
+        .filter(|duty| validators_to_update.contains(&&duty.pubkey))
+        .collect::<Vec<_>>();
+
+    let bulk = if needs_coherent_refresh {
         let bulk_response = post_validator_duties_attester(
             duties_service,
             epoch,
@@ -1169,14 +1168,18 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
                 "Attester duty dependent_root mismatch"
             );
         }
-        let dependent_root = bulk_response.dependent_root;
-        let new_duties = bulk_response
+        let bulk_duties = bulk_response
             .data
             .into_iter()
             .filter(|duty| validators_to_update.contains(&&duty.pubkey))
             .collect::<Vec<_>>();
-        (dependent_root, new_duties)
+        Some((bulk_response.dependent_root, bulk_duties))
+    } else {
+        None
     };
+
+    let (dependent_root, new_duties) =
+        duties_to_commit(probe_dependent_root, probe_duties, bulk);
 
     drop(fetch_timer);
 
@@ -1951,14 +1954,13 @@ async fn poll_beacon_ptc_attesters_for_epoch<
         .iter()
         .any(|index| !initial_indices_to_request.contains(index));
 
-    let (dependent_root, new_duties) = if !needs_coherent_refresh {
-        let new_duties = response
-            .data
-            .into_iter()
-            .filter(|duty| validators_to_update.contains(&&duty.pubkey))
-            .collect::<Vec<_>>();
-        (probe_dependent_root, new_duties)
-    } else {
+    let probe_duties = response
+        .data
+        .into_iter()
+        .filter(|duty| validators_to_update.contains(&&duty.pubkey))
+        .collect::<Vec<_>>();
+
+    let bulk = if needs_coherent_refresh {
         let bulk_response =
             post_validator_duties_ptc(duties_service, epoch, indices_needing_refresh.as_slice())
                 .await?;
@@ -1969,14 +1971,18 @@ async fn poll_beacon_ptc_attesters_for_epoch<
                 "PTC duty dependent_root mismatch"
             );
         }
-        let dependent_root = bulk_response.dependent_root;
-        let new_duties = bulk_response
+        let bulk_duties = bulk_response
             .data
             .into_iter()
             .filter(|duty| validators_to_update.contains(&&duty.pubkey))
             .collect::<Vec<_>>();
-        (dependent_root, new_duties)
+        Some((bulk_response.dependent_root, bulk_duties))
+    } else {
+        None
     };
+
+    let (dependent_root, new_duties) =
+        duties_to_commit(probe_dependent_root, probe_duties, bulk);
 
     drop(fetch_timer);
 
@@ -2018,6 +2024,21 @@ async fn poll_beacon_ptc_attesters_for_epoch<
     }
 
     Ok(())
+}
+
+/// Select which duties response to store after the probe.
+///
+/// If `bulk` is `Some`, use it alone. Never merge with `probe_duties`: the two requests may
+/// observe different dependent roots.
+fn duties_to_commit<T>(
+    probe_root: Hash256,
+    probe_duties: Vec<T>,
+    bulk: Option<(Hash256, Vec<T>)>,
+) -> (Hash256, Vec<T>) {
+    match bulk {
+        None => (probe_root, probe_duties),
+        Some((bulk_root, bulk_duties)) => (bulk_root, bulk_duties),
+    }
 }
 
 /// Notify the block service if it should produce a block.
@@ -2131,5 +2152,53 @@ mod test {
         let subscription_slots = SubscriptionSlots::new(duty_slot + 1, current_slot);
         assert_eq!(subscription_slots.slots.len(), 1);
         assert!(subscription_slots.should_send_subscription_at(current_slot + 1),);
+    }
+
+    #[test]
+    fn duties_to_commit_uses_probe_when_no_bulk() {
+        let probe_root = Hash256::repeat_byte(1);
+        let probe_duties = vec![1u64, 2];
+
+        let (root, duties) = duties_to_commit(probe_root, probe_duties.clone(), None);
+
+        assert_eq!(root, probe_root);
+        assert_eq!(duties, probe_duties);
+    }
+
+    #[test]
+    fn duties_to_commit_uses_bulk_only_when_roots_match() {
+        let probe_root = Hash256::repeat_byte(1);
+        let bulk_root = probe_root;
+        let probe_duties = vec![1u64];
+        let bulk_duties = vec![2u64, 3];
+
+        let (root, duties) = duties_to_commit(
+            probe_root,
+            probe_duties,
+            Some((bulk_root, bulk_duties.clone())),
+        );
+
+        assert_eq!(root, bulk_root);
+        assert_eq!(duties, bulk_duties);
+        assert!(!duties.contains(&1), "probe duties must not be merged into bulk");
+    }
+
+    #[test]
+    fn duties_to_commit_uses_bulk_root_when_roots_differ() {
+        let probe_root = Hash256::repeat_byte(1);
+        let bulk_root = Hash256::repeat_byte(2);
+        let probe_duties = vec![1u64];
+        let bulk_duties = vec![2u64, 3];
+
+        let (root, duties) = duties_to_commit(
+            probe_root,
+            probe_duties,
+            Some((bulk_root, bulk_duties.clone())),
+        );
+
+        assert_eq!(root, bulk_root);
+        assert_ne!(root, probe_root);
+        assert_eq!(duties, bulk_duties);
+        assert!(!duties.contains(&1), "probe duties must not be merged into bulk");
     }
 }
