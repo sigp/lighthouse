@@ -479,8 +479,13 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
                             "inclusion list epoch {inclusion_list_epoch} out of range: {e:?}"
                         ))
                     })?;
-            let inclusion_list_dependent_root = head_state
-                .attester_shuffling_decision_root(cached_head.head_block_root(), relative_epoch)?;
+
+            // determine inclusion list dependent root and committee necessary for determining
+            // the inclusion list bits for the inclusivity check
+            let inclusion_list_dependent_root = head_state.attester_shuffling_decision_root(
+                signed_bid.message().parent_block_root(),
+                relative_epoch,
+            )?;
             let inclusion_list_committee =
                 head_state.get_inclusion_list_committee(inclusion_list_slot)?;
 
