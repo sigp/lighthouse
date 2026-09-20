@@ -10,6 +10,7 @@ use types::EthSpec;
 ///
 /// - Clears `best_child` and `best_descendant` on all nodes (replaced by
 ///   virtual tree walk).
+/// - Converts vote trackers from epoch-based to slot-based ordering (`end_slot`).
 /// - Fails if the persisted fork choice contains any V17 (pre-Gloas) proto
 ///   nodes at or after the Gloas fork slot.
 ///
@@ -58,7 +59,7 @@ pub fn upgrade_to_v29<T: BeaconChainTypes>(
         .previous_proposer_boost;
 
     // Convert to v29.
-    let mut persisted_v29 = PersistedForkChoiceV29::from(persisted_v28);
+    let mut persisted_v29 = persisted_v28.into_v29(T::EthSpec::slots_per_epoch());
 
     // Subtract the proposer boost from the boosted node and all its ancestors.
     //
@@ -102,9 +103,10 @@ pub fn upgrade_to_v29<T: BeaconChainTypes>(
 
 /// Downgrade from schema v29 to v28.
 ///
-/// Converts the persisted fork choice from V29 format back to V28.
-/// Fails if the persisted fork choice contains any V29 proto nodes, as these contain
-/// payload-specific fields that cannot be losslessly converted back to V17 format.
+/// Converts the persisted fork choice from V29 format back to V28, including mapping
+/// vote slots back to epochs. Fails if the persisted fork choice contains any V29 proto
+/// nodes, as these contain payload-specific fields that cannot be losslessly converted
+/// back to V17 format.
 ///
 /// Returns a list of store ops to be applied atomically with the schema version write.
 pub fn downgrade_from_v29<T: BeaconChainTypes>(
@@ -143,7 +145,7 @@ pub fn downgrade_from_v29<T: BeaconChainTypes>(
     }
 
     // Convert to v28 and encode.
-    let persisted_v28 = PersistedForkChoiceV28::from(persisted_v29);
+    let persisted_v28 = persisted_v29.into_v28(T::EthSpec::slots_per_epoch());
 
     Ok(vec![
         persisted_v28.as_kv_store_op(FORK_CHOICE_DB_KEY, db.get_config())?,

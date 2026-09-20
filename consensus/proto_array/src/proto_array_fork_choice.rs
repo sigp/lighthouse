@@ -22,7 +22,7 @@ use types::{
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
-#[derive(Default, PartialEq, Clone, Encode, Decode)]
+#[derive(Default, PartialEq, Clone, Debug, Encode, Decode)]
 pub struct VoteTracker {
     current_root: Hash256,
     next_root: Hash256,
@@ -34,7 +34,7 @@ pub struct VoteTracker {
 
 // Can be deleted once the V28 schema migration is buried.
 // Matches the on-disk format from schema v28: current_root, next_root, next_epoch.
-#[derive(Default, PartialEq, Clone, Encode, Decode)]
+#[derive(Default, PartialEq, Clone, Debug, Encode, Decode)]
 pub struct VoteTrackerV28 {
     current_root: Hash256,
     next_root: Hash256,
@@ -51,37 +51,239 @@ impl VoteTracker {
     pub fn current_slot(&self) -> Slot {
         self.current_slot
     }
+
+    /// Convert to the V28 on-disk format for schema downgrade.
+    ///
+    /// Drops `payload_present` and maps `next_slot` to `next_epoch`. Defaults remain default.
+    pub fn into_vote_tracker_v28(self, slots_per_epoch: u64) -> VoteTrackerV28 {
+        if self == VoteTracker::default() {
+            return VoteTrackerV28::default();
+        }
+        VoteTrackerV28 {
+            current_root: self.current_root,
+            next_root: self.next_root,
+            next_epoch: self.next_slot.epoch(slots_per_epoch),
+        }
+    }
 }
 
-// This impl is only used upon upgrade from pre-Gloas to Gloas with all pre-Gloas nodes.
-// The payload status is `false` for pre-Gloas nodes.
-impl From<VoteTrackerV28> for VoteTracker {
-    fn from(v: VoteTrackerV28) -> Self {
+impl VoteTrackerV28 {
+    /// Convert to the V29 vote tracker used after schema upgrade.
+    ///
+    /// Maps `next_epoch` to `end_slot` for both slots so `attestation_slot > next_slot`
+    /// matches phase0 `target.epoch > stored.epoch`. Defaults remain default. Sets
+    /// `payload_present` to false.
+    pub fn into_vote_tracker(self, slots_per_epoch: u64) -> VoteTracker {
+        if self == VoteTrackerV28::default() {
+            return VoteTracker::default();
+        }
+        let slot = self.next_epoch.end_slot(slots_per_epoch);
         VoteTracker {
-            current_root: v.current_root,
-            next_root: v.next_root,
-            // The v28 format stored next_epoch rather than slots. Default to 0 since the
-            // vote tracker will be updated on the next attestation.
-            current_slot: Slot::new(0),
-            next_slot: Slot::new(0),
+            current_root: self.current_root,
+            next_root: self.next_root,
+            current_slot: slot,
+            next_slot: slot,
             current_payload_present: false,
             next_payload_present: false,
         }
     }
 }
 
-// This impl is only used upon downgrade from V29 to V28, with exclusively pre-Gloas nodes.
-impl From<VoteTracker> for VoteTrackerV28 {
-    fn from(v: VoteTracker) -> Self {
-        // Drop the payload_present fields. This is safe because this is only called on pre-Gloas
-        // nodes.
-        VoteTrackerV28 {
-            current_root: v.current_root,
-            next_root: v.next_root,
-            // The v28 format stored next_epoch. Default to 0 since the vote tracker will be
-            // updated on the next attestation.
-            next_epoch: Epoch::new(0),
+#[cfg(test)]
+mod test_vote_tracker_conversion {
+    use super::*;
+    use fixed_bytes::FixedBytesExtended;
+
+    #[test]
+    fn default_upgrade_stays_default() {
+        for spe in [16_u64, 32] {
+            assert_eq!(
+                VoteTrackerV28::default().into_vote_tracker(spe),
+                VoteTracker::default()
+            );
         }
+    }
+
+    #[test]
+    fn default_downgrade_stays_default() {
+        for spe in [16_u64, 32] {
+            assert_eq!(
+                VoteTracker::default().into_vote_tracker_v28(spe),
+                VoteTrackerV28::default()
+            );
+        }
+    }
+
+    #[test]
+    fn upgrade_maps_epoch_to_end_slot_for_both_slots() {
+        let root = Hash256::from_low_u64_be(42);
+        let epoch = Epoch::new(100);
+        let v28 = VoteTrackerV28 {
+            current_root: root,
+            next_root: root,
+            next_epoch: epoch,
+        };
+
+        for spe in [16_u64, 32] {
+            let v29 = v28.clone().into_vote_tracker(spe);
+            let expected = epoch.end_slot(spe);
+            assert_eq!(v29.current_root, root);
+            assert_eq!(v29.next_root, root);
+            assert_eq!(v29.current_slot, expected);
+            assert_eq!(v29.next_slot, expected);
+            assert!(!v29.current_payload_present);
+            assert!(!v29.next_payload_present);
+        }
+    }
+
+    #[test]
+    fn non_default_genesis_epoch_maps_to_end_slot_not_default() {
+        let root = Hash256::from_low_u64_be(1);
+        let v28 = VoteTrackerV28 {
+            current_root: root,
+            next_root: root,
+            next_epoch: Epoch::new(0),
+        };
+
+        for spe in [16_u64, 32] {
+            let v29 = v28.clone().into_vote_tracker(spe);
+            let expected = Epoch::new(0).end_slot(spe);
+            assert_ne!(v29, VoteTracker::default());
+            assert_eq!(v29.current_root, root);
+            assert_eq!(v29.next_root, root);
+            assert_eq!(v29.current_slot, expected);
+            assert_eq!(v29.next_slot, expected);
+            assert!(!v29.current_payload_present);
+            assert!(!v29.next_payload_present);
+        }
+    }
+
+    #[test]
+    fn downgrade_maps_next_slot_to_epoch() {
+        let root = Hash256::from_low_u64_be(7);
+        let epoch = Epoch::new(100);
+
+        for spe in [16_u64, 32] {
+            let slot = epoch.start_slot(spe) + 5;
+            let v29 = VoteTracker {
+                current_root: root,
+                next_root: root,
+                current_slot: slot,
+                next_slot: slot,
+                current_payload_present: false,
+                next_payload_present: false,
+            };
+            let v28 = v29.into_vote_tracker_v28(spe);
+            assert_eq!(v28.current_root, root);
+            assert_eq!(v28.next_root, root);
+            assert_eq!(v28.next_epoch, epoch);
+        }
+    }
+
+    #[test]
+    fn upgrade_then_downgrade_preserves_epoch() {
+        let root = Hash256::from_low_u64_be(9);
+        let epoch = Epoch::new(50);
+        let v28 = VoteTrackerV28 {
+            current_root: root,
+            next_root: root,
+            next_epoch: epoch,
+        };
+
+        for spe in [16_u64, 32] {
+            let round_trip = v28
+                .clone()
+                .into_vote_tracker(spe)
+                .into_vote_tracker_v28(spe);
+            assert_eq!(round_trip.next_epoch, epoch);
+            assert_eq!(round_trip.current_root, root);
+            assert_eq!(round_trip.next_root, root);
+        }
+    }
+
+    fn minimal_fork_choice() -> ProtoArrayForkChoice {
+        use types::MainnetEthSpec;
+        let spec = MainnetEthSpec::default_spec();
+        let checkpoint = Checkpoint {
+            epoch: Epoch::new(0),
+            root: Hash256::from_low_u64_be(1),
+        };
+        let shuffling_id = AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Slot::new(0),
+            Hash256::zero(),
+            checkpoint,
+            checkpoint,
+            shuffling_id.clone(),
+            shuffling_id,
+            ExecutionStatus::irrelevant(),
+            None,
+            None,
+            0,
+            &spec,
+        )
+        .expect("fork choice should initialize")
+    }
+
+    #[test]
+    fn upgraded_vote_rejects_older_epoch_attestation() {
+        // #10089: upgraded votes must reject older/equal slots and accept a newer epoch.
+        use types::MainnetEthSpec;
+        let spe = MainnetEthSpec::slots_per_epoch();
+        let newer_root = Hash256::from_low_u64_be(100);
+        let older_root = Hash256::from_low_u64_be(99);
+        let stored_epoch = Epoch::new(10);
+        let watermark = stored_epoch.end_slot(spe);
+
+        let mut fork_choice = minimal_fork_choice();
+        fork_choice.votes.0 = vec![
+            VoteTrackerV28 {
+                current_root: newer_root,
+                next_root: newer_root,
+                next_epoch: stored_epoch,
+            }
+            .into_vote_tracker(spe),
+        ];
+
+        fork_choice
+            .process_attestation(0, older_root, Epoch::new(9).end_slot(spe), false)
+            .expect("process_attestation should succeed");
+        let latest = fork_choice
+            .latest_message(0)
+            .expect("vote should remain present");
+        assert_eq!(latest.root, newer_root);
+        assert_eq!(latest.slot, watermark);
+
+        fork_choice
+            .process_attestation(0, older_root, stored_epoch.start_slot(spe), false)
+            .expect("process_attestation should succeed");
+        let latest = fork_choice
+            .latest_message(0)
+            .expect("vote should remain present");
+        assert_eq!(latest.root, newer_root);
+        assert_eq!(latest.slot, watermark);
+
+        // Comparator is `>`; equal watermark must not replace.
+        fork_choice
+            .process_attestation(0, older_root, watermark, false)
+            .expect("process_attestation should succeed");
+        let latest = fork_choice
+            .latest_message(0)
+            .expect("vote should remain present");
+        assert_eq!(latest.root, newer_root);
+        assert_eq!(latest.slot, watermark);
+
+        let replacement_root = Hash256::from_low_u64_be(101);
+        let newer_slot = Epoch::new(11).start_slot(spe);
+        fork_choice
+            .process_attestation(0, replacement_root, newer_slot, false)
+            .expect("process_attestation should succeed");
+        let latest = fork_choice
+            .latest_message(0)
+            .expect("vote should remain present");
+        assert_eq!(latest.root, replacement_root);
+        assert_eq!(latest.slot, newer_slot);
     }
 }
 

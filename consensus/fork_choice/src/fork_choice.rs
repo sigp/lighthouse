@@ -2005,18 +2005,18 @@ pub struct PersistedForkChoice {
 
 pub type PersistedForkChoice = PersistedForkChoiceV29;
 
-impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
-    fn from(v28: PersistedForkChoiceV28) -> Self {
-        Self {
-            proto_array: v28.proto_array_v28.into(),
+impl PersistedForkChoiceV28 {
+    pub fn into_v29(self, slots_per_epoch: u64) -> PersistedForkChoiceV29 {
+        PersistedForkChoiceV29 {
+            proto_array: self.proto_array_v28.into_v29(slots_per_epoch),
         }
     }
 }
 
-impl From<PersistedForkChoiceV29> for PersistedForkChoiceV28 {
-    fn from(v29: PersistedForkChoiceV29) -> Self {
-        Self {
-            proto_array_v28: v29.proto_array.into(),
+impl PersistedForkChoiceV29 {
+    pub fn into_v28(self, slots_per_epoch: u64) -> PersistedForkChoiceV28 {
+        PersistedForkChoiceV28 {
+            proto_array_v28: self.proto_array.into_v28(slots_per_epoch),
             queued_attestations_v28: vec![],
         }
     }

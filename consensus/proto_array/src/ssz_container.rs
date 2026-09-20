@@ -76,12 +76,16 @@ impl TryFrom<(SszContainerV29, JustifiedBalances)> for ProtoArrayForkChoice {
 }
 
 // Convert legacy V28 to current V29.
-impl From<SszContainerV28> for SszContainerV29 {
-    fn from(v28: SszContainerV28) -> Self {
-        Self {
-            votes: v28.votes_v28.into_iter().map(Into::into).collect(),
-            prune_threshold: v28.prune_threshold,
-            nodes: v28
+impl SszContainerV28 {
+    pub fn into_v29(self, slots_per_epoch: u64) -> SszContainerV29 {
+        SszContainerV29 {
+            votes: self
+                .votes_v28
+                .into_iter()
+                .map(|vote| vote.into_vote_tracker(slots_per_epoch))
+                .collect(),
+            prune_threshold: self.prune_threshold,
+            nodes: self
                 .nodes
                 .into_iter()
                 .map(|mut node| {
@@ -92,22 +96,26 @@ impl From<SszContainerV28> for SszContainerV29 {
                     ProtoNode::V17(node)
                 })
                 .collect(),
-            indices: v28.indices,
+            indices: self.indices,
         }
     }
 }
 
 // Downgrade current V29 to legacy V28 (lossy: V29 nodes lose payload-specific fields).
-impl From<SszContainerV29> for SszContainerV28 {
-    fn from(v29: SszContainerV29) -> Self {
-        Self {
-            votes_v28: v29.votes.into_iter().map(Into::into).collect(),
-            prune_threshold: v29.prune_threshold,
+impl SszContainerV29 {
+    pub fn into_v28(self, slots_per_epoch: u64) -> SszContainerV28 {
+        SszContainerV28 {
+            votes_v28: self
+                .votes
+                .into_iter()
+                .map(|vote| vote.into_vote_tracker_v28(slots_per_epoch))
+                .collect(),
+            prune_threshold: self.prune_threshold,
             // These checkpoints are not consumed in v28 paths since the upgrade from v17,
             // we can safely default the values.
             justified_checkpoint: Checkpoint::default(),
             finalized_checkpoint: Checkpoint::default(),
-            nodes: v29
+            nodes: self
                 .nodes
                 .into_iter()
                 .filter_map(|node| match node {
@@ -115,7 +123,7 @@ impl From<SszContainerV29> for SszContainerV28 {
                     ProtoNode::V29(_) => None,
                 })
                 .collect(),
-            indices: v29.indices,
+            indices: self.indices,
             // Proposer boost is not tracked in V29 (computed on-the-fly), so reset it.
             previous_proposer_boost: ProposerBoost::default(),
         }

@@ -86,20 +86,20 @@ impl PersistedForkChoiceV29 {
     }
 }
 
-impl From<PersistedForkChoiceV28> for PersistedForkChoiceV29 {
-    fn from(v28: PersistedForkChoiceV28) -> Self {
-        Self {
-            fork_choice: v28.fork_choice_v28.into(),
-            fork_choice_store: v28.fork_choice_store,
+impl PersistedForkChoiceV28 {
+    pub fn into_v29(self, slots_per_epoch: u64) -> PersistedForkChoiceV29 {
+        PersistedForkChoiceV29 {
+            fork_choice: self.fork_choice_v28.into_v29(slots_per_epoch),
+            fork_choice_store: self.fork_choice_store,
         }
     }
 }
 
-impl From<PersistedForkChoiceV29> for PersistedForkChoiceV28 {
-    fn from(v29: PersistedForkChoiceV29) -> Self {
-        Self {
-            fork_choice_v28: v29.fork_choice.into(),
-            fork_choice_store: v29.fork_choice_store,
+impl PersistedForkChoiceV29 {
+    pub fn into_v28(self, slots_per_epoch: u64) -> PersistedForkChoiceV28 {
+        PersistedForkChoiceV28 {
+            fork_choice_v28: self.fork_choice.into_v28(slots_per_epoch),
+            fork_choice_store: self.fork_choice_store,
         }
     }
 }
