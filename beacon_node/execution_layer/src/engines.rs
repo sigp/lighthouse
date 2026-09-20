@@ -187,7 +187,7 @@ impl<E: EthSpec> Engine<E> {
                 forkchoice_state,
                 payload_attributes.clone(),
                 custody_columns,
-                fork
+                fork,
             )
             .await?;
 
@@ -229,13 +229,9 @@ impl<E: EthSpec> Engine<E> {
             // For simplicity, payload attributes and custody columns are never included in this
             // call. It may be reasonable to include them in the future.
             if let Err(e) = self
-                
                 .api
-                
                 .forkchoice_updated::<E>(forkchoice_state, None, None, fork)
-                
                 .await
-           
             {
                 debug!(
                     error = ?e,

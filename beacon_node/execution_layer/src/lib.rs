@@ -1663,7 +1663,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         forkchoice_state,
                         payload_attributes,
                         Some(custody_columns),
-                        fork
+                        fork,
                     )
                     .await
             })

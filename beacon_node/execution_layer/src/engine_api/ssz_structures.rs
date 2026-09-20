@@ -627,7 +627,9 @@ impl<E: EthSpec> SszGetPayloadResponse<E> {
                 SszGetPayloadResponseElectra::from_ssz_bytes(bytes).map(Self::Electra)
             }
             ForkName::Fulu => SszGetPayloadResponseFulu::from_ssz_bytes(bytes).map(Self::Fulu),
-            ForkName::Gloas | ForkName::Heze => SszGetPayloadResponseGloas::from_ssz_bytes(bytes).map(Self::Gloas),
+            ForkName::Gloas | ForkName::Heze => {
+                SszGetPayloadResponseGloas::from_ssz_bytes(bytes).map(Self::Gloas)
+            }
             ForkName::Base | ForkName::Altair => Err(DecodeError::BytesInvalid(format!(
                 "unsupported fork for get_payload response: {fork}"
             ))),
@@ -888,11 +890,12 @@ impl<E: EthSpec> SszForkchoiceUpdateCustodyColumns<E> {
     ) -> Result<Self, Error> {
         let update = match fork {
             ForkName::Gloas => {
-                let custody_columns: Option<BitVector<E::CellsPerExtBlob>> = if let Some(bit_array) = custody_columns {
-                    Some(custody_columns_to_bit_vector::<E>(bit_array)?)
-                } else {
-                    None
-                };
+                let custody_columns: Option<BitVector<E::CellsPerExtBlob>> =
+                    if let Some(bit_array) = custody_columns {
+                        Some(custody_columns_to_bit_vector::<E>(bit_array)?)
+                    } else {
+                        None
+                    };
 
                 let payload_attributes = VariableList::new(
                     payload_attributes
@@ -902,20 +905,19 @@ impl<E: EthSpec> SszForkchoiceUpdateCustodyColumns<E> {
                         .collect(),
                 )?;
 
-                Self::Gloas(
-                    SszForkchoiceUpdateCustodyColumnsGloas {
-                        forkchoice_state,
-                        payload_attributes,
-                        custody_columns: VariableList::new(custody_columns.into_iter().collect())?
-                    }
-                )
-            },
+                Self::Gloas(SszForkchoiceUpdateCustodyColumnsGloas {
+                    forkchoice_state,
+                    payload_attributes,
+                    custody_columns: VariableList::new(custody_columns.into_iter().collect())?,
+                })
+            }
             ForkName::Heze => {
-                let custody_columns: Option<BitVector<E::CellsPerExtBlob>> = if let Some(bit_array) = custody_columns {
-                    Some(custody_columns_to_bit_vector::<E>(bit_array)?)
-                } else {
-                    None
-                };
+                let custody_columns: Option<BitVector<E::CellsPerExtBlob>> =
+                    if let Some(bit_array) = custody_columns {
+                        Some(custody_columns_to_bit_vector::<E>(bit_array)?)
+                    } else {
+                        None
+                    };
 
                 let payload_attributes = VariableList::new(
                     payload_attributes
@@ -925,13 +927,11 @@ impl<E: EthSpec> SszForkchoiceUpdateCustodyColumns<E> {
                         .collect(),
                 )?;
 
-                Self::Heze(
-                    SszForkchoiceUpdateCustodyColumnsHeze {
-                        forkchoice_state,
-                        payload_attributes,
-                        custody_columns: VariableList::new(custody_columns.into_iter().collect())?
-                    }
-                )
+                Self::Heze(SszForkchoiceUpdateCustodyColumnsHeze {
+                    forkchoice_state,
+                    payload_attributes,
+                    custody_columns: VariableList::new(custody_columns.into_iter().collect())?,
+                })
             }
             other => {
                 return Err(Error::UnsupportedForkVariant(format!(
@@ -1348,7 +1348,7 @@ fn fork_from_header(header: &str) -> Option<ForkName> {
 }
 
 fn custody_columns_to_bit_vector<E: EthSpec>(
-    bit_array: CustodyColumnsBitArray
+    bit_array: CustodyColumnsBitArray,
 ) -> Result<BitVector<E::CellsPerExtBlob>, ssz_types::Error> {
     let mut indices = BitVector::<E::CellsPerExtBlob>::new();
     let len = indices.len();

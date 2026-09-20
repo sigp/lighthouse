@@ -118,8 +118,13 @@ impl EngineApi {
                 let _fcu_guard = self.fcu_lock.lock().await;
                 (
                     metrics::TRANSPORT_REST,
-                    rest.forkchoice_updated::<E>(fork, forkchoice_state, payload_attributes, custody_columns)
-                        .await,
+                    rest.forkchoice_updated::<E>(
+                        fork,
+                        forkchoice_state,
+                        payload_attributes,
+                        custody_columns,
+                    )
+                    .await,
                 )
             }
             None => (

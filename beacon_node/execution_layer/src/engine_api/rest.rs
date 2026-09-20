@@ -26,7 +26,7 @@ use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{error, info};
-use types::{EthSpec, ExecutionBlockHash, ForkName, Hash256, ColumnIndex};
+use types::{ColumnIndex, EthSpec, ExecutionBlockHash, ForkName, Hash256};
 
 const BASE: &str = "/engine/v1";
 const ETH_EXECUTION_VERSION: &str = "Eth-Execution-Version";
@@ -393,12 +393,16 @@ impl HttpRestSsz {
         payload_attributes: Option<PayloadAttributes>,
         custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let custody_columns =
-            Self::custody_columns_param(custody_columns, fork);
+        let custody_columns = Self::custody_columns_param(custody_columns, fork);
 
         let body = if fork >= ForkName::Gloas {
-            SszForkchoiceUpdateCustodyColumns::<E>::new(fork, forkchoice_state, payload_attributes, custody_columns)?
-                .as_ssz_bytes()
+            SszForkchoiceUpdateCustodyColumns::<E>::new(
+                fork,
+                forkchoice_state,
+                payload_attributes,
+                custody_columns,
+            )?
+            .as_ssz_bytes()
         } else {
             SszForkchoiceUpdate::new(fork, forkchoice_state, payload_attributes)?.as_ssz_bytes()
         };
@@ -1103,7 +1107,7 @@ mod tests {
                                 ForkName::Deneb,
                                 state,
                                 Some(attributes),
-                                None
+                                None,
                             )
                             .await;
                     }
@@ -1122,9 +1126,14 @@ mod tests {
     async fn forkchoice_updated_amsterdam_request_conformance() {
         let state = forkchoice_state();
         let expected_body = Bytes::from(
-            SszForkchoiceUpdateCustodyColumns::<MainnetEthSpec>::new(ForkName::Gloas, state, None, None)
-                .unwrap()
-                .as_ssz_bytes(),
+            SszForkchoiceUpdateCustodyColumns::<MainnetEthSpec>::new(
+                ForkName::Gloas,
+                state,
+                None,
+                None,
+            )
+            .unwrap()
+            .as_ssz_bytes(),
         );
         RestTester::new(true)
             .assert_ssz_request_equals(
@@ -1364,7 +1373,7 @@ mod tests {
                                 ForkName::Fulu,
                                 state,
                                 Some(attributes),
-                                None
+                                None,
                             )
                             .await
                     }
