@@ -72,7 +72,9 @@ use bls::{PublicKey, PublicKeyBytes};
 use educe::Educe;
 use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
-pub use fork_choice::{AttestationFromBlock, ParentImportStatus, PayloadVerificationStatus};
+pub use fork_choice::{
+    AttestationFromBlock, InvalidAttestation, ParentImportStatus, PayloadVerificationStatus,
+};
 use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -1714,6 +1716,10 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         }
 
         // Register each attestation in the block with fork choice.
+        //
+        // Collect index-1 votes that fail with `PayloadNotReceived` and schedule them for
+        // reprocess after dropping the fork-choice lock.
+        let mut pending_payload_attestations = Vec::new();
         for (i, attestation) in block.message().body().attestations().enumerate() {
             let indexed_attestation = consensus_context
                 .get_indexed_attestation(&state, attestation)
@@ -1726,7 +1732,15 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 &chain.spec,
             ) {
                 Ok(()) => Ok(()),
-                // Ignore invalid attestations whilst importing attestations from a block. The
+                // Envelope not yet received; retry once it arrives.
+                Err(ForkChoiceError::InvalidAttestation(
+                    InvalidAttestation::PayloadNotReceived { .. },
+                )) => {
+                    pending_payload_attestations
+                        .push(indexed_attestation.clone_as_indexed_attestation());
+                    Ok(())
+                }
+                // Ignore other invalid attestations whilst importing from a block. The
                 // block might be very old and therefore the attestations useless to fork choice.
                 Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
                 Err(e) => Err(BlockError::BeaconChainError(Box::new(e.into()))),
@@ -1758,6 +1772,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             }
         }
         drop(fork_choice);
+
+        // Schedule after dropping the fork-choice lock to avoid re-entrancy under that lock.
+        for indexed_attestation in pending_payload_attestations {
+            let beacon_block_root = indexed_attestation.data().beacon_block_root;
+            chain.notify_block_attestation_awaiting_payload(beacon_block_root, indexed_attestation);
+        }
 
         Ok(Self {
             block,

@@ -127,8 +127,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Execution payload envelope imported"
                 );
 
-                // TODO(gloas) do we need to send a `PayloadImported` event to the reprocess queue?
-
                 metrics::inc_counter(&metrics::ENVELOPE_PROCESSING_SUCCESSES);
 
                 Ok(status)
@@ -332,6 +330,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_verification_status,
             envelope_time_imported,
         );
+
+        // Notify the reprocess queue (covers gossip, RPC, HTTP, and DA completion import paths).
+        self.notify_payload_envelope_imported_hook(block_root);
 
         Ok(block_root)
     }

@@ -10,14 +10,16 @@ use beacon_chain::graffiti_calculator::start_engine_version_cache_refresh_servic
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
-    BeaconChain, BeaconChainTypes, MigratorConfig, ServerSentEventHandler,
+    BeaconChain, BeaconChainError, BeaconChainTypes, ForkChoiceError, MigratorConfig,
+    ServerSentEventHandler,
     builder::{BeaconChainBuilder, Witness},
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, StoreConfig},
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
-use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
+use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueueMessage};
+use beacon_processor::{BeaconProcessor, BeaconProcessorChannels, Work, WorkEvent};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use builder_client::{BuilderHttpClient, Builders};
 use environment::RuntimeContext;
@@ -667,6 +669,14 @@ where
             .take()
             .ok_or("build requires a beacon_processor_config")?;
 
+        // Wire reprocess-queue hooks for block-carried payload attestations.
+        if let Some(beacon_chain) = self.beacon_chain.as_ref() {
+            wire_payload_reprocess_hooks(
+                beacon_chain.clone(),
+                beacon_processor_channels.beacon_processor_tx.clone(),
+            );
+        }
+
         let http_api_listen_addr = if self.http_api_config.enabled {
             let ctx = Arc::new(http_api::Context {
                 config: self.http_api_config.clone(),
@@ -970,4 +980,123 @@ async fn genesis_state<E: EthSpec>(
         )
         .await?
         .ok_or_else(|| "Genesis state is unknown".to_string())
+}
+
+/// Wire beacon-chain hooks into the beacon processor reprocess queue for block-carried
+/// index-1 attestations and envelope-import notifications.
+fn wire_payload_reprocess_hooks<T: BeaconChainTypes>(
+    beacon_chain: Arc<BeaconChain<T>>,
+    beacon_processor_tx: beacon_processor::BeaconProcessorSend<T::EthSpec>,
+) {
+    let chain_for_attestation = beacon_chain.clone();
+    let processor_tx_for_attestation = beacon_processor_tx.clone();
+    beacon_chain.set_block_attestation_awaiting_payload(Arc::new(
+        move |beacon_block_root, indexed_attestation| {
+            // Apply immediately if the envelope arrived before this hook ran.
+            if chain_for_attestation
+                .canonical_head
+                .fork_choice_read_lock()
+                .is_payload_received(&beacon_block_root)
+            {
+                if let Err(e) = chain_for_attestation
+                    .apply_indexed_attestation_from_block(indexed_attestation.to_ref())
+                {
+                    match e {
+                        BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(
+                            _,
+                        )) => {
+                            // Ignore, matching block import.
+                        }
+                        other => {
+                            debug!(
+                                error = ?other,
+                                ?beacon_block_root,
+                                "Failed to apply deferred block attestation to fork choice"
+                            );
+                        }
+                    }
+                }
+                return;
+            }
+
+            let chain = chain_for_attestation.clone();
+            let process_fn = move || {
+                if let Err(e) =
+                    chain.apply_indexed_attestation_from_block(indexed_attestation.to_ref())
+                {
+                    match e {
+                        BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(
+                            _,
+                        )) => {
+                            // Ignore, matching block import.
+                        }
+                        other => {
+                            debug!(
+                                error = ?other,
+                                ?beacon_block_root,
+                                "Failed to apply deferred block attestation to fork choice"
+                            );
+                        }
+                    }
+                }
+            };
+
+            if processor_tx_for_attestation
+                .try_send(WorkEvent {
+                    drop_during_sync: false,
+                    work: Work::Reprocess(ReprocessQueueMessage::UnknownPayloadUnaggregate(
+                        QueuedUnaggregate {
+                            beacon_block_root,
+                            process_fn: Box::new(process_fn),
+                        },
+                    )),
+                })
+                .is_err()
+            {
+                debug!(
+                    ?beacon_block_root,
+                    "Failed to queue block attestation awaiting payload"
+                );
+                return;
+            }
+
+            // Re-notify if the envelope arrived while enqueueing.
+            if chain_for_attestation
+                .canonical_head
+                .fork_choice_read_lock()
+                .is_payload_received(&beacon_block_root)
+                && processor_tx_for_attestation
+                    .try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::PayloadEnvelopeImported {
+                            block_root: beacon_block_root,
+                        }),
+                    })
+                    .is_err()
+            {
+                debug!(
+                    ?beacon_block_root,
+                    "Failed to notify payload envelope import for reprocess queue"
+                );
+            }
+        },
+    ));
+
+    let processor_tx_for_envelope = beacon_processor_tx;
+    beacon_chain.set_payload_envelope_imported(Arc::new(move |block_root| {
+        if processor_tx_for_envelope
+            .try_send(WorkEvent {
+                drop_during_sync: false,
+                work: Work::Reprocess(ReprocessQueueMessage::PayloadEnvelopeImported {
+                    block_root,
+                }),
+            })
+            .is_err()
+        {
+            debug!(
+                ?block_root,
+                "Failed to notify payload envelope import for reprocess queue"
+            );
+        }
+    }));
 }

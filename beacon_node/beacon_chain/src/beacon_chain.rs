@@ -150,6 +150,7 @@ use std::collections::HashSet;
 use std::io::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
@@ -373,6 +374,15 @@ pub enum BlockProcessStatus<E: EthSpec> {
 
 pub type LightClientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
 
+/// Hook for a block-carried index-1 attestation whose payload envelope is not yet known.
+///
+/// Arguments are `(attestation.data.beacon_block_root, indexed_attestation)`.
+pub type BlockAttestationAwaitingPayloadFn<E> =
+    Arc<dyn Fn(Hash256, IndexedAttestation<E>) + Send + Sync>;
+
+/// Hook fired after a payload envelope has been imported into fork choice and the DB.
+pub type PayloadEnvelopeImportedFn = Arc<dyn Fn(Hash256) + Send + Sync>;
+
 pub type BeaconForkChoice<T> = ForkChoice<
     BeaconForkChoiceStore<
         <T as BeaconChainTypes>::EthSpec,
@@ -541,6 +551,14 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub builder_onboarding_cache: Option<Arc<OnboardBuildersCache>>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
     pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
+    /// Optional hook to park block-carried index-1 attestations awaiting a payload envelope.
+    ///
+    /// Set once by the client when wiring the beacon processor reprocess queue.
+    pub block_attestation_awaiting_payload: OnceLock<BlockAttestationAwaitingPayloadFn<T::EthSpec>>,
+    /// Optional hook notified when a payload envelope has been imported.
+    ///
+    /// Set once by the client alongside `block_attestation_awaiting_payload`.
+    pub payload_envelope_imported: OnceLock<PayloadEnvelopeImportedFn>,
 }
 
 pub enum BeaconBlockResponseWrapper<E: EthSpec> {
@@ -7884,9 +7902,59 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         writeln!(output, "}}").unwrap();
     }
 
+    /// Apply a block-included indexed attestation to fork choice.
+    ///
+    /// Used to replay index-1 attestations after their payload envelope is imported. Uses
+    /// `AttestationFromBlock::True` to match the original block-import path.
+    pub fn apply_indexed_attestation_from_block(
+        &self,
+        indexed_attestation: IndexedAttestationRef<'_, T::EthSpec>,
+    ) -> Result<(), Error> {
+        self.canonical_head
+            .fork_choice_write_lock()
+            .on_attestation(
+                self.slot()?,
+                indexed_attestation,
+                crate::block_verification::AttestationFromBlock::True,
+                &self.spec,
+            )
+            .map_err(Into::into)
+    }
+
     /// Get a channel to request shutting down.
     pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.shutdown_sender.clone()
+    }
+
+    /// Set `block_attestation_awaiting_payload`. No-op if already set.
+    pub fn set_block_attestation_awaiting_payload(
+        &self,
+        hook: BlockAttestationAwaitingPayloadFn<T::EthSpec>,
+    ) {
+        let _ = self.block_attestation_awaiting_payload.set(hook);
+    }
+
+    /// Set `payload_envelope_imported`. No-op if already set.
+    pub fn set_payload_envelope_imported(&self, hook: PayloadEnvelopeImportedFn) {
+        let _ = self.payload_envelope_imported.set(hook);
+    }
+
+    /// Call `block_attestation_awaiting_payload` if set.
+    pub(crate) fn notify_block_attestation_awaiting_payload(
+        &self,
+        beacon_block_root: Hash256,
+        indexed_attestation: IndexedAttestation<T::EthSpec>,
+    ) {
+        if let Some(hook) = self.block_attestation_awaiting_payload.get() {
+            hook(beacon_block_root, indexed_attestation);
+        }
+    }
+
+    /// Call `payload_envelope_imported` if set.
+    pub(crate) fn notify_payload_envelope_imported_hook(&self, block_root: Hash256) {
+        if let Some(hook) = self.payload_envelope_imported.get() {
+            hook(block_root);
+        }
     }
 
     // Used for debugging
