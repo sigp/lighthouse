@@ -115,6 +115,10 @@ pub struct ChainConfig {
     /// backfill, where the EL cannot be consulted. Disabled in test harnesses whose mock EL
     /// produces synthetic block hashes.
     pub verify_envelope_payload_hash_in_backfill: bool,
+    /// Determine whether to backfill historical light client data (LightClientUpdate /
+    /// SyncCommitteeBranch / SyncCommittee) for periods before the node went live.
+    /// Off by default
+    pub lc_data_backfill: bool,
 }
 
 /// Whether the Fast Confirmation Rule (FCR) is enabled.
@@ -176,6 +180,7 @@ impl Default for ChainConfig {
             fast_confirmation: FastConfirmationMode::Disabled,
             disable_proposer_reorg: false,
             verify_envelope_payload_hash_in_backfill: true,
+            lc_data_backfill: false,
         }
     }
 }

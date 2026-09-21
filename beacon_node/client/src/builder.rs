@@ -15,6 +15,7 @@ use beacon_chain::{
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, StoreConfig},
+    light_client_epoch_backfill::backfill_light_client_epoch_data,
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
@@ -819,6 +820,47 @@ where
                         .await
                     },
                     "lc_update",
+                );
+            }
+
+            // Spawn the opt-in historical light client data backfill task.
+            if beacon_chain.config.lc_data_backfill {
+                let inner_chain = beacon_chain.clone();
+                let inner_network_globals = self.network_globals.clone();
+                let lc_backfill_context = runtime_context.clone();
+                lc_backfill_context.executor.spawn(
+                    async move {
+                        let Some(network_globals) = inner_network_globals else {
+                            warn!("LC epoch backfill: network globals unavailable, not starting");
+                            return;
+                        };
+
+                        let epoch_duration = Duration::from_secs(
+                            inner_chain.slot_clock.slot_duration().as_secs()
+                                * E::slots_per_epoch(),
+                        );
+
+                        // poll network_globals.sync_state()
+                        loop {
+                            if network_globals.sync_state.read().is_synced() {
+                                break;
+                            }
+                            tokio::time::sleep(epoch_duration).await;
+                        }
+
+                        // Once synced: run, then keep re-running on an interval.
+                        loop {
+                            match backfill_light_client_epoch_data(&inner_chain) {
+                                Ok(true) => break,
+                                Ok(false) => tokio::time::sleep(epoch_duration).await,
+                                Err(e) => {
+                                    warn!(error = ?e, "LC epoch backfill task error");
+                                    tokio::time::sleep(epoch_duration).await;
+                                }
+                            }
+                        }
+                    },
+                    "lc_data_backfill",
                 );
             }
 
