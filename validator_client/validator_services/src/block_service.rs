@@ -291,7 +291,7 @@ struct LocalPayloadContents<E: EthSpec> {
 }
 
 /// What to do about the execution payload envelope once the block is published.
-enum EnvelopeStep<E: EthSpec> {
+enum EnvelopeAction<E: EthSpec> {
     /// Nothing to publish: pre-Gloas or an external builder.
     Skip,
     /// Fetch the envelope from the beacon node by this block root.
@@ -300,8 +300,8 @@ enum EnvelopeStep<E: EthSpec> {
     Local(Box<LocalPayloadContents<E>>),
 }
 
-impl<E: EthSpec> EnvelopeStep<E> {
-    /// Split a Gloas produce response into the block and the envelope step it implies. Contents
+impl<E: EthSpec> EnvelopeAction<E> {
+    /// Split a Gloas produce response into the block and the envelope action it implies. Contents
     /// that were not requested are ignored, so the stateful path is unchanged.
     fn from_response(
         include_payload: bool,
@@ -317,34 +317,58 @@ impl<E: EthSpec> EnvelopeStep<E> {
                     kzg_proofs,
                     blobs,
                 }),
-            ) => (
-                block,
-                Self::Local(Box::new(LocalPayloadContents {
-                    envelope: execution_payload_envelope,
-                    kzg_proofs,
-                    blobs,
-                })),
-            ),
-            (true, ProduceBlockV4Response::BlockOnly(block)) => {
-                if block
-                    .body()
-                    .signed_execution_payload_bid()
-                    .is_ok_and(|bid| bid.message.builder_index == BUILDER_INDEX_SELF_BUILD)
-                {
+            ) => {
+                // Check the pair returned by the beacon node. A different block decided by a
+                // distributed validator store is handled separately after block signing.
+                let block_root = block.canonical_root();
+                if execution_payload_envelope.beacon_block_root != block_root {
                     warn!(
                         slot = slot.as_u64(),
-                        "Beacon node omitted the payload contents for a self-built block, \
-                         falling back to fetching the execution payload envelope"
+                        %block_root,
+                        envelope_block_root = %execution_payload_envelope.beacon_block_root,
+                        "Beacon node returned an envelope for a different block"
                     );
-                    let block_root = block.canonical_root();
-                    (block, Self::Fetch(block_root))
-                } else {
-                    (block, Self::Skip)
                 }
+                (
+                    block,
+                    Self::Local(Box::new(LocalPayloadContents {
+                        envelope: execution_payload_envelope,
+                        kzg_proofs,
+                        blobs,
+                    })),
+                )
+            }
+            (true, ProduceBlockV4Response::BlockOnly(block)) => {
+                let action = match block.body().signed_execution_payload_bid() {
+                    Ok(bid) if bid.message.builder_index == BUILDER_INDEX_SELF_BUILD => {
+                        warn!(
+                            slot = slot.as_u64(),
+                            "Beacon node omitted the payload contents for a self-built block, \
+                             falling back to fetching the execution payload envelope"
+                        );
+                        Self::Fetch(block.canonical_root())
+                    }
+                    Ok(bid) => {
+                        info!(
+                            slot = slot.as_u64(),
+                            builder_index = bid.message.builder_index,
+                            "Builder bid won; the builder reveals the payload envelope"
+                        );
+                        Self::Skip
+                    }
+                    Err(_) => {
+                        warn!(
+                            slot = slot.as_u64(),
+                            "Produced Gloas block has no readable payload bid; skipping envelope"
+                        );
+                        Self::Skip
+                    }
+                };
+                (block, action)
             }
             (false, response) => {
                 let block = response.into_block();
-                let step = match block.body().signed_execution_payload_bid() {
+                let action = match block.body().signed_execution_payload_bid() {
                     Ok(bid) if bid.message.builder_index == BUILDER_INDEX_SELF_BUILD => {
                         Self::Fetch(block.canonical_root())
                     }
@@ -364,7 +388,7 @@ impl<E: EthSpec> EnvelopeStep<E> {
                         Self::Skip
                     }
                 };
-                (block, step)
+                (block, action)
             }
         }
     }
@@ -643,7 +667,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         // Check if Gloas fork is active at this slot
         let fork_name = self_ref.chain_spec.fork_name_at_slot::<S::E>(slot);
 
-        let (block_proposer, unsigned_block, builder_url, envelope_step) = if fork_name
+        let (block_proposer, unsigned_block, builder_url, envelope_action) = if fork_name
             .gloas_enabled()
         {
             // Resolve the validator's builder config for this proposal, signing each builder's
@@ -742,8 +766,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 }
             };
 
-            let (block_response, envelope_step) =
-                EnvelopeStep::from_response(include_payload, block_response, slot);
+            let (block_response, envelope_action) =
+                EnvelopeAction::from_response(include_payload, block_response, slot);
 
             // Gloas blocks don't have blobs (they're in the execution layer)
             let block_contents = eth2::types::FullBlockContents::Block(block_response);
@@ -751,7 +775,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 block_contents.block().proposer_index(),
                 UnsignedBlock::Full(block_contents),
                 builder_url,
-                envelope_step,
+                envelope_action,
             )
         } else {
             // Use V3 block production for pre-Gloas forks
@@ -823,13 +847,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     block.block().proposer_index(),
                     UnsignedBlock::Full(block),
                     None,
-                    EnvelopeStep::Skip,
+                    EnvelopeAction::Skip,
                 ),
                 eth2::types::ProduceBlockV3Response::Blinded(block) => (
                     block.proposer_index(),
                     UnsignedBlock::Blinded(block),
                     None,
-                    EnvelopeStep::Skip,
+                    EnvelopeAction::Skip,
                 ),
             }
         };
@@ -841,7 +865,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             ));
         }
 
-        let local_payload_root = envelope_step.local_payload_root();
+        let local_payload_root = envelope_action.local_payload_root();
 
         let Some(signed_block_root) = self_ref
             .sign_and_publish_block(
@@ -858,9 +882,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             return Ok(());
         };
 
-        match envelope_step {
-            EnvelopeStep::Skip => {}
-            EnvelopeStep::Fetch(beacon_block_root) => {
+        match envelope_action {
+            EnvelopeAction::Skip => {}
+            EnvelopeAction::Fetch(beacon_block_root) => {
                 // The producing node's cache is only useful if the local candidate was signed.
                 if beacon_block_root != signed_block_root {
                     debug!(
@@ -879,7 +903,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     )
                     .await?;
             }
-            EnvelopeStep::Local(contents) => {
+            EnvelopeAction::Local(contents) => {
                 // A distributed validator store can sign a different block after consensus.
                 // Its unused local envelope must not be signed or published.
                 if contents.envelope.beacon_block_root != signed_block_root {
@@ -1567,6 +1591,48 @@ mod tests {
             1,
             "Expected one published block"
         );
+    }
+
+    #[tokio::test]
+    async fn stateless_mismatched_inline_envelope_preserves_block_signing() {
+        let mut test_harness = TestHarness::new_stateless().await;
+        let slot = Slot::new(1);
+        let block = self_build_block(&test_harness.harness.spec);
+        let mut contents = local_contents(&block);
+        contents.execution_payload_envelope.beacon_block_root = Hash256::repeat_byte(42);
+        assert_ne!(
+            contents.execution_payload_envelope.beacon_block_root,
+            block.canonical_root()
+        );
+        let payload_root = contents.execution_payload_envelope.payload.tree_hash_root();
+
+        test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+            &ProduceBlockV4Response::BlockAndEnvelope(contents),
+            true,
+            ForkName::Gloas,
+            slot,
+        );
+        let mock_post_block = test_harness
+            .bn1()
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_post_contents = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_contents_ssz();
+
+        // The warning must not prevent entering the store's block consensus/signing flow.
+        test_harness.publish(slot).await;
+        test_harness.assert_signed_once(&block, Some(payload_root));
+        mock_post_block.expect(1).assert();
+
+        // The existing check against the signed block still suppresses the mismatched envelope.
+        assert!(
+            test_harness
+                .service
+                .validator_store
+                .signed_envelope_block_roots()
+                .is_empty()
+        );
+        mock_post_contents.expect(0).assert();
     }
 
     async fn assert_skips_envelope_when_store_signs_different_block(
