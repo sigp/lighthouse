@@ -1007,18 +1007,13 @@ async fn poll_beacon_attesters<S: ValidatorStore + 'static, T: SlotClock + 'stat
                 let duty = &duty_and_proof.duty;
                 let is_aggregator = duty_and_proof.selection_proof.is_some();
 
-                let beacon_committee = BeaconCommitteeSubscription {
+                subscriptions.push(BeaconCommitteeSubscription {
                     validator_index: duty.validator_index,
                     committee_index: duty.committee_index,
                     committees_at_slot: duty.committees_at_slot,
                     slot: duty.slot,
                     is_aggregator,
-                };
-                subscriptions.push(beacon_committee.clone());
-                debug!(
-                    subscription = ?beacon_committee,
-                    "Beacon committee subscription",
-                );
+                });
                 subscription_slots_to_confirm.push(duty_and_proof.subscription_slots.clone());
             });
     }
