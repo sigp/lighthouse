@@ -193,9 +193,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let re_org_max_epochs_since_finalization =
             Epoch::new(self.spec.reorg_max_epochs_since_finalization);
 
+        // Read the clock at millisecond precision, as the re-org cutoff need not fall on a whole
+        // second (it is 833ms for 5s slots).
         let slot_delay = self
             .slot_clock
-            .seconds_from_current_slot_start()
+            .millis_from_current_slot_start()
             .or_else(|| {
                 warn!(error = "unable to read slot clock", "Not attempting re-org");
                 None
