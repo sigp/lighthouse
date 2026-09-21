@@ -83,11 +83,11 @@ fn verify_bid_blobs<E: EthSpec>(
     Ok(())
 }
 
-/// Verify that a direct (builder-API) bid is consistent with the current chain state
-/// and proposer preferences: the direct path's bundle of the shared bid checks.
+/// Verify that a builder-API or client-supplied bid is consistent with the current chain state
+/// and, when provided, proposer preferences.
 ///
 /// The individual checks are shared with gossip, but this bundle's only caller is
-/// [`verify_direct_bid`](crate::payload_bid_verification::direct_verified_bid::verify_direct_bid):
+/// [`verify_bid_for_block`](crate::payload_bid_verification::direct_verified_bid::verify_bid_for_block):
 /// the gossip verifier applies the same helpers (`verify_bid_slot`, `verify_bid_blobs`,
 /// `verify_bid_block_hash_not_parent`, `verify_bid_state_conditions`) piecewise, in gossip-spec
 /// order, interleaved with gossip-only work (cache checks, the preferences lookup, fork-choice
@@ -96,13 +96,13 @@ fn verify_bid_blobs<E: EthSpec>(
 pub(crate) fn verify_direct_bid_consistency<E: EthSpec>(
     bid: &ExecutionPayloadBid<E>,
     current_slot: Slot,
-    proposer_preferences: &SignedProposerPreferences,
+    proposer_preferences: Option<&SignedProposerPreferences>,
     head_state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
     verify_bid_slot(bid.slot, current_slot)?;
 
-    if bid.fee_recipient != proposer_preferences.message.fee_recipient {
+    if proposer_preferences.is_some_and(|prefs| bid.fee_recipient != prefs.message.fee_recipient) {
         return Err(PayloadBidError::InvalidFeeRecipient);
     }
 

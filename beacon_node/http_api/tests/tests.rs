@@ -4968,6 +4968,232 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_block_production_v4_with_bid(self) -> Self {
+        use ssz::Encode;
+
+        let slot = self.chain.slot().unwrap();
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let (_, randao_reveal) = self
+            .proposer_setup(
+                slot,
+                slot.epoch(E::slots_per_epoch()),
+                &fork,
+                self.chain.genesis_validators_root,
+            )
+            .await;
+        let mut url = self
+            .client
+            .post_validator_blocks_v4_path(
+                slot,
+                &randao_reveal,
+                None,
+                SkipRandaoVerification::No,
+                true,
+                None,
+            )
+            .await
+            .unwrap();
+        url.path_segments_mut().unwrap().push("with_bid");
+        url.query_pairs_mut()
+            .append_pair("builder_boost_factor", &u64::MAX.to_string());
+        let bid = SignedExecutionPayloadBid::<E>::empty();
+        let client = reqwest::Client::new();
+
+        if !fork_name.gloas_enabled() {
+            let response = client
+                .post(url)
+                .header(CONSENSUS_VERSION_HEADER, fork_name.to_string())
+                .json(&bid)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            return self;
+        }
+
+        // A well-formed but invalid bid must still produce a local block. Exercise both request
+        // encodings independently of response negotiation, with and without the payload.
+        for include_payload in [false, true] {
+            let mut request_url = url.clone();
+            let pairs: Vec<_> = request_url
+                .query_pairs()
+                .filter(|(key, _)| key != "include_payload")
+                .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                .collect();
+            request_url
+                .query_pairs_mut()
+                .clear()
+                .extend_pairs(pairs)
+                .append_pair("include_payload", &include_payload.to_string());
+            for request_ssz in [false, true] {
+                for response_ssz in [false, true] {
+                    let request = client
+                        .post(request_url.clone())
+                        .header(CONSENSUS_VERSION_HEADER, fork_name.to_string())
+                        .header(
+                            "Accept",
+                            if response_ssz {
+                                "application/octet-stream"
+                            } else {
+                                "application/json"
+                            },
+                        );
+                    let response = if request_ssz {
+                        request
+                            .header(
+                                CONTENT_TYPE_HEADER,
+                                "application/octet-stream; charset=binary",
+                            )
+                            .body(bid.as_ssz_bytes())
+                    } else {
+                        request.json(&bid)
+                    }
+                    .send()
+                    .await
+                    .unwrap();
+                    assert_eq!(response.status(), StatusCode::OK);
+                    let metadata = ProduceBlockV4Metadata::try_from(response.headers()).unwrap();
+                    assert_eq!(metadata.execution_payload_included, include_payload);
+                    assert!(metadata.builder_url.is_none());
+                    let block = if response_ssz {
+                        let bytes = response.bytes().await.unwrap();
+                        if include_payload {
+                            let contents =
+                                BlockAndEnvelope::<E>::from_ssz_bytes_for_fork(&bytes, fork_name)
+                                    .unwrap();
+                            self.assert_envelope_fields(
+                                &contents.execution_payload_envelope,
+                                contents.block.tree_hash_root(),
+                                slot,
+                            );
+                            contents.block
+                        } else {
+                            BeaconBlock::<E>::from_ssz_bytes_for_fork(&bytes, fork_name).unwrap()
+                        }
+                    } else if include_payload {
+                        let contents = response.json::<ForkVersionedResponse<BlockAndEnvelope<E>, ProduceBlockV4Metadata>>().await.unwrap();
+                        assert_eq!(
+                            contents.metadata.execution_payload_included,
+                            include_payload
+                        );
+                        contents.data.block
+                    } else {
+                        response
+                            .json::<ForkVersionedResponse<BeaconBlock<E>, ProduceBlockV4Metadata>>()
+                            .await
+                            .unwrap()
+                            .data
+                    };
+                    assert_eq!(block.slot(), slot);
+                    assert_eq!(metadata.consensus_version, fork_name);
+                    assert_eq!(
+                        metadata.execution_payload_value,
+                        Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI)
+                    );
+                    assert_eq!(
+                        block
+                            .body()
+                            .signed_execution_payload_bid()
+                            .unwrap()
+                            .message
+                            .builder_index,
+                        BUILDER_INDEX_SELF_BUILD
+                    );
+                    assert!(
+                        self.chain
+                            .pending_payload_envelopes
+                            .read()
+                            .get_by_block_root(block.tree_hash_root())
+                            .is_some()
+                    );
+                }
+            }
+        }
+
+        for missing in ["builder_boost_factor", "include_payload", "randao_reveal"] {
+            let mut missing_url = url.clone();
+            let pairs: Vec<_> = missing_url
+                .query_pairs()
+                .filter(|(key, _)| key != missing)
+                .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                .collect();
+            missing_url.query_pairs_mut().clear().extend_pairs(pairs);
+            let response = client
+                .post(missing_url)
+                .header(CONSENSUS_VERSION_HEADER, fork_name.to_string())
+                .json(&bid)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(
+                response.status(),
+                StatusCode::BAD_REQUEST,
+                "missing {missing}"
+            );
+        }
+        let response = client.post(url.clone()).json(&bid).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        for (content_type, body, expected) in [
+            (
+                "application/json",
+                b"{}".as_slice(),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                "application/octet-stream",
+                b"invalid".as_slice(),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                "text/plain",
+                b"invalid".as_slice(),
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            ),
+        ] {
+            let response = client
+                .post(url.clone())
+                .header(CONSENSUS_VERSION_HEADER, fork_name.to_string())
+                .header(CONTENT_TYPE_HEADER, content_type)
+                .body(body.to_vec())
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected);
+        }
+        let response = client
+            .post(url.clone())
+            .header(CONSENSUS_VERSION_HEADER, fork_name.to_string())
+            .header("Accept", "text/plain")
+            .json(&bid)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE);
+        for boost in ["-1", "18446744073709551616"] {
+            let mut invalid_url = url.clone();
+            let pairs: Vec<_> = invalid_url
+                .query_pairs()
+                .filter(|(key, _)| key != "builder_boost_factor")
+                .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                .collect();
+            invalid_url
+                .query_pairs_mut()
+                .clear()
+                .extend_pairs(pairs)
+                .append_pair("builder_boost_factor", boost);
+            let response = client
+                .post(invalid_url)
+                .header(CONSENSUS_VERSION_HEADER, fork_name.to_string())
+                .json(&bid)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        }
+        self
+    }
+
     pub async fn test_block_production_v4_missing_include_payload_returns_400(self) -> Self {
         if !self.chain.spec.is_gloas_scheduled() {
             return self;
@@ -10237,6 +10463,25 @@ async fn block_production_v3_ssz_with_skip_slots() {
         .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_block_production_v3_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_v4_with_bid() {
+    ApiTester::new_from_config(ApiTesterConfig {
+        spec: ForkName::Gloas.make_genesis_spec(E::default_spec()),
+        ..Default::default()
+    })
+    .await
+    .test_block_production_v4_with_bid()
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_v4_with_bid_pre_gloas() {
+    ApiTester::new()
+        .await
+        .test_block_production_v4_with_bid()
         .await;
 }
 

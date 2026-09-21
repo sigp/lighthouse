@@ -7,15 +7,22 @@
 //! its [`BidSource`]. The source is the single home for per-source data: `Local` carries the
 //! [`ExecutionPayloadData`] needed to build the envelope plus its EL block value, `Direct` carries
 //! the builder URL (to route the winning block back via `Eth-Builder-Url`) plus the proposer's
-//! `max_execution_payment` cap, and `Gossip` carries nothing. There is no separate "winning bid"
-//! type — the winner *is* a [`BidCandidate`], and the caller matches on its `source`.
+//! `max_execution_payment` cap, and `Gossip` and client-selected `ApiSupplied` carry nothing. There is
+//! no separate "winning bid" type — the winner *is* a [`BidCandidate`], and the caller matches on
+//! its `source`.
 //!
-//! All value math lives on [`BidCandidate`] and is computed on demand — nothing is precomputed. A
-//! candidate's ranking key is its trusted value (the local block value, or a bid's clamped value)
-//! scaled by `builder_boost_factor`, all in wei so the local EL block value compares directly. The
-//! ordering is: the EL's `shouldOverrideBuilder`, then whether the bid clears its `min_bid` floor,
-//! then the boosted value, then ties go to the local build, then to the earlier candidate. `min_bid`
-//! is ranked, not filtered, so a below-floor bid is a last resort rather than a dropped one.
+//! [`BidCandidate`] computes values on demand, in wei. Candidates normally compete on their
+//! trusted value multiplied by `builder_boost_factor`. The local build wins ties with external
+//! bids; otherwise, the earlier candidate wins a tie.
+//!
+//! Some preferences take priority over value. The EL's `shouldOverrideBuilder` takes precedence
+//! over everything else. Next, candidates meeting their `min_bid` floor rank above those that
+//! do not. Bids below the floor remain available as a last resort.
+//!
+//! For an API-supplied bid, `builder_boost_factor = u64::MAX` means prefer that bid even if the
+//! local payload pays more. This preference does not bypass validation or health checks: block
+//! production excludes invalid bids and applies the circuit breaker before selection, and the
+//! EL's `shouldOverrideBuilder` still takes precedence here.
 //!
 //! Consumed by `gloas.rs` block production via [`select_payload_bid`].
 
@@ -62,6 +69,8 @@ pub enum BidSource<E: EthSpec> {
     /// A bid from the `execution_payload_bid` gossip topic. Its `execution_payment` is zero, so there
     /// is nothing to clamp.
     Gossip,
+    /// A client-selected bid, trusting its full execution payment.
+    ApiSupplied,
     /// A bid fetched directly from a builder. Carries its URL (to route a winning block back via
     /// `submitSignedBeaconBlock` / `Eth-Builder-Url`) and the proposer's `max_execution_payment` cap
     /// for this builder.
@@ -121,6 +130,18 @@ impl<E: EthSpec> BidCandidate<E> {
         }
     }
 
+    pub fn supplied(
+        signed_bid: Arc<SignedExecutionPayloadBid<E>>,
+        builder_boost_factor: u64,
+    ) -> Self {
+        Self {
+            signed_bid,
+            builder_boost_factor,
+            min_bid: 0,
+            source: BidSource::ApiSupplied,
+        }
+    }
+
     /// A direct-builder candidate under this builder's resolved policy.
     ///
     /// `max_execution_payment` is the largest `execution_payment` (gwei) the proposer trusts from this
@@ -156,6 +177,9 @@ impl<E: EthSpec> BidCandidate<E> {
         let bid = &self.signed_bid.message;
         match &self.source {
             BidSource::Local { block_value, .. } => *block_value,
+            BidSource::ApiSupplied => {
+                gwei_to_wei(bid.value).saturating_add(gwei_to_wei(bid.execution_payment))
+            }
             BidSource::Gossip => gwei_to_wei(bid.value), // gossip `execution_payment` is zero
             BidSource::Direct {
                 max_execution_payment,
@@ -168,18 +192,20 @@ impl<E: EthSpec> BidCandidate<E> {
 
     /// Lexicographic selection key (greater = better): `shouldOverrideBuilder`, then whether the bid
     /// clears its `min_bid` floor, then the boosted value (`trusted_value × builder_boost_factor`, in
-    /// wei — `u64::MAX` multiplies through rather than acting as an absolute override, so a
-    /// zero-value bid ranks 0 and loses to any non-zero local build), then the local build wins ties
-    /// over externals.
+    /// wei), then the local build wins ties over externals. For client-supplied bids only,
+    /// `u64::MAX` prefers an eligible bid regardless of value, below the EL override. Validation
+    /// and circuit-breaker checks happen before selection. Other sources retain V4's multiplier
+    /// semantics.
     ///
     /// Ranking `min_bid` rather than filtering means a below-floor bid still wins when it's the only
     /// viable option — the local build failed and every bid is under the floor — instead of missing
     /// the slot. Whenever *any* candidate clears the floor (the local build always does), the
     /// below-floor ones lose regardless of value, exactly as a hard filter would.
-    fn rank_key(&self) -> (bool, bool, Uint256, bool) {
+    fn rank_key(&self) -> (bool, bool, bool, Uint256, bool) {
         (
             self.overrides_builder(),
             self.meets_min_bid(),
+            matches!(self.source, BidSource::ApiSupplied) && self.builder_boost_factor == u64::MAX,
             self.trusted_value()
                 .saturating_mul(Uint256::from(self.builder_boost_factor)),
             self.is_local(),
@@ -200,7 +226,7 @@ impl<E: EthSpec> BidCandidate<E> {
         let bid = &self.signed_bid.message;
         match &self.source {
             BidSource::Local { block_value, .. } => *block_value,
-            _ => gwei_to_wei(bid.value.saturating_add(bid.execution_payment)),
+            _ => gwei_to_wei(bid.value).saturating_add(gwei_to_wei(bid.execution_payment)),
         }
     }
 
@@ -351,6 +377,7 @@ mod tests {
         let source = match &win.source {
             BidSource::Local { .. } => "local",
             BidSource::Gossip => "gossip",
+            BidSource::ApiSupplied => "supplied",
             BidSource::Direct { .. } => "direct",
         };
         (
@@ -359,6 +386,51 @@ mod tests {
             win.payload_value(),
             source,
         )
+    }
+
+    #[test]
+    fn supplied_bid_boost_and_execution_payment() {
+        // Zero boost prefers even a zero-value local payload. Maximum boost prefers even a
+        // zero-value supplied bid. Neutral boost includes the client-trusted execution payment.
+        for (value, payment, boost, local_value, expected_local) in [
+            (10, 20, 0, 0, true),
+            (0, 0, u64::MAX, 100, false),
+            (10, 20, 100, 25, false),
+            (10, 20, 100, 30, true),
+            (10, 20, 50, 20, true),
+            (u64::MAX, u64::MAX, u64::MAX - 1, 100, false),
+        ] {
+            let win = select_payload_bid(vec![
+                BidCandidate::supplied(signed_bid(DIRECT_BUILDER, value, payment), boost),
+                local(local_value, false),
+            ])
+            .unwrap();
+            assert_eq!(win.is_local(), expected_local);
+            if !expected_local {
+                assert_eq!(win.payload_value(), gwei(value) + gwei(payment));
+                assert!(win.builder_url().is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn supplied_bid_cannot_override_execution_engine() {
+        let win = select_payload_bid(vec![
+            BidCandidate::supplied(signed_bid(DIRECT_BUILDER, 100, 100), u64::MAX),
+            local(0, true),
+        ])
+        .unwrap();
+        assert!(win.is_local());
+    }
+
+    #[test]
+    fn supplied_bid_zero_boost_survives_local_failure() {
+        let win = select_payload_bid(vec![BidCandidate::supplied(
+            signed_bid(DIRECT_BUILDER, 0, 0),
+            0,
+        )])
+        .unwrap();
+        assert!(!win.is_local());
     }
 
     #[test]

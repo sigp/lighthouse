@@ -9,8 +9,8 @@ use crate::{
 };
 use beacon_chain::graffiti_calculator::GraffitiSettings;
 use beacon_chain::{
-    BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, PayloadEnvelopeContents,
-    ProduceBlockVerification,
+    BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, BlockProductionBidSource,
+    PayloadEnvelopeContents, ProduceBlockVerification,
 };
 use eth2::types::{self as api_types, ProduceBlockV3Metadata, SkipRandaoVerification};
 use eth2::{
@@ -59,7 +59,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     slot: Slot,
     query: api_types::ValidatorBlocksQuery,
-    builder_config: api_types::BuilderConfig,
+    bid_source: BlockProductionBidSource<T::EthSpec>,
 ) -> Result<Response, warp::Rejection> {
     // `produceBlockV4` is the Gloas block-production endpoint.
     let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
@@ -75,13 +75,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
         )
     })?;
 
-    // The resolved builder config is threaded into block production, where it drives direct-builder
-    // bid requests and the gossip/direct bid policy (see `produce_block_on_state_gloas`).
-    debug!(
-        %slot,
-        builders = builder_config.builders.len(),
-        "Received produceBlockV4 request"
-    );
+    debug!(%slot, "Received produceBlockV4 request");
 
     let randao_reveal = query.randao_reveal.decompress().map_err(|e| {
         warp_utils::reject::custom_bad_request(format!(
@@ -92,8 +86,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
 
     let randao_verification = get_randao_verification(&query, randao_reveal.is_infinity())?;
 
-    // Gloas takes its bid boost policy from `builder_config` (global for gossip, per-builder for
-    // direct), so the V3-style `builder_boost_factor` query param is not used on this path.
+    // Bid policy comes from the builder config or the supplied bid's required boost factor.
     let graffiti_settings = GraffitiSettings::new(query.graffiti, query.graffiti_policy);
 
     let (
@@ -109,7 +102,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
             slot,
             graffiti_settings,
             randao_verification,
-            builder_config,
+            bid_source,
         )
         .await
         .map_err(|e| {

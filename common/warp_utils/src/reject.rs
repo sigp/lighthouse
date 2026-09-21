@@ -140,6 +140,15 @@ pub fn invalid_auth(msg: String) -> warp::reject::Rejection {
 }
 
 #[derive(Debug)]
+pub struct NotAcceptable(pub String);
+
+impl Reject for NotAcceptable {}
+
+pub fn not_acceptable(msg: String) -> warp::reject::Rejection {
+    warp::reject::custom(NotAcceptable(msg))
+}
+
+#[derive(Debug)]
 pub struct UnsupportedMediaType(pub String);
 
 impl Reject for UnsupportedMediaType {}
@@ -182,6 +191,9 @@ pub async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, 
     if err.is_not_found() {
         code = StatusCode::NOT_FOUND;
         message = "NOT_FOUND".to_string();
+    } else if let Some(e) = err.find::<crate::reject::NotAcceptable>() {
+        code = StatusCode::NOT_ACCEPTABLE;
+        message = e.0.clone();
     } else if err.find::<crate::reject::UnsupportedMediaType>().is_some() {
         code = StatusCode::UNSUPPORTED_MEDIA_TYPE;
         message = "UNSUPPORTED_MEDIA_TYPE".to_string();

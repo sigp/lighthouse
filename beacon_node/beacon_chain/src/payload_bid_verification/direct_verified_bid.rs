@@ -45,6 +45,34 @@ pub fn verify_direct_bid<E: EthSpec>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
+    verify_bid_for_block(
+        signed_bid,
+        proposal_slot,
+        executed_ancestor_hash,
+        parent_block_root,
+        executed_ancestor_gas_limit,
+        expected_builder_pubkeys,
+        Some(proposer_preferences),
+        state,
+        spec,
+    )
+}
+
+/// Shared validation for builder responses and bids supplied by the validator client.
+/// A client-selected bid needs no cached proposer preferences: the client chose its fee recipient
+/// and gas target, but all parent, consensus, gas adjustment and signature checks still apply.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn verify_bid_for_block<E: EthSpec>(
+    signed_bid: &SignedExecutionPayloadBid<E>,
+    proposal_slot: Slot,
+    executed_ancestor_hash: ExecutionBlockHash,
+    parent_block_root: Hash256,
+    executed_ancestor_gas_limit: u64,
+    expected_builder_pubkeys: &BuilderPubkeys,
+    proposer_preferences: Option<&SignedProposerPreferences>,
+    state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), PayloadBidError> {
     let bid = &signed_bid.message;
 
     // The bid must be for exactly the slot being produced.
@@ -76,7 +104,7 @@ pub fn verify_direct_bid<E: EthSpec>(
     if !is_gas_limit_target_compatible(
         executed_ancestor_gas_limit,
         bid.gas_limit,
-        proposer_preferences.message.target_gas_limit,
+        proposer_preferences.map_or(bid.gas_limit, |prefs| prefs.message.target_gas_limit),
     )? {
         return Err(PayloadBidError::InvalidGasLimit);
     }
