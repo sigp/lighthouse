@@ -1,6 +1,7 @@
 use crate::proto_array_fork_choice::IndexedForkChoiceNode;
 use crate::{
-    Block, ExecutionStatus, JustifiedBalances, LatestMessage, PayloadStatus, error::Error,
+    Block, ExecutionStatus, ExecutionVerdict, JustifiedBalances, LatestMessage, PayloadStatus,
+    error::Error,
 };
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
@@ -186,6 +187,22 @@ impl ProtoNode {
 
     pub fn is_parent_node_full(&self) -> bool {
         self.get_parent_payload_status() == PayloadStatus::Full
+    }
+
+    /// The execution verdict of this node's own payload.
+    pub(crate) fn execution_verdict(&self) -> ExecutionVerdict {
+        match self {
+            ProtoNode::V17(node) => match node.execution_status {
+                ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => {
+                    ExecutionVerdict::Valid
+                }
+                ExecutionStatus::Invalid(_) => ExecutionVerdict::Invalid,
+                ExecutionStatus::Optimistic(_) => ExecutionVerdict::Optimistic,
+            },
+            // TODO(gloas): V29 nodes don't track execution status yet; hardcode `Valid` until the
+            // optimistic-payload work adds it.
+            ProtoNode::V29(_) => ExecutionVerdict::Valid,
+        }
     }
 
     pub fn attestation_score(&self, payload_status: PayloadStatus) -> u64 {
@@ -1385,6 +1402,72 @@ impl ProtoArray {
 
     /// Returns the canonical payload status of a block, matching the decision
     /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
+    /// Resolve the execution verdict of a fork choice node (a block root plus a payload status).
+    ///
+    /// A `FULL` node ran its own payload. An `EMPTY` (or same-slot `PENDING`) node ran no payload
+    /// of its own, so it inherits the verdict of the nearest ancestor whose payload it did run.
+    pub(crate) fn node_execution_status(
+        &self,
+        root: Hash256,
+        payload_status: PayloadStatus,
+    ) -> Result<ExecutionVerdict, Error> {
+        match payload_status {
+            PayloadStatus::Full => {
+                let index = *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;
+                let node = self
+                    .nodes
+                    .get(index)
+                    .ok_or(Error::InvalidNodeIndex(index))?;
+                Ok(node.execution_verdict())
+            }
+            PayloadStatus::Empty | PayloadStatus::Pending => self.empty_node_execution_status(root),
+        }
+    }
+
+    /// Walk up from an `EMPTY` node to the nearest ancestor whose payload the branch ran, and
+    /// report that ancestor's verdict.
+    pub fn empty_node_execution_status(
+        &self,
+        block_root: Hash256,
+    ) -> Result<ExecutionVerdict, Error> {
+        let mut index = *self
+            .indices
+            .get(&block_root)
+            .ok_or(Error::NodeUnknown(block_root))?;
+
+        let executed_node = loop {
+            let node = self
+                .nodes
+                .get(index)
+                .ok_or(Error::InvalidNodeIndex(index))?;
+
+            // A pre-Gloas (V17) block carries its payload inside the block, so a V17 node ran its
+            // own payload — it is the executed node.
+            let ProtoNode::V29(gloas_node) = node else {
+                break node;
+            };
+
+            // Reached the array root (the finalized block or an ancestor): VALID by definition.
+            let Some(parent_index) = gloas_node.parent else {
+                return Ok(ExecutionVerdict::Valid);
+            };
+
+            // The parent payload this node extended from is the payload the empty branch ran.
+            match gloas_node.parent_payload_status {
+                PayloadStatus::Full => {
+                    break self
+                        .nodes
+                        .get(parent_index)
+                        .ok_or(Error::InvalidNodeIndex(parent_index))?;
+                }
+                // An EMPTY (or same-slot PENDING) edge is a gap in the chain, not the end of it.
+                PayloadStatus::Empty | PayloadStatus::Pending => index = parent_index,
+            }
+        };
+
+        Ok(executed_node.execution_verdict())
+    }
+
     pub(crate) fn get_canonical_payload_status<E: EthSpec>(
         &self,
         root: Hash256,

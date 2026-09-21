@@ -14,7 +14,7 @@ use execution_layer::{
     json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
-use proto_array::{Error as ProtoArrayError, ExecutionStatus};
+use proto_array::{Error as ProtoArrayError, ExecutionStatus, ExecutionVerdict};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1098,6 +1098,14 @@ async fn attesting_to_optimistic_head() {
     let mut rig = InvalidPayloadRig::new();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
+    // Build the fixture attestation while the head is still fully verified: producing one is
+    // (correctly) refused once the head is optimistic, which is what this test then asserts.
+    let base_attestation = rig
+        .harness
+        .chain
+        .produce_unaggregated_attestation(Slot::new(0), 0)
+        .unwrap();
+
     let root = rig.import_block(Payload::Syncing).await;
 
     let head = rig.harness.chain.head_snapshot();
@@ -1117,11 +1125,7 @@ async fn attesting_to_optimistic_head() {
      */
 
     let attestation = {
-        let mut attestation = rig
-            .harness
-            .chain
-            .produce_unaggregated_attestation(Slot::new(0), 0)
-            .unwrap();
+        let mut attestation = base_attestation;
 
         attestation.set_aggregation_bit(0, true).unwrap();
 
@@ -1168,7 +1172,7 @@ async fn attesting_to_optimistic_head() {
                     beacon_block_root,
                     execution_status
                 })
-                if beacon_block_root == root && matches!(execution_status, ExecutionStatus::Optimistic(_))
+                if beacon_block_root == root && matches!(execution_status, ExecutionVerdict::Optimistic)
             ));
         }
     }
@@ -1278,7 +1282,7 @@ impl InvalidHeadSetup {
         let head = fork_choice
             .get_head(rig.harness.chain.slot().unwrap(), &rig.harness.chain.spec)
             .unwrap();
-        assert_eq!(head.0, fork_choice.justified_checkpoint().root);
+        assert_eq!(head.root(), fork_choice.justified_checkpoint().root);
         drop(fork_choice);
 
         Self {
@@ -1321,13 +1325,14 @@ async fn recover_from_invalid_head_by_importing_blocks() {
         "the fork block should become the head"
     );
 
-    let (manual_get_head, _) = rig
+    let manual_get_head = rig
         .harness
         .chain
         .canonical_head
         .fork_choice_write_lock()
         .get_head(rig.harness.chain.slot().unwrap(), &rig.harness.chain.spec)
-        .unwrap();
+        .unwrap()
+        .root();
     assert_eq!(manual_get_head, new_head.head_block_root());
 }
 

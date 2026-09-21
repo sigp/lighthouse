@@ -140,6 +140,41 @@ impl IndexedForkChoiceNode {
     }
 }
 
+/// Spec's `ForkChoiceNode`: a block root paired with the payload status of the branch it names.
+///
+/// Fields are private with no public constructor, so a `ForkChoiceNode` can only be produced by
+/// `find_head`, `get_head`, or `get_supported_node` — a node the chain actually elected or that was
+/// voted for. This keeps callers from querying the "wrong half" of a block and getting an answer
+/// about a branch the chain never ran.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ForkChoiceNode {
+    root: Hash256,
+    payload_status: PayloadStatus,
+}
+
+impl ForkChoiceNode {
+    /// Deliberately not `pub`: a `ForkChoiceNode` is only produced by fork choice.
+    pub(crate) fn new(root: Hash256, payload_status: PayloadStatus) -> Self {
+        Self {
+            root,
+            payload_status,
+        }
+    }
+
+    pub fn root(&self) -> Hash256 {
+        self.root
+    }
+
+    pub fn payload_status(&self) -> PayloadStatus {
+        self.payload_status
+    }
+
+    /// Root and payload status as a pair, for callers that still thread them separately.
+    pub fn as_pair(&self) -> (Hash256, PayloadStatus) {
+        (self.root, self.payload_status)
+    }
+}
+
 impl ExecutionStatus {
     pub fn is_execution_enabled(&self) -> bool {
         !matches!(self, ExecutionStatus::Irrelevant(_))
@@ -227,6 +262,45 @@ impl fmt::Display for ExecutionStatus {
             ExecutionStatus::Invalid(_) => write!(f, "invalid"),
             ExecutionStatus::Optimistic(_) => write!(f, "optimistic"),
             ExecutionStatus::Irrelevant(_) => write!(f, "irrelevant"),
+        }
+    }
+}
+
+/// The execution layer's ruling on a fork choice node: is its chain fully validated (`Valid`),
+/// rejected (`Invalid`), or not checked yet (`Optimistic`)?
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutionVerdict {
+    Valid,
+    Invalid,
+    Optimistic,
+}
+
+impl ExecutionVerdict {
+    pub fn is_valid(&self) -> bool {
+        match self {
+            ExecutionVerdict::Valid => true,
+            ExecutionVerdict::Invalid | ExecutionVerdict::Optimistic => false,
+        }
+    }
+
+    pub fn is_optimistic(&self) -> bool {
+        match self {
+            ExecutionVerdict::Optimistic => true,
+            ExecutionVerdict::Valid | ExecutionVerdict::Invalid => false,
+        }
+    }
+
+    pub fn is_optimistic_or_invalid(&self) -> bool {
+        !self.is_valid()
+    }
+}
+
+impl fmt::Display for ExecutionVerdict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExecutionVerdict::Valid => write!(f, "valid"),
+            ExecutionVerdict::Invalid => write!(f, "invalid"),
+            ExecutionVerdict::Optimistic => write!(f, "optimistic"),
         }
     }
 }
@@ -657,7 +731,7 @@ impl ProtoArrayForkChoice {
         equivocating_indices: &BTreeSet<u64>,
         current_slot: Slot,
         spec: &ChainSpec,
-    ) -> Result<(Hash256, PayloadStatus), String> {
+    ) -> Result<ForkChoiceNode, String> {
         let old_balances = &mut self.balances;
         let new_balances = justified_state_balances;
         let node_slots = self
@@ -695,6 +769,7 @@ impl ProtoArrayForkChoice {
                 new_balances,
                 spec,
             )
+            .map(|(root, payload_status)| ForkChoiceNode::new(root, payload_status))
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
@@ -1067,6 +1142,38 @@ impl ProtoArrayForkChoice {
                 .execution_status()
                 .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
         )
+    }
+
+    /// Execution verdict of a specific fork choice node (root + payload status).
+    pub fn get_node_execution_status(
+        &self,
+        node: ForkChoiceNode,
+    ) -> Result<ExecutionVerdict, Error> {
+        self.proto_array
+            .node_execution_status(node.root(), node.payload_status())
+    }
+
+    /// Execution verdict of a block, assuming its `FULL` node.
+    pub fn get_block_execution_status_assuming_full(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<ExecutionVerdict, Error> {
+        self.proto_array
+            .node_execution_status(*block_root, PayloadStatus::Full)
+    }
+
+    /// Spec's `get_supported_node`.
+    pub fn supported_node(
+        &self,
+        block_root: Hash256,
+        vote_slot: Slot,
+        payload_present: bool,
+    ) -> Option<ForkChoiceNode> {
+        let block_slot = self.get_proto_node(&block_root)?.slot();
+        Some(ForkChoiceNode::new(
+            block_root,
+            NodeDelta::payload_status(vote_slot, payload_present, block_slot),
+        ))
     }
 
     /// Returns whether the execution payload for a block has been received.
@@ -2368,7 +2475,10 @@ mod test_find_head {
                     &spec,
                 )
                 .unwrap();
-            assert_eq!(head, (checkpoint.root, PayloadStatus::Empty));
+            assert_eq!(
+                head,
+                ForkChoiceNode::new(checkpoint.root, PayloadStatus::Empty)
+            );
             assert_eq!(
                 fork_choice.get_weight(&checkpoint.root),
                 Some(32 * (validator_index as u64 + 1))
@@ -2394,7 +2504,10 @@ mod test_find_head {
                     &spec,
                 )
                 .unwrap();
-            assert_eq!(head, (checkpoint.root, PayloadStatus::Empty));
+            assert_eq!(
+                head,
+                ForkChoiceNode::new(checkpoint.root, PayloadStatus::Empty)
+            );
             assert_eq!(fork_choice.get_weight(&checkpoint.root), Some(64));
             assert_eq!(fork_choice.balances, balances);
         }

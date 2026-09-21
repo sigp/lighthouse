@@ -159,14 +159,14 @@ impl TestContext {
             .put_block(&block_root, signed_block.clone())
             .expect("should store genesis block");
 
-        let (_, head_payload_status) = fork_choice
+        let head_node = fork_choice
             .get_head(Slot::new(0), &spec)
             .expect("should run get_head");
 
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(snapshot),
-            head_payload_status,
+            head_node,
             FastConfirmationMode::Disabled,
             &store,
             &spec,

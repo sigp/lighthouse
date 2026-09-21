@@ -3,8 +3,9 @@ use crate::{ForkChoiceStore, InvalidationOperation};
 use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
-    Block as ProtoBlock, ExecutionStatus, JustifiedBalances, LatestMessage, PayloadStatus,
-    ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    Block as ProtoBlock, ExecutionStatus, ExecutionVerdict, ForkChoiceNode, JustifiedBalances,
+    LatestMessage, PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice,
+    ReOrgThreshold,
 };
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -17,10 +18,10 @@ use std::time::Duration;
 use superstruct::superstruct;
 use tracing::{debug, instrument, warn};
 use types::{
-    AbstractExecPayload, AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
-    Hash256, IndexedAttestationRef, IndexedPayloadAttestation, RelativeEpoch, SignedBeaconBlock,
-    Slot,
+    AbstractExecPayload, AttestationData, AttestationShufflingId, AttesterSlashingRef,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec,
+    ExecPayload, ExecutionBlockHash, Hash256, IndexedAttestationRef, IndexedPayloadAttestation,
+    RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -580,7 +581,7 @@ where
         &mut self,
         system_time_current_slot: Slot,
         spec: &ChainSpec,
-    ) -> Result<(Hash256, PayloadStatus), Error<T::Error>> {
+    ) -> Result<ForkChoiceNode, Error<T::Error>> {
         // Provide the slot (as per the system clock) to the `fc_store` and then return its view of
         // the current slot. The `fc_store` will ensure that the `current_slot` is never
         // decreasing, a property which we must maintain.
@@ -588,7 +589,7 @@ where
 
         let store = &mut self.fc_store;
 
-        let (head_root, head_payload_status) = self.proto_array.find_head::<E>(
+        let head_node = self.proto_array.find_head::<E>(
             *store.justified_checkpoint(),
             *store.finalized_checkpoint(),
             store.justified_balances(),
@@ -597,6 +598,7 @@ where
             current_slot,
             spec,
         )?;
+        let (head_root, head_payload_status) = head_node.as_pair();
 
         // Cache some values for the next forkchoiceUpdate call to the execution layer.
         // For Gloas blocks, `execution_status` is Irrelevant (no embedded payload).
@@ -634,7 +636,7 @@ where
             finalized_hash,
         };
 
-        Ok((head_root, head_payload_status))
+        Ok(head_node)
     }
 
     /// Get the block to build on as proposer, taking into account proposer re-orgs.
@@ -812,7 +814,7 @@ where
         } else {
             // Fork choice hasn't run for the current slot yet: run it, updating the fork choice
             // store's current slot in the process.
-            self.get_head(system_time_current_slot, spec)?.0
+            self.get_head(system_time_current_slot, spec)?.root()
         };
         let current_slot = self.fc_store.get_current_slot();
         debug_assert_eq!(current_slot, system_time_current_slot);
@@ -1690,6 +1692,60 @@ where
         }
     }
 
+    /// Execution verdict of a specific fork choice node, if it descends from finalized.
+    ///
+    /// `Ok(None)` means the node is not a descendant of the finalized checkpoint. Proto array
+    /// failures propagate rather than being flattened to a permissive answer.
+    pub fn get_node_execution_status(
+        &self,
+        node: ForkChoiceNode,
+    ) -> Result<Option<ExecutionVerdict>, Error<T::Error>> {
+        if !self.is_finalized_checkpoint_or_descendant(node.root()) {
+            return Ok(None);
+        }
+        self.proto_array
+            .get_node_execution_status(node)
+            .map(Some)
+            .map_err(Error::ProtoArrayError)
+    }
+
+    /// Execution verdict of a block assuming its `FULL` node. For callers that hold only a root.
+    pub fn get_block_execution_status_assuming_full(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<ExecutionVerdict>, Error<T::Error>> {
+        if !self.is_finalized_checkpoint_or_descendant(*block_root) {
+            return Ok(None);
+        }
+        self.proto_array
+            .get_block_execution_status_assuming_full(block_root)
+            .map(Some)
+            .map_err(Error::ProtoArrayError)
+    }
+
+    /// Spec: `get_supported_node`. `None` if the attested block is unknown to fork choice or sits
+    /// at or below finalization.
+    pub fn supported_node(
+        &self,
+        attestation_data: &AttestationData,
+        spec: &ChainSpec,
+    ) -> Option<ForkChoiceNode> {
+        if !self.is_finalized_checkpoint_or_descendant(attestation_data.beacon_block_root) {
+            return None;
+        }
+        // Gloas: `payload_present = attestation.data.index == 1`. Pre-Gloas the same field is the
+        // committee index, so this is always `false`.
+        let payload_present = spec
+            .fork_name_at_slot::<E>(attestation_data.slot)
+            .gloas_enabled()
+            && attestation_data.index == 1;
+        self.proto_array.supported_node(
+            attestation_data.beacon_block_root,
+            attestation_data.slot,
+            payload_present,
+        )
+    }
+
     /// Returns the canonical payload status of a block. See
     /// `ProtoArrayForkChoice::get_canonical_payload_status`.
     pub fn get_canonical_payload_status(
@@ -1765,8 +1821,9 @@ where
         &self,
         block_root: &Hash256,
     ) -> Result<bool, Error<T::Error>> {
-        if let Some(status) = self.get_block_execution_status(block_root) {
-            Ok(status.is_optimistic_or_invalid())
+        // worst case on wrong assumption: a stale `execution_optimistic` in an API response.
+        if let Some(verdict) = self.get_block_execution_status_assuming_full(block_root)? {
+            Ok(verdict.is_optimistic_or_invalid())
         } else {
             Ok(self
                 .get_finalized_block()?
@@ -1784,8 +1841,9 @@ where
         &self,
         block_root: &Hash256,
     ) -> Result<bool, Error<T::Error>> {
-        if let Some(status) = self.get_block_execution_status(block_root) {
-            Ok(status.is_optimistic_or_invalid())
+        // worst case on wrong assumption: a stale `execution_optimistic` in an API response.
+        if let Some(verdict) = self.get_block_execution_status_assuming_full(block_root)? {
+            Ok(verdict.is_optimistic_or_invalid())
         } else {
             Err(Error::MissingProtoArrayBlock(*block_root))
         }

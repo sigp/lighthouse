@@ -75,11 +75,18 @@ pub enum Error {
     AttestationShufflingIdError(BeaconStateError),
     CommitteeCacheError(BeaconStateError),
     ArithError(ArithError),
+    ProtoArrayError(proto_array::Error),
 }
 
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Self {
         Error::ArithError(e)
+    }
+}
+
+impl From<proto_array::Error> for Error {
+    fn from(e: proto_array::Error) -> Self {
+        Error::ProtoArrayError(e)
     }
 }
 
@@ -1252,10 +1259,9 @@ fn parent_node_of<'a>(
 /// optimistic (the spec MUST applies post-merge). A missing node will be
 /// rejected later by `get_block_slot`, so this returning `false` here is safe.
 fn is_optimistic_or_invalid(root: Hash256, proto_array: &ProtoArray) -> Result<bool, Error> {
-    Ok(get_block(root, proto_array)?
-        .execution_status()
-        .ok()
-        .is_some_and(|s| s.is_optimistic_or_invalid()))
+    Ok(proto_array
+        .empty_node_execution_status(root)?
+        .is_optimistic_or_invalid())
 }
 
 /// Spec: `is_ancestor`.

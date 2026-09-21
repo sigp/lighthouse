@@ -103,7 +103,7 @@ use execution_layer::{
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
-    AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
+    AttestationFromBlock, ExecutionVerdict, ForkChoice, ForkChoiceNode, ForkchoiceUpdateParameters,
     InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
@@ -1716,16 +1716,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_indices: &[u64],
         epoch: Epoch,
-        head_block_root: Hash256,
-    ) -> Result<(Vec<Option<AttestationDuty>>, Hash256, ExecutionStatus), Error> {
+        head_node: ForkChoiceNode,
+    ) -> Result<(Vec<Option<AttestationDuty>>, Hash256, ExecutionVerdict), Error> {
         let execution_status = self
             .canonical_head
             .fork_choice_read_lock()
-            .get_block_execution_status(&head_block_root)
-            .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?;
+            .get_node_execution_status(head_node)?
+            .ok_or(Error::AttestationHeadNotInForkChoice(head_node.root()))?;
 
         let (duties, dependent_root) = self.with_committee_cache(
-            head_block_root,
+            head_node.root(),
             epoch,
             |cached_shuffling, dependent_root| {
                 let committee_cache = cached_shuffling.committee_cache.as_ref();
@@ -1905,16 +1905,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         attestation: Attestation<T::EthSpec>,
     ) -> Result<Attestation<T::EthSpec>, Error> {
         let beacon_block_root = attestation.data().beacon_block_root;
-        match self
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_block_execution_status(&beacon_block_root)
-        {
+        let fork_choice = self.canonical_head.fork_choice_read_lock();
+        let Some(node) = fork_choice.supported_node(attestation.data(), &self.spec) else {
+            return Err(Error::CannotAttestToFinalizedBlock { beacon_block_root });
+        };
+        match fork_choice.get_node_execution_status(node)? {
             // The attestation references a block that is not in fork choice, it must be
             // pre-finalization.
             None => Err(Error::CannotAttestToFinalizedBlock { beacon_block_root }),
             // The attestation references a fully valid `beacon_block_root`.
-            Some(execution_status) if execution_status.is_valid_or_irrelevant() => Ok(attestation),
+            Some(execution_status) if execution_status.is_valid() => Ok(attestation),
             // The attestation references a block that has not been verified by an EL (i.e. it
             // is optimistic or invalid). Don't return the block, return an error instead.
             Some(execution_status) => Err(Error::HeadBlockNotFullyVerified {
@@ -1946,16 +1946,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         contribution: SyncCommitteeContribution<T::EthSpec>,
     ) -> Result<SyncCommitteeContribution<T::EthSpec>, Error> {
         let beacon_block_root = contribution.beacon_block_root;
+        // worst case on wrong assumption: a sync contribution used for an optimistic block.
         match self
             .canonical_head
             .fork_choice_read_lock()
-            .get_block_execution_status(&beacon_block_root)
+            .get_block_execution_status_assuming_full(&beacon_block_root)?
         {
             // The contribution references a block that is not in fork choice, it must be
             // pre-finalization.
             None => Err(Error::SyncContributionDataReferencesFinalizedBlock { beacon_block_root }),
             // The contribution references a fully valid `beacon_block_root`.
-            Some(execution_status) if execution_status.is_valid_or_irrelevant() => Ok(contribution),
+            Some(execution_status) if execution_status.is_valid() => Ok(contribution),
             // The contribution references a block that has not been verified by an EL (i.e. it
             // is optimistic or invalid). Don't return the block, return an error instead.
             Some(execution_status) => Err(Error::HeadBlockNotFullyVerified {
@@ -2024,12 +2025,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let target;
         let is_same_slot_attestation;
         let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
+        let head_node;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
         let head_span = debug_span!("attestation_production_head_scrape").entered();
         // The following braces are to prevent the `cached_head` Arc from being held for longer than
         // required. It also helps reduce the diff for a very large PR (#3244).
         {
-            let head = self.head_snapshot();
+            let cached_head = self.canonical_head.cached_head();
+            head_node = cached_head.head_node();
+            let head = &cached_head.snapshot;
             let head_state = &head.beacon_state;
 
             // There is no value in producing an attestation to a block that is pre-finalization and
@@ -2115,9 +2119,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match self
             .canonical_head
             .fork_choice_read_lock()
-            .get_block_execution_status(&beacon_block_root)
+            .get_node_execution_status(head_node)?
         {
-            Some(execution_status) if execution_status.is_valid_or_irrelevant() => (),
+            Some(execution_status) if execution_status.is_valid() => (),
             Some(execution_status) => {
                 return Err(Error::HeadBlockNotFullyVerified {
                     beacon_block_root,
@@ -4492,10 +4496,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE);
             match fork_choice.get_head(current_slot, &self.spec) {
                 // This block became the head, add it to the early attester cache.
-                Ok((new_head_root, _)) if new_head_root == block_root => {
+                Ok(head_node) if head_node.root() == block_root => {
                     if let Some(proto_block) = fork_choice.get_block(&block_root) {
-                        let new_head_is_optimistic =
-                            proto_block.execution_status.is_optimistic_or_invalid();
+                        // The head is always a finalized descendant, so `None` is unreachable here;
+                        // `is_some_and` maps it to `false`.
+                        let new_head_is_optimistic = fork_choice
+                            .get_node_execution_status(head_node)
+                            .map_err(|e| {
+                                BlockError::BeaconChainError(Box::new(
+                                    BeaconChainError::ForkChoiceError(e),
+                                ))
+                            })?
+                            .is_some_and(|status| status.is_optimistic_or_invalid());
 
                         if let Err(e) = self.early_attester_cache.add_head_block(
                             block_root,
@@ -7592,11 +7604,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Check that the parent is NOT optimistic.
+        // worst case on wrong assumption: chain reads healthy while optimistic.
         if let Some(execution_status) = self
             .canonical_head
             .fork_choice_read_lock()
-            .get_block_execution_status(parent_root)
-            && execution_status.is_strictly_optimistic()
+            .get_block_execution_status_assuming_full(parent_root)?
+            && execution_status.is_optimistic()
         {
             return Ok(ChainHealth::Optimistic);
         }
