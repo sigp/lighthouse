@@ -171,7 +171,7 @@ pub(crate) fn parent_payload_exits_builder<T: BeaconChainTypes>(
 
     let builder = head_state.get_builder(bid.builder_index)?;
     let parent_envelope = store
-        .get_payload_envelope(&bid.parent_block_root)
+        .get_signed_payload_envelope(&bid.parent_block_root)
         .map_err(|e| {
             PayloadBidError::InternalError(format!("failed to load parent payload envelope: {e:?}"))
         })?

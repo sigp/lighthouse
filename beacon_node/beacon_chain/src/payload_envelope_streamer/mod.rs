@@ -14,8 +14,8 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, warn};
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsRef,
-    Hash256, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot,
+    EthSpec, ExecutionBlockHash, ExecutionPayloadRef, ExecutionRequestsRef, Hash256,
+    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot,
 };
 
 #[cfg(not(test))]
@@ -38,10 +38,6 @@ pub enum Error {
     SummaryBlockRootMismatch {
         requested: Hash256,
         summary: Hash256,
-    },
-    PayloadHashMismatch {
-        expected: ExecutionBlockHash,
-        received: ExecutionBlockHash,
     },
     ComputedPayloadHashMismatch {
         expected: ExecutionBlockHash,
@@ -107,8 +103,10 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
             .into()));
         }
 
-        match self.adapter.get_envelope_payload(beacon_block_root) {
-            Ok(Some(payload)) => LoadedEnvelope::Complete(reconstruct_envelope(summary, payload)),
+        match self.adapter.get_payload_body(beacon_block_root) {
+            Ok(Some(payload_body)) => {
+                LoadedEnvelope::Complete(Ok(Some(Arc::new(summary.into_envelope(payload_body)))))
+            }
             Ok(None) => LoadedEnvelope::NeedsPayload(Box::new(summary)),
             Err(error) => LoadedEnvelope::Complete(Err(BeaconChainError::DBError(error))),
         }
@@ -274,22 +272,6 @@ pub fn launch_payload_envelope_stream<T: BeaconChainTypes>(
 
 /// The Engine API only guarantees support for 32 hashes per payload-body request.
 const MAX_PAYLOAD_BODIES_PER_REQUEST: usize = 32;
-
-fn reconstruct_envelope<E: EthSpec>(
-    summary: SignedExecutionPayloadEnvelopeSummary<E>,
-    payload: ExecutionPayloadGloas<E>,
-) -> PayloadEnvelopeResult<E> {
-    let expected_payload_hash = summary.block_hash();
-    if expected_payload_hash != payload.block_hash {
-        return Err(Error::PayloadHashMismatch {
-            expected: expected_payload_hash,
-            received: payload.block_hash,
-        }
-        .into());
-    }
-
-    Ok(Some(Arc::new(summary.into_envelope(payload))))
-}
 
 fn reconstruct_envelope_from_body<E: EthSpec>(
     summary: SignedExecutionPayloadEnvelopeSummary<E>,

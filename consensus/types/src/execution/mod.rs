@@ -52,7 +52,7 @@ pub use payload::{
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use signed_execution_payload_bid::SignedExecutionPayloadBid;
 pub use signed_execution_payload_envelope::{
-    ExecutionPayloadHeaderGloas, SignedExecutionPayloadEnvelope,
+    ExecutionPayloadBody, ExecutionPayloadHeaderGloas, SignedExecutionPayloadEnvelope,
     SignedExecutionPayloadEnvelopeSummary,
 };
 pub use signed_inclusion_list::SignedInclusionList;

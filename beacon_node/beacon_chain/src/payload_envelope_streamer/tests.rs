@@ -8,9 +8,10 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use task_executor::test_utils::TestRuntime;
 use types::{
-    BlockAccessList, ExecutionBlockHash, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
-    ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef, Hash256, MinimalEthSpec,
-    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot,
+    BlockAccessList, ExecutionBlockHash, ExecutionPayloadBody, ExecutionPayloadEnvelope,
+    ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
+    Hash256, MinimalEthSpec, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary,
+    Slot,
 };
 
 type E = MinimalEthSpec;
@@ -122,15 +123,15 @@ fn mock_envelopes_with_pruned_payloads(
         .map(|entry| {
             let summary = entry
                 .envelope
-                .clone()
-                .map(|envelope| <(_, _)>::from(envelope).0);
+                .as_ref()
+                .map(SignedExecutionPayloadEnvelopeSummary::from);
             (entry.block_root, summary)
         })
         .collect();
     mock.expect_get_payload_envelope_summary()
         .returning(move |root| Ok(summary_map.get(root).cloned().flatten()));
 
-    let payload_map: HashMap<Hash256, Option<ExecutionPayloadGloas<E>>> = chain
+    let payload_map: HashMap<Hash256, Option<ExecutionPayloadBody>> = chain
         .iter()
         .map(|entry| {
             (
@@ -139,11 +140,11 @@ fn mock_envelopes_with_pruned_payloads(
                     .envelope
                     .as_ref()
                     .filter(|_| !pruned_payload_slots.contains(&entry.slot.as_u64()))
-                    .map(|envelope| envelope.message.payload.clone()),
+                    .map(|envelope| ExecutionPayloadBody::from(&envelope.message.payload)),
             )
         })
         .collect();
-    mock.expect_get_envelope_payload()
+    mock.expect_get_payload_body()
         .returning(move |root| Ok(payload_map.get(root).cloned().flatten()));
 }
 

@@ -308,9 +308,9 @@ pub enum DBColumn {
     /// Execution payloads for blocks more recent than the finalized checkpoint.
     #[strum(serialize = "exp")]
     ExecPayload,
-    /// Post-gloas execution payload envelopes.
+    /// Prunable post-Gloas execution payload bodies.
     #[strum(serialize = "pay")]
-    PayloadEnvelope,
+    PayloadBody,
     /// Reduced information database object `SignedExecutionPayloadEnvelopeSummary` mapped to
     /// `SignedExecutionPayloadEnvelope`.
     #[strum(serialize = "pys")]
@@ -427,7 +427,7 @@ impl DBColumn {
             | Self::DhtEnrs
             | Self::CustodyContext
             | Self::OptimisticTransitionBlock
-            | Self::PayloadEnvelope
+            | Self::PayloadBody
             | Self::PayloadSummary => 32,
             Self::BeaconBlockRoots
             | Self::BeaconDataColumnCustodyInfo
@@ -594,8 +594,13 @@ mod tests {
             .expect("summary should exist");
         assert_eq!(summary.block_hash(), payload_hash);
         assert_eq!(summary.slot(), slot);
-        assert!(store.get_envelope_payload(&block_root).unwrap().is_some());
-        assert!(store.get_payload_envelope(&block_root).unwrap().is_some());
+        assert!(store.get_payload_body(&block_root).unwrap().is_some());
+        assert!(
+            store
+                .get_signed_payload_envelope(&block_root)
+                .unwrap()
+                .is_some()
+        );
 
         store
             .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayload(block_root)])
@@ -606,9 +611,14 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-        assert!(store.get_envelope_payload(&block_root).unwrap().is_none());
-        assert!(store.get_payload_envelope(&block_root).unwrap().is_none());
-        assert!(store.payload_envelope_exists(&block_root).unwrap());
+        assert!(store.get_payload_body(&block_root).unwrap().is_none());
+        assert!(
+            store
+                .get_signed_payload_envelope(&block_root)
+                .unwrap()
+                .is_none()
+        );
+        assert!(store.payload_envelope_summary_exists(&block_root).unwrap());
 
         store
             .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadWithSummary(
@@ -621,6 +631,6 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        assert!(!store.payload_envelope_exists(&block_root).unwrap());
+        assert!(!store.payload_envelope_summary_exists(&block_root).unwrap());
     }
 }

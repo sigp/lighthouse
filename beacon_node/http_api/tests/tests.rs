@@ -5388,7 +5388,7 @@ impl ApiTester {
         assert!(
             self.chain
                 .store
-                .get_envelope_payload(&block_root)
+                .get_payload_body(&block_root)
                 .unwrap()
                 .is_none()
         );

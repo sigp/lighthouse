@@ -156,6 +156,26 @@ pub struct ExecutionPayloadHeaderGloas<E: EthSpec> {
     pub slot_number: Slot,
 }
 
+/// The prunable fields of a Gloas execution payload.
+///
+/// The remaining payload fields are retained in [`ExecutionPayloadHeaderGloas`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+pub struct ExecutionPayloadBody {
+    pub transactions: ProgressiveTransactions,
+    pub withdrawals: ProgressiveWithdrawals,
+    pub block_access_list: BlockAccessList,
+}
+
+impl<E: EthSpec> From<&ExecutionPayloadGloas<E>> for ExecutionPayloadBody {
+    fn from(payload: &ExecutionPayloadGloas<E>) -> Self {
+        Self {
+            transactions: payload.transactions.clone(),
+            withdrawals: payload.withdrawals.clone(),
+            block_access_list: payload.block_access_list.clone(),
+        }
+    }
+}
+
 impl<E: EthSpec> From<&ExecutionPayloadGloas<E>> for ExecutionPayloadHeaderGloas<E> {
     fn from(payload: &ExecutionPayloadGloas<E>) -> Self {
         Self {
@@ -224,34 +244,18 @@ pub struct SignedExecutionPayloadEnvelopeSummary<E: EthSpec> {
     pub signature: Signature,
 }
 
-impl<E: EthSpec> From<SignedExecutionPayloadEnvelope<E>>
-    for (
-        SignedExecutionPayloadEnvelopeSummary<E>,
-        ExecutionPayloadGloas<E>,
-    )
+impl<E: EthSpec> From<&SignedExecutionPayloadEnvelope<E>>
+    for SignedExecutionPayloadEnvelopeSummary<E>
 {
-    fn from(envelope: SignedExecutionPayloadEnvelope<E>) -> Self {
-        let SignedExecutionPayloadEnvelope { message, signature } = envelope;
-
-        let ExecutionPayloadEnvelope {
-            payload,
-            execution_requests,
-            builder_index,
-            beacon_block_root,
-            parent_beacon_block_root,
-        } = message;
-
-        (
-            SignedExecutionPayloadEnvelopeSummary {
-                payload_header: (&payload).into(),
-                execution_requests,
-                builder_index,
-                beacon_block_root,
-                parent_beacon_block_root,
-                signature,
-            },
-            payload,
-        )
+    fn from(envelope: &SignedExecutionPayloadEnvelope<E>) -> Self {
+        Self {
+            payload_header: (&envelope.message.payload).into(),
+            execution_requests: envelope.message.execution_requests.clone(),
+            builder_index: envelope.message.builder_index,
+            beacon_block_root: envelope.message.beacon_block_root,
+            parent_beacon_block_root: envelope.message.parent_beacon_block_root,
+            signature: envelope.signature.clone(),
+        }
     }
 }
 
@@ -266,8 +270,13 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelopeSummary<E> {
 
     pub fn into_envelope(
         self,
-        payload: ExecutionPayloadGloas<E>,
+        payload_body: ExecutionPayloadBody,
     ) -> SignedExecutionPayloadEnvelope<E> {
+        let payload = self.payload_header.into_payload(
+            payload_body.transactions,
+            payload_body.withdrawals,
+            payload_body.block_access_list,
+        );
         SignedExecutionPayloadEnvelope {
             message: ExecutionPayloadEnvelope {
                 payload,
@@ -286,11 +295,11 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelopeSummary<E> {
         withdrawals: ProgressiveWithdrawals,
         block_access_list: BlockAccessList,
     ) -> SignedExecutionPayloadEnvelope<E> {
-        let payload =
-            self.payload_header
-                .clone()
-                .into_payload(transactions, withdrawals, block_access_list);
-        self.into_envelope(payload)
+        self.into_envelope(ExecutionPayloadBody {
+            transactions,
+            withdrawals,
+            block_access_list,
+        })
     }
 }
 #[cfg(test)]

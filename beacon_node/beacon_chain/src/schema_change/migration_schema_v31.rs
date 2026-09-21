@@ -2,7 +2,10 @@ use crate::beacon_chain::BeaconChainTypes;
 use ssz::{Decode, Encode};
 use store::hot_cold_store::HotColdDB;
 use store::{DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
-use types::{Hash256, SignedExecutionPayloadEnvelope};
+use types::{
+    ExecutionPayloadBody, Hash256, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeSummary,
+};
 
 /// Upgrade from schema v30 to v31.
 ///
@@ -13,7 +16,7 @@ pub fn upgrade_to_v31<T: BeaconChainTypes>(
 ) -> Result<Vec<KeyValueStoreOp>, StoreError> {
     let mut ops = vec![];
 
-    for result in db.hot_db.iter_column::<Hash256>(DBColumn::PayloadEnvelope) {
+    for result in db.hot_db.iter_column::<Hash256>(DBColumn::PayloadBody) {
         let (block_root, envelope_bytes) = result?;
         let envelope = SignedExecutionPayloadEnvelope::<T::EthSpec>::from_ssz_bytes(
             &envelope_bytes,
@@ -24,12 +27,13 @@ pub fn upgrade_to_v31<T: BeaconChainTypes>(
                  {error:?}"
             ))
         })?;
-        let (summary, payload) = envelope.into();
+        let summary = SignedExecutionPayloadEnvelopeSummary::from(&envelope);
+        let payload_body = ExecutionPayloadBody::from(&envelope.message.payload);
 
         ops.push(KeyValueStoreOp::PutKeyValue(
-            DBColumn::PayloadEnvelope,
+            DBColumn::PayloadBody,
             block_root.as_slice().to_vec(),
-            payload.as_ssz_bytes(),
+            payload_body.as_ssz_bytes(),
         ));
         ops.push(KeyValueStoreOp::PutKeyValue(
             DBColumn::PayloadSummary,

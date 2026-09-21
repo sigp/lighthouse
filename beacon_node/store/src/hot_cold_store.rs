@@ -737,18 +737,18 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             .map_err(|e| e.into())
     }
 
-    pub fn get_payload_envelope(
+    pub fn get_signed_payload_envelope(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
         let Some(summary) = self.get_payload_envelope_summary(block_root)? else {
             return Ok(None);
         };
-        let Some(payload) = self.get_envelope_payload(block_root)? else {
+        let Some(payload_body) = self.get_payload_body(block_root)? else {
             return Ok(None);
         };
 
-        Ok(Some(summary.into_envelope(payload)))
+        Ok(Some(summary.into_envelope(payload_body)))
     }
 
     /// Load the persistent portion of a signed execution payload envelope.
@@ -759,21 +759,27 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         self.hot_db.get(block_root)
     }
 
-    /// Load the prunable execution payload portion of an envelope.
-    pub fn get_envelope_payload(
+    /// Load the prunable body of a Gloas execution payload.
+    pub fn get_payload_body(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<ExecutionPayloadGloas<E>>, Error> {
+    ) -> Result<Option<ExecutionPayloadBody>, Error> {
         self.hot_db
-            .get_bytes(DBColumn::PayloadEnvelope, block_root.as_slice())?
-            .map(|bytes| ExecutionPayloadGloas::from_ssz_bytes(&bytes).map_err(Error::from))
+            .get_bytes(DBColumn::PayloadBody, block_root.as_slice())?
+            .map(|bytes| ExecutionPayloadBody::from_ssz_bytes(&bytes).map_err(Error::from))
             .transpose()
     }
 
-    /// Check if the payload envelope for a block exists on disk.
-    pub fn payload_envelope_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
+    /// Check if the persistent payload envelope summary exists on disk.
+    pub fn payload_envelope_summary_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
         self.hot_db
             .key_exists(DBColumn::PayloadSummary, block_root.as_slice())
+    }
+
+    /// Check if the prunable payload body exists on disk.
+    pub fn payload_body_exists(&self, block_root: &Hash256) -> Result<bool, Error> {
+        self.hot_db
+            .key_exists(DBColumn::PayloadBody, block_root.as_slice())
     }
 
     /// Load the execution payload for a block from disk.
@@ -1072,13 +1078,24 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         envelope: &SignedExecutionPayloadEnvelope<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
-        let (summary, payload) = envelope.clone().into();
+        let payload_body = ExecutionPayloadBody::from(&envelope.message.payload);
         ops.push(KeyValueStoreOp::PutKeyValue(
-            DBColumn::PayloadEnvelope,
+            DBColumn::PayloadBody,
             key.as_slice().into(),
-            payload.as_ssz_bytes(),
+            payload_body.as_ssz_bytes(),
         ));
 
+        self.payload_envelope_summary_as_kv_store_op(key, envelope, ops);
+    }
+
+    /// Prepare the persistent portion of a signed execution payload envelope for storage.
+    pub fn payload_envelope_summary_as_kv_store_op(
+        &self,
+        key: &Hash256,
+        envelope: &SignedExecutionPayloadEnvelope<E>,
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) {
+        let summary = SignedExecutionPayloadEnvelopeSummary::from(envelope);
         ops.push(KeyValueStoreOp::PutKeyValue(
             SignedExecutionPayloadEnvelopeSummary::<E>::db_column(),
             key.as_slice().into(),
@@ -1394,14 +1411,14 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     ));
 
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
-                        DBColumn::PayloadEnvelope,
+                        DBColumn::PayloadBody,
                         block_root.as_slice().to_vec(),
                     ))
                 }
 
                 StoreOp::DeletePayload(block_root) => {
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(
-                        DBColumn::PayloadEnvelope,
+                        DBColumn::PayloadBody,
                         block_root.as_slice().to_vec(),
                     ))
                 }
@@ -3310,7 +3327,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     ops.push(StoreOp::DeleteExecutionPayload(block_root));
                 }
 
-                if self.get_envelope_payload(&block_root)?.is_some() {
+                if self.payload_body_exists(&block_root)? {
                     debug!(%slot, ?block_root, "Pruning payload envelope body");
                     ops.push(StoreOp::DeletePayload(block_root));
                 }
@@ -3347,11 +3364,12 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             }
 
             if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
-                // A canonical Gloas block without a summary was WITHHELD and never had an
-                // envelope payload. Continue backwards until we find a FULL block.
-                if self.payload_envelope_exists(&block_root)? {
-                    return Ok(self.get_envelope_payload(&block_root)?.is_none());
+                if !self.payload_envelope_summary_exists(&block_root)? {
+                    // A canonical Gloas block without a summary was WITHHELD and never had an
+                    // envelope payload. Continue backwards until we find a FULL block.
+                    continue;
                 }
+                return Ok(!self.payload_body_exists(&block_root)?);
             } else {
                 // Before Gloas, an absent execution payload means this part of the chain has
                 // already been pruned (or predates Bellatrix).

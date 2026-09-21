@@ -1036,7 +1036,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let execution_envelope = if new_payload_status == PayloadStatus::Full {
                     let envelope = self
                         .store
-                        .get_payload_envelope(&new_view.head_block_root)?
+                        .get_signed_payload_envelope(&new_view.head_block_root)?
                         .map(Arc::new)
                         .ok_or(Error::MissingExecutionPayloadEnvelope(
                             new_view.head_block_root,

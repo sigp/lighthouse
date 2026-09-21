@@ -1282,7 +1282,7 @@ where
             let parent_envelope = if parent_payload_status == PayloadStatus::Full {
                 self.chain
                     .store
-                    .get_payload_envelope(&parent_root)
+                    .get_signed_payload_envelope(&parent_root)
                     .expect("should load parent payload envelope")
                     .map(Arc::new)
             } else {

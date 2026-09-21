@@ -2546,7 +2546,7 @@ async fn process_chain_segment_imports_missing_envelope_for_duplicate_gloas_bloc
         harness
             .chain
             .store
-            .get_payload_envelope(&block_root)
+            .get_signed_payload_envelope(&block_root)
             .expect("should read envelope from store")
             .is_none(),
         "envelope should start missing from the store"
@@ -2591,7 +2591,7 @@ async fn process_chain_segment_imports_missing_envelope_for_duplicate_gloas_bloc
         harness
             .chain
             .store
-            .get_payload_envelope(&block_root)
+            .get_signed_payload_envelope(&block_root)
             .expect("should read envelope from store")
             .is_some(),
         "range sync should persist the envelope"
@@ -2684,7 +2684,7 @@ async fn filter_chain_segment_keeps_checkpoint_gloas_block_by_split_root() {
     let envelope = harness
         .chain
         .store
-        .get_payload_envelope(&block_root)
+        .get_signed_payload_envelope(&block_root)
         .unwrap()
         .unwrap();
 
