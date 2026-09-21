@@ -1457,8 +1457,16 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
 
             let lookahead_slot = current_slot + selection_lookahead;
 
-            let mut relevant_duties = duties_by_slot.split_off(&lookahead_slot);
-            std::mem::swap(&mut relevant_duties, &mut duties_by_slot);
+            let relevant_duties = if duties_service.selection_proof_config.parallel_sign {
+                duties_by_slot
+                    .remove(&lookahead_slot)
+                    .map(|duties| BTreeMap::from([(lookahead_slot, duties)]))
+                    .unwrap_or_default()
+            } else {
+                let mut duties = duties_by_slot.split_off(&lookahead_slot);
+                std::mem::swap(&mut duties, &mut duties_by_slot);
+                duties
+            };
 
             let batch_size = relevant_duties.values().map(Vec::len).sum::<usize>();
 
