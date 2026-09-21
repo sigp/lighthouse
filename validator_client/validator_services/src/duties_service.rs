@@ -1474,7 +1474,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                 &[validator_metrics::ATTESTATION_SELECTION_PROOFS],
             );
 
-            // For distributed case that uses parallel_sign
+            // For distributed case that uses parallel_sign and not using selections endpoint (e.g. Anchor)
             if duties_service.selection_proof_config.parallel_sign {
                 let mut duty_and_proof_results = relevant_duties
                     .into_values()
@@ -1548,7 +1548,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
     }
 }
 
-/// fill_in_selection_proofs involving middleware (DVT mode)
+/// fill_in_selection_proofs involving a middleware (e.g. Charon) in DVT mode
 async fn fill_in_selection_proofs_selections_endpoint<
     S: ValidatorStore + 'static,
     T: SlotClock + 'static,
