@@ -1160,6 +1160,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })
         .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
+        metrics::observe(
+            &metrics::SYNC_DATA_COLUMNS_BY_RANGE_REQUEST_COLUMNS,
+            request.columns.len() as f64,
+        );
+
         debug!(
             method = "DataColumnsByRange",
             slots = request.count,
