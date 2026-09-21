@@ -149,7 +149,11 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
         bytes: &[u8],
         fork_name: ForkName,
     ) -> Result<Self, ssz::DecodeError> {
-        Ok(map_fork_name!(fork_name, Self, <_>::from_ssz_bytes(bytes)?))
+        let block = map_fork_name!(fork_name, Self, <_>::from_ssz_bytes(bytes)?);
+        if block.to_ref().fork_name_unchecked().gloas_enabled() {
+            verify_operation_list_lengths_post_gloas(block.body())?;
+        }
+        Ok(block)
     }
 
     /// Try decoding each beacon block variant in sequence.
@@ -229,6 +233,63 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
         let signature = secret_key.sign(message);
         SignedBeaconBlock::from_block(self, signature)
     }
+}
+
+/// Verify the lengths of the (progressive) operation lists against the spec's runtime limits.
+///
+/// [New in Gloas:EIP7688]: these limits used to be enforced by the SSZ types, but
+/// `ProgressiveList` is unbounded so they must be checked explicitly.
+pub fn verify_operation_list_lengths_post_gloas<E: EthSpec, Payload: AbstractExecPayload<E>>(
+    block_body: BeaconBlockBodyRef<E, Payload>,
+) -> Result<(), ssz::DecodeError> {
+    let checks: [(&str, usize, usize); 6] = [
+        (
+            "proposer_slashings",
+            block_body.proposer_slashings().len(),
+            E::MaxProposerSlashings::to_usize(),
+        ),
+        (
+            "attester_slashings",
+            block_body.attester_slashings_len(),
+            E::MaxAttesterSlashingsElectra::to_usize(),
+        ),
+        (
+            "attestations",
+            block_body.attestations_len(),
+            E::MaxAttestationsElectra::to_usize(),
+        ),
+        (
+            "voluntary_exits",
+            block_body.voluntary_exits().len(),
+            E::MaxVoluntaryExits::to_usize(),
+        ),
+        (
+            "bls_to_execution_changes",
+            block_body
+                .bls_to_execution_changes()
+                .map(|changes| changes.len())
+                .unwrap_or(0),
+            E::MaxBlsToExecutionChanges::to_usize(),
+        ),
+        (
+            "payload_attestations",
+            block_body
+                .payload_attestations()
+                .map(|atts| atts.len())
+                .unwrap_or(0),
+            E::MaxPayloadAttestations::to_usize(),
+        ),
+    ];
+
+    for (kind, length, max) in checks {
+        if length > max {
+            return Err(ssz::DecodeError::BytesInvalid(format!(
+                "progressive list {kind} has length {length} > {max}"
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payload> {

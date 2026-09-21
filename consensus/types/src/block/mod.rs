@@ -8,6 +8,7 @@ pub use beacon_block::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockCapella,
     BeaconBlockDeneb, BeaconBlockElectra, BeaconBlockFulu, BeaconBlockGloas, BeaconBlockHeze,
     BeaconBlockRef, BeaconBlockRefMut, BlindedBeaconBlock, BlockImportSource, EmptyBlock,
+    verify_operation_list_lengths_post_gloas,
 };
 pub use beacon_block_body::{
     BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase,

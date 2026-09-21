@@ -8,6 +8,7 @@ use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, Int
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
 use ssz_types::FixedVector;
 use typenum::U33;
+use types::block::verify_operation_list_lengths_post_gloas;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 use types::consts::gloas::PAYLOAD_BUILDER_VERSION;
 use types::is_builder_withdrawal_credential;
@@ -22,8 +23,11 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
 ) -> Result<(), BlockProcessingError> {
     // [New in Gloas:EIP7688] The operation lists are `ProgressiveList`s without type-level
     // limits, so the spec's per-block limits are enforced at runtime instead.
+    //
+    // These limits are also checked when decoding the block, but we check again here for defense
+    // in depth.
     if state.fork_name_unchecked().gloas_enabled() {
-        verify_operation_list_lengths(block_body)?;
+        verify_operation_list_lengths_post_gloas(block_body)?;
     }
 
     process_proposer_slashings(
@@ -82,62 +86,6 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
             &block_body.execution_requests()?.consolidations,
             spec,
         )?;
-    }
-
-    Ok(())
-}
-
-/// Verify the lengths of the (progressive) operation lists against the spec's runtime limits.
-///
-/// [New in Gloas:EIP7688]: these limits used to be enforced by the SSZ types, but
-/// `ProgressiveList` is unbounded so they must be checked explicitly.
-pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>>(
-    block_body: BeaconBlockBodyRef<E, Payload>,
-) -> Result<(), BlockProcessingError> {
-    let checks: [(&str, usize, usize); 6] = [
-        (
-            "proposer_slashings",
-            block_body.proposer_slashings().len(),
-            E::MaxProposerSlashings::to_usize(),
-        ),
-        (
-            "attester_slashings",
-            block_body.attester_slashings_len(),
-            E::MaxAttesterSlashingsElectra::to_usize(),
-        ),
-        (
-            "attestations",
-            block_body.attestations_len(),
-            E::MaxAttestationsElectra::to_usize(),
-        ),
-        (
-            "voluntary_exits",
-            block_body.voluntary_exits().len(),
-            E::MaxVoluntaryExits::to_usize(),
-        ),
-        (
-            "bls_to_execution_changes",
-            block_body
-                .bls_to_execution_changes()
-                .map(|changes| changes.len())
-                .unwrap_or(0),
-            E::MaxBlsToExecutionChanges::to_usize(),
-        ),
-        (
-            "payload_attestations",
-            block_body
-                .payload_attestations()
-                .map(|atts| atts.len())
-                .unwrap_or(0),
-            E::MaxPayloadAttestations::to_usize(),
-        ),
-    ];
-
-    for (kind, length, max) in checks {
-        block_verify!(
-            length <= max,
-            BlockProcessingError::OperationListTooLong { kind, length, max }
-        );
     }
 
     Ok(())
