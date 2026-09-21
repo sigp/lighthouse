@@ -1,10 +1,13 @@
 use crate::VerifySignatures;
 use crate::per_block_processing::compute_timestamp_at_slot;
 use safe_arith::ArithError;
+use ssz::DecodeError;
 use tree_hash::TreeHash;
 use types::{
-    BeaconState, BeaconStateError, BuilderIndex, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
-    SignedExecutionPayloadEnvelope, Slot,
+    BeaconState, BeaconStateError, BuilderIndex, ChainSpec, EthSpec, ExecutionBlockHash,
+    ExecutionPayloadRef, Hash256, SignedExecutionPayloadEnvelope, Slot,
+    verify_execution_payload_list_lengths_post_gloas,
+    verify_execution_request_list_lengths_post_gloas,
 };
 
 macro_rules! envelope_verify {
@@ -21,6 +24,7 @@ pub enum EnvelopeProcessingError {
     BadSignature,
     BeaconStateError(BeaconStateError),
     ArithError(ArithError),
+    SszDecodeError(DecodeError),
     /// Envelope doesn't match latest beacon block header
     LatestBlockHeaderMismatch {
         envelope_root: Hash256,
@@ -93,6 +97,12 @@ impl From<ArithError> for EnvelopeProcessingError {
     }
 }
 
+impl From<DecodeError> for EnvelopeProcessingError {
+    fn from(e: DecodeError) -> Self {
+        EnvelopeProcessingError::SszDecodeError(e)
+    }
+}
+
 /// Verifies a `SignedExecutionPayloadEnvelope` against the beacon state.
 ///
 /// This function performs pure verification with no state mutation. The execution requests
@@ -115,6 +125,11 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
 
     let envelope = &signed_envelope.message;
     let payload = &envelope.payload;
+
+    // These limits are also checked during SSZ decoding, but check again here for defense in
+    // depth in case the envelope bypassed decoding.
+    verify_execution_payload_list_lengths_post_gloas(ExecutionPayloadRef::Gloas(payload))?;
+    verify_execution_request_list_lengths_post_gloas(&envelope.execution_requests)?;
 
     // Verify consistency with the beacon block.
     // Use a copy of the header with state_root filled in, matching the spec's approach.
@@ -231,6 +246,83 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     // TODO(gloas): newPayload happens here in the spec, ensure we wire that up correctly
 
     Ok(())
+}
+
+#[cfg(test)]
+mod progressive_list_tests {
+    use super::*;
+    use crate::BlockProcessingError;
+    use crate::per_block_processing::apply_parent_execution_payload;
+    use beacon_chain::test_utils::BeaconChainHarness;
+    use bls::Signature;
+    use types::{ExecutionPayloadEnvelope, ForkName, MinimalEthSpec};
+
+    #[tokio::test]
+    async fn reject_oversized_lists_without_ssz_decoding() {
+        type E = MinimalEthSpec;
+        let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(spec.into())
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+        let mut state = harness.get_current_state();
+        let mut envelope = SignedExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope::empty(),
+            signature: Signature::empty(),
+        };
+        let max = E::max_withdrawal_requests_per_payload();
+        envelope.message.execution_requests.withdrawals = std::iter::repeat_n(
+            types::test_utils::test_arbitrary_instance(),
+            max.saturating_add(1),
+        )
+        .collect();
+        let expected = DecodeError::BytesInvalid(format!(
+            "progressive list withdrawal_requests has length {} > {max}",
+            max.saturating_add(1),
+        ));
+        assert!(matches!(
+            verify_execution_payload_envelope(
+                &state,
+                &envelope,
+                VerifySignatures::False,
+                Hash256::default(),
+                &harness.spec,
+            ),
+            Err(EnvelopeProcessingError::SszDecodeError(error)) if error == expected
+        ));
+        assert!(matches!(
+            apply_parent_execution_payload(
+                &mut state,
+                &envelope.message.execution_requests,
+                &harness.spec,
+            ),
+            Err(BlockProcessingError::SszDecodeError(error)) if error == expected
+        ));
+
+        envelope.message.execution_requests = Default::default();
+        let max = E::max_withdrawals_per_payload();
+        envelope.message.payload.withdrawals = std::iter::repeat_n(
+            types::test_utils::test_arbitrary_instance(),
+            max.saturating_add(1),
+        )
+        .collect();
+        let expected = DecodeError::BytesInvalid(format!(
+            "progressive list withdrawals has length {} > {max}",
+            max.saturating_add(1),
+        ));
+        assert!(matches!(
+            verify_execution_payload_envelope(
+                &state,
+                &envelope,
+                VerifySignatures::False,
+                Hash256::default(),
+                &harness.spec,
+            ),
+            Err(EnvelopeProcessingError::SszDecodeError(error)) if error == expected
+        ));
+    }
 }
 
 #[cfg(not(debug_assertions))]

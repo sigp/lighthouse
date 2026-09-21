@@ -24,6 +24,7 @@ pub use execution_payload::{
     ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
     ExecutionPayloadHeze, ExecutionPayloadRef, ProgressiveTransactions, ProgressiveWithdrawals,
     Transaction, Transactions, TransactionsIter, TransactionsRef, WithdrawalsRef,
+    verify_execution_payload_list_lengths_post_gloas,
 };
 pub use execution_payload_bid::ExecutionPayloadBid;
 pub use execution_payload_envelope::ExecutionPayloadEnvelope;
@@ -39,7 +40,7 @@ pub use execution_proof::{
 pub use execution_requests::{
     BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
     ExecutionRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsRef,
-    RequestType, WithdrawalRequests,
+    RequestType, WithdrawalRequests, verify_execution_request_list_lengths_post_gloas,
 };
 pub use inclusion_list::{InclusionList, InclusionListCommittee};
 pub use payload::{

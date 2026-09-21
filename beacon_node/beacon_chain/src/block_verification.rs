@@ -81,7 +81,6 @@ use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::errors::IntoWithIndex;
-use state_processing::per_block_processing::verify_execution_request_list_lengths;
 use state_processing::{
     AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext,
     GloasVerificationContext, SlotProcessingError, VerifyBlockRoot,
@@ -103,6 +102,7 @@ use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
     Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
     RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
+    verify_execution_request_list_lengths_post_gloas,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -900,7 +900,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         }
 
         if let Ok(parent_execution_requests) = block.message().body().parent_execution_requests() {
-            verify_execution_request_list_lengths(parent_execution_requests)
+            verify_execution_request_list_lengths_post_gloas(parent_execution_requests)
+                .map_err(BlockProcessingError::from)
                 .map_err(BlockError::PerBlockProcessingError)?;
             let deposits_len = block.message().body().deposits().len();
             if deposits_len > 0 {

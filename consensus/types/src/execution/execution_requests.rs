@@ -141,10 +141,53 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionRequests<E> {
                 ExecutionRequestsElectra::from_ssz_bytes(bytes).map(Self::Electra)
             }
             ForkName::Gloas | ForkName::Heze => {
-                ExecutionRequestsGloas::from_ssz_bytes(bytes).map(Self::Gloas)
+                let requests = ExecutionRequestsGloas::from_ssz_bytes(bytes)?;
+                verify_execution_request_list_lengths_post_gloas(&requests)?;
+                Ok(Self::Gloas(requests))
             }
         }
     }
+}
+
+/// Verify the lengths of progressive execution request lists against the spec's runtime limits.
+///
+/// [New in Gloas:EIP7688]: progressive lists have no type-level limits. Deposit requests are
+/// deliberately unbounded (see the `deposit_requests_greater_than_electra_max` spec test).
+pub fn verify_execution_request_list_lengths_post_gloas<E: EthSpec>(
+    requests: &ExecutionRequestsGloas<E>,
+) -> Result<(), ssz::DecodeError> {
+    let checks = [
+        (
+            "withdrawal_requests",
+            requests.withdrawals.len(),
+            E::max_withdrawal_requests_per_payload(),
+        ),
+        (
+            "consolidation_requests",
+            requests.consolidations.len(),
+            E::max_consolidation_requests_per_payload(),
+        ),
+        (
+            "builder_deposit_requests",
+            requests.builder_deposits.len(),
+            E::max_builder_deposit_requests_per_payload(),
+        ),
+        (
+            "builder_exit_requests",
+            requests.builder_exits.len(),
+            E::max_builder_exit_requests_per_payload(),
+        ),
+    ];
+
+    for (kind, length, max) in checks {
+        if length > max {
+            return Err(ssz::DecodeError::BytesInvalid(format!(
+                "progressive list {kind} has length {length} > {max}"
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 /// Build the EIP-7685 requests list from each request kind's `(request_type, is_empty, ssz_bytes)`.
@@ -318,7 +361,113 @@ mod electra_tests {
 #[cfg(test)]
 mod gloas_tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::{ExecutionPayloadEnvelope, MainnetEthSpec, SignedExecutionPayloadEnvelope};
+    use bls::Signature;
 
     ssz_and_tree_hash_tests!(ExecutionRequestsGloas<MainnetEthSpec>);
+
+    type E = MainnetEthSpec;
+
+    fn assert_decoding_result(
+        requests: ExecutionRequestsGloas<E>,
+        expected: Result<(), ssz::DecodeError>,
+    ) {
+        assert_eq!(
+            verify_execution_request_list_lengths_post_gloas(&requests),
+            expected
+        );
+        for fork in [ForkName::Gloas, ForkName::Heze] {
+            assert_eq!(
+                ExecutionRequests::<E>::from_ssz_bytes_by_fork(&requests.as_ssz_bytes(), fork)
+                    .map(|decoded| assert_eq!(decoded, ExecutionRequests::Gloas(requests.clone()))),
+                expected
+            );
+        }
+
+        let envelope = ExecutionPayloadEnvelope {
+            execution_requests: requests,
+            ..ExecutionPayloadEnvelope::empty()
+        };
+        assert_eq!(
+            ExecutionPayloadEnvelope::<E>::from_ssz_bytes(&envelope.as_ssz_bytes())
+                .map(|decoded| assert_eq!(decoded, envelope)),
+            expected
+        );
+
+        let signed_envelope = SignedExecutionPayloadEnvelope {
+            message: envelope,
+            signature: Signature::empty(),
+        };
+        assert_eq!(
+            SignedExecutionPayloadEnvelope::<E>::from_ssz_bytes(&signed_envelope.as_ssz_bytes())
+                .map(|decoded| assert_eq!(decoded, signed_envelope)),
+            expected
+        );
+    }
+
+    macro_rules! request_list_length_test {
+        ($test:ident, $field:ident, $limit:ident, $kind:literal) => {
+            #[test]
+            fn $test() {
+                let max = E::$limit();
+                let request = crate::test_utils::test_arbitrary_instance();
+                let mut requests = ExecutionRequestsGloas::default();
+                requests.$field = std::iter::repeat_n(request, max).collect();
+                assert_decoding_result(requests.clone(), Ok(()));
+
+                requests.$field.push(requests.$field[0].clone());
+                assert_decoding_result(
+                    requests,
+                    Err(ssz::DecodeError::BytesInvalid(format!(
+                        "progressive list {} has length {} > {max}",
+                        $kind,
+                        max + 1,
+                    ))),
+                );
+            }
+        };
+    }
+
+    request_list_length_test!(
+        withdrawal_request_list_length,
+        withdrawals,
+        max_withdrawal_requests_per_payload,
+        "withdrawal_requests"
+    );
+    request_list_length_test!(
+        consolidation_request_list_length,
+        consolidations,
+        max_consolidation_requests_per_payload,
+        "consolidation_requests"
+    );
+    request_list_length_test!(
+        builder_deposit_request_list_length,
+        builder_deposits,
+        max_builder_deposit_requests_per_payload,
+        "builder_deposit_requests"
+    );
+    request_list_length_test!(
+        builder_exit_request_list_length,
+        builder_exits,
+        max_builder_exit_requests_per_payload,
+        "builder_exit_requests"
+    );
+
+    #[test]
+    fn deposit_requests_are_unbounded() {
+        let requests = ExecutionRequestsGloas {
+            deposits: std::iter::repeat_n(
+                crate::test_utils::test_arbitrary_instance(),
+                E::max_deposit_requests_per_payload() + 1,
+            )
+            .collect(),
+            ..ExecutionRequestsGloas::default()
+        };
+        assert_decoding_result(requests, Ok(()));
+    }
+
+    #[test]
+    fn empty_request_lists() {
+        assert_decoding_result(ExecutionRequestsGloas::default(), Ok(()));
+    }
 }

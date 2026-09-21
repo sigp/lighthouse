@@ -268,7 +268,7 @@ impl<E: EthSpec> ExecutionPayload<E> {
 impl<E: EthSpec> ForkVersionDecode for ExecutionPayload<E> {
     /// SSZ decode with explicit fork variant.
     fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
-        match fork_name {
+        let payload = match fork_name {
             ForkName::Base | ForkName::Altair => Err(ssz::DecodeError::BytesInvalid(format!(
                 "unsupported fork for ExecutionPayload: {fork_name}",
             ))),
@@ -281,8 +281,58 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionPayload<E> {
             ForkName::Fulu => ExecutionPayloadFulu::from_ssz_bytes(bytes).map(Self::Fulu),
             ForkName::Gloas => ExecutionPayloadGloas::from_ssz_bytes(bytes).map(Self::Gloas),
             ForkName::Heze => ExecutionPayloadHeze::from_ssz_bytes(bytes).map(Self::Heze),
+        }?;
+        if fork_name.gloas_enabled() {
+            verify_execution_payload_list_lengths_post_gloas(payload.to_ref())?;
+        }
+        Ok(payload)
+    }
+}
+
+/// Verify the lengths of progressive payload lists against the spec's runtime limits.
+///
+/// [New in Gloas:EIP7688]: these limits used to be enforced by the SSZ types, but progressive
+/// lists are unbounded so both the number of transactions and each transaction's length must
+/// be checked explicitly, along with the number of withdrawals.
+pub fn verify_execution_payload_list_lengths_post_gloas<E: EthSpec>(
+    payload: ExecutionPayloadRef<'_, E>,
+) -> Result<(), ssz::DecodeError> {
+    let transactions = payload.transactions();
+    let checks = [
+        (
+            "transactions",
+            transactions.len(),
+            E::max_transactions_per_payload(),
+        ),
+        (
+            "withdrawals",
+            payload
+                .withdrawals()
+                .map(|withdrawals| withdrawals.len())
+                .unwrap_or(0),
+            E::max_withdrawals_per_payload(),
+        ),
+    ];
+
+    for (kind, length, max) in checks {
+        if length > max {
+            return Err(ssz::DecodeError::BytesInvalid(format!(
+                "progressive list {kind} has length {length} > {max}"
+            )));
         }
     }
+
+    let max = E::max_bytes_per_transaction();
+    for transaction in transactions.iter() {
+        let length = transaction.len();
+        if length > max {
+            return Err(ssz::DecodeError::BytesInvalid(format!(
+                "progressive list transaction has length {length} > {max}"
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 impl<E: EthSpec> ExecutionPayload<E> {
