@@ -24,15 +24,6 @@ use eth2::types::{ForkVersionedResponse, builder::SignedBuilderBid};
 use fixed_bytes::UintExtended;
 use logging::crit;
 pub use payload_status::PayloadStatus;
-
-/// The values sent to the execution engine in a `forkchoiceUpdated` message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ForkchoiceUpdateParameters {
-    pub head_root: Hash256,
-    pub head_hash: Option<ExecutionBlockHash>,
-    pub justified_hash: Option<ExecutionBlockHash>,
-    pub finalized_hash: Option<ExecutionBlockHash>,
-}
 use payload_status::process_payload_status;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
@@ -94,6 +85,15 @@ pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
 /// 0x00..00.
 const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+
+/// The values sent to the execution engine in a `forkchoiceUpdated` message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ForkchoiceUpdateParameters {
+    pub head_root: Hash256,
+    pub head_hash: Option<ExecutionBlockHash>,
+    pub justified_hash: Option<ExecutionBlockHash>,
+    pub finalized_hash: Option<ExecutionBlockHash>,
+}
 
 /// A payload alongside some information about where it came from.
 pub enum ProvenancedPayload<P> {
