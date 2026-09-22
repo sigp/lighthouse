@@ -3,6 +3,7 @@ pub mod config;
 
 use crate::cli::ValidatorClient;
 use crate::duties_service::SelectionProofConfig;
+use builder_store::BuilderStore;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
 use metrics::set_gauge;
@@ -13,7 +14,8 @@ use tokio::sync::Mutex;
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{
-    BeaconNodeFallback, CandidateBeaconNode, beacon_head_monitor::HeadEvent,
+    BeaconNodeFallback, CandidateBeaconNode,
+    beacon_head_monitor::{HeadEvent, PayloadAvailableEvent},
     start_fallback_updater_service,
 };
 use clap::ArgMatches;
@@ -43,11 +45,13 @@ use validator_services::notifier_service::spawn_notifier;
 use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},
     block_service::{BlockService, BlockServiceBuilder},
+    builder_preferences_service::BuilderPreferencesService,
     duties_service::{self, DutiesService, DutiesServiceBuilder},
     latency_service,
     payload_attestation_service::PayloadAttestationService,
     preparation_service::{PreparationService, PreparationServiceBuilder},
     proposer_preferences_service::ProposerPreferencesService,
+    request_auth_cache::RequestAuthCache,
     sync_committee_service::SyncCommitteeService,
 };
 use validator_store::ValidatorStore as ValidatorStoreTrait;
@@ -76,6 +80,8 @@ pub const AGGREGATION_PRE_COMPUTE_SLOTS_DISTRIBUTED: u64 = 1;
 
 const MAX_HEAD_EVENT_QUEUE_LEN: usize = 1_024;
 
+const MAX_PAYLOAD_AVAILABLE_EVENT_QUEUE_LEN: usize = 1_024;
+
 type ValidatorStore<E> = LighthouseValidatorStore<SystemTimeSlotClock, E>;
 
 #[derive(Clone)]
@@ -91,6 +97,8 @@ pub struct ProductionValidatorClient<E: EthSpec> {
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<ValidatorStore<E>, SystemTimeSlotClock>,
     validator_store: Arc<ValidatorStore<E>>,
+    configured_builders: BuilderStore,
+    builder_preferences_service: BuilderPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
     slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
@@ -419,6 +427,15 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             None
         };
 
+        let payload_available_rx = if config.enable_payload_available_monitor {
+            let (payload_available_tx, payload_available_receiver) =
+                mpsc::channel::<PayloadAvailableEvent>(MAX_PAYLOAD_AVAILABLE_EVENT_QUEUE_LEN);
+            beacon_nodes.set_payload_available_send(Arc::new(payload_available_tx));
+            Some(Mutex::new(payload_available_receiver))
+        } else {
+            None
+        };
+
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service::<_, E>(context.executor.clone(), beacon_nodes.clone())?;
 
@@ -513,6 +530,10 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             ctx.shared.write().duties_service = Some(duties_service.clone());
         }
 
+        let configured_builders = BuilderStore::open_or_create(&config.validator_dir)
+            .map_err(|e| format!("Unable to open or create builder definitions: {:?}", e))?;
+        let request_auth_cache = RequestAuthCache::default();
+
         let mut block_service_builder = BlockServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
@@ -521,7 +542,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .chain_spec(context.eth2_config.spec.clone())
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
-            .graffiti_policy(config.graffiti_policy);
+            .graffiti_policy(config.graffiti_policy)
+            .configured_builders(configured_builders.clone())
+            .request_auth_cache(request_auth_cache.clone());
 
         // If we have proposer nodes, add them to the block service builder.
         if proposer_nodes_num > 0 {
@@ -566,6 +589,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             beacon_nodes.clone(),
             context.executor.clone(),
             context.eth2_config.spec.clone(),
+            payload_available_rx,
         );
 
         let proposer_preferences_service = ProposerPreferencesService::new(
@@ -573,6 +597,17 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             validator_store.clone(),
             slot_clock.clone(),
             beacon_nodes.clone(),
+            context.executor.clone(),
+            context.eth2_config.spec.clone(),
+        );
+
+        let builder_preferences_service = BuilderPreferencesService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock.clone(),
+            beacon_nodes.clone(),
+            configured_builders.clone(),
+            request_auth_cache.clone(),
             context.executor.clone(),
             context.eth2_config.spec.clone(),
         );
@@ -588,6 +623,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             doppelganger_service,
             preparation_service,
             validator_store,
+            configured_builders: configured_builders.clone(),
+            builder_preferences_service,
             config,
             slot_clock,
             http_api_listen_addr: None,
@@ -611,6 +648,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 block_service: Some(self.block_service.clone()),
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
+                configured_builders: self.configured_builders.clone(),
                 secrets_dir: Some(self.config.secrets_dir.clone()),
                 graffiti_file: self.config.graffiti_file.clone(),
                 graffiti_flag: self.config.graffiti,
@@ -667,6 +705,11 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 .clone()
                 .start_update_service()
                 .map_err(|e| format!("Unable to start proposer preferences service: {}", e))?;
+
+            self.builder_preferences_service
+                .clone()
+                .start_update_service()
+                .map_err(|e| format!("Unable to start builder preferences service: {}", e))?;
         }
 
         self.preparation_service
