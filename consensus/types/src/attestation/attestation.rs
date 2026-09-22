@@ -830,7 +830,6 @@ impl SingleAttestation {
                 attesting_indices: ProgressiveVariableList::new(vec![self.attester_index]),
                 data: self.data.clone(),
                 signature: self.signature.clone(),
-                _phantom: std::marker::PhantomData,
             }))
         } else if fork_name.electra_enabled() {
             Ok(IndexedAttestation::Electra(IndexedAttestationElectra {

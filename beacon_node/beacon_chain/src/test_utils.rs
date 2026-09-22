@@ -2546,7 +2546,6 @@ where
                 attesting_indices: ProgressiveVariableList::new(validator_indices),
                 data,
                 signature: AggregateSignature::infinity(),
-                _phantom: std::marker::PhantomData,
             })
         } else if fork_name.electra_enabled() {
             IndexedAttestation::Electra(IndexedAttestationElectra {
@@ -2626,14 +2625,12 @@ where
                 attesting_indices: ProgressiveVariableList::new(validator_indices_1),
                 data: data.clone(),
                 signature: AggregateSignature::infinity(),
-                _phantom: std::marker::PhantomData,
             };
 
             let attestation_2 = IndexedAttestationGloas {
                 attesting_indices: ProgressiveVariableList::new(validator_indices_2),
                 data,
                 signature: AggregateSignature::infinity(),
-                _phantom: std::marker::PhantomData,
             };
 
             (

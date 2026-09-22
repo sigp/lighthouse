@@ -24,7 +24,6 @@ use state_processing::{
     },
     state_advance::complete_state_advance,
 };
-use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
@@ -316,7 +315,6 @@ async fn prepare_payload_generic(
         consolidations: ProgressiveVariableList::new(vec![consolidation_request]),
         builder_deposits: ProgressiveVariableList::empty(),
         builder_exits: ProgressiveVariableList::empty(),
-        _phantom: PhantomData,
     });
 
     // Inject the execution requests into the mock EL so the next payload includes them.

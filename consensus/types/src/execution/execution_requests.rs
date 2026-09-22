@@ -6,7 +6,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{ProgressiveVariableList, VariableList};
-use std::marker::PhantomData;
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
@@ -103,13 +102,6 @@ pub struct ExecutionRequests<E: EthSpec> {
     #[superstruct(only(Gloas))]
     pub builder_exits:
         ProgressiveVariableList<BuilderExitRequest, E::MaxBuilderExitRequestsPerPayload>,
-    // Retained for compatibility; skipped everywhere.
-    #[superstruct(only(Gloas))]
-    #[ssz(skip_serializing, skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[serde(skip)]
-    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub _phantom: PhantomData<E>,
 }
 
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionRequests<E> {
@@ -273,7 +265,6 @@ impl<E: EthSpec> From<&ExecutionRequestsElectra<E>> for ExecutionRequestsGloas<E
             consolidations: requests.consolidations.iter().cloned().collect(),
             builder_deposits: ProgressiveVariableList::default(),
             builder_exits: ProgressiveVariableList::default(),
-            _phantom: PhantomData,
         }
     }
 }

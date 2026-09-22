@@ -71,13 +71,6 @@ pub struct IndexedAttestation<E: EthSpec> {
     pub attesting_indices: ProgressiveVariableList<u64, E::MaxValidatorsPerSlot>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
-    // Retained for compatibility; skipped for all (de)serialization and hashing purposes.
-    #[superstruct(only(Gloas))]
-    #[ssz(skip_serializing, skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[serde(skip)]
-    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub _phantom: std::marker::PhantomData<E>,
 }
 
 impl<E: EthSpec> IndexedAttestation<E> {
@@ -177,7 +170,6 @@ impl<E: EthSpec> IndexedAttestation<E> {
             attesting_indices,
             data,
             signature,
-            _phantom: std::marker::PhantomData,
         }
     }
 }

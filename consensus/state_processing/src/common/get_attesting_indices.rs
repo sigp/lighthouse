@@ -185,7 +185,6 @@ pub mod attesting_indices_gloas {
             attesting_indices: ProgressiveVariableList::new(attesting_indices),
             data: attestation.data.clone(),
             signature: attestation.signature.clone(),
-            _phantom: std::marker::PhantomData,
         }))
     }
 

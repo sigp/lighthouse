@@ -703,7 +703,6 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
             consolidations: consolidations.iter().cloned().collect(),
             builder_deposits: builder_deposits.iter().cloned().collect(),
             builder_exits: builder_exits.iter().cloned().collect(),
-            _phantom: std::marker::PhantomData,
         })
     }
 }
@@ -1773,7 +1772,6 @@ mod tests {
                 consolidations: singleton_progressive_list(&consolidation_request),
                 builder_deposits: singleton_progressive_list(&builder_deposit_request),
                 builder_exits: singleton_progressive_list(&builder_exit_request),
-                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1789,7 +1787,6 @@ mod tests {
                 consolidations: Default::default(),
                 builder_deposits: Default::default(),
                 builder_exits: Default::default(),
-                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1809,7 +1806,6 @@ mod tests {
                 consolidations: Default::default(),
                 builder_deposits: singleton_progressive_list(&builder_deposit_request),
                 builder_exits: singleton_progressive_list(&builder_exit_request),
-                _phantom: std::marker::PhantomData,
             }
         );
 

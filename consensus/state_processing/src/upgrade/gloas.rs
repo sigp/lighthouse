@@ -3,7 +3,6 @@ use bls::PublicKeyBytes;
 use milhouse::{ProgressiveList, Vector};
 use safe_arith::SafeArith;
 use ssz_types::{BitVector, FixedVector};
-use std::marker::PhantomData;
 use std::{
     collections::{HashMap, HashSet},
     mem,
@@ -134,7 +133,6 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
             execution_payment: 0,
             blob_kzg_commitments: ProgressiveKzgCommitments::<E>::default(),
             execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
-            _phantom: PhantomData,
         },
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,

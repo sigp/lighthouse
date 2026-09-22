@@ -271,7 +271,6 @@ impl IndexedAttestationOnDisk {
                 attesting_indices,
                 data: self.data,
                 signature: self.signature,
-                _phantom: std::marker::PhantomData,
             }))
         } else if fork_at_target_epoch.electra_enabled() {
             let attesting_indices = VariableList::new(self.attesting_indices)?;

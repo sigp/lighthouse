@@ -984,7 +984,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
             blob_kzg_commitments,
             execution_requests_root: execution_requests.tree_hash_root(),
-            _phantom: PhantomData,
         };
 
         // Store payload data for envelope construction after block is created
@@ -1450,7 +1449,6 @@ mod tests {
             consolidations: ProgressiveVariableList::new(consolidations),
             builder_deposits: ProgressiveVariableList::empty(),
             builder_exits: ProgressiveVariableList::empty(),
-            _phantom: PhantomData,
         }
     }
 
