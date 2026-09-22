@@ -3179,8 +3179,9 @@ where
             .on_valid_payload_envelope_received(block_root)
             .expect("should update fork choice with envelope");
 
-        // Match production: notify that the envelope was imported.
-        self.chain.notify_payload_envelope_imported_hook(block_root);
+        // Apply any block-carried votes that were waiting for this payload.
+        self.chain
+            .apply_pending_block_attestations_awaiting_payload(block_root);
 
         // Run fork choice because the envelope could become the head.
         self.chain.recompute_head_at_current_slot().await;

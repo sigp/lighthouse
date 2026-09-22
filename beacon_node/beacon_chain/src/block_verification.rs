@@ -1717,8 +1717,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         // Register each attestation in the block with fork choice.
         //
-        // Collect index-1 votes that fail with `PayloadNotReceived` and schedule them for
-        // reprocess after dropping the fork-choice lock.
+        // Collect index-1 votes that fail with `PayloadNotReceived` and park them after
+        // dropping the fork-choice lock.
         let mut pending_payload_attestations = Vec::new();
         for (i, attestation) in block.message().body().attestations().enumerate() {
             let indexed_attestation = consensus_context
@@ -1732,7 +1732,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 &chain.spec,
             ) {
                 Ok(()) => Ok(()),
-                // Envelope not yet received; retry once it arrives.
+                // Envelope not yet received; park for apply after it arrives.
                 Err(ForkChoiceError::InvalidAttestation(
                     InvalidAttestation::PayloadNotReceived { .. },
                 )) => {
@@ -1773,10 +1773,10 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         }
         drop(fork_choice);
 
-        // Schedule after dropping the fork-choice lock to avoid re-entrancy under that lock.
+        // Park after dropping the fork-choice lock to avoid re-entrancy under that lock.
         for indexed_attestation in pending_payload_attestations {
             let beacon_block_root = indexed_attestation.data().beacon_block_root;
-            chain.notify_block_attestation_awaiting_payload(beacon_block_root, indexed_attestation);
+            chain.park_block_attestation_awaiting_payload(beacon_block_root, indexed_attestation);
         }
 
         Ok(Self {

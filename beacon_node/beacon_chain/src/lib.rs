@@ -51,6 +51,7 @@ pub mod payload_attestation_verification;
 pub mod payload_bid_verification;
 pub mod payload_envelope_streamer;
 pub mod payload_envelope_verification;
+pub mod pending_block_payload_attestations;
 pub mod pending_payload_cache;
 pub mod pending_payload_envelopes;
 pub mod persisted_beacon_chain;
@@ -72,11 +73,10 @@ pub mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, AvailabilityProcessingStatus, BeaconBlockResponse,
-    BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, BeaconStore,
-    BlockAttestationAwaitingPayloadFn, BlockProcessStatus, ChainSegmentResult, ForkChoiceError,
-    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus,
+    ChainSegmentResult, ForkChoiceError, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, LightClientProducerEvent, OverrideForkchoiceUpdate,
-    PayloadEnvelopeImportedFn, ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
+    ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::block_production::PayloadEnvelopeContents;

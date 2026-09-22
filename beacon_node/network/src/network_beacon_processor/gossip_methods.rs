@@ -4066,8 +4066,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // register_process_result_metrics(&result, metrics::BlockSource::Gossip, "envelope");
 
         match &result {
-            Ok(AvailabilityProcessingStatus::Imported(..)) => {
+            Ok(AvailabilityProcessingStatus::Imported(_, block_root)) => {
                 self.chain.recompute_head_at_current_slot().await;
+                // The payload envelope is imported (`is_payload_received` is now true); release any
+                // attestations awaiting this block's payload so they can be re-processed.
+                self.notify_payload_envelope_imported(*block_root, EnvelopeSource::Gossip);
             }
             Ok(_) => {}
             Err(e) => {
@@ -4183,6 +4186,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Execution payload envelope imported after execution proof"
                         );
                         self.chain.recompute_head_at_current_slot().await;
+                        // The payload envelope is imported (`is_payload_received` is now true);
+                        // release any attestations awaiting this block's payload.
+                        self.notify_payload_envelope_imported(block_root, EnvelopeSource::Gossip);
                     }
                     Ok(AvailabilityProcessingStatus::MissingComponents(..)) => {}
                     Err(error) => {

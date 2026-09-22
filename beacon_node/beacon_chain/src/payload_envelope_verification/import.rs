@@ -331,8 +331,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             envelope_time_imported,
         );
 
-        // Notify the reprocess queue (covers gossip, RPC, HTTP, and DA completion import paths).
-        self.notify_payload_envelope_imported_hook(block_root);
+        // Apply block-carried index-1 votes parked on `PayloadNotReceived`.
+        self.apply_pending_block_attestations_awaiting_payload(block_root);
 
         Ok(block_root)
     }

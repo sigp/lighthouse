@@ -43,7 +43,6 @@ use state_processing::genesis::genesis_block;
 use state_processing::{GloasVerificationContext, per_slot_processing};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::sync::OnceLock;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
@@ -1049,6 +1048,7 @@ where
             observed_execution_proofs: <_>::default(),
             observed_execution_payloads: <_>::default(),
             pending_payload_envelopes: <_>::default(),
+            pending_block_payload_attestations: <_>::default(),
             inclusion_list_store: RwLock::new(InclusionListStore::new(&self.spec)),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
@@ -1118,8 +1118,6 @@ where
             gossip_verified_payload_bid_cache: <_>::default(),
             gossip_verified_proposer_preferences_cache: <_>::default(),
             observed_payload_envelopes: <_>::default(),
-            block_attestation_awaiting_payload: OnceLock::new(),
-            payload_envelope_imported: OnceLock::new(),
         };
 
         beacon_chain
