@@ -379,8 +379,8 @@ pub struct ForkChoice<T, E> {
     /// Attestations that arrived at the current slot and must be queued for later processing,
     /// keyed by their slot.
     queued_attestations: BTreeMap<Slot, Vec<QueuedAttestation>>,
-    /// Stores a cache of the values required to be sent to the execution layer.
-    forkchoice_update_parameters: ForkchoiceUpdateParameters,
+    /// The head root from the most recent call to `Self::get_head`.
+    cached_head_root: Hash256,
     /// Rejects attestations from the current or a future slot instead of queueing them, as the
     /// spec does. Always `false` in production.
     spec_test_mode: bool,
@@ -481,28 +481,53 @@ where
             queued_attestations: BTreeMap::new(),
             spec_test_mode: false,
             // This will be updated during the next call to `Self::get_head`.
-            forkchoice_update_parameters: ForkchoiceUpdateParameters {
-                head_hash: None,
-                justified_hash: None,
-                finalized_hash: None,
-                // This will be updated during the next call to `Self::get_head`.
-                head_root: Hash256::zero(),
-            },
+            cached_head_root: Hash256::zero(),
             _phantom: PhantomData,
         };
 
-        // Ensure that `fork_choice.forkchoice_update_parameters.head_root` is updated.
+        // Ensure that `fork_choice.cached_head_root` is updated.
         fork_choice.get_head(current_slot, spec)?;
 
         Ok(fork_choice)
     }
 
-    /// Returns cached information that can be used to issue a `forkchoiceUpdated` message to an
-    /// execution engine.
+    /// Returns the information needed to issue a `forkchoiceUpdated` message to an execution
+    /// engine, computed on demand for the head from the most recent call to `Self::get_head`.
     ///
-    /// These values are updated each time `Self::get_head` is called.
-    pub fn get_forkchoice_update_parameters(&self) -> ForkchoiceUpdateParameters {
-        self.forkchoice_update_parameters
+    /// `head_payload_status` must be that head's payload status (as returned by `get_head`).
+    pub fn get_forkchoice_update_parameters(
+        &self,
+        head_payload_status: PayloadStatus,
+    ) -> ForkchoiceUpdateParameters {
+        let head_root = self.cached_head_root;
+        let head_hash = self.get_block(&head_root).and_then(|b| {
+            b.execution_status
+                .block_hash()
+                .or(match head_payload_status {
+                    PayloadStatus::Full => b.execution_payload_block_hash,
+                    PayloadStatus::Pending | PayloadStatus::Empty => {
+                        b.execution_payload_parent_hash
+                    }
+                })
+        });
+        let justified_root = self.justified_checkpoint().root;
+        let finalized_root = self.finalized_checkpoint().root;
+        let justified_hash = self.get_block(&justified_root).and_then(|b| {
+            b.execution_status
+                .block_hash()
+                .or(b.execution_payload_parent_hash)
+        });
+        let finalized_hash = self.get_block(&finalized_root).and_then(|b| {
+            b.execution_status
+                .block_hash()
+                .or(b.execution_payload_parent_hash)
+        });
+        ForkchoiceUpdateParameters {
+            head_root,
+            head_hash,
+            justified_hash,
+            finalized_hash,
+        }
     }
 
     /// Returns the block root of an ancestor of `block_root` at the given `slot`. (Note: `slot` refers
@@ -598,41 +623,8 @@ where
             spec,
         )?;
 
-        // Cache some values for the next forkchoiceUpdate call to the execution layer.
-        // For Gloas blocks, `execution_status` is Irrelevant (no embedded payload).
-        // If the payload envelope was received (Full), use the bid's block_hash as the
-        // execution chain head. Otherwise fall back to the parent hash (Pending) or None.
-        // For justified/finalized hashes we always use the bid's parent_block_hash, since the
-        // payload from the justified/finalized block is not itself justified/finalized due to
-        // being applied immediately prior to the next block.
-        let head_hash = self.get_block(&head_root).and_then(|b| {
-            b.execution_status
-                .block_hash()
-                .or(match head_payload_status {
-                    PayloadStatus::Full => b.execution_payload_block_hash,
-                    PayloadStatus::Pending | PayloadStatus::Empty => {
-                        b.execution_payload_parent_hash
-                    }
-                })
-        });
-        let justified_root = self.justified_checkpoint().root;
-        let finalized_root = self.finalized_checkpoint().root;
-        let justified_hash = self.get_block(&justified_root).and_then(|b| {
-            b.execution_status
-                .block_hash()
-                .or(b.execution_payload_parent_hash)
-        });
-        let finalized_hash = self.get_block(&finalized_root).and_then(|b| {
-            b.execution_status
-                .block_hash()
-                .or(b.execution_payload_parent_hash)
-        });
-        self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
-            head_root,
-            head_hash,
-            justified_hash,
-            finalized_hash,
-        };
+        // Remember the head root; `forkchoiceUpdated` params are computed on demand from it.
+        self.cached_head_root = head_root;
 
         Ok((head_root, head_payload_status))
     }
@@ -719,7 +711,7 @@ where
     /// have *differing* finalized and justified information.
     pub fn cached_fork_choice_view(&self) -> ForkChoiceView {
         ForkChoiceView {
-            head_block_root: self.forkchoice_update_parameters.head_root,
+            head_block_root: self.cached_head_root,
             justified_checkpoint: self.justified_checkpoint(),
             finalized_checkpoint: self.finalized_checkpoint(),
         }
@@ -1939,13 +1931,7 @@ where
             queued_attestations: BTreeMap::new(),
             spec_test_mode: false,
             // Will be updated in the following call to `Self::get_head`.
-            forkchoice_update_parameters: ForkchoiceUpdateParameters {
-                head_hash: None,
-                justified_hash: None,
-                finalized_hash: None,
-                // Will be updated in the following call to `Self::get_head`.
-                head_root: Hash256::zero(),
-            },
+            cached_head_root: Hash256::zero(),
             _phantom: PhantomData,
         };
 

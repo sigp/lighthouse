@@ -470,7 +470,8 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         spec: &ChainSpec,
     ) -> Result<Self, String> {
         let fork_choice_view = fork_choice.cached_fork_choice_view();
-        let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
+        let forkchoice_update_params =
+            fork_choice.get_forkchoice_update_parameters(head_payload_status);
 
         let fcr = if fast_confirmation.is_enabled() {
             Some(Mutex::new(
@@ -858,7 +859,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // parameters have changed. Snapshot the pre-FCR value so the early-return below can detect
         // an FCR-advanced `justified_hash` even when the head/checkpoints are unchanged.
         let mut new_forkchoice_update_parameters =
-            fork_choice_read_lock.get_forkchoice_update_parameters();
+            fork_choice_read_lock.get_forkchoice_update_parameters(new_payload_status);
 
         // Run the Fast Confirmation Rule (FCR) while we still hold the fork choice read lock.
         // FCR must run even when the head hasn't changed, because new attestations may advance
