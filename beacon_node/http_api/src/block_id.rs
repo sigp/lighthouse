@@ -716,6 +716,7 @@ mod tests {
         .unwrap();
 
         let current_slot = harness.get_current_slot();
+        let current_head_root = chain.canonical_head.cached_head().head_block_root();
 
         chain
             .canonical_head
@@ -724,6 +725,7 @@ mod tests {
                 current_slot,
                 block.message(),
                 block_root,
+                current_head_root,
                 Duration::ZERO,
                 &post_state,
                 PayloadVerificationStatus::Verified,

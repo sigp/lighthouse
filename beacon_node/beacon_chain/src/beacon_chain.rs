@@ -4489,6 +4489,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     current_slot,
                     block,
                     block_root,
+                    cached_head.head_block_root(),
                     block_delay,
                     &state,
                     payload_verification_status,

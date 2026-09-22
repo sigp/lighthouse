@@ -1070,11 +1070,18 @@ async fn invalid_parent() {
     ));
 
     // Ensure the block built atop an invalid payload cannot be imported to fork choice.
+    let current_head_root = rig
+        .harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .head_block_root();
     assert!(matches!(
         rig.harness.chain.canonical_head.fork_choice_write_lock().on_block(
             slot,
             block.message(),
             block_root,
+            current_head_root,
             Duration::from_secs(0),
             &state,
             PayloadVerificationStatus::Optimistic,
