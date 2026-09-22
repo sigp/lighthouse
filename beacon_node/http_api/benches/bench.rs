@@ -1,7 +1,6 @@
-//! Benchmarks for the `/eth/v1/beacon/states/{state_id}/validator_balances` handler, calling it
-//! in-process on a chain built with the test harness (no HTTP, no JSON).
+//! Benchmarks for endpoint `/eth/v1/beacon/states/{state_id}/validator_balances` handler
 //!
-//! Run with: `cargo bench -p http_api --features bench`
+//! Run with: `cargo bench -p http_api --bench bench`
 use beacon_chain::test_utils::BeaconChainHarness;
 use criterion::measurement::Measurement;
 use criterion::{BenchmarkId, Criterion, criterion_main};
