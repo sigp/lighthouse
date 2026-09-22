@@ -1804,11 +1804,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let dependent_root =
             state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?;
 
+        // Only track the validators that were actually requested, rather than every member of
+        // every inclusion list committee in the epoch.
+        let requested_indices: HashSet<u64> = validator_indices.iter().copied().collect();
         let mut assignments: HashMap<u64, Slot> = HashMap::new();
         for slot in epoch.slot_iter(T::EthSpec::slots_per_epoch()) {
             let committee = state.get_inclusion_list_committee(slot)?;
             for validator_index in &committee {
-                assignments.entry(*validator_index).or_insert(slot);
+                if requested_indices.contains(validator_index) {
+                    assignments.entry(*validator_index).or_insert(slot);
+                }
             }
         }
 

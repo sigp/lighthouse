@@ -28,6 +28,12 @@ pub fn inclusion_list_duties<T: BeaconChainTypes>(
         .ok_or(BeaconChainError::UnableToReadSlot)
         .map_err(warp_utils::reject::unhandled_error)?;
 
+    // Determine what the current epoch would be if we fast-forward our system clock by
+    // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
+    //
+    // Most of the time, `tolerant_current_epoch` will be equal to `current_epoch`. However, during
+    // the first `MAXIMUM_GOSSIP_CLOCK_DISPARITY` duration of the epoch `tolerant_current_epoch`
+    // will equal `current_epoch + 1`
     let tolerant_current_epoch = if chain.slot_clock.is_prior_to_genesis().unwrap_or(true) {
         current_epoch
     } else {
@@ -145,6 +151,7 @@ fn compute_inclusion_list_duties_from_state<T: BeaconChainTypes>(
             &state,
             request_epoch,
             request_indices,
+            // The only block which decides its own shuffling is the genesis block.
             chain.genesis_block_root,
         )
         .map_err(warp_utils::reject::unhandled_error)?;
