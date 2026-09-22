@@ -33,8 +33,8 @@ pub type BuilderExitRequests<E> =
 
 /// EIP-7685 execution requests.
 ///
-/// The `Electra` variant is used from Electra through Fulu. The `Gloas` variant uses unbounded
-/// progressive lists (EIP-7688), so the old per-list maximums must be enforced at runtime. The
+/// The `Electra` variant is used from Electra through Fulu. The `Gloas` variant uses progressive
+/// lists (EIP-7688) with decoder limits, except for deposit requests which are unbounded. The
 /// builder request lists are new in Gloas (EIP-8282).
 #[superstruct(
     variants(Electra, Gloas),
@@ -90,17 +90,20 @@ pub struct ExecutionRequests<E: EthSpec> {
     #[superstruct(only(Electra), partial_getter(rename = "withdrawals_electra"))]
     pub withdrawals: WithdrawalRequests<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "withdrawals_gloas"))]
-    pub withdrawals: ProgressiveVariableList<WithdrawalRequest>,
+    pub withdrawals: ProgressiveVariableList<WithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
     #[superstruct(only(Electra), partial_getter(rename = "consolidations_electra"))]
     pub consolidations: ConsolidationRequests<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "consolidations_gloas"))]
-    pub consolidations: ProgressiveVariableList<ConsolidationRequest>,
+    pub consolidations:
+        ProgressiveVariableList<ConsolidationRequest, E::MaxConsolidationRequestsPerPayload>,
     // [New in Gloas:EIP8282] The builder request lists are only present on the Gloas variant.
     #[superstruct(only(Gloas))]
-    pub builder_deposits: ProgressiveVariableList<BuilderDepositRequest>,
+    pub builder_deposits:
+        ProgressiveVariableList<BuilderDepositRequest, E::MaxBuilderDepositRequestsPerPayload>,
     #[superstruct(only(Gloas))]
-    pub builder_exits: ProgressiveVariableList<BuilderExitRequest>,
-    // Phantom for the unused `E` in the Gloas variant; skipped everywhere.
+    pub builder_exits:
+        ProgressiveVariableList<BuilderExitRequest, E::MaxBuilderExitRequestsPerPayload>,
+    // Retained for compatibility; skipped everywhere.
     #[superstruct(only(Gloas))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]

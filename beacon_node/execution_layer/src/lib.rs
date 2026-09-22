@@ -209,7 +209,7 @@ pub enum BlockProposalContentsType<E: EthSpec> {
 pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub payload: ExecutionPayloadGloas<E>,
     pub payload_value: Uint256,
-    pub blob_kzg_commitments: ProgressiveKzgCommitments,
+    pub blob_kzg_commitments: ProgressiveKzgCommitments<E>,
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
     pub execution_requests: ExecutionRequestsGloas<E>,
     pub should_override_builder: bool,
@@ -1684,7 +1684,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_payload_bodies_by_hash_v2(
         &self,
         hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
         if !capabilities.get_payload_bodies_by_hash_v2 {
             return Err(Error::PayloadBodiesByHashV2NotSupported);
@@ -2232,7 +2232,7 @@ mod test {
             transactions: ProgressiveTransactions::new(vec![
                 ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]),
             ]),
-            withdrawals: types::ProgressiveWithdrawals::new(vec![Withdrawal {
+            withdrawals: types::ProgressiveWithdrawals::<MainnetEthSpec>::new(vec![Withdrawal {
                 index: 1,
                 validator_index: 2,
                 address: Address::from([0x33; 20]),

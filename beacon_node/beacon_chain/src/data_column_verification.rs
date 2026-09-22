@@ -2384,9 +2384,9 @@ mod test {
         for i in 0..present_cells {
             bitmap.set(i, true).unwrap();
         }
-        let column: ProgressiveVariableList<_> =
+        let column: ProgressiveVariableList<_, _> =
             (0..present_cells).map(|_| Cell::<E>::default()).collect();
-        let kzg_proofs: ProgressiveVariableList<_> =
+        let kzg_proofs: ProgressiveVariableList<_, _> =
             (0..present_cells).map(|_| KzgProof::empty()).collect();
         PartialDataColumnGloas {
             block_root,

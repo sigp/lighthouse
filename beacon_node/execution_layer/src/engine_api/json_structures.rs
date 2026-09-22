@@ -116,7 +116,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     )]
     pub withdrawals: VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "withdrawals_progressive"))]
-    pub withdrawals: ProgressiveVariableList<JsonWithdrawal>,
+    pub withdrawals: ProgressiveVariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
@@ -1385,17 +1385,17 @@ pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JsonExecutionPayloadBodyV2 {
+#[serde(bound = "E: EthSpec", rename_all = "camelCase")]
+pub struct JsonExecutionPayloadBodyV2<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
     pub transactions: ProgressiveTransactions,
-    pub withdrawals: Option<ProgressiveVariableList<JsonWithdrawal>>,
+    pub withdrawals: Option<ProgressiveVariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
     #[serde(default)]
     pub block_access_list: Option<JsonBlockAccessList>,
 }
 
-impl From<JsonExecutionPayloadBodyV2> for ExecutionPayloadBodyV2 {
-    fn from(value: JsonExecutionPayloadBodyV2) -> Self {
+impl<E: EthSpec> From<JsonExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV2<E> {
+    fn from(value: JsonExecutionPayloadBodyV2<E>) -> Self {
         Self {
             transactions: value.transactions,
             withdrawals: value
@@ -1406,8 +1406,8 @@ impl From<JsonExecutionPayloadBodyV2> for ExecutionPayloadBodyV2 {
     }
 }
 
-impl From<ExecutionPayloadBodyV2> for JsonExecutionPayloadBodyV2 {
-    fn from(value: ExecutionPayloadBodyV2) -> Self {
+impl<E: EthSpec> From<ExecutionPayloadBodyV2<E>> for JsonExecutionPayloadBodyV2<E> {
+    fn from(value: ExecutionPayloadBodyV2<E>) -> Self {
         Self {
             transactions: value.transactions,
             withdrawals: value
@@ -1546,7 +1546,7 @@ mod tests {
         VariableList::try_from(vec![x.clone()]).unwrap()
     }
 
-    fn singleton_progressive_list<T: Clone>(x: &T) -> ProgressiveVariableList<T> {
+    fn singleton_progressive_list<T: Clone, N>(x: &T) -> ProgressiveVariableList<T, N> {
         ProgressiveVariableList::new(vec![x.clone()])
     }
 
@@ -1865,8 +1865,9 @@ mod tests {
             "withdrawals": null,
             "blockAccessList": "0x010203",
         });
-        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(with_bal.clone()).unwrap();
-        let internal: ExecutionPayloadBodyV2 = body.clone().into();
+        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
+            serde_json::from_value(with_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().into();
         assert_eq!(
             internal.block_access_list,
             Some(ProgressiveVariableList::new(vec![1, 2, 3]))
@@ -1879,13 +1880,14 @@ mod tests {
             "withdrawals": null,
             "blockAccessList": null,
         });
-        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(null_bal.clone()).unwrap();
-        let internal: ExecutionPayloadBodyV2 = body.clone().into();
+        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
+            serde_json::from_value(null_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().into();
         assert_eq!(internal.block_access_list, None);
         assert_eq!(serde_json::to_value(&body).unwrap(), null_bal);
 
         // An omitted field is accepted as `None`, then serialized in its canonical `null` form.
-        let body: JsonExecutionPayloadBodyV2 =
+        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
             serde_json::from_value(json!({ "transactions": [], "withdrawals": null })).unwrap();
         assert!(body.block_access_list.is_none());
         assert_eq!(

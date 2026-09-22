@@ -835,7 +835,7 @@ pub async fn handle_rpc<E: EthSpec>(
 
                 match maybe_payload {
                     Some(payload) => {
-                        let payload_body = ExecutionPayloadBodyV2 {
+                        let payload_body = ExecutionPayloadBodyV2::<E> {
                             transactions: ProgressiveTransactions::new(
                                 payload
                                     .transactions()
@@ -848,7 +848,7 @@ pub async fn handle_rpc<E: EthSpec>(
                                     .collect(),
                             ),
                             withdrawals: payload.withdrawals().ok().map(|withdrawals| {
-                                ProgressiveWithdrawals::new(withdrawals.to_vec())
+                                ProgressiveWithdrawals::<E>::new(withdrawals.to_vec())
                             }),
                             block_access_list: payload.block_access_list().ok().cloned(),
                         };

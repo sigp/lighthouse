@@ -132,7 +132,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
             slot: pre.latest_block_header.slot,
             value: 0,
             execution_payment: 0,
-            blob_kzg_commitments: ProgressiveKzgCommitments::default(),
+            blob_kzg_commitments: ProgressiveKzgCommitments::<E>::default(),
             execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
             _phantom: PhantomData,
         },

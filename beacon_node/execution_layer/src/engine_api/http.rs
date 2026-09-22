@@ -1307,13 +1307,13 @@ impl HttpJsonRpc {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    pub async fn get_payload_bodies_by_hash_v2(
+    pub async fn get_payload_bodies_by_hash_v2<E: EthSpec>(
         &self,
         block_hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2<E>>>, Error> {
         let params = json!([block_hashes]);
 
-        let response: Vec<Option<JsonExecutionPayloadBodyV2>> = self
+        let response: Vec<Option<JsonExecutionPayloadBodyV2<E>>> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
                 params,

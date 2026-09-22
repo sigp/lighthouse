@@ -496,9 +496,9 @@ pub struct ExecutionPayloadBodyV1<E: EthSpec> {
 
 /// The execution payload body returned by `engine_getPayloadBodiesByHashV2`.
 #[derive(Clone, Debug, PartialEq)]
-pub struct ExecutionPayloadBodyV2 {
+pub struct ExecutionPayloadBodyV2<E: EthSpec> {
     pub transactions: ProgressiveTransactions,
-    pub withdrawals: Option<ProgressiveWithdrawals>,
+    pub withdrawals: Option<ProgressiveWithdrawals<E>>,
     pub block_access_list: Option<BlockAccessList>,
 }
 

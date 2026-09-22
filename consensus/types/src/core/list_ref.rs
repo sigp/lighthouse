@@ -9,7 +9,7 @@ use ssz_types::{ProgressiveVariableList, VariableList};
 #[derive(Debug)]
 pub enum ListRef<'a, T, N: Unsigned> {
     Basic(&'a VariableList<T, N>),
-    Progressive(&'a ProgressiveVariableList<T>),
+    Progressive(&'a ProgressiveVariableList<T, N>),
 }
 
 // Manual `Clone`/`Copy` impls to avoid spurious `T: Clone`/`T: Copy` bounds from the derive.
