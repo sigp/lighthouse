@@ -49,13 +49,11 @@ use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
     EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseHeadV2,
 };
+use execution_layer::ForkchoiceUpdateParameters;
 use fast_confirmation::{
     Error as FastConfirmationError, FastConfirmationRule, metrics as fcr_metrics,
 };
-use fork_choice::{
-    ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
-    ProtoBlock,
-};
+use fork_choice::{ExecutionStatus, ForkChoiceStore, ForkChoiceView, PayloadStatus, ProtoBlock};
 use itertools::process_results;
 
 use logging::crit;

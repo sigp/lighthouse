@@ -7,13 +7,13 @@ use alloy_primitives::Address as AlloyAddress;
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_signer_local::PrivateKeySigner;
 use bls::PublicKeyBytes;
+use execution_layer::ForkchoiceUpdateParameters;
 use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
     BlockByNumberQuery, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
     LATEST_TAG, PayloadAttributes, PayloadParameters, PayloadStatus,
 };
 use fixed_bytes::FixedBytesExtended;
-use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{Client, header::CONTENT_TYPE};
 use sensitive_url::SensitiveUrl;
 use serde_json::{Value, json};

@@ -22,9 +22,17 @@ pub use engines::{EngineState, ForkchoiceState};
 use eth2::types::{BlobsBundle, FullPayloadContents};
 use eth2::types::{ForkVersionedResponse, builder::SignedBuilderBid};
 use fixed_bytes::UintExtended;
-use fork_choice::ForkchoiceUpdateParameters;
 use logging::crit;
 pub use payload_status::PayloadStatus;
+
+/// The values sent to the execution engine in a `forkchoiceUpdated` message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ForkchoiceUpdateParameters {
+    pub head_root: Hash256,
+    pub head_hash: Option<ExecutionBlockHash>,
+    pub justified_hash: Option<ExecutionBlockHash>,
+    pub finalized_hash: Option<ExecutionBlockHash>,
+}
 use payload_status::process_payload_status;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};

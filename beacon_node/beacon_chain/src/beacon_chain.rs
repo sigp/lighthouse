@@ -103,12 +103,13 @@ use eth2::types::{
 };
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth,
-    DEFAULT_GAS_LIMIT, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
+    DEFAULT_GAS_LIMIT, ExecutionLayer, FailedCondition, ForkchoiceUpdateParameters,
+    PayloadAttributes, PayloadStatus,
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
-    AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
-    InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
+    AttestationFromBlock, ExecutionStatus, ForkChoice, InvalidationOperation,
+    PayloadVerificationStatus, ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
 use itertools::Itertools;
