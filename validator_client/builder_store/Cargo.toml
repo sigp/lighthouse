@@ -1,0 +1,26 @@
+[package]
+name = "builder_store"
+version = "0.1.0"
+edition = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+
+[lib]
+name = "builder_store"
+path = "src/lib.rs"
+
+[dependencies]
+account_utils = { workspace = true }
+bls = { workspace = true }
+builder_types = { workspace = true }
+filesystem = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+ssz_types = { workspace = true }
+tracing = { workspace = true }
+types = { workspace = true }
+yaml_serde = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
