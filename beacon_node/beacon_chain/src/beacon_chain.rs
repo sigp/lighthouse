@@ -6715,12 +6715,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             fcu_params.head_root,
                             &chain.spec,
                         )?;
+                    let head_state = &cached_head.snapshot.beacon_state;
+                    let parent_gas_limit = head_state
+                        .latest_execution_payload_bid()
+                        .map(|bid| bid.gas_limit)
+                        .or_else(|_| {
+                            head_state
+                                .latest_execution_payload_header()
+                                .map(|header| header.gas_limit())
+                        })
+                        .ok();
                     let head_payload_status = cached_head.head_payload_status();
                     Ok::<_, Error>(Some((
                         fcu_params,
                         pre_payload_attributes,
                         head_payload_status,
                         proposer_shuffling_decision_root,
+                        parent_gas_limit,
                     )))
                 },
                 "prepare_beacon_proposer_head_read",
@@ -6732,6 +6743,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(pre_payload_attributes),
             head_payload_status,
             proposer_shuffling_decision_root,
+            parent_gas_limit,
         )) = maybe_prep_data
         else {
             // Appropriate log messages have already been logged above and in
@@ -6796,15 +6808,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .gossip_verified_proposer_preferences_cache
                     .get_preferences(&prepare_slot, proposer_shuffling_decision_root)
                     .map(|preferences| preferences.message.target_gas_limit)
-                    .or_else(|| {
-                        self.spec.get_scheduled_gas_limit(
-                            prepare_slot.epoch(T::EthSpec::slots_per_epoch()),
-                        )
-                    });
+                    .or(parent_gas_limit);
                 if proposer_gas_limit.is_none() {
                     warn!(
                         %proposer,
-                        "No proposer preferences or scheduled gas limit, falling back to the default gas limit"
+                        "No proposer preferences or parent gas limit, falling back to the default gas limit"
                     );
                 }
                 proposer_gas_limit.or(Some(DEFAULT_GAS_LIMIT))

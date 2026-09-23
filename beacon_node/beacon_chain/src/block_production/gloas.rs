@@ -6,8 +6,7 @@ use proto_array::PayloadStatus;
 
 use bls::{PublicKeyBytes, Signature};
 use execution_layer::{
-    BlockProposalContentsGloas, BuilderParams, DEFAULT_GAS_LIMIT, PayloadAttributes,
-    PayloadParameters,
+    BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
 };
 use operation_pool::CompactAttestationRef;
 use ssz::{Encode, ProgressiveBitList};
@@ -947,13 +946,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?,
         };
 
-        let target_gas_limit = proposer_preferences
-            .map(|preferences| preferences.message.target_gas_limit)
-            .or_else(|| {
-                self.spec
-                    .get_scheduled_gas_limit(produce_at_slot.epoch(T::EthSpec::slots_per_epoch()))
-            })
-            .unwrap_or(DEFAULT_GAS_LIMIT);
+        let preferred_gas_limit =
+            proposer_preferences.map(|preferences| preferences.message.target_gas_limit);
 
         let prepare_payload_handle = get_execution_payload_gloas(
             self.clone(),
@@ -963,7 +957,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             parent_envelope,
             proposer_index,
             builder_params,
-            target_gas_limit,
+            preferred_gas_limit,
         )?;
 
         let block_proposal_contents = prepare_payload_handle
@@ -1240,7 +1234,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     proposer_index: u64,
     builder_params: BuilderParams,
-    target_gas_limit: u64,
+    preferred_gas_limit: Option<u64>,
 ) -> Result<PreparePayloadHandle<T::EthSpec>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
@@ -1252,6 +1246,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
 
     let parent_bid = state.latest_execution_payload_bid()?;
     let is_parent_block_full = parent_block_hash == parent_bid.block_hash;
+    let target_gas_limit = preferred_gas_limit.unwrap_or(parent_bid.gas_limit);
 
     let withdrawals = if is_parent_block_full {
         if let Some(envelope) = parent_envelope {
