@@ -1,6 +1,6 @@
 # To download/extract nightly tests, run:
 # CONSENSUS_SPECS_TEST_VERSION=nightly make
-CONSENSUS_SPECS_TEST_VERSION ?= v1.7.0-beta.0
+CONSENSUS_SPECS_TEST_VERSION ?= v1.7.0-beta.2
 REPO_NAME := consensus-spec-tests
 OUTPUT_DIR := ./$(REPO_NAME)
 
@@ -14,7 +14,7 @@ COMPLIANCE_TEST = comptests
 # The compliance tarball only contains minimal preset vectors. It also contains
 # consensus-specs source directories, so extraction is scoped to the test vectors.
 COMPLIANCE_FORKS ?= fulu gloas
-COMPLIANCE_BASE_URL := https://github.com/ethereum/consensus-specs/releases/download/$(CONSENSUS_SPECS_TEST_VERSION)
+COMPLIANCE_BASE_URL := https://github.com/ethereum/consensus-specs/releases/download/v1.7.0-beta.1
 
 .PHONY: all clean
 

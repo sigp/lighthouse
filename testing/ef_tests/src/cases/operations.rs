@@ -47,6 +47,12 @@ struct ExecutionMetadata {
     execution_valid: bool,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+struct CaseConfig {
+    gloas_fork_epoch: Option<types::Epoch>,
+}
+
 /// Newtype for testing withdrawals.
 #[derive(Debug, Clone, Deserialize)]
 pub struct WithdrawalsPayload<E: EthSpec> {
@@ -77,6 +83,7 @@ pub struct ParentExecutionPayloadBlock<E: EthSpec> {
 #[derive(Debug, Clone)]
 pub struct Operations<E: EthSpec, O: Operation<E>> {
     metadata: Metadata,
+    config: CaseConfig,
     execution_metadata: Option<ExecutionMetadata>,
     pub pre: BeaconState<E>,
     pub operation: Option<O>,
@@ -838,6 +845,12 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
         } else {
             Metadata::default()
         };
+        let config_path = path.join("config.yaml");
+        let config = if config_path.is_file() {
+            yaml_decode_file(&config_path)?
+        } else {
+            CaseConfig::default()
+        };
 
         // For execution payloads only.
         let execution_yaml_path = path.join("execution.yaml");
@@ -873,6 +886,7 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
 
         Ok(Self {
             metadata,
+            config,
             execution_metadata,
             pre,
             operation,
@@ -891,7 +905,11 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let mut spec = testing_spec::<E>(fork_name);
+        if let Some(epoch) = self.config.gloas_fork_epoch {
+            spec.gloas_fork_epoch = Some(epoch);
+        }
+        let spec = &spec;
 
         let mut pre_state = self.pre.clone();
         // Processing requires the committee caches.
