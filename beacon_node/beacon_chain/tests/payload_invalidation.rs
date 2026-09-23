@@ -1098,14 +1098,6 @@ async fn attesting_to_optimistic_head() {
     let mut rig = InvalidPayloadRig::new();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
-    // Build the fixture attestation while the head is still fully verified: producing one is
-    // (correctly) refused once the head is optimistic, which is what this test then asserts.
-    let base_attestation = rig
-        .harness
-        .chain
-        .produce_unaggregated_attestation(Slot::new(0), 0)
-        .unwrap();
-
     let root = rig.import_block(Payload::Syncing).await;
 
     let head = rig.harness.chain.head_snapshot();
@@ -1125,7 +1117,11 @@ async fn attesting_to_optimistic_head() {
      */
 
     let attestation = {
-        let mut attestation = base_attestation;
+        let mut attestation = rig
+            .harness
+            .chain
+            .produce_unaggregated_attestation(Slot::new(0), 0)
+            .unwrap();
 
         attestation.set_aggregation_bit(0, true).unwrap();
 

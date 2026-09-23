@@ -2025,15 +2025,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let target;
         let is_same_slot_attestation;
         let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
-        let head_node;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
         let head_span = debug_span!("attestation_production_head_scrape").entered();
         // The following braces are to prevent the `cached_head` Arc from being held for longer than
         // required. It also helps reduce the diff for a very large PR (#3244).
         {
-            let cached_head = self.canonical_head.cached_head();
-            head_node = cached_head.head_node();
-            let head = &cached_head.snapshot;
+            let head = self.head_snapshot();
             let head_state = &head.beacon_state;
 
             // There is no value in producing an attestation to a block that is pre-finalization and
@@ -2115,22 +2112,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(head_span);
         drop(head_timer);
 
-        // Only attest to a block if it is fully verified (i.e. not optimistic or invalid).
-        match self
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_node_execution_status(head_node)?
-        {
-            Some(execution_status) if execution_status.is_valid() => (),
-            Some(execution_status) => {
-                return Err(Error::HeadBlockNotFullyVerified {
-                    beacon_block_root,
-                    execution_status,
-                });
-            }
-            None => return Err(Error::HeadMissingFromForkChoice(beacon_block_root)),
-        };
-
         /*
          *  Phase 2/2:
          *
@@ -2186,7 +2167,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             false
         };
 
-        Ok(Attestation::<T::EthSpec>::empty_for_signing(
+        // Only attest to a block if it is fully verified (i.e. not optimistic or invalid).
+        self.filter_optimistic_attestation(Attestation::<T::EthSpec>::empty_for_signing(
             request_index,
             committee_len,
             request_slot,
