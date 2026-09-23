@@ -1,6 +1,8 @@
 #[path = "consumer/bootstrap.rs"]
 mod bootstrap;
 mod common;
+#[path = "consumer/updates.rs"]
+mod updates;
 
 use common::{E, Fixture, Request, Response, ScriptedSource, Step, policy};
 use decentralized_checkpoint_sync::{
@@ -11,6 +13,7 @@ use decentralized_checkpoint_sync::{
 use decentralized_checkpoint_sync_client::{
     BootstrapError, LightClientData, LightClientDataSource, RequestLimits, SourceError,
     SourceErrorKind, SourceResponse, UpdateRange, bootstrap_light_client_store,
+    process_next_update_range,
 };
 use slot_clock::SlotClock;
 use std::{sync::Arc, time::Duration};
@@ -166,7 +169,7 @@ async fn successful_source_read_does_not_authenticate_an_invalid_signature() {
 }
 
 #[tokio::test]
-async fn bootstrap_preserves_source_error_category_cause_and_failed_response_accounting() {
+async fn consumer_steps_preserve_source_error_category_cause_and_failed_response_accounting() {
     let fixture = Fixture::new();
     let spec = Arc::new(fixture.spec.clone());
     for kind in [
@@ -178,30 +181,48 @@ async fn bootstrap_preserves_source_error_category_cause_and_failed_response_acc
         SourceErrorKind::UnsupportedFork(ForkName::Gloas),
         SourceErrorKind::Configuration,
     ] {
-        let mut source = ScriptedSource::new([Step {
-            request: Request::Bootstrap(fixture.trusted_root),
-            result: Err(SourceError {
-                kind: kind.clone(),
-                bytes_received: 27,
-                source: Some(Box::new(std::io::Error::other("scripted failure"))),
-            }),
-        }]);
-        let error = bootstrap_light_client_store(
-            &mut source,
-            fixture.trusted_root,
-            spec.clone(),
-            &fixture.clock,
-            &policy(),
-        )
-        .await
-        .unwrap_err();
-        let BootstrapError::Source(error) = error else {
-            panic!("expected source error, got {error:?}");
-        };
-        assert_eq!(error.kind, kind);
-        assert_eq!(error.bytes_received, 27);
-        assert_eq!(error.source.unwrap().to_string(), "scripted failure");
-        source.assert_finished();
+        for request in [
+            Request::Bootstrap(fixture.trusted_root),
+            Request::Updates(UpdateRange::new(0, 1).unwrap()),
+        ] {
+            let mut source = ScriptedSource::new([Step {
+                request: request.clone(),
+                result: Err(SourceError {
+                    kind: kind.clone(),
+                    bytes_received: 27,
+                    source: Some(Box::new(std::io::Error::other("scripted failure"))),
+                }),
+            }]);
+            let error = match request {
+                Request::Bootstrap(_) => bootstrap_light_client_store(
+                    &mut source,
+                    fixture.trusted_root,
+                    spec.clone(),
+                    &fixture.clock,
+                    &policy(),
+                )
+                .await
+                .unwrap_err(),
+                Request::Updates(_) => process_next_update_range(
+                    &mut source,
+                    fixture.store(),
+                    spec.clone(),
+                    fixture.genesis_validators_root,
+                    &fixture.clock,
+                    &policy(),
+                )
+                .await
+                .unwrap_err(),
+                Request::Finality => unreachable!(),
+            };
+            let BootstrapError::Source(error) = error else {
+                panic!("expected source error, got {error:?}");
+            };
+            assert_eq!(error.kind, kind);
+            assert_eq!(error.bytes_received, 27);
+            assert_eq!(error.source.unwrap().to_string(), "scripted failure");
+            source.assert_finished();
+        }
     }
 }
 

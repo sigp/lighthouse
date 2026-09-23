@@ -2,15 +2,24 @@ use decentralized_checkpoint_sync::LightClientSyncError;
 use std::time::Duration;
 use types::{ForkName, Slot};
 
-/// Bootstrap acquisition failures retain the source and core verification error boundaries.
+/// Acquisition failures retain the source and core verification error boundaries.
 #[derive(Debug, thiserror::Error)]
-pub enum BootstrapError {
+pub enum ConsumerError {
     #[error(transparent)]
     Policy(#[from] PolicyError),
     #[error(transparent)]
     Source(#[from] SourceError),
     #[error(transparent)]
     Verification(#[from] LightClientSyncError),
+    #[error(transparent)]
+    Range(#[from] UpdateRangeError),
+    #[error("slots per epoch and epochs per sync committee period must be non-zero")]
+    InvalidPeriodConfiguration,
+    #[error("store finalized slot {store_slot} exceeds local current slot {current_slot}")]
+    FutureStore {
+        store_slot: Slot,
+        current_slot: Slot,
+    },
     #[error("current slot is unavailable from the local clock")]
     ClockUnavailable,
     #[error("local clock moved backwards from slot {previous} to {current}")]
@@ -20,10 +29,27 @@ pub enum BootstrapError {
         bootstrap_slot: Slot,
         current_slot: Slot,
     },
-    #[error("bootstrap verification requires a Tokio runtime: {0}")]
+    #[error("light-client verification requires a Tokio runtime: {0}")]
     RuntimeUnavailable(#[from] tokio::runtime::TryCurrentError),
-    #[error("bootstrap verification worker failed: {0}")]
+    #[error("light-client verification worker failed: {0}")]
     Worker(#[from] tokio::task::JoinError),
+}
+
+/// Compatibility name for bootstrap callers; all consumer steps share the same error boundary.
+pub type BootstrapError = ConsumerError;
+
+/// Range-envelope errors are distinct from cryptographic verification failures.
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum UpdateRangeError {
+    #[error("received {actual} updates, requested at most {maximum}")]
+    TooManyUpdates { actual: usize, maximum: u64 },
+    #[error("attested period {period} is outside requested range [{start}, {end})")]
+    OutsideRange { period: u64, start: u64, end: u64 },
+    /// A provider may only retain later history. This is missing data, not proof of invalidity.
+    #[error("needed period {expected} is unavailable; response starts at {actual}")]
+    MissingStartPeriod { expected: u64, actual: u64 },
+    #[error("non-consecutive update periods: expected {expected}, received {actual}")]
+    NonConsecutivePeriods { expected: u64, actual: u64 },
 }
 
 /// Configuration errors, separate from source failures and core verification errors.

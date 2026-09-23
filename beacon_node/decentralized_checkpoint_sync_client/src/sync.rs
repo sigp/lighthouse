@@ -1,4 +1,6 @@
-use crate::{BootstrapError, LightClientDataSource, SourceError, SourceErrorKind, SyncPolicy};
+use crate::{
+    BootstrapError, LightClientDataSource, RequestLimits, SourceError, SourceErrorKind, SyncPolicy,
+};
 use decentralized_checkpoint_sync::{
     LightClientStore, LightClientStoreSchema, initialize_light_client_store,
 };
@@ -50,16 +52,7 @@ pub async fn bootstrap_light_client_store<E: EthSpec>(
             current_slot,
         });
     }
-    if response.bytes_received > policy.request_limits.max_response_bytes() {
-        return Err(SourceError {
-            kind: SourceErrorKind::ResponseTooLarge {
-                limit: policy.request_limits.max_response_bytes(),
-            },
-            bytes_received: response.bytes_received,
-            source: None,
-        }
-        .into());
-    }
+    check_response_size(response.bytes_received, policy.request_limits)?;
     let bytes_received = response.bytes_received;
     let store = runtime
         .spawn_blocking(move || {
@@ -79,10 +72,29 @@ pub async fn bootstrap_light_client_store<E: EthSpec>(
     })
 }
 
-fn checked_current_slot(clock: &impl SlotClock, previous: Slot) -> Result<Slot, BootstrapError> {
+pub(crate) fn checked_current_slot(
+    clock: &impl SlotClock,
+    previous: Slot,
+) -> Result<Slot, BootstrapError> {
     let current = clock.now().ok_or(BootstrapError::ClockUnavailable)?;
     if current < previous {
         return Err(BootstrapError::ClockWentBackwards { previous, current });
     }
     Ok(current)
+}
+
+pub(crate) fn check_response_size(
+    bytes_received: u64,
+    limits: RequestLimits,
+) -> Result<(), SourceError> {
+    if bytes_received > limits.max_response_bytes() {
+        return Err(SourceError {
+            kind: SourceErrorKind::ResponseTooLarge {
+                limit: limits.max_response_bytes(),
+            },
+            bytes_received,
+            source: None,
+        });
+    }
+    Ok(())
 }
