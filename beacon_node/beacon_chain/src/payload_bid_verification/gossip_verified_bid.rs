@@ -432,9 +432,15 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
         // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
-        if signed_bid.message.prev_randao
-            != *head_state.get_randao_mix(current_slot.epoch(E::slots_per_epoch()))?
-        {
+        // TODO: Enable head-parent RANDAO gossip spec coverage:
+        // https://github.com/ethereum/consensus-specs/pull/5645
+        let expected_randao = if bid_parent_block_root == cached_head.head_block_root() {
+            cached_head.head_random()?
+        } else {
+            // Head compatibility also permits a bid on the head's parent.
+            cached_head.parent_random()?
+        };
+        if signed_bid.message.prev_randao != expected_randao {
             return Err(PayloadBidError::InvalidPrevRandao { slot: bid_slot });
         }
 
