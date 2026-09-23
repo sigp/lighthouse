@@ -1946,7 +1946,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         contribution: SyncCommitteeContribution<T::EthSpec>,
     ) -> Result<SyncCommitteeContribution<T::EthSpec>, Error> {
         let beacon_block_root = contribution.beacon_block_root;
-        // worst case on wrong assumption: a sync contribution used for an optimistic block.
+        // worst case on wrong assumption: rejects a contribution to a healthy block, never accepts one to an optimistic block.
         match self
             .canonical_head
             .fork_choice_read_lock()
@@ -7552,7 +7552,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Check that the parent is NOT optimistic.
-        // worst case on wrong assumption: chain reads healthy while optimistic.
+        // worst case on wrong assumption: reports Optimistic for a healthy parent, never the reverse.
         if let Some(execution_status) = self
             .canonical_head
             .fork_choice_read_lock()

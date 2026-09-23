@@ -1400,17 +1400,11 @@ impl ProtoArray {
         &self,
         block_root: Hash256,
     ) -> Result<ExecutionVerdict, Error> {
-        let mut index = *self
-            .indices
-            .get(&block_root)
+        let mut node = self
+            .get_block(block_root)
             .ok_or(Error::NodeUnknown(block_root))?;
 
         let executed_node = loop {
-            let node = self
-                .nodes
-                .get(index)
-                .ok_or(Error::InvalidNodeIndex(index))?;
-
             // A pre-Gloas (V17) block carries its payload inside the block, so a V17 node ran its
             // own payload — it is the executed node.
             let ProtoNode::V29(gloas_node) = node else {
@@ -1421,17 +1415,16 @@ impl ProtoArray {
             let Some(parent_index) = gloas_node.parent else {
                 return Ok(ExecutionVerdict::Valid);
             };
+            let parent = self
+                .nodes
+                .get(parent_index)
+                .ok_or(Error::InvalidNodeIndex(parent_index))?;
 
             match gloas_node.parent_payload_status {
                 // The parent payload this node extended from is the payload the empty branch ran.
-                PayloadStatus::Full => {
-                    break self
-                        .nodes
-                        .get(parent_index)
-                        .ok_or(Error::InvalidNodeIndex(parent_index))?;
-                }
+                PayloadStatus::Full => break parent,
                 // An EMPTY (or same-slot PENDING) edge is a gap in the chain, not the end of it.
-                PayloadStatus::Empty | PayloadStatus::Pending => index = parent_index,
+                PayloadStatus::Empty | PayloadStatus::Pending => node = parent,
             }
         };
 
