@@ -1134,6 +1134,40 @@ async fn prepare_payload_ignores_registered_and_scheduled_gas_limits_after_gloas
     .await;
 }
 
+fn insert_proposer_preferences(
+    harness: &TestHarness,
+    proposal_slot: Slot,
+    validator_index: u64,
+    fee_recipient: Address,
+    target_gas_limit: u64,
+) {
+    let dependent_root = harness
+        .chain
+        .head_snapshot()
+        .beacon_state
+        .proposer_shuffling_decision_root_at_epoch(
+            proposal_slot.epoch(E::slots_per_epoch()),
+            harness.head_block_root(),
+            &harness.chain.spec,
+        )
+        .unwrap();
+    harness
+        .chain
+        .gossip_verified_proposer_preferences_cache
+        .insert_preferences(GossipVerifiedProposerPreferences {
+            signed_preferences: Arc::new(SignedProposerPreferences {
+                message: ProposerPreferences {
+                    dependent_root,
+                    proposal_slot,
+                    validator_index,
+                    fee_recipient,
+                    target_gas_limit,
+                },
+                signature: Signature::empty(),
+            }),
+        });
+}
+
 async fn prepare_payload_gas_limit_generic(
     scheduled_gas_limit: Option<u64>,
     preferred_gas_limit: Option<u64>,
