@@ -108,7 +108,7 @@ fn get_subnet_service() -> SubnetService<TestBeaconChainType> {
 
     SubnetService::new(
         beacon_chain,
-        lighthouse_network::discv5::enr::NodeId::random(),
+        lighthouse_network::enr::NodeId::random(),
         &config,
     )
 }

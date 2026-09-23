@@ -5,10 +5,11 @@ edition = { workspace = true }
 
 [dependencies]
 discv5 = { workspace = true }
-libp2p-identity = "0.2"
+enr = { workspace = true }
+libp2p-identity = { version = "0.3", features = ["ed25519"] }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
-multiaddr = "0.18.2"
+multiaddr = "0.19.0"
 parking_lot = { workspace = true }
 serde = { workspace = true }
 tiny-keccak = { version = "2", features = ["keccak"] }

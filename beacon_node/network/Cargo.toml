@@ -55,14 +55,11 @@ bls = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
 genesis = { workspace = true }
-k256 = "0.13.4"
 kzg = { workspace = true }
 libp2p = { workspace = true }
 matches = "0.1.8"
 paste = { workspace = true }
-rand_08 = { package = "rand", version = "0.8.5" }
 rand_chacha = "0.9.0"
-rand_chacha_03 = { package = "rand_chacha", version = "0.3.1" }
 serde_json = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true, features = ["arbitrary"] }

@@ -1777,7 +1777,7 @@ mod tests {
     }
 
     fn enr_with_tcp4_port(port: u16) -> Enr {
-        let key = discv5::enr::CombinedKey::generate_secp256k1();
+        let key = enr::CombinedKey::generate_secp256k1();
         Enr::builder()
             .ip4(std::net::Ipv4Addr::LOCALHOST)
             .tcp4(port)

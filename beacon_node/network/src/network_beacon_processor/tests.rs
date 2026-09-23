@@ -29,7 +29,7 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::{
     Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
-    discv5::enr::{self, CombinedKey},
+    enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
 };

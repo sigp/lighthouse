@@ -1,13 +1,13 @@
 //! Helper functions and an extension trait for Ethereum 2 ENRs.
 
-pub use discv5::enr::CombinedKey;
+pub use enr::CombinedKey;
+pub use enr::NodeId;
 
 use super::ENR_FILENAME;
 use crate::NetworkConfig;
 use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use alloy_rlp::bytes::Bytes;
 use libp2p::identity::Keypair;
-use lighthouse_version::{client_name, version};
 use network_utils::enr_ext::CombinedKeyExt;
 use network_utils::enr_ext::{EnrExt, QUIC_ENR_KEY, QUIC6_ENR_KEY};
 use ssz::{Decode, Encode};
@@ -189,7 +189,7 @@ pub fn build_enr<E: EthSpec>(
     next_fork_digest: [u8; 4],
     spec: &ChainSpec,
 ) -> Result<Enr, String> {
-    let mut builder = discv5::enr::Enr::builder();
+    let mut builder = enr::Enr::builder();
     let (maybe_ipv4_address, maybe_ipv6_address) = &config.enr_address;
 
     if let Some(ip) = maybe_ipv4_address {
@@ -218,11 +218,6 @@ pub fn build_enr<E: EthSpec>(
             .and_then(|v6_addr| v6_addr.disc_port.try_into().ok())
     }) {
         builder.udp6(udp6_port.get());
-    }
-
-    // Add EIP 7636 client information
-    if !config.private {
-        builder.client_info(client_name().to_string(), version().to_string(), None);
     }
 
     // Add QUIC fields to the ENR.
