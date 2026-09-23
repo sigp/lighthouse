@@ -437,7 +437,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `POST /eth/v1/validator/proposer_preferences` for bodies with the given `target_gas_limit`.
+    /// Mocks `POST /eth/v1/validator/proposer_preferences` for a matching `target_gas_limit`.
     pub fn mock_post_validator_proposer_preferences_json_with_gas_limit(
         &mut self,
         gas_limit: u64,

@@ -3129,8 +3129,7 @@ impl Config {
             return None;
         }
 
-        // Every gas limit schedule entry must be at or after the Gloas fork epoch, and no two
-        // entries may share an epoch.
+        // Entries must be at or after the Gloas fork epoch and must not share an epoch.
         let min_gas_limit_schedule_epoch = gloas_fork_epoch
             .map(|q| q.value)
             .unwrap_or(chain_spec.far_future_epoch);
