@@ -93,6 +93,9 @@ pub struct LatestMessage {
 }
 
 /// Represents the verification status of an execution payload pre-Gloas.
+///
+/// Do not implement a direct conversion to `ExecutionVerdict`; deriving a verdict requires fork
+/// choice state.
 #[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "union")]
 pub enum ExecutionStatus {
@@ -272,6 +275,9 @@ impl fmt::Display for ExecutionStatus {
 
 /// The execution layer's ruling on a fork choice node: is its chain fully validated (`Valid`),
 /// rejected (`Invalid`), or not checked yet (`Optimistic`)?
+///
+/// Do not implement a direct conversion from `ExecutionStatus`; deriving a verdict requires fork
+/// choice state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExecutionVerdict {
     Valid,
