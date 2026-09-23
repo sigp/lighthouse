@@ -437,6 +437,23 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
+    /// Mocks `POST /eth/v1/validator/proposer_preferences` for bodies with the given `target_gas_limit`.
+    pub fn mock_post_validator_proposer_preferences_json_with_gas_limit(
+        &mut self,
+        gas_limit: u64,
+    ) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .match_header("content-type", "application/json")
+            .match_body(Matcher::Regex(format!(
+                r#""target_gas_limit":"{gas_limit}""#
+            )))
+            .with_status(200)
+            .create()
+    }
+
     /// Mocks `POST /eth/v1/validator/proposer_preferences` (SSZ)
     pub fn mock_post_validator_proposer_preferences_ssz(&mut self) -> Mock {
         let path_pattern = Regex::new(r"^/eth/v1/validator/proposer_preferences$").unwrap();

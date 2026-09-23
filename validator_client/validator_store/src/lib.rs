@@ -217,6 +217,10 @@ pub trait ValidatorStore: Send + Sync {
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
     /// `get_gas_limit_defaulting`, and `get_builder_proposals_defaulting`.
     fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData>;
+
+    /// Like `proposal_data`, with the gas limit schedule evaluated at `epoch`.
+    fn proposal_data_at_epoch(&self, pubkey: &PublicKeyBytes, epoch: Epoch)
+    -> Option<ProposalData>;
 }
 
 #[derive(Debug)]

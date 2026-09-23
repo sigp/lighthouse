@@ -333,16 +333,20 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     /// 3. the gas limit schedule (EIP-8261) at the current epoch
     /// 4. `DEFAULT_GAS_LIMIT`
     pub fn get_gas_limit(&self, validator_pubkey: &PublicKeyBytes) -> u64 {
-        self.get_gas_limit_defaulting(self.validators.read().gas_limit(validator_pubkey))
+        self.get_gas_limit_defaulting(
+            self.validators.read().gas_limit(validator_pubkey),
+            self.current_epoch(),
+        )
     }
 
-    fn get_gas_limit_defaulting(&self, gas_limit: Option<u64>) -> u64 {
-        let current_epoch = self
-            .slot_clock
+    fn current_epoch(&self) -> Option<Epoch> {
+        self.slot_clock
             .now()
-            .map(|slot| slot.epoch(E::slots_per_epoch()));
-        let scheduled_gas_limit =
-            current_epoch.and_then(|epoch| self.spec.get_scheduled_gas_limit(epoch));
+            .map(|slot| slot.epoch(E::slots_per_epoch()))
+    }
+
+    fn get_gas_limit_defaulting(&self, gas_limit: Option<u64>, epoch: Option<Epoch>) -> u64 {
+        let scheduled_gas_limit = epoch.and_then(|epoch| self.spec.get_scheduled_gas_limit(epoch));
         // If there is a `gas_limit` in the validator definitions yaml
         // file, use that value. If there's nothing in the file, try the
         // process-level value.
@@ -352,7 +356,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 // The scheduled gas limit is a recommended maximum, not a rule. Warn but
                 // honor the configured value.
                 if configured > scheduled {
-                    self.warn_once_per_epoch(current_epoch, configured, scheduled);
+                    self.warn_once_per_epoch(epoch, configured, scheduled);
                 }
                 configured
             }
@@ -364,19 +368,37 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
 
     fn warn_once_per_epoch(
         &self,
-        current_epoch: Option<Epoch>,
+        epoch: Option<Epoch>,
         configured_gas_limit: u64,
         scheduled_gas_limit: u64,
     ) {
         let mut last_warned_epoch = self.gas_limit_last_warned_epoch.lock();
-        if *last_warned_epoch != current_epoch {
-            *last_warned_epoch = current_epoch;
+        if *last_warned_epoch != epoch {
+            *last_warned_epoch = epoch;
             warn!(
                 configured_gas_limit,
                 scheduled_gas_limit,
                 "Configured gas limit exceeds the recommended maximum from the gas limit schedule"
             );
         }
+    }
+
+    fn proposal_data_with_epoch(
+        &self,
+        pubkey: &PublicKeyBytes,
+        epoch: Option<Epoch>,
+    ) -> Option<ProposalData> {
+        self.validators
+            .read()
+            .validator(pubkey)
+            .map(|validator| ProposalData {
+                validator_index: validator.get_index(),
+                fee_recipient: self
+                    .get_fee_recipient_defaulting(validator.get_suggested_fee_recipient()),
+                gas_limit: self.get_gas_limit_defaulting(validator.get_gas_limit(), epoch),
+                builder_proposals: self
+                    .get_builder_proposals_defaulting(validator.get_builder_proposals()),
+            })
     }
 
     /// Returns a `bool` for the given public key that denotes whether this validator should use the
@@ -1436,17 +1458,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
     /// `get_gas_limit_defaulting`, and `get_builder_proposals_defaulting`.
     fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData> {
-        self.validators
-            .read()
-            .validator(pubkey)
-            .map(|validator| ProposalData {
-                validator_index: validator.get_index(),
-                fee_recipient: self
-                    .get_fee_recipient_defaulting(validator.get_suggested_fee_recipient()),
-                gas_limit: self.get_gas_limit_defaulting(validator.get_gas_limit()),
-                builder_proposals: self
-                    .get_builder_proposals_defaulting(validator.get_builder_proposals()),
-            })
+        self.proposal_data_with_epoch(pubkey, self.current_epoch())
+    }
+
+    fn proposal_data_at_epoch(
+        &self,
+        pubkey: &PublicKeyBytes,
+        epoch: Epoch,
+    ) -> Option<ProposalData> {
+        self.proposal_data_with_epoch(pubkey, Some(epoch))
     }
 
     async fn sign_payload_attestation(
@@ -1660,6 +1680,26 @@ mod tests {
         assert_eq!(
             store.get_gas_limit(&PublicKeyBytes::empty()),
             process_gas_limit
+        );
+    }
+
+    #[tokio::test]
+    async fn gas_limit_schedule_uses_the_given_epoch_not_the_wall_clock() {
+        let spec = gloas_spec_with_schedule(default_schedule());
+        let clock = slot_clock_at_epoch(GLOAS_FORK_EPOCH - 1);
+        let (store, _dir) = build_store(spec, None, clock).await;
+
+        assert_eq!(
+            store.get_gas_limit(&PublicKeyBytes::empty()),
+            DEFAULT_GAS_LIMIT
+        );
+        assert_eq!(
+            store.get_gas_limit_defaulting(None, Some(Epoch::new(GLOAS_FORK_EPOCH))),
+            SCHEDULED_GAS_LIMIT
+        );
+        assert_eq!(
+            store.get_gas_limit_defaulting(None, Some(Epoch::new(LATER_SCHEDULE_EPOCH))),
+            LATER_SCHEDULED_GAS_LIMIT
         );
     }
 
