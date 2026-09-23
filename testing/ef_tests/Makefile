@@ -14,8 +14,7 @@ COMPLIANCE_TEST = comptests
 # The compliance tarball only contains minimal preset vectors. It also contains
 # consensus-specs source directories, so extraction is scoped to the test vectors.
 COMPLIANCE_FORKS ?= fulu gloas
-# TODO(gloas): waiting on compliance tests to build for beta.2, then we can revert this
-COMPLIANCE_BASE_URL := https://github.com/ethereum/consensus-specs/releases/download/v1.7.0-beta.1
+COMPLIANCE_BASE_URL := https://github.com/ethereum/consensus-specs/releases/download/$(CONSENSUS_SPECS_TEST_VERSION)
 
 .PHONY: all clean
 
@@ -43,4 +42,3 @@ $(BLS_OUTPUT_DIR):
 		$(BLS_BASE_URL)/$(BLS_TEST).tar.gz
 	tar -xzf *.tar.gz -C $(BLS_OUTPUT_DIR)
 	rm -f *.tar.gz
-
