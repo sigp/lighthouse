@@ -141,8 +141,8 @@ doppelganger_service = { path = "validator_client/doppelganger_service" }
 educe = "0.6"
 eip_3076 = { path = "common/eip_3076" }
 either = "1.9"
-environment = { path = "lighthouse/environment" }
 enr = "0.14.0"
+environment = { path = "lighthouse/environment" }
 eth2 = { path = "common/eth2" }
 eth2_config = { path = "common/eth2_config" }
 eth2_key_derivation = { path = "crypto/eth2_key_derivation" }
@@ -220,6 +220,7 @@ ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.38", features = ["bundled"] }
 rust_eth_kzg = "0.9"
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"] }
 safe_arith = "0.1"
 sensitive_url = { version = "0.1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }

@@ -3579,7 +3579,6 @@ name = "eth2_network_config"
 version = "0.2.0"
 dependencies = [
  "bytes",
- "discv5",
  "enr",
  "eth2_config",
  "ethereum_ssz",
@@ -5441,6 +5440,7 @@ dependencies = [
  "malloc_utils",
  "network_utils",
  "rayon",
+ "rustls",
  "serde",
  "serde_json",
  "snap",
@@ -5945,6 +5945,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
+ "rustls",
  "sensitive_url",
  "serde",
  "serde_json",
