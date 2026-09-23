@@ -53,6 +53,17 @@ impl Fixture {
         ))
     }
 
+    pub fn finality_for_period(
+        &self,
+        period: u64,
+        participants: usize,
+    ) -> LightClientFinalityUpdate<E> {
+        let LightClientUpdate::Altair(update) = self.update_for_period(period, participants) else {
+            unreachable!("fixture uses Altair data");
+        };
+        finality_update(&update)
+    }
+
     pub fn new() -> Self {
         let spec = ForkName::Altair.make_genesis_spec(E::default_spec());
         let genesis_validators_root = Hash256::repeat_byte(42);
@@ -89,13 +100,7 @@ impl Fixture {
             next_committee,
             keys.len(),
         );
-        let finality = LightClientFinalityUpdate::Altair(LightClientFinalityUpdateAltair {
-            attested_header: update.attested_header.clone(),
-            finalized_header: update.finalized_header.clone(),
-            finality_branch: update.finality_branch.clone(),
-            sync_aggregate: update.sync_aggregate.clone(),
-            signature_slot: update.signature_slot,
-        });
+        let finality = finality_update(&update);
         Self {
             spec,
             genesis_validators_root,
@@ -106,6 +111,16 @@ impl Fixture {
             finality,
         }
     }
+}
+
+fn finality_update(update: &LightClientUpdateAltair<E>) -> LightClientFinalityUpdate<E> {
+    LightClientFinalityUpdate::Altair(LightClientFinalityUpdateAltair {
+        attested_header: update.attested_header.clone(),
+        finalized_header: update.finalized_header.clone(),
+        finality_branch: update.finality_branch.clone(),
+        sync_aggregate: update.sync_aggregate.clone(),
+        signature_slot: update.signature_slot,
+    })
 }
 
 fn signed_update(

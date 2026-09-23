@@ -2,8 +2,9 @@
 //!
 //! Sources return untrusted light-client objects, not authenticated headers. The
 //! `decentralized_checkpoint_sync` core is responsible for cryptographic verification.
-//! Bootstrap acquisition and bounded update-range steps call that core verifier before returning
-//! a store. HTTP transport and whole-task retry/freshness orchestration are not implemented yet.
+//! Bootstrap, update-range and finality steps call that core verifier before returning a store.
+//! Checkpoint freshness is evaluated against the local clock, independently of processing.
+//! HTTP transport and whole-task retry/budget orchestration are not implemented yet.
 //!
 //! A startup caller must supply a trusted finalized root, the network's chain spec and
 //! genesis validators root, and a slot clock initialized from trusted genesis time. The source
@@ -11,6 +12,7 @@
 //! Tokio runtime. Policy is explicit: provider-reported head/finality cannot define freshness.
 
 mod error;
+mod finality;
 mod policy;
 mod source;
 mod sync;
@@ -19,6 +21,7 @@ mod updates;
 pub use error::{
     BootstrapError, ConsumerError, PolicyError, SourceError, SourceErrorKind, UpdateRangeError,
 };
+pub use finality::{ProcessedFinalityUpdate, process_finality_update, recent_checkpoint_header};
 pub use policy::{RequestLimits, SyncPolicy, UpdateRange};
 pub use source::{LightClientData, LightClientDataSource, SourceResponse, SourceResult};
 pub use sync::{BootstrappedStore, bootstrap_light_client_store};

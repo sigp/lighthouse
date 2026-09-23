@@ -1,6 +1,8 @@
 #[path = "consumer/bootstrap.rs"]
 mod bootstrap;
 mod common;
+#[path = "consumer/finality.rs"]
+mod finality;
 #[path = "consumer/updates.rs"]
 mod updates;
 
@@ -13,7 +15,7 @@ use decentralized_checkpoint_sync::{
 use decentralized_checkpoint_sync_client::{
     BootstrapError, LightClientData, LightClientDataSource, RequestLimits, SourceError,
     SourceErrorKind, SourceResponse, UpdateRange, bootstrap_light_client_store,
-    process_next_update_range,
+    process_finality_update, process_next_update_range,
 };
 use slot_clock::SlotClock;
 use std::{sync::Arc, time::Duration};
@@ -184,6 +186,7 @@ async fn consumer_steps_preserve_source_error_category_cause_and_failed_response
         for request in [
             Request::Bootstrap(fixture.trusted_root),
             Request::Updates(UpdateRange::new(0, 1).unwrap()),
+            Request::Finality,
         ] {
             let mut source = ScriptedSource::new([Step {
                 request: request.clone(),
@@ -213,7 +216,16 @@ async fn consumer_steps_preserve_source_error_category_cause_and_failed_response
                 )
                 .await
                 .unwrap_err(),
-                Request::Finality => unreachable!(),
+                Request::Finality => process_finality_update(
+                    &mut source,
+                    fixture.store(),
+                    spec.clone(),
+                    fixture.genesis_validators_root,
+                    &fixture.clock,
+                    &policy(),
+                )
+                .await
+                .unwrap_err(),
             };
             let BootstrapError::Source(error) = error else {
                 panic!("expected source error, got {error:?}");

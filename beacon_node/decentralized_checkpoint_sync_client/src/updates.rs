@@ -9,7 +9,7 @@ use decentralized_checkpoint_sync::{
 };
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{ChainSpec, EthSpec, Hash256, LightClientUpdate, Slot};
+use types::{ChainSpec, EthSpec, ForkName, Hash256, LightClientUpdate, Slot};
 
 /// A single range step, not a claim of coverage, authenticated committee progress or freshness.
 #[derive(Debug)]
@@ -34,23 +34,9 @@ pub fn next_update_range<E: EthSpec>(
     max_updates: u64,
 ) -> Result<Option<UpdateRange>, ConsumerError> {
     UpdateRange::new(0, max_updates)?;
+    check_store_context(store, current_slot, spec)?;
     let current_period = period::<E>(current_slot, spec)?;
-    let current_schema =
-        LightClientStoreSchema::try_from(spec.fork_name_at_slot::<E>(current_slot))?;
-    if current_schema < store.store_schema() {
-        return Err(LightClientSyncError::StoreSchemaDowngrade {
-            current: store.store_schema(),
-            requested: current_schema,
-        }
-        .into());
-    }
     let store_slot = beacon_header(store.spec_finalized_header()).slot;
-    if store_slot > current_slot {
-        return Err(ConsumerError::FutureStore {
-            store_slot,
-            current_slot,
-        });
-    }
     let store_period = period::<E>(store_slot, spec)?;
     let known_next = u64::from(store.next_sync_committee().is_some());
     let start = store_period
@@ -142,6 +128,33 @@ fn period<E: EthSpec>(slot: Slot, spec: &ChainSpec) -> Result<u64, ConsumerError
         .checked_div(E::slots_per_epoch())
         .and_then(|epoch| epoch.checked_div(spec.epochs_per_sync_committee_period.as_u64()))
         .ok_or(ConsumerError::InvalidPeriodConfiguration)
+}
+
+/// Shared preflight for store-based steps and checkpoint selection. This does not upgrade state.
+pub(crate) fn check_store_context<E: EthSpec>(
+    store: &LightClientStore<E>,
+    current_slot: Slot,
+    spec: &ChainSpec,
+) -> Result<ForkName, ConsumerError> {
+    // Check divisors before fork lookup, which assumes a non-zero slots-per-epoch configuration.
+    period::<E>(current_slot, spec)?;
+    let fork = spec.fork_name_at_slot::<E>(current_slot);
+    let current_schema = LightClientStoreSchema::try_from(fork)?;
+    if current_schema < store.store_schema() {
+        return Err(LightClientSyncError::StoreSchemaDowngrade {
+            current: store.store_schema(),
+            requested: current_schema,
+        }
+        .into());
+    }
+    let store_slot = beacon_header(store.spec_finalized_header()).slot;
+    if store_slot > current_slot {
+        return Err(ConsumerError::FutureStore {
+            store_slot,
+            current_slot,
+        });
+    }
+    Ok(fork)
 }
 
 fn check_page<E: EthSpec>(
