@@ -6667,19 +6667,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         fcu_params.head_root,
                         &cached_head,
                     )?;
+                    let proposer_shuffling_decision_root = cached_head
+                        .snapshot
+                        .beacon_state
+                        .proposer_shuffling_decision_root_at_epoch(
+                            prepare_slot.epoch(T::EthSpec::slots_per_epoch()),
+                            fcu_params.head_root,
+                            &chain.spec,
+                        )?;
                     let head_payload_status = cached_head.head_payload_status();
                     Ok::<_, Error>(Some((
                         fcu_params,
                         pre_payload_attributes,
                         head_payload_status,
+                        proposer_shuffling_decision_root,
                     )))
                 },
                 "prepare_beacon_proposer_head_read",
             )
             .await??;
 
-        let Some((forkchoice_update_params, Some(pre_payload_attributes), head_payload_status)) =
-            maybe_prep_data
+        let Some((
+            forkchoice_update_params,
+            Some(pre_payload_attributes),
+            head_payload_status,
+            proposer_shuffling_decision_root,
+        )) = maybe_prep_data
         else {
             // Appropriate log messages have already been logged above and in
             // `get_pre_payload_attributes`.
@@ -6739,9 +6752,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             let target_gas_limit = if prepare_slot_fork.gloas_enabled() {
-                let proposer_gas_limit = execution_layer
-                    .get_proposer_gas_limit(proposer)
-                    .await
+                let proposer_gas_limit = self
+                    .gossip_verified_proposer_preferences_cache
+                    .get_preferences(&prepare_slot, proposer_shuffling_decision_root)
+                    .map(|preferences| preferences.message.target_gas_limit)
                     .or_else(|| {
                         self.spec.get_scheduled_gas_limit(
                             prepare_slot.epoch(T::EthSpec::slots_per_epoch()),
@@ -6750,7 +6764,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if proposer_gas_limit.is_none() {
                     warn!(
                         %proposer,
-                        "No proposer gas limit configured or scheduled, falling back to the default gas limit"
+                        "No proposer preferences or scheduled gas limit, falling back to the default gas limit"
                     );
                 }
                 proposer_gas_limit.or(Some(DEFAULT_GAS_LIMIT))

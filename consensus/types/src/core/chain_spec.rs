@@ -9,6 +9,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
 use ssz::Encode;
 use ssz_types::RuntimeVariableList;
+use tracing::error;
 use tree_hash::TreeHash;
 
 use crate::{
@@ -3128,15 +3129,32 @@ impl Config {
             return None;
         }
 
-        // Every gas limit schedule entry must be at or after the Gloas fork epoch.
+        // Every gas limit schedule entry must be at or after the Gloas fork epoch, and no two
+        // entries may share an epoch.
         let min_gas_limit_schedule_epoch = gloas_fork_epoch
             .map(|q| q.value)
             .unwrap_or(chain_spec.far_future_epoch);
-        if gas_limit_schedule
+        if let Some(entry) = gas_limit_schedule
             .as_vec()
             .iter()
-            .any(|entry| entry.epoch < min_gas_limit_schedule_epoch)
+            .find(|entry| entry.epoch < min_gas_limit_schedule_epoch)
         {
+            error!(
+                epoch = %entry.epoch,
+                gloas_fork_epoch = %min_gas_limit_schedule_epoch,
+                "GAS_LIMIT_SCHEDULE entry is before the Gloas fork epoch"
+            );
+            return None;
+        }
+        if let Some([entry, _]) = gas_limit_schedule
+            .as_vec()
+            .windows(2)
+            .find(|pair| matches!(pair, [a, b] if a.epoch == b.epoch))
+        {
+            error!(
+                epoch = %entry.epoch,
+                "GAS_LIMIT_SCHEDULE has multiple entries for the same epoch"
+            );
             return None;
         }
 
@@ -3816,6 +3834,20 @@ mod yaml_tests {
         let mut no_gloas_config = config.clone();
         no_gloas_config.gloas_fork_epoch = None;
         assert!(ChainSpec::from_config::<MainnetEthSpec>(&no_gloas_config).is_none());
+
+        // Two entries with the same epoch are rejected.
+        let mut duplicate_epoch_config = config.clone();
+        duplicate_epoch_config.gas_limit_schedule = GasLimitSchedule::new(vec![
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(512),
+                gas_limit: 60000000,
+            },
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(512),
+                gas_limit: 75000000,
+            },
+        ]);
+        assert!(ChainSpec::from_config::<MainnetEthSpec>(&duplicate_epoch_config).is_none());
     }
 
     #[test]

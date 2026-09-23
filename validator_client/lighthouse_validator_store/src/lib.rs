@@ -376,6 +376,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         if *last_warned_epoch != epoch {
             *last_warned_epoch = epoch;
             warn!(
+                ?epoch,
                 configured_gas_limit,
                 scheduled_gas_limit,
                 "Configured gas limit exceeds the recommended maximum from the gas limit schedule"

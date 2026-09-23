@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))]
 #![allow(clippy::result_large_err)]
 
+use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
 };
@@ -8,7 +9,7 @@ use beacon_chain::{
     ChainConfig, ProduceBlockVerification, custody_context::NodeCustodyType,
     graffiti_calculator::GraffitiSettings,
 };
-use bls::Keypair;
+use bls::{Keypair, Signature};
 use eth2::types::{GraffitiPolicy, ProposerPreparationData};
 use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes, PayloadAttributesV4};
 use fork_choice::PayloadStatus;
@@ -339,10 +340,17 @@ async fn prepare_payload_generic(
                 validator_index: proposer_index as u64,
                 fee_recipient: suggested_fee_recipient,
             },
-            &Some(target_gas_limit),
+            &None,
         )],
     )
     .await;
+    insert_proposer_preferences(
+        &harness,
+        prepare_slot,
+        proposer_index as u64,
+        suggested_fee_recipient,
+        target_gas_limit,
+    );
 
     // Advance the slot clock to just before the prepare slot so the lookahead check passes.
     harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
@@ -847,13 +855,27 @@ async fn gloas_pre_payload_attributes_reorg_uses_parent_randao() {
 }
 
 #[tokio::test]
-async fn prepare_payload_registered_gas_limit_wins_over_schedule() {
+async fn prepare_payload_preferred_gas_limit_wins_over_schedule() {
+    let scheduled_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
+    let preferred_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(2);
+    prepare_payload_gas_limit_generic(
+        Some(scheduled_gas_limit),
+        Some(preferred_gas_limit),
+        None,
+        preferred_gas_limit,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_ignores_registered_gas_limit_after_gloas() {
     let scheduled_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
     let registered_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(2);
     prepare_payload_gas_limit_generic(
         Some(scheduled_gas_limit),
+        None,
         Some(registered_gas_limit),
-        registered_gas_limit,
+        scheduled_gas_limit,
     )
     .await;
 }
@@ -861,16 +883,52 @@ async fn prepare_payload_registered_gas_limit_wins_over_schedule() {
 #[tokio::test]
 async fn prepare_payload_falls_back_to_scheduled_gas_limit() {
     let scheduled_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
-    prepare_payload_gas_limit_generic(Some(scheduled_gas_limit), None, scheduled_gas_limit).await;
+    prepare_payload_gas_limit_generic(Some(scheduled_gas_limit), None, None, scheduled_gas_limit)
+        .await;
 }
 
 #[tokio::test]
 async fn prepare_payload_falls_back_to_default_gas_limit() {
-    prepare_payload_gas_limit_generic(None, None, DEFAULT_GAS_LIMIT).await;
+    prepare_payload_gas_limit_generic(None, None, None, DEFAULT_GAS_LIMIT).await;
+}
+
+fn insert_proposer_preferences(
+    harness: &TestHarness,
+    proposal_slot: Slot,
+    validator_index: u64,
+    fee_recipient: Address,
+    target_gas_limit: u64,
+) {
+    let dependent_root = harness
+        .chain
+        .head_snapshot()
+        .beacon_state
+        .proposer_shuffling_decision_root_at_epoch(
+            proposal_slot.epoch(E::slots_per_epoch()),
+            harness.head_block_root(),
+            &harness.chain.spec,
+        )
+        .unwrap();
+    harness
+        .chain
+        .gossip_verified_proposer_preferences_cache
+        .insert_preferences(GossipVerifiedProposerPreferences {
+            signed_preferences: Arc::new(SignedProposerPreferences {
+                message: ProposerPreferences {
+                    dependent_root,
+                    proposal_slot,
+                    validator_index,
+                    fee_recipient,
+                    target_gas_limit,
+                },
+                signature: Signature::empty(),
+            }),
+        });
 }
 
 async fn prepare_payload_gas_limit_generic(
     scheduled_gas_limit: Option<u64>,
+    preferred_gas_limit: Option<u64>,
     registered_gas_limit: Option<u64>,
     expected_gas_limit: u64,
 ) {
@@ -909,6 +967,16 @@ async fn prepare_payload_gas_limit_generic(
         )],
     )
     .await;
+
+    if let Some(target_gas_limit) = preferred_gas_limit {
+        insert_proposer_preferences(
+            &harness,
+            prepare_slot,
+            proposer_index as u64,
+            Address::repeat_byte(42),
+            target_gas_limit,
+        );
+    }
 
     harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
     harness

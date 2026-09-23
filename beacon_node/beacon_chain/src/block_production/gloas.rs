@@ -300,6 +300,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BID_VALUE_SELF_BUILD,
             BUILDER_INDEX_SELF_BUILD,
             executed_ancestor_hash,
+            proposer_preferences.as_deref(),
         );
         let (mut candidates, local_result) = tokio::join!(acquire_fut, local_fut);
 
@@ -898,6 +899,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         bid_value: u64,
         builder_index: BuilderIndex,
         executed_ancestor_hash: ExecutionBlockHash,
+        proposer_preferences: Option<&SignedProposerPreferences>,
     ) -> Result<
         (
             SignedExecutionPayloadBid<T::EthSpec>,
@@ -936,6 +938,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?,
         };
 
+        let target_gas_limit = proposer_preferences
+            .map(|preferences| preferences.message.target_gas_limit)
+            .or_else(|| {
+                self.spec
+                    .get_scheduled_gas_limit(produce_at_slot.epoch(T::EthSpec::slots_per_epoch()))
+            })
+            .unwrap_or(DEFAULT_GAS_LIMIT);
+
         let prepare_payload_handle = get_execution_payload_gloas(
             self.clone(),
             state,
@@ -944,6 +954,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             parent_envelope,
             proposer_index,
             builder_params,
+            target_gas_limit,
         )?;
 
         let block_proposal_contents = prepare_payload_handle
@@ -1194,6 +1205,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 ///
 /// Will return an error when using a pre-Gloas `state`. Ensure to only run this function
 /// after the Gloas fork.
+#[allow(clippy::too_many_arguments)]
 fn get_execution_payload_gloas<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
@@ -1202,6 +1214,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     proposer_index: u64,
     builder_params: BuilderParams,
+    target_gas_limit: u64,
 ) -> Result<PreparePayloadHandle<T::EthSpec>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
@@ -1248,6 +1261,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
                     proposer_index,
                     parent_block_hash,
                     builder_params,
+                    target_gas_limit,
                     withdrawals,
                     parent_beacon_block_root,
                 )
@@ -1275,6 +1289,7 @@ async fn prepare_execution_payload<T>(
     proposer_index: u64,
     parent_block_hash: ExecutionBlockHash,
     builder_params: BuilderParams,
+    target_gas_limit: u64,
     withdrawals: Vec<Withdrawal>,
     parent_beacon_block_root: Hash256,
 ) -> Result<BlockProposalContentsGloas<T::EthSpec>, BlockProductionError>
@@ -1311,13 +1326,6 @@ where
         .get_suggested_fee_recipient(proposer_index)
         .await;
     let slot_number = Some(builder_params.slot.as_u64());
-    let target_gas_limit = execution_layer
-        .get_proposer_gas_limit(proposer_index)
-        .await
-        .or_else(|| {
-            spec.get_scheduled_gas_limit(builder_params.slot.epoch(T::EthSpec::slots_per_epoch()))
-        })
-        .unwrap_or(DEFAULT_GAS_LIMIT);
 
     let payload_attributes = PayloadAttributes::new(
         timestamp,
