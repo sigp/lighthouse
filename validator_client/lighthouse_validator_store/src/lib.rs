@@ -1682,6 +1682,23 @@ mod tests {
             store.get_gas_limit(&PublicKeyBytes::empty()),
             process_gas_limit
         );
+        assert_eq!(
+            *store.gas_limit_last_warned_epoch.lock(),
+            Some(Epoch::new(GLOAS_FORK_EPOCH))
+        );
+    }
+
+    #[tokio::test]
+    async fn configured_gas_limit_at_or_below_schedule_does_not_warn() {
+        let spec = gloas_spec_with_schedule(default_schedule());
+        let clock = slot_clock_at_epoch(GLOAS_FORK_EPOCH);
+        let (store, _dir) = build_store(spec, Some(SCHEDULED_GAS_LIMIT), clock).await;
+
+        assert_eq!(
+            store.get_gas_limit(&PublicKeyBytes::empty()),
+            SCHEDULED_GAS_LIMIT
+        );
+        assert_eq!(*store.gas_limit_last_warned_epoch.lock(), None);
     }
 
     #[tokio::test]

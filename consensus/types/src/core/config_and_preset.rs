@@ -182,7 +182,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Epoch, MainnetEthSpec};
+    use crate::{Epoch, GasLimitSchedule, GasLimitScheduleEntry, MainnetEthSpec};
     use std::fs::File;
     use tempfile::NamedTempFile;
 
@@ -231,6 +231,38 @@ mod test {
         assert_eq!(
             extra_fields.get("ATTESTATION_SUBNET_PREFIX_BITS"),
             Some(&Value::String("6".to_string()))
+        );
+    }
+
+    #[test]
+    fn gas_limit_schedule_in_config_spec() {
+        let mut spec = ChainSpec::mainnet();
+        let config = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&spec);
+        let json = serde_json::to_value(&config).expect("should serialize");
+        assert!(
+            json.get("GAS_LIMIT_SCHEDULE").is_none(),
+            "GAS_LIMIT_SCHEDULE is hidden while Gloas is not scheduled"
+        );
+
+        spec.gloas_fork_epoch = Some(Epoch::new(42));
+        spec.gas_limit_schedule = GasLimitSchedule::new(vec![
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(100),
+                gas_limit: 75_000_000,
+            },
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(42),
+                gas_limit: 60_000_000,
+            },
+        ]);
+        let config = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&spec);
+        let json = serde_json::to_value(&config).expect("should serialize");
+        assert_eq!(
+            json.get("GAS_LIMIT_SCHEDULE"),
+            Some(&serde_json::json!([
+                {"EPOCH": "42", "GAS_LIMIT": "60000000"},
+                {"EPOCH": "100", "GAS_LIMIT": "75000000"},
+            ]))
         );
     }
 
