@@ -53,8 +53,8 @@ use fast_confirmation::{
     Error as FastConfirmationError, FastConfirmationRule, metrics as fcr_metrics,
 };
 use fork_choice::{
-    ExecutionStatus, ExecutionVerdict, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters,
-    PayloadStatus, ProtoBlock,
+    ExecutionVerdict, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
+    ProtoBlock,
 };
 use itertools::process_results;
 
@@ -834,7 +834,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Check to ensure that the finalized block hasn't been marked as invalid. If it has,
         // shut down Lighthouse.
         let finalized_proto_block = fork_choice_read_lock.get_finalized_block()?;
-        check_finalized_payload_validity(self, &finalized_proto_block)?;
+        let finalized_verdict = fork_choice_read_lock
+            .get_block_execution_status_assuming_full(&finalized_proto_block.root)?
+            .ok_or(Error::FinalizedBlockMissingFromForkChoice(
+                finalized_proto_block.root,
+            ))?;
+        check_finalized_payload_validity(self, &finalized_proto_block, finalized_verdict)?;
 
         // Sanity check the finalized checkpoint.
         //
@@ -860,10 +865,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // In theory, fork choice should never select an invalid head (i.e., step #3 is impossible).
         // However, this check is cheap.
-        if new_head_proto_block.execution_status.is_invalid() {
+        let new_head_verdict = fork_choice_read_lock
+            .get_node_execution_status(new_head_node)?
+            .ok_or(Error::HeadMissingFromForkChoice(new_head_node.root()))?;
+        if new_head_verdict.is_invalid() {
             return Err(Error::HeadHasInvalidPayload {
                 block_root: new_head_proto_block.root,
-                execution_status: new_head_proto_block.execution_status,
+                execution_status: new_head_verdict,
             });
         }
 
@@ -1106,15 +1114,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Alias for readability.
         let new_snapshot = &new_cached_head.snapshot;
         let old_snapshot = &old_cached_head.snapshot;
-        let new_head_is_optimistic = new_head_proto_block
-            .execution_status
-            .is_optimistic_or_invalid();
+        let new_head_is_optimistic = new_head_verdict.is_optimistic_or_invalid();
 
         // Only run on head *block* changes - payload status changes only need the
         // `cached_head` update above, not re-org detection or event emission.
         if new_snapshot.beacon_block_root != old_snapshot.beacon_block_root
-            && let Err(e) =
-                self.after_new_head(&old_cached_head, &new_cached_head, new_head_proto_block)
+            && let Err(e) = self.after_new_head(
+                &old_cached_head,
+                &new_cached_head,
+                new_head_proto_block,
+                new_head_verdict,
+            )
         {
             crit!(
                 error = ?e,
@@ -1181,8 +1191,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The `after_finalization` function will take a write-lock on `fork_choice`, therefore it
         // is a dead-lock risk to hold any other lock on fork choice at this point.
         if new_view.finalized_checkpoint != old_view.finalized_checkpoint
-            && let Err(e) =
-                self.after_finalization(&new_cached_head, new_view, finalized_proto_block)
+            && let Err(e) = self.after_finalization(
+                &new_cached_head,
+                new_view,
+                finalized_proto_block,
+                finalized_verdict,
+            )
         {
             crit!(
                 error = ?e,
@@ -1292,13 +1306,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Resolve the confirmed block's execution payload hash for the EL `safe_block_hash`.
         // This MUST be the parent block hash for Gloas, per the spec.
-        let confirmed_block_hash = confirmed_node
-            .execution_status
-            .block_hash()
-            .or(confirmed_node.execution_payload_parent_hash)
-            .ok_or(FastConfirmationError::NodeHasNoBlockHash(
-                fcr.confirmed_root,
-            ))?;
+        let confirmed_block_hash = confirmed_node.checkpoint_payload_block_hash().ok_or(
+            FastConfirmationError::NodeHasNoBlockHash(fcr.confirmed_root),
+        )?;
 
         Ok(FcrOutcome {
             confirmed_root: fcr.confirmed_root,
@@ -1397,13 +1407,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         old_cached_head: &CachedHead<T::EthSpec>,
         new_cached_head: &CachedHead<T::EthSpec>,
         new_head_proto_block: ProtoBlock,
+        new_head_verdict: ExecutionVerdict,
     ) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_AFTER_NEW_HEAD_TIMES);
         let old_snapshot = &old_cached_head.snapshot;
         let new_snapshot = &new_cached_head.snapshot;
-        let new_head_is_optimistic = new_head_proto_block
-            .execution_status
-            .is_optimistic_or_invalid();
+        let new_head_is_optimistic = new_head_verdict.is_optimistic_or_invalid();
 
         // Update the state cache so it doesn't mistakenly prune the new head.
         self.store
@@ -1496,12 +1505,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         new_cached_head: &CachedHead<T::EthSpec>,
         new_view: ForkChoiceView,
         finalized_proto_block: ProtoBlock,
+        finalized_verdict: ExecutionVerdict,
     ) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_AFTER_FINALIZATION_TIMES);
         let new_snapshot = &new_cached_head.snapshot;
-        let finalized_block_is_optimistic = finalized_proto_block
-            .execution_status
-            .is_optimistic_or_invalid();
+        let finalized_block_is_optimistic = finalized_verdict.is_optimistic_or_invalid();
 
         self.observed_block_producers.write().prune(
             new_view
@@ -1687,8 +1695,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 fn check_finalized_payload_validity<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     finalized_proto_block: &ProtoBlock,
+    finalized_verdict: ExecutionVerdict,
 ) -> Result<(), Error> {
-    if let ExecutionStatus::Invalid(block_hash) = finalized_proto_block.execution_status {
+    if finalized_verdict.is_invalid() {
+        let block_hash = finalized_proto_block
+            .head_payload_block_hash(PayloadStatus::Full)
+            .unwrap_or_else(ExecutionBlockHash::zero);
         crit!(
             ?block_hash,
             msg = "You must use the `--purge-db` flag to clear the database and restart sync. \

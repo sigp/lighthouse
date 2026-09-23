@@ -214,26 +214,11 @@ impl ExecutionStatus {
 
     /// Returns `true` if the block:
     ///
-    /// - Has a valid payload, OR
-    /// - Does not have execution enabled.
-    ///
-    /// Whenever this function returns `true`, the block is *fully valid*.
-    pub fn is_valid_or_irrelevant(&self) -> bool {
-        matches!(
-            self,
-            ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_)
-        )
-    }
-
-    /// Returns `true` if the block:
-    ///
     /// - Has execution enabled, AND
     /// - Has a valid payload
     ///
     /// This function will return `false` for any block from a slot prior to the Bellatrix fork.
     /// This means that some blocks that are perfectly valid will still receive a `false` response.
-    /// See `Self::is_valid_or_irrelevant` for a function that will always return `true` given any
-    /// perfectly valid block.
     pub fn is_valid_and_post_bellatrix(&self) -> bool {
         matches!(self, ExecutionStatus::Valid(_))
     }
@@ -309,8 +294,18 @@ impl ExecutionVerdict {
         }
     }
 
+    pub fn is_invalid(&self) -> bool {
+        match self {
+            ExecutionVerdict::Invalid => true,
+            ExecutionVerdict::Valid | ExecutionVerdict::Optimistic => false,
+        }
+    }
+
     pub fn is_optimistic_or_invalid(&self) -> bool {
-        !self.is_valid()
+        match self {
+            ExecutionVerdict::Optimistic | ExecutionVerdict::Invalid => true,
+            ExecutionVerdict::Valid => false,
+        }
     }
 }
 
@@ -353,6 +348,24 @@ pub struct Block {
 }
 
 impl Block {
+    /// Spec: `head_block_hash` for `notify_forkchoice_updated`. Pre-Gloas the payload is embedded.
+    pub fn head_payload_block_hash(
+        &self,
+        payload_status: PayloadStatus,
+    ) -> Option<ExecutionBlockHash> {
+        self.execution_status.block_hash().or(match payload_status {
+            PayloadStatus::Full => self.execution_payload_block_hash,
+            PayloadStatus::Pending | PayloadStatus::Empty => self.execution_payload_parent_hash,
+        })
+    }
+
+    /// Spec: `finalized_block_hash` and `get_safe_execution_block_hash`, the bid's parent payload.
+    pub fn checkpoint_payload_block_hash(&self) -> Option<ExecutionBlockHash> {
+        self.execution_status
+            .block_hash()
+            .or(self.execution_payload_parent_hash)
+    }
+
     /// Compute the proposer shuffling decision root of a child block in `child_block_epoch`.
     ///
     /// This function assumes that `child_block_epoch >= self.epoch`. It is the responsibility of
@@ -1151,16 +1164,6 @@ impl ProtoArrayForkChoice {
         self.proto_array
             .should_extend_payload::<E>(&fc_node, proto_node, current_slot, proposer_boost_root)
             .map_err(|e| format!("{e:?}"))
-    }
-
-    /// Returns the `block.execution_status` field, if the block is present.
-    pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
-        let block = self.get_proto_node(block_root)?;
-        Some(
-            block
-                .execution_status()
-                .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
-        )
     }
 
     /// Execution verdict of a specific fork choice node (root + payload status).
