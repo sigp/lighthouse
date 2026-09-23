@@ -334,28 +334,16 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
 
 impl<E: EthSpec> DataColumnSidecarGloas<E> {
     pub fn min_size() -> usize {
-        // min size is one cell
-        Self {
+        // The minimum is one cell and its proof, both with fixed SSZ lengths.
+        let fixed_size = Self {
             index: 0,
-            column: ProgressiveVariableList::new(vec![Cell::<E>::default()]),
-            kzg_proofs: ProgressiveVariableList::new(vec![KzgProof::empty()]),
+            column: ProgressiveVariableList::empty(),
+            kzg_proofs: ProgressiveVariableList::empty(),
             slot: Slot::new(0),
             beacon_block_root: Hash256::ZERO,
         }
-        .as_ssz_bytes()
-        .len()
-    }
-
-    pub fn max_size(max_blobs_per_block: usize) -> usize {
-        Self {
-            index: 0,
-            column: ProgressiveVariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]),
-            kzg_proofs: ProgressiveVariableList::new(vec![KzgProof::empty(); max_blobs_per_block]),
-            slot: Slot::new(0),
-            beacon_block_root: Hash256::ZERO,
-        }
-        .as_ssz_bytes()
-        .len()
+        .ssz_bytes_len();
+        fixed_size + <Cell<E> as Encode>::ssz_fixed_len() + <KzgProof as Encode>::ssz_fixed_len()
     }
 }
 

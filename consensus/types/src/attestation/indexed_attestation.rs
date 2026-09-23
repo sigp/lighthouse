@@ -159,18 +159,18 @@ impl<E: EthSpec> IndexedAttestation<E> {
         }
     }
 
-    pub fn to_gloas(self) -> IndexedAttestationGloas<E> {
-        let attesting_indices = ProgressiveVariableList::new(self.attesting_indices_to_vec());
+    pub fn to_gloas(self) -> Result<IndexedAttestationGloas<E>, ssz_types::Error> {
+        let attesting_indices = ProgressiveVariableList::new(self.attesting_indices_to_vec())?;
         let (data, signature) = match self {
             Self::Base(att) => (att.data, att.signature),
             Self::Electra(att) => (att.data, att.signature),
-            Self::Gloas(att) => return att,
+            Self::Gloas(att) => return Ok(att),
         };
-        IndexedAttestationGloas {
+        Ok(IndexedAttestationGloas {
             attesting_indices,
             data,
             signature,
-        }
+        })
     }
 }
 

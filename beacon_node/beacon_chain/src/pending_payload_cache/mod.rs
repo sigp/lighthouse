@@ -1062,9 +1062,11 @@ mod data_availability_checker_tests {
             bitmap.set(i, true).unwrap();
         }
         let column: ProgressiveVariableList<_, _> =
-            present.iter().map(|_| Cell::<E>::default()).collect();
+            ProgressiveVariableList::new(present.iter().map(|_| Cell::<E>::default()).collect())
+                .unwrap();
         let kzg_proofs: ProgressiveVariableList<_, _> =
-            present.iter().map(|_| KzgProof::empty()).collect();
+            ProgressiveVariableList::new(present.iter().map(|_| KzgProof::empty()).collect())
+                .unwrap();
         KzgVerifiedCustodyPartialDataColumnGloas::from_cached(Arc::new(PartialDataColumnGloas {
             block_root,
             slot,

@@ -614,8 +614,12 @@ async fn gloas_attester_slashing_included_in_electra_block() {
         panic!("expected Electra slashing variant");
     };
     let slashing_gloas = AttesterSlashing::<E>::Gloas(AttesterSlashingGloas {
-        attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
-        attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
+        attestation_1: IndexedAttestation::Electra(slashing.attestation_1)
+            .to_gloas()
+            .unwrap(),
+        attestation_2: IndexedAttestation::Electra(slashing.attestation_2)
+            .to_gloas()
+            .unwrap(),
     });
 
     let ObservationOutcome::New(verified_slashing) = harness

@@ -10,7 +10,7 @@ use execution_layer::{
     PayloadParameters,
 };
 use operation_pool::CompactAttestationRef;
-use ssz::{Encode, ProgressiveBitList};
+use ssz::{Encode, ProgressiveBitList, TryFromIter};
 use ssz_types::ProgressiveVariableList;
 use state_processing::common::{get_attesting_indices_from_state, get_indexed_payload_attestation};
 use state_processing::envelope_processing::verify_execution_payload_envelope;
@@ -582,20 +582,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let attester_slashings = attester_slashings
             .into_iter()
-            .map(|a| match a {
-                // Convert pre-Gloas slashings into the Gloas type. The SSZ bytes are the same,
-                // only the hash tree root differs.
-                AttesterSlashing::Base(a) => AttesterSlashingGloas {
-                    attestation_1: IndexedAttestation::Base(a.attestation_1).to_gloas(),
-                    attestation_2: IndexedAttestation::Base(a.attestation_2).to_gloas(),
-                },
-                AttesterSlashing::Electra(a) => AttesterSlashingGloas {
-                    attestation_1: IndexedAttestation::Electra(a.attestation_1).to_gloas(),
-                    attestation_2: IndexedAttestation::Electra(a.attestation_2).to_gloas(),
-                },
-                AttesterSlashing::Gloas(a) => a,
+            .map(|a| {
+                Ok(match a {
+                    // Convert pre-Gloas slashings into the Gloas type. The SSZ bytes are the same,
+                    // only the hash tree root differs.
+                    AttesterSlashing::Base(a) => AttesterSlashingGloas {
+                        attestation_1: IndexedAttestation::Base(a.attestation_1).to_gloas()?,
+                        attestation_2: IndexedAttestation::Base(a.attestation_2).to_gloas()?,
+                    },
+                    AttesterSlashing::Electra(a) => AttesterSlashingGloas {
+                        attestation_1: IndexedAttestation::Electra(a.attestation_1).to_gloas()?,
+                        attestation_2: IndexedAttestation::Electra(a.attestation_2).to_gloas()?,
+                    },
+                    AttesterSlashing::Gloas(a) => a,
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, ssz_types::Error>>()
+            .map_err(BlockProductionError::SszTypesError)?;
 
         let attestations = attestations
             .into_iter()
@@ -728,18 +731,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     eth1_data,
                     graffiti,
                     // The operation list lengths are bounded by the op pool packing limits above.
-                    proposer_slashings: ProgressiveVariableList::from_iter(proposer_slashings),
-                    attester_slashings: ProgressiveVariableList::from_iter(attester_slashings),
-                    attestations: ProgressiveVariableList::from_iter(attestations),
-                    deposits: ProgressiveVariableList::from_iter(deposits),
-                    voluntary_exits: ProgressiveVariableList::from_iter(voluntary_exits),
+                    proposer_slashings: ProgressiveVariableList::try_from_iter(proposer_slashings)
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    attester_slashings: ProgressiveVariableList::try_from_iter(attester_slashings)
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    attestations: ProgressiveVariableList::try_from_iter(attestations)
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    deposits: ProgressiveVariableList::try_from_iter(deposits)
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    voluntary_exits: ProgressiveVariableList::try_from_iter(voluntary_exits)
+                        .map_err(BlockProductionError::SszTypesError)?,
                     sync_aggregate,
-                    bls_to_execution_changes: ProgressiveVariableList::from_iter(
+                    bls_to_execution_changes: ProgressiveVariableList::try_from_iter(
                         bls_to_execution_changes,
-                    ),
+                    )
+                    .map_err(BlockProductionError::SszTypesError)?,
                     parent_execution_requests,
                     signed_execution_payload_bid,
-                    payload_attestations: ProgressiveVariableList::from_iter(payload_attestations),
+                    payload_attestations: ProgressiveVariableList::try_from_iter(
+                        payload_attestations,
+                    )
+                    .map_err(BlockProductionError::SszTypesError)?,
                     _phantom: PhantomData::<FullPayload<T::EthSpec>>,
                 },
             }),
@@ -753,18 +765,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     eth1_data,
                     graffiti,
                     // The operation list lengths are bounded by the op pool packing limits above.
-                    proposer_slashings: ProgressiveVariableList::from_iter(proposer_slashings),
-                    attester_slashings: ProgressiveVariableList::from_iter(attester_slashings),
-                    attestations: ProgressiveVariableList::from_iter(attestations),
-                    deposits: ProgressiveVariableList::from_iter(deposits),
-                    voluntary_exits: ProgressiveVariableList::from_iter(voluntary_exits),
+                    proposer_slashings: ProgressiveVariableList::try_from_iter(proposer_slashings)
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    attester_slashings: ProgressiveVariableList::try_from_iter(attester_slashings)
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    attestations: ProgressiveVariableList::try_from_iter(attestations)
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    deposits: ProgressiveVariableList::try_from_iter(deposits)
+                        .map_err(BlockProductionError::SszTypesError)?,
+                    voluntary_exits: ProgressiveVariableList::try_from_iter(voluntary_exits)
+                        .map_err(BlockProductionError::SszTypesError)?,
                     sync_aggregate,
-                    bls_to_execution_changes: ProgressiveVariableList::from_iter(
+                    bls_to_execution_changes: ProgressiveVariableList::try_from_iter(
                         bls_to_execution_changes,
-                    ),
+                    )
+                    .map_err(BlockProductionError::SszTypesError)?,
                     parent_execution_requests,
                     signed_execution_payload_bid,
-                    payload_attestations: ProgressiveVariableList::from_iter(payload_attestations),
+                    payload_attestations: ProgressiveVariableList::try_from_iter(
+                        payload_attestations,
+                    )
+                    .map_err(BlockProductionError::SszTypesError)?,
                     _phantom: PhantomData::<FullPayload<T::EthSpec>>,
                 },
             }),
@@ -1445,8 +1466,8 @@ mod tests {
     ) -> ExecutionRequestsGloas<TestSpec> {
         ExecutionRequestsGloas {
             deposits: ProgressiveVariableList::empty(),
-            withdrawals: ProgressiveVariableList::new(withdrawals),
-            consolidations: ProgressiveVariableList::new(consolidations),
+            withdrawals: ProgressiveVariableList::new(withdrawals).unwrap(),
+            consolidations: ProgressiveVariableList::new(consolidations).unwrap(),
             builder_deposits: ProgressiveVariableList::empty(),
             builder_exits: ProgressiveVariableList::empty(),
         }

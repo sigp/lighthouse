@@ -289,7 +289,7 @@ debug = true
 
 [patch.crates-io]
 # FIXME(eip-7688): EIP-7688 development patches
-ssz_types = { git = "https://github.com/sigp/ssz_types", rev = "742c4c6393eb9ef7d3d66dd36a6dd05ca392dd05" }
+ssz_types = { git = "https://github.com/sigp/ssz_types", rev = "a9aa0eb9e72b329491dd96f3ce21d20bf0e1beab" }
 milhouse = { git = "https://github.com/sigp/milhouse", rev = "d67aabd2a7c405b3c16f4aaff159b137dc5b5e38" }
 ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", rev = "974f78f421fbf70cba4e8f84e0fa28c23ad54f34" }
 ethereum_ssz_derive = { git = "https://github.com/sigp/ethereum_ssz", rev = "974f78f421fbf70cba4e8f84e0fa28c23ad54f34" }

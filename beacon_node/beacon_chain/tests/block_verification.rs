@@ -1041,8 +1041,12 @@ async fn invalid_signature_attester_slashing() {
                 // the same, only the hash tree root differs.
                 let slashing = attester_slashing.as_electra().unwrap().clone();
                 blk.attester_slashings.push(AttesterSlashingGloas {
-                    attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
-                    attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
+                    attestation_1: IndexedAttestation::Electra(slashing.attestation_1)
+                        .to_gloas()
+                        .unwrap(),
+                    attestation_2: IndexedAttestation::Electra(slashing.attestation_2)
+                        .to_gloas()
+                        .unwrap(),
                 });
             }
             BeaconBlockBodyRefMut::Heze(blk) => {
@@ -1050,8 +1054,12 @@ async fn invalid_signature_attester_slashing() {
                 // the same, only the hash tree root differs.
                 let slashing = attester_slashing.as_electra().unwrap().clone();
                 blk.attester_slashings.push(AttesterSlashingGloas {
-                    attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
-                    attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
+                    attestation_1: IndexedAttestation::Electra(slashing.attestation_1)
+                        .to_gloas()
+                        .unwrap(),
+                    attestation_2: IndexedAttestation::Electra(slashing.attestation_2)
+                        .to_gloas()
+                        .unwrap(),
                 });
             }
         }
@@ -1574,7 +1582,7 @@ async fn block_gossip_verification() {
                 signature: bls::SignatureBytes::empty(),
             },
         };
-        gloas_block.body.deposits = ssz_types::ProgressiveVariableList::new(vec![deposit]);
+        gloas_block.body.deposits = ssz_types::ProgressiveVariableList::new(vec![deposit]).unwrap();
         assert!(
             matches!(
                 unwrap_err(

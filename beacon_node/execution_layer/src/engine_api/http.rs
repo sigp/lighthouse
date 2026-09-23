@@ -1323,8 +1323,8 @@ impl HttpJsonRpc {
 
         Ok(response
             .into_iter()
-            .map(|body| body.map(Into::into))
-            .collect())
+            .map(|body| body.map(TryInto::try_into).transpose())
+            .collect::<Result<_, _>>()?)
     }
 
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
@@ -1845,7 +1845,8 @@ mod test {
     fn generate_progressive_transactions(spec: &[usize]) -> ProgressiveTransactions {
         let mut txs = ProgressiveTransactions::empty();
         for &num_bytes in spec {
-            txs.push(ProgressiveVariableList::new(vec![0; num_bytes]));
+            txs.push(ProgressiveVariableList::new(vec![0; num_bytes]).unwrap())
+                .unwrap();
         }
 
         txs
@@ -2053,8 +2054,9 @@ mod test {
                 slot_number: 7,
                 target_gas_limit: 30_000_000,
                 inclusion_list_transactions: ProgressiveVariableList::new(vec![
-                    ProgressiveVariableList::new(vec![0x02, 0xf8, 0x6f]),
-                ]),
+                    ProgressiveVariableList::new(vec![0x02, 0xf8, 0x6f]).unwrap(),
+                ])
+                .unwrap(),
             }))
         };
 

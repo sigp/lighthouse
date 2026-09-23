@@ -255,17 +255,19 @@ impl<E: EthSpec> ExecutionRequestsGloas<E> {
     }
 }
 
-impl<E: EthSpec> From<&ExecutionRequestsElectra<E>> for ExecutionRequestsGloas<E> {
-    /// Re-type the bounded (Electra) requests as the progressive Gloas variant. Infallible: the
-    /// progressive lists have no capacity limit. The Gloas-only builder request lists start empty.
-    fn from(requests: &ExecutionRequestsElectra<E>) -> Self {
-        Self {
-            deposits: requests.deposits.iter().cloned().collect(),
-            withdrawals: requests.withdrawals.iter().cloned().collect(),
-            consolidations: requests.consolidations.iter().cloned().collect(),
+impl<E: EthSpec> TryFrom<&ExecutionRequestsElectra<E>> for ExecutionRequestsGloas<E> {
+    type Error = ssz_types::Error;
+
+    /// Re-type the bounded (Electra) requests as the progressive Gloas variant.
+    /// The Gloas-only builder request lists start empty.
+    fn try_from(requests: &ExecutionRequestsElectra<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            deposits: ProgressiveVariableList::new(requests.deposits.to_vec())?,
+            withdrawals: ProgressiveVariableList::new(requests.withdrawals.to_vec())?,
+            consolidations: ProgressiveVariableList::new(requests.consolidations.to_vec())?,
             builder_deposits: ProgressiveVariableList::default(),
             builder_exits: ProgressiveVariableList::default(),
-        }
+        })
     }
 }
 

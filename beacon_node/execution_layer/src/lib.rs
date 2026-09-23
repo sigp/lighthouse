@@ -215,18 +215,22 @@ pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub should_override_builder: bool,
 }
 
-impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
-    fn from(response: GetPayloadResponseGloas<E>) -> Self {
-        Self {
+impl<E: EthSpec> TryFrom<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(response: GetPayloadResponseGloas<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
             payload: response.execution_payload,
             payload_value: response.block_value,
             // Convert the EL blob commitments to the progressive list type used from Gloas
             // onwards (EIP-7688).
-            blob_kzg_commitments: response.blobs_bundle.commitments.into_iter().collect(),
+            blob_kzg_commitments: ProgressiveKzgCommitments::<E>::new(
+                response.blobs_bundle.commitments.into(),
+            )?,
             blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
             execution_requests: response.requests,
             should_override_builder: response.should_override_builder,
-        }
+        })
     }
 }
 
@@ -952,7 +956,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             &[metrics::LOCAL],
         );
 
-        Ok(payload_response.into())
+        Ok(payload_response.try_into()?)
     }
 
     /// Maps to the `engine_getPayload` JSON-RPC call.
@@ -2230,15 +2234,17 @@ mod test {
             block_hash,
             block_number,
             transactions: ProgressiveTransactions::new(vec![
-                ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]),
-            ]),
+                ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]).unwrap(),
+            ])
+            .unwrap(),
             withdrawals: types::ProgressiveWithdrawals::<MainnetEthSpec>::new(vec![Withdrawal {
                 index: 1,
                 validator_index: 2,
                 address: Address::from([0x33; 20]),
                 amount: 3,
-            }]),
-            block_access_list: BlockAccessList::new(vec![0x04, 0x05, 0x06]),
+            }])
+            .unwrap(),
+            block_access_list: BlockAccessList::new(vec![0x04, 0x05, 0x06]).unwrap(),
             ..Default::default()
         };
         let expected_body = ExecutionPayloadBodyV2 {

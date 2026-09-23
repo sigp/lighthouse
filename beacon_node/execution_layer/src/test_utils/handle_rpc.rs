@@ -845,14 +845,40 @@ pub async fn handle_rpc<E: EthSpec>(
                                             transaction.to_vec(),
                                         )
                                     })
-                                    .collect(),
-                            ),
-                            withdrawals: payload.withdrawals().ok().map(|withdrawals| {
-                                ProgressiveWithdrawals::<E>::new(withdrawals.to_vec())
-                            }),
+                                    .collect::<Result<_, _>>()
+                                    .map_err(|e| {
+                                        (
+                                            format!("invalid transactions: {e:?}"),
+                                            BAD_PARAMS_ERROR_CODE,
+                                        )
+                                    })?,
+                            )
+                            .map_err(|e| {
+                                (
+                                    format!("invalid transactions: {e:?}"),
+                                    BAD_PARAMS_ERROR_CODE,
+                                )
+                            })?,
+                            withdrawals: payload
+                                .withdrawals()
+                                .ok()
+                                .map(|withdrawals| {
+                                    ProgressiveWithdrawals::<E>::new(withdrawals.to_vec())
+                                })
+                                .transpose()
+                                .map_err(|e| {
+                                    (format!("invalid withdrawals: {e:?}"), BAD_PARAMS_ERROR_CODE)
+                                })?,
                             block_access_list: payload.block_access_list().ok().cloned(),
                         };
-                        response.push(Some(JsonExecutionPayloadBodyV2::from(payload_body)));
+                        response.push(Some(
+                            JsonExecutionPayloadBodyV2::try_from(payload_body).map_err(|e| {
+                                (
+                                    format!("invalid payload body: {e:?}"),
+                                    BAD_PARAMS_ERROR_CODE,
+                                )
+                            })?,
+                        ));
                     }
                     None => response.push(None),
                 }

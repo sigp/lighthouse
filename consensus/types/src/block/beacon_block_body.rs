@@ -626,14 +626,14 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 .voluntary_exits
                 .push(exit)
                 .map_err(BeaconStateError::SszTypesError),
-            Self::Gloas(body) => {
-                body.voluntary_exits.push(exit);
-                Ok(())
-            }
-            Self::Heze(body) => {
-                body.voluntary_exits.push(exit);
-                Ok(())
-            }
+            Self::Gloas(body) => body
+                .voluntary_exits
+                .push(exit)
+                .map_err(BeaconStateError::SszTypesError),
+            Self::Heze(body) => body
+                .voluntary_exits
+                .push(exit)
+                .map_err(BeaconStateError::SszTypesError),
         }
     }
 
@@ -671,14 +671,14 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 .proposer_slashings
                 .push(slashing)
                 .map_err(BeaconStateError::SszTypesError),
-            Self::Gloas(body) => {
-                body.proposer_slashings.push(slashing);
-                Ok(())
-            }
-            Self::Heze(body) => {
-                body.proposer_slashings.push(slashing);
-                Ok(())
-            }
+            Self::Gloas(body) => body
+                .proposer_slashings
+                .push(slashing)
+                .map_err(BeaconStateError::SszTypesError),
+            Self::Heze(body) => body
+                .proposer_slashings
+                .push(slashing)
+                .map_err(BeaconStateError::SszTypesError),
         }
     }
 
@@ -713,14 +713,14 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 .deposits
                 .push(deposit)
                 .map_err(BeaconStateError::SszTypesError),
-            Self::Gloas(body) => {
-                body.deposits.push(deposit);
-                Ok(())
-            }
-            Self::Heze(body) => {
-                body.deposits.push(deposit);
-                Ok(())
-            }
+            Self::Gloas(body) => body
+                .deposits
+                .push(deposit)
+                .map_err(BeaconStateError::SszTypesError),
+            Self::Heze(body) => body
+                .deposits
+                .push(deposit)
+                .map_err(BeaconStateError::SszTypesError),
         }
     }
 
@@ -759,10 +759,12 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                     .map_err(BeaconStateError::SszTypesError)?;
             }
             Self::Gloas(body) => {
-                body.deposits = deposits.into_iter().collect();
+                body.deposits = ssz::TryFromIter::try_from_iter(deposits)
+                    .map_err(BeaconStateError::SszTypesError)?;
             }
             Self::Heze(body) => {
-                body.deposits = deposits.into_iter().collect();
+                body.deposits = ssz::TryFromIter::try_from_iter(deposits)
+                    .map_err(BeaconStateError::SszTypesError)?;
             }
         }
         Ok(())

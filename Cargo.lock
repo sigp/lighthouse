@@ -8720,7 +8720,7 @@ dependencies = [
 [[package]]
 name = "ssz_types"
 version = "0.14.1"
-source = "git+https://github.com/sigp/ssz_types?rev=742c4c6393eb9ef7d3d66dd36a6dd05ca392dd05#742c4c6393eb9ef7d3d66dd36a6dd05ca392dd05"
+source = "git+https://github.com/sigp/ssz_types?rev=a9aa0eb9e72b329491dd96f3ce21d20bf0e1beab#a9aa0eb9e72b329491dd96f3ce21d20bf0e1beab"
 dependencies = [
  "arbitrary",
  "context_deserialize",

@@ -312,7 +312,7 @@ async fn prepare_payload_generic(
     let execution_requests = ExecutionRequests::Gloas(ExecutionRequestsGloas::<E> {
         deposits: ProgressiveVariableList::empty(),
         withdrawals: ProgressiveVariableList::empty(),
-        consolidations: ProgressiveVariableList::new(vec![consolidation_request]),
+        consolidations: ProgressiveVariableList::new(vec![consolidation_request]).unwrap(),
         builder_deposits: ProgressiveVariableList::empty(),
         builder_exits: ProgressiveVariableList::empty(),
     });

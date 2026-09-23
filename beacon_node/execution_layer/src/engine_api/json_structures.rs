@@ -271,7 +271,9 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -299,7 +301,9 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeze<E>> for JsonExecutionPayloadHeze<E
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -475,7 +479,9 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -503,7 +509,9 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadHeze<E>> for ExecutionPayloadHeze<E
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -695,14 +703,18 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
         let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
             parse_execution_requests::<E>(value)?;
-        // [Modified in Gloas:EIP7688] the Gloas variant stores progressive (unbounded) lists, so
-        // re-type the parsed bounded lists.
+        // Re-type the parsed lists using progressive Merkleization for Gloas.
         Ok(ExecutionRequestsGloas {
-            deposits: deposits.iter().cloned().collect(),
-            withdrawals: withdrawals.iter().cloned().collect(),
-            consolidations: consolidations.iter().cloned().collect(),
-            builder_deposits: builder_deposits.iter().cloned().collect(),
-            builder_exits: builder_exits.iter().cloned().collect(),
+            deposits: ProgressiveVariableList::try_from_iter(deposits)
+                .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
+            withdrawals: ProgressiveVariableList::try_from_iter(withdrawals)
+                .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
+            consolidations: ProgressiveVariableList::try_from_iter(consolidations)
+                .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
+            builder_deposits: ProgressiveVariableList::try_from_iter(builder_deposits)
+                .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
+            builder_exits: ProgressiveVariableList::try_from_iter(builder_exits)
+                .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
         })
     }
 }
@@ -1393,27 +1405,37 @@ pub struct JsonExecutionPayloadBodyV2<E: EthSpec> {
     pub block_access_list: Option<JsonBlockAccessList>,
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV2<E> {
-    fn from(value: JsonExecutionPayloadBodyV2<E>) -> Self {
-        Self {
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV2<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: JsonExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
             transactions: value.transactions,
             withdrawals: value
                 .withdrawals
-                .map(|withdrawals| withdrawals.into_iter().map(Into::into).collect()),
+                .map(|withdrawals| {
+                    ProgressiveVariableList::try_from_iter(withdrawals.into_iter().map(Into::into))
+                })
+                .transpose()?,
             block_access_list: value.block_access_list.map(|list| list.0),
-        }
+        })
     }
 }
 
-impl<E: EthSpec> From<ExecutionPayloadBodyV2<E>> for JsonExecutionPayloadBodyV2<E> {
-    fn from(value: ExecutionPayloadBodyV2<E>) -> Self {
-        Self {
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for JsonExecutionPayloadBodyV2<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
             transactions: value.transactions,
             withdrawals: value
                 .withdrawals
-                .map(|withdrawals| withdrawals.into_iter().map(Into::into).collect()),
+                .map(|withdrawals| {
+                    ProgressiveVariableList::try_from_iter(withdrawals.into_iter().map(Into::into))
+                })
+                .transpose()?,
             block_access_list: value.block_access_list.map(JsonBlockAccessList),
-        }
+        })
     }
 }
 
@@ -1545,8 +1567,8 @@ mod tests {
         VariableList::try_from(vec![x.clone()]).unwrap()
     }
 
-    fn singleton_progressive_list<T: Clone, N>(x: &T) -> ProgressiveVariableList<T, N> {
-        ProgressiveVariableList::new(vec![x.clone()])
+    fn singleton_progressive_list<T: Clone, N: Unsigned>(x: &T) -> ProgressiveVariableList<T, N> {
+        ProgressiveVariableList::new(vec![x.clone()]).unwrap()
     }
 
     /// Tests all error conditions except ssz decoding errors
@@ -1863,10 +1885,10 @@ mod tests {
         });
         let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
             serde_json::from_value(with_bal.clone()).unwrap();
-        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().into();
+        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().try_into().unwrap();
         assert_eq!(
             internal.block_access_list,
-            Some(ProgressiveVariableList::new(vec![1, 2, 3]))
+            Some(ProgressiveVariableList::new(vec![1, 2, 3]).unwrap())
         );
         assert_eq!(serde_json::to_value(&body).unwrap(), with_bal);
 
@@ -1878,7 +1900,7 @@ mod tests {
         });
         let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
             serde_json::from_value(null_bal.clone()).unwrap();
-        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().into();
+        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().try_into().unwrap();
         assert_eq!(internal.block_access_list, None);
         assert_eq!(serde_json::to_value(&body).unwrap(), null_bal);
 
