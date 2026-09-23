@@ -904,7 +904,7 @@ impl<E: EthSpec> PeerManager<E> {
     /// Registers a peer as connected. The `connection` parameter determines if the peer is being
     /// dialed or connecting to us.
     ///
-    /// This is called by `connect_incoming` and `connect_outgoing`.
+    /// This is called by `inject_connect_incoming` and `inject_connect_outgoing`.
     fn inject_peer_connection(
         &mut self,
         peer_id: &PeerId,
