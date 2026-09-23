@@ -28,7 +28,6 @@ use tempfile::NamedTempFile;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 use tree_hash::TreeHash;
-use types::ExecutionBlockHash;
 use types::builder::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
     BuilderBidFulu, SignedBuilderBid,
@@ -39,6 +38,7 @@ use types::{
     ForkVersionDecode, Hash256, SignedBlindedBeaconBlock, SignedRoot,
     SignedValidatorRegistrationData, Slot, Uint256,
 };
+use types::{ExecutionBlockHash, ProgressiveTransactions};
 use warp::{
     Filter, Rejection,
     http::StatusCode,
@@ -922,6 +922,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 None,
                 None,
                 None,
+                None,
             ),
             ForkName::Deneb | ForkName::Electra | ForkName::Fulu => PayloadAttributes::new(
                 timestamp,
@@ -931,8 +932,9 @@ impl<E: EthSpec> MockBuilder<E> {
                 Some(head_block_root),
                 None,
                 None,
+                None,
             ),
-            ForkName::Gloas | ForkName::Heze => PayloadAttributes::new(
+            ForkName::Gloas => PayloadAttributes::new(
                 timestamp,
                 *prev_randao,
                 fee_recipient,
@@ -940,6 +942,17 @@ impl<E: EthSpec> MockBuilder<E> {
                 Some(head_block_root),
                 Some(slot.as_u64()),
                 None, // TODO(gloas): pass target_gas_limit
+                None,
+            ),
+            ForkName::Heze => PayloadAttributes::new(
+                timestamp,
+                *prev_randao,
+                fee_recipient,
+                expected_withdrawals,
+                Some(head_block_root),
+                Some(slot.as_u64()),
+                None, // TODO(gloas): pass target_gas_limit, since it is required for PayloadAttributesV5
+                Some(ProgressiveTransactions::empty()),
             ),
             ForkName::Base | ForkName::Altair => {
                 return Err("invalid fork".to_string());
@@ -984,6 +997,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 slot - 1,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .map_err(|e| format!("fcu call failed : {:?}", e))?;

@@ -1,4 +1,4 @@
-use eth2::types::{GenericResponse, PublishBlockRequest, SyncingData};
+use eth2::types::{GenericResponse, PublishBlockRequest, SubmittedBuilderPreferences, SyncingData};
 use eth2::{BLOB_DATA_INCLUDED_HEADER, BeaconNodeHttpClient, CONSENSUS_VERSION_HEADER, Timeouts};
 use mockito::{Matcher, Mock, Server, ServerGuard};
 use regex::Regex;
@@ -24,6 +24,7 @@ pub struct MockBeaconNode<E: EthSpec> {
     pub received_full_blocks: Arc<Mutex<Vec<PublishBlockRequest<E>>>>,
     pub execution_payload_envelope: Arc<Mutex<Vec<SignedExecutionPayloadEnvelope<E>>>>,
     pub payload_attestation_message: Arc<Mutex<Vec<PayloadAttestationMessage>>>,
+    pub builder_preferences: Arc<Mutex<Vec<SubmittedBuilderPreferences>>>,
 }
 
 impl<E: EthSpec> MockBeaconNode<E> {
@@ -42,6 +43,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             received_full_blocks: Arc::new(Mutex::new(Vec::new())),
             execution_payload_envelope: Arc::new(Mutex::new(Vec::new())),
             payload_attestation_message: Arc::new(Mutex::new(Vec::new())),
+            builder_preferences: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -102,8 +104,8 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create();
     }
 
-    /// Mocks `GET /eth/v4/validator/blocks/{slot}`
-    pub fn mock_get_validator_blocks_v4(
+    /// Mocks `POST /eth/v4/validator/blocks/{slot}`
+    pub fn mock_post_validator_blocks_v4(
         &mut self,
         block: &BeaconBlock<E>,
         fork_name: ForkName,
@@ -121,7 +123,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
         });
 
         self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
             .match_query(Matcher::UrlEncoded(
                 "include_payload".into(),
                 "false".into(),
@@ -136,8 +138,8 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `GET /eth/v4/validator/blocks/{slot}` (SSZ)
-    pub fn mock_get_validator_blocks_v4_ssz(
+    /// Mocks `POST /eth/v4/validator/blocks/{slot}` (SSZ)
+    pub fn mock_post_validator_blocks_v4_ssz(
         &mut self,
         block: &BeaconBlock<E>,
         fork_name: ForkName,
@@ -149,7 +151,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
         let ssz_bytes = block.as_ssz_bytes();
 
         self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
             .match_query(Matcher::UrlEncoded(
                 "include_payload".into(),
                 "false".into(),
@@ -165,13 +167,13 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .create()
     }
 
-    /// Mocks `GET /eth/v4/validator/blocks/{slot}` (SSZ) returning error
-    pub fn mock_get_validator_blocks_v4_ssz_error(&mut self, slot: Slot) -> Mock {
+    /// Mocks `POST /eth/v4/validator/blocks/{slot}` (SSZ) returning error
+    pub fn mock_post_validator_blocks_v4_ssz_error(&mut self, slot: Slot) -> Mock {
         let path_pattern =
             Regex::new(&format!(r"^/eth/v4/validator/blocks/{}", slot.as_u64())).unwrap();
 
         self.server
-            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
             .match_query(Matcher::UrlEncoded(
                 "include_payload".into(),
                 "false".into(),
@@ -321,6 +323,39 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 received_full_blocks.lock().unwrap().push(block);
                 vec![]
             })
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/builder_preferences` (SSZ), matching only submissions whose
+    /// `Eth-Consensus-Version` header names `fork_name`.
+    pub fn mock_post_validator_builder_preferences_ssz(&mut self, fork_name: ForkName) -> Mock {
+        let received = Arc::clone(&self.builder_preferences);
+        self.server
+            .mock(
+                "POST",
+                Matcher::Regex(r"^/eth/v1/validator/builder_preferences$".to_string()),
+            )
+            .match_header("Eth-Consensus-Version", fork_name.to_string().as_str())
+            .with_status(200)
+            .with_body_from_request(move |request| {
+                let body = request.body().expect("Failed to get request body");
+                let preferences = SubmittedBuilderPreferences::from_ssz_bytes(body)
+                    .expect("Failed to deserialize SubmittedBuilderPreferences from SSZ");
+                received.lock().unwrap().push(preferences);
+                vec![]
+            })
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/builder_preferences` regardless of headers. Registered after
+    /// a fork-matched mock, it catches submissions labeled with any other fork.
+    pub fn mock_post_validator_builder_preferences_any_fork(&mut self) -> Mock {
+        self.server
+            .mock(
+                "POST",
+                Matcher::Regex(r"^/eth/v1/validator/builder_preferences$".to_string()),
+            )
+            .with_status(200)
             .create()
     }
 

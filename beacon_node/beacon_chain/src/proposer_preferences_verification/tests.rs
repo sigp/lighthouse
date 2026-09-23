@@ -10,8 +10,8 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::AllCaches;
 use store::{HotColdDB, MemoryStore, StoreConfig};
 use types::{
-    Address, BeaconBlock, ChainSpec, EthSpec, Hash256, MinimalEthSpec, ProposerPreferences,
-    SignedBeaconBlock, SignedProposerPreferences, Slot,
+    Address, BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec,
+    ProposerPreferences, SignedBeaconBlock, SignedProposerPreferences, Slot,
 };
 
 use crate::{
@@ -24,6 +24,7 @@ use crate::{
         ProposerPreferencesError,
         gossip_verified_proposer_preferences::{
             GossipVerificationContext, GossipVerifiedProposerPreferences,
+            verify_preferences_consistency,
         },
         proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
@@ -568,4 +569,38 @@ fn dependent_root_valid_via_boundary_crossing_child() {
         "expected verification to pass dependent-root checks and fail at proposer resolution, got: {:?}",
         result
     );
+}
+
+#[test]
+fn pre_gloas_proposal_epoch_ignored() {
+    if fork_name_from_env() != Some(ForkName::Gloas) {
+        return;
+    }
+    let mut spec = test_spec::<E>();
+    spec.gloas_fork_epoch = Some(Epoch::new(2));
+
+    let current_slot = Slot::new(E::slots_per_epoch());
+    let prefs = make_signed_preferences(current_slot + 1, 0, Hash256::ZERO);
+    let result = verify_preferences_consistency::<E>(&prefs.message, current_slot, &spec);
+    assert!(
+        matches!(
+            result,
+            Err(ProposerPreferencesError::ProposalEpochPreGloas { .. })
+        ),
+        "got: {result:?}"
+    );
+}
+
+#[test]
+fn gloas_proposal_epoch_passes_fork_check() {
+    if fork_name_from_env() != Some(ForkName::Gloas) {
+        return;
+    }
+    let mut spec = test_spec::<E>();
+    spec.gloas_fork_epoch = Some(Epoch::new(1));
+
+    let current_slot = Slot::new(E::slots_per_epoch());
+    let prefs = make_signed_preferences(current_slot + 1, 0, Hash256::ZERO);
+    let result = verify_preferences_consistency::<E>(&prefs.message, current_slot, &spec);
+    assert!(result.is_ok(), "got: {result:?}");
 }

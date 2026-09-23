@@ -25,6 +25,12 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     let proposal_epoch = proposal_slot.epoch(E::slots_per_epoch());
 
+    if let Some(gloas_fork_epoch) = spec.gloas_fork_epoch
+        && proposal_epoch < gloas_fork_epoch
+    {
+        return Err(ProposerPreferencesError::ProposalEpochPreGloas { proposal_epoch });
+    }
+
     if proposal_epoch < current_epoch
         || proposal_epoch > current_epoch.saturating_add(spec.min_seed_lookahead)
     {

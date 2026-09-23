@@ -15,7 +15,7 @@ use parking_lot::Mutex;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
-use ssz_types::{ProgressiveVariableList, VariableList};
+use ssz_types::{FixedVector, ProgressiveVariableList, VariableList};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -23,6 +23,7 @@ use std::sync::Arc;
 use tracing::warn;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use types::data::Cell;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
@@ -32,6 +33,9 @@ use types::{
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
 const TEST_BLOB_BUNDLE_V2: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle_v2.ssz");
+/// The cells of the (single) blob in `TEST_BLOB_BUNDLE_V2`, as an SSZ-encoded
+/// `FixedVector<Cell<E>, E::CellsPerExtBlob>`.
+const TEST_BLOB_CELLS: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle_v2_cells.ssz");
 
 pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
 const GAS_USED: u64 = DEFAULT_GAS_LIMIT - 1;
@@ -167,6 +171,9 @@ pub struct ExecutionBlockGenerator<E: EthSpec> {
      * deneb stuff
      */
     pub blobs_bundles: HashMap<PayloadId, BlobsBundle<E>>,
+    /// The cells for each blob in `blobs_bundles`, keyed by payload id and indexed by the blob's
+    /// position within the bundle. Only populated for Fulu-enabled payloads.
+    pub blob_cells: HashMap<PayloadId, Vec<Vec<Cell<E>>>>,
     pub kzg: Option<Arc<Kzg>>,
     rng: Arc<Mutex<StdRng>>,
     /*
@@ -221,6 +228,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             amsterdam_time,
             heze_time,
             blobs_bundles: <_>::default(),
+            blob_cells: <_>::default(),
             kzg,
             rng: make_rng(),
             execution_requests: <_>::default(),
@@ -505,8 +513,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         self.inclusion_list = transactions;
     }
 
-    /// Look up a blob and proof by versioned hash across all stored bundles.
-    pub fn get_blob_and_proof(&self, versioned_hash: &Hash256) -> Option<BlobAndProof<E>> {
+    /// Find the payload id, bundle, and blob index for a blob by versioned hash.
+    fn find_blob(&self, versioned_hash: &Hash256) -> Option<(&PayloadId, &BlobsBundle<E>, usize)> {
         self.blobs_bundles
             .iter()
             .find_map(|(payload_id, blobs_bundle)| {
@@ -518,25 +526,49 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                         .find(|(_, commitment)| {
                             &kzg_commitment_to_versioned_hash(commitment) == versioned_hash
                         })?;
-                let is_fulu = self.payload_ids.get(payload_id)?.fork_name().fulu_enabled();
-                let blob = blobs_bundle.blobs.get(blob_idx)?.clone();
-                if is_fulu {
-                    let start = blob_idx * E::cells_per_ext_blob();
-                    let end = start + E::cells_per_ext_blob();
-                    let proofs = blobs_bundle
-                        .proofs
-                        .get(start..end)?
-                        .to_vec()
-                        .try_into()
-                        .ok()?;
-                    Some(BlobAndProof::V2(BlobAndProofV2 { blob, proofs }))
-                } else {
-                    Some(BlobAndProof::V1(BlobAndProofV1 {
-                        blob,
-                        proof: *blobs_bundle.proofs.get(blob_idx)?,
-                    }))
-                }
+                Some((payload_id, blobs_bundle, blob_idx))
             })
+    }
+
+    /// Slice the cell proofs for the blob at `blob_idx` out of a Fulu-style bundle.
+    fn cell_proofs(blobs_bundle: &BlobsBundle<E>, blob_idx: usize) -> Option<KzgProofs<E>> {
+        let start = blob_idx * E::cells_per_ext_blob();
+        let end = start + E::cells_per_ext_blob();
+        blobs_bundle
+            .proofs
+            .get(start..end)?
+            .to_vec()
+            .try_into()
+            .ok()
+    }
+
+    /// Look up a blob and proof by versioned hash across all stored bundles.
+    pub fn get_blob_and_proof(&self, versioned_hash: &Hash256) -> Option<BlobAndProof<E>> {
+        let (payload_id, blobs_bundle, blob_idx) = self.find_blob(versioned_hash)?;
+        let is_fulu = self.payload_ids.get(payload_id)?.fork_name().fulu_enabled();
+        let blob = blobs_bundle.blobs.get(blob_idx)?.clone();
+        if is_fulu {
+            let proofs = Self::cell_proofs(blobs_bundle, blob_idx)?;
+            Some(BlobAndProof::V2(BlobAndProofV2 { blob, proofs }))
+        } else {
+            Some(BlobAndProof::V1(BlobAndProofV1 {
+                blob,
+                proof: *blobs_bundle.proofs.get(blob_idx)?,
+            }))
+        }
+    }
+
+    /// Look up the cells and cell proofs for a blob by versioned hash across all stored bundles.
+    ///
+    /// Returns `None` for pre-Fulu blobs, which have no cells.
+    pub fn get_blob_cells_and_proofs(
+        &self,
+        versioned_hash: &Hash256,
+    ) -> Option<(Vec<Cell<E>>, KzgProofs<E>)> {
+        let (payload_id, blobs_bundle, blob_idx) = self.find_blob(versioned_hash)?;
+        let cells = self.blob_cells.get(payload_id)?.get(blob_idx)?.clone();
+        let proofs = Self::cell_proofs(blobs_bundle, blob_idx)?;
+        Some((cells, proofs))
     }
 
     pub fn new_payload(&mut self, payload: ExecutionPayload<E>) -> PayloadStatusV1 {
@@ -545,6 +577,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 status: PayloadStatusV1Status::Syncing,
                 latest_valid_hash: None,
                 validation_error: None,
+                inclusion_list_satisfied: None,
             };
         };
 
@@ -553,6 +586,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 status: PayloadStatusV1Status::Invalid,
                 latest_valid_hash: Some(parent.block_hash()),
                 validation_error: Some("invalid block number".to_string()),
+                inclusion_list_satisfied: None,
             };
         }
 
@@ -563,6 +597,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             status: PayloadStatusV1Status::Valid,
             latest_valid_hash: Some(valid_hash),
             validation_error: None,
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -819,6 +854,9 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     block_access_list: ProgressiveVariableList::empty(),
                     slot_number: pa.slot_number.into(),
                 }),
+                _ => unreachable!(),
+            },
+            PayloadAttributes::V5(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
                 ForkName::Heze => ExecutionPayload::Heze(ExecutionPayloadHeze {
                     parent_hash: head_block_hash,
                     fee_recipient: pa.suggested_fee_recipient,
@@ -858,24 +896,31 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 let max_blobs = max(1, self.min_blobs_count);
                 let num_blobs = rng.random_range(self.min_blobs_count..=max_blobs);
                 let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
-                match &mut execution_payload {
-                    ExecutionPayload::Gloas(payload) => {
-                        for tx in Vec::from(transactions) {
-                            payload
-                                .transactions
-                                .push(ProgressiveVariableList::<u8>::new(tx.into()));
-                        }
+                // Gloas and later carry a progressive transactions list, earlier forks a bounded one.
+                if fork_name.gloas_enabled() {
+                    let payload_transactions = execution_payload
+                        .transactions_progressive_mut()
+                        .map_err(|e| format!("invalid payload variant: {e:?}"))?;
+                    for tx in Vec::from(transactions) {
+                        payload_transactions.push(ProgressiveVariableList::<u8>::new(tx.into()));
                     }
-                    _ => {
-                        for tx in Vec::from(transactions) {
-                            execution_payload
-                                .transactions_bounded_mut()
-                                .map_err(|e| format!("invalid payload variant: {e:?}"))?
-                                .push(tx)
-                                .map_err(|_| "transactions are full".to_string())?;
-                        }
+                } else {
+                    for tx in Vec::from(transactions) {
+                        execution_payload
+                            .transactions_bounded_mut()
+                            .map_err(|e| format!("invalid payload variant: {e:?}"))?
+                            .push(tx)
+                            .map_err(|_| "transactions are full".to_string())?;
                     }
                 }
+
+                if fork_name.fulu_enabled() {
+                    // `generate_blobs` only produces copies of the static test blob, so the
+                    // precomputed cells fixture applies to every blob in the bundle.
+                    let cells = load_test_blob_cells::<E>()?;
+                    self.blob_cells.insert(id, vec![cells; bundle.blobs.len()]);
+                }
+
                 bundle
             } else {
                 BlobsBundle::default()
@@ -936,6 +981,15 @@ pub fn load_test_blobs_bundle_v2<E: EthSpec>()
             .cloned()
             .ok_or("blob missing in test bundle")?,
     ))
+}
+
+/// Load the precomputed cells for the single blob in `TEST_BLOB_BUNDLE_V2`.
+///
+/// Every blob served by the mock EL is a copy of that blob, so these cells apply to all of them.
+pub fn load_test_blob_cells<E: EthSpec>() -> Result<Vec<Cell<E>>, String> {
+    FixedVector::<Cell<E>, E::CellsPerExtBlob>::from_ssz_bytes(TEST_BLOB_CELLS)
+        .map(|cells| cells.to_vec())
+        .map_err(|e| format!("Unable to decode ssz: {:?}", e))
 }
 
 pub fn generate_blobs<E: EthSpec>(
@@ -1169,5 +1223,37 @@ mod test {
     fn load_kzg() -> Result<Kzg, String> {
         Kzg::new_from_trusted_setup(&get_trusted_setup())
             .map_err(|e| format!("Failed to load trusted setup: {e:?}"))
+    }
+
+    #[test]
+    fn valid_test_blob_cells() {
+        validate_test_blob_cells::<MainnetEthSpec>()
+            .expect("Mainnet preset cells fixture should match the test blob");
+        validate_test_blob_cells::<MinimalEthSpec>()
+            .expect("Minimal preset cells fixture should match the test blob");
+    }
+
+    fn validate_test_blob_cells<E: EthSpec>() -> Result<(), String> {
+        let kzg = load_kzg()?;
+        let (_, _, blob) = load_test_blobs_bundle_v2::<E>()?;
+        let kzg_blob: KzgBlobRef = blob
+            .as_ref()
+            .try_into()
+            .map_err(|e| format!("Error converting blob to kzg blob ref: {e:?}"))?;
+        let computed = kzg
+            .compute_cells(kzg_blob)
+            .map_err(|e| format!("Failed to compute cells: {e:?}"))?;
+        let embedded = load_test_blob_cells::<E>()?;
+        if embedded.len() != computed.len()
+            || embedded
+                .iter()
+                .zip(computed.iter())
+                .any(|(embedded_cell, computed_cell)| {
+                    embedded_cell[..] != computed_cell.as_ref()[..]
+                })
+        {
+            return Err("cells fixture does not match cells computed from the test blob".into());
+        }
+        Ok(())
     }
 }
