@@ -6716,15 +6716,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             &chain.spec,
                         )?;
                     let head_state = &cached_head.snapshot.beacon_state;
-                    let parent_gas_limit = head_state
-                        .latest_execution_payload_bid()
-                        .map(|bid| bid.gas_limit)
-                        .or_else(|_| {
-                            head_state
-                                .latest_execution_payload_header()
-                                .map(|header| header.gas_limit())
-                        })
-                        .ok();
+                    let parent_gas_limit = if head_state.fork_name_unchecked().gloas_enabled() {
+                        head_state
+                            .latest_execution_payload_bid()
+                            .map(|bid| bid.gas_limit)
+                    } else {
+                        head_state
+                            .latest_execution_payload_header()
+                            .map(|header| header.gas_limit())
+                    }
+                    .ok();
                     let head_payload_status = cached_head.head_payload_status();
                     Ok::<_, Error>(Some((
                         fcu_params,

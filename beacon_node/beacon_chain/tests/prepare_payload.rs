@@ -806,6 +806,15 @@ async fn prepare_payload_on_fork_boundary(
         "prepare_beacon_proposer should use withdrawals computed from the \
          advanced state"
     );
+
+    let parent_gas_limit = unadvanced_state
+        .latest_execution_payload_header()
+        .unwrap()
+        .gas_limit();
+    let PayloadAttributes::V4(attributes) = attributes else {
+        panic!("expected V4 payload attributes, got {attributes:?}");
+    };
+    assert_eq!(attributes.target_gas_limit, parent_gas_limit);
 }
 
 #[tokio::test]
