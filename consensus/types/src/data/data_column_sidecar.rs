@@ -343,7 +343,9 @@ impl<E: EthSpec> DataColumnSidecarGloas<E> {
             beacon_block_root: Hash256::ZERO,
         }
         .ssz_bytes_len();
-        fixed_size + <Cell<E> as Encode>::ssz_fixed_len() + <KzgProof as Encode>::ssz_fixed_len()
+        fixed_size
+            .saturating_add(<Cell<E> as Encode>::ssz_fixed_len())
+            .saturating_add(<KzgProof as Encode>::ssz_fixed_len())
     }
 }
 
