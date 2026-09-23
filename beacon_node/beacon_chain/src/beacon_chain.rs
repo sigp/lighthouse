@@ -7090,7 +7090,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             self.canonical_head
                 .fork_choice_read_lock()
-                .is_optimistic_or_invalid_block(&block.canonical_root())
+                .is_optimistic_or_invalid_block_assuming_full(&block.canonical_root())
                 .map_err(BeaconChainError::ForkChoiceError)
         }
     }
@@ -7116,7 +7116,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             self.canonical_head
                 .fork_choice_read_lock()
-                .is_optimistic_or_invalid_block_no_fallback(&head_block.canonical_root())
+                .is_optimistic_or_invalid_block_assuming_full_no_fallback(
+                    &head_block.canonical_root(),
+                )
                 .map_err(BeaconChainError::ForkChoiceError)
         }
     }
@@ -7146,7 +7148,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } else {
             self.canonical_head
                 .fork_choice_read_lock()
-                .is_optimistic_or_invalid_block_no_fallback(block_root)
+                .is_optimistic_or_invalid_block_assuming_full_no_fallback(block_root)
                 .map_err(BeaconChainError::ForkChoiceError)
         }
     }

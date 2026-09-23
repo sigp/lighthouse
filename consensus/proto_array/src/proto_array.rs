@@ -319,30 +319,6 @@ pub struct NodeDelta {
 }
 
 impl NodeDelta {
-    /// Classify a vote into the payload bucket it contributes to for `block_slot`.
-    ///
-    /// Per the gloas model:
-    ///
-    /// - a same-slot vote is `Pending`
-    /// - a later vote with `payload_present = true` is `Full`
-    /// - a later vote with `payload_present = false` is `Empty`
-    ///
-    /// This classification is used only for payload-aware accounting; all votes still contribute to
-    /// the aggregate `delta`.
-    pub fn payload_status(
-        vote_slot: Slot,
-        payload_present: bool,
-        block_slot: Slot,
-    ) -> PayloadStatus {
-        if vote_slot == block_slot {
-            PayloadStatus::Pending
-        } else if payload_present {
-            PayloadStatus::Full
-        } else {
-            PayloadStatus::Empty
-        }
-    }
-
     /// Add `balance` to the payload bucket selected by `status`.
     ///
     /// `Pending` votes do not affect payload buckets, so this becomes a no-op for that case.
@@ -1400,8 +1376,6 @@ impl ProtoArray {
         Ok(leaves)
     }
 
-    /// Returns the canonical payload status of a block, matching the decision
-    /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
     /// Resolve the execution verdict of a fork choice node (a block root plus a payload status).
     ///
     /// A `FULL` node ran its own payload. An `EMPTY` (or same-slot `PENDING`) node ran no payload
@@ -1413,20 +1387,16 @@ impl ProtoArray {
     ) -> Result<ExecutionVerdict, Error> {
         match payload_status {
             PayloadStatus::Full => {
-                let index = *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;
-                let node = self
-                    .nodes
-                    .get(index)
-                    .ok_or(Error::InvalidNodeIndex(index))?;
+                let node = self.get_block(root).ok_or(Error::NodeUnknown(root))?;
                 Ok(node.execution_verdict())
             }
-            PayloadStatus::Empty | PayloadStatus::Pending => self.empty_node_execution_status(root),
+            PayloadStatus::Empty | PayloadStatus::Pending => self.inherited_execution_status(root),
         }
     }
 
     /// Walk up from an `EMPTY` node to the nearest ancestor whose payload the branch ran, and
     /// report that ancestor's verdict.
-    pub fn empty_node_execution_status(
+    pub fn inherited_execution_status(
         &self,
         block_root: Hash256,
     ) -> Result<ExecutionVerdict, Error> {
@@ -1452,8 +1422,8 @@ impl ProtoArray {
                 return Ok(ExecutionVerdict::Valid);
             };
 
-            // The parent payload this node extended from is the payload the empty branch ran.
             match gloas_node.parent_payload_status {
+                // The parent payload this node extended from is the payload the empty branch ran.
                 PayloadStatus::Full => {
                     break self
                         .nodes
@@ -1468,6 +1438,8 @@ impl ProtoArray {
         Ok(executed_node.execution_verdict())
     }
 
+    /// Returns the canonical payload status of a block, matching the decision
+    /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
     pub(crate) fn get_canonical_payload_status<E: EthSpec>(
         &self,
         root: Hash256,

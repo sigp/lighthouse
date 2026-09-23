@@ -123,6 +123,25 @@ pub enum PayloadStatus {
     Pending = 2,
 }
 
+impl PayloadStatus {
+    /// Classify a vote into the payload bucket it contributes to for `block_slot`.
+    ///
+    /// Per the gloas model:
+    ///
+    /// - a same-slot vote is `Pending`
+    /// - a later vote with `payload_present = true` is `Full`
+    /// - a later vote with `payload_present = false` is `Empty`
+    pub fn from_vote(vote_slot: Slot, payload_present: bool, block_slot: Slot) -> Self {
+        if vote_slot == block_slot {
+            PayloadStatus::Pending
+        } else if payload_present {
+            PayloadStatus::Full
+        } else {
+            PayloadStatus::Empty
+        }
+    }
+}
+
 /// Spec's `ForkChoiceNode` augmented with ProtoNode index.
 pub struct IndexedForkChoiceNode {
     pub root: Hash256,
@@ -1172,7 +1191,7 @@ impl ProtoArrayForkChoice {
         let block_slot = self.get_proto_node(&block_root)?.slot();
         Some(ForkChoiceNode::new(
             block_root,
-            NodeDelta::payload_status(vote_slot, payload_present, block_slot),
+            PayloadStatus::from_vote(vote_slot, payload_present, block_slot),
         ))
     }
 
@@ -1386,7 +1405,7 @@ fn compute_deltas(
                         .checked_sub(old_balance as i64)
                         .ok_or(Error::DeltaOverflow(current_delta_index))?;
 
-                    let status = NodeDelta::payload_status(
+                    let status = PayloadStatus::from_vote(
                         vote.current_slot,
                         vote.current_payload_present,
                         block_slot(current_delta_index)?,
@@ -1434,7 +1453,7 @@ fn compute_deltas(
                     .checked_sub(old_balance as i64)
                     .ok_or(Error::DeltaOverflow(current_delta_index))?;
 
-                let status = NodeDelta::payload_status(
+                let status = PayloadStatus::from_vote(
                     vote.current_slot,
                     vote.current_payload_present,
                     block_slot(current_delta_index)?,
@@ -1453,7 +1472,7 @@ fn compute_deltas(
                     .checked_add(new_balance as i64)
                     .ok_or(Error::DeltaOverflow(next_delta_index))?;
 
-                let status = NodeDelta::payload_status(
+                let status = PayloadStatus::from_vote(
                     vote.next_slot,
                     vote.next_payload_present,
                     block_slot(next_delta_index)?,

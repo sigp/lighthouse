@@ -1808,7 +1808,8 @@ where
             .is_descendant(ancestor_root, descendant_root)
     }
 
-    /// Returns `Ok(true)` if `block_root` has been imported optimistically or deemed invalid.
+    /// Returns `Ok(true)` if `block_root`'s `FULL` node has been imported optimistically or deemed
+    /// invalid.
     ///
     /// Returns `Ok(false)` if `block_root`'s execution payload has been elected as fully VALID, if
     /// it is a pre-Bellatrix block or if it is before the PoW terminal block.
@@ -1817,7 +1818,7 @@ where
     /// `execution_status` of the current finalized block.
     ///
     /// This function assumes the `block_root` exists.
-    pub fn is_optimistic_or_invalid_block(
+    pub fn is_optimistic_or_invalid_block_assuming_full(
         &self,
         block_root: &Hash256,
     ) -> Result<bool, Error<T::Error>> {
@@ -1832,12 +1833,12 @@ where
         }
     }
 
-    /// The same as `is_optimistic_block` but does not fallback to `self.get_finalized_block`
-    /// when the block cannot be found.
+    /// The same as `is_optimistic_or_invalid_block_assuming_full` but does not fallback to
+    /// `self.get_finalized_block` when the block cannot be found.
     ///
     /// Intended to be used when checking if the head has been imported optimistically or is
     /// invalid.
-    pub fn is_optimistic_or_invalid_block_no_fallback(
+    pub fn is_optimistic_or_invalid_block_assuming_full_no_fallback(
         &self,
         block_root: &Hash256,
     ) -> Result<bool, Error<T::Error>> {

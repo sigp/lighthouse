@@ -1254,13 +1254,12 @@ fn parent_node_of<'a>(
         .ok_or(Error::ParentRootNotFound(node.root()))
 }
 
-/// Return `true` if the block's execution payload is `Optimistic` or `Invalid`.
-/// Pre-bellatrix `Irrelevant` payloads and missing nodes are treated as not
-/// optimistic (the spec MUST applies post-merge). A missing node will be
-/// rejected later by `get_block_slot`, so this returning `false` here is safe.
+/// Return `true` if the most recently applied payload on `root`'s branch is `Optimistic` or
+/// `Invalid`. Pre-bellatrix `Irrelevant` payloads are treated as not optimistic (the spec MUST
+/// applies post-merge).
 fn is_optimistic_or_invalid(root: Hash256, proto_array: &ProtoArray) -> Result<bool, Error> {
     Ok(proto_array
-        .empty_node_execution_status(root)?
+        .inherited_execution_status(root)?
         .is_optimistic_or_invalid())
 }
 
