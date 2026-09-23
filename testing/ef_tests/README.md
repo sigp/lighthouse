@@ -40,8 +40,19 @@ $ cargo test --features ef_tests,disable_rayon -- --nocapture
 
 ## Light-client consumer sync
 
+Run the following commands from the repository root. Consumer unit tests and runner
+parser/comparison regression tests do not require downloaded vectors:
+
+```sh
+cargo test -p decentralized_checkpoint_sync
+cargo test -p ef_tests --lib cases::light_client_sync::tests
+```
+
 The `light_client_sync` integration test runs the official `light_client/sync` vectors
-through the transport-independent `decentralized_checkpoint_sync` crate:
+through the transport-independent `decentralized_checkpoint_sync` crate. If the vectors
+are not already available at the version configured in [Makefile](Makefile), download
+them with `make -C testing/ef_tests` (this replaces the existing vector directory).
+Then run both crypto backends:
 
 ```
 cargo nextest run --release -p ef_tests --features ef_tests light_client_sync
@@ -54,9 +65,9 @@ After every step it checks the finalized and optimistic slots, beacon roots, and
 Capella onward, historical-fork execution roots. Force updates are also checked not to
 advance Lighthouse's independently authenticated checkpoint.
 
-The pinned v1.7.0-alpha.14 generator emits only the **minimal** preset for sync. Altair
-through Fulu are supported. Gloas/Heze are explicitly disabled because Lighthouse does
-not implement their light-client types. Nine named Gloas-targeting cases in older-fork
+The sync integration test uses the **minimal** preset. Altair through Fulu are supported.
+Gloas/Heze are explicitly disabled because Lighthouse does not implement their light-client
+types. Nine named Gloas-targeting cases in older-fork
 directories are also explicitly disabled before execution; these are logged as disabled,
 not counted as passing or returned as known failures. Any other new case is enabled by
 default. Unknown contexts and bootstrap, process, force, upgrade or comparison errors fail
@@ -64,15 +75,23 @@ the test; failures are never converted into skips.
 
 Both commands run the same consumer code and the same vectors. The real-crypto run checks
 BLS signatures; the existing `bls/fake_crypto` backend uses dummy BLS operations, so its run
-checks parsing, Merkle proofs and state-machine behavior, not BLS security. `make test-ef`
-runs both backends as part of the complete EF suite. With `ef_tests` enabled, fixture-backed
-regression tests also check error propagation and comparison failures after each step.
+checks parsing, Merkle proofs and state-machine behavior, not BLS security. Both commands
+also select the runner's parser/comparison and fixture-backed regression tests, which
+check error propagation and comparison failures after each step.
 
-Parser and comparison regression tests do not require downloaded vectors:
+To run only the integration test and display per-fork results and disabled cases:
 
+```sh
+cargo test --release -p ef_tests --test light_client_sync --features ef_tests -- --nocapture
 ```
-cargo test -p ef_tests --lib cases::light_client_sync::tests
-```
+
+The integration test runs multiple official cases inside one Rust test. Individual EF
+case names are not selectable with Cargo or nextest test-name filters.
+
+For the complete EF suite, `make test-ef` downloads the configured vectors, runs both
+crypto backends, and checks vector-file access. Use `make run-ef-tests` to reuse a complete
+download of the configured version. The file-access check requires the full suite, not
+just the light-client sync tests.
 
 This tests the consumer state machine, not provider data collection, HTTP/P2P transport,
 or checkpoint startup integration. The vectors' `finalized_header` means spec state;
