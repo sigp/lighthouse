@@ -848,13 +848,13 @@ impl ChainSpec {
     }
 
     /// Gloas sidecar bounds use the largest blob limit in the entire schedule.
-    pub fn compute_max_data_column_sidecar_size<E: EthSpec>(&self) -> usize {
+    pub fn compute_max_data_column_sidecar_size_gloas<E: EthSpec>(&self) -> usize {
         crate::DataColumnSidecarGloas::<E>::max_size(
             self.max_blobs_per_block_within_fork(ForkName::Gloas) as usize,
         )
     }
 
-    pub fn compute_max_partial_data_column_sidecar_size<E: EthSpec>(&self) -> usize {
+    pub fn compute_max_partial_data_column_sidecar_size_gloas<E: EthSpec>(&self) -> usize {
         crate::PartialDataColumnSidecarGloas::<E>::max_size(
             self.max_blobs_per_block_within_fork(ForkName::Gloas) as usize,
         )
@@ -3586,11 +3586,11 @@ mod yaml_tests {
             20
         );
         assert_eq!(
-            spec.compute_max_data_column_sidecar_size::<MainnetEthSpec>(),
+            spec.compute_max_data_column_sidecar_size_gloas::<MainnetEthSpec>(),
             41976
         );
         assert_eq!(
-            spec.compute_max_partial_data_column_sidecar_size::<MainnetEthSpec>(),
+            spec.compute_max_partial_data_column_sidecar_size_gloas::<MainnetEthSpec>(),
             41935
         );
 
