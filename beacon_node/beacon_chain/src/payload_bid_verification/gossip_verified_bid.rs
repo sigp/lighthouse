@@ -435,6 +435,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
         let expected_randao = if bid_parent_block_root == cached_head.head_block_root() {
             cached_head.head_random()?
         } else {
+            // Head compatibility also permits a bid on the head's parent.
             cached_head.parent_random()?
         };
         if signed_bid.message.prev_randao != expected_randao {
