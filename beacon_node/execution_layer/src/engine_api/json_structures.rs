@@ -705,15 +705,15 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
             parse_execution_requests::<E>(value)?;
         // Re-type the parsed lists using progressive Merkleization for Gloas.
         Ok(ExecutionRequestsGloas {
-            deposits: ProgressiveVariableList::try_from_iter(deposits)
+            deposits: ProgressiveVariableList::new(deposits.to_vec())
                 .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
-            withdrawals: ProgressiveVariableList::try_from_iter(withdrawals)
+            withdrawals: ProgressiveVariableList::new(withdrawals.to_vec())
                 .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
-            consolidations: ProgressiveVariableList::try_from_iter(consolidations)
+            consolidations: ProgressiveVariableList::new(consolidations.to_vec())
                 .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
-            builder_deposits: ProgressiveVariableList::try_from_iter(builder_deposits)
+            builder_deposits: ProgressiveVariableList::new(builder_deposits.to_vec())
                 .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
-            builder_exits: ProgressiveVariableList::try_from_iter(builder_exits)
+            builder_exits: ProgressiveVariableList::new(builder_exits.to_vec())
                 .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
         })
     }
