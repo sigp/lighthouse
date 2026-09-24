@@ -184,6 +184,7 @@ async fn consumer_steps_preserve_source_error_category_cause_and_failed_response
         SourceErrorKind::InvalidData,
         SourceErrorKind::UnsupportedFork(ForkName::Gloas),
         SourceErrorKind::Configuration,
+        SourceErrorKind::LocalFailure,
     ] {
         for request in [
             Request::Bootstrap(fixture.trusted_root),

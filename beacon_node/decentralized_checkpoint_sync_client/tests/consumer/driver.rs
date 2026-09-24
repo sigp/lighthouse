@@ -219,6 +219,7 @@ async fn unavailable_invalid_and_verification_errors_are_not_retried() {
         SourceErrorKind::Unavailable,
         SourceErrorKind::InvalidData,
         SourceErrorKind::Configuration,
+        SourceErrorKind::LocalFailure,
     ] {
         let mut source = ScriptedSource::new([failure(
             Request::Bootstrap(fixture.trusted_root),

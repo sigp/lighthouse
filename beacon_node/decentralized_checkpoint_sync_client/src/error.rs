@@ -120,6 +120,9 @@ pub enum SourceErrorKind {
     UnsupportedFork(ForkName),
     #[error("invalid source configuration")]
     Configuration,
+    /// A local runtime, worker or allocation failure, not evidence about the provider's data.
+    #[error("local source execution failed")]
+    LocalFailure,
 }
 
 /// A source failure with accounting even when reception or decoding did not complete.

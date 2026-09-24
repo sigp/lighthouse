@@ -2658,7 +2658,10 @@ version = "8.2.2"
 dependencies = [
  "bls",
  "decentralized_checkpoint_sync",
+ "eth2",
  "merkle_proof",
+ "mockito",
+ "serde_json",
  "slot_clock",
  "thiserror 2.0.17",
  "tokio",

@@ -4,8 +4,8 @@
 //! `decentralized_checkpoint_sync` core is responsible for cryptographic verification.
 //! Bootstrap, update-range and finality steps call that core verifier before returning a store.
 //! Checkpoint freshness is evaluated against the local clock, independently of processing.
-//! The whole-task driver enforces retry, resource and no-progress limits. HTTP transport is not
-//! implemented yet; a provider's successful response never bypasses core verification.
+//! The whole-task driver enforces retry, resource and no-progress limits. [`HttpLightClientDataSource`]
+//! supplies bounded JSON REST reads; a provider's successful response never bypasses core verification.
 //!
 //! A startup caller must supply a trusted finalized root, the network's chain spec and
 //! genesis validators root, and a slot clock initialized from trusted genesis time. The source
@@ -15,6 +15,7 @@
 mod driver;
 mod error;
 mod finality;
+mod http;
 mod managed_source;
 mod policy;
 mod source;
@@ -27,6 +28,7 @@ pub use error::{
     SyncError, UpdateRangeError,
 };
 pub use finality::{ProcessedFinalityUpdate, process_finality_update, recent_checkpoint_header};
+pub use http::HttpLightClientDataSource;
 pub use policy::{RequestLimits, SyncPolicy, UpdateRange};
 pub use source::{LightClientData, LightClientDataSource, SourceResponse, SourceResult};
 pub use sync::{BootstrappedStore, bootstrap_light_client_store};
