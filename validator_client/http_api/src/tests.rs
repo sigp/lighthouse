@@ -1,5 +1,5 @@
 #![cfg(test)]
-// #![cfg(not(debug_assertions))]
+#![cfg(not(debug_assertions))]
 
 mod keystores;
 
