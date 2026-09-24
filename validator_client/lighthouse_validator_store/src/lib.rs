@@ -74,7 +74,6 @@ pub struct LighthouseValidatorStore<T, E> {
     slot_clock: T,
     fee_recipient_process: Option<Address>,
     gas_limit: Option<u64>,
-    gas_limit_last_warned_epoch: Arc<Mutex<Option<Epoch>>>,
     builder_proposals: bool,
     enable_web3signer_slashing_protection: bool,
     prefer_builder_proposals: bool,
@@ -107,7 +106,6 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             slot_clock,
             fee_recipient_process: config.fee_recipient,
             gas_limit: config.gas_limit,
-            gas_limit_last_warned_epoch: Arc::new(Mutex::new(None)),
             builder_proposals: config.builder_proposals,
             enable_web3signer_slashing_protection: config.enable_web3signer_slashing_protection,
             prefer_builder_proposals: config.prefer_builder_proposals,
@@ -352,37 +350,9 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         // file, use that value. If there's nothing in the file, try the
         // process-level value.
         let configured_gas_limit = gas_limit.or(self.gas_limit);
-        match (configured_gas_limit, scheduled_gas_limit) {
-            (Some(configured), Some(scheduled)) => {
-                // The scheduled gas limit is a recommended maximum, not a rule. Warn but
-                // honor the configured value.
-                if configured > scheduled {
-                    self.warn_once_per_epoch(epoch, configured, scheduled);
-                }
-                configured
-            }
-            (Some(configured), None) => configured,
-            (None, Some(scheduled)) => scheduled,
-            (None, None) => DEFAULT_GAS_LIMIT,
-        }
-    }
-
-    fn warn_once_per_epoch(
-        &self,
-        epoch: Option<Epoch>,
-        configured_gas_limit: u64,
-        scheduled_gas_limit: u64,
-    ) {
-        let mut last_warned_epoch = self.gas_limit_last_warned_epoch.lock();
-        if *last_warned_epoch != epoch {
-            *last_warned_epoch = epoch;
-            warn!(
-                ?epoch,
-                configured_gas_limit,
-                scheduled_gas_limit,
-                "Configured gas limit exceeds the recommended maximum from the gas limit schedule"
-            );
-        }
+        configured_gas_limit
+            .or(scheduled_gas_limit)
+            .unwrap_or(DEFAULT_GAS_LIMIT)
     }
 
     fn proposal_data_with_epoch(
@@ -1707,23 +1677,6 @@ mod tests {
             store.get_gas_limit(&PublicKeyBytes::empty()),
             process_gas_limit
         );
-        assert_eq!(
-            *store.gas_limit_last_warned_epoch.lock(),
-            Some(Epoch::new(GLOAS_FORK_EPOCH))
-        );
-    }
-
-    #[tokio::test]
-    async fn configured_gas_limit_at_or_below_schedule_does_not_warn() {
-        let spec = gloas_spec_with_schedule(default_schedule());
-        let clock = slot_clock_at_epoch(GLOAS_FORK_EPOCH);
-        let (store, _dir) = build_store(spec, Some(SCHEDULED_GAS_LIMIT), clock).await;
-
-        assert_eq!(
-            store.get_gas_limit(&PublicKeyBytes::empty()),
-            SCHEDULED_GAS_LIMIT
-        );
-        assert_eq!(*store.gas_limit_last_warned_epoch.lock(), None);
     }
 
     #[tokio::test]
