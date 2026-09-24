@@ -1250,7 +1250,7 @@ impl<E: EthSpec> Tester<E> {
     ) -> Result<(), Error> {
         let mut fc = self.harness.chain.canonical_head.fork_choice_write_lock();
         let slot = self.harness.chain.slot().unwrap();
-        let (canonical_head, _) = fc.get_head(slot, &self.harness.spec).unwrap();
+        let canonical_head = fc.get_head(slot, &self.harness.spec).unwrap().root();
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,
