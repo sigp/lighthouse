@@ -1,12 +1,13 @@
 use crate::NetworkConfig;
 use crate::metrics;
 use crate::nat;
-use crate::network_beacon_processor::InvalidBlockStorage;
+use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
+use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::BeaconProcessorSend;
+use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
@@ -193,9 +194,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     network_recv: mpsc::UnboundedReceiver<NetworkMessage<T::EthSpec>>,
     /// The receiver channel for lighthouse to send validator subscription requests.
     validator_subscription_recv: mpsc::Receiver<ValidatorSubscriptionMessage>,
-    /// The sending channel for the network service to send messages to be routed throughout
-    /// lighthouse.
-    router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
+    /// The router, which dispatches inbound network messages to their consumers.
+    router: Router<T>,
     /// A reference to lighthouse's database to persist the DHT.
     store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
@@ -319,16 +319,39 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch derived network services
 
-        // router task
-        let router_send = Router::spawn(
+        // generate the sync message channel
+        let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
+        let network_send = network_senders.network_send();
+
+        let network_beacon_processor = Arc::new(NetworkBeaconProcessor {
+            beacon_processor_send,
+            duplicate_cache: DuplicateCache::default(),
+            chain: beacon_chain.clone(),
+            network_tx: network_send.clone(),
+            sync_tx: sync_send.clone(),
+            network_globals: network_globals.clone(),
+            invalid_block_storage,
+            executor: executor.clone(),
+        });
+
+        // spawn the sync thread
+        crate::sync::manager::spawn(
+            executor.clone(),
+            beacon_chain.clone(),
+            network_send.clone(),
+            network_beacon_processor.clone(),
+            sync_recv,
+            fork_context.clone(),
+        );
+
+        // router
+        let router = Router::new(
             beacon_chain.clone(),
             network_globals.clone(),
-            network_senders.network_send(),
-            executor.clone(),
-            invalid_block_storage,
-            beacon_processor_send,
-            fork_context.clone(),
-        )?;
+            network_send,
+            network_beacon_processor,
+            sync_send,
+        );
 
         // attestation and sync committee subnet service
         let subnet_service = SubnetService::new(
@@ -355,7 +378,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             subnet_service,
             network_recv,
             validator_subscription_recv,
-            router_send,
+            router,
             store,
             network_globals: network_globals.clone(),
             next_digest_update,
@@ -419,9 +442,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     }
 
     fn send_to_router(&mut self, msg: RouterMessage<T::EthSpec>) {
-        if let Err(mpsc::error::SendError(msg)) = self.router_send.send(msg) {
-            debug!(?msg, "Failed to send msg to router");
-        }
+        self.router.handle_message(msg);
     }
 
     fn spawn_service(mut self, executor: task_executor::TaskExecutor) {

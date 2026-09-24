@@ -5,13 +5,11 @@
 //! syncing-related responses to the Sync manager.
 #![allow(clippy::unit_arg)]
 
-use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
+use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::service::NetworkMessage;
 use crate::status::status_message;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::{BeaconProcessorSend, DuplicateCache};
-use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
     GossipTopic, MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
@@ -22,10 +20,9 @@ use logging::crit;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, trace, warn};
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, PartialDataColumn, SignedBeaconBlock,
+    BlobSidecar, DataColumnSidecar, EthSpec, PartialDataColumn, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope,
 };
 
@@ -81,72 +78,28 @@ pub enum RouterMessage<E: EthSpec> {
 }
 
 impl<T: BeaconChainTypes> Router<T> {
-    /// Initializes and runs the Router.
-    #[allow(clippy::too_many_arguments)]
-    pub fn spawn(
+    /// Initializes the Router.
+    pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
-        executor: task_executor::TaskExecutor,
-        invalid_block_storage: InvalidBlockStorage,
-        beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-        fork_context: Arc<ForkContext>,
-    ) -> Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>, String> {
+        network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
+        sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    ) -> Router<T> {
         trace!("Service starting");
 
-        let (handler_send, handler_recv) = mpsc::unbounded_channel();
-
-        // generate the message channel
-        let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
-
-        let network_beacon_processor = NetworkBeaconProcessor {
-            beacon_processor_send,
-            duplicate_cache: DuplicateCache::default(),
-            chain: beacon_chain.clone(),
-            network_tx: network_send.clone(),
-            sync_tx: sync_send.clone(),
-            network_globals: network_globals.clone(),
-            invalid_block_storage,
-            executor: executor.clone(),
-        };
-        let network_beacon_processor = Arc::new(network_beacon_processor);
-
-        // spawn the sync thread
-        crate::sync::manager::spawn(
-            executor.clone(),
-            beacon_chain.clone(),
-            network_send.clone(),
-            network_beacon_processor.clone(),
-            sync_recv,
-            fork_context,
-        );
-
-        // generate the Message handler
-        let mut handler = Router {
+        Router {
             network_globals,
             chain: beacon_chain,
             sync_send,
             network: HandlerNetworkContext::new(network_send),
             network_beacon_processor,
             logger_debounce: TimeLatch::default(),
-        };
-
-        // spawn handler task and move the message handler instance into the spawned thread
-        executor.spawn(
-            async move {
-                debug!("Network message router started");
-                UnboundedReceiverStream::new(handler_recv)
-                    .for_each(move |msg| future::ready(handler.handle_message(msg)))
-                    .await;
-            },
-            "router",
-        );
-
-        Ok(handler_send)
+        }
     }
 
     /// Handle all messages incoming from the network service.
-    fn handle_message(&mut self, message: RouterMessage<T::EthSpec>) {
+    pub(crate) fn handle_message(&mut self, message: RouterMessage<T::EthSpec>) {
         match message {
             // we have initiated a connection to a peer or the peer manager has requested a
             // re-status
