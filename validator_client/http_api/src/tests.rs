@@ -835,7 +835,7 @@ impl ApiTester {
         let resp = self.client.get_graffiti(&validator.voting_pubkey).await;
 
         assert!(resp.is_ok());
-        assert_eq!(&resp.unwrap().graffiti, &expected_graffiti_str.into());
+        assert_eq!(&resp.unwrap().graffiti, &expected_graffiti_str);
 
         self
     }
