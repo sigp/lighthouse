@@ -7,9 +7,8 @@ use strum::EnumString;
 use superstruct::superstruct;
 use types::data::{BlobsList, Cell, ColumnIndex};
 use types::execution::{
-    BlockAccessList, BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests,
-    DepositRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ProgressiveTransactions,
-    RequestType, WithdrawalRequests,
+    BlockAccessList, ExecutionRequestsElectra, ExecutionRequestsGloas, ProgressiveTransactions,
+    RequestType,
 };
 use types::kzg_ext::KzgCommitments;
 use types::{Blob, KzgProof};
@@ -576,28 +575,25 @@ impl<E: EthSpec> From<ExecutionRequests<E>> for JsonExecutionRequests {
     }
 }
 
-/// Parse an EIP-7685 `JsonExecutionRequests` list into its component request lists.
+/// Parse an EIP-7685 `JsonExecutionRequests` list using the request types for the fork.
 ///
-/// Returns the deposit, withdrawal, consolidation, builder deposit and builder exit lists.
-/// Builder lists are empty pre-gloas or post-gloas when no builder requests are present.
-#[allow(clippy::type_complexity)]
+/// Gloas uses progressive lists and removes the deposit-request count limit.
+/// Builder requests are only valid from Gloas onwards.
 fn parse_execution_requests<E: EthSpec>(
     value: JsonExecutionRequests,
-) -> Result<
-    (
-        DepositRequests<E>,
-        WithdrawalRequests<E>,
-        ConsolidationRequests<E>,
-        BuilderDepositRequests<E>,
-        BuilderExitRequests<E>,
-    ),
-    RequestsError,
-> {
-    let mut deposits = DepositRequests::<E>::default();
-    let mut withdrawals = WithdrawalRequests::<E>::default();
-    let mut consolidations = ConsolidationRequests::<E>::default();
-    let mut builder_deposits = BuilderDepositRequests::<E>::default();
-    let mut builder_exits = BuilderExitRequests::<E>::default();
+    fork_name: ForkName,
+) -> Result<ExecutionRequests<E>, RequestsError> {
+    fn decode<T: Decode>(bytes: &[u8], kind: RequestType) -> Result<T, RequestsError> {
+        T::from_ssz_bytes(bytes).map_err(|e| {
+            RequestsError::DecodeError(format!("Failed to decode {kind:?}Request from EL: {e:?}"))
+        })
+    }
+
+    let mut requests = if fork_name.gloas_enabled() {
+        ExecutionRequests::Gloas(ExecutionRequestsGloas::<E>::default())
+    } else {
+        ExecutionRequests::Electra(ExecutionRequestsElectra::<E>::default())
+    };
     let mut prev_prefix: Option<RequestType> = None;
     for (i, request) in value.0.into_iter().enumerate() {
         // hex string
@@ -622,78 +618,52 @@ fn parse_execution_requests<E: EthSpec>(
         }
         prev_prefix = Some(current_prefix);
 
-        match current_prefix {
-            RequestType::Deposit => {
-                deposits = DepositRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
-                    RequestsError::DecodeError(format!(
-                        "Failed to decode DepositRequest from EL: {:?}",
-                        e
-                    ))
-                })?;
-            }
-            RequestType::Withdrawal => {
-                withdrawals =
-                    WithdrawalRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode WithdrawalRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::Consolidation => {
-                consolidations = ConsolidationRequests::<E>::from_ssz_bytes(request_bytes)
-                    .map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode ConsolidationRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::BuilderDeposit => {
-                builder_deposits = BuilderDepositRequests::<E>::from_ssz_bytes(request_bytes)
-                    .map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode BuilderDepositRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::BuilderExit => {
-                builder_exits =
-                    BuilderExitRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode BuilderExitRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
+        match &mut requests {
+            ExecutionRequests::Electra(requests) => match current_prefix {
+                RequestType::Deposit => {
+                    requests.deposits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Withdrawal => {
+                    requests.withdrawals = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Consolidation => {
+                    requests.consolidations = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderDeposit | RequestType::BuilderExit => {
+                    return Err(RequestsError::VariantMismatch);
+                }
+            },
+            ExecutionRequests::Gloas(requests) => match current_prefix {
+                RequestType::Deposit => {
+                    requests.deposits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Withdrawal => {
+                    requests.withdrawals = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Consolidation => {
+                    requests.consolidations = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderDeposit => {
+                    requests.builder_deposits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderExit => {
+                    requests.builder_exits = decode(request_bytes, current_prefix)?;
+                }
+            },
         }
     }
 
-    Ok((
-        deposits,
-        withdrawals,
-        consolidations,
-        builder_deposits,
-        builder_exits,
-    ))
+    Ok(requests)
 }
 
 impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsElectra<E> {
     type Error = RequestsError;
 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
-        let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
-            parse_execution_requests::<E>(value)?;
-        // Builder requests are not valid pre-Gloas.
-        if !builder_deposits.is_empty() || !builder_exits.is_empty() {
-            return Err(RequestsError::VariantMismatch);
+        match parse_execution_requests::<E>(value, ForkName::Electra)? {
+            ExecutionRequests::Electra(requests) => Ok(requests),
+            ExecutionRequests::Gloas(_) => Err(RequestsError::VariantMismatch),
         }
-        Ok(ExecutionRequestsElectra {
-            deposits,
-            withdrawals,
-            consolidations,
-        })
     }
 }
 
@@ -701,21 +671,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
     type Error = RequestsError;
 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
-        let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
-            parse_execution_requests::<E>(value)?;
-        // Re-type the parsed lists using progressive Merkleization for Gloas.
-        Ok(ExecutionRequestsGloas {
-            deposits: ProgressiveVariableList::new(deposits.to_vec())
-                .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
-            withdrawals: ProgressiveVariableList::new(withdrawals.to_vec())
-                .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
-            consolidations: ProgressiveVariableList::new(consolidations.to_vec())
-                .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
-            builder_deposits: ProgressiveVariableList::new(builder_deposits.to_vec())
-                .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
-            builder_exits: ProgressiveVariableList::new(builder_exits.to_vec())
-                .map_err(|e| RequestsError::DecodeError(e.to_string()))?,
-        })
+        match parse_execution_requests::<E>(value, ForkName::Gloas)? {
+            ExecutionRequests::Gloas(requests) => Ok(requests),
+            ExecutionRequests::Electra(_) => Err(RequestsError::VariantMismatch),
+        }
     }
 }
 
@@ -1571,6 +1530,51 @@ mod tests {
         ProgressiveVariableList::new(vec![x.clone()]).unwrap()
     }
 
+    #[test]
+    fn deposit_request_limits_by_fork() {
+        let deposit = DepositRequest {
+            pubkey: PublicKeyBytes::empty(),
+            withdrawal_credentials: Hash256::ZERO,
+            amount: 32,
+            signature: SignatureBytes::empty(),
+            index: 0,
+        };
+        let max = MainnetEthSpec::max_deposit_requests_per_payload();
+        for count in [max, max + 1] {
+            let deposits = vec![deposit.clone(); count];
+            let json = JsonExecutionRequests(vec![create_request_string(
+                RequestType::Deposit.to_u8(),
+                &deposits,
+            )]);
+
+            let electra = ExecutionRequestsElectra::<MainnetEthSpec>::try_from(json.clone());
+            if count == max {
+                assert_eq!(electra.unwrap().deposits.to_vec(), deposits);
+            } else {
+                assert!(matches!(electra, Err(RequestsError::DecodeError(_))));
+            }
+            let gloas = ExecutionRequestsGloas::<MainnetEthSpec>::try_from(json.clone()).unwrap();
+            assert_eq!(gloas.deposits.to_vec(), deposits);
+
+            for fork in [ForkName::Fulu, ForkName::Heze] {
+                let parsed = parse_execution_requests::<MainnetEthSpec>(json.clone(), fork);
+                match fork {
+                    ForkName::Fulu if count > max => {
+                        assert!(matches!(parsed, Err(RequestsError::DecodeError(_))));
+                    }
+                    ForkName::Fulu => assert!(matches!(
+                        parsed.unwrap(),
+                        ExecutionRequests::Electra(requests) if requests.deposits.to_vec() == deposits
+                    )),
+                    _ => assert!(matches!(
+                        parsed.unwrap(),
+                        ExecutionRequests::Gloas(requests) if requests.deposits.to_vec() == deposits
+                    )),
+                }
+            }
+        }
+    }
+
     /// Tests all error conditions except ssz decoding errors
     ///
     /// ***
@@ -1774,6 +1778,42 @@ mod tests {
             source_address: Address::random(),
             pubkey: PublicKeyBytes::empty(),
         };
+
+        // Unlike validator deposits, all other Gloas request lists remain bounded.
+        fn check_limit<T: Encode + Clone>(kind: RequestType, request: T, max: usize) {
+            for count in [max, max + 1] {
+                let json = JsonExecutionRequests(vec![create_request_string(
+                    kind.to_u8(),
+                    &vec![request.clone(); count],
+                )]);
+                let result = ExecutionRequestsGloas::<MainnetEthSpec>::try_from(json);
+                if count == max {
+                    assert!(result.is_ok(), "{kind:?}: {result:?}");
+                } else {
+                    assert!(matches!(result, Err(RequestsError::DecodeError(_))));
+                }
+            }
+        }
+        check_limit(
+            RequestType::Withdrawal,
+            withdrawal_request.clone(),
+            MainnetEthSpec::max_withdrawal_requests_per_payload(),
+        );
+        check_limit(
+            RequestType::Consolidation,
+            consolidation_request.clone(),
+            MainnetEthSpec::max_consolidation_requests_per_payload(),
+        );
+        check_limit(
+            RequestType::BuilderDeposit,
+            builder_deposit_request.clone(),
+            MainnetEthSpec::max_builder_deposit_requests_per_payload(),
+        );
+        check_limit(
+            RequestType::BuilderExit,
+            builder_exit_request.clone(),
+            MainnetEthSpec::max_builder_exit_requests_per_payload(),
+        );
 
         // Valid request with all five request types, in ascending prefix order.
         assert_eq!(
