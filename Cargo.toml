@@ -226,7 +226,7 @@ sensitive_url = { version = "0.1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_repr = "0.1"
-sha2 = "0.10"
+sha2 = "0.11"
 signing_method = { path = "validator_client/signing_method" }
 slasher = { path = "slasher", default-features = false }
 slashing_protection = { path = "validator_client/slashing_protection" }
@@ -239,7 +239,7 @@ store = { path = "beacon_node/store" }
 strum = { version = "0.27", features = ["derive"] }
 superstruct = "0.10"
 swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
-syn = "2"
+syn = "3"
 sysinfo = "0.26"
 system_health = { path = "common/system_health" }
 task_executor = { path = "common/task_executor" }

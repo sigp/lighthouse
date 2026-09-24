@@ -9,7 +9,6 @@ use crate::json_keystore::{
 };
 use aes::Aes128;
 use bls::{Keypair, PublicKey, SecretKey, ZeroizeHash};
-use cipher::generic_array::GenericArray;
 use cipher::{KeyIvInit, StreamCipher};
 use ctr::Ctr64BE;
 use eth2_key_derivation::PlainText;
@@ -349,9 +348,14 @@ pub fn encrypt(
             validate_aes_iv(params.iv.as_bytes())?;
 
             // AES Encrypt
-            let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
-            let nonce = GenericArray::from_slice(params.iv.as_bytes());
-            let mut cipher = Ctr64BE::<Aes128>::new(key, nonce);
+            let mut cipher = Ctr64BE::<Aes128>::new_from_slices(
+                &derived_key.as_bytes()[0..16],
+                params.iv.as_bytes(),
+            )
+            .map_err(|_| Error::IncorrectIvSize {
+                expected: IV_SIZE,
+                len: params.iv.as_bytes().len(),
+            })?;
             cipher.apply_keystream(&mut cipher_text);
         }
     };
@@ -395,9 +399,14 @@ pub fn decrypt(password: &[u8], crypto: &Crypto) -> Result<PlainText, Error> {
             validate_aes_iv(params.iv.as_bytes())?;
 
             // AES Decrypt
-            let key = GenericArray::from_slice(&derived_key.as_bytes()[0..16]);
-            let nonce = GenericArray::from_slice(params.iv.as_bytes());
-            let mut cipher = Ctr64BE::<Aes128>::new(key, nonce);
+            let mut cipher = Ctr64BE::<Aes128>::new_from_slices(
+                &derived_key.as_bytes()[0..16],
+                params.iv.as_bytes(),
+            )
+            .map_err(|_| Error::IncorrectIvSize {
+                expected: IV_SIZE,
+                len: params.iv.as_bytes().len(),
+            })?;
             cipher.apply_keystream(plain_text.as_mut_bytes());
         }
     };

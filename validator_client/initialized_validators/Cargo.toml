@@ -12,7 +12,7 @@ eth2_keystore = { workspace = true }
 filesystem = { workspace = true }
 lockfile = { workspace = true }
 metrics = { workspace = true }
-p12-keystore = "0.2"
+p12-keystore = "0.3"
 parking_lot = { workspace = true }
 pem = "3"
 rand = { workspace = true }
