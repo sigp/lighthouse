@@ -104,10 +104,7 @@ impl StateId {
                     .map_err(warp_utils::reject::unhandled_error)?
                 {
                     let fork_choice = chain.canonical_head.fork_choice_read_lock();
-                    let finalized_root = fork_choice
-                        .cached_fork_choice_view()
-                        .finalized_checkpoint
-                        .root;
+                    let finalized_root = fork_choice.finalized_checkpoint().root;
                     let execution_optimistic = fork_choice
                         .is_optimistic_or_invalid_block_no_fallback(&finalized_root)
                         .map_err(BeaconChainError::ForkChoiceError)
@@ -262,7 +259,7 @@ pub fn checkpoint_slot_and_execution_optimistic<T: BeaconChainTypes>(
 ) -> Result<(Slot, ExecutionOptimistic), warp::reject::Rejection> {
     let slot = checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
-    let finalized_checkpoint = fork_choice.cached_fork_choice_view().finalized_checkpoint;
+    let finalized_checkpoint = fork_choice.finalized_checkpoint();
 
     // If the checkpoint is pre-finalization, just use the optimistic status of the finalized
     // block.

@@ -1,3 +1,4 @@
+use crate::ForkchoiceUpdateParameters;
 use crate::test_utils::{DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_JWT_SECRET};
 use crate::{Config, ExecutionLayer, PayloadAttributes, PayloadParameters};
 use bls::{PublicKeyBytes, SecretKey, Signature};
@@ -12,7 +13,6 @@ use eth2::{
     BeaconNodeHttpClient, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
     Timeouts,
 };
-use fork_choice::ForkchoiceUpdateParameters;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use ssz::Encode;

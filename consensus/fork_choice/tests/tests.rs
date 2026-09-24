@@ -317,6 +317,12 @@ impl ForkChoiceTest {
         let mut block = (*block_arc).clone();
         func(&mut block, &mut state);
         let current_slot = self.harness.get_current_slot();
+        let current_head_root = self
+            .harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_block_root();
         self.harness
             .chain
             .canonical_head
@@ -325,6 +331,7 @@ impl ForkChoiceTest {
                 current_slot,
                 block.message(),
                 block.canonical_root(),
+                current_head_root,
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
@@ -359,6 +366,12 @@ impl ForkChoiceTest {
         let mut block = (*block_arc).clone();
         mutation_func(&mut block, &mut state);
         let current_slot = self.harness.get_current_slot();
+        let current_head_root = self
+            .harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_block_root();
         let err = self
             .harness
             .chain
@@ -368,6 +381,7 @@ impl ForkChoiceTest {
                 current_slot,
                 block.message(),
                 block.canonical_root(),
+                current_head_root,
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,

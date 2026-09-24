@@ -49,13 +49,11 @@ use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
     EventKind, SseChainReorg, SseFastConfirmation, SseFinalizedCheckpoint, SseHeadV2,
 };
+use execution_layer::ForkchoiceUpdateParameters;
 use fast_confirmation::{
     Error as FastConfirmationError, FastConfirmationRule, metrics as fcr_metrics,
 };
-use fork_choice::{
-    ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, PayloadStatus,
-    ProtoBlock,
-};
+use fork_choice::{ExecutionStatus, ForkChoiceStore, ForkChoiceView, PayloadStatus, ProtoBlock};
 use itertools::process_results;
 
 use logging::crit;
@@ -469,8 +467,14 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         store: &BeaconStore<T>,
         spec: &ChainSpec,
     ) -> Result<Self, String> {
-        let fork_choice_view = fork_choice.cached_fork_choice_view();
-        let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
+        let head_block_root = snapshot.beacon_block_root;
+        let fork_choice_view = ForkChoiceView {
+            head_block_root,
+            justified_checkpoint: fork_choice.justified_checkpoint(),
+            finalized_checkpoint: fork_choice.finalized_checkpoint(),
+        };
+        let forkchoice_update_params =
+            forkchoice_update_parameters::<T>(&fork_choice, head_block_root, head_payload_status);
 
         let fcr = if fast_confirmation.is_enabled() {
             Some(Mutex::new(
@@ -809,14 +813,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
 
         // Recompute the current head via the fork choice algorithm.
-        let (_, new_payload_status) = fork_choice_write_lock.get_head(current_slot, &self.spec)?;
+        let (new_head_root, new_payload_status) =
+            fork_choice_write_lock.get_head(current_slot, &self.spec)?;
 
         // Downgrade the fork choice write-lock to a read lock, without allowing access to any
         // other writers.
         let fork_choice_read_lock = fork_choice_write_lock.downgrade();
 
         // Read the current head value from the fork choice algorithm.
-        let new_view = fork_choice_read_lock.cached_fork_choice_view();
+        let new_view = ForkChoiceView {
+            head_block_root: new_head_root,
+            justified_checkpoint: fork_choice_read_lock.justified_checkpoint(),
+            finalized_checkpoint: fork_choice_read_lock.finalized_checkpoint(),
+        };
 
         // Check to ensure that the finalized block hasn't been marked as invalid. If it has,
         // shut down Lighthouse.
@@ -857,8 +866,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Get the parameters to update the execution layer since either the head or some finality
         // parameters have changed. Snapshot the pre-FCR value so the early-return below can detect
         // an FCR-advanced `justified_hash` even when the head/checkpoints are unchanged.
-        let mut new_forkchoice_update_parameters =
-            fork_choice_read_lock.get_forkchoice_update_parameters();
+        let mut new_forkchoice_update_parameters = forkchoice_update_parameters::<T>(
+            &fork_choice_read_lock,
+            new_head_root,
+            new_payload_status,
+        );
 
         // Run the Fast Confirmation Rule (FCR) while we still hold the fork choice read lock.
         // FCR must run even when the head hasn't changed, because new attestations may advance
@@ -2099,5 +2111,40 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 "On-time head block"
             );
         }
+    }
+}
+
+/// Compute the values sent to the execution engine via `forkchoiceUpdated` for the fork choice
+/// head returned by `get_head`. `head_payload_status` must be that head's payload status.
+fn forkchoice_update_parameters<T: BeaconChainTypes>(
+    fork_choice: &BeaconForkChoice<T>,
+    head_root: Hash256,
+    head_payload_status: PayloadStatus,
+) -> ForkchoiceUpdateParameters {
+    let head_hash = fork_choice.get_block(&head_root).and_then(|b| {
+        b.execution_status
+            .block_hash()
+            .or(match head_payload_status {
+                PayloadStatus::Full => b.execution_payload_block_hash,
+                PayloadStatus::Pending | PayloadStatus::Empty => b.execution_payload_parent_hash,
+            })
+    });
+    let justified_root = fork_choice.justified_checkpoint().root;
+    let finalized_root = fork_choice.finalized_checkpoint().root;
+    let justified_hash = fork_choice.get_block(&justified_root).and_then(|b| {
+        b.execution_status
+            .block_hash()
+            .or(b.execution_payload_parent_hash)
+    });
+    let finalized_hash = fork_choice.get_block(&finalized_root).and_then(|b| {
+        b.execution_status
+            .block_hash()
+            .or(b.execution_payload_parent_hash)
+    });
+    ForkchoiceUpdateParameters {
+        head_root,
+        head_hash,
+        justified_hash,
+        finalized_hash,
     }
 }
