@@ -366,7 +366,10 @@ async fn harness_builds_and_imports_payload_attestation_messages() {
         ctx.harness
             .chain
             .op_pool
-            .get_payload_attestations(slot, beacon_block_root)
+            .get_payload_attestations(
+                |data| data.slot == slot && data.beacon_block_root == beacon_block_root,
+                true,
+            )
             .iter()
             .map(|attestation| attestation.aggregation_bits.num_set_bits())
             .sum()

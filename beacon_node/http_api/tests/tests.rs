@@ -3159,9 +3159,8 @@ impl ApiTester {
     fn pooled_payload_attestation_bits(&self, data: &PayloadAttestationData) -> usize {
         self.chain
             .op_pool
-            .get_payload_attestations(data.slot, data.beacon_block_root)
+            .get_payload_attestations(|pooled| pooled == data, true)
             .iter()
-            .filter(|attestation| &attestation.data == data)
             .map(|attestation| attestation.aggregation_bits.num_set_bits())
             .sum()
     }

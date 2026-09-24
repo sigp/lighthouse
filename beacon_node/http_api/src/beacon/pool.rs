@@ -582,13 +582,27 @@ pub fn get_beacon_pool_payload_attestations<T: BeaconChainTypes>(
              query: PayloadAttestationPoolQuery,
              accept_header: Option<Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
-                    let fork_name = ForkName::Gloas;
-                    let attestations = chain.op_pool.get_all_payload_attestations(query.slot);
+                    let slot = if let Some(query_slot) = query.slot {
+                        query_slot
+                    } else {
+                        chain
+                            .slot_clock
+                            .now()
+                            .ok_or(warp_utils::reject::custom_server_error(
+                                "unable to read slot clock".to_string(),
+                            ))?
+                    };
+
+                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+                    let payload_attestations = chain.op_pool.get_payload_attestations(
+                        |data| query.slot.is_none_or(|slot| data.slot == slot),
+                        false,
+                    );
 
                     match accept_header {
                         Some(Accept::Ssz) => Builder::new()
                             .status(200)
-                            .body(attestations.as_ssz_bytes())
+                            .body(payload_attestations.as_ssz_bytes())
                             .map(add_ssz_content_type_header)
                             .map(|res| add_consensus_version_header(res, fork_name))
                             .map_err(|e| {
@@ -600,7 +614,7 @@ pub fn get_beacon_pool_payload_attestations<T: BeaconChainTypes>(
                         _ => {
                             let res = beacon_response(
                                 ResponseIncludesVersion::Yes(fork_name),
-                                &attestations,
+                                &payload_attestations,
                             );
                             Ok(add_consensus_version_header(
                                 warp::reply::json(&res).into_response(),

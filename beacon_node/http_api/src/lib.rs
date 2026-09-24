@@ -1513,16 +1513,16 @@ pub async fn serve<T: BeaconChainTypes>(
     let post_beacon_pool_sync_committees =
         post_beacon_pool_sync_committees(&network_tx_filter, &beacon_pool_path);
 
+    // GET beacon/pool/payload_attestations
+    let get_beacon_pool_payload_attestations =
+        get_beacon_pool_payload_attestations(&beacon_pool_path);
+
     // POST beacon/pool/payload_attestations
     let post_beacon_pool_payload_attestations = post_beacon_pool_payload_attestations(
         &network_tx_filter,
         optional_consensus_version_header_filter.clone(),
         &beacon_pool_path,
     );
-
-    // GET beacon/pool/payload_attestations
-    let get_beacon_pool_payload_attestations =
-        get_beacon_pool_payload_attestations(&beacon_pool_path);
 
     // POST beacon/pool/payload_attestations (SSZ)
     let post_beacon_pool_payload_attestations_ssz = post_beacon_pool_payload_attestations_ssz(

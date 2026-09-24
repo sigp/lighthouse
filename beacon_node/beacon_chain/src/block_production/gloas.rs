@@ -477,9 +477,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BlockProductionError::OpPoolError)?
         };
 
-        let mut payload_attestations = self
-            .op_pool
-            .get_payload_attestations(state.slot().saturating_sub(1u64), parent_root);
+        let mut payload_attestations = self.op_pool.get_payload_attestations(
+            |data| {
+                data.slot == state.slot().saturating_sub(1u64)
+                    && data.beacon_block_root == parent_root
+            },
+            true,
+        );
 
         // If paranoid mode is enabled re-check the signatures of every included message.
         // This will be a lot slower but guards against bugs in block production and can be
