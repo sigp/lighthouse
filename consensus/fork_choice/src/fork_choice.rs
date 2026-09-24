@@ -1814,10 +1814,13 @@ where
         if let Some(verdict) = self.get_block_execution_status_assuming_full(block_root)? {
             Ok(verdict.is_optimistic_or_invalid())
         } else {
+            // The finalized block's own payload is applied prior to the next block, so it is not
+            // itself finalized. Read the payload the branch ran instead of assuming `FULL`.
             let finalized_root = self.finalized_checkpoint().root;
             Ok(self
                 .proto_array
-                .get_block_execution_status_assuming_full(&finalized_root)
+                .core_proto_array()
+                .inherited_execution_status(finalized_root)
                 .map_err(Error::ProtoArrayError)?
                 .is_optimistic_or_invalid())
         }

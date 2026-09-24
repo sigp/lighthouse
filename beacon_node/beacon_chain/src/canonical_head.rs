@@ -1699,7 +1699,7 @@ fn check_finalized_payload_validity<T: BeaconChainTypes>(
 ) -> Result<(), Error> {
     if finalized_verdict.is_invalid() {
         let block_hash = finalized_proto_block
-            .head_payload_block_hash(PayloadStatus::Full)
+            .checkpoint_payload_block_hash()
             .unwrap_or_else(ExecutionBlockHash::zero);
         crit!(
             ?block_hash,
