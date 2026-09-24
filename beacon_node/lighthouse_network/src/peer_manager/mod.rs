@@ -482,7 +482,8 @@ impl<E: EthSpec> PeerManager<E> {
             vec![]
         };
 
-        // Prioritize Quic connections over Tcp ones.
+        // The order doesn't matter: with smart dialing enabled, libp2p's dial
+        // ranker orders the addresses (QUIC > TCP, IPv6 > IPv4) and applies staggered delays.
         [multiaddr_quic, enr.dialable_multiaddrs_tcp()].concat()
     }
 
