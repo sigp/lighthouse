@@ -93,15 +93,15 @@ impl ChunkLayout {
     /// Build a layout from each chunked field's length, in [`ChunkedField::ALL`] order.
     pub fn new(lengths: [usize; 14]) -> Self {
         let mut per_field = Vec::with_capacity(ChunkedField::ALL.len());
-        let mut total_chunks: u64 = 0;
+        let mut next_chunk_index: u64 = 0;
         for (field, len) in ChunkedField::ALL.into_iter().zip(lengths) {
-            let num_chunks = field.num_chunks(len) as u64;
-            per_field.push((field, field.num_chunks(len), total_chunks));
-            total_chunks = total_chunks.saturating_add(num_chunks);
+            let num_chunks = field.num_chunks(len);
+            per_field.push((field, num_chunks, next_chunk_index));
+            next_chunk_index = next_chunk_index.saturating_add(num_chunks as u64);
         }
         Self {
             per_field,
-            total_chunks,
+            total_chunks: next_chunk_index,
         }
     }
 
