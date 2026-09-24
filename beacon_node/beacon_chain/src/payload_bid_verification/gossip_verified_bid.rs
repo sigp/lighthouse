@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::inclusion_list_store::inclusion_list_bits_are_inclusive;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconStore, CachedHead, CanonicalHead,
     canonical_head::ForkChoiceReadGuard,
@@ -20,7 +21,7 @@ use state_processing::signature_sets::{
 use tracing::debug;
 use types::{
     BeaconState, Builder, ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionRequestsGloas,
-    SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
+    InclusionListBits, SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
@@ -80,6 +81,35 @@ fn verify_bid_blobs<E: EthSpec>(
         });
     }
 
+    Ok(())
+}
+
+/// Reject a bid whose `inclusion_list_bits` do not cover `local_inclusion_list_bits`, the node's
+/// own view of the inclusion lists for the slot before the bid's. Pre-Heze bids carry no bits
+/// and pass.
+///
+/// Shared by both intakes, each resolves the local bits under its own timeliness rule:
+/// timely inclusion lists only on gossip, and all (timely and untimely) inclusion lists on the
+/// proposer's block production path.
+pub(crate) fn verify_bid_inclusion_list_bits<E: EthSpec>(
+    bid: ExecutionPayloadBidRef<E>,
+    local_inclusion_list_bits: &InclusionListBits<E>,
+) -> Result<(), PayloadBidError> {
+    let ExecutionPayloadBidRef::Heze(bid) = bid else {
+        return Ok(());
+    };
+
+    let inclusion_list_inclusive =
+        inclusion_list_bits_are_inclusive::<E>(local_inclusion_list_bits, &bid.inclusion_list_bits)
+            .map_err(|e| {
+                PayloadBidError::InternalError(format!(
+                    "inclusion list bits inclusivity check error: {e:?}"
+                ))
+            })?;
+
+    if !inclusion_list_inclusive {
+        return Err(PayloadBidError::InclusionListBitsNotInclusive { slot: bid.slot });
+    }
     Ok(())
 }
 
