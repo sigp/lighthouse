@@ -807,14 +807,10 @@ async fn prepare_payload_on_fork_boundary(
          advanced state"
     );
 
-    let parent_gas_limit = unadvanced_state
-        .latest_execution_payload_header()
-        .unwrap()
-        .gas_limit();
     let PayloadAttributes::V4(attributes) = attributes else {
         panic!("expected V4 payload attributes, got {attributes:?}");
     };
-    assert_eq!(attributes.target_gas_limit, parent_gas_limit);
+    assert_eq!(attributes.target_gas_limit, DEFAULT_GAS_LIMIT);
 }
 
 #[tokio::test]
@@ -1115,30 +1111,31 @@ async fn gloas_pre_payload_attributes_reorg_uses_parent_randao() {
 
 #[tokio::test]
 async fn prepare_payload_preferred_gas_limit_wins() {
+    let scheduled_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
     let preferred_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(2);
     prepare_payload_gas_limit_generic(
-        None,
+        Some(scheduled_gas_limit),
         Some(preferred_gas_limit),
         None,
-        Some(preferred_gas_limit),
+        preferred_gas_limit,
     )
     .await;
 }
 
 #[tokio::test]
-async fn prepare_payload_falls_back_to_parent_gas_limit() {
-    prepare_payload_gas_limit_generic(None, None, None, None).await;
+async fn prepare_payload_falls_back_to_default_gas_limit() {
+    prepare_payload_gas_limit_generic(None, None, None, DEFAULT_GAS_LIMIT).await;
 }
 
 #[tokio::test]
-async fn prepare_payload_ignores_registered_and_scheduled_gas_limits_after_gloas() {
+async fn prepare_payload_falls_back_to_scheduled_gas_limit_over_registered() {
     let scheduled_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
     let registered_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(2);
     prepare_payload_gas_limit_generic(
         Some(scheduled_gas_limit),
         None,
         Some(registered_gas_limit),
-        None,
+        scheduled_gas_limit,
     )
     .await;
 }
@@ -1181,7 +1178,7 @@ async fn prepare_payload_gas_limit_generic(
     scheduled_gas_limit: Option<u64>,
     preferred_gas_limit: Option<u64>,
     registered_gas_limit: Option<u64>,
-    expected_gas_limit: Option<u64>,
+    expected_gas_limit: u64,
 ) {
     let mut spec = test_spec::<E>();
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
@@ -1247,12 +1244,5 @@ async fn prepare_payload_gas_limit_generic(
     let PayloadAttributes::V4(attributes) = attributes else {
         panic!("expected V4 payload attributes, got {attributes:?}");
     };
-    let expected_gas_limit = expected_gas_limit.unwrap_or_else(|| {
-        harness
-            .get_current_state()
-            .latest_execution_payload_bid()
-            .unwrap()
-            .gas_limit
-    });
     assert_eq!(attributes.target_gas_limit, expected_gas_limit);
 }

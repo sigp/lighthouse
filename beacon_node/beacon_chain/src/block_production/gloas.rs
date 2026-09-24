@@ -6,7 +6,8 @@ use proto_array::PayloadStatus;
 
 use bls::{PublicKeyBytes, Signature};
 use execution_layer::{
-    BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
+    BlockProposalContentsGloas, BuilderParams, DEFAULT_GAS_LIMIT, PayloadAttributes,
+    PayloadParameters,
 };
 use operation_pool::CompactAttestationRef;
 use ssz::{Encode, ProgressiveBitList};
@@ -1246,7 +1247,9 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
 
     let parent_bid = state.latest_execution_payload_bid()?;
     let is_parent_block_full = parent_block_hash == parent_bid.block_hash;
-    let target_gas_limit = preferred_gas_limit.unwrap_or(parent_bid.gas_limit);
+    let target_gas_limit = preferred_gas_limit
+        .or_else(|| spec.get_scheduled_gas_limit(current_epoch))
+        .unwrap_or(DEFAULT_GAS_LIMIT);
 
     let withdrawals = if is_parent_block_full {
         if let Some(envelope) = parent_envelope {
