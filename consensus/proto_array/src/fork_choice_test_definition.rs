@@ -328,6 +328,8 @@ impl ForkChoiceTestDefinition {
                         execution_status: ExecutionStatus::Optimistic(
                             ExecutionBlockHash::from_root(root),
                         ),
+                        block_hash: Some(ExecutionBlockHash::from_root(root)),
+                        is_gloas: false,
                         unrealized_justified_checkpoint: None,
                         unrealized_finalized_checkpoint: None,
                         execution_payload_parent_hash,

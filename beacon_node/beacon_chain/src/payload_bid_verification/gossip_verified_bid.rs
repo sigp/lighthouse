@@ -220,11 +220,8 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
         let parent_payload_hash = head_block
             .parent_root
             .and_then(|parent_root| fork_choice_read.get_block(&parent_root))
-            .and_then(|parent| parent.execution_status.block_hash());
-        (
-            parent_payload_hash,
-            head_block.execution_status.block_hash(),
-        )
+            .and_then(|parent| parent.block_hash);
+        (parent_payload_hash, head_block.block_hash)
     } else {
         (
             head_block.execution_payload_parent_hash,

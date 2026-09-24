@@ -201,6 +201,8 @@ fn build_chain_inner(
             justified_checkpoint,
             finalized_checkpoint,
             execution_status: ExecutionStatus::irrelevant(),
+            block_hash: None,
+            is_gloas: false,
             unrealized_justified_checkpoint: Some(unrealized_justified_checkpoint),
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
             execution_payload_parent_hash: None,

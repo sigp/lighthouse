@@ -217,6 +217,21 @@ impl ProtoNode {
         }
     }
 
+    /// The execution block this node commits to: the bid's hash post-Gloas, the embedded
+    /// payload's hash pre-Gloas. `None` before the merge. Says nothing about validity.
+    pub fn block_hash(&self) -> Option<ExecutionBlockHash> {
+        if let Ok(hash) = self.execution_payload_block_hash() {
+            Some(hash)
+        } else {
+            match self.execution_status() {
+                Ok(ExecutionStatus::Valid(hash))
+                | Ok(ExecutionStatus::Invalid(hash))
+                | Ok(ExecutionStatus::Optimistic(hash)) => Some(hash),
+                Ok(ExecutionStatus::Irrelevant(_)) | Err(_) => None,
+            }
+        }
+    }
+
     /// Checks if `timely` matches our view of payload timeliness.
     /// Returns whether the execution payload for the node is considered `timely`
     /// (or not `timely` when `timely` is `false`), taking into consideration local
@@ -2065,9 +2080,7 @@ impl ProtoArray {
             .iter()
             .rev()
             .find(|node| {
-                node.execution_status()
-                    .ok()
-                    .and_then(|execution_status| execution_status.block_hash())
+                node.block_hash()
                     .is_some_and(|node_block_hash| node_block_hash == *block_hash)
             })
             .map(|node| node.root())

@@ -1070,6 +1070,15 @@ where
                 justified_checkpoint: state.current_justified_checkpoint(),
                 finalized_checkpoint: state.finalized_checkpoint(),
                 execution_status,
+                // The execution block this block commits to: the bid's hash post-Gloas, else the
+                // hash the embedded payload's status carries.
+                block_hash: execution_payload_block_hash.or(match execution_status {
+                    ExecutionStatus::Valid(hash)
+                    | ExecutionStatus::Invalid(hash)
+                    | ExecutionStatus::Optimistic(hash) => Some(hash),
+                    ExecutionStatus::Irrelevant(_) => None,
+                }),
+                is_gloas: block.body().signed_execution_payload_bid().is_ok(),
                 unrealized_justified_checkpoint: Some(unrealized_justified_checkpoint),
                 unrealized_finalized_checkpoint: Some(unrealized_finalized_checkpoint),
                 execution_payload_parent_hash,

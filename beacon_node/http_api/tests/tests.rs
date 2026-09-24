@@ -3851,9 +3851,7 @@ impl ApiTester {
                     weight: node.weight(),
                     validity: execution_status,
                     execution_block_hash: node
-                        .execution_status()
-                        .ok()
-                        .and_then(|status| status.block_hash())
+                        .block_hash()
                         .map(|block_hash| block_hash.into_root()),
                     extra_data: ForkChoiceExtraData {
                         target_root: node.target_root(),
