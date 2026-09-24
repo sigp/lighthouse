@@ -835,7 +835,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // shut down Lighthouse.
         let finalized_proto_block = fork_choice_read_lock.get_finalized_block()?;
         let finalized_verdict = fork_choice_read_lock
-            .get_block_execution_status_assuming_full(&finalized_proto_block.root)?
+            .inherited_execution_status(&finalized_proto_block.root)?
             .ok_or(Error::FinalizedBlockMissingFromForkChoice(
                 finalized_proto_block.root,
             ))?;

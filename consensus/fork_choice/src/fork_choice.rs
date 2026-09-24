@@ -1697,6 +1697,20 @@ where
             .map_err(Error::ProtoArrayError)
     }
 
+    pub fn inherited_execution_status(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<ExecutionVerdict>, Error<T::Error>> {
+        if !self.is_finalized_checkpoint_or_descendant(*block_root) {
+            return Ok(None);
+        }
+        self.proto_array
+            .core_proto_array()
+            .inherited_execution_status(*block_root)
+            .map(Some)
+            .map_err(Error::ProtoArrayError)
+    }
+
     /// Spec: `get_supported_node`. `None` if the attested block is unknown to fork choice or sits
     /// at or below finalization.
     pub fn supported_node(
