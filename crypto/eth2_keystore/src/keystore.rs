@@ -462,7 +462,7 @@ fn derive_key(password: &[u8], kdf: &Kdf) -> Result<DerivedKey, Error> {
             scrypt(
                 password,
                 params.salt.as_bytes(),
-                &ScryptParams::new(log2_int(params.n) as u8, params.r, params.p, DKLEN as usize)
+                &ScryptParams::new(log2_int(params.n) as u8, params.r, params.p)
                     .map_err(Error::ScryptInvalidParams)?,
                 dk.as_mut_bytes(),
             )
