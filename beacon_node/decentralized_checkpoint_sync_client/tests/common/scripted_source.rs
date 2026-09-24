@@ -3,7 +3,7 @@ use decentralized_checkpoint_sync_client::{
     LightClientData, LightClientDataSource, RequestLimits, SourceError, SourceErrorKind,
     SourceResponse, SourceResult, UpdateRange,
 };
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::Duration};
 use types::{Hash256, LightClientBootstrap, LightClientFinalityUpdate, LightClientUpdate};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +29,7 @@ pub struct ScriptedSource {
     steps: VecDeque<Step>,
     pub requests: Vec<(Request, RequestLimits)>,
     pub on_request: Option<Box<dyn FnMut() + Send>>,
+    pub request_delay: Duration,
 }
 
 impl ScriptedSource {
@@ -37,6 +38,7 @@ impl ScriptedSource {
             steps: steps.into_iter().collect(),
             requests: vec![],
             on_request: None,
+            request_delay: Duration::ZERO,
         }
     }
 
@@ -44,13 +46,16 @@ impl ScriptedSource {
         assert!(self.steps.is_empty(), "unconsumed source expectations");
     }
 
-    fn take(&mut self, request: Request, limits: RequestLimits) -> SourceResult<Response> {
+    async fn take(&mut self, request: Request, limits: RequestLimits) -> SourceResult<Response> {
         self.requests.push((request.clone(), limits));
         let step = self.steps.pop_front().expect("unexpected source request");
         assert_eq!(
             step.request, request,
             "source request does not match script"
         );
+        if !self.request_delay.is_zero() {
+            tokio::time::sleep(self.request_delay).await;
+        }
         if let Some(on_request) = &mut self.on_request {
             on_request();
         }
@@ -77,7 +82,7 @@ impl LightClientDataSource<E> for ScriptedSource {
         block_root: Hash256,
         limits: RequestLimits,
     ) -> SourceResult<LightClientData<LightClientBootstrap<E>>> {
-        let response = self.take(Request::Bootstrap(block_root), limits)?;
+        let response = self.take(Request::Bootstrap(block_root), limits).await?;
         let Response::Bootstrap(data) = response.data else {
             panic!("expected bootstrap response in script");
         };
@@ -92,7 +97,7 @@ impl LightClientDataSource<E> for ScriptedSource {
         range: UpdateRange,
         limits: RequestLimits,
     ) -> SourceResult<Vec<LightClientData<LightClientUpdate<E>>>> {
-        let response = self.take(Request::Updates(range), limits)?;
+        let response = self.take(Request::Updates(range), limits).await?;
         let Response::Updates(data) = response.data else {
             panic!("expected updates response in script");
         };
@@ -106,7 +111,7 @@ impl LightClientDataSource<E> for ScriptedSource {
         &mut self,
         limits: RequestLimits,
     ) -> SourceResult<LightClientData<LightClientFinalityUpdate<E>>> {
-        let response = self.take(Request::Finality, limits)?;
+        let response = self.take(Request::Finality, limits).await?;
         let Response::Finality(data) = response.data else {
             panic!("expected finality response in script");
         };

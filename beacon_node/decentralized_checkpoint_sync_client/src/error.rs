@@ -38,6 +38,37 @@ pub enum ConsumerError {
 /// Compatibility name for bootstrap callers; all consumer steps share the same error boundary.
 pub type BootstrapError = ConsumerError;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncBudget {
+    Requests,
+    Updates,
+    ResponseBytes,
+}
+
+/// Whole-task termination, distinct from a source's transport or core verification failure.
+#[derive(Debug, thiserror::Error)]
+pub enum SyncError {
+    #[error(transparent)]
+    Consumer(#[from] ConsumerError),
+    #[error("synchronization {resource:?} limit exhausted ({limit})")]
+    BudgetExceeded { resource: SyncBudget, limit: u64 },
+    #[error("synchronization deadline exhausted")]
+    DeadlineExceeded,
+    #[error("no authenticated progress after {requests} consecutive requests")]
+    NoProgress { requests: u64 },
+    #[error("light-client request exhausted retries after {attempts} attempts: {source}")]
+    RetriesExhausted {
+        attempts: u64,
+        #[source]
+        source: SourceError,
+    },
+    #[error("required retry delay {requested:?} exceeds local maximum {maximum:?}")]
+    RetryDelayExceeded {
+        requested: Duration,
+        maximum: Duration,
+    },
+}
+
 /// Range-envelope errors are distinct from cryptographic verification failures.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum UpdateRangeError {

@@ -1,6 +1,8 @@
 #[path = "consumer/bootstrap.rs"]
 mod bootstrap;
 mod common;
+#[path = "consumer/driver.rs"]
+mod driver;
 #[path = "consumer/finality.rs"]
 mod finality;
 #[path = "consumer/updates.rs"]

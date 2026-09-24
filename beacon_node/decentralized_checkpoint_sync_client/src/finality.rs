@@ -9,13 +9,15 @@ use decentralized_checkpoint_sync::{
 };
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use types::{ChainSpec, EthSpec, Hash256};
+use types::{ChainSpec, EthSpec, Hash256, Slot};
 
 /// A verified processing step, not a promise of checkpoint advancement or freshness.
 #[derive(Debug)]
 pub struct ProcessedFinalityUpdate<E: EthSpec> {
     pub store: LightClientStore<E>,
     pub bytes_received: u64,
+    /// Last local clock observation, for detecting regressions across consumer steps.
+    pub observed_slot: Slot,
 }
 
 /// Fetch and process one finality update through the core's full verification path.
@@ -66,6 +68,7 @@ pub async fn process_finality_update<E: EthSpec>(
     Ok(ProcessedFinalityUpdate {
         store,
         bytes_received,
+        observed_slot: returned_slot,
     })
 }
 
@@ -87,6 +90,16 @@ pub fn recent_checkpoint_header<E: EthSpec>(
 ) -> Result<Option<VerifiedFinalizedHeader<E>>, ConsumerError> {
     policy.validate()?;
     let current_slot = clock.now().ok_or(ConsumerError::ClockUnavailable)?;
+    recent_checkpoint_at_slot(store, current_slot, spec, policy)
+}
+
+/// The driver supplies its freshly sampled, regression-checked slot and already validated policy.
+pub(crate) fn recent_checkpoint_at_slot<E: EthSpec>(
+    store: &LightClientStore<E>,
+    current_slot: Slot,
+    spec: &ChainSpec,
+    policy: &SyncPolicy,
+) -> Result<Option<VerifiedFinalizedHeader<E>>, ConsumerError> {
     check_store_context(store, current_slot, spec)?;
     let checkpoint = store.verified_checkpoint_header();
     let age = current_slot

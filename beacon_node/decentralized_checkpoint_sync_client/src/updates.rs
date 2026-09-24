@@ -20,6 +20,8 @@ pub struct ProcessedUpdateRange<E: EthSpec> {
     pub range: Option<UpdateRange>,
     pub updates_processed: u64,
     pub bytes_received: u64,
+    /// Last local clock observation, for detecting regressions across consumer steps.
+    pub observed_slot: Slot,
 }
 
 /// Plan from processed store state, never from a response length or provider-reported head.
@@ -84,6 +86,7 @@ pub async fn process_next_update_range<E: EthSpec>(
             range: None,
             updates_processed: 0,
             bytes_received: 0,
+            observed_slot: started_slot,
         });
     };
     let runtime = tokio::runtime::Handle::try_current()?;
@@ -114,16 +117,17 @@ pub async fn process_next_update_range<E: EthSpec>(
             })
             .await??;
     }
-    checked_current_slot(clock, current_slot)?;
+    let observed_slot = checked_current_slot(clock, current_slot)?;
     Ok(ProcessedUpdateRange {
         store,
         range: Some(range),
         updates_processed,
         bytes_received,
+        observed_slot,
     })
 }
 
-fn period<E: EthSpec>(slot: Slot, spec: &ChainSpec) -> Result<u64, ConsumerError> {
+pub(crate) fn period<E: EthSpec>(slot: Slot, spec: &ChainSpec) -> Result<u64, ConsumerError> {
     slot.as_u64()
         .checked_div(E::slots_per_epoch())
         .and_then(|epoch| epoch.checked_div(spec.epochs_per_sync_committee_period.as_u64()))

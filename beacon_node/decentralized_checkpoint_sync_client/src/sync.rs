@@ -13,6 +13,8 @@ use types::{ChainSpec, EthSpec, Hash256, Slot};
 pub struct BootstrappedStore<E: EthSpec> {
     pub store: LightClientStore<E>,
     pub bytes_received: u64,
+    /// Last local clock observation, for detecting regressions across consumer steps.
+    pub observed_slot: Slot,
 }
 
 /// Fetch the exact trusted bootstrap and verify it using the transport-independent core.
@@ -20,7 +22,7 @@ pub struct BootstrappedStore<E: EthSpec> {
 /// The caller vouches for the root's finality and the network/clock configuration. This does not
 /// establish freshness or fetch subsequent updates. There is one source request, with no retries;
 /// the source enforces the supplied request limits. Task-wide retry/deadline orchestration belongs
-/// to the later synchronization driver.
+/// to [`crate::sync_verified_finalized_header`].
 ///
 /// The store schema comes from the trusted schedule and local clock, never from response metadata.
 /// The response's data fork is preserved for core verification, including upgraded historical
@@ -65,10 +67,11 @@ pub async fn bootstrap_light_client_store<E: EthSpec>(
             )
         })
         .await??;
-    checked_current_slot(clock, current_slot)?;
+    let observed_slot = checked_current_slot(clock, current_slot)?;
     Ok(BootstrappedStore {
         store,
         bytes_received,
+        observed_slot,
     })
 }
 
