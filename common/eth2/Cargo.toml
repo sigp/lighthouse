@@ -24,6 +24,7 @@ ethereum_ssz_derive = { workspace = true }
 fork_choice = { workspace = true }
 futures = { workspace = true, optional = true }
 futures-util = { version = "0.3.8", optional = true }
+httpdate = "1"
 libp2p-identity = { version = "0.2", features = ["peerid"], optional = true }
 mediatype = "0.19.13"
 multiaddr = { version = "0.18.2", optional = true }
@@ -36,11 +37,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 ssz_types = { workspace = true }
 superstruct = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 types = { workspace = true }
 zeroize = { workspace = true, optional = true }
 
 [dev-dependencies]
 arbitrary = { workspace = true }
 builder_types = { workspace = true, features = ["arbitrary"] }
-tokio = { workspace = true }
+mockito = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 types = { workspace = true, features = ["arbitrary"] }

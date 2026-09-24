@@ -9,6 +9,7 @@
 
 pub mod beacon_response;
 pub mod error;
+pub mod light_client;
 #[cfg(feature = "lighthouse")]
 pub mod lighthouse;
 #[cfg(feature = "lighthouse")]
@@ -1157,6 +1158,32 @@ impl BeaconNodeHttpClient {
             .await
     }
 
+    fn light_client_path(&self, endpoint: &str) -> Result<Url, Error> {
+        let mut path = self.eth_path(V1)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("light_client")
+            .push(endpoint);
+        Ok(path)
+    }
+
+    fn light_client_updates_path(&self, start_period: u64, count: u64) -> Result<Url, Error> {
+        let mut path = self.light_client_path("updates")?;
+        path.query_pairs_mut()
+            .append_pair("start_period", &start_period.to_string())
+            .append_pair("count", &count.to_string());
+        Ok(path)
+    }
+
+    fn light_client_bootstrap_path(&self, block_root: Hash256) -> Result<Url, Error> {
+        let mut path = self.light_client_path("bootstrap")?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push(&format!("{block_root:?}"));
+        Ok(path)
+    }
+
     /// `GET beacon/light_client/updates`
     ///
     /// Returns `Ok(None)` on a 404 error.
@@ -1165,20 +1192,7 @@ impl BeaconNodeHttpClient {
         start_period: u64,
         count: u64,
     ) -> Result<Option<Vec<BeaconResponse<LightClientUpdate<E>>>>, Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("light_client")
-            .push("updates");
-
-        path.query_pairs_mut()
-            .append_pair("start_period", &start_period.to_string());
-
-        path.query_pairs_mut()
-            .append_pair("count", &count.to_string());
-
+        let path = self.light_client_updates_path(start_period, count)?;
         self.get_opt(path).await.map(|opt| {
             opt.map(|updates: Vec<_>| {
                 updates
@@ -1197,20 +1211,7 @@ impl BeaconNodeHttpClient {
         start_period: u64,
         count: u64,
     ) -> Result<Option<Vec<u8>>, Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("light_client")
-            .push("updates");
-
-        path.query_pairs_mut()
-            .append_pair("start_period", &start_period.to_string());
-
-        path.query_pairs_mut()
-            .append_pair("count", &count.to_string());
-
+        let path = self.light_client_updates_path(start_period, count)?;
         self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
             .await
     }
@@ -1222,15 +1223,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_root: Hash256,
     ) -> Result<Option<BeaconResponse<LightClientBootstrap<E>>>, Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("light_client")
-            .push("bootstrap")
-            .push(&format!("{:?}", block_root));
-
+        let path = self.light_client_bootstrap_path(block_root)?;
         self.get_opt(path)
             .await
             .map(|opt| opt.map(BeaconResponse::ForkVersioned))
@@ -1261,14 +1254,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_light_client_finality_update<E: EthSpec>(
         &self,
     ) -> Result<Option<BeaconResponse<LightClientFinalityUpdate<E>>>, Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("light_client")
-            .push("finality_update");
-
+        let path = self.light_client_path("finality_update")?;
         self.get_opt(path)
             .await
             .map(|opt| opt.map(BeaconResponse::ForkVersioned))
