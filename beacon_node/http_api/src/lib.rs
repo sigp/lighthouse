@@ -2136,7 +2136,7 @@ pub async fn serve<T: BeaconChainTypes>(
                                 chain
                                     .canonical_head
                                     .fork_choice_read_lock()
-                                    .is_optimistic_or_invalid_block(&root)
+                                    .is_optimistic_or_invalid_block_assuming_full(&root)
                                     .ok()
                             } else {
                                 return Err(unsupported_version_rejection(endpoint_version));
