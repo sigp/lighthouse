@@ -10,8 +10,8 @@ pub use crate::proto_array::{
     InvalidationOperation, ParentPayloadStatus, calculate_committee_fraction,
 };
 pub use crate::proto_array_fork_choice::{
-    Block, DoNotReOrg, ExecutionStatus, LatestMessage, PayloadStatus, ProposerHeadError,
-    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    Block, DoNotReOrg, ExecutionStatus, ExecutionVerdict, ForkChoiceNode, LatestMessage,
+    PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 pub use error::Error;
 

@@ -205,7 +205,8 @@ impl ForkChoiceTestDefinition {
                         )
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
-                        });
+                        })
+                        .as_pair();
 
                     assert_eq!(
                         head, expected_head,
@@ -229,6 +230,7 @@ impl ForkChoiceTestDefinition {
                         op_index,
                     );
                     last_current_slot = current_slot;
+                    assert_eq!(fork_choice.balances, justified_balances);
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::ProposerBoostFindHead {
@@ -253,7 +255,8 @@ impl ForkChoiceTestDefinition {
                         )
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
-                        });
+                        })
+                        .as_pair();
 
                     assert_eq!(
                         head, expected_head,

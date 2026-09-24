@@ -6,11 +6,11 @@
 //! keyed by `(slot, dependent_root)`, which pins an inclusion list to the committee it was produced
 //! against.
 
-use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
+use ssz_types::{BitVector, ProgressiveVariableList};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
-use types::{ChainSpec, EthSpec, Hash256, SignedInclusionList, Slot};
+use types::{ChainSpec, EthSpec, Hash256, InclusionListCommittee, SignedInclusionList, Slot};
 
 /// The shuffling `dependent_root` an inclusion list was produced against.
 pub type DependentRoot = Hash256;
@@ -209,7 +209,7 @@ impl<E: EthSpec> InclusionListStore<E> {
         &self,
         slot: Slot,
         dependent_root: DependentRoot,
-        il_committee: &FixedVector<u64, E::InclusionListCommitteeSize>,
+        il_committee: &InclusionListCommittee<E>,
         only_timely: bool,
     ) -> Result<BitVector<E::InclusionListCommitteeSize>, Error> {
         let submitted = self.submitted_validators(slot, dependent_root, only_timely);
@@ -229,7 +229,7 @@ impl<E: EthSpec> InclusionListStore<E> {
         &self,
         slot: Slot,
         dependent_root: DependentRoot,
-        il_committee: &FixedVector<u64, E::InclusionListCommitteeSize>,
+        il_committee: &InclusionListCommittee<E>,
         bits: &BitVector<E::InclusionListCommitteeSize>,
         only_timely: bool,
     ) -> Result<bool, Error> {
@@ -285,7 +285,8 @@ mod tests {
     use bls::Signature;
     use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
     use types::{
-        Epoch, EthSpec, Hash256, InclusionList, MinimalEthSpec, SignedInclusionList, Slot,
+        Epoch, EthSpec, Hash256, InclusionList, InclusionListCommittee, MinimalEthSpec,
+        SignedInclusionList, Slot,
     };
 
     type E = MinimalEthSpec;
@@ -402,7 +403,7 @@ mod tests {
     #[test]
     fn bits_reflect_submitters_and_inclusivity() {
         let mut store = new_store();
-        let il_committee: FixedVector<u64, <E as EthSpec>::InclusionListCommitteeSize> =
+        let il_committee: InclusionListCommittee<E> =
             FixedVector::new((100..116).collect()).unwrap();
         let dr = root(1);
 

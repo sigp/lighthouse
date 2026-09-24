@@ -23,7 +23,7 @@ use beacon_chain::{
     },
     custody_context::NodeCustodyType,
     historical_blocks::HistoricalBlockError,
-    kzg_utils::reconstruct_blobs,
+    kzg_utils::reconstruct_blob_sidecars,
     migrate::MigratorConfig,
 };
 use bls::{Keypair, Signature, SignatureBytes};
@@ -96,7 +96,7 @@ fn get_or_reconstruct_blobs<T: BeaconChainTypes>(
         if let Some(columns) = chain.store.get_data_columns(block_root, fork_name)? {
             let num_required_columns = T::EthSpec::number_of_columns() / 2;
             if columns.len() >= num_required_columns {
-                reconstruct_blobs(&chain.kzg, columns, None, &block, &chain.spec)
+                reconstruct_blob_sidecars(&chain.kzg, columns, None, &block, &chain.spec)
                     .map(Some)
                     .map_err(BeaconChainError::FailedToReconstructBlobs)
             } else {
@@ -1775,6 +1775,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
         &mut head_state,
         head_state_root,
         gloas_fork_epoch,
+        None,
         spec,
     )
     .unwrap();
@@ -1932,6 +1933,58 @@ async fn proposer_lookahead_excludes_slashed_proposer_only_after_first_two_gloas
     assert!(
         !lookahead[slots_per_epoch..].contains(&post_fork_target),
         "post-fork-computed proposers must exclude the slashed proposer"
+    );
+}
+
+/// Ensure the harness can produce and import a chain across the Heze fork boundary
+#[tokio::test]
+async fn heze_block_production_across_boundary() {
+    let gloas_fork_epoch = Epoch::new(1);
+    let heze_fork_epoch = Epoch::new(2);
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, Default::default(), spec.clone());
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(E::default())
+        .spec(spec.into())
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let all_validators = harness.get_all_validators();
+
+    // Build through the first Heze epoch, ending at the first slot of the next epoch
+    let last_slot = (heze_fork_epoch + 1).start_slot(E::slots_per_epoch());
+    let slots: Vec<Slot> = (1..=last_slot.as_u64()).map(Into::into).collect();
+    let state = harness.get_current_state();
+    let (_, _, head_block_root, head_state) = harness
+        .add_attested_blocks_at_slots(state, &slots, &all_validators)
+        .await;
+
+    assert_eq!(head_state.current_epoch(), heze_fork_epoch + 1);
+
+    let head_block_root: Hash256 = head_block_root.into();
+    let head_block = harness
+        .chain
+        .store
+        .get_blinded_block(&head_block_root)
+        .unwrap()
+        .expect("head block should be stored");
+    assert!(
+        matches!(head_block, SignedBeaconBlock::Heze(_)),
+        "the head block should be a Heze block"
+    );
+    assert!(
+        harness
+            .chain
+            .get_payload_envelope(&head_block_root)
+            .unwrap()
+            .is_some(),
+        "the Heze block's execution payload envelope should be stored"
     );
 }
 
@@ -4263,6 +4316,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         &mut advanced_split_state,
         Some(split_state_root),
         attestation_start_slot,
+        None,
         &harness.chain.spec,
     )
     .unwrap();
@@ -5958,12 +6012,12 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
             .fork_choice_write_lock()
             .get_head(slot, &spec)
             .unwrap()
-            .0
+            .root()
             == b.canonical_head
                 .fork_choice_write_lock()
                 .get_head(slot, &spec)
                 .unwrap()
-                .0,
+                .root(),
         "fork_choice heads should be equal"
     );
 }
@@ -6054,7 +6108,7 @@ async fn test_gloas_block_and_envelope_storage_generic(
         harness.advance_slot();
 
         if skipped_slots.contains(&i) {
-            complete_state_advance(&mut state, None, slot, spec)
+            complete_state_advance(&mut state, None, slot, None, spec)
                 .expect("should be able to advance state to slot");
 
             let state_root = state.canonical_root().unwrap();
@@ -6510,7 +6564,7 @@ async fn bellatrix_produce_and_store_payloads() {
 
         // Advance state to compute correct timestamp and randao.
         let mut pre_state = state.clone();
-        complete_state_advance(&mut pre_state, None, slot, &harness.spec)
+        complete_state_advance(&mut pre_state, None, slot, None, &harness.spec)
             .expect("should advance state");
         pre_state
             .build_caches(&harness.spec)

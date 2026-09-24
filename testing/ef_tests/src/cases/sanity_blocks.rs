@@ -1,11 +1,12 @@
+use super::common::{load_config, testing_spec_with_config};
 use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use state_processing::{
-    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
-    per_block_processing, per_slot_processing,
+    BlockProcessingError, BlockSignatureStrategy, ConsensusContext, GloasVerificationContext,
+    VerifyBlockRoot, per_block_processing, per_slot_processing,
 };
 use types::{BeaconState, RelativeEpoch, SignedBeaconBlock};
 
@@ -19,7 +20,9 @@ pub struct Metadata {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct SanityBlocks<E: EthSpec> {
+    pub case_name: String,
     pub metadata: Metadata,
+    pub config: Option<types::Config>,
     pub pre: BeaconState<E>,
     pub blocks: Vec<SignedBeaconBlock<E>>,
     pub post: Option<BeaconState<E>>,
@@ -27,7 +30,8 @@ pub struct SanityBlocks<E: EthSpec> {
 
 impl<E: EthSpec> LoadCase for SanityBlocks<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let config = load_config(path)?;
+        let spec = &testing_spec_with_config::<E>(fork_name, config.as_ref())?;
         let metadata: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), spec)?;
         let blocks = (0..metadata.blocks_count)
@@ -44,9 +48,15 @@ impl<E: EthSpec> LoadCase for SanityBlocks<E> {
         } else {
             None
         };
+        let case_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
 
         Ok(Self {
+            case_name,
             metadata,
+            config,
             pre,
             blocks,
             post,
@@ -64,7 +74,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
 
         let mut bulk_state = self.pre.clone();
         let mut expected = self.post.clone();
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec_with_config::<E>(fork_name, self.config.as_ref())?;
 
         // Processing requires the epoch cache.
         bulk_state.build_caches(spec).unwrap();
@@ -79,8 +89,20 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
             .try_for_each(|signed_block| {
                 let block = signed_block.message();
                 while bulk_state.slot() < block.slot() {
-                    per_slot_processing(&mut bulk_state, None, spec).unwrap();
-                    per_slot_processing(&mut indiv_state, None, spec).unwrap();
+                    per_slot_processing(
+                        &mut bulk_state,
+                        None,
+                        GloasVerificationContext::FullVerification,
+                        spec,
+                    )
+                    .unwrap();
+                    per_slot_processing(
+                        &mut indiv_state,
+                        None,
+                        GloasVerificationContext::FullVerification,
+                        spec,
+                    )
+                    .unwrap();
                 }
 
                 bulk_state

@@ -1,6 +1,7 @@
 use crate::proto_array_fork_choice::IndexedForkChoiceNode;
 use crate::{
-    Block, ExecutionStatus, JustifiedBalances, LatestMessage, PayloadStatus, error::Error,
+    Block, ExecutionStatus, ExecutionVerdict, JustifiedBalances, LatestMessage, PayloadStatus,
+    error::Error,
 };
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
@@ -208,6 +209,24 @@ impl ProtoNode {
         self.get_parent_payload_status() == ParentPayloadStatus::Full
     }
 
+    /// The execution verdict of this node's own payload.
+    pub(crate) fn execution_verdict(&self) -> ExecutionVerdict {
+        match self {
+            ProtoNode::V17(node) => match node.execution_status {
+                ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => {
+                    ExecutionVerdict::Valid
+                }
+                ExecutionStatus::Invalid(_) => ExecutionVerdict::Invalid,
+                ExecutionStatus::Optimistic(_) | ExecutionStatus::NotYetRevealed(_) => {
+                    ExecutionVerdict::Optimistic
+                }
+            },
+            // TODO(gloas): V29 nodes don't track execution status yet; hardcode `Valid` until the
+            // optimistic-payload work adds it.
+            ProtoNode::V29(_) => ExecutionVerdict::Valid,
+        }
+    }
+
     pub fn attestation_score(&self, payload_status: PayloadStatus) -> u64 {
         match payload_status {
             PayloadStatus::Pending => self.weight(),
@@ -322,30 +341,6 @@ pub struct NodeDelta {
 }
 
 impl NodeDelta {
-    /// Classify a vote into the payload bucket it contributes to for `block_slot`.
-    ///
-    /// Per the gloas model:
-    ///
-    /// - a same-slot vote is `Pending`
-    /// - a later vote with `payload_present = true` is `Full`
-    /// - a later vote with `payload_present = false` is `Empty`
-    ///
-    /// This classification is used only for payload-aware accounting; all votes still contribute to
-    /// the aggregate `delta`.
-    pub fn payload_status(
-        vote_slot: Slot,
-        payload_present: bool,
-        block_slot: Slot,
-    ) -> PayloadStatus {
-        if vote_slot == block_slot {
-            PayloadStatus::Pending
-        } else if payload_present {
-            PayloadStatus::Full
-        } else {
-            PayloadStatus::Empty
-        }
-    }
-
     /// Add `balance` to the payload bucket selected by `status`.
     ///
     /// `Pending` votes do not affect payload buckets, so this becomes a no-op for that case.
@@ -1406,11 +1401,15 @@ impl ProtoArray {
             self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
 
         loop {
-            let children: Vec<_> = self
-                .get_node_children(&head)?
-                .into_iter()
-                .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
-                .collect();
+            let children: Vec<_> = if head.payload_status == PayloadStatus::Pending {
+                // Spec: `get_node_children` does not consult `get_filtered_block_tree` for PENDING.
+                self.get_node_children(&head)?
+            } else {
+                self.get_node_children(&head)?
+                    .into_iter()
+                    .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
+                    .collect()
+            };
 
             if children.is_empty() {
                 return Ok(head);
@@ -1444,6 +1443,139 @@ impl ProtoArray {
                 .map(|(child, _, _)| child)
                 .ok_or(Error::NoViableChildren)?;
         }
+    }
+
+    /// Returns every leaf node in the filtered block tree, along with its fork-choice weight.
+    ///
+    /// This is similar to `find_head_walk`, except it walks every viable branch instead of taking
+    /// the maximum child at each step. Only used in fork choice compliance tests.
+    #[allow(clippy::too_many_arguments)]
+    pub fn filtered_block_tree_leaves_and_weights<E: EthSpec>(
+        &self,
+        justified_root: &Hash256,
+        current_slot: Slot,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
+        proposer_boost_root: Hash256,
+        justified_balances: &JustifiedBalances,
+        spec: &ChainSpec,
+    ) -> Result<Vec<(Hash256, PayloadStatus, u64)>, Error> {
+        let start_index = self
+            .indices
+            .get(justified_root)
+            .copied()
+            .ok_or(Error::NodeUnknown(*justified_root))?;
+
+        let viable_nodes = self.get_filtered_block_tree::<E>(
+            start_index,
+            current_slot,
+            justified_checkpoint,
+            finalized_checkpoint,
+        )?;
+
+        let apply_proposer_boost =
+            self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
+
+        let mut leaves = Vec::new();
+        let mut stack = vec![IndexedForkChoiceNode {
+            root: *justified_root,
+            proto_node_index: start_index,
+            payload_status: PayloadStatus::Pending,
+        }];
+
+        while let Some(fc_node) = stack.pop() {
+            let proto_node = self
+                .nodes
+                .get(fc_node.proto_node_index)
+                .ok_or(Error::InvalidNodeIndex(fc_node.proto_node_index))?;
+
+            let children: Vec<_> = if fc_node.payload_status == PayloadStatus::Pending {
+                self.get_node_children(&fc_node)?
+            } else {
+                self.get_node_children(&fc_node)?
+                    .into_iter()
+                    .filter(|(child, _)| viable_nodes.contains(&child.proto_node_index))
+                    .collect()
+            };
+
+            if children.is_empty() {
+                let leaf_node = if proto_node.payload_received().is_err() {
+                    fc_node.with_status(PayloadStatus::Pending)
+                } else {
+                    fc_node
+                };
+                let weight = self.get_weight::<E>(
+                    &leaf_node,
+                    proto_node,
+                    apply_proposer_boost,
+                    proposer_boost_root,
+                    current_slot,
+                    justified_balances,
+                    spec,
+                )?;
+                leaves.push((leaf_node.root, leaf_node.payload_status, weight));
+            } else {
+                stack.extend(children.into_iter().map(|(child, _)| child));
+            }
+        }
+
+        Ok(leaves)
+    }
+
+    /// Resolve the execution verdict of a fork choice node (a block root plus a payload status).
+    ///
+    /// A `FULL` node ran its own payload. An `EMPTY` (or same-slot `PENDING`) node ran no payload
+    /// of its own, so it inherits the verdict of the nearest ancestor whose payload it did run.
+    pub(crate) fn node_execution_status(
+        &self,
+        root: Hash256,
+        payload_status: PayloadStatus,
+    ) -> Result<ExecutionVerdict, Error> {
+        match payload_status {
+            PayloadStatus::Full => {
+                let node = self.get_block(root).ok_or(Error::NodeUnknown(root))?;
+                Ok(node.execution_verdict())
+            }
+            PayloadStatus::Empty | PayloadStatus::Pending => self.inherited_execution_status(root),
+        }
+    }
+
+    /// Walk up from an `EMPTY` node to the nearest ancestor whose payload the branch ran, and
+    /// report that ancestor's verdict.
+    pub fn inherited_execution_status(
+        &self,
+        block_root: Hash256,
+    ) -> Result<ExecutionVerdict, Error> {
+        let mut node = self
+            .get_block(block_root)
+            .ok_or(Error::NodeUnknown(block_root))?;
+
+        let executed_node = loop {
+            // A pre-Gloas (V17) block carries its payload inside the block, so a V17 node ran its
+            // own payload — it is the executed node.
+            let ProtoNode::V29(gloas_node) = node else {
+                break node;
+            };
+
+            // Reached the array root (the finalized block or an ancestor): VALID by definition.
+            let Some(parent_index) = gloas_node.parent else {
+                return Ok(ExecutionVerdict::Valid);
+            };
+            let parent = self
+                .nodes
+                .get(parent_index)
+                .ok_or(Error::InvalidNodeIndex(parent_index))?;
+
+            match gloas_node.parent_payload_status {
+                // The parent's own payload is in this branch (a `Full` edge, or a pre-Gloas parent
+                // that ran its payload in-block): the parent is the executed node.
+                ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => break parent,
+                // An EMPTY edge is a gap in the chain, not the end of it.
+                ParentPayloadStatus::Empty => node = parent,
+            }
+        };
+
+        Ok(executed_node.execution_verdict())
     }
 
     /// Returns the canonical payload status of a block, matching the decision
@@ -1532,7 +1664,7 @@ impl ProtoArray {
 
     /// Spec: `get_weight`.
     #[allow(clippy::too_many_arguments)]
-    fn get_weight<E: EthSpec>(
+    pub(crate) fn get_weight<E: EthSpec>(
         &self,
         fc_node: &IndexedForkChoiceNode,
         proto_node: &ProtoNode,
@@ -1987,6 +2119,23 @@ impl ProtoArray {
                     .map(|(root, _slot)| root == ancestor_root)
             })
             .unwrap_or(false)
+    }
+
+    /// Slot at which the chains of `block_root` and `other_root` last agree. `None` if either
+    /// root is unknown.
+    pub fn common_ancestor_slot(&self, block_root: Hash256, other_root: Hash256) -> Option<Slot> {
+        let mut chain = self.iter_nodes(&block_root).peekable();
+        let mut other = self.iter_nodes(&other_root).peekable();
+        loop {
+            let (node, other_node) = (chain.peek()?, other.peek()?);
+            if node.root() == other_node.root() {
+                return Some(node.slot());
+            } else if node.slot() >= other_node.slot() {
+                chain.next();
+            } else {
+                other.next();
+            }
+        }
     }
 
     pub fn get_block(&self, root: Hash256) -> Option<&ProtoNode> {

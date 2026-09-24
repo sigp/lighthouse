@@ -1,6 +1,7 @@
 use super::per_block_processing::{
     errors::BlockProcessingError, process_operations::apply_deposit,
 };
+use crate::GloasVerificationContext;
 use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
@@ -162,7 +163,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         .gloas_fork_epoch
         .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
     {
-        upgrade_to_gloas(&mut state, spec)?;
+        upgrade_to_gloas(&mut state, GloasVerificationContext::FullVerification, spec)?;
 
         // Remove intermediate Fulu fork from `state.fork`.
         state.fork_mut().previous_version = spec.gloas_fork_version;

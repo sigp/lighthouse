@@ -1304,6 +1304,7 @@ dependencies = [
  "beacon_chain",
  "bitvec",
  "bls",
+ "builder_client",
  "criterion",
  "educe",
  "eth2",
@@ -1713,6 +1714,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "builder_store"
+version = "0.1.0"
+dependencies = [
+ "account_utils",
+ "bls",
+ "builder_types",
+ "filesystem",
+ "futures",
+ "hex",
+ "parking_lot",
+ "serde",
+ "ssz_types",
+ "tempfile",
+ "tracing",
+ "types",
+ "yaml_serde",
+]
+
+[[package]]
 name = "builder_types"
 version = "0.1.0"
 dependencies = [
@@ -2016,6 +2036,7 @@ version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "beacon_processor",
+ "builder_client",
  "directory",
  "dirs",
  "environment",
@@ -3390,9 +3411,9 @@ dependencies = [
 
 [[package]]
 name = "ethereum_serde_utils"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dc1355dbb41fbbd34ec28d4fb2a57d9a70c67ac3c19f6a5ca4d4a176b9e997a"
+checksum = "38df44a7a271ab43835678f9215b53cc2523e4714a215da6643d83dc110245da"
 dependencies = [
  "alloy-primitives",
  "hex",
@@ -5664,6 +5685,7 @@ dependencies = [
  "account_utils",
  "beacon_node_fallback",
  "bls",
+ "builder_types",
  "doppelganger_service",
  "either",
  "environment",
@@ -7953,9 +7975,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.40"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef86cd5876211988985292b91c96a8f2d298df24e75989a43a3c73f2d4d8168b"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "log",
  "once_cell",
@@ -7999,9 +8021,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -8443,6 +8465,7 @@ name = "signing_method"
 version = "0.1.0"
 dependencies = [
  "bls",
+ "builder_types",
  "eth2_keystore",
  "ethereum_serde_utils",
  "lockfile",
@@ -8733,9 +8756,11 @@ dependencies = [
  "int_to_bytes",
  "integer-sqrt",
  "itertools 0.14.0",
+ "lru",
  "merkle_proof",
  "metrics",
  "milhouse",
+ "parking_lot",
  "rand 0.9.2",
  "rayon",
  "safe_arith",
@@ -9807,6 +9832,7 @@ version = "8.2.2"
 dependencies = [
  "account_utils",
  "beacon_node_fallback",
+ "builder_store",
  "clap",
  "clap_utils",
  "directory",
@@ -9863,6 +9889,7 @@ dependencies = [
  "axum_utils",
  "beacon_node_fallback",
  "bls",
+ "builder_store",
  "deposit_contract",
  "directory",
  "dirs",
@@ -9972,6 +9999,8 @@ version = "0.1.0"
 dependencies = [
  "beacon_node_fallback",
  "bls",
+ "builder_store",
+ "builder_types",
  "either",
  "eth2",
  "futures",
@@ -9996,6 +10025,7 @@ name = "validator_store"
 version = "0.1.0"
 dependencies = [
  "bls",
+ "builder_types",
  "eth2",
  "futures",
  "slashing_protection",

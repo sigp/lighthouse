@@ -23,7 +23,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    Address, ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
+    ExecutionBlockHash, ExecutionPayloadBid, Withdrawal,
     attestation::{
         AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
         ParticipationFlags, PendingAttestation,
@@ -36,7 +36,7 @@ use crate::{
     execution::{
         Eth1Data, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, InclusionListCommittee,
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     light_client::consts::{
@@ -98,6 +98,7 @@ pub enum BeaconStateError {
     SlotOutOfBounds,
     UnknownValidator(usize),
     UnknownBuilder(BuilderIndex),
+    BuilderRegistryNotEmpty,
     UnableToDetermineProducer,
     InvalidBitfield,
     EmptyCommittee,
@@ -1222,7 +1223,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_inclusion_list_committee(
         &self,
         slot: Slot,
-    ) -> Result<FixedVector<u64, E::InclusionListCommitteeSize>, BeaconStateError> {
+    ) -> Result<InclusionListCommittee<E>, BeaconStateError> {
         let cache = self.committee_cache_at_slot(slot)?;
         let committee =
             cache.get_inclusion_list_committee_at_slot(slot, E::inclusion_list_committee_size())?;
@@ -2449,22 +2450,15 @@ impl<E: EthSpec> BeaconState<E> {
         // up elsewhere. It has been retconned into the spec to support index reuse but so far
         // index reuse is only relevant for builders.
         let builder_index = self.get_index_for_new_builder()?;
-        let builders = self.builders_mut()?;
-
-        let execution_address = withdrawal_credentials
-            .as_slice()
-            .get(12..)
-            .and_then(|bytes| Address::try_from(bytes).ok())
-            .ok_or(BeaconStateError::WithdrawalCredentialMissingAddress)?;
-
-        let builder = Builder {
+        let builder = Builder::from_deposit(
             pubkey,
             version,
-            execution_address,
-            balance: amount,
-            deposit_epoch: slot.epoch(E::slots_per_epoch()),
-            withdrawable_epoch: spec.far_future_epoch,
-        };
+            withdrawal_credentials,
+            amount,
+            slot.epoch(E::slots_per_epoch()),
+            spec,
+        )?;
+        let builders = self.builders_mut()?;
 
         if builder_index == builders.len() as u64 {
             builders.push(builder)?;
@@ -3557,6 +3551,12 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
         let ptc_window = self.ptc_window()?;
         let epoch = slot.epoch(E::slots_per_epoch());
+        if spec
+            .gloas_fork_epoch
+            .is_none_or(|fork_epoch| epoch < fork_epoch)
+        {
+            return Err(BeaconStateError::SlotOutOfBounds);
+        }
         let state_epoch = self.current_epoch();
         let slots_per_epoch = E::slots_per_epoch() as usize;
         let slot_in_epoch = slot.as_usize().safe_rem(slots_per_epoch)?;
