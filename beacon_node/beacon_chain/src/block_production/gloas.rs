@@ -278,43 +278,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .gossip_verified_proposer_preferences_cache
             .get_preferences(&produce_at_slot, dependent_root);
 
-        // Post-Gloas circuit breaker: if too many recent payloads never landed on this chain,
-        // ignore external builders entirely for this proposal and build locally.
-        let breaker_trip = self
-            .circuit_breaker
-            .evaluate_skips_for_state(&state, produce_at_slot)?;
-        if let Some(condition) = breaker_trip {
-            metrics::inc_counter_vec(
-                &metrics::BUILDER_CIRCUIT_BREAKER_TRIPS,
-                &[condition.as_str()],
-            );
-            info!(
-                info = "this helps protect the network. the --builder-fallback flags can adjust \
-                        the expected health conditions.",
-                failed_condition = ?condition,
-                slot = %produce_at_slot,
-                "Chain is unhealthy, ignoring external payload bids and building locally"
-            );
-        }
-
         // Fire the direct builder fan-out concurrently with the local EL payload build: both only
         // read `state`, so they race without contention. A local EL failure is not fatal — we fall
         // back to an external bid when one is available; only a total absence of viable bids fails
         // production.
-        let acquire_fut = async {
-            if breaker_trip.is_some() {
-                Vec::new()
-            } else {
-                self.acquire_external_bid_candidates(
-                    ctx,
-                    &builder_config,
-                    proposer_preferences.as_deref(),
-                    &state,
-                    &parent_execution_requests,
-                )
-                .await
-            }
-        };
+        let acquire_fut = self.acquire_external_bid_candidates(
+            ctx,
+            &builder_config,
+            proposer_preferences.as_deref(),
+            &state,
+            &parent_execution_requests,
+        );
         let local_fut = self.clone().produce_execution_payload_bid(
             &state,
             parent_envelope,
@@ -341,12 +315,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ));
             }
             Err(e) => {
-                if breaker_trip.is_some() {
+                if candidates.is_empty() {
                     error!(
                         error = ?e,
                         slot = %produce_at_slot,
-                        "Local execution payload build failed and the circuit breaker has \
-                         excluded external bids; block production will fail"
+                        "Local execution payload build failed and no external bids are available \
+                         (circuit breaker may have excluded them); block production will fail"
                     );
                 } else {
                     error!(
@@ -1072,6 +1046,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
         parent_execution_requests: &ExecutionRequestsGloas<T::EthSpec>,
     ) -> Vec<BidCandidate<T::EthSpec>> {
+        // Post-Gloas circuit breaker: if too many recent payloads never landed on this chain,
+        // ignore external builders entirely for this proposal and build locally.
+        match self
+            .circuit_breaker
+            .evaluate_skips_for_state(state, ctx.slot)
+        {
+            Ok(Some(condition)) => {
+                metrics::inc_counter_vec(
+                    &metrics::BUILDER_CIRCUIT_BREAKER_TRIPS,
+                    &[condition.as_str()],
+                );
+                info!(
+                    info = "this helps protect the network. the --builder-fallback flags can adjust \
+                            the expected health conditions.",
+                    failed_condition = ?condition,
+                    slot = %ctx.slot,
+                    "Chain is unhealthy, ignoring external payload bids and building locally"
+                );
+                return Vec::new();
+            }
+            Ok(None) => {
+                // Circuit breaker passed, continue acquiring external bids
+            }
+            Err(e) => {
+                warn!(
+                    error = ?e,
+                    slot = %ctx.slot,
+                    "Failed to evaluate circuit breaker skip rules; ignoring external bids"
+                );
+                return Vec::new();
+            }
+        }
+
         let mut externals = Vec::new();
 
         // Direct bids: only when there are builders to contact and the proposer submitted preferences
@@ -1131,8 +1138,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         externals.retain(|candidate| {
             let builder_index = candidate.signed_bid.message.builder_index;
             let Ok(builder) = state.get_builder(builder_index) else {
-                // Unknown builder: leave it to state validation to reject.
-                return true;
+                warn!(
+                    builder_index,
+                    "Skipping bid from unknown builder (not in state)"
+                );
+                return false;
             };
 
             // The parent's exit requests apply to the state before this block's bid is processed,

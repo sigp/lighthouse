@@ -5845,7 +5845,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             pubkey,
             slot: state.slot(),
             chain_health: self
-                .is_healthy(&parent_root)
+                .is_healthy_pre_gloas(&parent_root)
                 .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?,
         };
 
@@ -7265,8 +7265,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // With the previous slot's attestations applied, decide whether the builder behind
             // the head block failed to reveal its payload.
-            if let Err(e) = self.check_missed_payload_reveal(slot) {
-                warn!(error = ?e, %slot, "Failed to check for a missed payload reveal");
+            if let Err(e) = self.record_builder_ban_for_missed_reveal(slot) {
+                warn!(error = ?e, %slot, "Failed to record builder ban for missed payload reveal");
             }
 
             // Send the notification regardless of fork choice success, this is a "best effort"
@@ -7743,7 +7743,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This is the **pre-Gloas** circuit breaker and counts missed *slots*. After Gloas, block
     /// production uses [`CircuitBreaker`](crate::circuit_breaker::CircuitBreaker) instead, which
     /// counts missed *payloads* and bans builders that fail to reveal.
-    pub fn is_healthy(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
+    pub fn is_healthy_pre_gloas(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
         let cached_head = self.canonical_head.cached_head();
         if let Some(head_hash) = cached_head.forkchoice_update_parameters().head_hash {
             if ExecutionBlockHash::zero() == head_hash {
@@ -7823,7 +7823,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Must run after fork choice has been recomputed for `current_slot`, so that the previous
     /// slot's attestations are reflected in the head block's weight.
-    fn check_missed_payload_reveal(&self, current_slot: Slot) -> Result<(), Error> {
+    fn record_builder_ban_for_missed_reveal(&self, current_slot: Slot) -> Result<(), Error> {
         if self.circuit_breaker.disable_checks() {
             return Ok(());
         }

@@ -16,7 +16,7 @@
 //! Everything here is node-local policy. Nothing affects block validity or fork choice.
 //!
 //! The pre-Gloas circuit breaker, which counts missed *slots*, lives in
-//! [`BeaconChain::is_healthy`](crate::BeaconChain::is_healthy) and is unchanged.
+//! [`BeaconChain::is_healthy_pre_gloas`](crate::BeaconChain::is_healthy_pre_gloas) and is unchanged.
 
 use std::collections::HashMap;
 
