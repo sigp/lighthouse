@@ -209,24 +209,6 @@ impl ProtoNode {
         self.get_parent_payload_status() == ParentPayloadStatus::Full
     }
 
-    /// The execution verdict of this node's own payload.
-    pub(crate) fn execution_verdict(&self) -> ExecutionVerdict {
-        match self {
-            ProtoNode::V17(node) => match node.execution_status {
-                ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => {
-                    ExecutionVerdict::Valid
-                }
-                ExecutionStatus::Invalid(_) => ExecutionVerdict::Invalid,
-                ExecutionStatus::Optimistic(_) | ExecutionStatus::NotYetRevealed(_) => {
-                    ExecutionVerdict::Optimistic
-                }
-            },
-            // TODO(gloas): V29 nodes don't track execution status yet; hardcode `Valid` until the
-            // optimistic-payload work adds it.
-            ProtoNode::V29(_) => ExecutionVerdict::Valid,
-        }
-    }
-
     pub fn attestation_score(&self, payload_status: PayloadStatus) -> u64 {
         match payload_status {
             PayloadStatus::Pending => self.weight(),
@@ -885,52 +867,6 @@ impl ProtoArray {
         }
     }
 
-    /// Execution validity of `(block_root, EMPTY)`. This node runs no payload of its own. It
-    /// inherits from the nearest ancestor across a `FULL` edge. The result is not cached, so it
-    /// cannot become stale.
-    pub fn empty_node_execution_status(
-        &self,
-        block_root: Hash256,
-    ) -> Result<ExecutionStatus, Error> {
-        let mut index = *self
-            .indices
-            .get(&block_root)
-            .ok_or(Error::NodeUnknown(block_root))?;
-
-        loop {
-            let node = self
-                .nodes
-                .get(index)
-                .ok_or(Error::InvalidNodeIndex(index))?;
-
-            // Pre-Gloas there is no empty variant to resolve.
-            let ProtoNode::V29(gloas_node) = node else {
-                return Ok(node.execution_status());
-            };
-
-            // Reached an ancestor whose payload this branch executed. A pre-Gloas parent
-            // carries its payload inside the block, so it counts as executed too.
-            match gloas_node.parent_payload_status {
-                ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {
-                    let Some(parent_index) = gloas_node.parent else {
-                        return Ok(ExecutionStatus::irrelevant());
-                    };
-                    let parent = self
-                        .nodes
-                        .get(parent_index)
-                        .ok_or(Error::InvalidNodeIndex(parent_index))?;
-                    return Ok(parent.execution_status());
-                }
-                ParentPayloadStatus::Empty => {}
-            }
-
-            match gloas_node.parent {
-                Some(parent_index) => index = parent_index,
-                None => return Ok(ExecutionStatus::irrelevant()),
-            }
-        }
-    }
-
     /// Updates the `block_root` and all ancestors to have validated execution payloads.
     ///
     /// Returns an error if:
@@ -1534,7 +1470,15 @@ impl ProtoArray {
         match payload_status {
             PayloadStatus::Full => {
                 let node = self.get_block(root).ok_or(Error::NodeUnknown(root))?;
-                Ok(node.execution_verdict())
+                match node.execution_status() {
+                    ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => {
+                        Ok(ExecutionVerdict::Valid)
+                    }
+                    ExecutionStatus::Invalid(_) => Ok(ExecutionVerdict::Invalid),
+                    ExecutionStatus::Optimistic(_) | ExecutionStatus::NotYetRevealed(_) => {
+                        Ok(ExecutionVerdict::Optimistic)
+                    }
+                }
             }
             PayloadStatus::Empty | PayloadStatus::Pending => self.inherited_execution_status(root),
         }
@@ -1575,7 +1519,15 @@ impl ProtoArray {
             }
         };
 
-        Ok(executed_node.execution_verdict())
+        match executed_node.execution_status() {
+            ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => {
+                Ok(ExecutionVerdict::Valid)
+            }
+            ExecutionStatus::Invalid(_) => Ok(ExecutionVerdict::Invalid),
+            ExecutionStatus::Optimistic(_) | ExecutionStatus::NotYetRevealed(_) => {
+                Ok(ExecutionVerdict::Optimistic)
+            }
+        }
     }
 
     /// Returns the canonical payload status of a block, matching the decision
