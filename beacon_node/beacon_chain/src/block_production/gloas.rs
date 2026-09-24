@@ -5,9 +5,7 @@ use std::sync::Arc;
 use proto_array::PayloadStatus;
 
 use bls::{PublicKeyBytes, Signature};
-use execution_layer::{
-    BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
-};
+use execution_layer::{BlockProposalContentsGloas, PayloadAttributes, PayloadParameters};
 use operation_pool::CompactAttestationRef;
 use ssz::{Encode, ProgressiveBitList, TryFromIter};
 use ssz_types::ProgressiveVariableList;
@@ -24,7 +22,7 @@ use state_processing::{
 };
 use state_processing::{VerifyOperation, state_advance::complete_state_advance};
 use task_executor::JoinHandle;
-use tracing::{Instrument, debug, debug_span, error, instrument, trace, warn};
+use tracing::{Instrument, debug, debug_span, error, info, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
@@ -280,17 +278,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .gossip_verified_proposer_preferences_cache
             .get_preferences(&produce_at_slot, dependent_root);
 
+        // Post-Gloas circuit breaker: if too many recent payloads never landed on this chain,
+        // ignore external builders entirely for this proposal and build locally.
+        let breaker_trip = self
+            .circuit_breaker
+            .evaluate_skips_for_state(&state, produce_at_slot)?;
+        if let Some(condition) = breaker_trip {
+            metrics::inc_counter_vec(
+                &metrics::BUILDER_CIRCUIT_BREAKER_TRIPS,
+                &[condition.as_str()],
+            );
+            info!(
+                info = "this helps protect the network. the --builder-fallback flags can adjust \
+                        the expected health conditions.",
+                failed_condition = ?condition,
+                slot = %produce_at_slot,
+                "Chain is unhealthy, ignoring external payload bids and building locally"
+            );
+        }
+
         // Fire the direct builder fan-out concurrently with the local EL payload build: both only
         // read `state`, so they race without contention. A local EL failure is not fatal — we fall
         // back to an external bid when one is available; only a total absence of viable bids fails
         // production.
-        let acquire_fut = self.acquire_external_bid_candidates(
-            ctx,
-            &builder_config,
-            proposer_preferences.as_deref(),
-            &state,
-            &parent_execution_requests,
-        );
+        let acquire_fut = async {
+            if breaker_trip.is_some() {
+                Vec::new()
+            } else {
+                self.acquire_external_bid_candidates(
+                    ctx,
+                    &builder_config,
+                    proposer_preferences.as_deref(),
+                    &state,
+                    &parent_execution_requests,
+                )
+                .await
+            }
+        };
         let local_fut = self.clone().produce_execution_payload_bid(
             &state,
             parent_envelope,
@@ -317,11 +341,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ));
             }
             Err(e) => {
-                error!(
-                    error = ?e,
-                    slot = %produce_at_slot,
-                    "Local execution payload build failed; falling back to an external bid"
-                );
+                if breaker_trip.is_some() {
+                    error!(
+                        error = ?e,
+                        slot = %produce_at_slot,
+                        "Local execution payload build failed and the circuit breaker has \
+                         excluded external bids; block production will fail"
+                    );
+                } else {
+                    error!(
+                        error = ?e,
+                        slot = %produce_at_slot,
+                        "Local execution payload build failed; falling back to an external bid"
+                    );
+                }
             }
         }
 
@@ -951,22 +984,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
-        let pubkey = state
-            .validators()
-            .get(proposer_index as usize)
-            .map(|v| v.pubkey)
-            .ok_or(BlockProductionError::BeaconChain(Box::new(
-                BeaconChainError::ValidatorIndexUnknown(proposer_index as usize),
-            )))?;
-
-        let builder_params = BuilderParams {
-            pubkey,
-            slot: state.slot(),
-            chain_health: self
-                .is_healthy(&parent_root)
-                .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?,
-        };
-
         let preferred_gas_limit =
             proposer_preferences.map(|preferences| preferences.message.target_gas_limit);
 
@@ -977,7 +994,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             executed_ancestor_hash,
             parent_envelope,
             proposer_index,
-            builder_params,
+            state.slot(),
             preferred_gas_limit,
         )?;
 
@@ -1108,20 +1125,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // The parent's exit requests apply to the state before this block's bid is processed, so a
-        // bid from a builder the parent payload exits fails `process_execution_payload_bid`.
+        // Drop bids that would fail `process_execution_payload_bid` or that the circuit breaker
+        // refuses. Only external candidates pass through here: the local self-build is pushed by
+        // the caller afterwards and is never filtered.
         externals.retain(|candidate| {
             let builder_index = candidate.signed_bid.message.builder_index;
-            let exit_requested = state
-                .get_builder(builder_index)
-                .is_ok_and(|builder| builder_exit_requested(builder, parent_execution_requests));
+            let Ok(builder) = state.get_builder(builder_index) else {
+                // Unknown builder: leave it to state validation to reject.
+                return true;
+            };
+
+            // The parent's exit requests apply to the state before this block's bid is processed,
+            // so a bid from a builder the parent payload exits fails `process_execution_payload_bid`.
+            let exit_requested = builder_exit_requested(builder, parent_execution_requests);
             if exit_requested {
                 warn!(
                     builder_index,
                     "Skipping bid from a builder the parent payload exits"
                 );
             }
-            !exit_requested
+
+            // A builder banned for a missed reveal on the chain this proposal extends.
+            let banned = self
+                .circuit_breaker
+                .is_banned(&builder.pubkey, state, ctx.slot);
+            if banned {
+                metrics::inc_counter(&metrics::BUILDER_CIRCUIT_BREAKER_FILTERED_BIDS);
+                warn!(
+                    builder_index,
+                    "Skipping bid from a builder banned for a missed payload reveal"
+                );
+            }
+
+            !exit_requested && !banned
         });
 
         externals
@@ -1253,7 +1289,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     parent_block_hash: ExecutionBlockHash,
     parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     proposer_index: u64,
-    builder_params: BuilderParams,
+    slot: Slot,
     preferred_gas_limit: Option<u64>,
 ) -> Result<PreparePayloadHandle<T::EthSpec>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
@@ -1302,7 +1338,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
                     random,
                     proposer_index,
                     parent_block_hash,
-                    builder_params,
+                    slot,
                     target_gas_limit,
                     withdrawals,
                     parent_beacon_block_root,
@@ -1330,7 +1366,7 @@ async fn prepare_execution_payload<T>(
     random: Hash256,
     proposer_index: u64,
     parent_block_hash: ExecutionBlockHash,
-    builder_params: BuilderParams,
+    slot: Slot,
     target_gas_limit: u64,
     withdrawals: Vec<Withdrawal>,
     parent_beacon_block_root: Hash256,
@@ -1339,7 +1375,7 @@ where
     T: BeaconChainTypes,
 {
     let spec = &chain.spec;
-    let fork = spec.fork_name_at_slot::<T::EthSpec>(builder_params.slot);
+    let fork = spec.fork_name_at_slot::<T::EthSpec>(slot);
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -1367,7 +1403,7 @@ where
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)
         .await;
-    let slot_number = Some(builder_params.slot.as_u64());
+    let slot_number = Some(slot.as_u64());
     let inclusion_list_transactions = if fork.heze_enabled() {
         // TODO(heze): populate from the inclusion list store
         Some(ProgressiveTransactions::empty())

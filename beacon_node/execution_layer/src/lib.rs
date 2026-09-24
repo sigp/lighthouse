@@ -456,11 +456,22 @@ pub enum ChainHealth {
     PreMerge,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailedCondition {
     Skips,
     SkipsPerEpoch,
     EpochsSinceFinalization,
+}
+
+impl FailedCondition {
+    /// A stable label for metrics.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FailedCondition::Skips => "skips",
+            FailedCondition::SkipsPerEpoch => "skips_per_epoch",
+            FailedCondition::EpochsSinceFinalization => "epochs_since_finalization",
+        }
+    }
 }
 
 pub enum SubmitBlindedBlockResponse<E: EthSpec> {

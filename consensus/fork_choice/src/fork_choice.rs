@@ -1640,6 +1640,14 @@ where
             && self.is_finalized_checkpoint_or_descendant(*block_root)
     }
 
+    /// Returns `true` if the PTC majority voted that the payload for `block_root` was timely,
+    /// regardless of whether this node has received the payload itself.
+    ///
+    /// Returns `false` for unknown or pre-Gloas blocks.
+    pub fn ptc_votes_payload_timely(&self, block_root: &Hash256) -> bool {
+        self.proto_array.ptc_votes_payload_timely::<E>(block_root)
+    }
+
     /// Returns `true` if the block's parent is imported (and, for a post-Gloas FULL child, its
     /// parent's payload is imported too). See [`Self::get_parent_import_status`].
     pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> bool {

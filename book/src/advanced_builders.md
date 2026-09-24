@@ -196,6 +196,26 @@ By default, Lighthouse is strict with these conditions, but we encourage users t
 * `--builder-fallback-disable-checks` - This flag disables all checks related to chain health. This means the builder
   API will always be used for payload construction, regardless of recent chain conditions.
 
+### After the Gloas fork
+
+After Gloas (ePBS), validators propose beacon blocks and builders propose execution payloads: the proposer commits
+to a builder's *bid* and the builder is expected to reveal the payload later in the slot. Builder failures therefore
+show up as blocks whose payloads never land, not as missed slots, and the circuit breaker changes accordingly:
+
+* A "skip" for `--builder-fallback-skips` and `--builder-fallback-skips-per-epoch` is a slot whose beacon block
+  landed but whose execution payload did not. Slots with no beacon block at all are not counted. Both rules are
+  evaluated on the chain the proposal extends, so a re-org never leaves stale counts behind.
+* When either rule trips, no external bids are considered at all (neither gossip bids nor bids from
+  `--payload-builders`) and the block is built with the local execution engine. If the local build also fails, the
+  proposal fails.
+* `--builder-fallback-epochs-since-finalization` no longer applies: the chain can finalize without any payloads.
+* A builder that fails to reveal its payload for a block that received enough attestations to charge it is banned:
+  its bids are ignored for `--builder-fallback-ban-slots` slots (default and minimum `SLOTS_PER_EPOCH`). A ban is tied
+  to the offending block, so it only affects proposals whose chain contains that block; re-orging away from the block
+  lifts it. No ban is recorded if the payload timeliness committee saw the payload, which means the builder revealed
+  and only this node missed it. Bans are kept in memory and do not survive a restart.
+* `--builder-fallback-disable-checks` disables the skip rules and the bans.
+
 ## Checking your builder config
 
 You can check that your builder is configured correctly by looking for these log messages.
