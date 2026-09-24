@@ -463,7 +463,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::duties_service::DutiesServiceBuilder;
+    use crate::duties_service::{DutiesServiceBuilder, PtcDuties};
     use bls::{FixedBytesExtended, PublicKeyBytes, Signature};
     use eth2::types::PtcDuty;
     use futures::FutureExt;
@@ -507,7 +507,11 @@ mod tests {
         fn insert_ptc_duties(&self, slot: Slot) {
             self.service.duties_service.ptc_duties.write().insert(
                 Epoch::new(0),
-                (Hash256::ZERO, ptc_duties(&self.harness.pubkeys, slot)),
+                PtcDuties {
+                    dependent_root: Hash256::ZERO,
+                    duties: ptc_duties(&self.harness.pubkeys, slot),
+                    queried_validators: (0..self.harness.pubkeys.len() as u64).collect(),
+                },
             );
         }
     }
