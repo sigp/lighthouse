@@ -204,7 +204,8 @@ impl ForkChoiceTestDefinition {
                         )
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
-                        });
+                        })
+                        .as_pair();
 
                     assert_eq!(
                         head, expected_head,
@@ -253,7 +254,8 @@ impl ForkChoiceTestDefinition {
                         )
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
-                        });
+                        })
+                        .as_pair();
 
                     assert_eq!(
                         head, expected_head,

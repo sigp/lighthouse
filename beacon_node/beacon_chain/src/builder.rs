@@ -778,9 +778,10 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let (initial_head_block_root, head_payload_status) = fork_choice
+        let head_node = fork_choice
             .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
+        let (initial_head_block_root, head_payload_status) = head_node.as_pair();
 
         let head_block_root = initial_head_block_root;
         let head_block = store
@@ -935,7 +936,7 @@ where
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(head_snapshot),
-            head_payload_status,
+            head_node,
             self.chain_config.fast_confirmation,
             &store,
             &self.spec,
