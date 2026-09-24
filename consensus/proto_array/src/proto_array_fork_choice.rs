@@ -60,8 +60,13 @@ impl From<VoteTrackerV28> for VoteTracker {
         VoteTracker {
             current_root: v.current_root,
             next_root: v.next_root,
-            // The v28 format stored next_epoch rather than slots. Default to 0 since the
-            // vote tracker will be updated on the next attestation.
+            // Known issue, won't fix: sigp/lighthouse#10089.
+            //
+            // V28 stored an epoch, not slots, so the slot is set to 0. Until this validator's next
+            // attestation is processed, an older one can replace the vote via
+            // `attestation_slot > next_slot`. Bounded to one epoch per validator, once per
+            // database; not worth threading `slots_per_epoch` through every V28/V29 conversion
+            // (sigp/lighthouse#10095).
             current_slot: Slot::new(0),
             next_slot: Slot::new(0),
             current_payload_present: false,

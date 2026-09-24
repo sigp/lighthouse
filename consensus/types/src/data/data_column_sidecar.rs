@@ -347,6 +347,16 @@ impl<E: EthSpec> DataColumnSidecarGloas<E> {
             .saturating_add(<Cell<E> as Encode>::ssz_fixed_len())
             .saturating_add(<KzgProof as Encode>::ssz_fixed_len())
     }
+
+    pub fn max_size(max_blobs_per_block: usize) -> usize {
+        let cell_with_proof_size = <Cell<E> as Encode>::ssz_fixed_len()
+            .saturating_add(<KzgProof as Encode>::ssz_fixed_len());
+        <u64 as Encode>::ssz_fixed_len()
+            .saturating_mul(2)
+            .saturating_add(<Hash256 as Encode>::ssz_fixed_len())
+            .saturating_add(2 * ssz::BYTES_PER_LENGTH_OFFSET)
+            .saturating_add(max_blobs_per_block.saturating_mul(cell_with_proof_size))
+    }
 }
 
 #[derive(Debug)]
