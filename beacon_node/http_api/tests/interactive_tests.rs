@@ -9,7 +9,7 @@ use beacon_chain::{
 };
 use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
 use eth2::types::ProduceBlockV3Response;
-use eth2::types::{DepositContractData, StateId};
+use eth2::types::{DepositContractData, InclusionListDuty, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
@@ -1400,4 +1400,109 @@ async fn lighthouse_custody_info() {
         info.custody_columns.len(),
         info.custody_group_count as usize
     );
+}
+
+/// Inclusion list duties across the Heze fork boundary: pre-Heze epochs are not rejected,
+/// and duties at the fork epoch resolve their dependent root from pre-fork history.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inclusion_list_duties_across_fork_boundary() {
+    type E = MinimalEthSpec;
+
+    let validator_count = 32;
+    let heze_fork_epoch = Epoch::new(2);
+    let mut spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+
+    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let harness = &tester.harness;
+    let client = &tester.client;
+
+    // Build the chain into the Heze fork epoch.
+    harness.advance_slot();
+    let target_slot = heze_fork_epoch.start_slot(E::slots_per_epoch()) + 1;
+    harness
+        .extend_chain(
+            target_slot.as_u64() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    assert_eq!(harness.chain.epoch().unwrap(), heze_fork_epoch);
+
+    // Pre-Heze epochs are not rejected.
+    for epoch in [Epoch::new(0), Epoch::new(1)] {
+        let duties = client
+            .post_validator_duties_inclusion_list(epoch, &[0])
+            .await
+            .unwrap_or_else(|e| panic!("Failed to get duties on pre-Heze epoch {epoch}: {e:?}"));
+        assert_eq!(
+            duties.data.len(),
+            1,
+            "validator 0 should have an IL duty in pre-Heze epoch {epoch}"
+        );
+    }
+
+    // Duties at the fork epoch are served, with the dependent root resolved from
+    // pre-fork history
+    let indices: Vec<u64> = (0..validator_count as u64).collect();
+    let duties = client
+        .post_validator_duties_inclusion_list(heze_fork_epoch, &indices)
+        .await
+        .expect("fork epoch duties should be served");
+
+    let expected_dependent_root = harness
+        .chain
+        .block_root_at_slot(
+            (heze_fork_epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+            beacon_chain::WhenSlotSkipped::Prev,
+        )
+        .unwrap()
+        .expect("pre-fork dependent block should exist");
+    assert_eq!(duties.dependent_root, expected_dependent_root);
+
+    // Verify the duties against committees derived from the fork epoch state.
+    let mut state = harness
+        .chain
+        .state_at_slot(
+            heze_fork_epoch.start_slot(E::slots_per_epoch()),
+            beacon_chain::StateSkipConfig::WithStateRoots,
+        )
+        .unwrap();
+    state
+        .build_committee_cache(types::RelativeEpoch::Current, &harness.chain.spec)
+        .unwrap();
+
+    let slot_committees: Vec<(Slot, Vec<u64>)> = heze_fork_epoch
+        .slot_iter(E::slots_per_epoch())
+        .map(|slot| {
+            let committee = state.get_inclusion_list_committee(slot).unwrap();
+            (slot, committee.to_vec())
+        })
+        .collect();
+
+    let expected_duties: Vec<InclusionListDuty> = indices
+        .iter()
+        .filter_map(|&validator_index| {
+            let validator = state.validators().get(validator_index as usize)?;
+            let (slot, _) = slot_committees
+                .iter()
+                .find(|(_, committee)| committee.contains(&validator_index))?;
+            Some(InclusionListDuty {
+                pubkey: validator.pubkey,
+                validator_index,
+                slot: *slot,
+            })
+        })
+        .collect();
+
+    assert_eq!(
+        duties.data, expected_duties,
+        "fork epoch duties should match state-derived committees"
+    );
+
+    // The epoch after the fork is also served; its dependent root still lies pre-fork
+    client
+        .post_validator_duties_inclusion_list(heze_fork_epoch + 1, &[0])
+        .await
+        .expect("duties for the epoch after the fork should be served");
 }
