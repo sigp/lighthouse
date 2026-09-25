@@ -902,6 +902,11 @@ pub struct ValidatorAttestationDataQuery {
     pub committee_index: CommitteeIndex,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ValidatorPayloadAttestationDataQuery {
+    pub slot: Slot,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ValidatorAggregateAttestationQuery {
     pub attestation_data_root: Hash256,
