@@ -1,7 +1,7 @@
 use crate::proto_array_fork_choice::IndexedForkChoiceNode;
 use crate::{
-    Block, ExecutionStatus, ExecutionVerdict, JustifiedBalances, LatestMessage, PayloadStatus,
-    error::Error,
+    Block, ExecutionStatus, ExecutionVerdict, JustifiedBalances, LatestMessage, PayloadBlockHash,
+    PayloadStatus, error::Error,
 };
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
@@ -225,6 +225,19 @@ impl ProtoNode {
                 .empty_payload_weight()
                 .unwrap_or_else(|_| self.weight()),
             PayloadStatus::Full => self.full_payload_weight().unwrap_or_else(|_| self.weight()),
+        }
+    }
+
+    /// The execution block this node commits to.
+    pub fn block_hash(&self) -> PayloadBlockHash {
+        match self {
+            ProtoNode::V17(node) => match node.execution_status {
+                ExecutionStatus::Valid(hash)
+                | ExecutionStatus::Invalid(hash)
+                | ExecutionStatus::Optimistic(hash) => PayloadBlockHash::Hash(hash),
+                ExecutionStatus::Irrelevant(_) => PayloadBlockHash::PreMerge,
+            },
+            ProtoNode::V29(node) => PayloadBlockHash::Hash(node.execution_payload_block_hash),
         }
     }
 
@@ -2089,11 +2102,9 @@ impl ProtoArray {
         self.nodes
             .iter()
             .rev()
-            .find(|node| {
-                node.execution_status()
-                    .ok()
-                    .and_then(|execution_status| execution_status.block_hash())
-                    .is_some_and(|node_block_hash| node_block_hash == *block_hash)
+            .find(|node| match node.block_hash() {
+                PayloadBlockHash::Hash(node_block_hash) => node_block_hash == *block_hash,
+                PayloadBlockHash::PreMerge => false,
             })
             .map(|node| node.root())
     }
