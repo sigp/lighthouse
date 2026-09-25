@@ -36,6 +36,9 @@ type E = MinimalEthSpec;
 // Must be at least PTC size to simplify PTC reasoning (unique PTC members per slot).
 const ATTESTERS_PER_SLOT: usize = 20;
 
+/// Slot duration for Gnosis and Chiado, where the re-org cutoff is 833ms.
+const SHORT_SLOT_DURATION_MS: u64 = 5000;
+
 /// Data structure for tracking fork choice updates received by the mock execution layer.
 #[derive(Debug, Default)]
 struct ForkChoiceUpdates {
@@ -137,6 +140,10 @@ pub struct ReOrgTest {
     expected_first_update_lookahead: ExpectedFirstUpdateLookahead,
     /// Whether to expect withdrawals to change on epoch boundaries.
     expect_withdrawals_change_on_epoch: bool,
+    /// Slot duration override, in milliseconds.
+    slot_duration_ms: Option<u64>,
+    /// Time into the proposal slot at which the block is requested, defaults to the slot start.
+    proposal_delay: Option<Duration>,
 }
 
 impl Default for ReOrgTest {
@@ -157,6 +164,8 @@ impl Default for ReOrgTest {
             should_re_org: true,
             expected_first_update_lookahead: ExpectedFirstUpdateLookahead::Payload,
             expect_withdrawals_change_on_epoch: false,
+            slot_duration_ms: None,
+            proposal_delay: None,
         }
     }
 }
@@ -384,6 +393,56 @@ pub async fn proposer_boost_re_org_head_too_strong() {
     .await;
 }
 
+/// Proposing before the cutoff on 5s slots should re-org.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_short_slots_before_cutoff() {
+    proposer_boost_re_org_test(ReOrgTest {
+        slot_duration_ms: Some(SHORT_SLOT_DURATION_MS),
+        proposal_delay: Some(Duration::from_millis(800)),
+        should_re_org: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+/// Proposing exactly on the cutoff on 5s slots is too late to re-org.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_short_slots_on_cutoff() {
+    proposer_boost_re_org_test(ReOrgTest {
+        slot_duration_ms: Some(SHORT_SLOT_DURATION_MS),
+        proposal_delay: Some(Duration::from_millis(833)),
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+/// Proposing after the cutoff but within the first second of a 5s slot is too late to re-org.
+///
+/// Regression test for https://github.com/sigp/lighthouse/issues/10096
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_short_slots_sub_second_after_cutoff() {
+    proposer_boost_re_org_test(ReOrgTest {
+        slot_duration_ms: Some(SHORT_SLOT_DURATION_MS),
+        proposal_delay: Some(Duration::from_millis(900)),
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
+/// Proposing well after the cutoff on 5s slots is too late to re-org.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_short_slots_after_cutoff() {
+    proposer_boost_re_org_test(ReOrgTest {
+        slot_duration_ms: Some(SHORT_SLOT_DURATION_MS),
+        proposal_delay: Some(Duration::from_millis(1100)),
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
 /// Run a proposer boost re-org test.
 ///
 /// - `head_slot`: the slot of the canonical head to be reorged
@@ -408,11 +467,16 @@ pub async fn proposer_boost_re_org_test(
         should_re_org,
         expected_first_update_lookahead,
         expect_withdrawals_change_on_epoch,
+        slot_duration_ms,
+        proposal_delay,
     }: ReOrgTest,
 ) {
     assert!(head_slot > 0);
 
-    let spec = test_spec::<E>();
+    let mut spec = test_spec::<E>();
+    if let Some(slot_duration_ms) = slot_duration_ms {
+        spec = spec.set_slot_duration_ms::<E>(slot_duration_ms);
+    }
 
     if !spec.is_gloas_scheduled() {
         return;
@@ -724,6 +788,12 @@ pub async fn proposer_boost_re_org_test(
         .sign_randao_reveal(&state_b, proposer_index, slot_c)
         .into();
 
+    if let Some(proposal_delay) = proposal_delay {
+        assert!(proposal_delay < slot_clock.slot_duration());
+        slot_clock.set_current_time(slot_clock.start_of(slot_c).unwrap() + proposal_delay);
+        assert_eq!(harness.get_current_slot(), slot_c);
+    }
+
     let (block_c, block_c_blobs) = {
         let (response, _) = tester
             .client
@@ -871,6 +941,12 @@ pub async fn proposer_boost_re_org_test(
     // Check that the `parent_beacon_block_root` of the payload attributes are correct.
     if let Ok(parent_beacon_block_root) = payload_attribs.parent_beacon_block_root() {
         assert_eq!(parent_beacon_block_root, block_c.parent_root());
+    }
+
+    // The lookahead is only meaningful for proposals at the start of the slot, as a late proposal
+    // may not get its first update with payload attributes until block production.
+    if proposal_delay.is_some() {
+        return;
     }
 
     let lookahead = slot_clock
