@@ -31,6 +31,11 @@ impl ObservedExecutionPayloads {
             gas_limits.insert(block_hash, gas_limit);
         }
     }
+
+    #[cfg(feature = "ef_tests")]
+    pub fn insert_for_testing(&self, block_hash: ExecutionBlockHash, gas_limit: u64) {
+        self.insert(block_hash, gas_limit);
+    }
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {

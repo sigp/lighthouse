@@ -23,6 +23,7 @@ use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use types::AttestationShufflingId;
 
 use crate::{
+    BeaconStore,
     beacon_fork_choice_store::BeaconForkChoiceStore,
     beacon_snapshot::BeaconSnapshot,
     canonical_head::CanonicalHead,
@@ -55,6 +56,7 @@ const BUILDER_BALANCE: u64 = 2_000_000_000;
 
 struct TestContext {
     canonical_head: CanonicalHead<T>,
+    store: BeaconStore<T>,
     observed_execution_payloads: ObservedExecutionPayloads,
     bid_cache: GossipVerifiedPayloadBidCache<E>,
     preferences_cache: GossipVerifiedProposerPreferenceCache,
@@ -63,7 +65,6 @@ struct TestContext {
     spec: ChainSpec,
     genesis_block_root: Hash256,
     inactive_builder_index: u64,
-    store: crate::BeaconStore<T>,
 }
 
 fn builder_withdrawal_credentials(pubkey: &bls::PublicKey, spec: &ChainSpec) -> Hash256 {
@@ -187,6 +188,7 @@ impl TestContext {
 
         Self {
             canonical_head,
+            store,
             observed_execution_payloads,
             bid_cache: GossipVerifiedPayloadBidCache::default(),
             preferences_cache: GossipVerifiedProposerPreferenceCache::default(),
@@ -195,7 +197,6 @@ impl TestContext {
             spec,
             genesis_block_root: block_root,
             inactive_builder_index,
-            store,
         }
     }
 
@@ -971,6 +972,7 @@ fn parent_block_root_not_canonical() {
     // block slot` rule and exercise the  bid descendant from parent check specifically.
     ctx.slot_clock.set_slot(1);
     let slot = Slot::new(2);
+    ctx.slot_clock.set_slot(1);
     seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
 
     let fork_root = ctx.insert_non_canonical_block();
