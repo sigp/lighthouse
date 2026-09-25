@@ -860,7 +860,7 @@ impl TestRig {
                 self.send_rpc_envelopes_response(req_id, peer_id, &envelopes);
             }
 
-            (RequestType::Status(_req), AppRequestId::Router) => {
+            (RequestType::Status(_req), AppRequestId::Status) => {
                 // Ignore Status requests for now
             }
 

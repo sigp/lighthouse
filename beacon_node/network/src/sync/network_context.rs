@@ -450,7 +450,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             );
 
             let request = RequestType::Status(status_message.clone());
-            let app_request_id = AppRequestId::Router;
+            let app_request_id = AppRequestId::Status;
             let _ = self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id,
                 request,
