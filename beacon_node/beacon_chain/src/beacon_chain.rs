@@ -6731,18 +6731,70 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         }
 
+        let head_root = forkchoice_update_params.head_root;
+        let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
+
+        // The inclusion list transactions for `prepare_slot` keep updating as lists arrive towards
+        // the end of `current_slot`, so they are read on every call rather than served from the cache
+        let inclusion_list_transactions = if prepare_slot_fork.heze_enabled() {
+            let chain = self.clone();
+            let transactions = self
+                .spawn_blocking_handle(
+                    move || chain.get_inclusion_list_transactions(head_root, current_slot, false),
+                    "prepare_beacon_proposer_inclusion_list_transactions",
+                )
+                .await?;
+
+            match transactions {
+                Ok(transactions) => Some(ProgressiveTransactions::from(transactions)),
+                Err(e) => {
+                    warn!(
+                        ?head_root,
+                        %current_slot,
+                        error = ?e,
+                        "Failed to read inclusion lists, keeping the cached ones"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         // Fetch payload attributes from the execution layer's cache, or compute them from scratch
         // if no matching entry is found. This saves recomputing the withdrawals which can take
         // considerable time to compute if a state load is required.
-        let head_root = forkchoice_update_params.head_root;
-        let payload_attributes = if let Some(payload_attributes) = execution_layer
+        let payload_attributes = if let Some(mut payload_attributes) = execution_layer
             .payload_attributes(prepare_slot, head_root, head_payload_status)
             .await
         {
+            // The `forkchoiceUpdated` call below reads the attributes back from the cache
+            // rather than using the value here, so the entry is updated as well
+            if let PayloadAttributes::V5(attributes) = &mut payload_attributes
+                && let Some(new_inclusion_list_transactions) = inclusion_list_transactions
+                && attributes.inclusion_list_transactions != new_inclusion_list_transactions
+            {
+                attributes.inclusion_list_transactions = new_inclusion_list_transactions;
+
+                execution_layer
+                    .insert_proposer(
+                        prepare_slot,
+                        head_root,
+                        head_payload_status,
+                        proposer,
+                        payload_attributes.clone(),
+                    )
+                    .await;
+
+                debug!(
+                    %prepare_slot,
+                    validator = proposer,
+                    "Refreshed proposer inclusion list transactions"
+                );
+            }
+
             payload_attributes
         } else {
-            let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
-
             let withdrawals = if prepare_slot_fork.capella_enabled() {
                 let chain = self.clone();
                 self.spawn_blocking_handle(
@@ -6785,13 +6837,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
-            let inclusion_list_transactions = if prepare_slot_fork.heze_enabled() {
-                // TODO(heze): populate from the inclusion list store
-                Some(ProgressiveTransactions::empty())
-            } else {
-                None
-            };
-
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6803,7 +6848,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 parent_beacon_block_root,
                 slot_number,
                 target_gas_limit,
-                inclusion_list_transactions,
+                prepare_slot_fork.heze_enabled().then(|| {
+                    inclusion_list_transactions.unwrap_or_else(ProgressiveTransactions::empty)
+                }),
             );
 
             execution_layer
@@ -7435,6 +7482,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 only_timely,
             )
             .map_err(Into::into)
+    }
+
+    /// Provides the inclusion list transactions for a payload built on `parent_root`
+    /// at `slot + 1`
+    /// The return value falls back to an empty list if fetching the inclusion list transactions fails
+    pub fn proposer_inclusion_list_transactions(
+        &self,
+        parent_root: Hash256,
+        slot: Slot,
+    ) -> ProgressiveTransactions {
+        self.get_inclusion_list_transactions(parent_root, slot, false)
+            .map(ProgressiveTransactions::from)
+            .unwrap_or_else(|e| {
+                warn!(
+                    ?parent_root,
+                    %slot,
+                    error = ?e,
+                    "Failed to read inclusion lists, building payload without them"
+                );
+                ProgressiveTransactions::empty()
+            })
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
