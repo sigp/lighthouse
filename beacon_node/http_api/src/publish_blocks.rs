@@ -3,6 +3,7 @@ use std::future::Future;
 
 use beacon_chain::block_verification_types::{AsBlock, LookupBlock};
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::validator_monitor::get_block_delay_ms;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
@@ -16,7 +17,7 @@ use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::{PubsubMessage, PubsubPartialMessage};
 use logging::crit;
-use network::NetworkMessage;
+use network::{NetworkMessage, build_partial_column_request_messages};
 use rand::prelude::SliceRandom;
 use reqwest::StatusCode;
 use sensitive_url::SensitiveUrl;
@@ -321,6 +322,14 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 publish_fn,
             ))
             .await;
+            if import_result.is_ok() {
+                maybe_publish_partial_column_requests_for_http_block(
+                    &chain,
+                    block.as_ref(),
+                    block_root,
+                    network_tx,
+                );
+            }
             post_block_import_logging_and_response(
                 import_result,
                 validation_level,
@@ -333,6 +342,12 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         }
         Err(BlockError::DuplicateFullyImported(root)) => {
             if publish_fn_completed.load(Ordering::SeqCst) {
+                maybe_publish_partial_column_requests_for_http_block(
+                    &chain,
+                    block.as_ref(),
+                    block_root,
+                    network_tx,
+                );
                 post_block_import_logging_and_response(
                     Ok(AvailabilityProcessingStatus::Imported(slot, root)),
                     validation_level,
@@ -372,6 +387,14 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 publish_fn,
             ))
             .await;
+            if import_result.is_ok() {
+                maybe_publish_partial_column_requests_for_http_block(
+                    &chain,
+                    block.as_ref(),
+                    block_root,
+                    network_tx,
+                );
+            }
             post_block_import_logging_and_response(
                 import_result,
                 validation_level,
@@ -390,6 +413,42 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             );
             Err(warp_utils::reject::custom_bad_request(e.to_string()))
         }
+    }
+}
+
+/// Publish partial-column request messages after a successful HTTP block import (#10104).
+///
+/// Mirrors the gossip path so peers receive request metadata for missing cells.
+fn maybe_publish_partial_column_requests_for_http_block<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    block: &SignedBeaconBlock<T::EthSpec>,
+    block_root: Hash256,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+) {
+    let Some(header_or_bid) = PartialHeaderOrBid::try_from_block(block) else {
+        return;
+    };
+
+    let messages = build_partial_column_request_messages(chain, &header_or_bid, block_root);
+    if messages.is_empty() {
+        return;
+    }
+
+    debug!(
+        %block_root,
+        count = messages.len(),
+        "Publishing partial column requests after HTTP block publish"
+    );
+
+    if let Err(e) = crate::utils::publish_network_message(
+        network_tx,
+        NetworkMessage::PublishPartialColumns { messages },
+    ) {
+        warn!(
+            %block_root,
+            error = ?e,
+            "Failed to publish partial column requests after HTTP block publish"
+        );
     }
 }
 
