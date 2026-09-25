@@ -2135,15 +2135,15 @@ impl ProtoArray {
     }
 }
 
-/// A helper method to calculate the proposer boost based on the given `justified_balances`.
+/// Spec: `calculate_committee_fraction`.
 ///
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#calculate_committee_fraction
 pub fn calculate_committee_fraction<E: EthSpec>(
     justified_balances: &JustifiedBalances,
     proposer_score_boost: u64,
 ) -> Option<u64> {
     let committee_weight = justified_balances
-        .total_effective_balance
+        .total_active_balance()?
         .checked_div(E::slots_per_epoch())?;
     committee_weight
         .checked_mul(proposer_score_boost)?
