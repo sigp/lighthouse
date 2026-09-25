@@ -1,3 +1,4 @@
+pub mod attestation_rules;
 mod attestation_tests;
 mod block_tests;
 mod exhaustive_tests;
