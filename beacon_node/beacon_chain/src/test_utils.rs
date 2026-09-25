@@ -820,6 +820,38 @@ fn pack_payload_attestation_vote(
     packs.pop().flatten()
 }
 
+/// Aggregation bits pooled for exactly `data`. Bits rather than a pool count, because aggregation
+/// on insert means a second attester voting the same `data` sets a bit in the existing aggregate
+/// instead of adding a new one.
+pub fn pooled_payload_attestation_bits<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    data: &PayloadAttestationData,
+) -> usize {
+    chain
+        .op_pool
+        .get_payload_attestations(|pooled| pooled == data, true)
+        .iter()
+        .map(|attestation| attestation.aggregation_bits.num_set_bits())
+        .sum()
+}
+
+/// Number of PTC positions held by `validator_index`, which is how many bits its message sets.
+pub fn ptc_seats<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    slot: Slot,
+    validator_index: u64,
+) -> usize {
+    chain
+        .head_snapshot()
+        .beacon_state
+        .get_ptc(slot, &chain.spec)
+        .expect("should get PTC")
+        .0
+        .iter()
+        .filter(|index| **index as u64 == validator_index)
+        .count()
+}
+
 impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
 where
     E: EthSpec,

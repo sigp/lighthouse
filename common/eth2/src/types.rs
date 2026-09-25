@@ -555,6 +555,11 @@ pub struct AttestationPoolQuery {
     pub committee_index: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct PayloadAttestationPoolQuery {
+    pub slot: Option<Slot>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ValidatorsQuery {

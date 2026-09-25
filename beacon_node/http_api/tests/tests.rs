@@ -4,7 +4,7 @@ use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        fork_name_from_env, test_spec,
+        fork_name_from_env, pooled_payload_attestation_bits, ptc_seats, test_spec,
     },
 };
 use bls::{AggregateSignature, Keypair, PublicKeyBytes, SecretKey, Signature, SignatureBytes};
@@ -3212,7 +3212,137 @@ impl ApiTester {
         let message = self.make_valid_payload_attestation_message(0);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
-        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
+        let bits_before = pooled_payload_attestation_bits(&self.chain, &message.data);
+        let expected_bits = ptc_seats(&self.chain, message.data.slot, message.validator_index);
+
+        self.client
+            .post_beacon_pool_payload_attestations(std::slice::from_ref(&message), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation should be sent to network"
+        );
+
+        assert_eq!(
+            pooled_payload_attestation_bits(&self.chain, &message.data),
+            bits_before + expected_bits,
+            "payload attestation should be added to op pool"
+        );
+
+        self
+    }
+
+    pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
+        let message = self.make_valid_payload_attestation_message(1);
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
+
+        let bits_before = pooled_payload_attestation_bits(&self.chain, &message.data);
+        let expected_bits = ptc_seats(&self.chain, message.data.slot, message.validator_index);
+
+        self.client
+            .post_beacon_pool_payload_attestations_ssz(std::slice::from_ref(&message), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation (SSZ) should be sent to network"
+        );
+
+        assert_eq!(
+            pooled_payload_attestation_bits(&self.chain, &message.data),
+            bits_before + expected_bits,
+            "payload attestation should be added to op pool"
+        );
+
+        self
+    }
+
+    pub async fn test_get_beacon_pool_payload_attestations(mut self) -> Self {
+        let pool_count_before = self.chain.op_pool.num_payload_attestations();
+
+        let first = self.make_valid_payload_attestation_message(0);
+        let first_slot = first.data.slot;
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(first_slot);
+
+        self.client
+            .post_beacon_pool_payload_attestations(std::slice::from_ref(&first), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation should be sent to network"
+        );
+
+        self.harness.extend_slots(1).await;
+
+        let first_only = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(first_slot))
+            .await
+            .unwrap();
+
+        assert_eq!(first_only.version(), Some(ForkName::Gloas));
+        assert_eq!(first_only.data().len(), 1);
+        assert_eq!(first_only.data()[0].data, first.data);
+
+        let second = self.make_valid_payload_attestation_message(0);
+        let second_slot = second.data.slot;
+        assert!(second_slot > first_slot);
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(second_slot);
+
+        self.client
+            .post_beacon_pool_payload_attestations(std::slice::from_ref(&second), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation should be sent to network"
+        );
+
+        // An omitted slot returns every slot held, not just the current one.
+        let all = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(None)
+            .await
+            .unwrap();
+
+        assert_eq!(all.version(), Some(ForkName::Gloas));
+        assert_eq!(all.data().len(), pool_count_before + 2);
+        assert!(all.data().iter().any(|a| a.data == first.data));
+        assert!(all.data().iter().any(|a| a.data == second.data));
+
+        // An explicit slot excludes the others.
+        let second_only = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(second_slot))
+            .await
+            .unwrap();
+
+        assert_eq!(second_only.data().len(), 1);
+        assert_eq!(second_only.data()[0].data, second.data);
+
+        // A slot with nothing in the pool is an empty list, not an error.
+        let empty = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(first_slot - 1))
+            .await
+            .unwrap();
+
+        assert_eq!(empty.version(), Some(ForkName::Gloas));
+        assert!(empty.data().is_empty());
+
+        self
+    }
+
+    pub async fn test_get_beacon_pool_payload_attestations_ssz(mut self) -> Self {
+        let message = self.make_valid_payload_attestation_message(0);
+        let slot = message.data.slot;
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
 
         self.client
             .post_beacon_pool_payload_attestations(&[message], fork_name)
@@ -3224,36 +3354,23 @@ impl ApiTester {
             "valid payload attestation should be sent to network"
         );
 
-        assert_eq!(
-            self.chain.op_pool.num_payload_attestation_messages(),
-            pool_count_before + 1,
-            "payload attestation should be added to op pool"
-        );
-
-        self
-    }
-
-    pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
-        let message = self.make_valid_payload_attestation_message(1);
-        let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
-
-        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
-
-        self.client
-            .post_beacon_pool_payload_attestations_ssz(&[message], fork_name)
+        let json = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(slot))
             .await
             .unwrap();
 
-        assert!(
-            self.network_rx.network_recv.recv().await.is_some(),
-            "valid payload attestation (SSZ) should be sent to network"
-        );
+        let bytes = self
+            .client
+            .get_beacon_pool_payload_attestations_ssz(Some(slot))
+            .await
+            .unwrap()
+            .expect("SSZ response should be present");
 
-        assert_eq!(
-            self.chain.op_pool.num_payload_attestation_messages(),
-            pool_count_before + 1,
-            "payload attestation should be added to op pool"
-        );
+        let ssz = Vec::<PayloadAttestation<E>>::from_ssz_bytes(&bytes).unwrap();
+
+        assert!(!ssz.is_empty());
+        assert_eq!(&ssz, json.data());
 
         self
     }
@@ -10462,6 +10579,28 @@ async fn post_beacon_pool_payload_attestations_valid_ssz() {
     ApiTester::new_with_hard_forks()
         .await
         .test_post_beacon_pool_payload_attestations_valid_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_pool_payload_attestations() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_pool_payload_attestations()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_pool_payload_attestations_ssz() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_pool_payload_attestations_ssz()
         .await;
 }
 
