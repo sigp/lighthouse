@@ -6,7 +6,7 @@ use serde::{
     de::{self, value::StringDeserializer},
 };
 pub use serde_utils::quoted_u64::Quoted;
-use types::{Address, Graffiti};
+use types::Address;
 use zeroize::Zeroizing;
 
 fn deserialize_non_null<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -339,5 +339,5 @@ pub struct DeleteRemotekeysResponse {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct GetGraffitiResponse {
     pub pubkey: PublicKeyBytes,
-    pub graffiti: Graffiti,
+    pub graffiti: String,
 }
