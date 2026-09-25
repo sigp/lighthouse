@@ -6609,10 +6609,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Return an error here to try and prevent progression by upstream functions.
             return Err(Error::JustifiedPayloadInvalid {
                 justified_root: justified_block.root,
-                execution_block_hash: match justified_block.block_hash() {
-                    PayloadBlockHash::Hash(hash) => Some(hash),
-                    PayloadBlockHash::PreMerge => None,
-                },
+                execution_block_hash: justified_block.block_hash(),
             });
         }
 

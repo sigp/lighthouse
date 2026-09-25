@@ -217,8 +217,7 @@ impl ProtoNode {
         }
     }
 
-    /// The execution block this node commits to: the bid's hash post-Gloas, the embedded
-    /// payload's hash pre-Gloas. `None` before the merge. Says nothing about validity.
+    /// The execution block this node commits to.
     pub fn block_hash(&self) -> PayloadBlockHash {
         if let Ok(hash) = self.execution_payload_block_hash() {
             PayloadBlockHash::Hash(hash)

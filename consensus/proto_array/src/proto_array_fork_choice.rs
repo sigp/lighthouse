@@ -202,10 +202,7 @@ impl ForkChoiceNode {
     }
 }
 
-/// The execution block a beacon block commits to.
-///
-/// `PreMerge` means there is no such block — not that we failed to find one. Every post-merge
-/// block has a hash here, whether or not an EL has passed judgement on it.
+/// The execution block a beacon block commits to. Says nothing about its validity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PayloadBlockHash {
     PreMerge,
@@ -345,8 +342,7 @@ pub struct Block {
     pub next_epoch_shuffling_id: AttestationShufflingId,
     pub justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
-    /// Whether an execution node has marked this block's payload valid. Carries no hash — see
-    /// `block_hash`.
+    /// Indicates if an execution node has marked this block as valid.
     pub execution_status: ExecutionStatus,
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
@@ -360,8 +356,7 @@ pub struct Block {
 }
 
 impl Block {
-    /// The execution block this block commits to. `None` pre-merge, and for a Gloas block,
-    /// whose payload is committed by the bid rather than embedded.
+    /// The execution block this block commits to.
     pub fn block_hash(&self) -> PayloadBlockHash {
         // Post-Gloas the bid commits the hash; pre-Gloas the embedded payload carries it.
         if let Some(hash) = self.execution_payload_block_hash {
@@ -376,31 +371,30 @@ impl Block {
         }
     }
 
-    /// Spec: `head_block_hash` for `notify_forkchoice_updated`. The bid fields are populated only
-    /// post-Gloas, so pre-Gloas this falls through to the embedded payload.
-    pub fn head_payload_block_hash(
-        &self,
-        payload_status: PayloadStatus,
-    ) -> Option<ExecutionBlockHash> {
-        match payload_status {
-            PayloadStatus::Full => self.execution_payload_block_hash,
-            PayloadStatus::Pending | PayloadStatus::Empty => self.execution_payload_parent_hash,
+    /// The `head_block_hash` argument for `notify_forkchoice_updated`.
+    pub fn head_payload_block_hash(&self, payload_status: PayloadStatus) -> PayloadBlockHash {
+        if let (Some(block_hash), Some(parent_hash)) = (
+            self.execution_payload_block_hash,
+            self.execution_payload_parent_hash,
+        ) {
+            // Post-Gloas the bid commits both hashes, and the elected node says which one ran.
+            PayloadBlockHash::Hash(match payload_status {
+                PayloadStatus::Full => block_hash,
+                PayloadStatus::Pending | PayloadStatus::Empty => parent_hash,
+            })
+        } else {
+            // Pre-Gloas the payload is embedded, so it ran whatever the payload status.
+            self.block_hash()
         }
-        .or_else(|| match self.block_hash() {
-            PayloadBlockHash::Hash(hash) => Some(hash),
-            PayloadBlockHash::PreMerge => None,
-        })
     }
 
-    /// Spec: `finalized_block_hash` and `get_safe_execution_block_hash`, the bid's parent payload.
-    pub fn checkpoint_payload_block_hash(&self) -> Option<ExecutionBlockHash> {
+    /// Spec: `finalized_block_hash` and `get_safe_execution_block_hash`. Post-Gloas that is
+    /// the bid's parent payload, not this block's own.
+    pub fn checkpoint_payload_block_hash(&self) -> PayloadBlockHash {
         if let Some(parent_hash) = self.execution_payload_parent_hash {
-            Some(parent_hash)
+            PayloadBlockHash::Hash(parent_hash)
         } else {
-            match self.block_hash() {
-                PayloadBlockHash::Hash(hash) => Some(hash),
-                PayloadBlockHash::PreMerge => None,
-            }
+            self.block_hash()
         }
     }
 

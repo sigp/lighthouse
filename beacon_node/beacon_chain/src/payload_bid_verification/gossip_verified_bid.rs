@@ -216,28 +216,24 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
         .fork_name_at_slot::<T::EthSpec>(head_block.slot)
         .gloas_enabled();
 
-    let (head_bid_parent_block_hash, head_bid_block_hash) = if head_is_pre_gloas {
-        let parent_payload_hash = head_block
+    // `block_hash` already covers both forks: the bid's committed hash post-Gloas, the embedded
+    // payload's pre-Gloas.
+    let head_bid_block_hash = head_block.block_hash();
+    let head_bid_parent_block_hash = if head_is_pre_gloas {
+        head_block
             .parent_root
             .and_then(|parent_root| fork_choice_read.get_block(&parent_root))
-            .and_then(|parent| match parent.block_hash() {
-                PayloadBlockHash::Hash(hash) => Some(hash),
-                PayloadBlockHash::PreMerge => None,
-            });
-        let head_bid_block_hash = match head_block.block_hash() {
-            PayloadBlockHash::Hash(hash) => Some(hash),
-            PayloadBlockHash::PreMerge => None,
-        };
-        (parent_payload_hash, head_bid_block_hash)
+            .map_or(PayloadBlockHash::PreMerge, |parent| parent.block_hash())
     } else {
-        (
-            head_block.execution_payload_parent_hash,
-            head_block.execution_payload_block_hash,
-        )
+        match head_block.execution_payload_parent_hash {
+            Some(hash) => PayloadBlockHash::Hash(hash),
+            None => PayloadBlockHash::PreMerge,
+        }
     };
 
     let builds_on_parent_block = Some(bid.parent_block_root) == head_block.parent_root;
-    let builds_on_parent_payload = Some(bid.parent_block_hash) == head_bid_parent_block_hash;
+    let builds_on_parent_payload =
+        PayloadBlockHash::Hash(bid.parent_block_hash) == head_bid_parent_block_hash;
 
     if builds_on_parent_block && builds_on_parent_payload {
         return Ok(true);
@@ -247,7 +243,8 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
         return Ok(false);
     }
 
-    let builds_on_head_payload = Some(bid.parent_block_hash) == head_bid_block_hash;
+    let builds_on_head_payload =
+        PayloadBlockHash::Hash(bid.parent_block_hash) == head_bid_block_hash;
 
     if head_is_pre_gloas {
         return Ok(builds_on_head_payload);
