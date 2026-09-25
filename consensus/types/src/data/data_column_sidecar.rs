@@ -91,7 +91,7 @@ pub struct DataColumnSidecar<E: EthSpec> {
     // [Modified in Gloas:EIP7688]
     #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_fixed_vec")]
     #[superstruct(only(Gloas), partial_getter(rename = "column_gloas"))]
-    pub column: ProgressiveVariableList<Cell<E>>,
+    pub column: ProgressiveVariableList<Cell<E>, E::MaxBlobCommitmentsPerBlock>,
     /// All the KZG commitments associated with the block, used for verifying sample cells.
     /// In Gloas, commitments come from `block.body.signed_execution_payload_bid.message.blob_kzg_commitments`.
     #[superstruct(only(Fulu))]
@@ -100,7 +100,7 @@ pub struct DataColumnSidecar<E: EthSpec> {
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     // [Modified in Gloas:EIP7688]
     #[superstruct(only(Gloas), partial_getter(rename = "kzg_proofs_gloas"))]
-    pub kzg_proofs: ProgressiveVariableList<KzgProof>,
+    pub kzg_proofs: ProgressiveVariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     #[superstruct(only(Fulu))]
     pub signed_block_header: SignedBeaconBlockHeader,
     /// An inclusion proof, proving the inclusion of `blob_kzg_commitments` in `BeaconBlockBody`.
@@ -334,16 +334,18 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
 
 impl<E: EthSpec> DataColumnSidecarGloas<E> {
     pub fn min_size() -> usize {
-        // min size is one cell
-        Self {
+        // The minimum is one cell and its proof, both with fixed SSZ lengths.
+        let fixed_size = Self {
             index: 0,
-            column: ProgressiveVariableList::new(vec![Cell::<E>::default()]),
-            kzg_proofs: ProgressiveVariableList::new(vec![KzgProof::empty()]),
+            column: ProgressiveVariableList::empty(),
+            kzg_proofs: ProgressiveVariableList::empty(),
             slot: Slot::new(0),
             beacon_block_root: Hash256::ZERO,
         }
-        .as_ssz_bytes()
-        .len()
+        .ssz_bytes_len();
+        fixed_size
+            .saturating_add(<Cell<E> as Encode>::ssz_fixed_len())
+            .saturating_add(<KzgProof as Encode>::ssz_fixed_len())
     }
 
     pub fn max_size(max_blobs_per_block: usize) -> usize {

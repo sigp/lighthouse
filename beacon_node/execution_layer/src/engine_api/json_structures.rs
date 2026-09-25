@@ -7,9 +7,8 @@ use strum::EnumString;
 use superstruct::superstruct;
 use types::data::{BlobsList, Cell, ColumnIndex};
 use types::execution::{
-    BlockAccessList, BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests,
-    DepositRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ProgressiveTransactions,
-    RequestType, WithdrawalRequests,
+    BlockAccessList, ExecutionRequestsElectra, ExecutionRequestsGloas, ProgressiveTransactions,
+    RequestType,
 };
 use types::kzg_ext::KzgCommitments;
 use types::{Blob, KzgProof};
@@ -116,7 +115,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     )]
     pub withdrawals: VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "withdrawals_progressive"))]
-    pub withdrawals: ProgressiveVariableList<JsonWithdrawal>,
+    pub withdrawals: ProgressiveVariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
@@ -271,7 +270,9 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -299,7 +300,9 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeze<E>> for JsonExecutionPayloadHeze<E
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -475,7 +478,9 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -503,7 +508,9 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadHeze<E>> for ExecutionPayloadHeze<E
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -568,28 +575,25 @@ impl<E: EthSpec> From<ExecutionRequests<E>> for JsonExecutionRequests {
     }
 }
 
-/// Parse an EIP-7685 `JsonExecutionRequests` list into its component request lists.
+/// Parse an EIP-7685 `JsonExecutionRequests` list using the request types for the fork.
 ///
-/// Returns the deposit, withdrawal, consolidation, builder deposit and builder exit lists.
-/// Builder lists are empty pre-gloas or post-gloas when no builder requests are present.
-#[allow(clippy::type_complexity)]
+/// Gloas uses progressive lists and removes the deposit-request count limit.
+/// Builder requests are only valid from Gloas onwards.
 fn parse_execution_requests<E: EthSpec>(
     value: JsonExecutionRequests,
-) -> Result<
-    (
-        DepositRequests<E>,
-        WithdrawalRequests<E>,
-        ConsolidationRequests<E>,
-        BuilderDepositRequests<E>,
-        BuilderExitRequests<E>,
-    ),
-    RequestsError,
-> {
-    let mut deposits = DepositRequests::<E>::default();
-    let mut withdrawals = WithdrawalRequests::<E>::default();
-    let mut consolidations = ConsolidationRequests::<E>::default();
-    let mut builder_deposits = BuilderDepositRequests::<E>::default();
-    let mut builder_exits = BuilderExitRequests::<E>::default();
+    fork_name: ForkName,
+) -> Result<ExecutionRequests<E>, RequestsError> {
+    fn decode<T: Decode>(bytes: &[u8], kind: RequestType) -> Result<T, RequestsError> {
+        T::from_ssz_bytes(bytes).map_err(|e| {
+            RequestsError::DecodeError(format!("Failed to decode {kind:?}Request from EL: {e:?}"))
+        })
+    }
+
+    let mut requests = if fork_name.gloas_enabled() {
+        ExecutionRequests::Gloas(ExecutionRequestsGloas::<E>::default())
+    } else {
+        ExecutionRequests::Electra(ExecutionRequestsElectra::<E>::default())
+    };
     let mut prev_prefix: Option<RequestType> = None;
     for (i, request) in value.0.into_iter().enumerate() {
         // hex string
@@ -614,78 +618,52 @@ fn parse_execution_requests<E: EthSpec>(
         }
         prev_prefix = Some(current_prefix);
 
-        match current_prefix {
-            RequestType::Deposit => {
-                deposits = DepositRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
-                    RequestsError::DecodeError(format!(
-                        "Failed to decode DepositRequest from EL: {:?}",
-                        e
-                    ))
-                })?;
-            }
-            RequestType::Withdrawal => {
-                withdrawals =
-                    WithdrawalRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode WithdrawalRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::Consolidation => {
-                consolidations = ConsolidationRequests::<E>::from_ssz_bytes(request_bytes)
-                    .map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode ConsolidationRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::BuilderDeposit => {
-                builder_deposits = BuilderDepositRequests::<E>::from_ssz_bytes(request_bytes)
-                    .map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode BuilderDepositRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::BuilderExit => {
-                builder_exits =
-                    BuilderExitRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode BuilderExitRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
+        match &mut requests {
+            ExecutionRequests::Electra(requests) => match current_prefix {
+                RequestType::Deposit => {
+                    requests.deposits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Withdrawal => {
+                    requests.withdrawals = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Consolidation => {
+                    requests.consolidations = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderDeposit | RequestType::BuilderExit => {
+                    return Err(RequestsError::VariantMismatch);
+                }
+            },
+            ExecutionRequests::Gloas(requests) => match current_prefix {
+                RequestType::Deposit => {
+                    requests.deposits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Withdrawal => {
+                    requests.withdrawals = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Consolidation => {
+                    requests.consolidations = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderDeposit => {
+                    requests.builder_deposits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderExit => {
+                    requests.builder_exits = decode(request_bytes, current_prefix)?;
+                }
+            },
         }
     }
 
-    Ok((
-        deposits,
-        withdrawals,
-        consolidations,
-        builder_deposits,
-        builder_exits,
-    ))
+    Ok(requests)
 }
 
 impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsElectra<E> {
     type Error = RequestsError;
 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
-        let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
-            parse_execution_requests::<E>(value)?;
-        // Builder requests are not valid pre-Gloas.
-        if !builder_deposits.is_empty() || !builder_exits.is_empty() {
-            return Err(RequestsError::VariantMismatch);
+        match parse_execution_requests::<E>(value, ForkName::Electra)? {
+            ExecutionRequests::Electra(requests) => Ok(requests),
+            ExecutionRequests::Gloas(_) => Err(RequestsError::VariantMismatch),
         }
-        Ok(ExecutionRequestsElectra {
-            deposits,
-            withdrawals,
-            consolidations,
-        })
     }
 }
 
@@ -693,18 +671,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
     type Error = RequestsError;
 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
-        let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
-            parse_execution_requests::<E>(value)?;
-        // [Modified in Gloas:EIP7688] the Gloas variant stores progressive (unbounded) lists, so
-        // re-type the parsed bounded lists.
-        Ok(ExecutionRequestsGloas {
-            deposits: deposits.iter().cloned().collect(),
-            withdrawals: withdrawals.iter().cloned().collect(),
-            consolidations: consolidations.iter().cloned().collect(),
-            builder_deposits: builder_deposits.iter().cloned().collect(),
-            builder_exits: builder_exits.iter().cloned().collect(),
-            _phantom: std::marker::PhantomData,
-        })
+        match parse_execution_requests::<E>(value, ForkName::Gloas)? {
+            ExecutionRequests::Gloas(requests) => Ok(requests),
+            ExecutionRequests::Electra(_) => Err(RequestsError::VariantMismatch),
+        }
     }
 }
 
@@ -1385,36 +1355,46 @@ pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct JsonExecutionPayloadBodyV2 {
+#[serde(bound = "E: EthSpec", rename_all = "camelCase")]
+pub struct JsonExecutionPayloadBodyV2<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
     pub transactions: ProgressiveTransactions,
-    pub withdrawals: Option<ProgressiveVariableList<JsonWithdrawal>>,
+    pub withdrawals: Option<ProgressiveVariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
     #[serde(default)]
     pub block_access_list: Option<JsonBlockAccessList>,
 }
 
-impl From<JsonExecutionPayloadBodyV2> for ExecutionPayloadBodyV2 {
-    fn from(value: JsonExecutionPayloadBodyV2) -> Self {
-        Self {
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV2<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: JsonExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
             transactions: value.transactions,
             withdrawals: value
                 .withdrawals
-                .map(|withdrawals| withdrawals.into_iter().map(Into::into).collect()),
+                .map(|withdrawals| {
+                    ProgressiveVariableList::try_from_iter(withdrawals.into_iter().map(Into::into))
+                })
+                .transpose()?,
             block_access_list: value.block_access_list.map(|list| list.0),
-        }
+        })
     }
 }
 
-impl From<ExecutionPayloadBodyV2> for JsonExecutionPayloadBodyV2 {
-    fn from(value: ExecutionPayloadBodyV2) -> Self {
-        Self {
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for JsonExecutionPayloadBodyV2<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
             transactions: value.transactions,
             withdrawals: value
                 .withdrawals
-                .map(|withdrawals| withdrawals.into_iter().map(Into::into).collect()),
+                .map(|withdrawals| {
+                    ProgressiveVariableList::try_from_iter(withdrawals.into_iter().map(Into::into))
+                })
+                .transpose()?,
             block_access_list: value.block_access_list.map(JsonBlockAccessList),
-        }
+        })
     }
 }
 
@@ -1546,8 +1526,53 @@ mod tests {
         VariableList::try_from(vec![x.clone()]).unwrap()
     }
 
-    fn singleton_progressive_list<T: Clone>(x: &T) -> ProgressiveVariableList<T> {
-        ProgressiveVariableList::new(vec![x.clone()])
+    fn singleton_progressive_list<T: Clone, N: Unsigned>(x: &T) -> ProgressiveVariableList<T, N> {
+        ProgressiveVariableList::new(vec![x.clone()]).unwrap()
+    }
+
+    #[test]
+    fn deposit_request_limits_by_fork() {
+        let deposit = DepositRequest {
+            pubkey: PublicKeyBytes::empty(),
+            withdrawal_credentials: Hash256::ZERO,
+            amount: 32,
+            signature: SignatureBytes::empty(),
+            index: 0,
+        };
+        let max = MainnetEthSpec::max_deposit_requests_per_payload();
+        for count in [max, max + 1] {
+            let deposits = vec![deposit.clone(); count];
+            let json = JsonExecutionRequests(vec![create_request_string(
+                RequestType::Deposit.to_u8(),
+                &deposits,
+            )]);
+
+            let electra = ExecutionRequestsElectra::<MainnetEthSpec>::try_from(json.clone());
+            if count == max {
+                assert_eq!(electra.unwrap().deposits.to_vec(), deposits);
+            } else {
+                assert!(matches!(electra, Err(RequestsError::DecodeError(_))));
+            }
+            let gloas = ExecutionRequestsGloas::<MainnetEthSpec>::try_from(json.clone()).unwrap();
+            assert_eq!(gloas.deposits.to_vec(), deposits);
+
+            for fork in [ForkName::Fulu, ForkName::Heze] {
+                let parsed = parse_execution_requests::<MainnetEthSpec>(json.clone(), fork);
+                match fork {
+                    ForkName::Fulu if count > max => {
+                        assert!(matches!(parsed, Err(RequestsError::DecodeError(_))));
+                    }
+                    ForkName::Fulu => assert!(matches!(
+                        parsed.unwrap(),
+                        ExecutionRequests::Electra(requests) if requests.deposits.to_vec() == deposits
+                    )),
+                    _ => assert!(matches!(
+                        parsed.unwrap(),
+                        ExecutionRequests::Gloas(requests) if requests.deposits.to_vec() == deposits
+                    )),
+                }
+            }
+        }
     }
 
     /// Tests all error conditions except ssz decoding errors
@@ -1754,6 +1779,42 @@ mod tests {
             pubkey: PublicKeyBytes::empty(),
         };
 
+        // Unlike validator deposits, all other Gloas request lists remain bounded.
+        fn check_limit<T: Encode + Clone>(kind: RequestType, request: T, max: usize) {
+            for count in [max, max + 1] {
+                let json = JsonExecutionRequests(vec![create_request_string(
+                    kind.to_u8(),
+                    &vec![request.clone(); count],
+                )]);
+                let result = ExecutionRequestsGloas::<MainnetEthSpec>::try_from(json);
+                if count == max {
+                    assert!(result.is_ok(), "{kind:?}: {result:?}");
+                } else {
+                    assert!(matches!(result, Err(RequestsError::DecodeError(_))));
+                }
+            }
+        }
+        check_limit(
+            RequestType::Withdrawal,
+            withdrawal_request.clone(),
+            MainnetEthSpec::max_withdrawal_requests_per_payload(),
+        );
+        check_limit(
+            RequestType::Consolidation,
+            consolidation_request.clone(),
+            MainnetEthSpec::max_consolidation_requests_per_payload(),
+        );
+        check_limit(
+            RequestType::BuilderDeposit,
+            builder_deposit_request.clone(),
+            MainnetEthSpec::max_builder_deposit_requests_per_payload(),
+        );
+        check_limit(
+            RequestType::BuilderExit,
+            builder_exit_request.clone(),
+            MainnetEthSpec::max_builder_exit_requests_per_payload(),
+        );
+
         // Valid request with all five request types, in ascending prefix order.
         assert_eq!(
             ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
@@ -1773,7 +1834,6 @@ mod tests {
                 consolidations: singleton_progressive_list(&consolidation_request),
                 builder_deposits: singleton_progressive_list(&builder_deposit_request),
                 builder_exits: singleton_progressive_list(&builder_exit_request),
-                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1789,7 +1849,6 @@ mod tests {
                 consolidations: Default::default(),
                 builder_deposits: Default::default(),
                 builder_exits: Default::default(),
-                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1809,7 +1868,6 @@ mod tests {
                 consolidations: Default::default(),
                 builder_deposits: singleton_progressive_list(&builder_deposit_request),
                 builder_exits: singleton_progressive_list(&builder_exit_request),
-                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1865,11 +1923,12 @@ mod tests {
             "withdrawals": null,
             "blockAccessList": "0x010203",
         });
-        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(with_bal.clone()).unwrap();
-        let internal: ExecutionPayloadBodyV2 = body.clone().into();
+        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
+            serde_json::from_value(with_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().try_into().unwrap();
         assert_eq!(
             internal.block_access_list,
-            Some(ProgressiveVariableList::new(vec![1, 2, 3]))
+            Some(ProgressiveVariableList::new(vec![1, 2, 3]).unwrap())
         );
         assert_eq!(serde_json::to_value(&body).unwrap(), with_bal);
 
@@ -1879,13 +1938,14 @@ mod tests {
             "withdrawals": null,
             "blockAccessList": null,
         });
-        let body: JsonExecutionPayloadBodyV2 = serde_json::from_value(null_bal.clone()).unwrap();
-        let internal: ExecutionPayloadBodyV2 = body.clone().into();
+        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
+            serde_json::from_value(null_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().try_into().unwrap();
         assert_eq!(internal.block_access_list, None);
         assert_eq!(serde_json::to_value(&body).unwrap(), null_bal);
 
         // An omitted field is accepted as `None`, then serialized in its canonical `null` form.
-        let body: JsonExecutionPayloadBodyV2 =
+        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
             serde_json::from_value(json!({ "transactions": [], "withdrawals": null })).unwrap();
         assert!(body.block_access_list.is_none());
         assert_eq!(

@@ -444,12 +444,14 @@ mod tests {
                     .iter()
                     .map(|&idx| make_cell(idx as u8))
                     .collect::<Vec<_>>()
-                    .into(),
+                    .try_into()
+                    .unwrap(),
                 kzg_proofs: present_indices
                     .iter()
                     .map(|_| types::KzgProof::empty())
                     .collect::<Vec<_>>()
-                    .into(),
+                    .try_into()
+                    .unwrap(),
             },
         })
     }

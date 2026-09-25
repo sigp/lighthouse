@@ -805,7 +805,7 @@ async fn invalid_attester_slashing_1_invalid() {
         }
         AttesterSlashing::Gloas(attester_slashing) => {
             attester_slashing.attestation_1.attesting_indices =
-                ssz_types::ProgressiveVariableList::new(vec![2, 1]);
+                ssz_types::ProgressiveVariableList::new(vec![2, 1]).unwrap();
         }
     }
 
@@ -849,7 +849,7 @@ async fn invalid_attester_slashing_2_invalid() {
         }
         AttesterSlashing::Gloas(attester_slashing) => {
             attester_slashing.attestation_2.attesting_indices =
-                ssz_types::ProgressiveVariableList::new(vec![2, 1]);
+                ssz_types::ProgressiveVariableList::new(vec![2, 1]).unwrap();
         }
     }
 

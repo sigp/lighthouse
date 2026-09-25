@@ -20,8 +20,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    // [New in Gloas:EIP7688] The operation lists are `ProgressiveList`s without type-level
-    // limits, so the spec's per-block limits are enforced at runtime instead.
+    // [New in Gloas:EIP7688] Also enforce limits on lists constructed without decoding.
     if state.fork_name_unchecked().gloas_enabled() {
         verify_operation_list_lengths(block_body)?;
     }
@@ -89,8 +88,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
 /// Verify the lengths of the (progressive) operation lists against the spec's runtime limits.
 ///
-/// [New in Gloas:EIP7688]: these limits used to be enforced by the SSZ types, but
-/// `ProgressiveList` is unbounded so they must be checked explicitly.
+/// Construction and mutation of progressive lists can exceed their decoder limits.
 pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>>(
     block_body: BeaconBlockBodyRef<E, Payload>,
 ) -> Result<(), BlockProcessingError> {

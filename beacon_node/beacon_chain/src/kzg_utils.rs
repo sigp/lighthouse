@@ -613,8 +613,10 @@ pub(crate) fn build_data_column_sidecars_gloas<E: EthSpec>(
             |(index, (col, proofs))| -> Result<Arc<DataColumnSidecar<E>>, String> {
                 Ok(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
                     index: index as u64,
-                    column: ProgressiveVariableList::from_iter(col),
-                    kzg_proofs: ProgressiveVariableList::from_iter(proofs),
+                    column: ProgressiveVariableList::new(col)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    kzg_proofs: ProgressiveVariableList::new(proofs)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
                     beacon_block_root,
                     slot,
                 })))
@@ -696,8 +698,10 @@ pub(crate) fn build_partial_data_columns_gloas<E: EthSpec>(
                 index: index as u64,
                 sidecar: types::data::PartialDataColumnSidecarGloas {
                     cells_present_bitmap: bitmap.clone(),
-                    column: ProgressiveVariableList::new(col),
-                    kzg_proofs: ProgressiveVariableList::new(proofs),
+                    column: ProgressiveVariableList::new(col)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                    kzg_proofs: ProgressiveVariableList::new(proofs)
+                        .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
                 },
             }
             .into())

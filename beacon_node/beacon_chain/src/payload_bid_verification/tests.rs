@@ -328,7 +328,11 @@ impl TestContext {
         builder_exit: BuilderExitRequest,
     ) {
         let mut envelope = ExecutionPayloadEnvelope::<E>::empty();
-        envelope.execution_requests.builder_exits.push(builder_exit);
+        envelope
+            .execution_requests
+            .builder_exits
+            .push(builder_exit)
+            .unwrap();
         self.store
             .put_payload_envelope(
                 &block_root,
@@ -1041,7 +1045,7 @@ fn invalid_blob_kzg_commitments() {
             parent_block_root: ctx.genesis_block_root,
             parent_block_hash: ctx.execution_parent_hash(),
             prev_randao: ctx.expected_prev_randao(),
-            blob_kzg_commitments: ProgressiveVariableList::new(commitments),
+            blob_kzg_commitments: ProgressiveVariableList::new(commitments).unwrap(),
             ..ExecutionPayloadBid::default()
         },
         signature: Signature::empty(),

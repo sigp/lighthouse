@@ -26,7 +26,7 @@ fn get_harness() -> BeaconChainHarness<EphemeralHarnessType<E>> {
 }
 
 fn transaction(byte: u8) -> ProgressiveVariableList<u8> {
-    ProgressiveVariableList::new(vec![byte])
+    ProgressiveVariableList::new(vec![byte]).unwrap()
 }
 
 fn signed_inclusion_list(
@@ -40,7 +40,7 @@ fn signed_inclusion_list(
             slot,
             validator_index,
             dependent_root,
-            transactions: ProgressiveVariableList::new(vec![transaction(tx_byte)]),
+            transactions: ProgressiveVariableList::new(vec![transaction(tx_byte)]).unwrap(),
         },
         signature: Signature::empty(),
     }
