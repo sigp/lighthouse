@@ -47,6 +47,7 @@ use crate::work_reprocessing_queue::{
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
+use logging::TimeLatch;
 use logging::crit;
 use parking_lot::Mutex;
 pub use scheduler::work_reprocessing_queue;
@@ -738,6 +739,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
             let enable_backfill_rate_limiting = self.config.enable_backfill_rate_limiting;
 
+            // De-bounce for the log emitted when the reprocess queue is full.
+            let mut reprocess_queue_debounce = TimeLatch::default();
+
             loop {
                 let (work_event, created_timestamp) = match inbound_events.next().await {
                     Some(InboundEvent::WorkerIdle) => {
@@ -1152,7 +1156,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                         match work {
                             Work::Reprocess(work_event) => {
-                                if let Err(e) = reprocess_work_tx.try_send(work_event) {
+                                if let Err(e) = reprocess_work_tx.try_send(work_event)
+                                    && reprocess_queue_debounce.elapsed()
+                                {
                                     error!(
                                         error = ?e,
                                         "Failed to reprocess work event"
