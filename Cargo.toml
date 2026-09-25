@@ -42,6 +42,7 @@ members = [
     "common/oneshot_broadcast",
     "common/pretty_reqwest_error",
     "common/slot_clock",
+    "common/static_file_storage",
     "common/system_health",
     "common/target_check",
     "common/task_executor",
