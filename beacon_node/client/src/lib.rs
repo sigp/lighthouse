@@ -14,6 +14,7 @@ pub use beacon_chain::BeaconChainTypes;
 pub use builder::ClientBuilder;
 pub use config::{ClientGenesis, Config as ClientConfig};
 pub use eth2_config::Eth2Config;
+pub use proof_engine::{ExecutionProofConfig, ProofEngineConfig};
 
 /// The core "beacon node" client.
 ///

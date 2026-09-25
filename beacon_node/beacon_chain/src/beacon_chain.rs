@@ -470,7 +470,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Interfaces with the execution client.
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Client for the EIP-8025 proof engine, if one is configured.
-    pub proof_engine: Option<Arc<ProofEngine>>,
+    pub proof_engine: Option<ProofEngine>,
     /// Orchestrates direct builder bid requests and preference submissions over the Gloas Builder
     /// API. Present only when the Gloas fork is scheduled.
     pub builders: Option<Arc<Builders>>,

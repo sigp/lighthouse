@@ -1,96 +1,69 @@
-//! Minimal EIP-8025 proof-engine client.
-//!
-//! Implements only `verify_execution_proof` from the proof-engine API
-//! (consensus-specs `_features/eip8025/proof-engine.md`). The proof engine is a trusted,
-//! locally-operated service; its verdict is authoritative for proof validity but never for
-//! payload validity.
+//! In-process EIP-8025 proof verification.
 
-use sensitive_url::SensitiveUrl;
-use serde::Deserialize;
-use std::time::Duration;
-use types::execution::ExecutionProof;
+mod config;
+#[cfg(feature = "ere-verifier")]
+pub mod ere;
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
 
-pub const DEFAULT_VERIFY_TIMEOUT: Duration = Duration::from_secs(5);
+use std::sync::Arc;
+use types::execution::{ExecutionProof, ProofType};
 
-const PATH_PROOF_VERIFICATIONS: &str = "/v1/execution_proof_verifications";
+pub use config::{ExecutionProofConfig, ProofEngineConfig};
 
+/// Errors raised while initializing or running a proof verifier.
 #[derive(Debug)]
 pub enum ProofEngineError {
-    HttpClient(String),
-    InvalidUrl(String),
-    InvalidResponse(String),
+    /// The configured proof verifier could not initialize or complete verification.
+    ProofVerifierError(String),
+    /// No verifier is configured for the proof's EIP-8025 proof type.
+    UnconfiguredProofType(ProofType),
 }
 
-/// Outcome of `verify_execution_proof`. `Invalid` means the artifact does not verify; it says
-/// nothing about the validity of the payload it claims to prove.
+/// Outcome of proof verification. `Invalid` means the artifact does not verify; it says nothing
+/// about the validity of the payload it claims to prove.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProofVerificationOutcome {
+    /// The proof verifies against its reconstructed public input.
     Valid,
+    /// The proof or its public values are invalid.
     Invalid,
 }
 
-#[derive(Deserialize)]
-struct VerifyResponse {
-    status: VerifyStatus,
+/// Interface used by the beacon chain to verify reconstructed execution proofs.
+pub trait ProofEngineT: Send + Sync + 'static {
+    /// Verify a reconstructed execution proof.
+    fn verify_execution_proof(
+        &self,
+        proof: &ExecutionProof,
+    ) -> Result<ProofVerificationOutcome, ProofEngineError>;
 }
 
-#[derive(Deserialize, Clone, Copy)]
-enum VerifyStatus {
-    #[serde(rename = "VALID")]
-    Valid,
-    #[serde(rename = "INVALID")]
-    Invalid,
-}
-
+/// Cloneable handle to an execution-proof verifier.
+#[derive(Clone)]
 pub struct ProofEngine {
-    client: reqwest::Client,
-    url: SensitiveUrl,
+    inner: Arc<dyn ProofEngineT>,
+}
+
+impl std::fmt::Debug for ProofEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProofEngine").finish_non_exhaustive()
+    }
 }
 
 impl ProofEngine {
-    pub fn new(url: SensitiveUrl) -> Result<Self, ProofEngineError> {
-        let client = reqwest::Client::builder()
-            .timeout(DEFAULT_VERIFY_TIMEOUT)
-            .build()
-            .map_err(|e| ProofEngineError::HttpClient(e.to_string()))?;
-        Ok(Self { client, url })
+    /// Wrap an execution-proof verifier in a shared handle.
+    pub fn new(engine: impl ProofEngineT) -> Self {
+        Self {
+            inner: Arc::new(engine),
+        }
     }
 
-    /// EIP-8025 `ProofEngine.verify_execution_proof`.
-    pub async fn verify_execution_proof(
+    /// Verify a reconstructed execution proof with the wrapped implementation.
+    pub fn verify_execution_proof(
         &self,
         proof: &ExecutionProof,
     ) -> Result<ProofVerificationOutcome, ProofEngineError> {
-        let mut url = self.url.expose_full().clone();
-        url.set_path(PATH_PROOF_VERIFICATIONS);
-        let response: VerifyResponse = self
-            .client
-            .post(url)
-            .query(&[
-                (
-                    "new_payload_request_root",
-                    format!("{:?}", proof.public_input.new_payload_request_root),
-                ),
-                ("proof_type", proof.proof_type.to_string()),
-                (
-                    "beacon_block_root",
-                    format!("{:?}", proof.beacon_block_root),
-                ),
-            ])
-            .header("content-type", "application/octet-stream")
-            .body(proof.proof_data.to_vec())
-            .send()
-            .await
-            .map_err(|e| ProofEngineError::HttpClient(e.to_string()))?
-            .error_for_status()
-            .map_err(|e| ProofEngineError::HttpClient(e.to_string()))?
-            .json()
-            .await
-            .map_err(|e| ProofEngineError::InvalidResponse(e.to_string()))?;
-
-        Ok(match response.status {
-            VerifyStatus::Valid => ProofVerificationOutcome::Valid,
-            VerifyStatus::Invalid => ProofVerificationOutcome::Invalid,
-        })
+        self.inner.verify_execution_proof(proof)
     }
 }

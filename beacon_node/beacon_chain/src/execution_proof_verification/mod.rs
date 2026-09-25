@@ -35,6 +35,10 @@ pub enum Error {
     },
     /// `proof_data` is empty (REJECT).
     EmptyProofData,
+    /// The execution payload for the referenced block is not yet available (IGNORE).
+    PayloadUnavailable {
+        beacon_block_root: Hash256,
+    },
     /// The validator index does not exist (REJECT).
     UnknownValidatorIndex(u64),
     /// The validator is not active at the referenced block's epoch (REJECT).
@@ -47,7 +51,7 @@ pub enum Error {
     InvalidProof,
     /// No proof engine is configured; the node should not be subscribed to the topic.
     ProofEngineMissing,
-    /// The proof engine could not be reached or answered malformed (IGNORE).
+    /// The proof engine could not complete verification (IGNORE).
     ProofEngine(ProofEngineError),
     BeaconChainError(Box<BeaconChainError>),
 }

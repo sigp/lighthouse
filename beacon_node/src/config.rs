@@ -9,7 +9,7 @@ use bls::PublicKeyBytes;
 use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::{parse_flag, parse_optional, parse_required};
-use client::{ClientConfig, ClientGenesis};
+use client::{ClientConfig, ClientGenesis, ProofEngineConfig};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
@@ -335,13 +335,16 @@ pub fn get_config<E: EthSpec>(
         return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
     }
 
-    // Parse and set the EIP-8025 proof engine, if any.
-    if let Some(endpoint) = cli_args.get_one::<String>("proof-engine-endpoint") {
-        client_config.proof_engine_endpoint = Some(parse_only_one_value(
-            endpoint,
-            SensitiveUrl::parse,
-            "--proof-engine-endpoint",
-        )?);
+    // Configure the in-process EIP-8025 proof verifiers, if enabled.
+    if let Some(path) = cli_args.get_one::<String>("proof-engine") {
+        client_config.proof_engine = Some(if path.is_empty() {
+            ProofEngineConfig::default()
+        } else {
+            let json = fs::read_to_string(path)
+                .map_err(|e| format!("Unable to read --proof-engine `{path}`: {e}"))?;
+            json.parse::<ProofEngineConfig>()
+                .map_err(|e| format!("Invalid --proof-engine `{path}`: {e}"))?
+        });
         client_config.network.enable_execution_proof = true;
     }
 
