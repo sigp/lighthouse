@@ -60,8 +60,13 @@ impl From<VoteTrackerV28> for VoteTracker {
         VoteTracker {
             current_root: v.current_root,
             next_root: v.next_root,
-            // The v28 format stored next_epoch rather than slots. Default to 0 since the
-            // vote tracker will be updated on the next attestation.
+            // Known issue, won't fix: sigp/lighthouse#10089.
+            //
+            // V28 stored an epoch, not slots, so the slot is set to 0. Until this validator's next
+            // attestation is processed, an older one can replace the vote via
+            // `attestation_slot > next_slot`. Bounded to one epoch per validator, once per
+            // database; not worth threading `slots_per_epoch` through every V28/V29 conversion
+            // (sigp/lighthouse#10095).
             current_slot: Slot::new(0),
             next_slot: Slot::new(0),
             current_payload_present: false,
@@ -93,6 +98,9 @@ pub struct LatestMessage {
 }
 
 /// Represents the verification status of an execution payload pre-Gloas.
+///
+/// Do not implement a direct conversion to `ExecutionVerdict`; deriving a verdict requires fork
+/// choice state.
 #[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "union")]
 pub enum ExecutionStatus {
@@ -123,6 +131,25 @@ pub enum PayloadStatus {
     Pending = 2,
 }
 
+impl PayloadStatus {
+    /// Classify a vote into the payload bucket it contributes to for `block_slot`.
+    ///
+    /// Per the gloas model:
+    ///
+    /// - a same-slot vote is `Pending`
+    /// - a later vote with `payload_present = true` is `Full`
+    /// - a later vote with `payload_present = false` is `Empty`
+    pub fn from_vote(vote_slot: Slot, payload_present: bool, block_slot: Slot) -> Self {
+        if vote_slot == block_slot {
+            PayloadStatus::Pending
+        } else if payload_present {
+            PayloadStatus::Full
+        } else {
+            PayloadStatus::Empty
+        }
+    }
+}
+
 /// Spec's `ForkChoiceNode` augmented with ProtoNode index.
 pub struct IndexedForkChoiceNode {
     pub root: Hash256,
@@ -137,6 +164,41 @@ impl IndexedForkChoiceNode {
             proto_node_index: self.proto_node_index,
             payload_status,
         }
+    }
+}
+
+/// Spec's `ForkChoiceNode`: a block root paired with the payload status of the branch it names.
+///
+/// Fields are private with no public constructor, so a `ForkChoiceNode` can only be produced by
+/// `find_head`, `get_head`, or `get_supported_node` — a node the chain actually elected or that was
+/// voted for. This keeps callers from querying the "wrong half" of a block and getting an answer
+/// about a branch the chain never ran.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ForkChoiceNode {
+    root: Hash256,
+    payload_status: PayloadStatus,
+}
+
+impl ForkChoiceNode {
+    /// Deliberately not `pub`: a `ForkChoiceNode` is only produced by fork choice.
+    pub(crate) fn new(root: Hash256, payload_status: PayloadStatus) -> Self {
+        Self {
+            root,
+            payload_status,
+        }
+    }
+
+    pub fn root(&self) -> Hash256 {
+        self.root
+    }
+
+    pub fn payload_status(&self) -> PayloadStatus {
+        self.payload_status
+    }
+
+    /// Root and payload status as a pair, for callers that still thread them separately.
+    pub fn as_pair(&self) -> (Hash256, PayloadStatus) {
+        (self.root, self.payload_status)
     }
 }
 
@@ -160,26 +222,11 @@ impl ExecutionStatus {
 
     /// Returns `true` if the block:
     ///
-    /// - Has a valid payload, OR
-    /// - Does not have execution enabled.
-    ///
-    /// Whenever this function returns `true`, the block is *fully valid*.
-    pub fn is_valid_or_irrelevant(&self) -> bool {
-        matches!(
-            self,
-            ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_)
-        )
-    }
-
-    /// Returns `true` if the block:
-    ///
     /// - Has execution enabled, AND
     /// - Has a valid payload
     ///
     /// This function will return `false` for any block from a slot prior to the Bellatrix fork.
     /// This means that some blocks that are perfectly valid will still receive a `false` response.
-    /// See `Self::is_valid_or_irrelevant` for a function that will always return `true` given any
-    /// perfectly valid block.
     pub fn is_valid_and_post_bellatrix(&self) -> bool {
         matches!(self, ExecutionStatus::Valid(_))
     }
@@ -231,6 +278,58 @@ impl fmt::Display for ExecutionStatus {
     }
 }
 
+/// The execution layer's ruling on a fork choice node: is its chain fully validated (`Valid`),
+/// rejected (`Invalid`), or not checked yet (`Optimistic`)?
+///
+/// Do not implement a direct conversion from `ExecutionStatus`; deriving a verdict requires fork
+/// choice state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutionVerdict {
+    Valid,
+    Invalid,
+    Optimistic,
+}
+
+impl ExecutionVerdict {
+    pub fn is_valid(&self) -> bool {
+        match self {
+            ExecutionVerdict::Valid => true,
+            ExecutionVerdict::Invalid | ExecutionVerdict::Optimistic => false,
+        }
+    }
+
+    pub fn is_optimistic(&self) -> bool {
+        match self {
+            ExecutionVerdict::Optimistic => true,
+            ExecutionVerdict::Valid | ExecutionVerdict::Invalid => false,
+        }
+    }
+
+    pub fn is_invalid(&self) -> bool {
+        match self {
+            ExecutionVerdict::Invalid => true,
+            ExecutionVerdict::Valid | ExecutionVerdict::Optimistic => false,
+        }
+    }
+
+    pub fn is_optimistic_or_invalid(&self) -> bool {
+        match self {
+            ExecutionVerdict::Optimistic | ExecutionVerdict::Invalid => true,
+            ExecutionVerdict::Valid => false,
+        }
+    }
+}
+
+impl fmt::Display for ExecutionVerdict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExecutionVerdict::Valid => write!(f, "valid"),
+            ExecutionVerdict::Invalid => write!(f, "invalid"),
+            ExecutionVerdict::Optimistic => write!(f, "optimistic"),
+        }
+    }
+}
+
 /// A block that is to be applied to the fork choice.
 ///
 /// A simplified version of `types::BeaconBlock`.
@@ -260,6 +359,24 @@ pub struct Block {
 }
 
 impl Block {
+    /// Spec: `head_block_hash` for `notify_forkchoice_updated`. Pre-Gloas the payload is embedded.
+    pub fn head_payload_block_hash(
+        &self,
+        payload_status: PayloadStatus,
+    ) -> Option<ExecutionBlockHash> {
+        self.execution_status.block_hash().or(match payload_status {
+            PayloadStatus::Full => self.execution_payload_block_hash,
+            PayloadStatus::Pending | PayloadStatus::Empty => self.execution_payload_parent_hash,
+        })
+    }
+
+    /// Spec: `finalized_block_hash` and `get_safe_execution_block_hash`, the bid's parent payload.
+    pub fn checkpoint_payload_block_hash(&self) -> Option<ExecutionBlockHash> {
+        self.execution_status
+            .block_hash()
+            .or(self.execution_payload_parent_hash)
+    }
+
     /// Compute the proposer shuffling decision root of a child block in `child_block_epoch`.
     ///
     /// This function assumes that `child_block_epoch >= self.epoch`. It is the responsibility of
@@ -657,7 +774,7 @@ impl ProtoArrayForkChoice {
         equivocating_indices: &BTreeSet<u64>,
         current_slot: Slot,
         spec: &ChainSpec,
-    ) -> Result<(Hash256, PayloadStatus), String> {
+    ) -> Result<ForkChoiceNode, String> {
         let old_balances = &mut self.balances;
         let new_balances = justified_state_balances;
         let node_slots = self
@@ -695,6 +812,7 @@ impl ProtoArrayForkChoice {
                 new_balances,
                 spec,
             )
+            .map(|(root, payload_status)| ForkChoiceNode::new(root, payload_status))
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
@@ -1059,14 +1177,36 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("{e:?}"))
     }
 
-    /// Returns the `block.execution_status` field, if the block is present.
-    pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
-        let block = self.get_proto_node(block_root)?;
-        Some(
-            block
-                .execution_status()
-                .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
-        )
+    /// Execution verdict of a specific fork choice node (root + payload status).
+    pub fn get_node_execution_status(
+        &self,
+        node: ForkChoiceNode,
+    ) -> Result<ExecutionVerdict, Error> {
+        self.proto_array
+            .node_execution_status(node.root(), node.payload_status())
+    }
+
+    /// Execution verdict of a block, assuming its `FULL` node.
+    pub fn get_block_execution_status_assuming_full(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<ExecutionVerdict, Error> {
+        self.proto_array
+            .node_execution_status(*block_root, PayloadStatus::Full)
+    }
+
+    /// Spec's `get_supported_node`.
+    pub fn supported_node(
+        &self,
+        block_root: Hash256,
+        vote_slot: Slot,
+        payload_present: bool,
+    ) -> Option<ForkChoiceNode> {
+        let block_slot = self.get_proto_node(&block_root)?.slot();
+        Some(ForkChoiceNode::new(
+            block_root,
+            PayloadStatus::from_vote(vote_slot, payload_present, block_slot),
+        ))
     }
 
     /// Returns whether the execution payload for a block has been received.
@@ -1279,7 +1419,7 @@ fn compute_deltas(
                         .checked_sub(old_balance as i64)
                         .ok_or(Error::DeltaOverflow(current_delta_index))?;
 
-                    let status = NodeDelta::payload_status(
+                    let status = PayloadStatus::from_vote(
                         vote.current_slot,
                         vote.current_payload_present,
                         block_slot(current_delta_index)?,
@@ -1327,7 +1467,7 @@ fn compute_deltas(
                     .checked_sub(old_balance as i64)
                     .ok_or(Error::DeltaOverflow(current_delta_index))?;
 
-                let status = NodeDelta::payload_status(
+                let status = PayloadStatus::from_vote(
                     vote.current_slot,
                     vote.current_payload_present,
                     block_slot(current_delta_index)?,
@@ -1346,7 +1486,7 @@ fn compute_deltas(
                     .checked_add(new_balance as i64)
                     .ok_or(Error::DeltaOverflow(next_delta_index))?;
 
-                let status = NodeDelta::payload_status(
+                let status = PayloadStatus::from_vote(
                     vote.next_slot,
                     vote.next_payload_present,
                     block_slot(next_delta_index)?,
@@ -2368,7 +2508,10 @@ mod test_find_head {
                     &spec,
                 )
                 .unwrap();
-            assert_eq!(head, (checkpoint.root, PayloadStatus::Empty));
+            assert_eq!(
+                head,
+                ForkChoiceNode::new(checkpoint.root, PayloadStatus::Empty)
+            );
             assert_eq!(
                 fork_choice.get_weight(&checkpoint.root),
                 Some(32 * (validator_index as u64 + 1))
@@ -2394,7 +2537,10 @@ mod test_find_head {
                     &spec,
                 )
                 .unwrap();
-            assert_eq!(head, (checkpoint.root, PayloadStatus::Empty));
+            assert_eq!(
+                head,
+                ForkChoiceNode::new(checkpoint.root, PayloadStatus::Empty)
+            );
             assert_eq!(fork_choice.get_weight(&checkpoint.root), Some(64));
             assert_eq!(fork_choice.balances, balances);
         }

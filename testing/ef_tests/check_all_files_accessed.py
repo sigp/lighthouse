@@ -25,6 +25,8 @@ excluded_paths = [
     # Intentionally omitted, as per https://github.com/sigp/lighthouse/issues/1835
     "tests/.*/.*/ssz_static/Eth1Block/",
     "tests/.*/.*/ssz_static/PowBlock/",
+    # Lighthouse's Engine API NewPayloadRequest is not an SSZ container.
+    "tests/[^/]+/[^/]+/ssz_static/NewPayloadRequest/",
     # We no longer implement merge logic.
     "tests/.*/bellatrix/fork_choice/on_merge_block",
     # Light client sync is not implemented
@@ -60,9 +62,6 @@ excluded_paths = [
     "tests/.*/gloas/ssz_static/ExecutionPayloadHeader/.*",
     # ForkChoiceNode is internal to fork choice and probably doesn't need SSZ tests.
     "tests/.*/gloas/ssz_static/ForkChoiceNode/.*",
-    # TODO(gloas): new in v1.7.0-alpha.13. Needs a handler and support for the
-    # `viable_for_head_roots_and_weights` check, which requires proto array internals.
-    "tests/.*/gloas/fork_choice/should_apply_proposer_boost/.*",
     # Ignore KZG tests that target internal kzg library functions
     "tests/.*/compute_verify_cell_kzg_proof_batch_challenge/.*",
     "tests/.*/compute_challenge/.*",

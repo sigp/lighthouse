@@ -46,6 +46,15 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
         let slot = payload_attestation_message.data.slot;
         let validator_index = payload_attestation_message.validator_index;
 
+        // [REJECT] The payload attestation's slot is at or after the Gloas fork.
+        if !ctx
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled()
+        {
+            return Err(Error::PreGloasSlot { slot });
+        }
+
         // [IGNORE] `data.slot` is within the `MAXIMUM_GOSSIP_CLOCK_DISPARITY` allowance.
         verify_propagation_slot_range(ctx.slot_clock, slot, ctx.spec)?;
 

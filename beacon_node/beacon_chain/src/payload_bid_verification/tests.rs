@@ -160,14 +160,14 @@ impl TestContext {
             .put_block(&block_root, signed_block.clone())
             .expect("should store genesis block");
 
-        let (_, head_payload_status) = fork_choice
+        let head_node = fork_choice
             .get_head(Slot::new(0), &spec)
             .expect("should run get_head");
 
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(snapshot),
-            head_payload_status,
+            head_node,
             FastConfirmationMode::Disabled,
             &store,
             &spec,
@@ -1111,6 +1111,42 @@ fn valid_bid_after_empty_genesis_uses_parent_payload_gas_limit() {
         "expected Ok, got: {:?}",
         result.unwrap_err()
     );
+}
+
+#[test]
+fn valid_bid_with_parent_in_previous_epoch() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+    let epoch_start = E::slots_per_epoch();
+    for (current_slot, bid_slot) in [
+        (epoch_start - 1, epoch_start),
+        (epoch_start, epoch_start),
+        (epoch_start + 1, epoch_start + 1),
+    ] {
+        let ctx = TestContext::new();
+        ctx.slot_clock.set_slot(current_slot);
+        let slot = Slot::new(bid_slot);
+        seed_preferences(&ctx, slot, Address::ZERO, 30_000_000);
+        let parent_state = &ctx.canonical_head.cached_head().snapshot.beacon_state;
+        let bid = ctx.sign_bid(ExecutionPayloadBid {
+            slot,
+            builder_index: 0,
+            fee_recipient: Address::ZERO,
+            gas_limit: 30_000_000,
+            parent_block_root: ctx.genesis_block_root,
+            parent_block_hash: ctx.execution_parent_hash(),
+            prev_randao: *parent_state
+                .get_randao_mix(parent_state.current_epoch())
+                .unwrap(),
+            ..ExecutionPayloadBid::default()
+        });
+        let result = GossipVerifiedPayloadBid::new(bid, &ctx.gossip_ctx());
+        assert!(
+            result.is_ok(),
+            "clock {current_slot}, bid {bid_slot}: {result:?}"
+        );
+    }
 }
 
 #[test]
