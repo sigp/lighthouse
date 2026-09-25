@@ -9,6 +9,7 @@ use crate::{
     sync::manager::BlockProcessType,
 };
 use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::chain_config::ChainConfig;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
@@ -97,6 +98,7 @@ pub struct TestRigParams {
     beacon_processor_config: BeaconProcessorConfig,
     node_custody_type: NodeCustodyType,
     generate_blobs: bool,
+    enable_partial_columns: bool,
     spec: ChainSpec,
 }
 
@@ -110,6 +112,21 @@ impl TestRig {
             beacon_processor_config: BeaconProcessorConfig::default(),
             node_custody_type: NodeCustodyType::Fullnode,
             generate_blobs: true,
+            enable_partial_columns: false,
+            spec,
+        })
+        .await
+    }
+
+    pub async fn new_with_partial_columns(chain_length: u64) -> Self {
+        let mut spec = test_spec::<E>();
+        spec.shard_committee_period = 2;
+        Self::new_parametric(TestRigParams {
+            chain_length,
+            beacon_processor_config: BeaconProcessorConfig::default(),
+            node_custody_type: NodeCustodyType::Fullnode,
+            generate_blobs: true,
+            enable_partial_columns: true,
             spec,
         })
         .await
@@ -124,6 +141,7 @@ impl TestRig {
             beacon_processor_config: BeaconProcessorConfig::default(),
             node_custody_type: NodeCustodyType::Supernode,
             generate_blobs: true,
+            enable_partial_columns: false,
             spec,
         })
         .await
@@ -185,6 +203,7 @@ impl TestRig {
             beacon_processor_config,
             node_custody_type,
             generate_blobs,
+            enable_partial_columns,
             spec,
         } = params;
 
@@ -195,7 +214,10 @@ impl TestRig {
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(node_custody_type)
-            .chain_config(<_>::default())
+            .chain_config(ChainConfig {
+                enable_partial_columns,
+                ..ChainConfig::default()
+            })
             .build();
 
         harness
@@ -948,6 +970,25 @@ impl TestRig {
             Some(events)
         }
     }
+
+    /// Count `PublishPartialColumns` messages received within `timeout`.
+    pub async fn count_publish_partial_columns(&mut self, timeout: Duration) -> usize {
+        self.receive_network_messages_with_timeout(timeout, None)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|msg| matches!(msg, NetworkMessage::PublishPartialColumns { .. }))
+            .count()
+    }
+
+    /// Whether the next block's execution payload bid has blob commitments.
+    pub fn next_block_has_blob_commitments(&self) -> bool {
+        self.next_block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .is_ok_and(|bid| !bid.message.blob_kzg_commitments.is_empty())
+    }
 }
 
 fn junk_peer_id() -> PeerId {
@@ -1297,6 +1338,7 @@ async fn new_rig_disable_blobs_pre_fulu() -> TestRig {
         beacon_processor_config: Default::default(),
         node_custody_type: Default::default(),
         generate_blobs: enable_blobs,
+        enable_partial_columns: false,
         spec,
     })
     .await
@@ -2002,6 +2044,7 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         beacon_processor_config,
         node_custody_type: NodeCustodyType::Fullnode,
         generate_blobs: true,
+        enable_partial_columns: false,
         spec: test_spec::<E>(),
     })
     .await;
@@ -2089,6 +2132,7 @@ async fn test_blobs_by_range_spans_fulu_fork() {
         beacon_processor_config: BeaconProcessorConfig::default(),
         node_custody_type: NodeCustodyType::Fullnode,
         generate_blobs: true,
+        enable_partial_columns: false,
         spec,
     })
     .await;
@@ -2872,4 +2916,102 @@ async fn test_blocks_by_head_unknown_root() {
         }
         other => panic!("expected SendErrorResponse, got {:?}", other),
     }
+}
+
+/// Ensure a gossip Gloas block publishes partial-column requests when partial columns
+/// are enabled.
+#[tokio::test]
+async fn gossip_gloas_block_publishes_partial_column_requests() {
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new_with_partial_columns(SMALL_CHAIN).await;
+    assert!(
+        rig.next_block_has_blob_commitments(),
+        "precondition: next block must carry blob commitments"
+    );
+    assert!(rig.chain.config.enable_partial_columns);
+
+    let _ = rig
+        .receive_network_messages_with_timeout(Duration::from_millis(50), None)
+        .await;
+
+    rig.enqueue_gossip_block();
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
+        .await;
+
+    let partial_publishes = rig
+        .count_publish_partial_columns(Duration::from_secs(2))
+        .await;
+    assert!(
+        partial_publishes > 0,
+        "gossip Gloas block path must publish partial-column request placeholders"
+    );
+}
+
+/// Ensure `process_block` alone does not publish partials, and that the shared helper
+/// can publish them for an HTTP-style import (#10104).
+#[tokio::test]
+async fn shared_helper_publishes_partial_requests_for_http_style_gloas_block() {
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    use crate::build_partial_column_request_messages;
+    use beacon_chain::fetch_blobs::PartialHeaderOrBid;
+    use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
+    use types::BlockImportSource;
+
+    let mut rig = TestRig::new_with_partial_columns(SMALL_CHAIN).await;
+    assert!(rig.next_block_has_blob_commitments());
+
+    let _ = rig
+        .receive_network_messages_with_timeout(Duration::from_millis(50), None)
+        .await;
+
+    let block_root = rig.next_block.canonical_root();
+    let result = rig
+        .chain
+        .process_block(
+            block_root,
+            LookupBlock::new(rig.next_block.clone()),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::HttpApi,
+            || Ok(()),
+        )
+        .await
+        .expect("HTTP-style Gloas block import should succeed");
+    assert!(matches!(
+        result,
+        AvailabilityProcessingStatus::Imported(..)
+            | AvailabilityProcessingStatus::MissingComponents(..)
+    ));
+
+    // Without the helper call, no partial publish (pre-fix gap).
+    assert_eq!(
+        rig.count_publish_partial_columns(Duration::from_millis(200))
+            .await,
+        0,
+        "process_block alone must not publish partial requests"
+    );
+
+    let header_or_bid = PartialHeaderOrBid::try_from_block(rig.next_block.as_ref())
+        .expect("Gloas block must yield a bid");
+    let messages =
+        build_partial_column_request_messages(rig.chain.as_ref(), &header_or_bid, block_root);
+    assert!(
+        !messages.is_empty(),
+        "shared helper must build request-all placeholders for custody columns"
+    );
+
+    rig.network_beacon_processor
+        .publish_partial_data_columns(header_or_bid, block_root)
+        .await;
+    assert!(
+        rig.count_publish_partial_columns(Duration::from_secs(1))
+            .await
+            > 0,
+        "publish_partial_data_columns must emit PublishPartialColumns"
+    );
 }
