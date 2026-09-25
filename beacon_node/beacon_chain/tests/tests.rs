@@ -632,6 +632,179 @@ async fn gloas_packs_attestations_voting_for_available_payload() {
     );
 }
 
+/// Regression for #10088: block-carried index-1 votes are applied after a late envelope.
+///
+/// Withhold an envelope, include index-1 attestations for that block in a later block, then
+/// import the envelope. Votes should be parked until import, after which full payload weight
+/// becomes non-zero.
+#[tokio::test]
+async fn gloas_block_carried_payload_votes_applied_after_envelope() {
+    let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .keypairs(KEYPAIRS.to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    harness.advance_slot();
+    harness.extend_slots(1).await;
+
+    // Slot 2: import a block but withhold its envelope.
+    harness.advance_slot();
+    let state = harness.get_current_state();
+    let (block_contents, envelope, post_state) =
+        harness.make_block_with_envelope(state, Slot::new(2)).await;
+    let payload_less_root = block_contents.0.canonical_root();
+    let block_state_root = block_contents.0.state_root();
+    let envelope = envelope.expect("gloas block should produce an envelope");
+    harness
+        .process_block(Slot::new(2), payload_less_root, block_contents)
+        .await
+        .expect("payload-less block should import");
+
+    assert!(
+        !harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&payload_less_root),
+        "envelope should still be withheld"
+    );
+
+    // Slot 3: create index-1 attestations and include them in a later block.
+    harness.advance_slot();
+    let head = harness.chain.head_snapshot();
+    assert_eq!(head.beacon_block_root, payload_less_root);
+    let validators = harness.get_all_validators();
+    let attest_slot = Slot::new(3);
+    let fork = harness
+        .spec
+        .fork_at_epoch(attest_slot.epoch(E::slots_per_epoch()));
+    let (attestations, _) = harness.make_attestations_with_opts(
+        &validators,
+        &head.beacon_state,
+        head.beacon_state_root(),
+        payload_less_root.into(),
+        attest_slot,
+        MakeAttestationOptions {
+            limit: None,
+            fork,
+            payload_present_override: Some(true),
+        },
+    );
+    for (attestation, _) in attestations
+        .into_iter()
+        .flat_map(|(committee_attestations, _)| committee_attestations)
+    {
+        assert_eq!(attestation.data().index, 1);
+        let attesting_indices =
+            get_attesting_indices_from_state(&head.beacon_state, attestation.to_ref()).unwrap();
+        harness
+            .chain
+            .op_pool
+            .insert_attestation(attestation, attesting_indices)
+            .unwrap();
+    }
+
+    harness.advance_slot();
+    let containing_slot = Slot::new(4);
+    let (containing_block, containing_envelope, containing_state) = harness
+        .make_block_with_envelope(harness.get_current_state(), containing_slot)
+        .await;
+    let containing_root = containing_block.0.canonical_root();
+    let containing_state_root = containing_block.0.state_root();
+    let containing_envelope =
+        containing_envelope.expect("containing block should produce an envelope");
+
+    let index_one_in_block = containing_block
+        .0
+        .message()
+        .body()
+        .attestations()
+        .filter(|att| att.data().beacon_block_root == payload_less_root && att.data().index == 1)
+        .count();
+    assert!(
+        index_one_in_block > 0,
+        "containing block should include at least one index-1 attestation for the payload-less block"
+    );
+
+    harness
+        .process_block(containing_slot, containing_root, containing_block)
+        .await
+        .expect("containing block should import");
+
+    assert!(
+        harness
+            .chain
+            .pending_block_payload_attestations
+            .lock()
+            .count_for_root(&payload_less_root)
+            > 0,
+        "PayloadNotReceived block-carried votes should have been parked"
+    );
+
+    {
+        let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+        let proto = fork_choice.proto_array().core_proto_array();
+        let index = *proto
+            .indices
+            .get(&payload_less_root)
+            .expect("payload-less block in proto-array");
+        let full_weight = proto.nodes[index]
+            .as_v29()
+            .expect("gloas node")
+            .full_payload_weight;
+        assert_eq!(
+            full_weight, 0,
+            "full payload weight must stay zero until the envelope arrives and votes are applied"
+        );
+    }
+
+    harness
+        .process_envelope(
+            containing_root,
+            containing_envelope,
+            &containing_state,
+            containing_state_root,
+        )
+        .await;
+
+    harness
+        .process_envelope(payload_less_root, envelope, &post_state, block_state_root)
+        .await;
+    assert!(
+        harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&payload_less_root),
+        "envelope should now be recorded"
+    );
+    assert!(
+        !harness
+            .chain
+            .pending_block_payload_attestations
+            .lock()
+            .contains_root(&payload_less_root),
+        "parked votes for the payload-less block should have been drained on envelope import"
+    );
+
+    let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+    let proto = fork_choice.proto_array().core_proto_array();
+    let index = *proto
+        .indices
+        .get(&payload_less_root)
+        .expect("payload-less block in proto-array");
+    let full_weight = proto.nodes[index]
+        .as_v29()
+        .expect("gloas node")
+        .full_payload_weight;
+    assert!(
+        full_weight > 0,
+        "full payload weight should be non-zero after applying parked block-carried votes"
+    );
+}
+
 #[tokio::test]
 async fn roundtrip_operation_pool() {
     let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;

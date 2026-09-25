@@ -69,6 +69,7 @@ use crate::payload_bid_verification::payload_bid_cache::GossipVerifiedPayloadBid
 #[cfg(not(test))]
 use crate::payload_envelope_streamer::{EnvelopeRequestSource, launch_payload_envelope_stream};
 use crate::payload_envelope_verification::observed_payload_envelopes::ObservedPayloadEnvelopes;
+use crate::pending_block_payload_attestations::PendingBlockPayloadAttestations;
 use crate::pending_payload_cache::PendingPayloadCache;
 use crate::pending_payload_cache::{
     Availability as PayloadAvailability,
@@ -455,6 +456,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Cache of pending execution payload envelopes for local block building.
     /// Envelopes are stored here during block production and eventually published.
     pub pending_payload_envelopes: RwLock<PendingPayloadEnvelopes<T::EthSpec>>,
+    /// Block-carried index-1 attestations awaiting payload receipt on their target block.
+    pub pending_block_payload_attestations: Mutex<PendingBlockPayloadAttestations<T::EthSpec>>,
     /// Inclusion lists received over gossip for recent slots.
     pub inclusion_list_store: RwLock<InclusionListStore<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
@@ -7229,6 +7232,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.gossip_verified_payload_bid_cache.prune(slot);
             self.gossip_verified_proposer_preferences_cache.prune(slot);
             self.pending_payload_envelopes.write().prune(slot);
+            self.pending_block_payload_attestations.lock().prune(slot);
             self.inclusion_list_store.write().prune(slot);
 
             // Don't run heavy-weight tasks during sync.
@@ -7861,6 +7865,97 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         writeln!(output, "}}").unwrap();
+    }
+
+    /// Apply a block-included indexed attestation to fork choice with
+    /// `AttestationFromBlock::True`.
+    pub fn apply_indexed_attestation_from_block(
+        &self,
+        indexed_attestation: IndexedAttestationRef<'_, T::EthSpec>,
+    ) -> Result<(), Error> {
+        self.canonical_head
+            .fork_choice_write_lock()
+            .on_attestation(
+                self.slot()?,
+                indexed_attestation,
+                crate::block_verification::AttestationFromBlock::True,
+                &self.spec,
+            )
+            .map_err(Into::into)
+    }
+
+    /// Park a block-carried index-1 attestation until its payload envelope is imported.
+    ///
+    /// Applies immediately if the envelope is already known (or arrives during parking).
+    /// Must not be called while holding the fork-choice write lock.
+    pub(crate) fn park_block_attestation_awaiting_payload(
+        &self,
+        beacon_block_root: Hash256,
+        indexed_attestation: IndexedAttestation<T::EthSpec>,
+    ) {
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&beacon_block_root)
+        {
+            self.apply_parked_block_attestation(beacon_block_root, indexed_attestation);
+            return;
+        }
+
+        {
+            let mut pending = self.pending_block_payload_attestations.lock();
+            if !pending.park(beacon_block_root, indexed_attestation) {
+                debug!(
+                    ?beacon_block_root,
+                    "Dropped block attestation awaiting payload due to pending cache cap"
+                );
+                return;
+            }
+        }
+
+        // Envelope may have arrived while inserting into the map.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&beacon_block_root)
+        {
+            self.apply_pending_block_attestations_awaiting_payload(beacon_block_root);
+        }
+    }
+
+    /// Drain and apply block-carried attestations parked for `block_root`.
+    ///
+    /// Call after the envelope is recorded in fork choice, without holding the fork-choice
+    /// write lock.
+    pub(crate) fn apply_pending_block_attestations_awaiting_payload(&self, block_root: Hash256) {
+        let parked = self
+            .pending_block_payload_attestations
+            .lock()
+            .drain(block_root);
+        for indexed_attestation in parked {
+            self.apply_parked_block_attestation(block_root, indexed_attestation);
+        }
+    }
+
+    fn apply_parked_block_attestation(
+        &self,
+        beacon_block_root: Hash256,
+        indexed_attestation: IndexedAttestation<T::EthSpec>,
+    ) {
+        if let Err(e) = self.apply_indexed_attestation_from_block(indexed_attestation.to_ref()) {
+            match e {
+                Error::ForkChoiceError(ForkChoiceError::InvalidAttestation(_)) => {
+                    // Ignore, matching block import.
+                }
+                other => {
+                    debug!(
+                        error = ?other,
+                        ?beacon_block_root,
+                        "Failed to apply deferred block attestation to fork choice"
+                    );
+                }
+            }
+        }
     }
 
     /// Get a channel to request shutting down.
