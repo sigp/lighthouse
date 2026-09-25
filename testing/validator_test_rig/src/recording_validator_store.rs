@@ -244,4 +244,12 @@ impl<S: ValidatorStore + 'static> ValidatorStore for RecordingValidatorStore<S> 
     fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData> {
         self.inner.proposal_data(pubkey)
     }
+
+    fn proposal_data_at_epoch(
+        &self,
+        pubkey: &PublicKeyBytes,
+        epoch: Epoch,
+    ) -> Option<ProposalData> {
+        self.inner.proposal_data_at_epoch(pubkey, epoch)
+    }
 }
