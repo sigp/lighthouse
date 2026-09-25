@@ -491,6 +491,12 @@ fn process_slash_info<T: BeaconChainTypes>(
             SignatureValid(indexed, err) => (indexed, false, err),
         };
 
+        // Skip verify/accept if already staged for the slasher.
+        // https://github.com/sigp/lighthouse/issues/10086
+        if check_signature && slasher.is_redundant_attestation(&indexed_attestation) {
+            return err;
+        }
+
         if check_signature && let Err(e) = verify_attestation_signature(chain, &indexed_attestation)
         {
             debug!(

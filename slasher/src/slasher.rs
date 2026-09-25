@@ -84,6 +84,11 @@ impl<E: EthSpec> Slasher<E> {
         self.attestation_queue.queue(attestation);
     }
 
+    /// Returns `true` if this attestation is already fully represented in the ingress queue.
+    pub fn is_redundant_attestation(&self, attestation: &IndexedAttestation<E>) -> bool {
+        self.attestation_queue.is_redundant(attestation)
+    }
+
     /// Accept a block from the network and queue it for processing.
     pub fn accept_block_header(&self, block_header: SignedBeaconBlockHeader) {
         self.block_queue.queue(block_header);
