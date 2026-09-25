@@ -21,8 +21,8 @@ mod sqlite;
 
 pub use application_domain::{APPLICATION_DOMAIN_BUILDER, ApplicationDomain};
 pub use chain_spec::{
-    BlobParameters, BlobSchedule, ChainSpec, Config, Domain, EpochSchedule, GasLimitSchedule,
-    GasLimitScheduleEntry,
+    BlobParameters, BlobSchedule, ChainSpec, Config, DEFAULT_GAS_LIMIT, Domain, EpochSchedule,
+    GasLimitSchedule, GasLimitScheduleEntry,
 };
 pub use config_and_preset::{
     ConfigAndPreset, ConfigAndPresetDeneb, ConfigAndPresetElectra, ConfigAndPresetFulu,

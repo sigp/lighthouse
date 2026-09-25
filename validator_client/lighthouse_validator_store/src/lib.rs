@@ -59,10 +59,7 @@ pub struct Config {
 /// This acts as a maximum safe-guard against clock drift.
 const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 1;
 
-/// Currently used as the default gas limit in execution clients.
-///
-/// https://ethpandaops.io/posts/gaslimit-scaling/.
-pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
+pub use types::DEFAULT_GAS_LIMIT;
 
 pub struct LighthouseValidatorStore<T, E> {
     validators: Arc<RwLock<InitializedValidators>>,
@@ -329,8 +326,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     ///
     /// 1. validator_definitions.yml
     /// 2. process level gas limit
-    /// 3. the gas limit schedule (EIP-8261) at the current epoch
-    /// 4. `DEFAULT_GAS_LIMIT`
+    /// 3. `ChainSpec::default_gas_limit` at the current epoch: the gas limit schedule (EIP-8261)
+    ///    from the Gloas fork, else `DEFAULT_GAS_LIMIT`
     pub fn get_gas_limit(&self, validator_pubkey: &PublicKeyBytes) -> u64 {
         self.get_gas_limit_defaulting(
             self.validators.read().gas_limit(validator_pubkey),
@@ -345,14 +342,14 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     }
 
     fn get_gas_limit_defaulting(&self, gas_limit: Option<u64>, epoch: Option<Epoch>) -> u64 {
-        let scheduled_gas_limit = epoch.and_then(|epoch| self.spec.get_scheduled_gas_limit(epoch));
         // If there is a `gas_limit` in the validator definitions yaml
         // file, use that value. If there's nothing in the file, try the
         // process-level value.
-        let configured_gas_limit = gas_limit.or(self.gas_limit);
-        configured_gas_limit
-            .or(scheduled_gas_limit)
-            .unwrap_or(DEFAULT_GAS_LIMIT)
+        gas_limit.or(self.gas_limit).unwrap_or_else(|| {
+            epoch.map_or(DEFAULT_GAS_LIMIT, |epoch| {
+                self.spec.default_gas_limit(epoch)
+            })
+        })
     }
 
     fn proposal_data_with_epoch(

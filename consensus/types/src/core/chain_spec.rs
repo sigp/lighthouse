@@ -840,6 +840,15 @@ impl ChainSpec {
         }
     }
 
+    /// The gas limit to target at `epoch` when the operator has not configured one.
+    ///
+    /// From the Gloas fork this is the scheduled gas limit (EIP-8261). Before the fork, and on a
+    /// network whose schedule has no entry for `epoch`, it is `DEFAULT_GAS_LIMIT`.
+    pub fn default_gas_limit(&self, epoch: Epoch) -> u64 {
+        self.get_scheduled_gas_limit(epoch)
+            .unwrap_or(DEFAULT_GAS_LIMIT)
+    }
+
     // TODO(EIP-7892): remove this once we have fork-version changes on BPO forks
     pub fn max_blobs_per_block_within_fork(&self, fork_name: ForkName) -> u64 {
         if !fork_name.fulu_enabled() {
@@ -1978,6 +1987,12 @@ pub struct BlobParameters {
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_blobs_per_block: u64,
 }
+
+/// The gas limit execution clients use by default. The last resort when neither the operator nor
+/// the gas limit schedule gives a value.
+///
+/// https://ethpandaops.io/posts/gaslimit-scaling/.
+pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
 
 pub trait ScheduleEntry {
     fn epoch(&self) -> Epoch;
@@ -3783,6 +3798,11 @@ mod yaml_tests {
             spec.get_scheduled_gas_limit(Epoch::new(u64::MAX)),
             Some(75000000)
         );
+
+        // The default gas limit follows the schedule from the fork and is the constant before it.
+        assert_eq!(spec.default_gas_limit(Epoch::new(511)), DEFAULT_GAS_LIMIT);
+        assert_eq!(spec.default_gas_limit(Epoch::new(512)), 60000000);
+        assert_eq!(spec.default_gas_limit(Epoch::new(768)), 75000000);
 
         // gas limit schedule is reverse sorted by epoch
         assert_eq!(

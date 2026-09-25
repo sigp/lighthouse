@@ -102,8 +102,8 @@ use eth2::types::{
     SseExtendedPayloadAttributes, SseHead, SseHeadV2,
 };
 use execution_layer::{
-    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth,
-    DEFAULT_GAS_LIMIT, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
+    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
+    FailedCondition, PayloadAttributes, PayloadStatus,
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
@@ -6792,22 +6792,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             let target_gas_limit = if prepare_slot_fork.gloas_enabled() {
-                let proposer_gas_limit = self
+                let preferred_gas_limit = self
                     .gossip_verified_proposer_preferences_cache
                     .get_preferences(&prepare_slot, proposer_shuffling_decision_root)
-                    .map(|preferences| preferences.message.target_gas_limit)
-                    .or_else(|| {
-                        self.spec.get_scheduled_gas_limit(
-                            prepare_slot.epoch(T::EthSpec::slots_per_epoch()),
-                        )
-                    });
-                if proposer_gas_limit.is_none() {
-                    warn!(
+                    .map(|preferences| preferences.message.target_gas_limit);
+                if preferred_gas_limit.is_none() {
+                    debug!(
                         %proposer,
-                        "No proposer preferences or scheduled gas limit, falling back to the default gas limit"
+                        "No proposer preferences, using the default gas limit"
                     );
                 }
-                Some(proposer_gas_limit.unwrap_or(DEFAULT_GAS_LIMIT))
+                Some(preferred_gas_limit.unwrap_or_else(|| {
+                    self.spec
+                        .default_gas_limit(prepare_slot.epoch(T::EthSpec::slots_per_epoch()))
+                }))
             } else {
                 None
             };
