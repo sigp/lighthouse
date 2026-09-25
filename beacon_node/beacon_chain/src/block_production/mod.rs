@@ -274,7 +274,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_envelope = if parent_payload_status == PayloadStatus::Full {
             let envelope = self
                 .store
-                .get_payload_envelope(&re_org_parent_block)
+                .get_signed_payload_envelope(&re_org_parent_block)
                 .ok()
                 .flatten()
                 .map(Arc::new)

@@ -799,7 +799,7 @@ where
         // Load the execution envelope from the store if the head has a Full payload.
         let execution_envelope = if head_payload_status == PayloadStatus::Full {
             store
-                .get_payload_envelope(&head_block_root)
+                .get_signed_payload_envelope(&head_block_root)
                 .map_err(|e| format!("Error loading head execution envelope: {:?}", e))?
                 .map(Arc::new)
         } else {

@@ -3,7 +3,9 @@ use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
-use beacon_chain::payload_envelope_streamer::EnvelopeRequestSource;
+use beacon_chain::payload_envelope_streamer::{
+    EnvelopeRequestSource, Error as EnvelopeStreamerError,
+};
 use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessStatus, WhenSlotSkipped};
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
@@ -20,6 +22,26 @@ use tokio_stream::StreamExt;
 use tracing::{Span, debug, error, field, instrument, trace, warn};
 use types::data::BlobIdentifier;
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
+
+fn payload_envelope_unavailable(error: &BeaconChainError) -> bool {
+    matches!(
+        error,
+        BeaconChainError::ExecutionLayerMissing
+            | BeaconChainError::BlockHashMissingFromExecutionLayer(_)
+            | BeaconChainError::EnvelopeStreamerError(
+                EnvelopeStreamerError::PayloadMissingFromExecutionLayer(_)
+            )
+    )
+}
+
+fn payload_envelope_engine_error(error: &BeaconChainError) -> bool {
+    matches!(
+        error,
+        BeaconChainError::EnvelopeStreamerError(
+            EnvelopeStreamerError::PayloadBodiesByHashV2Failure(boxed_error)
+        ) if matches!(**boxed_error, execution_layer::Error::EngineError(_))
+    )
+}
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -587,7 +609,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Peer requested unknown payload envelope"
                     );
                 }
-                Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                Err(e) if payload_envelope_unavailable(e) => {
                     debug!(
                         block_root = ?root,
                         reason = "execution layer not synced",
@@ -1498,7 +1520,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "No envelope for block root"
                     );
                 }
-                Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                Err(e) if payload_envelope_unavailable(e) => {
                     debug!(
                         block_root = ?root,
                         reason = "execution layer not synced",
@@ -1512,11 +1534,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     ));
                 }
                 Err(e) => {
-                    if matches!(
-                        e,
-                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, boxed_error)
-                        if matches!(**boxed_error, execution_layer::Error::EngineError(_))
-                    ) {
+                    if payload_envelope_engine_error(e) {
                         warn!(
                             info = "this may occur occasionally when the EE is busy",
                             block_root = ?root,
@@ -1951,5 +1969,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let client = self.network_globals.client(peer_id);
         span.record("client", field::display(client.kind));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::ExecutionBlockHash;
+
+    #[test]
+    fn classifies_missing_envelope_payload_as_resource_unavailable() {
+        let block_hash = ExecutionBlockHash::repeat_byte(0x11);
+
+        assert!(payload_envelope_unavailable(
+            &BeaconChainError::EnvelopeStreamerError(
+                EnvelopeStreamerError::PayloadMissingFromExecutionLayer(block_hash)
+            )
+        ));
+        assert!(payload_envelope_unavailable(
+            &BeaconChainError::ExecutionLayerMissing
+        ));
+        assert!(!payload_envelope_unavailable(
+            &BeaconChainError::EnvelopeStreamerError(
+                EnvelopeStreamerError::PayloadBodyMissingWithdrawals(block_hash)
+            )
+        ));
     }
 }

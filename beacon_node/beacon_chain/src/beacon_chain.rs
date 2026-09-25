@@ -1372,7 +1372,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedExecutionPayloadEnvelope<T::EthSpec>>, Error> {
-        Ok(self.store.get_payload_envelope(block_root)?)
+        Ok(self.store.get_signed_payload_envelope(block_root)?)
     }
 
     /// Return the status of a block as it progresses through the various caches of the beacon
@@ -5390,7 +5390,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 cached_head.snapshot.execution_envelope.clone()
             } else {
                 self.store
-                    .get_payload_envelope(&parent_block_root)?
+                    .get_signed_payload_envelope(&parent_block_root)?
                     .map(Arc::new)
             }
             .ok_or(Error::MissingExecutionPayloadEnvelope(parent_block_root))?;
@@ -7506,33 +7506,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // (the parent block was full).
         for (i, (block_root, block)) in blocks.iter().enumerate() {
             let opt_envelope = if block.fork_name_unchecked().gloas_enabled() {
-                let opt_envelope = self.store.get_payload_envelope(block_root)?.map(Arc::new);
-
-                if let Some((_, next_block)) = blocks.get(i + 1) {
+                let opt_envelope = self
+                    .store
+                    .get_signed_payload_envelope(block_root)?
+                    .map(Arc::new);
+                let payload_is_canonical = if let Some((_, next_block)) = blocks.get(i + 1) {
                     let block_hash = block.payload_bid_block_hash()?;
-                    if next_block.is_parent_block_full(block_hash) {
-                        let envelope = opt_envelope.ok_or_else(|| {
-                            Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
-                        })?;
-                        Some(envelope)
-                    } else {
-                        None
-                    }
+                    next_block.is_parent_block_full(block_hash)
                 } else {
                     // Last block in the sequence: use canonical head to determine
                     // whether the payload is canonical.
                     let head = self.canonical_head.cached_head();
                     assert_eq!(head.head_block_root(), *block_root);
-                    let payload_received =
-                        head.head_payload_status() == fork_choice::PayloadStatus::Full;
-                    if payload_received {
-                        let envelope = opt_envelope.ok_or_else(|| {
-                            Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
-                        })?;
-                        Some(envelope)
-                    } else {
-                        None
+                    head.head_payload_status() == fork_choice::PayloadStatus::Full
+                };
+
+                if !payload_is_canonical {
+                    None
+                } else if opt_envelope.is_none() {
+                    // A retained summary with no body is the expected representation of a pruned
+                    // finalized payload. A missing summary still indicates database corruption.
+                    if !self.store.payload_envelope_summary_exists(block_root)? {
+                        return Err(Error::DBInconsistent(format!(
+                            "Missing envelope summary {block_root:?}"
+                        )));
                     }
+                    if block.slot() > self.store.get_split_slot() {
+                        return Err(Error::DBInconsistent(format!(
+                            "Missing unfinalized payload body {block_root:?}"
+                        )));
+                    }
+                    None
+                } else {
+                    opt_envelope
                 }
             } else {
                 None

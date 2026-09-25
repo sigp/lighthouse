@@ -357,7 +357,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     // For Gloas there is never a true payload stored at slot 0.
                     // TODO(gloas): still need to account for non-canonical payloads once pruning
                     // is implemented.
-                    if slot != 0 && !self.payload_envelope_exists(&block_root)? {
+                    if slot != 0 && !self.payload_envelope_summary_exists(&block_root)? {
                         result.add_violation(InvariantViolation::ExecutionPayloadMissing {
                             block_root,
                             slot,
