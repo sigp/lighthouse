@@ -1,3 +1,4 @@
+use super::common::{load_config, testing_spec_with_config};
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::{
@@ -211,6 +212,7 @@ pub struct Meta {
 #[derive(Debug)]
 pub struct ForkChoiceTest<E: EthSpec> {
     pub description: String,
+    pub config: Option<types::Config>,
     /// True when the case comes from the `fast_confirmation` runner.
     pub fast_confirmation: bool,
     pub anchor_state: BeaconState<E>,
@@ -242,7 +244,8 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
         let fast_confirmation = path
             .iter()
             .any(|component| component == "fast_confirmation");
-        let spec = &testing_spec::<E>(fork_name);
+        let config = load_config(path)?;
+        let spec = &testing_spec_with_config::<E>(fork_name, config.as_ref())?;
 
         #[allow(clippy::type_complexity)]
         let steps: Vec<
@@ -417,6 +420,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
 
         Ok(Self {
             description,
+            config,
             fast_confirmation,
             anchor_state,
             anchor_block,
@@ -450,7 +454,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
             return Err(Error::SkippedKnownFailure);
         }
 
-        let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
+        let spec = testing_spec_with_config::<E>(fork_name, self.config.as_ref())?;
+        let tester = Tester::new(self, spec)?;
 
         for step in &self.steps {
             match step {
@@ -1245,7 +1250,7 @@ impl<E: EthSpec> Tester<E> {
     ) -> Result<(), Error> {
         let mut fc = self.harness.chain.canonical_head.fork_choice_write_lock();
         let slot = self.harness.chain.slot().unwrap();
-        let (canonical_head, _) = fc.get_head(slot, &self.harness.spec).unwrap();
+        let canonical_head = fc.get_head(slot, &self.harness.spec).unwrap().root();
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,

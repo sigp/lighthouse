@@ -12,7 +12,7 @@ use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
 use crate::payload_envelope_streamer::Error as EnvelopeStreamerError;
 use bls::PublicKeyBytes;
 use execution_layer::PayloadStatus;
-use fork_choice::ExecutionStatus;
+use fork_choice::ExecutionVerdict;
 use futures::channel::mpsc::TrySendError;
 use milhouse::Error as MilhouseError;
 use operation_pool::OpPoolError;
@@ -195,7 +195,7 @@ pub enum BeaconChainError {
     InvalidSlot(Slot),
     HeadBlockNotFullyVerified {
         beacon_block_root: Hash256,
-        execution_status: ExecutionStatus,
+        execution_status: ExecutionVerdict,
     },
     CannotAttestToFinalizedBlock {
         beacon_block_root: Hash256,
@@ -213,7 +213,7 @@ pub enum BeaconChainError {
     ForkchoiceUpdateParamsMissing,
     HeadHasInvalidPayload {
         block_root: Hash256,
-        execution_status: ExecutionStatus,
+        execution_status: ExecutionVerdict,
     },
     AttestationHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,

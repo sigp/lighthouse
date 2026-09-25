@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
+use tracing::error;
+use types::ColumnIndex;
 
 const STATIC_ID: u32 = 1;
 pub const JSONRPC_VERSION: &str = "2.0";
@@ -1208,14 +1210,40 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    /// Encode the custody column indices as the `custodyColumns` bitarray parameter of
+    /// `engine_forkchoiceUpdatedV4` and later (EIP-8070).
+    ///
+    /// Returns `None` when no custody columns were supplied or when the conversion failed.
+    /// The EL treats `null` as a no-op for its custody set.
+    fn custody_columns_param(
+        custody_columns: Option<&[ColumnIndex]>,
+        method: &'static str,
+    ) -> Option<CustodyColumnsBitArray> {
+        custody_columns
+            .map(CustodyColumnsBitArray::try_from)
+            .transpose()
+            .unwrap_or_else(|err| {
+                error!(
+                    ?err,
+                    method, "Failed to convert custody columns for forkchoice update"
+                );
+                None
+            })
+    }
+
     pub async fn forkchoice_updated_v4(
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let custody_columns =
+            Self::custody_columns_param(custody_columns, ENGINE_FORKCHOICE_UPDATED_V4);
+
         let params = json!([
             JsonForkchoiceStateV1::from(forkchoice_state),
-            payload_attributes.map(JsonPayloadAttributes::from)
+            payload_attributes.map(JsonPayloadAttributes::from),
+            custody_columns
         ]);
 
         let response: JsonForkchoiceUpdatedV1Response = self
@@ -1233,11 +1261,15 @@ impl HttpJsonRpc {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let custody_columns =
+            Self::custody_columns_param(custody_columns, ENGINE_FORKCHOICE_UPDATED_V5);
+
         let params = json!([
             JsonForkchoiceStateV1::from(forkchoice_state),
             payload_attributes.map(JsonPayloadAttributes::from),
-            null
+            custody_columns
         ]);
 
         let response: JsonForkchoiceUpdatedV2Response = self
@@ -1548,6 +1580,7 @@ impl HttpJsonRpc {
         &self,
         forkchoice_state: ForkchoiceState,
         maybe_payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         if let Some(payload_attributes) = maybe_payload_attributes.as_ref() {
@@ -1575,8 +1608,12 @@ impl HttpJsonRpc {
                 }
                 PayloadAttributes::V4(_) => {
                     if engine_capabilities.forkchoice_updated_v4 {
-                        self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes)
-                            .await
+                        self.forkchoice_updated_v4(
+                            forkchoice_state,
+                            maybe_payload_attributes,
+                            custody_columns,
+                        )
+                        .await
                     } else {
                         Err(Error::RequiredMethodUnsupported(
                             "engine_forkchoiceUpdatedV4",
@@ -1585,8 +1622,12 @@ impl HttpJsonRpc {
                 }
                 PayloadAttributes::V5(_) => {
                     if engine_capabilities.forkchoice_updated_v5 {
-                        self.forkchoice_updated_v5(forkchoice_state, maybe_payload_attributes)
-                            .await
+                        self.forkchoice_updated_v5(
+                            forkchoice_state,
+                            maybe_payload_attributes,
+                            custody_columns,
+                        )
+                        .await
                     } else {
                         Err(Error::RequiredMethodUnsupported(
                             "engine_forkchoiceUpdatedV5",
@@ -1595,10 +1636,10 @@ impl HttpJsonRpc {
                 }
             }
         } else if engine_capabilities.forkchoice_updated_v5 {
-            self.forkchoice_updated_v5(forkchoice_state, maybe_payload_attributes)
+            self.forkchoice_updated_v5(forkchoice_state, maybe_payload_attributes, custody_columns)
                 .await
         } else if engine_capabilities.forkchoice_updated_v4 {
-            self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes)
+            self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes, custody_columns)
                 .await
         } else if engine_capabilities.forkchoice_updated_v3 {
             self.forkchoice_updated_v3(forkchoice_state, maybe_payload_attributes)
@@ -2017,6 +2058,9 @@ mod test {
             }))
         };
 
+        // Columns 0, 7, 8 and 127: first byte 0x81, second byte 0x01, last byte 0x80.
+        let custody_columns: [ColumnIndex; 4] = [0, 7, 8, 127];
+
         Tester::new(true)
             .assert_request_equals(
                 |client| async move {
@@ -2028,6 +2072,7 @@ mod test {
                                 finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             payload_attributes(),
+                            Some(&custody_columns),
                         )
                         .await;
                 },
@@ -2050,7 +2095,7 @@ mod test {
                         "targetGasLimit": "0x1c9c380",
                         "inclusionListTransactions": ["0x02f86f"],
                     },
-                    null]
+                    "0x81010000000000000000000000000080"]
                 }),
             )
             .await
@@ -2078,6 +2123,7 @@ mod test {
                                 finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             payload_attributes(),
+                            None,
                         )
                         .await
                         .unwrap();
@@ -2107,6 +2153,7 @@ mod test {
                             finalized_block_hash: ExecutionBlockHash::zero(),
                         },
                         payload_attributes(),
+                        None,
                     )
                     .await
             })
