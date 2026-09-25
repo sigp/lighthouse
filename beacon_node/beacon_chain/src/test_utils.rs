@@ -3135,6 +3135,12 @@ where
             .await
             .expect("newPayload should succeed");
 
+        // Mirror production import so subsequent builder bids can validate the parent gas limit.
+        self.chain.observed_execution_payloads.insert(
+            signed_envelope.message.payload.block_hash,
+            signed_envelope.message.payload.gas_limit,
+        );
+
         // Store the envelope and the data columns derived from the block.
         //
         // Production stores columns inside `import_available_execution_payload_envelope` after

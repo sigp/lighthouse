@@ -10,7 +10,9 @@ use crate::version::{V1, V2, V3, add_ssz_content_type_header, unsupported_versio
 use crate::{StateId, attester_duties, proposer_duties, ptc_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
-use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
+use beacon_chain::{
+    AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes, BlockProductionBidSource,
+};
 use bls::PublicKeyBytes;
 use bytes::Bytes;
 use context_deserialize::ContextDeserialize;
@@ -32,8 +34,8 @@ use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 use types::{
     BeaconState, Epoch, EthSpec, ForkName, ProposerPreparationData, SignedAggregateAndProof,
-    SignedContributionAndProof, SignedProposerPreferences, SignedValidatorRegistrationData, Slot,
-    SyncContributionData, ValidatorSubscription,
+    SignedContributionAndProof, SignedExecutionPayloadBid, SignedProposerPreferences,
+    SignedValidatorRegistrationData, Slot, SyncContributionData, ValidatorSubscription,
 };
 use warp::{Filter, Rejection, Reply, http::response::Builder};
 use warp_utils::reject::convert_rejection;
@@ -583,7 +585,99 @@ pub fn post_validator_blocks_v4<T: BeaconChainTypes>(
                         "Block production request from HTTP API (v4)"
                     );
                     not_synced_filter?;
-                    produce_block_v4(accept_header, chain, slot, query, builder_config).await
+                    produce_block_v4(accept_header, chain, slot, query, builder_config.into()).await
+                })
+            },
+        )
+        .boxed()
+}
+
+// POST v4/validator/blocks/{slot}/with_bid
+pub fn post_validator_blocks_v4_with_bid<T: BeaconChainTypes>(
+    eth_v4: EthV1Filter,
+    chain_filter: ChainFilter<T>,
+    not_while_syncing_filter: NotWhileSyncingFilter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+) -> ResponseFilter {
+    eth_v4
+        .and(warp::path("validator"))
+        .and(warp::path("blocks"))
+        .and(warp::path::param::<Slot>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid slot".to_string(),
+            ))
+        }))
+        .and(warp::path("with_bid"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<String>("accept").and_then(
+            |header: Option<String>| async move {
+                header
+                    .map(|value| {
+                        value
+                            .parse::<Accept>()
+                            .map_err(warp_utils::reject::not_acceptable)
+                    })
+                    .transpose()
+            },
+        ))
+        .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(not_while_syncing_filter)
+        .and(warp::query::<ValidatorBlocksQuery>())
+        .and(warp::header::optional::<String>(CONTENT_TYPE_HEADER))
+        .and(warp::body::bytes())
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .then(
+            |slot: Slot,
+             accept_header: Option<Accept>,
+             consensus_version: ForkName,
+             not_synced_filter: Result<(), Rejection>,
+             query: ValidatorBlocksQuery,
+             content_type: Option<String>,
+             body: Bytes,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    debug!(?slot, %consensus_version, "Block production request with supplied bid");
+                    not_synced_filter?;
+                    let builder_boost_factor = query.builder_boost_factor.ok_or_else(|| {
+                        warp_utils::reject::custom_bad_request(
+                            "builder_boost_factor query parameter is required".to_string(),
+                        )
+                    })?;
+                    let signed_bid = if is_ssz_content_type(content_type.as_deref()) {
+                        SignedExecutionPayloadBid::<T::EthSpec>::from_ssz_bytes(&body).map_err(
+                            |e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "invalid SSZ: {e:?}"
+                                ))
+                            },
+                        )?
+                    } else {
+                        if content_type
+                            .as_deref()
+                            .and_then(|value| value.split(';').next())
+                            .is_some_and(|value| value.trim() != "application/json")
+                        {
+                            return Err(warp_utils::reject::unsupported_media_type(
+                                "expected application/json or application/octet-stream".to_string(),
+                            ));
+                        }
+                        serde_json::from_slice(&body).map_err(|e| {
+                            warp_utils::reject::custom_deserialize_error(format!("{e:?}"))
+                        })?
+                    };
+                    produce_block_v4(
+                        accept_header,
+                        chain,
+                        slot,
+                        query,
+                        BlockProductionBidSource::ApiSupplied {
+                            signed_bid: Arc::new(signed_bid),
+                            builder_boost_factor,
+                        },
+                    )
+                    .await
                 })
             },
         )
