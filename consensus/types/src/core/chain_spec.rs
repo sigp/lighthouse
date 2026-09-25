@@ -847,6 +847,19 @@ impl ChainSpec {
         }
     }
 
+    /// Gloas sidecar bounds use the largest blob limit in the entire schedule.
+    pub fn compute_max_data_column_sidecar_size_gloas<E: EthSpec>(&self) -> usize {
+        crate::DataColumnSidecarGloas::<E>::max_size(
+            self.max_blobs_per_block_within_fork(ForkName::Gloas) as usize,
+        )
+    }
+
+    pub fn compute_max_partial_data_column_sidecar_size_gloas<E: EthSpec>(&self) -> usize {
+        crate::PartialDataColumnSidecarGloas::<E>::max_size(
+            self.max_blobs_per_block_within_fork(ForkName::Gloas) as usize,
+        )
+    }
+
     /// Returns the `BLOB_SIDECAR_SUBNET_COUNT` at the given fork_name.
     pub fn blob_sidecar_subnet_count(&self, fork_name: ForkName) -> u64 {
         if fork_name.electra_enabled() {
@@ -3571,6 +3584,14 @@ mod yaml_tests {
         assert_eq!(
             spec.max_blobs_per_block(Epoch::new(18446744073709551615)),
             20
+        );
+        assert_eq!(
+            spec.compute_max_data_column_sidecar_size_gloas::<MainnetEthSpec>(),
+            41976
+        );
+        assert_eq!(
+            spec.compute_max_partial_data_column_sidecar_size_gloas::<MainnetEthSpec>(),
+            41935
         );
 
         // blob schedule is reverse sorted by epoch
