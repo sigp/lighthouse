@@ -942,6 +942,7 @@ impl<E: EthSpec> GossipTester<E> {
             )));
         }
 
+        let execution_payload = &envelope.message.payload;
         // Only replayed envelope messages populate the observed payload cache.
         self.harness
             .chain
@@ -962,6 +963,19 @@ impl<E: EthSpec> GossipTester<E> {
                     "failed to mark setup payload for block {block_root:?} as received: {e:?}"
                 ))
             })?;
+        // Setup payloads are treated as valid without executing them in the mock EL.
+        if let Some(mock_execution_layer) = self.harness.mock_execution_layer.as_ref() {
+            let block_hash = execution_payload.block_hash;
+            mock_execution_layer.server.set_fcu_payload_status(
+                block_hash,
+                PayloadStatusV1 {
+                    status: PayloadStatusV1Status::Valid,
+                    latest_valid_hash: Some(block_hash),
+                    validation_error: None,
+                    inclusion_list_satisfied: None,
+                },
+            );
+        }
         Ok(())
     }
 
