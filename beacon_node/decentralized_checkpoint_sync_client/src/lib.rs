@@ -1,16 +1,4 @@
-//! Data-source contracts and policy for fetching light-client checkpoint data.
-//!
-//! Sources return untrusted light-client objects, not authenticated headers. The
-//! `decentralized_checkpoint_sync` core is responsible for cryptographic verification.
-//! Bootstrap, update-range and finality steps call that core verifier before returning a store.
-//! Checkpoint freshness is evaluated against the local clock, independently of processing.
-//! The whole-task driver enforces retry, resource and no-progress limits. [`HttpLightClientDataSource`]
-//! supplies bounded JSON REST reads; a provider's successful response never bypasses core verification.
-//!
-//! A startup caller must supply a trusted finalized root, the network's chain spec and
-//! genesis validators root, and a slot clock initialized from trusted genesis time. The source
-//! does not provide these trust inputs and does not require an existing `BeaconChain` or its own
-//! Tokio runtime. Policy is explicit: provider-reported head/finality cannot define freshness.
+#![doc = include_str!("../README.md")]
 
 mod driver;
 mod error;

@@ -1,4 +1,3 @@
-use super::E;
 use bls::{AggregatePublicKey, Keypair};
 use decentralized_checkpoint_sync::{
     LightClientStore, LightClientStoreSchema, initialize_light_client_store,
@@ -16,7 +15,7 @@ use types::{
 
 /// Synthetic state commitments with real Merkle proofs and BLS signatures, not a second verifier.
 /// Fixtures enter the production core only through its public verification API.
-pub struct Fixture {
+pub struct FixtureFor<E: EthSpec> {
     pub spec: ChainSpec,
     pub genesis_validators_root: Hash256,
     pub clock: ManualSlotClock,
@@ -26,7 +25,7 @@ pub struct Fixture {
     pub finality: LightClientFinalityUpdate<E>,
 }
 
-impl Fixture {
+impl<E: EthSpec> FixtureFor<E> {
     pub fn store(&self) -> LightClientStore<E> {
         initialize_light_client_store(
             self.trusted_root,
@@ -39,8 +38,8 @@ impl Fixture {
     }
 
     pub fn update_for_period(&self, period: u64, participants: usize) -> LightClientUpdate<E> {
-        let keys = committee_keys(period);
-        let next_committee = committee(&committee_keys(period + 1));
+        let keys = committee_keys::<E>(period);
+        let next_committee = committee(&committee_keys::<E>(period + 1));
         let finalized_slot =
             period * E::slots_per_epoch() * self.spec.epochs_per_sync_committee_period.as_u64() + 2;
         LightClientUpdate::Altair(signed_update(
@@ -73,9 +72,9 @@ impl Fixture {
             spec.get_slot_duration(),
         );
         clock.set_slot(4);
-        let keys = committee_keys(0);
+        let keys = committee_keys::<E>(0);
         let current_committee = committee(&keys);
-        let next_committee = committee(&committee_keys(1));
+        let next_committee = committee(&committee_keys::<E>(1));
 
         // BeaconState current_sync_committee is field 22 in the Altair container (depth 5).
         let bootstrap_tree = state_tree(&[(22, current_committee.tree_hash_root())]);
@@ -113,7 +112,9 @@ impl Fixture {
     }
 }
 
-fn finality_update(update: &LightClientUpdateAltair<E>) -> LightClientFinalityUpdate<E> {
+fn finality_update<E: EthSpec>(
+    update: &LightClientUpdateAltair<E>,
+) -> LightClientFinalityUpdate<E> {
     LightClientFinalityUpdate::Altair(LightClientFinalityUpdateAltair {
         attested_header: update.attested_header.clone(),
         finalized_header: update.finalized_header.clone(),
@@ -123,7 +124,7 @@ fn finality_update(update: &LightClientUpdateAltair<E>) -> LightClientFinalityUp
     })
 }
 
-fn signed_update(
+fn signed_update<E: EthSpec>(
     finalized_slot: u64,
     spec: &ChainSpec,
     genesis_validators_root: Hash256,
@@ -177,14 +178,14 @@ fn signed_update(
     }
 }
 
-fn committee_keys(period: u64) -> Vec<Keypair> {
+fn committee_keys<E: EthSpec>(period: u64) -> Vec<Keypair> {
     let start = 100 * period as usize;
     (start..start + E::sync_committee_size())
         .map(generate_deterministic_keypair)
         .collect()
 }
 
-fn header(slot: u64, state_root: Hash256) -> LightClientHeaderAltair<E> {
+fn header<E: EthSpec>(slot: u64, state_root: Hash256) -> LightClientHeaderAltair<E> {
     LightClientHeaderAltair {
         beacon: BeaconBlockHeader {
             slot: Slot::new(slot),
@@ -196,7 +197,7 @@ fn header(slot: u64, state_root: Hash256) -> LightClientHeaderAltair<E> {
     }
 }
 
-fn committee(keys: &[Keypair]) -> Arc<SyncCommittee<E>> {
+fn committee<E: EthSpec>(keys: &[Keypair]) -> Arc<SyncCommittee<E>> {
     let pubkeys: Vec<_> = keys.iter().map(|key| key.pk.clone()).collect();
     Arc::new(SyncCommittee {
         pubkeys: pubkeys
