@@ -199,6 +199,16 @@ pub struct ValidatorClient {
     )]
     pub distributed: bool,
 
+    #[clap(
+        long,
+        help = "Request the execution payload with each Gloas block and publish the self-built \
+                payload envelope from that response, so it can be published via any beacon node \
+                rather than only the one that built the block.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub stateless_block_production: bool,
+
     /* REST API related arguments */
     #[clap(
         long,
