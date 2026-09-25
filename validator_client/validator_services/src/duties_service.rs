@@ -1453,6 +1453,7 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
             let lookahead_slot = current_slot + selection_lookahead;
 
             let relevant_duties = if duties_service.selection_proof_config.parallel_sign {
+                // Remove old slot duties and only keep current duties in distributed mode
                 duties_by_slot
                     .remove(&lookahead_slot)
                     .map(|duties| BTreeMap::from([(lookahead_slot, duties)]))
