@@ -1085,7 +1085,7 @@ mod pending_components_tests {
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
     use state_processing::ConsensusContext;
-    use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
+    use types::{BeaconState, ForkName, MainnetEthSpec, MinimalEthSpec, SignedBeaconBlock, Slot};
 
     type E = MainnetEthSpec;
 
@@ -1160,7 +1160,7 @@ mod pending_components_tests {
             block: Arc::new(block),
             import_data: BlockImportData {
                 block_root: Default::default(),
-                state: BeaconState::new(0, Default::default(), &ChainSpec::minimal()),
+                state: BeaconState::new(0, Default::default(), &MinimalEthSpec::default_spec()),
                 parent_block: dummy_parent,
                 consensus_context: ConsensusContext::new(Slot::new(0)),
             },

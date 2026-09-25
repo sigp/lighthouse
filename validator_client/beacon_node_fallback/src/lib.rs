@@ -913,7 +913,7 @@ mod tests {
     use eth2::Timeouts;
     use slot_clock::TestingSlotClock;
     use strum::VariantNames;
-    use types::{BeaconBlockDeneb, MainnetEthSpec, Slot};
+    use types::{BeaconBlockDeneb, ForkName, MainnetEthSpec, Slot};
     use types::{EmptyBlock, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
 
@@ -1129,7 +1129,7 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_should_send_to_all_bns() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(ForkName::Deneb.make_genesis_spec(MainnetEthSpec::default_spec()));
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
 
