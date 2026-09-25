@@ -250,7 +250,10 @@ impl<E: EthSpec> GossipTester<E> {
         tester.import_setup_blocks(case, &blocks, initial_block_index)?;
         let finalized_checkpoint = case.finalized_checkpoint(&blocks)?;
         tester.set_finalized_checkpoint(finalized_checkpoint);
-        if case.meta.topic == Topic::ExecutionPayloadBid {
+        if matches!(
+            case.meta.topic,
+            Topic::ExecutionPayloadBid | Topic::ProposerPreferences
+        ) {
             tester.block_on_dangerous(tester.harness.chain.recompute_head_at_current_slot())?;
             if let Some(checkpoint) = finalized_checkpoint {
                 tester
@@ -939,12 +942,7 @@ impl<E: EthSpec> GossipTester<E> {
             )));
         }
 
-        let execution_payload = &envelope.message.payload;
-        self.harness
-            .chain
-            .observed_execution_payloads
-            .insert_for_testing(execution_payload.block_hash, execution_payload.gas_limit);
-
+        // Only replayed envelope messages populate the observed payload cache.
         self.harness
             .chain
             .store
