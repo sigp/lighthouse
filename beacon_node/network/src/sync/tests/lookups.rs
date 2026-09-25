@@ -31,6 +31,7 @@ use lighthouse_network::{
     service::api_types::{AppRequestId, SyncRequestId},
     types::SyncState,
 };
+use rand::Rng;
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -314,7 +315,7 @@ impl TestRig {
             .set_sync_state(SyncState::Synced);
 
         // deterministic seed
-        let rng_08 = <rand_chacha_03::ChaCha20Rng as rand_08::SeedableRng>::from_seed([0u8; 32]);
+        let rng = <rand_chacha::ChaCha20Rng as rand::SeedableRng>::from_seed([0u8; 32]);
 
         init_tracing();
 
@@ -325,7 +326,7 @@ impl TestRig {
             network_rx_queue: vec![],
             sync_rx,
             sync_rx_queue: vec![],
-            rng_08,
+            rng,
             unstructured: types::test_utils::test_unstructured(),
             network_globals: beacon_processor.network_globals.clone(),
             sync_manager: SyncManager::new(
@@ -1868,7 +1869,8 @@ impl TestRig {
     }
 
     fn determinstic_key(&mut self) -> CombinedKey {
-        k256::ecdsa::SigningKey::random(&mut self.rng_08).into()
+        CombinedKey::secp256k1_from_bytes(&mut self.rng.random::<[u8; 32]>())
+            .expect("random bytes form a valid secret key")
     }
 
     pub fn new_connected_peers_for_peerdas(&mut self) -> Vec<PeerId> {

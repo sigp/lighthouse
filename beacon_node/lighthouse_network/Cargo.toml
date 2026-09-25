@@ -15,6 +15,7 @@ directory = { workspace = true }
 dirs = { workspace = true }
 discv5 = { workspace = true }
 either = { workspace = true }
+enr = { workspace = true }
 eth2 = { workspace = true, features = ["lighthouse"] }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
@@ -33,7 +34,7 @@ lru_cache = { workspace = true }
 metrics = { workspace = true }
 network_utils = { workspace = true }
 parking_lot = { workspace = true }
-prometheus-client = "0.24.0"
+prometheus-client = "0.25.1"
 rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }

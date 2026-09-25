@@ -33,6 +33,7 @@ lighthouse_version = { workspace = true }
 log = { workspace = true }
 network_utils = { workspace = true }
 rayon = { workspace = true }
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 snap = { workspace = true }

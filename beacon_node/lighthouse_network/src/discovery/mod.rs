@@ -9,8 +9,8 @@ pub(crate) mod enr;
 use crate::service::TARGET_SUBNET_PEERS;
 use crate::{ClearDialError, metrics};
 use crate::{Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
-use discv5::{Discv5, enr::NodeId};
-pub use enr::{CombinedKey, Eth2Enr, build_enr, load_enr_from_disk, use_or_load_enr};
+use discv5::Discv5;
+pub use enr::{CombinedKey, Eth2Enr, NodeId, build_enr, load_enr_from_disk, use_or_load_enr};
 pub use libp2p::identity::{Keypair, PublicKey};
 use network_utils::enr_ext::{CombinedKeyExt, EnrExt, peer_id_to_node_id};
 

@@ -124,7 +124,7 @@ builder_client = { path = "beacon_node/builder_client" }
 builder_store = { path = "validator_client/builder_store" }
 builder_types = { path = "common/builder_types" }
 byteorder = "1"
-bytes = "1.11.1"
+bytes = "1"
 cargo_metadata = "0.19"
 clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 clap_utils = { path = "common/clap_utils" }
@@ -136,11 +136,12 @@ delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
 dirs = "3"
-discv5 = { version = "0.11", features = ["libp2p"] }
+discv5 = { version = "0.12", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 educe = "0.6"
 eip_3076 = { path = "common/eip_3076" }
 either = "1.9"
+enr = "0.14.0"
 environment = { path = "lighthouse/environment" }
 eth2 = { path = "common/eth2" }
 eth2_config = { path = "common/eth2_config" }
@@ -219,12 +220,13 @@ ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.38", features = ["bundled"] }
 rust_eth_kzg = "0.9"
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"] }
 safe_arith = "0.1"
 sensitive_url = { version = "0.1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_repr = "0.1"
-sha2 = "0.10"
+sha2 = "0.11"
 signing_method = { path = "validator_client/signing_method" }
 slasher = { path = "slasher", default-features = false }
 slashing_protection = { path = "validator_client/slashing_protection" }
@@ -237,7 +239,7 @@ store = { path = "beacon_node/store" }
 strum = { version = "0.27", features = ["derive"] }
 superstruct = "0.10"
 swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
-syn = "2"
+syn = "3"
 sysinfo = "0.26"
 system_health = { path = "common/system_health" }
 task_executor = { path = "common/task_executor" }
@@ -297,8 +299,3 @@ tree_hash = { git = "https://github.com/sigp/tree_hash", rev = "03d9fa474586c125
 tree_hash_derive = { git = "https://github.com/sigp/tree_hash", rev = "03d9fa474586c125f306dd7a00cf46284575a01f" }
 # Temporary patch until the axum migration is complete
 warp = { git = "https://github.com/macladson/warp", rev = "6f5f21beab6a240e59470caaab56afd46d46b709" }
-
-[patch."https://github.com/libp2p/rust-libp2p.git"]
-libp2p = { git = "https://github.com/sigp/rust-libp2p.git", rev = "c774d4e71357d7cd2f792c4767d616d2dd369ee3" }
-libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p.git", rev = "c774d4e71357d7cd2f792c4767d616d2dd369ee3" }
-libp2p-quic = { git = "https://github.com/sigp/rust-libp2p.git", rev = "c774d4e71357d7cd2f792c4767d616d2dd369ee3" }
