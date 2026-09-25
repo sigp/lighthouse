@@ -219,15 +219,14 @@ impl ProtoNode {
 
     /// The execution block this node commits to.
     pub fn block_hash(&self) -> PayloadBlockHash {
-        if let Ok(hash) = self.execution_payload_block_hash() {
-            PayloadBlockHash::Hash(hash)
-        } else {
-            match self.execution_status() {
-                Ok(ExecutionStatus::Valid(hash))
-                | Ok(ExecutionStatus::Invalid(hash))
-                | Ok(ExecutionStatus::Optimistic(hash)) => PayloadBlockHash::Hash(hash),
-                Ok(ExecutionStatus::Irrelevant(_)) | Err(_) => PayloadBlockHash::PreMerge,
-            }
+        match self {
+            ProtoNode::V17(node) => match node.execution_status {
+                ExecutionStatus::Valid(hash)
+                | ExecutionStatus::Invalid(hash)
+                | ExecutionStatus::Optimistic(hash) => PayloadBlockHash::Hash(hash),
+                ExecutionStatus::Irrelevant(_) => PayloadBlockHash::PreMerge,
+            },
+            ProtoNode::V29(node) => PayloadBlockHash::Hash(node.execution_payload_block_hash),
         }
     }
 
