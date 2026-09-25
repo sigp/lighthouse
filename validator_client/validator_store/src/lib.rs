@@ -131,11 +131,17 @@ pub trait ValidatorStore: Send + Sync {
 
     fn set_validator_index(&self, validator_pubkey: &PublicKeyBytes, index: u64);
 
+    /// Sign `block` and apply slashing protection.
+    ///
+    /// `local_payload_root` is the `hash_tree_root` of the locally built execution payload, `Some`
+    /// only for a self-build Gloas bid in stateless block production mode. Lighthouse's store
+    /// ignores it; distributed validator stores commit to it before the block is published.
     fn sign_block(
         &self,
         validator_pubkey: PublicKeyBytes,
         block: UnsignedBlock<Self::E>,
         current_slot: Slot,
+        local_payload_root: Option<Hash256>,
     ) -> impl Future<Output = Result<SignedBlock<Self::E>, Error<Self::Error>>> + Send;
 
     /// Sign a batch of `attestations` and apply slashing protection to them.
