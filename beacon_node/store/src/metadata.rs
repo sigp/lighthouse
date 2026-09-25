@@ -4,7 +4,11 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::{Hash256, Slot};
 
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(30);
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(31);
+
+/// The oldest schema version that can still be migrated to `CURRENT_SCHEMA_VERSION`.
+/// Migrations for older versions have been removed.
+pub const OLDEST_SUPPORTED_SCHEMA_VERSION: SchemaVersion = SchemaVersion(28);
 
 // All the keys that get stored under the `BeaconMeta` column.
 //
@@ -16,9 +20,12 @@ pub const SPLIT_KEY: Hash256 = Hash256::repeat_byte(2);
 // pub const PRUNING_CHECKPOINT_KEY: Hash256 = Hash256::repeat_byte(3);
 pub const COMPACTION_TIMESTAMP_KEY: Hash256 = Hash256::repeat_byte(4);
 pub const ANCHOR_INFO_KEY: Hash256 = Hash256::repeat_byte(5);
+// Legacy keys used by schema versions < 31. Retained for the v31 migration, which merges
+// `BlobInfo` and `DataColumnInfo` into `DataInfo`.
 pub const BLOB_INFO_KEY: Hash256 = Hash256::repeat_byte(6);
 pub const DATA_COLUMN_INFO_KEY: Hash256 = Hash256::repeat_byte(7);
 pub const DATA_COLUMN_CUSTODY_INFO_KEY: Hash256 = Hash256::repeat_byte(8);
+pub const DATA_INFO_KEY: Hash256 = Hash256::repeat_byte(9);
 
 /// State upper limit value used to indicate that a node is not storing historic states.
 pub const STATE_UPPER_LIMIT_NO_RETAIN: Slot = Slot::new(u64::MAX);
@@ -177,6 +184,9 @@ impl StoreItem for AnchorInfo {
 }
 
 /// Database parameters relevant to blob sync.
+///
+/// Legacy: superseded by [`DataInfo`] at schema v31. Retained (with its `StoreItem` impl) only
+/// for the v31 schema migration.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
 pub struct BlobInfo {
     /// The slot after which blobs are or *will be* available (>=).
@@ -230,6 +240,9 @@ impl StoreItem for DataColumnCustodyInfo {
 }
 
 /// Database parameters relevant to data column sync.
+///
+/// Legacy: superseded by [`DataInfo`] at schema v31. Retained (with its `StoreItem` impl) only
+/// for the v31 schema migration.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
 pub struct DataColumnInfo {
     /// The slot after which data columns are or *will be* available (>=).
@@ -243,6 +256,32 @@ pub struct DataColumnInfo {
 }
 
 impl StoreItem for DataColumnInfo {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconMeta
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+/// Database parameters relevant to blob and data column sync.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Encode, Decode, Serialize, Deserialize, Default)]
+pub struct DataInfo {
+    /// The slot from which sidecar data is or *will be* stored (>=): all data-bearing blocks (or,
+    /// post-gloas, payloads) with slots greater than or equal to this value have their blobs or
+    /// data columns stored.
+    ///
+    /// Progressively decreases during backfill sync as data is imported, and increases during
+    /// pruning as data older than the data availability window is deleted.
+    pub oldest_data_slot: Slot,
+}
+
+impl StoreItem for DataInfo {
     fn db_column() -> DBColumn {
         DBColumn::BeaconMeta
     }

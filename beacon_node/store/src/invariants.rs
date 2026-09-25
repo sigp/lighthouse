@@ -323,8 +323,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             .spec
             .gloas_fork_epoch
             .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
-        let oldest_blob_slot = self.get_blob_info().oldest_blob_slot;
-        let oldest_data_column_slot = self.get_data_column_info().oldest_data_column_slot;
+        let oldest_data_slot = self.get_data_info().oldest_data_slot;
 
         for res in self.hot_db.iter_column::<Hash256>(DBColumn::BeaconBlock) {
             let (block_root, block_bytes) = res?;
@@ -375,9 +374,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             // Only check blocks that actually have blob KZG commitments — blocks with 0
             // commitments legitimately have no blob sidecars stored.
             if let Some(deneb_slot) = deneb_fork_slot
-                && let Some(oldest_blob) = oldest_blob_slot
                 && slot >= deneb_slot
-                && slot >= oldest_blob
+                && slot >= oldest_data_slot
                 && fulu_fork_slot.is_none_or(|fulu_slot| slot < fulu_slot)
                 && block.num_expected_blobs() > 0
             {
@@ -396,9 +394,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             // their data column sidecars stored.
             if !ctx.custody_columns.is_empty()
                 && let Some(fulu_slot) = fulu_fork_slot
-                && let Some(oldest_dc) = oldest_data_column_slot
                 && slot >= fulu_slot
-                && slot >= oldest_dc
+                && slot >= oldest_data_slot
                 && block.num_expected_blobs() > 0
             {
                 let stored_columns = self.get_data_column_keys(block_root)?;
