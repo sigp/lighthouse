@@ -23,9 +23,10 @@ use tracing::{Instrument, debug, error, info, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas,
-    DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment,
-    KzgProof, LightClientUpdate, LightClientUpdateCapella, MinimalEthSpec, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot, SyncAggregate, SyncCommittee,
+    DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, InclusionList,
+    InclusionListBits, KzgCommitment, KzgProof, LightClientUpdate, LightClientUpdateCapella,
+    MinimalEthSpec, SignedBeaconBlock, SignedBeaconBlockHeader, SignedInclusionList, Slot,
+    SyncAggregate, SyncCommittee,
 };
 
 type E = MinimalEthSpec;
@@ -1255,6 +1256,138 @@ fn test_tcp_columns_by_root_chunked_rpc_fulu() {
 #[allow(clippy::single_match)]
 fn test_tcp_columns_by_root_chunked_rpc_gloas() {
     test_tcp_columns_by_root_chunked_rpc_for_fork(ForkName::Gloas);
+}
+
+// Tests a streamed, chunked InclusionListsByIndices RPC Message
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_inclusion_lists_by_indices_chunked_rpc() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = false;
+    let _subscriber = build_tracing_subscriber(log_level, enable_logging);
+
+    let spec = Arc::new(spec_with_all_forks_enabled());
+    let slot = spec
+        .fork_epoch(ForkName::Heze)
+        .expect("heze must be scheduled")
+        .start_slot(E::slots_per_epoch());
+    let messages_to_send = spec.max_request_inclusion_list;
+
+    let rt = Arc::new(Runtime::new().unwrap());
+    rt.block_on(async {
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            ForkName::Heze,
+            spec.clone(),
+            Protocol::Tcp,
+            false,
+            None,
+        )
+        .await;
+
+        // InclusionListsByIndices Request
+        let mut indices = InclusionListBits::<E>::new();
+        for position in 0..indices.len() {
+            indices.set(position, true).unwrap();
+        }
+        let rpc_request = RequestType::InclusionListsByIndices(InclusionListsByIndicesRequest {
+            slot,
+            dependent_root: Hash256::zero(),
+            indices,
+        });
+
+        // InclusionListsByIndices Response
+        let inclusion_list = Arc::new(SignedInclusionList {
+            message: InclusionList {
+                slot,
+                validator_index: 1,
+                dependent_root: Hash256::zero(),
+                transactions: vec![vec![0xaa].try_into().unwrap()].try_into().unwrap(),
+            },
+            signature: Signature::empty(),
+        });
+        let rpc_response = Response::InclusionListsByIndices(Some(inclusion_list.clone()));
+
+        // keep count of the number of messages received
+        let mut messages_received = 0;
+        // build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        info!("Sending RPC");
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id: _,
+                        app_request_id: AppRequestId::Router,
+                        response,
+                    } => match response {
+                        Response::InclusionListsByIndices(Some(received)) => {
+                            assert_eq!(received, inclusion_list.clone());
+                            messages_received += 1;
+                            info!("Chunk received");
+                        }
+                        Response::InclusionListsByIndices(None) => {
+                            // should be exactly messages_to_send
+                            assert_eq!(messages_received, messages_to_send);
+                            // end the test
+                            return;
+                        }
+                        _ => {} // Ignore other RPC messages
+                    },
+                    _ => {} // Ignore other behaviour events
+                }
+            }
+        }
+        .instrument(info_span!("Sender"));
+
+        // build the receiver future
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::RequestReceived {
+                        peer_id,
+                        inbound_request_id,
+                        request_type,
+                    } if request_type == rpc_request => {
+                        info!("Receiver got request");
+
+                        for _ in 0..messages_to_send {
+                            receiver.send_response(
+                                peer_id,
+                                inbound_request_id,
+                                rpc_response.clone(),
+                            );
+                            info!("Sending message");
+                        }
+                        // send the stream termination
+                        receiver.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            Response::InclusionListsByIndices(None),
+                        );
+                        info!("Send stream term");
+                    }
+                    e => {
+                        info!(?e, "Got event");
+                    } // Ignore other events
+                }
+            }
+        }
+        .instrument(info_span!("Receiver"));
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(300)) => {
+                    panic!("Future timed out");
+            }
+        }
+    })
 }
 
 fn test_tcp_columns_by_range_chunked_rpc_for_fork(fork_name: ForkName) {
