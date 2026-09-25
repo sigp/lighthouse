@@ -1,3 +1,4 @@
+use super::common::{load_config, testing_spec_with_config};
 use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
@@ -36,6 +37,7 @@ pub struct Metadata {
 pub struct EpochProcessing<E: EthSpec, T: EpochTransition<E>> {
     pub path: PathBuf,
     pub metadata: Metadata,
+    pub config: Option<types::Config>,
     pub pre: BeaconState<E>,
     pub post: Option<BeaconState<E>>,
     pub pre_epoch: Option<BeaconState<E>>,
@@ -345,7 +347,8 @@ impl<E: EthSpec> EpochTransition<E> for BuilderPendingPayments {
 
 impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let config = load_config(path)?;
+        let spec = &testing_spec_with_config::<E>(fork_name, config.as_ref())?;
         let metadata_path = path.join("meta.yaml");
         let metadata: Metadata = if metadata_path.is_file() {
             yaml_decode_file(&metadata_path)?
@@ -376,6 +379,7 @@ impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
         Ok(Self {
             path: path.into(),
             metadata,
+            config,
             pre,
             post,
             pre_epoch,
@@ -435,7 +439,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         self.metadata.bls_setting.unwrap_or_default().check()?;
 
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec_with_config::<E>(fork_name, self.config.as_ref())?;
         let mut pre_state = self.pre.clone();
 
         // Processing requires the committee caches.

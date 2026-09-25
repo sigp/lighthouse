@@ -112,7 +112,7 @@ impl BlockId {
                     let execution_optimistic = chain
                         .canonical_head
                         .fork_choice_read_lock()
-                        .is_optimistic_or_invalid_block(root)
+                        .is_optimistic_or_invalid_block_assuming_full(root)
                         .map_err(BeaconChainError::ForkChoiceError)
                         .map_err(warp_utils::reject::unhandled_error)?;
                     let blinded_block = chain
@@ -135,7 +135,7 @@ impl BlockId {
                     let execution_optimistic = chain
                         .canonical_head
                         .fork_choice_read_lock()
-                        .is_optimistic_or_invalid_block(root)
+                        .is_optimistic_or_invalid_block_assuming_full(root)
                         .unwrap_or(false);
                     Ok((*root, execution_optimistic, false))
                 } else {
