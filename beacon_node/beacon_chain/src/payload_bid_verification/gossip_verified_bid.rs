@@ -12,7 +12,7 @@ use crate::{
 };
 use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
-use proto_array::Block as ProtoBlock;
+use proto_array::{Block as ProtoBlock, PayloadBlockHash};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
     execution_payload_bid_signature_set, get_builder_pubkey_from_state,
@@ -220,8 +220,15 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
         let parent_payload_hash = head_block
             .parent_root
             .and_then(|parent_root| fork_choice_read.get_block(&parent_root))
-            .and_then(|parent| parent.block_hash);
-        (parent_payload_hash, head_block.block_hash)
+            .and_then(|parent| match parent.block_hash() {
+                PayloadBlockHash::Hash(hash) => Some(hash),
+                PayloadBlockHash::PreMerge => None,
+            });
+        let head_bid_block_hash = match head_block.block_hash() {
+            PayloadBlockHash::Hash(hash) => Some(hash),
+            PayloadBlockHash::PreMerge => None,
+        };
+        (parent_payload_hash, head_bid_block_hash)
     } else {
         (
             head_block.execution_payload_parent_hash,

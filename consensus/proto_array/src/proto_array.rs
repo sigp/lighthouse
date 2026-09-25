@@ -1,7 +1,7 @@
 use crate::proto_array_fork_choice::IndexedForkChoiceNode;
 use crate::{
-    Block, ExecutionStatus, ExecutionVerdict, JustifiedBalances, LatestMessage, PayloadStatus,
-    error::Error,
+    Block, ExecutionStatus, ExecutionVerdict, JustifiedBalances, LatestMessage, PayloadBlockHash,
+    PayloadStatus, error::Error,
 };
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
@@ -219,15 +219,15 @@ impl ProtoNode {
 
     /// The execution block this node commits to: the bid's hash post-Gloas, the embedded
     /// payload's hash pre-Gloas. `None` before the merge. Says nothing about validity.
-    pub fn block_hash(&self) -> Option<ExecutionBlockHash> {
+    pub fn block_hash(&self) -> PayloadBlockHash {
         if let Ok(hash) = self.execution_payload_block_hash() {
-            Some(hash)
+            PayloadBlockHash::Hash(hash)
         } else {
             match self.execution_status() {
                 Ok(ExecutionStatus::Valid(hash))
                 | Ok(ExecutionStatus::Invalid(hash))
-                | Ok(ExecutionStatus::Optimistic(hash)) => Some(hash),
-                Ok(ExecutionStatus::Irrelevant(_)) | Err(_) => None,
+                | Ok(ExecutionStatus::Optimistic(hash)) => PayloadBlockHash::Hash(hash),
+                Ok(ExecutionStatus::Irrelevant(_)) | Err(_) => PayloadBlockHash::PreMerge,
             }
         }
     }
@@ -2079,9 +2079,9 @@ impl ProtoArray {
         self.nodes
             .iter()
             .rev()
-            .find(|node| {
-                node.block_hash()
-                    .is_some_and(|node_block_hash| node_block_hash == *block_hash)
+            .find(|node| match node.block_hash() {
+                PayloadBlockHash::Hash(node_block_hash) => node_block_hash == *block_hash,
+                PayloadBlockHash::PreMerge => false,
             })
             .map(|node| node.root())
     }

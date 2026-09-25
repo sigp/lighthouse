@@ -59,8 +59,6 @@ fn build_chain(num_blocks: u64, gloas: bool) -> (ProtoArrayForkChoice, types::Ch
             justified_checkpoint: finalized_checkpoint,
             finalized_checkpoint,
             execution_status: ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
-            block_hash: Some(ExecutionBlockHash::zero()),
-            is_gloas: false,
             unrealized_justified_checkpoint: Some(finalized_checkpoint),
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
             execution_payload_parent_hash: if is_gloas {

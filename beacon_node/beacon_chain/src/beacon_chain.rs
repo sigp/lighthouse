@@ -120,7 +120,7 @@ use operation_pool::{
 };
 use parking_lot::{Mutex, RwLock};
 use proof_engine::ProofEngine;
-use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
+use proto_array::{DoNotReOrg, PayloadBlockHash, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
@@ -5602,7 +5602,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // This only works pre-Gloas, but we don't run this code for Gloas anyway.
-        let parent_head_hash = info.parent_node.block_hash();
+        let parent_head_hash = match info.parent_node.block_hash() {
+            PayloadBlockHash::Hash(hash) => Some(hash),
+            PayloadBlockHash::PreMerge => None,
+        };
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: info.parent_node.root(),
             head_hash: parent_head_hash,
@@ -6606,7 +6609,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Return an error here to try and prevent progression by upstream functions.
             return Err(Error::JustifiedPayloadInvalid {
                 justified_root: justified_block.root,
-                execution_block_hash: justified_block.block_hash,
+                execution_block_hash: match justified_block.block_hash() {
+                    PayloadBlockHash::Hash(hash) => Some(hash),
+                    PayloadBlockHash::PreMerge => None,
+                },
             });
         }
 

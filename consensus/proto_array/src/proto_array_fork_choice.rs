@@ -202,6 +202,16 @@ impl ForkChoiceNode {
     }
 }
 
+/// The execution block a beacon block commits to.
+///
+/// `PreMerge` means there is no such block — not that we failed to find one. Every post-merge
+/// block has a hash here, whether or not an EL has passed judgement on it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PayloadBlockHash {
+    PreMerge,
+    Hash(ExecutionBlockHash),
+}
+
 impl ExecutionStatus {
     pub fn is_execution_enabled(&self) -> bool {
         !matches!(self, ExecutionStatus::Irrelevant(_))
@@ -338,13 +348,6 @@ pub struct Block {
     /// Whether an execution node has marked this block's payload valid. Carries no hash — see
     /// `block_hash`.
     pub execution_status: ExecutionStatus,
-    /// The execution block this beacon block commits to: the embedded payload's hash pre-Gloas,
-    /// the bid's committed hash post-Gloas. `None` before the merge. A plain fact, known at
-    /// import and independent of validity or of which node is elected.
-    pub block_hash: Option<ExecutionBlockHash>,
-    /// Whether this block is post-Gloas. Resolved once here so readers never infer the fork from
-    /// which fields happen to be populated.
-    pub is_gloas: bool,
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
 
@@ -357,28 +360,47 @@ pub struct Block {
 }
 
 impl Block {
-    /// Spec: `head_block_hash` for `notify_forkchoice_updated`.
+    /// The execution block this block commits to. `None` pre-merge, and for a Gloas block,
+    /// whose payload is committed by the bid rather than embedded.
+    pub fn block_hash(&self) -> PayloadBlockHash {
+        // Post-Gloas the bid commits the hash; pre-Gloas the embedded payload carries it.
+        if let Some(hash) = self.execution_payload_block_hash {
+            PayloadBlockHash::Hash(hash)
+        } else {
+            match self.execution_status {
+                ExecutionStatus::Valid(hash)
+                | ExecutionStatus::Invalid(hash)
+                | ExecutionStatus::Optimistic(hash) => PayloadBlockHash::Hash(hash),
+                ExecutionStatus::Irrelevant(_) => PayloadBlockHash::PreMerge,
+            }
+        }
+    }
+
+    /// Spec: `head_block_hash` for `notify_forkchoice_updated`. The bid fields are populated only
+    /// post-Gloas, so pre-Gloas this falls through to the embedded payload.
     pub fn head_payload_block_hash(
         &self,
         payload_status: PayloadStatus,
     ) -> Option<ExecutionBlockHash> {
-        if self.is_gloas {
-            match payload_status {
-                PayloadStatus::Full => self.block_hash,
-                PayloadStatus::Pending | PayloadStatus::Empty => self.execution_payload_parent_hash,
-            }
-        } else {
-            // Pre-Gloas the payload is embedded, so it is the one that ran whatever the status.
-            self.block_hash
+        match payload_status {
+            PayloadStatus::Full => self.execution_payload_block_hash,
+            PayloadStatus::Pending | PayloadStatus::Empty => self.execution_payload_parent_hash,
         }
+        .or_else(|| match self.block_hash() {
+            PayloadBlockHash::Hash(hash) => Some(hash),
+            PayloadBlockHash::PreMerge => None,
+        })
     }
 
     /// Spec: `finalized_block_hash` and `get_safe_execution_block_hash`, the bid's parent payload.
     pub fn checkpoint_payload_block_hash(&self) -> Option<ExecutionBlockHash> {
-        if self.is_gloas {
-            self.execution_payload_parent_hash
+        if let Some(parent_hash) = self.execution_payload_parent_hash {
+            Some(parent_hash)
         } else {
-            self.block_hash
+            match self.block_hash() {
+                PayloadBlockHash::Hash(hash) => Some(hash),
+                PayloadBlockHash::PreMerge => None,
+            }
         }
     }
 
@@ -621,15 +643,6 @@ impl ProtoArrayForkChoice {
             children: Vec::with_capacity(1),
         };
 
-        // The anchor is built from raw parts rather than a node, so resolve the fact here: the
-        // bid hash post-Gloas, else the hash the status carries.
-        let execution_status_block_hash = execution_payload_block_hash.or(match execution_status {
-            ExecutionStatus::Valid(hash)
-            | ExecutionStatus::Invalid(hash)
-            | ExecutionStatus::Optimistic(hash) => Some(hash),
-            ExecutionStatus::Irrelevant(_) => None,
-        });
-
         let block = Block {
             slot: finalized_block_slot,
             root: finalized_checkpoint.root,
@@ -643,8 +656,6 @@ impl ProtoArrayForkChoice {
             justified_checkpoint,
             finalized_checkpoint,
             execution_status,
-            block_hash: execution_status_block_hash,
-            is_gloas: execution_payload_block_hash.is_some(),
             unrealized_justified_checkpoint: Some(justified_checkpoint),
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
             execution_payload_parent_hash,
@@ -1127,11 +1138,6 @@ impl ProtoArrayForkChoice {
             execution_status: block
                 .execution_status()
                 .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
-            block_hash: block.block_hash(),
-            is_gloas: match block {
-                ProtoNode::V17(_) => false,
-                ProtoNode::V29(_) => true,
-            },
             unrealized_justified_checkpoint: block.unrealized_justified_checkpoint(),
             unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint(),
             execution_payload_parent_hash: block.execution_payload_parent_hash().ok(),
@@ -1594,13 +1600,6 @@ mod test_compute_deltas {
                     finalized_checkpoint: genesis_checkpoint,
                     unrealized_justified_checkpoint: Some(genesis_checkpoint),
                     execution_status,
-                    block_hash: match execution_status {
-                        ExecutionStatus::Valid(hash)
-                        | ExecutionStatus::Invalid(hash)
-                        | ExecutionStatus::Optimistic(hash) => Some(hash),
-                        ExecutionStatus::Irrelevant(_) => None,
-                    },
-                    is_gloas: false,
                     unrealized_finalized_checkpoint: Some(genesis_checkpoint),
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
@@ -1629,13 +1628,6 @@ mod test_compute_deltas {
                     justified_checkpoint: junk_checkpoint,
                     finalized_checkpoint: junk_checkpoint,
                     execution_status,
-                    block_hash: match execution_status {
-                        ExecutionStatus::Valid(hash)
-                        | ExecutionStatus::Invalid(hash)
-                        | ExecutionStatus::Optimistic(hash) => Some(hash),
-                        ExecutionStatus::Irrelevant(_) => None,
-                    },
-                    is_gloas: false,
                     unrealized_justified_checkpoint: None,
                     unrealized_finalized_checkpoint: None,
                     execution_payload_parent_hash: None,
@@ -1773,13 +1765,6 @@ mod test_compute_deltas {
                         },
                         finalized_checkpoint: genesis_checkpoint,
                         execution_status,
-                        block_hash: match execution_status {
-                            ExecutionStatus::Valid(hash)
-                            | ExecutionStatus::Invalid(hash)
-                            | ExecutionStatus::Optimistic(hash) => Some(hash),
-                            ExecutionStatus::Irrelevant(_) => None,
-                        },
-                        is_gloas: false,
                         unrealized_justified_checkpoint: Some(genesis_checkpoint),
                         unrealized_finalized_checkpoint: Some(genesis_checkpoint),
                         execution_payload_parent_hash: None,

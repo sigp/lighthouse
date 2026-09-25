@@ -298,8 +298,6 @@ impl TestContext {
                 root: self.genesis_block_root,
             },
             execution_status: ExecutionStatus::irrelevant(),
-            block_hash: Some(execution_payload_block_hash),
-            is_gloas: true,
             unrealized_justified_checkpoint: None,
             unrealized_finalized_checkpoint: None,
             execution_payload_parent_hash: Some(ExecutionBlockHash::zero()),
