@@ -25,7 +25,7 @@ pub use execution_payload::{
     ExecutionPayloadHeze, ExecutionPayloadRef, ProgressiveTransactions, ProgressiveWithdrawals,
     Transaction, Transactions, TransactionsIter, TransactionsRef, WithdrawalsRef,
 };
-pub use execution_payload_bid::ExecutionPayloadBid;
+pub use execution_payload_bid::{EXECUTION_PAYLOAD_BID_ACTIVE_FIELDS, ExecutionPayloadBid};
 pub use execution_payload_envelope::ExecutionPayloadEnvelope;
 pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
