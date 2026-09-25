@@ -1704,10 +1704,7 @@ fn check_finalized_payload_validity<T: BeaconChainTypes>(
     finalized_verdict: ExecutionVerdict,
 ) -> Result<(), Error> {
     if finalized_verdict.is_invalid() {
-        let block_hash = match finalized_proto_block.checkpoint_payload_block_hash() {
-            PayloadBlockHash::Hash(hash) => hash,
-            PayloadBlockHash::PreMerge => ExecutionBlockHash::zero(),
-        };
+        let block_hash = finalized_proto_block.checkpoint_payload_block_hash();
         crit!(
             ?block_hash,
             msg = "You must use the `--purge-db` flag to clear the database and restart sync. \
