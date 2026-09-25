@@ -29,6 +29,7 @@ use lighthouse_network::{
     types::{GossipEncoding, GossipTopic, core_topics_to_subscribe},
 };
 use logging::crit;
+use slot_clock::SlotClock;
 use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -39,8 +40,8 @@ use tokio::time::Sleep;
 use tracing::{debug, error, info, trace, warn};
 use typenum::Unsigned;
 use types::{
-    EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
-    ValidatorSubscription,
+    ChainSpec, Epoch, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, ValidatorSubscription,
 };
 
 mod tests;
@@ -49,6 +50,10 @@ mod tests;
 const METRIC_UPDATE_INTERVAL: u64 = 5;
 /// Number of slots before the fork when we should subscribe to the new fork topics.
 const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
+/// Number of epochs before the next `proposer_preferences` digest to subscribe to that topic.
+const PROPOSER_PREFERENCES_EARLY_SUBSCRIBE_EPOCHS: u64 = 1;
+/// Number of slots to wait before retrying a failed early `proposer_preferences` subscription.
+const PROPOSER_PREFERENCES_EARLY_SUBSCRIBE_RETRY_SLOTS: u64 = 1;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 /// Size of the queue for validator subnet subscriptions. The number is chosen so that we may be
@@ -204,6 +209,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     next_digest_update: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to subscribe to a new set of topics.
     next_topic_subscriptions: Pin<Box<OptionFuture<Sleep>>>,
+    /// A delay that expires when we should subscribe to the next `proposer_preferences` topic.
+    next_proposer_preferences_subscription: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to unsubscribe from old topics.
     next_unsubscribe: Pin<Box<OptionFuture<Sleep>>>,
     /// Shutdown beacon node after sync is complete.
@@ -268,6 +275,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // topics change when the fork digest changes
         let next_topic_subscriptions =
             Box::pin(next_topic_subscriptions_delay(&beacon_chain).into());
+        // proposer_preferences is subscribed one epoch before its fork digest
+        let next_proposer_preferences_subscription =
+            Box::pin(next_proposer_preferences_subscription_delay(&beacon_chain).into());
         let next_unsubscribe = Box::pin(None.into());
 
         let current_slot = beacon_chain
@@ -349,7 +359,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         } = network_receivers;
 
         // create the network service and spawn the task
-        let network_service = NetworkService {
+        let mut network_service = NetworkService {
             beacon_chain,
             libp2p,
             subnet_service,
@@ -360,6 +370,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_globals: network_globals.clone(),
             next_digest_update,
             next_topic_subscriptions,
+            next_proposer_preferences_subscription,
             next_unsubscribe,
             shutdown_after_sync: config.shutdown_after_sync,
             metrics_enabled: config.metrics_enabled,
@@ -367,6 +378,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             gossipsub_parameter_update,
             fork_context,
         };
+
+        // Catch up if startup is already inside the early-subscribe window.
+        network_service.ensure_early_proposer_preferences_subscribed();
 
         Ok((network_service, network_globals, network_senders))
     }
@@ -473,6 +487,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         }
                         else {
                             error!( "Fork subscription scheduled but no fork scheduled");
+                        }
+                    }
+
+                    Some(_) = &mut self.next_proposer_preferences_subscription => {
+                        if self.ensure_early_proposer_preferences_subscribed() {
+                            self.next_proposer_preferences_subscription = Box::pin(None.into());
                         }
                     }
                 }
@@ -701,6 +721,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
             NetworkMessage::SubscribeCoreTopics => {
                 if self.subscribed_core_topics() {
+                    // Early-subscribe proposer_preferences if needed.
+                    self.ensure_early_proposer_preferences_subscribed();
                     return;
                 }
 
@@ -739,6 +761,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         }
                     }
                 }
+
+                // Early-subscribe proposer_preferences if needed.
+                self.ensure_early_proposer_preferences_subscribed();
 
                 // If we are to subscribe to all subnets we do it here
                 if self.network_globals.config.subscribe_all_subnets {
@@ -909,6 +934,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             // Update the `next_topic_subscriptions` timer if the next change in the fork digest is known.
             self.next_topic_subscriptions =
                 Box::pin(next_topic_subscriptions_delay(&self.beacon_chain).into());
+            // Update the `next_proposer_preferences_subscription` timer.
+            self.next_proposer_preferences_subscription =
+                Box::pin(next_proposer_preferences_subscription_delay(&self.beacon_chain).into());
+            self.ensure_early_proposer_preferences_subscribed();
             self.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
             info!(
                 remaining_epochs = UNSUBSCRIBE_DELAY_EPOCHS,
@@ -936,6 +965,131 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         core_topics.is_subset(&subscribed_topics)
     }
+
+    /// Subscribe to the next `proposer_preferences` topic one epoch before its fork digest.
+    ///
+    /// Returns `false` only if a subscription was required but failed.
+    fn subscribe_early_proposer_preferences_if_needed(&mut self) -> bool {
+        let spec = &self.beacon_chain.spec;
+        let current_slot = self.beacon_chain.slot().unwrap_or(spec.genesis_slot);
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        let Some((target_epoch, topic)) =
+            early_proposer_preferences_topic(current_epoch, &self.fork_context, spec)
+        else {
+            return true;
+        };
+
+        if self
+            .network_globals
+            .gossipsub_subscriptions
+            .read()
+            .contains(&topic)
+        {
+            return true;
+        }
+
+        if self.libp2p.subscribe(topic.clone()) {
+            info!(
+                %topic,
+                %target_epoch,
+                "Subscribed early to proposer_preferences topic"
+            );
+            true
+        } else {
+            warn!(
+                %topic,
+                %target_epoch,
+                "Failed to early-subscribe to proposer_preferences topic"
+            );
+            false
+        }
+    }
+
+    /// Subscribe early to `proposer_preferences`, retrying on failure.
+    fn ensure_early_proposer_preferences_subscribed(&mut self) -> bool {
+        let ok = self.subscribe_early_proposer_preferences_if_needed();
+        if !ok {
+            self.arm_early_proposer_preferences_retry();
+        }
+        ok
+    }
+
+    /// Schedule a retry after a failed early `proposer_preferences` subscription.
+    fn arm_early_proposer_preferences_retry(&mut self) {
+        let retry_delay = Duration::from_secs(
+            self.beacon_chain.spec.get_slot_duration().as_secs()
+                * PROPOSER_PREFERENCES_EARLY_SUBSCRIBE_RETRY_SLOTS,
+        );
+        self.next_proposer_preferences_subscription =
+            Box::pin(Some(tokio::time::sleep(retry_delay)).into());
+    }
+}
+
+/// Returns the next digest epoch that carries `proposer_preferences`, if any.
+fn next_prefs_digest_epoch(current_epoch: Epoch, spec: &ChainSpec) -> Option<Epoch> {
+    spec.all_digest_epochs().find(|&digest_epoch| {
+        digest_epoch > current_epoch
+            && digest_epoch > Epoch::new(0)
+            && digest_epoch != spec.far_future_epoch
+            && spec.fork_name_at_epoch(digest_epoch).gloas_enabled()
+    })
+}
+
+/// Returns true if `current_epoch` is in the early-subscribe window for `proposer_preferences`.
+fn should_subscribe_early_proposer_preferences(current_epoch: Epoch, spec: &ChainSpec) -> bool {
+    let Some(target_epoch) = next_prefs_digest_epoch(current_epoch, spec) else {
+        return false;
+    };
+    let early_epoch = target_epoch.saturating_sub(PROPOSER_PREFERENCES_EARLY_SUBSCRIBE_EPOCHS);
+    current_epoch >= early_epoch && current_epoch < target_epoch
+}
+
+/// Returns the early `proposer_preferences` gossip topic for `current_epoch`, if any.
+fn early_proposer_preferences_topic(
+    current_epoch: Epoch,
+    fork_context: &ForkContext,
+    spec: &ChainSpec,
+) -> Option<(Epoch, GossipTopic)> {
+    if !should_subscribe_early_proposer_preferences(current_epoch, spec) {
+        return None;
+    }
+    let target_epoch = next_prefs_digest_epoch(current_epoch, spec)?;
+    let fork_digest = fork_context.context_bytes(target_epoch);
+    Some((
+        target_epoch,
+        GossipTopic::new(
+            GossipKind::ProposerPreferences,
+            GossipEncoding::default(),
+            fork_digest,
+        ),
+    ))
+}
+
+/// Returns a `Sleep` until we should early-subscribe to `proposer_preferences`.
+/// Returns `None` if there is no future `proposer_preferences` digest, we are already in the
+/// early-subscribe window, or the slot clock cannot produce a delay.
+fn next_proposer_preferences_subscription_delay<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+) -> Option<tokio::time::Sleep> {
+    let current_slot = beacon_chain
+        .slot()
+        .unwrap_or(beacon_chain.spec.genesis_slot);
+    let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+    let target_epoch = next_prefs_digest_epoch(current_epoch, &beacon_chain.spec)?;
+    let early_epoch = target_epoch.saturating_sub(PROPOSER_PREFERENCES_EARLY_SUBSCRIBE_EPOCHS);
+
+    // Already in the early-subscribe window.
+    if current_epoch >= early_epoch {
+        return None;
+    }
+
+    let early_slot = early_epoch.start_slot(T::EthSpec::slots_per_epoch());
+    let duration_to_early = beacon_chain.slot_clock.duration_to_slot(early_slot)?;
+    if duration_to_early.is_zero() {
+        return None;
+    }
+    Some(tokio::time::sleep(duration_to_early))
 }
 
 /// Returns a `Sleep` that triggers after the next change in the fork digest.
@@ -981,5 +1135,217 @@ impl<T: BeaconChainTypes> Drop for NetworkService<T> {
             Ok(_) => info!("Saved DHT state"),
         }
         info!("Network service shutdown");
+    }
+}
+
+#[cfg(test)]
+mod early_proposer_preferences_tests {
+    use super::*;
+    use types::{BlobParameters, BlobSchedule, Hash256, MinimalEthSpec, Slot};
+
+    fn spec_with_gloas_at(gloas_epoch: u64) -> ChainSpec {
+        let mut spec = MinimalEthSpec::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(0));
+        spec.deneb_fork_epoch = Some(Epoch::new(0));
+        spec.electra_fork_epoch = Some(Epoch::new(0));
+        spec.fulu_fork_epoch = Some(Epoch::new(0));
+        spec.gloas_fork_epoch = Some(Epoch::new(gloas_epoch));
+        spec
+    }
+
+    fn fork_context_at_slot(spec: &ChainSpec, slot: Slot) -> ForkContext {
+        ForkContext::new::<MinimalEthSpec>(slot, Hash256::ZERO, spec)
+    }
+
+    #[test]
+    fn next_prefs_digest_none_when_gloas_not_scheduled() {
+        let mut spec = MinimalEthSpec::default_spec();
+        spec.gloas_fork_epoch = None;
+        assert!(next_prefs_digest_epoch(Epoch::new(0), &spec).is_none());
+        assert!(!should_subscribe_early_proposer_preferences(
+            Epoch::new(0),
+            &spec
+        ));
+    }
+
+    #[test]
+    fn next_prefs_digest_none_when_gloas_is_far_future() {
+        let mut spec = MinimalEthSpec::default_spec();
+        spec.gloas_fork_epoch = Some(spec.far_future_epoch);
+        assert!(!spec.is_gloas_scheduled());
+        assert!(next_prefs_digest_epoch(Epoch::new(0), &spec).is_none());
+    }
+
+    #[test]
+    fn next_prefs_digest_none_when_gloas_at_epoch_zero() {
+        let spec = spec_with_gloas_at(0);
+        assert!(next_prefs_digest_epoch(Epoch::new(0), &spec).is_none());
+        assert!(!should_subscribe_early_proposer_preferences(
+            Epoch::new(0),
+            &spec
+        ));
+    }
+
+    #[test]
+    fn early_subscribe_window_around_gloas_epoch_two() {
+        let spec = spec_with_gloas_at(2);
+        assert_eq!(
+            next_prefs_digest_epoch(Epoch::new(0), &spec),
+            Some(Epoch::new(2))
+        );
+        assert_eq!(
+            next_prefs_digest_epoch(Epoch::new(1), &spec),
+            Some(Epoch::new(2))
+        );
+
+        // Too early
+        assert!(!should_subscribe_early_proposer_preferences(
+            Epoch::new(0),
+            &spec
+        ));
+        // In window
+        assert!(should_subscribe_early_proposer_preferences(
+            Epoch::new(1),
+            &spec
+        ));
+        // At/past Gloas
+        assert!(!should_subscribe_early_proposer_preferences(
+            Epoch::new(2),
+            &spec
+        ));
+        assert!(!should_subscribe_early_proposer_preferences(
+            Epoch::new(3),
+            &spec
+        ));
+    }
+
+    #[test]
+    fn early_topic_only_in_window_uses_target_context_bytes() {
+        let gloas_epoch = Epoch::new(2);
+        let spec = spec_with_gloas_at(gloas_epoch.as_u64());
+        let fork_context = fork_context_at_slot(&spec, Slot::new(0));
+        let gloas_digest = fork_context.context_bytes(gloas_epoch);
+        let fulu_digest = fork_context.context_bytes(Epoch::new(0));
+        assert_ne!(gloas_digest, fulu_digest);
+
+        assert!(early_proposer_preferences_topic(Epoch::new(0), &fork_context, &spec).is_none());
+        assert!(early_proposer_preferences_topic(gloas_epoch, &fork_context, &spec).is_none());
+
+        let (target_epoch, topic) =
+            early_proposer_preferences_topic(Epoch::new(1), &fork_context, &spec)
+                .expect("in-window topic");
+        assert_eq!(target_epoch, gloas_epoch);
+        assert_eq!(topic.kind(), &GossipKind::ProposerPreferences);
+        assert_eq!(topic.fork_digest, gloas_digest);
+        assert_eq!(
+            topic.fork_digest,
+            spec.compute_fork_digest(Hash256::ZERO, gloas_epoch)
+        );
+    }
+
+    #[test]
+    fn early_subscribe_window_around_heze_after_gloas() {
+        let mut spec = spec_with_gloas_at(2);
+        spec.heze_fork_epoch = Some(Epoch::new(5));
+
+        // Before Gloas the next prefs digest is Gloas.
+        assert_eq!(
+            next_prefs_digest_epoch(Epoch::new(0), &spec),
+            Some(Epoch::new(2))
+        );
+        // After Gloas the next prefs digest is Heze.
+        assert_eq!(
+            next_prefs_digest_epoch(Epoch::new(2), &spec),
+            Some(Epoch::new(5))
+        );
+        assert!(should_subscribe_early_proposer_preferences(
+            Epoch::new(4),
+            &spec
+        ));
+        assert!(!should_subscribe_early_proposer_preferences(
+            Epoch::new(3),
+            &spec
+        ));
+        assert!(!should_subscribe_early_proposer_preferences(
+            Epoch::new(5),
+            &spec
+        ));
+
+        let fork_context = fork_context_at_slot(
+            &spec,
+            Epoch::new(2).start_slot(MinimalEthSpec::slots_per_epoch()),
+        );
+        let heze_epoch = Epoch::new(5);
+        let (target_epoch, topic) =
+            early_proposer_preferences_topic(Epoch::new(4), &fork_context, &spec)
+                .expect("heze early window");
+        assert_eq!(target_epoch, heze_epoch);
+        assert_eq!(topic.fork_digest, fork_context.context_bytes(heze_epoch));
+    }
+
+    #[test]
+    fn intermediate_pre_gloas_bpo_does_not_hide_gloas() {
+        let mut spec = spec_with_gloas_at(10);
+        spec.blob_schedule = BlobSchedule::new(vec![BlobParameters {
+            epoch: Epoch::new(5),
+            max_blobs_per_block: 12,
+        }]);
+
+        // Pre-Gloas BPO digests must not hide the Gloas prefs digest.
+        assert_eq!(
+            next_prefs_digest_epoch(Epoch::new(0), &spec),
+            Some(Epoch::new(10))
+        );
+        assert!(!should_subscribe_early_proposer_preferences(
+            Epoch::new(4),
+            &spec
+        ));
+        assert!(should_subscribe_early_proposer_preferences(
+            Epoch::new(9),
+            &spec
+        ));
+    }
+
+    #[test]
+    fn post_gloas_bpo_is_prefs_bearing_target() {
+        let mut spec = spec_with_gloas_at(2);
+        let bpo_epoch = Epoch::new(6);
+        spec.blob_schedule = BlobSchedule::new(vec![BlobParameters {
+            epoch: bpo_epoch,
+            max_blobs_per_block: 12,
+        }]);
+
+        assert_eq!(
+            next_prefs_digest_epoch(Epoch::new(2), &spec),
+            Some(bpo_epoch)
+        );
+        assert!(should_subscribe_early_proposer_preferences(
+            Epoch::new(5),
+            &spec
+        ));
+
+        let fork_context = fork_context_at_slot(
+            &spec,
+            Epoch::new(2).start_slot(MinimalEthSpec::slots_per_epoch()),
+        );
+        let (target_epoch, topic) =
+            early_proposer_preferences_topic(Epoch::new(5), &fork_context, &spec)
+                .expect("bpo early window");
+        assert_eq!(target_epoch, bpo_epoch);
+        assert_eq!(topic.fork_digest, fork_context.context_bytes(bpo_epoch));
+        assert_ne!(topic.fork_digest, fork_context.context_bytes(Epoch::new(2)));
+    }
+
+    #[test]
+    fn far_future_heze_is_ignored_after_gloas() {
+        let mut spec = spec_with_gloas_at(2);
+        spec.heze_fork_epoch = Some(spec.far_future_epoch);
+        assert!(next_prefs_digest_epoch(Epoch::new(2), &spec).is_none());
+        assert!(!should_subscribe_early_proposer_preferences(
+            Epoch::new(2),
+            &spec
+        ));
     }
 }
