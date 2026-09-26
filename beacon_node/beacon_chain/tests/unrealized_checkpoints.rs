@@ -108,7 +108,7 @@ async fn child_with_stale_voting_source_not_head_at_epoch_plus_two() {
     // checkpoint, the child is the only leaf below the justified root and is outside the viability
     // window. The spec-correct result is to set the justified checkpoint as the head.
     assert_eq!(
-        head_result.unwrap().0,
+        head_result.unwrap().root(),
         fork_choice.justified_checkpoint().root
     );
 }

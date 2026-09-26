@@ -12,10 +12,11 @@ use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
 use crate::payload_envelope_streamer::Error as EnvelopeStreamerError;
 use bls::PublicKeyBytes;
 use execution_layer::PayloadStatus;
-use fork_choice::ExecutionStatus;
+use fork_choice::ExecutionVerdict;
 use futures::channel::mpsc::TrySendError;
 use milhouse::Error as MilhouseError;
 use operation_pool::OpPoolError;
+use proto_array::PayloadBlockHash;
 use safe_arith::ArithError;
 use ssz::BitfieldError;
 use ssz_types::Error as SszTypesError;
@@ -180,12 +181,12 @@ pub enum BeaconChainError {
     HeadBlockMissingFromForkChoice(Hash256),
     InvalidFinalizedPayload {
         finalized_root: Hash256,
-        execution_block_hash: ExecutionBlockHash,
+        execution_block_hash: PayloadBlockHash,
     },
     InvalidFinalizedPayloadShutdownError(TrySendError<ShutdownReason>),
     JustifiedPayloadInvalid {
         justified_root: Hash256,
-        execution_block_hash: Option<ExecutionBlockHash>,
+        execution_block_hash: PayloadBlockHash,
     },
     ForkchoiceUpdate(execution_layer::Error),
     InvalidCheckpoint {
@@ -195,7 +196,7 @@ pub enum BeaconChainError {
     InvalidSlot(Slot),
     HeadBlockNotFullyVerified {
         beacon_block_root: Hash256,
-        execution_status: ExecutionStatus,
+        execution_status: ExecutionVerdict,
     },
     CannotAttestToFinalizedBlock {
         beacon_block_root: Hash256,
@@ -213,7 +214,7 @@ pub enum BeaconChainError {
     ForkchoiceUpdateParamsMissing,
     HeadHasInvalidPayload {
         block_root: Hash256,
-        execution_status: ExecutionStatus,
+        execution_status: ExecutionVerdict,
     },
     AttestationHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,
