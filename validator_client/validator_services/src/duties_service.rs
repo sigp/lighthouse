@@ -1178,8 +1178,7 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
         None
     };
 
-    let (dependent_root, new_duties) =
-        duties_to_commit(probe_dependent_root, probe_duties, bulk);
+    let (dependent_root, new_duties) = duties_to_commit(probe_dependent_root, probe_duties, bulk);
 
     drop(fetch_timer);
 
@@ -1981,8 +1980,7 @@ async fn poll_beacon_ptc_attesters_for_epoch<
         None
     };
 
-    let (dependent_root, new_duties) =
-        duties_to_commit(probe_dependent_root, probe_duties, bulk);
+    let (dependent_root, new_duties) = duties_to_commit(probe_dependent_root, probe_duties, bulk);
 
     drop(fetch_timer);
 
@@ -2180,7 +2178,10 @@ mod test {
 
         assert_eq!(root, bulk_root);
         assert_eq!(duties, bulk_duties);
-        assert!(!duties.contains(&1), "probe duties must not be merged into bulk");
+        assert!(
+            !duties.contains(&1),
+            "probe duties must not be merged into bulk"
+        );
     }
 
     #[test]
@@ -2199,6 +2200,9 @@ mod test {
         assert_eq!(root, bulk_root);
         assert_ne!(root, probe_root);
         assert_eq!(duties, bulk_duties);
-        assert!(!duties.contains(&1), "probe duties must not be merged into bulk");
+        assert!(
+            !duties.contains(&1),
+            "probe duties must not be merged into bulk"
+        );
     }
 }
