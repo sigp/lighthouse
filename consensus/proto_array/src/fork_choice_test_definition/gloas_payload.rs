@@ -1113,7 +1113,7 @@ mod tests {
             execution_payload_block_hash: Some(get_hash(2)),
         });
 
-        // The fork boundary block extends a pre-Gloas parent, which has no separate payload.
+        // Parent payload status of the fork boundary block: its parent is pre-Gloas.
         ops.push(Operation::AssertParentPayloadStatus {
             block_root: get_root(2),
             expected_status: ParentPayloadStatus::PreGloas,

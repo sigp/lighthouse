@@ -5,9 +5,8 @@ mod no_votes;
 mod votes;
 
 use crate::error::Error;
-use crate::proto_array::ParentPayloadStatus;
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, PayloadStatus, ProtoArrayForkChoice};
-use crate::{InvalidationOperation, JustifiedBalances};
+use crate::{InvalidationOperation, JustifiedBalances, ParentPayloadStatus};
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::BitVector;

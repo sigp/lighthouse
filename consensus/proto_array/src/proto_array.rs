@@ -1,7 +1,7 @@
 use crate::proto_array_fork_choice::IndexedForkChoiceNode;
 use crate::{
-    Block, ExecutionStatus, ExecutionVerdict, JustifiedBalances, LatestMessage, PayloadStatus,
-    error::Error,
+    Block, ExecutionStatus, ExecutionVerdict, JustifiedBalances, LatestMessage, PayloadBlockHash,
+    PayloadStatus, error::Error,
 };
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
@@ -178,11 +178,6 @@ pub struct ProtoNode {
     pub equivocating_attestation_score: u64,
 }
 
-/// The stored edge to the parent: which node of the parent this block extends. `PreGloas` is
-/// the fork-boundary edge to a V17 parent, whose payload rides inside the block itself. Each
-/// consumer decides what that means for its own question. Never `Pending`.
-///
-/// `Empty` and `Full` keep the tag values this field stored before `PreGloas` existed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[ssz(enum_behaviour = "tag")]
@@ -198,8 +193,8 @@ impl ProtoNode {
         self.as_v29().is_ok()
     }
 
-    /// The stored edge to the parent. A V17 node has no edge of its own; its parent, one fork
-    /// deeper still, carried its payload inside the block just the same.
+    /// Generic version of spec's `parent_payload_status`. A pre-Gloas node has no parent payload
+    /// node to point at, so it reports `PreGloas` rather than defaulting to `Empty`.
     pub fn get_parent_payload_status(&self) -> ParentPayloadStatus {
         self.parent_payload_status()
             .unwrap_or(ParentPayloadStatus::PreGloas)
@@ -218,6 +213,20 @@ impl ProtoNode {
                 .empty_payload_weight()
                 .unwrap_or_else(|_| self.weight()),
             PayloadStatus::Full => self.full_payload_weight().unwrap_or_else(|_| self.weight()),
+        }
+    }
+
+    /// The execution block this node commits to.
+    pub fn block_hash(&self) -> PayloadBlockHash {
+        match self {
+            ProtoNode::V17(node) => match node.execution_status {
+                ExecutionStatus::Valid(hash)
+                | ExecutionStatus::Invalid(hash)
+                | ExecutionStatus::Optimistic(hash) => PayloadBlockHash::Hash(hash),
+                ExecutionStatus::Irrelevant(_) => PayloadBlockHash::PreMerge,
+                ExecutionStatus::NotYetRevealed(hash) => PayloadBlockHash::Hash(hash),
+            },
+            ProtoNode::V29(node) => PayloadBlockHash::Hash(node.execution_payload_block_hash),
         }
     }
 
@@ -623,8 +632,8 @@ impl ProtoArray {
                             }
                         }
                         ProtoNode::V17(_) => {
-                            // Parent is pre-Gloas: its payload rides inside the block, so there
-                            // is no node to pick. Reached during the fork transition.
+                            // Parent is pre-Gloas: its payload rides inside the block, so there is
+                            // no node to pick. Reached during the fork transition.
                             ParentPayloadStatus::PreGloas
                         }
                     }
@@ -2176,10 +2185,9 @@ impl ProtoArray {
         self.nodes
             .iter()
             .rev()
-            .find(|node| {
-                node.execution_status()
-                    .block_hash()
-                    .is_some_and(|node_block_hash| node_block_hash == *block_hash)
+            .find(|node| match node.block_hash() {
+                PayloadBlockHash::Hash(node_block_hash) => node_block_hash == *block_hash,
+                PayloadBlockHash::PreMerge => false,
             })
             .map(|node| node.root())
     }
