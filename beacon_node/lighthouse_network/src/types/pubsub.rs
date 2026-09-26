@@ -311,12 +311,17 @@ impl<E: EthSpec> PubsubMessage<E> {
                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
                             Some(fork) if fork.fulu_enabled() => {
                                 if fork.gloas_enabled()
-                                    && data.len() > E::max_data_column_sidecar_size()
+                                    && data.len()
+                                        > fork_context
+                                            .spec
+                                            .compute_max_data_column_sidecar_size_gloas::<E>()
                                 {
                                     return Err(format!(
                                         "DataColumnSidecar size {} exceeds MAX_DATA_COLUMN_SIDECAR_SIZE {}",
                                         data.len(),
-                                        E::max_data_column_sidecar_size()
+                                        fork_context
+                                            .spec
+                                            .compute_max_data_column_sidecar_size_gloas::<E>()
                                     ));
                                 }
                                 let col_sidecar = Arc::new(
@@ -533,12 +538,17 @@ pub fn decode_partial<E: EthSpec>(
             let fork = *match fork_context.get_fork_from_context_bytes(topic.fork_digest) {
                 Some(fork) if fork.fulu_enabled() => {
                     if fork.gloas_enabled()
-                        && data.len() > E::max_partial_data_column_sidecar_size()
+                        && data.len()
+                            > fork_context
+                                .spec
+                                .compute_max_partial_data_column_sidecar_size_gloas::<E>()
                     {
                         return Err(format!(
                             "PartialDataColumnSidecar size {} exceeds MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE {}",
                             data.len(),
-                            E::max_partial_data_column_sidecar_size()
+                            fork_context
+                                .spec
+                                .compute_max_partial_data_column_sidecar_size_gloas::<E>()
                         ));
                     }
                     fork
@@ -776,7 +786,10 @@ mod tests {
 
     #[test]
     fn gloas_data_column_sidecar_size_bound() {
-        let max = E::max_data_column_sidecar_size();
+        let fork_context = gloas_fork_context();
+        let max = fork_context
+            .spec
+            .compute_max_data_column_sidecar_size_gloas::<E>();
         let kind = GossipKind::DataColumnSidecar(DataColumnSubnetId::new(0));
         let err = decode_oversized(kind.clone(), max + 1).unwrap_err();
         assert!(err.contains("MAX_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
@@ -797,7 +810,9 @@ mod tests {
             group.extend_from_slice(Hash256::ZERO.as_slice());
             group
         };
-        let max = E::max_partial_data_column_sidecar_size();
+        let max = fork_context
+            .spec
+            .compute_max_partial_data_column_sidecar_size_gloas::<E>();
 
         let data = vec![0u8; max + 1];
         let err = decode_partial::<E>(&topic, &group, &data, &fork_context).unwrap_err();

@@ -5700,6 +5700,7 @@ dependencies = [
  "slashing_protection",
  "slot_clock",
  "task_executor",
+ "tempfile",
  "tokio",
  "tracing",
  "types",

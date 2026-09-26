@@ -2214,7 +2214,8 @@ async fn gloas_get_head_can_return_justified_empty_payload_branch() {
         .canonical_head
         .fork_choice_write_lock()
         .get_head(current_slot, &spec)
-        .expect("fork choice should return the justified root on the empty payload branch");
+        .expect("fork choice should return the justified root on the empty payload branch")
+        .as_pair();
 
     assert_eq!(head_root, justified_root);
     assert_eq!(payload_status, PayloadStatus::Empty);

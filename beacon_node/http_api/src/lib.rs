@@ -80,6 +80,7 @@ use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders};
 use network_utils::enr_ext::EnrExt;
 use parking_lot::RwLock;
+use proto_array::PayloadBlockHash;
 pub use publish_blocks::{
     ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
@@ -2136,7 +2137,7 @@ pub async fn serve<T: BeaconChainTypes>(
                                 chain
                                     .canonical_head
                                     .fork_choice_read_lock()
-                                    .is_optimistic_or_invalid_block(&root)
+                                    .is_optimistic_or_invalid_block_assuming_full(&root)
                                     .ok()
                             } else {
                                 return Err(unsupported_version_rejection(endpoint_version));
@@ -2198,11 +2199,12 @@ pub async fn serve<T: BeaconChainTypes>(
                                 finalized_epoch: node.finalized_checkpoint().epoch,
                                 weight: node.weight(),
                                 validity: execution_status,
-                                execution_block_hash: node
-                                    .execution_status()
-                                    .ok()
-                                    .and_then(|status| status.block_hash())
-                                    .map(|block_hash| block_hash.into_root()),
+                                execution_block_hash: match node.block_hash() {
+                                    PayloadBlockHash::Hash(block_hash) => {
+                                        Some(block_hash.into_root())
+                                    }
+                                    PayloadBlockHash::PreMerge => None,
+                                },
                                 extra_data: ForkChoiceExtraData {
                                     target_root: node.target_root(),
                                     justified_root: node.justified_checkpoint().root,
