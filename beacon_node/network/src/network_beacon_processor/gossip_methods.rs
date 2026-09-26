@@ -4518,7 +4518,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            PayloadAttestationError::NotInPTC { .. } => {
+            PayloadAttestationError::PreGloasSlot { .. }
+            | PayloadAttestationError::NotInPTC { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
                     peer_id,

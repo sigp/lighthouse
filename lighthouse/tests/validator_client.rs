@@ -573,7 +573,7 @@ fn no_doppelganger_protection_flag() {
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.validator_store.gas_limit == Some(60_000_000)));
+        .with_config(|config| assert!(config.validator_store.gas_limit.is_none()));
 }
 #[test]
 fn gas_limit_flag() {
@@ -595,6 +595,19 @@ fn builder_proposals_flag() {
         .flag("builder-proposals", None)
         .run()
         .with_config(|config| assert!(config.validator_store.builder_proposals));
+}
+#[test]
+fn no_stateless_block_production_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.stateless_block_production));
+}
+#[test]
+fn stateless_block_production_flag() {
+    CommandLineTest::new()
+        .flag("stateless-block-production", None)
+        .run()
+        .with_config(|config| assert!(config.stateless_block_production));
 }
 #[test]
 fn builder_boost_factor_flag() {
