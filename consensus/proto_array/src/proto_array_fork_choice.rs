@@ -119,6 +119,11 @@ pub enum ExecutionStatus {
     /// This `bool` only exists to satisfy our SSZ implementation which requires all variants
     /// to have a value. It can be set to anything.
     Irrelevant(bool),
+    /// The Gloas envelope carrying this block's committed payload has not arrived yet, so no EL
+    /// has been asked about it. Unlike `Irrelevant`, the payload exists and is unverified.
+    ///
+    /// The `ExecutionBlockHash` is the bid's committed block hash.
+    NotYetRevealed(ExecutionBlockHash),
 }
 
 /// Represents the status of an execution payload post-Gloas.
@@ -244,10 +249,13 @@ impl ExecutionStatus {
     ///     - Has a payload that has not yet been verified by an EL, OR.
     ///     - Has a payload that has been deemed invalid by an EL.
     pub fn is_optimistic_or_invalid(&self) -> bool {
-        matches!(
-            self,
-            ExecutionStatus::Optimistic(_) | ExecutionStatus::Invalid(_)
-        )
+        match self {
+            // An unrevealed payload has no EL verdict, so it is not fully verified.
+            ExecutionStatus::Optimistic(_)
+            | ExecutionStatus::Invalid(_)
+            | ExecutionStatus::NotYetRevealed(_) => true,
+            ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => false,
+        }
     }
 
     /// Returns `true` if the block:
@@ -264,6 +272,16 @@ impl ExecutionStatus {
     pub fn is_irrelevant(&self) -> bool {
         matches!(self, ExecutionStatus::Irrelevant(_))
     }
+
+    pub fn is_not_yet_revealed(&self) -> bool {
+        match self {
+            ExecutionStatus::NotYetRevealed(_) => true,
+            ExecutionStatus::Valid(_)
+            | ExecutionStatus::Invalid(_)
+            | ExecutionStatus::Optimistic(_)
+            | ExecutionStatus::Irrelevant(_) => false,
+        }
+    }
 }
 
 impl fmt::Display for ExecutionStatus {
@@ -273,6 +291,7 @@ impl fmt::Display for ExecutionStatus {
             ExecutionStatus::Invalid(_) => write!(f, "invalid"),
             ExecutionStatus::Optimistic(_) => write!(f, "optimistic"),
             ExecutionStatus::Irrelevant(_) => write!(f, "irrelevant"),
+            ExecutionStatus::NotYetRevealed(_) => write!(f, "not_yet_revealed"),
         }
     }
 }
@@ -368,6 +387,7 @@ impl Block {
                 | ExecutionStatus::Invalid(hash)
                 | ExecutionStatus::Optimistic(hash) => PayloadBlockHash::Hash(hash),
                 ExecutionStatus::Irrelevant(_) => PayloadBlockHash::PreMerge,
+                ExecutionStatus::NotYetRevealed(hash) => PayloadBlockHash::Hash(hash),
             }
         }
     }
@@ -681,12 +701,13 @@ impl ProtoArrayForkChoice {
     /// Mark a Gloas payload envelope as valid and received.
     ///
     /// This must only be called for valid Gloas payloads.
-    pub fn on_valid_payload_envelope_received(
+    pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
+        execution_status: ExecutionStatus,
     ) -> Result<(), String> {
         self.proto_array
-            .on_valid_payload_envelope_received(block_root)
+            .on_payload_envelope_received(block_root, execution_status)
             .map_err(|e| format!("Failed to process execution payload: {:?}", e))
     }
 
@@ -976,88 +997,118 @@ impl ProtoArrayForkChoice {
     /// This will operate on *all* blocks, even those that do not descend from the finalized
     /// ancestor.
     pub fn contains_invalid_payloads(&mut self) -> bool {
-        self.proto_array.nodes.iter().any(|node| {
-            node.execution_status()
-                .is_ok_and(|status| status.is_invalid())
-        })
+        self.proto_array
+            .nodes
+            .iter()
+            .any(|node| node.execution_status().is_invalid())
     }
 
-    /// For all nodes, regardless of their relationship to the finalized block, set their execution
-    /// status to be optimistic.
-    ///
-    /// In practice this means forgetting any `VALID` or `INVALID` statuses.
     pub fn set_all_blocks_to_optimistic<E: EthSpec>(&mut self) -> Result<(), String> {
-        // Iterate backwards through all nodes in the `proto_array`. Whilst it's not strictly
-        // required to do this process in reverse, it seems natural when we consider how LMD votes
-        // are counted.
-        //
-        // This function will touch all blocks, even those that do not descend from the finalized
-        // block. Since this function is expected to run at start-up during very rare
-        // circumstances we prefer simplicity over efficiency.
-        for node_index in (0..self.proto_array.nodes.len()).rev() {
+        // Clear every `VALID`/`INVALID` verdict. `Irrelevant` and `NotYetRevealed` have no verdict
+        // to reset.
+        for node in self.proto_array.nodes.iter_mut() {
+            match node.execution_status() {
+                ExecutionStatus::Valid(hash)
+                | ExecutionStatus::Invalid(hash)
+                | ExecutionStatus::Optimistic(hash) => {
+                    *node.execution_status_mut() = ExecutionStatus::Optimistic(hash);
+                }
+                ExecutionStatus::Irrelevant(_) | ExecutionStatus::NotYetRevealed(_) => (),
+            }
+        }
+
+        // Reset every weight before rebuilding.
+        for node in self.proto_array.nodes.iter_mut() {
+            *node.weight_mut() = 0;
+            match node {
+                ProtoNode::V29(node) => {
+                    node.full_payload_weight = 0;
+                    node.empty_payload_weight = 0;
+                }
+                ProtoNode::V17(_) => (),
+            }
+        }
+
+        // Add each validator's balance to the node it votes for, splitting a Gloas vote into the
+        // full or empty bucket exactly as `compute_deltas` does.
+        for (validator_index, vote) in self.votes.0.iter().enumerate() {
+            let Some(&node_index) = self.proto_array.indices.get(&vote.current_root) else {
+                continue;
+            };
+            // A voting validator without a balance is ignored, consistent with `compute_deltas`.
+            let Some(&balance) = self.balances.effective_balances.get(validator_index) else {
+                continue;
+            };
             let node = self
                 .proto_array
                 .nodes
                 .get_mut(node_index)
                 .ok_or("unreachable index out of bounds in proto_array nodes")?;
+            let node_slot = node.slot();
+            *node.weight_mut() = node
+                .weight()
+                .checked_add(balance)
+                .ok_or("Overflow when adding vote weight")?;
+            let bucket = match node {
+                ProtoNode::V29(node) => match PayloadStatus::from_vote(
+                    vote.current_slot,
+                    vote.current_payload_present,
+                    node_slot,
+                ) {
+                    PayloadStatus::Full => Some(&mut node.full_payload_weight),
+                    PayloadStatus::Empty => Some(&mut node.empty_payload_weight),
+                    PayloadStatus::Pending => None,
+                },
+                ProtoNode::V17(_) => None,
+            };
+            if let Some(bucket) = bucket {
+                *bucket = bucket
+                    .checked_add(balance)
+                    .ok_or("Overflow when adding vote weight to a payload bucket")?;
+            }
+        }
 
-            match node.execution_status() {
-                Ok(ExecutionStatus::Invalid(block_hash)) => {
-                    if let ProtoNode::V17(node) = node {
-                        node.execution_status = ExecutionStatus::Optimistic(block_hash);
-                    }
-
-                    // Restore the weight of the node, it would have been set to `0` in
-                    // `apply_score_changes` when it was invalidated.
-                    let restored_weight: u64 = self
-                        .votes
-                        .0
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(validator_index, vote)| {
-                            if vote.current_root == node.root() {
-                                // Any voting validator that does not have a balance should be
-                                // ignored. This is consistent with `compute_deltas`.
-                                self.balances.effective_balances.get(validator_index)
-                            } else {
-                                None
-                            }
-                        })
-                        .sum();
-
-                    // Add the restored weight to the node and all ancestors.
-                    if restored_weight > 0 {
-                        let mut node_or_ancestor = node;
-                        loop {
-                            *node_or_ancestor.weight_mut() = node_or_ancestor
-                                .weight()
-                                .checked_add(restored_weight)
-                                .ok_or("Overflow when adding weight to ancestor")?;
-
-                            if let Some(parent_index) = node_or_ancestor.parent() {
-                                node_or_ancestor = self
-                                    .proto_array
-                                    .nodes
-                                    .get_mut(parent_index)
-                                    .ok_or(format!("Missing parent index: {}", parent_index))?;
-                            } else {
-                                // This is either the finalized block or a block that does not
-                                // descend from the finalized block.
-                                break;
-                            }
+        // Propagate each node's aggregate weight to its parent, routed into the parent's full or
+        // empty bucket by the edge the child extends. Children have higher indices than parents, so
+        // a reverse pass finishes each node's subtree weight before it reaches the parent.
+        for node_index in (0..self.proto_array.nodes.len()).rev() {
+            let (weight, edge, parent_index) = {
+                let node = self
+                    .proto_array
+                    .nodes
+                    .get(node_index)
+                    .ok_or("unreachable index out of bounds in proto_array nodes")?;
+                (
+                    node.weight(),
+                    node.get_parent_payload_status(),
+                    node.parent(),
+                )
+            };
+            let Some(parent_index) = parent_index else {
+                continue;
+            };
+            let parent = self
+                .proto_array
+                .nodes
+                .get_mut(parent_index)
+                .ok_or(format!("Missing parent index: {}", parent_index))?;
+            *parent.weight_mut() = parent
+                .weight()
+                .checked_add(weight)
+                .ok_or("Overflow when adding weight to ancestor")?;
+            match parent {
+                ProtoNode::V29(parent) => {
+                    let bucket = match edge {
+                        ParentPayloadStatus::Full => &mut parent.full_payload_weight,
+                        ParentPayloadStatus::Empty | ParentPayloadStatus::PreGloas => {
+                            &mut parent.empty_payload_weight
                         }
-                    }
+                    };
+                    *bucket = bucket
+                        .checked_add(weight)
+                        .ok_or("Overflow when adding child weight to a payload bucket")?;
                 }
-                // There are no balance changes required if the node was either valid or
-                // optimistic.
-                Ok(ExecutionStatus::Valid(block_hash))
-                | Ok(ExecutionStatus::Optimistic(block_hash)) => {
-                    if let ProtoNode::V17(node) = node {
-                        node.execution_status = ExecutionStatus::Optimistic(block_hash)
-                    }
-                }
-                // An irrelevant node cannot become optimistic, this is a no-op.
-                Ok(ExecutionStatus::Irrelevant(_)) | Err(_) => (),
+                ProtoNode::V17(_) => (),
             }
         }
 
@@ -1130,9 +1181,7 @@ impl ProtoArrayForkChoice {
             next_epoch_shuffling_id: block.next_epoch_shuffling_id().clone(),
             justified_checkpoint: *block.justified_checkpoint(),
             finalized_checkpoint: *block.finalized_checkpoint(),
-            execution_status: block
-                .execution_status()
-                .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
+            execution_status: block.execution_status(),
             unrealized_justified_checkpoint: block.unrealized_justified_checkpoint(),
             unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint(),
             execution_payload_parent_hash: block.execution_payload_parent_hash().ok(),

@@ -133,7 +133,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     slot: Slot,
-    parent_beacon_block_root: Hash256,
+    invalidation_head_block_root: Hash256,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
     let execution_layer = chain
@@ -181,11 +181,9 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 if let Some(latest_valid_hash) =
                     latest_valid_hash.filter(|hash| *hash != ExecutionBlockHash::zero())
                 {
-                    // This block has not yet been applied to fork choice, so the latest block that was
-                    // imported to fork choice was the parent.
                     chain
                         .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
-                            head_block_root: parent_beacon_block_root,
+                            head_block_root: invalidation_head_block_root,
                             always_invalidate_head: false,
                             latest_valid_ancestor: latest_valid_hash,
                         })
@@ -238,7 +236,8 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             // Parent has valid or optimistic execution status.
             ExecutionStatus::Valid(_) | ExecutionStatus::Optimistic(_) => true,
             // Pre-merge blocks have irrelevant execution status.
-            ExecutionStatus::Irrelevant(_) => false,
+            // A pre-Gloas block cannot have a Gloas parent, so `NotYetRevealed` is unreachable.
+            ExecutionStatus::Irrelevant(_) | ExecutionStatus::NotYetRevealed(_) => false,
             // If the parent has an invalid payload then it's impossible to build a valid block upon
             // it. Reject the block.
             ExecutionStatus::Invalid(_) => {
