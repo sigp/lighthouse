@@ -1285,7 +1285,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.on_range_components_response(
                 id.parent_request_id,
                 peer_id,
-                RangeBlockComponent::PayloadEnvelope(id, resp),
+                RangeBlockComponent::PayloadEnvelope(id, resp, peer_id),
             );
         }
     }
