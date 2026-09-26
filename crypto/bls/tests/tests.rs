@@ -534,6 +534,132 @@ macro_rules! test_suite {
                 .push_valid_set(2)
                 .run_checks()
         }
+
+        /// Many valid sets sharing a single message exercise the "super batch" fold (a randomized
+        /// multi-scalar multiplication over the whole group) at scale.
+        #[test]
+        fn signature_set_many_valid_sets_same_message() {
+            let mut tester = SignatureSetTester::default();
+            for _ in 0..16 {
+                tester = tester.push_valid_set(1);
+            }
+            tester.run_checks()
+        }
+
+        /// A batch that mixes several messages, with multiple sets per message, must verify when
+        /// every set is valid.
+        #[test]
+        fn signature_set_mixed_messages_all_valid() {
+            // Three sets over message `1`, two over message `2`, one over message `3`.
+            let message_layout = [1u64, 1, 1, 2, 2, 3];
+
+            let mut signatures = Vec::new();
+            let mut pubkeys = Vec::new();
+            for (i, msg) in message_layout.iter().enumerate() {
+                let secret = secret_from_u64(i as u64);
+                let message = Hash256::from_low_u64_be(*msg);
+                let mut signature = AggregateSignature::infinity();
+                signature.add_assign(&secret.sign(message));
+                signatures.push((signature, message));
+                pubkeys.push(secret.public_key());
+            }
+
+            let sets = signatures
+                .iter()
+                .zip(pubkeys.iter())
+                .map(|((signature, message), pubkey)| {
+                    SignatureSet::single_pubkey(signature, Cow::Borrowed(pubkey), *message)
+                })
+                .collect::<Vec<_>>();
+
+            assert!(verify_signature_sets(sets.iter()));
+        }
+
+        /// As above, but one set in a multi-set message group carries the wrong signature. The
+        /// whole batch must fail.
+        #[test]
+        fn signature_set_mixed_messages_one_invalid() {
+            let message_layout = [1u64, 1, 1, 2, 2, 3];
+
+            let mut signatures = Vec::new();
+            let mut pubkeys = Vec::new();
+            for (i, msg) in message_layout.iter().enumerate() {
+                let secret = secret_from_u64(i as u64);
+                let message = Hash256::from_low_u64_be(*msg);
+                let mut signature = AggregateSignature::infinity();
+                // Corrupt the second set (one of the three sharing message `1`) by signing with the
+                // wrong secret key.
+                let signing_secret = if i == 1 {
+                    secret_from_u64(999)
+                } else {
+                    secret_from_u64(i as u64)
+                };
+                signature.add_assign(&signing_secret.sign(message));
+                signatures.push((signature, message));
+                pubkeys.push(secret.public_key());
+            }
+
+            let sets = signatures
+                .iter()
+                .zip(pubkeys.iter())
+                .map(|((signature, message), pubkey)| {
+                    SignatureSet::single_pubkey(signature, Cow::Borrowed(pubkey), *message)
+                })
+                .collect::<Vec<_>>();
+
+            assert!(!verify_signature_sets(sets.iter()));
+        }
+
+        /// The core soundness property of the super-batch optimization: two attestations that are
+        /// individually invalid but whose signatures cancel out when *naively* summed must be rejected.
+        ///
+        /// Here set A carries signer 2's signature but claims signer 1's public key, and set B does
+        /// the reverse. Neither verifies alone, yet `sig_a + sig_b` is a valid aggregate signature
+        /// under `pk1 + pk2`. The per-signature randomization in the fold is what defeats this.
+        #[test]
+        fn signature_set_rejects_cancellation_attack() {
+            let message = Hash256::from_low_u64_be(42);
+
+            let sk1 = secret_from_u64(1);
+            let sk2 = secret_from_u64(2);
+            let pk1 = sk1.public_key();
+            let pk2 = sk2.public_key();
+
+            // Each set carries the *other* signer's signature, so neither is valid on its own.
+            let mut sig_a = AggregateSignature::infinity();
+            sig_a.add_assign(&sk2.sign(message));
+            let mut sig_b = AggregateSignature::infinity();
+            sig_b.add_assign(&sk1.sign(message));
+
+            let set_a = SignatureSet::single_pubkey(&sig_a, Cow::Borrowed(&pk1), message);
+            let set_b = SignatureSet::single_pubkey(&sig_b, Cow::Borrowed(&pk2), message);
+            assert!(
+                !set_a.clone().verify(),
+                "set A must be individually invalid"
+            );
+            assert!(
+                !set_b.clone().verify(),
+                "set B must be individually invalid"
+            );
+
+            // Sanity-check that the attack is real: the naive aggregate (sum of signatures under
+            // the sum of public keys) *does* verify, because the swapped signatures cancel.
+            let mut naive_aggregate = AggregateSignature::infinity();
+            naive_aggregate.add_assign(&sk2.sign(message));
+            naive_aggregate.add_assign(&sk1.sign(message));
+            assert!(
+                naive_aggregate.fast_aggregate_verify(message, &[&pk1, &pk2]),
+                "the naive aggregate must verify, otherwise the test is not exercising the attack"
+            );
+
+            // The randomized super-batch verification must reject the crafted sets.
+            let sets = [set_a, set_b];
+            assert!(
+                !verify_signature_sets(sets.iter()),
+                "super-batch verification must reject individually-invalid signatures that only \
+                 cancel out when naively summed"
+            );
+        }
     };
 }
 
