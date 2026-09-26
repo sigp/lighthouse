@@ -11,7 +11,7 @@ use crate::{
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
-use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
+use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas};
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, get_kzg,
@@ -515,6 +515,25 @@ impl TestRig {
                 )
                 .unwrap();
         }
+    }
+
+    fn processor_with_reprocess_receiver(
+        &self,
+    ) -> (Arc<NetworkBeaconProcessor<T>>, mpsc::Receiver<WorkEvent<E>>) {
+        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(8);
+        let (network_tx, _network_rx) = mpsc::unbounded_channel();
+        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
+        let processor = Arc::new(NetworkBeaconProcessor {
+            beacon_processor_send: BeaconProcessorSend(beacon_processor_tx),
+            duplicate_cache: DuplicateCache::default(),
+            chain: self.chain.clone(),
+            network_tx,
+            sync_tx,
+            network_globals: self.network_beacon_processor.network_globals.clone(),
+            invalid_block_storage: InvalidBlockStorage::Disabled,
+            executor: self.network_beacon_processor.executor.clone(),
+        });
+        (processor, beacon_processor_rx)
     }
 
     pub fn enqueue_blobs_by_range_request(&self, start_slot: u64, count: u64) {
@@ -1766,6 +1785,189 @@ async fn requeue_early_gossip_payload_envelope() {
             .get_executed_payload_envelope(&block_root)
             .is_some(),
         "The envelope should have been re-processed into the data availability checker."
+    );
+}
+
+/// An RPC envelope can finish execution verification before its custody columns arrive. When the
+/// columns make the envelope available, the processor must notify the reprocessing queue.
+#[tokio::test]
+async fn rpc_columns_notify_after_deferred_envelope_import() {
+    use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
+    use types::BlockImportSource;
+
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let rig = TestRig::new(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+
+    let block_result = rig
+        .chain
+        .process_block(
+            block_root,
+            LookupBlock::new(rig.next_block.clone()),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await;
+    assert_matches!(block_result, Ok(AvailabilityProcessingStatus::Imported(..)));
+
+    let (processor, mut beacon_processor_rx) = rig.processor_with_reprocess_receiver();
+    processor
+        .clone()
+        .process_lookup_envelope(
+            block_root,
+            rig.next_block_envelope
+                .clone()
+                .expect("the next block should have an envelope post-Gloas"),
+            BlockProcessType::SinglePayloadEnvelope(1),
+        )
+        .await;
+    assert!(
+        rig.chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .is_none(),
+        "envelope should await custody columns"
+    );
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_some(),
+        "executed envelope should remain pending on custody columns"
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    );
+
+    let bid = rig
+        .next_block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .expect("Gloas payload bid");
+    let blobs = {
+        let generator = rig._harness.execution_block_generator();
+        generator
+            .blobs_bundles
+            .values()
+            .find(|bundle| {
+                bundle
+                    .commitments
+                    .iter()
+                    .eq(bid.message.blob_kzg_commitments.iter())
+            })
+            .expect("blobs for next block")
+            .blobs
+            .clone()
+    };
+    let sampling_indices = rig
+        .chain
+        .custody_context
+        .sampling_columns_for_epoch(rig.next_block.epoch());
+    let custody_columns = blobs_to_data_column_sidecars_gloas(
+        &blobs.iter().collect::<Vec<_>>(),
+        block_root,
+        rig.next_block.slot(),
+        &rig.chain.kzg,
+        &rig.chain.spec,
+    )
+    .expect("build Gloas columns")
+    .into_iter()
+    .filter(|column| sampling_indices.contains(column.index()))
+    .collect();
+    processor
+        .clone()
+        .process_rpc_custody_columns(
+            block_root,
+            custody_columns,
+            BlockProcessType::SingleCustodyColumn(1),
+        )
+        .await;
+
+    assert!(
+        rig.chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .is_some(),
+        "columns should complete envelope import"
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Ok(WorkEvent {
+            work: Work::Reprocess(ReprocessQueueMessage::PayloadEnvelopeImported {
+                block_root: notified_root
+            }),
+            ..
+        }) if notified_root == block_root
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    );
+}
+
+/// Before Gloas, RPC custody columns complete a block import and should release work waiting for
+/// that block rather than work waiting for a payload envelope.
+#[tokio::test]
+async fn rpc_columns_notify_after_deferred_block_import() {
+    use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
+    use types::BlockImportSource;
+
+    let spec = test_spec::<E>();
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
+        return;
+    }
+
+    let rig = TestRig::new(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+    let custody_columns = rig
+        .next_data_columns
+        .clone()
+        .expect("the next block should have data columns pre-Gloas");
+
+    let block_result = rig
+        .chain
+        .process_block(
+            block_root,
+            LookupBlock::new(rig.next_block.clone()),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await;
+    assert_matches!(
+        block_result,
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, pending_root))
+            if pending_root == block_root
+    );
+
+    let (processor, mut beacon_processor_rx) = rig.processor_with_reprocess_receiver();
+    processor
+        .clone()
+        .process_rpc_custody_columns(
+            block_root,
+            custody_columns,
+            BlockProcessType::SingleCustodyColumn(1),
+        )
+        .await;
+
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Ok(WorkEvent {
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
+                block_root: notified_root
+            }),
+            ..
+        }) if notified_root == block_root
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
     );
 }
 
