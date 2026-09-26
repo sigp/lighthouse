@@ -38,9 +38,10 @@ Options:
           [default: info] [possible values: info, debug, trace, warn, error]
       --gas-limit <INTEGER>
           The gas limit to be used in all builder proposals for all validators
-          managed by this validator client. Note this will not necessarily be
-          used if the gas limit set here moves too far from the previous block's
-          gas limit. [default: 60000000]
+          managed by this validator client. If this value is not set, the gas
+          limit schedule from the network config is used, falling back to a
+          default of 60,000,000. Note this will not necessarily be used if the
+          gas limit set here moves too far from the previous block's gas limit.
       --genesis-state-url <URL>
           A URL of a beacon-API compatible server from which to download the
           genesis state. Checkpoint sync server URLs can generally be used with
@@ -293,6 +294,10 @@ Flags:
       --prefer-builder-proposals
           If this flag is set, Lighthouse will always prefer blocks constructed
           by builders, regardless of payload value.
+      --stateless-block-production
+          Request the execution payload with each Gloas block and publish the
+          self-built payload envelope from that response, so it can be published
+          via any beacon node rather than only the one that built the block.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
       --unencrypted-http-transport
