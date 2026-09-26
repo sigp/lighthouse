@@ -13,8 +13,8 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     Address, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
-    BuilderPendingPayment, ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionRequestsGloas, Fork,
-    PendingDeposit, ProgressiveKzgCommitments,
+    BuilderPendingPayment, ChainSpec, EthSpec, ExecutionPayloadBidGloas, ExecutionRequestsGloas,
+    Fork, PendingDeposit, ProgressiveKzgCommitments,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
     is_builder_withdrawal_credential,
 };
@@ -121,7 +121,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution Bid
-        latest_execution_payload_bid: ExecutionPayloadBid {
+        latest_execution_payload_bid: ExecutionPayloadBidGloas {
             parent_block_hash: pre.latest_execution_payload_header.parent_hash,
             parent_block_root: pre.latest_block_header.parent_root,
             block_hash: pre.latest_execution_payload_header.block_hash,

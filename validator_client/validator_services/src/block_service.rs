@@ -340,7 +340,7 @@ impl<E: EthSpec> EnvelopeAction<E> {
             }
             (true, ProduceBlockV4Response::BlockOnly(block)) => {
                 let action = match block.body().signed_execution_payload_bid() {
-                    Ok(bid) if bid.message.builder_index == BUILDER_INDEX_SELF_BUILD => {
+                    Ok(bid) if bid.message().builder_index() == BUILDER_INDEX_SELF_BUILD => {
                         warn!(
                             slot = slot.as_u64(),
                             "Beacon node omitted the payload contents for a self-built block, \
@@ -351,7 +351,7 @@ impl<E: EthSpec> EnvelopeAction<E> {
                     Ok(bid) => {
                         info!(
                             slot = slot.as_u64(),
-                            builder_index = bid.message.builder_index,
+                            builder_index = bid.message().builder_index(),
                             "Builder bid won; the builder reveals the payload envelope"
                         );
                         Self::Skip
@@ -369,13 +369,13 @@ impl<E: EthSpec> EnvelopeAction<E> {
             (false, response) => {
                 let block = response.into_block();
                 let action = match block.body().signed_execution_payload_bid() {
-                    Ok(bid) if bid.message.builder_index == BUILDER_INDEX_SELF_BUILD => {
+                    Ok(bid) if bid.message().builder_index() == BUILDER_INDEX_SELF_BUILD => {
                         Self::Fetch(block.canonical_root())
                     }
                     Ok(bid) => {
                         info!(
                             slot = slot.as_u64(),
-                            builder_index = bid.message.builder_index,
+                            builder_index = bid.message().builder_index(),
                             "Builder bid won; the builder reveals the payload envelope"
                         );
                         Self::Skip

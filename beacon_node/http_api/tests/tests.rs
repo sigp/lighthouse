@@ -51,9 +51,11 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
 use types::{
-    Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBid, Hash256,
-    MainnetEthSpec, ProposerPreferences, RelativeEpoch, SelectionProof, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, SingleAttestation, Slot,
+    Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas,
+    ExecutionPayloadBidHeze, Hash256, MainnetEthSpec, ProposerPreferences, RelativeEpoch,
+    SelectionProof, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
+    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedRoot, SingleAttestation, Slot,
     attestation::AttestationBase,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
 };
@@ -3428,25 +3430,46 @@ impl ApiTester {
         let slot = self.chain.slot().unwrap();
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
 
-        let bid = ExecutionPayloadBid {
-            parent_block_hash: ExecutionBlockHash::zero(),
-            parent_block_root: head.head_block_root(),
-            block_hash: ExecutionBlockHash::zero(),
-            prev_randao: Hash256::zero(),
-            fee_recipient: Address::zero(),
-            gas_limit: 30_000_000,
-            builder_index: 0,
-            slot,
-            value: 100,
-            execution_payment: 0,
-            blob_kzg_commitments: Default::default(),
-            execution_requests_root: Hash256::zero(),
-            _phantom: std::marker::PhantomData,
-        };
-
-        let signed = SignedExecutionPayloadBid {
-            message: bid,
-            signature: bls::Signature::empty(),
+        let signature = bls::Signature::empty();
+        let signed = if fork_name.heze_enabled() {
+            SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
+                message: ExecutionPayloadBidHeze {
+                    parent_block_hash: ExecutionBlockHash::zero(),
+                    parent_block_root: head.head_block_root(),
+                    block_hash: ExecutionBlockHash::zero(),
+                    prev_randao: Hash256::zero(),
+                    fee_recipient: Address::zero(),
+                    gas_limit: 30_000_000,
+                    builder_index: 0,
+                    slot,
+                    value: 100,
+                    execution_payment: 0,
+                    blob_kzg_commitments: Default::default(),
+                    execution_requests_root: Hash256::zero(),
+                    inclusion_list_bits: Default::default(),
+                    _phantom: std::marker::PhantomData,
+                },
+                signature,
+            })
+        } else {
+            SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                message: ExecutionPayloadBidGloas {
+                    parent_block_hash: ExecutionBlockHash::zero(),
+                    parent_block_root: head.head_block_root(),
+                    block_hash: ExecutionBlockHash::zero(),
+                    prev_randao: Hash256::zero(),
+                    fee_recipient: Address::zero(),
+                    gas_limit: 30_000_000,
+                    builder_index: 0,
+                    slot,
+                    value: 100,
+                    execution_payment: 0,
+                    blob_kzg_commitments: Default::default(),
+                    execution_requests_root: Hash256::zero(),
+                    _phantom: std::marker::PhantomData,
+                },
+                signature,
+            })
         };
 
         (signed, fork_name)

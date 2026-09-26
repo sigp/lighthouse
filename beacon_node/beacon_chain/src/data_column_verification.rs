@@ -413,7 +413,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                 )?;
                 verify_data_column_sidecar_with_commitments_len(
                     &column_sidecar,
-                    bid.message.blob_kzg_commitments.len(),
+                    bid.message().blob_kzg_commitments().len(),
                     &chain.spec,
                 )?;
             }
@@ -1236,13 +1236,13 @@ pub fn validate_data_column_sidecar_for_gossip_gloas<
             slot: column_slot,
         },
     )?;
-    if bid.message.slot != column_slot {
+    if bid.message().slot() != column_slot {
         return Err(GossipDataColumnError::BlockSlotMismatch {
-            block_slot: bid.message.slot,
+            block_slot: bid.message().slot(),
             data_column_slot: column_slot,
         });
     }
-    let kzg_commitments = &bid.message.blob_kzg_commitments;
+    let kzg_commitments = bid.message().blob_kzg_commitments();
     verify_data_column_sidecar_with_commitments_len(
         &data_column,
         kzg_commitments.len(),
@@ -1388,10 +1388,10 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
         }
     };
 
-    if slot != bid.message.slot {
+    if slot != bid.slot() {
         return PartialColumnVerificationResult::Err(GossipPartialDataColumnError::IncorrectSlot {
             group_id_slot: slot,
-            block_slot: bid.message.slot,
+            block_slot: bid.slot(),
         });
     }
 
@@ -1402,7 +1402,7 @@ fn validate_partial_data_column_sidecar_for_gossip_gloas<T: BeaconChainTypes>(
 
     match validate_partial_data_column_common(
         PartialDataColumnRef::Gloas(&column),
-        bid.message.blob_kzg_commitments.as_ref(),
+        bid.message().blob_kzg_commitments().as_ref(),
         chain,
     ) {
         Ok(()) => PartialColumnVerificationResult::Ok(GossipVerifiedPartialDataColumn::PostGloas {
@@ -1478,7 +1478,7 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumn<E> {
     pub fn slot(&self) -> Slot {
         match self {
             Self::PreGloas { header, .. } => header.as_header().slot(),
-            Self::PostGloas { bid, .. } => bid.message.slot,
+            Self::PostGloas { bid, .. } => bid.slot(),
         }
     }
 
@@ -1568,7 +1568,7 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
                 .body()
                 .signed_execution_payload_bid()
                 .map_err(BeaconChainError::BeaconStateError)?
-                .clone(),
+                .clone_as_signed_execution_payload_bid(),
         )
     } else {
         match chain
@@ -1582,7 +1582,7 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
                     .body()
                     .signed_execution_payload_bid()
                     .map_err(BeaconChainError::BeaconStateError)?
-                    .clone(),
+                    .clone_as_signed_execution_payload_bid(),
             ),
             Some(DatabaseBlock::Blinded(block)) => Arc::new(
                 block
@@ -1590,7 +1590,7 @@ pub(crate) fn load_gloas_payload_bid<T: BeaconChainTypes>(
                     .body()
                     .signed_execution_payload_bid()
                     .map_err(BeaconChainError::BeaconStateError)?
-                    .clone(),
+                    .clone_as_signed_execution_payload_bid(),
             ),
             None => {
                 return Ok(None);
@@ -1895,8 +1895,8 @@ mod test {
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
         ForkName, Hash256, MainnetEthSpec, PartialDataColumn, PartialDataColumnFulu,
         PartialDataColumnGloas, PartialDataColumnHeader, PartialDataColumnSidecarFulu,
-        PartialDataColumnSidecarGloas, SignedExecutionPayloadBid, Slot,
-        test_utils::test_unstructured,
+        PartialDataColumnSidecarGloas, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
+        Slot, test_utils::test_unstructured,
     };
 
     type E = MainnetEthSpec;
@@ -1973,7 +1973,7 @@ mod test {
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .clone();
+            .clone_as_signed_execution_payload_bid();
 
         // Put the block on disk only, so the bid can only be found via the store fallback.
         harness.chain.store.put_block(&block_root, block).unwrap();
@@ -2407,12 +2407,12 @@ mod test {
         block_root: Hash256,
         slot: Slot,
     ) {
-        let mut bid = SignedExecutionPayloadBid::<E>::empty();
+        let mut bid = SignedExecutionPayloadBidGloas::<E>::empty();
         bid.message.slot = slot;
         harness
             .chain
             .pending_payload_cache
-            .insert_bid(block_root, Arc::new(bid));
+            .insert_bid(block_root, Arc::new(SignedExecutionPayloadBid::Gloas(bid)));
     }
 
     async fn gloas_partial_slot_mismatch_returns_error(

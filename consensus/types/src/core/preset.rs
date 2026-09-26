@@ -351,7 +351,7 @@ pub struct GloasPreset {
 }
 
 impl GloasPreset {
-    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             ptc_size: E::ptc_size() as u64,
             max_payload_attestations: E::max_payload_attestations() as u64,
@@ -362,8 +362,7 @@ impl GloasPreset {
                 as u64,
             max_signed_aggregate_and_proof_size: E::max_signed_aggregate_and_proof_size() as u64,
             max_attester_slashing_size: E::max_attester_slashing_size() as u64,
-            max_signed_execution_payload_bid_size: E::max_signed_execution_payload_bid_size()
-                as u64,
+            max_signed_execution_payload_bid_size: spec.max_signed_execution_payload_bid_size,
         }
     }
 }
@@ -373,12 +372,16 @@ impl GloasPreset {
 pub struct HezePreset {
     #[serde(with = "serde_utils::quoted_u64")]
     pub inclusion_list_committee_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_signed_execution_payload_bid_size_heze: u64,
 }
 
 impl HezePreset {
-    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
             inclusion_list_committee_size: E::inclusion_list_committee_size() as u64,
+            max_signed_execution_payload_bid_size_heze: spec
+                .max_signed_execution_payload_bid_size_heze,
         }
     }
 }

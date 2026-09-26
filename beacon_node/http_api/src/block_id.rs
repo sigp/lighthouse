@@ -615,8 +615,8 @@ mod tests {
             .body()
             .signed_execution_payload_bid()
             .expect("Gloas block should contain an execution payload bid")
-            .message
-            .blob_kzg_commitments
+            .message()
+            .blob_kzg_commitments()
             .get(1)
             .expect("test block should contain at least two blob commitments")
             .calculate_versioned_hash();
