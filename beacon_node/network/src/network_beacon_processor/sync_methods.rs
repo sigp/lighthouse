@@ -271,13 +271,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(availability) => match availability {
-                AvailabilityProcessingStatus::Imported(_, hash) => {
+                AvailabilityProcessingStatus::Imported(slot, hash) => {
                     debug!(
                         result = "imported block and custody columns",
                         block_hash = %hash,
                         "Block components retrieved"
                     );
                     self.chain.recompute_head_at_current_slot().await;
+                    self.notify_import_after_column(*slot, *hash, EnvelopeSource::Rpc);
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _) => {
                     debug!(
