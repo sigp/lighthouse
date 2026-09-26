@@ -503,6 +503,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::RPCError(error))
             }
+            SyncRequestId::BlocksByHead(id) => {
+                self.on_blocks_by_head_response(id, peer_id, RpcEvent::RPCError(error))
+            }
             SyncRequestId::SinglePayloadEnvelope { id } => {
                 self.on_single_payload_envelope_response(id, peer_id, RpcEvent::RPCError(error))
             }
@@ -1163,6 +1166,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::SingleBlock { id } => {
                 self.on_single_block_response(id, peer_id, RpcEvent::from_chunk(block))
             }
+            SyncRequestId::BlocksByHead(id) => {
+                self.on_blocks_by_head_response(id, peer_id, RpcEvent::from_chunk(block))
+            }
             SyncRequestId::BlocksByRange(id) => {
                 self.on_blocks_by_range_response(id, peer_id, RpcEvent::from_chunk(block))
             }
@@ -1186,6 +1192,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 &mut self.network,
             )
         }
+    }
+
+    fn on_blocks_by_head_response(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        block: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) {
+        // The response is not consumed yet: a follow-up will inject the blocks into lookup sync.
+        self.network.on_blocks_by_head_response(id, peer_id, block);
     }
 
     fn rpc_blob_received(
