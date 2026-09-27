@@ -28,10 +28,6 @@ pub enum Error {
     InvalidPayloadBodiesResponse { expected: usize, received: usize },
 }
 
-/// The engine API only requires execution layers to support payload body requests for at least
-/// 32 blocks, so larger requests are split into chunks of this size.
-const MAX_PAYLOAD_BODIES_PER_REQUEST: usize = 32;
-
 /// A block loaded from the caches or database, which is either complete or requires its
 /// execution payload to be fetched from the execution layer.
 enum LoadedBlock<E: EthSpec> {
@@ -256,8 +252,14 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
             by_fork.entry(*fork).or_default().push(i);
         }
 
+        let max_count = self
+            .execution_layer
+            .max_payload_bodies_per_request()
+            .await
+            .map_err(|e| Error::BlocksByHashFailure(Box::new(e)))?;
+
         for (fork, indices) in by_fork {
-            for chunk in indices.chunks(MAX_PAYLOAD_BODIES_PER_REQUEST) {
+            for chunk in indices.chunks(max_count) {
                 let hashes = chunk.iter().map(|&i| blocks[i].0).collect::<Vec<_>>();
                 let chunk_bodies = self
                     .execution_layer

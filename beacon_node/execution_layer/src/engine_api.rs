@@ -1,6 +1,6 @@
 use crate::engines::ForkchoiceState;
 pub use crate::json_structures::JsonRpcCapabilities;
-use crate::ssz_structures::SszCapabilities;
+use crate::ssz_structures::{MaxBodiesRequest, SszCapabilities};
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
     SsePayloadAttributesV3,
@@ -11,6 +11,7 @@ use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::typenum::Unsigned;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
@@ -716,14 +717,31 @@ impl EngineCapabilities {
     pub fn get_payload_bodies_by_hash_v1(&self, fork: ForkName) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_hash_v1,
-            Self::Ssz(capabilities) => capabilities.get_payload_bodies(fork),
+            Self::Ssz(capabilities) => {
+                capabilities.get_payload_bodies(fork) && self.bodies_max_count() > 0
+            }
         }
     }
 
     pub fn get_payload_bodies_by_hash_v2(&self, fork: ForkName) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_payload_bodies_by_hash_v2,
-            Self::Ssz(capabilities) => capabilities.get_payload_bodies(fork),
+            Self::Ssz(capabilities) => {
+                capabilities.get_payload_bodies(fork) && self.bodies_max_count() > 0
+            }
+        }
+    }
+
+    pub fn bodies_max_count(&self) -> usize {
+        let ceiling = MaxBodiesRequest::to_usize();
+        match self {
+            Self::JsonRpc(_) => ceiling,
+            Self::Ssz(capabilities) => capabilities
+                .limits
+                .bodies_max_count
+                .map_or(ceiling, |advertised| {
+                    advertised.min(ceiling as u64) as usize
+                }),
         }
     }
 
@@ -753,6 +771,19 @@ impl EngineCapabilities {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_blobs_v4,
             Self::Ssz(capabilities) => capabilities.get_blobs_v4(),
+        }
+    }
+
+    pub fn blobs_max_versioned_hashes<E: EthSpec>(&self) -> usize {
+        let ceiling = E::MaxVersionedHashesPerRequest::to_usize();
+        match self {
+            Self::JsonRpc(_) => ceiling,
+            Self::Ssz(capabilities) => capabilities
+                .limits
+                .blobs_max_versioned_hashes
+                .map_or(ceiling, |advertised| {
+                    advertised.min(ceiling as u64) as usize
+                }),
         }
     }
 

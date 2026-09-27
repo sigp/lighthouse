@@ -1111,9 +1111,11 @@ impl<E: EthSpec> SszBlobsResponseV4<E> {
     }
 }
 
+pub type MaxBodiesRequest = U32;
+
 #[derive(Clone, Debug, Encode, Decode, PartialEq)]
 pub struct SszBodiesByHashRequest {
-    pub block_hashes: VariableList<Hash256, U32>,
+    pub block_hashes: VariableList<Hash256, MaxBodiesRequest>,
 }
 
 impl SszBodiesByHashRequest {
@@ -1149,7 +1151,6 @@ pub struct SszBodyEntry<E: EthSpec> {
 /// The response is fork-homogeneous: every entry is serialised against the fork
 /// named by the `Eth-Execution-Version` request header, so the variant is known
 /// from the request and is never inferred from the bytes (see `from_ssz_bytes_by_fork`).
-// `U32` == `MAX_BODIES_REQUEST` (32).
 #[superstruct(
     variants(V1, V2, V3),
     variant_attributes(derive(Clone, Debug, Encode, Decode, PartialEq),),
@@ -1160,11 +1161,11 @@ pub struct SszBodyEntry<E: EthSpec> {
 #[ssz(enum_behaviour = "transparent")]
 pub struct SszBodiesResponse<E: EthSpec> {
     #[superstruct(only(V1), partial_getter(rename = "entries_v1"))]
-    pub entries: VariableList<SszBodyEntryV1<E>, U32>,
+    pub entries: VariableList<SszBodyEntryV1<E>, MaxBodiesRequest>,
     #[superstruct(only(V2), partial_getter(rename = "entries_v2"))]
-    pub entries: VariableList<SszBodyEntryV2<E>, U32>,
+    pub entries: VariableList<SszBodyEntryV2<E>, MaxBodiesRequest>,
     #[superstruct(only(V3), partial_getter(rename = "entries_v3"))]
-    pub entries: VariableList<SszBodyEntryV3<E>, U32>,
+    pub entries: VariableList<SszBodyEntryV3<E>, MaxBodiesRequest>,
 }
 
 impl<E: EthSpec> SszBodiesResponse<E> {
@@ -1343,6 +1344,7 @@ fn fork_from_header(header: &str) -> Option<ForkName> {
         "prague" => ForkName::Electra,
         "osaka" => ForkName::Fulu,
         "amsterdam" => ForkName::Gloas,
+        "bogota" => ForkName::Heze,
         _ => return None,
     })
 }

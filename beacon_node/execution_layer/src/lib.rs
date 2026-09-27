@@ -163,6 +163,10 @@ pub enum Error {
     PayloadBodiesByHashNotSupported,
     PayloadBodiesNotSupportedForFork(ForkName),
     GetBlobsNotSupported,
+    BlobsRequestTooLarge {
+        requested: usize,
+        max: usize,
+    },
     GetInclusionListNotSupported,
     InvalidJWTSecret(String),
     InvalidForkForPayload,
@@ -577,7 +581,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let engine: Engine<E> = {
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
             let rest_ssz = if engine_api_rest_ssz {
-                let rest_auth = Auth::new(jwt_key.clone(), jwt_id.clone(), jwt_version.clone());
+                let rest_auth = Auth::new(jwt_key.clone(), jwt_id.clone(), None);
                 Some(
                     HttpRestSsz::new_with_auth(
                         execution_url.clone(),
@@ -1418,7 +1422,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     );
 
                     let first_attempt = {
-                        metrics::start_timer_vec(
+                        let _timer = metrics::start_timer_vec(
                             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
                             &[metrics::GET_PAYLOAD],
                         );
@@ -1726,6 +1730,15 @@ impl<E: EthSpec> ExecutionLayer<E> {
         Ok(versions)
     }
 
+    pub async fn max_payload_bodies_per_request(&self) -> Result<usize, Error> {
+        let max_count = self.get_engine_capabilities(None).await?.bodies_max_count();
+        if max_count == 0 {
+            return Err(Error::PayloadBodiesByHashNotSupported);
+        }
+
+        Ok(max_count)
+    }
+
     pub async fn get_payload_bodies_by_hash_v1(
         &self,
         fork: ForkName,
@@ -1822,6 +1835,22 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
+    fn check_blobs_request_size(
+        &self,
+        capabilities: &EngineCapabilities,
+        requested: usize,
+    ) -> Result<(), Error> {
+        let max = capabilities.blobs_max_versioned_hashes::<E>();
+        if max == 0 {
+            return Err(Error::GetBlobsNotSupported);
+        }
+        if requested > max {
+            return Err(Error::BlobsRequestTooLarge { requested, max });
+        }
+
+        Ok(())
+    }
+
     pub async fn get_blobs_v2(
         &self,
         query: Vec<Hash256>,
@@ -1829,6 +1858,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
         if capabilities.get_blobs_v2() {
+            self.check_blobs_request_size(&capabilities, query.len())?;
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v2(query).await })
                 .await
@@ -1846,6 +1876,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
         if capabilities.get_blobs_v3() {
+            self.check_blobs_request_size(&capabilities, query.len())?;
             self.engine()
                 .request(|engine| async move { engine.api.get_blobs_v3(query).await })
                 .await
@@ -1864,6 +1895,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
         if capabilities.get_blobs_v4() {
+            self.check_blobs_request_size(&capabilities, query.len())?;
             self.engine()
                 .request(
                     |engine| async move { engine.api.get_blobs_v4(query, custody_columns).await },
