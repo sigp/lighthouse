@@ -1008,17 +1008,12 @@ impl ProtoArrayForkChoice {
             &self.balances.effective_balances,
             equivocating_indices,
         )
-        .map_err(|e| {
-            format!(
-                "set_all_blocks_to_optimistic compute_deltas failed: {:?}",
-                e
-            )
-        })?;
+        .map_err(|e| format!("optimistic reset settle compute_deltas failed: {:?}", e))?;
         self.proto_array
             .apply_score_changes::<E>(deltas)
             .map_err(|e| {
                 format!(
-                    "set_all_blocks_to_optimistic apply_score_changes failed: {:?}",
+                    "optimistic reset settle apply_score_changes failed: {:?}",
                     e
                 )
             })?;
@@ -1064,18 +1059,13 @@ impl ProtoArrayForkChoice {
             &self.balances.effective_balances,
             equivocating_indices,
         )
-        .map_err(|e| {
-            format!(
-                "set_all_blocks_to_optimistic compute_deltas failed: {:?}",
-                e
-            )
-        })?;
+        .map_err(|e| format!("optimistic reset replay compute_deltas failed: {:?}", e))?;
 
         self.proto_array
             .apply_score_changes::<E>(deltas)
             .map_err(|e| {
                 format!(
-                    "set_all_blocks_to_optimistic apply_score_changes failed: {:?}",
+                    "optimistic reset replay apply_score_changes failed: {:?}",
                     e
                 )
             })
