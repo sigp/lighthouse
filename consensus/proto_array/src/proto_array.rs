@@ -1489,9 +1489,10 @@ impl ProtoArray {
                         Ok(ExecutionVerdict::Valid)
                     }
                     ExecutionStatus::Invalid(_) => Ok(ExecutionVerdict::Invalid),
-                    ExecutionStatus::Optimistic(_) | ExecutionStatus::NotYetRevealed(_) => {
-                        Ok(ExecutionVerdict::Optimistic)
-                    }
+                    ExecutionStatus::Optimistic(_) => Ok(ExecutionVerdict::Optimistic),
+                    // No payload has been revealed for this node, so it has no verdict of its own.
+                    // Resolve the verdict of the payload its branch actually executed.
+                    ExecutionStatus::NotYetRevealed(_) => self.inherited_execution_status(root),
                 }
             }
             PayloadStatus::Empty | PayloadStatus::Pending => self.inherited_execution_status(root),
@@ -1538,9 +1539,13 @@ impl ProtoArray {
                 Ok(ExecutionVerdict::Valid)
             }
             ExecutionStatus::Invalid(_) => Ok(ExecutionVerdict::Invalid),
-            ExecutionStatus::Optimistic(_) | ExecutionStatus::NotYetRevealed(_) => {
-                Ok(ExecutionVerdict::Optimistic)
-            }
+            ExecutionStatus::Optimistic(_) => Ok(ExecutionVerdict::Optimistic),
+            // The walk only stops on a node whose payload its branch executed; an unrevealed
+            // payload was never executed, so reaching one is a bug, not an `Optimistic` verdict.
+            ExecutionStatus::NotYetRevealed(_) => Err(Error::Unexpected(format!(
+                "inherited execution walk reached an unrevealed payload: {:?}",
+                executed_node.root()
+            ))),
         }
     }
 
