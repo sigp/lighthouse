@@ -182,11 +182,12 @@ impl InvalidPayloadRig {
     }
 
     fn validate_manually(&self, block_root: Hash256) {
+        let block_hash = self.block_hash(block_root);
         self.harness
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_valid_execution_payload(block_root)
+            .on_valid_execution_payload(block_hash)
             .unwrap();
     }
 
@@ -1564,6 +1565,51 @@ async fn weights_after_resetting_optimistic_status() {
     for _ in 0..E::slots_per_epoch() * 4 {
         rig.import_block(Payload::Valid).await;
     }
+}
+
+/// A VALID forkchoiceUpdated for a head on `(X, EMPTY)` vouches for the head hash, which is the
+/// parent's payload. X's own payload stays unrevealed until its envelope is judged.
+#[tokio::test]
+async fn gloas_fcu_valid_on_empty_head_leaves_its_payload_unrevealed() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new();
+    rig.import_block(Payload::Valid).await;
+    rig.import_block(Payload::Valid).await;
+
+    let head = rig.harness.chain.head_snapshot();
+    let slot = head.beacon_state.slot() + 1;
+    let ((block, blobs), _envelope, _) = rig
+        .harness
+        .make_block_with_envelope(head.beacon_state.clone(), slot)
+        .await;
+    let block_root = block.canonical_root();
+    rig.harness
+        .process_block(slot, block_root, (block, blobs))
+        .await
+        .unwrap();
+    rig.recompute_head().await;
+
+    let cached_head = rig.cached_head();
+    assert_eq!(cached_head.head_block_root(), block_root);
+    assert_eq!(
+        cached_head.head_payload_status(),
+        proto_array::PayloadStatus::Empty
+    );
+
+    rig.harness
+        .chain
+        .update_execution_engine_forkchoice(
+            slot,
+            cached_head.forkchoice_update_parameters(),
+            cached_head.head_payload_status(),
+            beacon_chain::OverrideForkchoiceUpdate::AlreadyApplied,
+        )
+        .await
+        .unwrap();
+
+    assert!(is_not_yet_revealed(rig.execution_status(block_root)));
 }
 
 fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
