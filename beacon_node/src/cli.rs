@@ -1301,6 +1301,16 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("lc_data_backfill")
+                .long("lc_data_backfill")
+                .alias("backfill-historic-lc-data")
+                .help("Backfill historical light client data after sync completes, for periods where \
+                    this node has BeaconState available. Off by default.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("validator-monitor-auto")
                 .long("validator-monitor-auto")
                 .action(ArgAction::SetTrue)

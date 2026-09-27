@@ -598,6 +598,10 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.genesis_backfill = true;
     }
 
+    if cli_args.get_flag("lc-data-backfill") {
+        client_config.chain.lc_data_backfill = true;
+    }
+
     let beacon_graffiti = if let Some(graffiti) = cli_args.get_one::<String>("graffiti") {
         GraffitiOrigin::UserSpecified(GraffitiString::from_str(graffiti)?.into())
     } else if cli_args.get_flag("private") {

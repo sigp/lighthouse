@@ -36,6 +36,7 @@ pub mod kzg_utils;
 pub mod light_client_finality_update_verification;
 pub mod light_client_optimistic_update_verification;
 mod light_client_server_cache;
+pub mod light_client_epoch_backfill;
 pub mod metrics;
 pub mod migrate;
 mod naive_aggregation_pool;
