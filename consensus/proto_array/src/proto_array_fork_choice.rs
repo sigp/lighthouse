@@ -227,60 +227,9 @@ impl ExecutionStatus {
     /// Returns `true` if the block:
     ///
     /// - Has execution enabled, AND
-    /// - Has a valid payload
-    ///
-    /// This function will return `false` for any block from a slot prior to the Bellatrix fork.
-    /// This means that some blocks that are perfectly valid will still receive a `false` response.
-    pub fn is_valid_and_post_bellatrix(&self) -> bool {
-        matches!(self, ExecutionStatus::Valid(_))
-    }
-
-    /// Returns `true` if the block:
-    ///
-    /// - Has execution enabled, AND
-    /// - Has a payload that has not yet been verified by an EL.
-    pub fn is_strictly_optimistic(&self) -> bool {
-        matches!(self, ExecutionStatus::Optimistic(_))
-    }
-
-    /// Returns `true` if the block:
-    ///
-    /// - Has execution enabled, AND
-    ///     - Has a payload that has not yet been verified by an EL, OR.
-    ///     - Has a payload that has been deemed invalid by an EL.
-    pub fn is_optimistic_or_invalid(&self) -> bool {
-        match self {
-            // An unrevealed payload has no EL verdict, so it is not fully verified.
-            ExecutionStatus::Optimistic(_)
-            | ExecutionStatus::Invalid(_)
-            | ExecutionStatus::NotYetRevealed(_) => true,
-            ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => false,
-        }
-    }
-
-    /// Returns `true` if the block:
-    ///
-    /// - Has execution enabled, AND
     /// - Has an invalid payload.
     pub fn is_invalid(&self) -> bool {
         matches!(self, ExecutionStatus::Invalid(_))
-    }
-
-    /// Returns `true` if the block:
-    ///
-    /// - Does not have execution enabled (before or after Bellatrix fork)
-    pub fn is_irrelevant(&self) -> bool {
-        matches!(self, ExecutionStatus::Irrelevant(_))
-    }
-
-    pub fn is_not_yet_revealed(&self) -> bool {
-        match self {
-            ExecutionStatus::NotYetRevealed(_) => true,
-            ExecutionStatus::Valid(_)
-            | ExecutionStatus::Invalid(_)
-            | ExecutionStatus::Optimistic(_)
-            | ExecutionStatus::Irrelevant(_) => false,
-        }
     }
 }
 
