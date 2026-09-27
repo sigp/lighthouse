@@ -1207,6 +1207,10 @@ async fn attesting_to_optimistic_head() {
     let mut rig = InvalidPayloadRig::new();
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
 
+    // In Gloas a block whose own payload is optimistic is still attestable on its EMPTY node, since
+    // that node inherits the parent's valid payload. Import a second optimistic block so the head's
+    // executed ancestry is the optimistic payload, making the head itself optimistic in both models.
+    rig.import_block(Payload::Syncing).await;
     let root = rig.import_block(Payload::Syncing).await;
 
     let head = rig.harness.chain.head_snapshot();
