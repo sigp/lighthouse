@@ -972,9 +972,9 @@ impl ProtoArray {
     /// `Pn` is a `FULL`-edge child of `Pn` (that is what makes `Pn` the deepest executed
     /// node), so only `Pn` needs returning.
     ///
-    /// The range always starts at the head; the latest-valid-ancestor rules only decide where
-    /// it ends (exclusive): at the vouched latest valid block, right after the head when only
-    /// the head itself was judged, or nowhere.
+    /// The latest-valid-ancestor rules pick one of three outcomes: the range from the head down to
+    /// the vouched latest valid block (exclusive), the head alone when only the head itself was
+    /// judged, or nothing.
     fn find_deepest_node_to_invalidate<E: EthSpec>(
         &self,
         op: &InvalidationOperation,
@@ -997,23 +997,29 @@ impl ProtoArray {
                         .is_finalized_checkpoint_or_descendant::<E>(root, best_finalized_checkpoint)
             });
 
-        // The range starts at the head; the rules only decide where it ends (exclusive).
-        let range_end = if let Some(root) = latest_valid_ancestor_root {
+        match latest_valid_ancestor_root {
             // The chain down to the latest valid block is condemned.
-            Some(*self.indices.get(&root).ok_or(Error::NodeUnknown(root))?)
-        } else if op.invalidate_block_root() {
+            Some(root) => {
+                let latest_valid_index =
+                    *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;
+                self.find_deepest_executed_node(head_index, latest_valid_index)
+            }
             // The head was judged directly but the latest valid hash is unusable (junk or
             // pre-finalization): condemn the head alone. Guessing at ancestors could reach the
             // justified checkpoint and shut the client down.
-            self.nodes
-                .get(head_index)
-                .ok_or(Error::InvalidNodeIndex(head_index))?
-                .parent()
-        } else {
+            None if op.invalidate_block_root() => Ok(Some(head_index)),
             // The head was never judged and the latest valid hash is unusable: condemn nothing.
-            return Ok(None);
-        };
+            None => Ok(None),
+        }
+    }
 
+    /// Walk from `head_index` up to `latest_valid_index` (exclusive) and return the deepest node
+    /// whose payload this branch executed, or `None` when the range is empty.
+    fn find_deepest_executed_node(
+        &self,
+        head_index: usize,
+        latest_valid_index: usize,
+    ) -> Result<Option<usize>, Error> {
         // Collect every node in the range, recording whether this branch executed its
         // payload. The head is executed by definition; every other node takes it from its
         // child's edge.
@@ -1021,7 +1027,7 @@ impl ProtoArray {
         let mut payload_executed = true;
         let mut index = head_index;
         loop {
-            if Some(index) == range_end {
+            if index == latest_valid_index {
                 break;
             }
             let node = self
