@@ -731,15 +731,15 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
-    /// Pre-Gloas only.
+    /// Mark the payload `block_hash` valid, as judged by a forkchoiceUpdated.
     ///
     /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
     pub fn on_valid_execution_payload(
         &mut self,
-        block_root: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_validation(block_root)
+            .process_execution_payload_validation(block_hash)
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 

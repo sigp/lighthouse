@@ -693,10 +693,10 @@ impl ProtoArrayForkChoice {
     /// See `ProtoArray::propagate_execution_payload_validation` for documentation.
     pub fn process_execution_payload_validation(
         &mut self,
-        block_root: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<(), String> {
         self.proto_array
-            .propagate_execution_payload_validation(block_root)
+            .propagate_execution_payload_validation(block_hash)
             .map_err(|e| format!("Failed to process valid payload: {:?}", e))
     }
 

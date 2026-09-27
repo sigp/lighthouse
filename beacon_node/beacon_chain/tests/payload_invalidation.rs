@@ -172,11 +172,12 @@ impl InvalidPayloadRig {
     }
 
     fn validate_manually(&self, block_root: Hash256) {
+        let block_hash = self.block_hash(block_root);
         self.harness
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_valid_execution_payload(block_root)
+            .on_valid_execution_payload(block_hash)
             .unwrap();
     }
 
