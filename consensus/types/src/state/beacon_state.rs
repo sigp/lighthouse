@@ -3551,6 +3551,12 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
         let ptc_window = self.ptc_window()?;
         let epoch = slot.epoch(E::slots_per_epoch());
+        if spec
+            .gloas_fork_epoch
+            .is_none_or(|fork_epoch| epoch < fork_epoch)
+        {
+            return Err(BeaconStateError::SlotOutOfBounds);
+        }
         let state_epoch = self.current_epoch();
         let slots_per_epoch = E::slots_per_epoch() as usize;
         let slot_in_epoch = slot.as_usize().safe_rem(slots_per_epoch)?;

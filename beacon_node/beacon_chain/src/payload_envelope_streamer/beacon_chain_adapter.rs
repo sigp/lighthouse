@@ -37,6 +37,9 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
         &self,
         root: &Hash256,
     ) -> Result<bool, BeaconChainError> {
+        // Revisit after Lion's execution payload verdict changes merge: by-range responses must
+        // follow the current head's chain, using each child's parent payload status for ancestors.
+        // https://github.com/ethereum/consensus-specs/pull/5608
         self.chain
             .canonical_head
             .block_has_canonical_payload(root, &self.chain.spec)

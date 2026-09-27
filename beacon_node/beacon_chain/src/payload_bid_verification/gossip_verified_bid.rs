@@ -12,7 +12,7 @@ use crate::{
 };
 use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
-use proto_array::Block as ProtoBlock;
+use proto_array::{Block as ProtoBlock, PayloadBlockHash};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
     execution_payload_bid_signature_set, get_builder_pubkey_from_state,
@@ -216,24 +216,17 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
         .fork_name_at_slot::<T::EthSpec>(head_block.slot)
         .gloas_enabled();
 
-    let (head_bid_parent_block_hash, head_bid_block_hash) = if head_is_pre_gloas {
-        let parent_payload_hash = head_block
+    let builds_on_parent_block = Some(bid.parent_block_root) == head_block.parent_root;
+    let builds_on_parent_payload = if head_is_pre_gloas {
+        head_block
             .parent_root
             .and_then(|parent_root| fork_choice_read.get_block(&parent_root))
-            .and_then(|parent| parent.execution_status.block_hash());
-        (
-            parent_payload_hash,
-            head_block.execution_status.block_hash(),
-        )
+            .is_some_and(|parent| {
+                parent.block_hash() == PayloadBlockHash::Hash(bid.parent_block_hash)
+            })
     } else {
-        (
-            head_block.execution_payload_parent_hash,
-            head_block.execution_payload_block_hash,
-        )
+        head_block.execution_payload_parent_hash == Some(bid.parent_block_hash)
     };
-
-    let builds_on_parent_block = Some(bid.parent_block_root) == head_block.parent_root;
-    let builds_on_parent_payload = Some(bid.parent_block_hash) == head_bid_parent_block_hash;
 
     if builds_on_parent_block && builds_on_parent_payload {
         return Ok(true);
@@ -243,7 +236,8 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
         return Ok(false);
     }
 
-    let builds_on_head_payload = Some(bid.parent_block_hash) == head_bid_block_hash;
+    let builds_on_head_payload =
+        head_block.block_hash() == PayloadBlockHash::Hash(bid.parent_block_hash);
 
     if head_is_pre_gloas {
         return Ok(builds_on_head_payload);
@@ -432,8 +426,6 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
 
         // [REJECT] `bid.prev_randao` is the correct RANDAO mix -- i.e. validate that
         // `bid.prev_randao == get_randao_mix(parent_state, get_current_epoch(parent_state))`
-        // TODO: Enable head-parent RANDAO gossip spec coverage:
-        // https://github.com/ethereum/consensus-specs/pull/5645
         let expected_randao = if bid_parent_block_root == cached_head.head_block_root() {
             cached_head.head_random()?
         } else {
