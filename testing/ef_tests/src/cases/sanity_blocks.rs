@@ -1,3 +1,4 @@
+use super::common::{load_config, testing_spec_with_config};
 use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
@@ -21,6 +22,7 @@ pub struct Metadata {
 pub struct SanityBlocks<E: EthSpec> {
     pub case_name: String,
     pub metadata: Metadata,
+    pub config: Option<types::Config>,
     pub pre: BeaconState<E>,
     pub blocks: Vec<SignedBeaconBlock<E>>,
     pub post: Option<BeaconState<E>>,
@@ -28,7 +30,8 @@ pub struct SanityBlocks<E: EthSpec> {
 
 impl<E: EthSpec> LoadCase for SanityBlocks<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let config = load_config(path)?;
+        let spec = &testing_spec_with_config::<E>(fork_name, config.as_ref())?;
         let metadata: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), spec)?;
         let blocks = (0..metadata.blocks_count)
@@ -53,6 +56,7 @@ impl<E: EthSpec> LoadCase for SanityBlocks<E> {
         Ok(Self {
             case_name,
             metadata,
+            config,
             pre,
             blocks,
             post,
@@ -70,7 +74,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
 
         let mut bulk_state = self.pre.clone();
         let mut expected = self.post.clone();
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec_with_config::<E>(fork_name, self.config.as_ref())?;
 
         // Processing requires the epoch cache.
         bulk_state.build_caches(spec).unwrap();

@@ -36,7 +36,7 @@ use lighthouse_network::{Enr, PeerId, types::SyncState};
 use network::NetworkReceivers;
 use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
-use proto_array::{ExecutionStatus, core::ProtoNode};
+use proto_array::{ExecutionStatus, PayloadBlockHash, core::ProtoNode};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
@@ -3850,11 +3850,10 @@ impl ApiTester {
                     finalized_epoch: node.finalized_checkpoint().epoch,
                     weight: node.weight(),
                     validity: execution_status,
-                    execution_block_hash: node
-                        .execution_status()
-                        .ok()
-                        .and_then(|status| status.block_hash())
-                        .map(|block_hash| block_hash.into_root()),
+                    execution_block_hash: match node.block_hash() {
+                        PayloadBlockHash::Hash(block_hash) => Some(block_hash.into_root()),
+                        PayloadBlockHash::PreMerge => None,
+                    },
                     extra_data: ForkChoiceExtraData {
                         target_root: node.target_root(),
                         justified_root: node.justified_checkpoint().root,
