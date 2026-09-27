@@ -427,16 +427,17 @@ impl ForkChoiceTestDefinition {
                     head_block_root,
                     latest_valid_ancestor_root,
                 } => {
+                    // Operations name payloads. Test blocks commit to `from_root(root)`, as
+                    // `get_hash` spells it.
+                    let head_hash = ExecutionBlockHash::from_root(head_block_root);
                     let op = if let Some(latest_valid_ancestor) = latest_valid_ancestor_root {
                         InvalidationOperation::InvalidateMany {
-                            head_block_root,
+                            head_hash,
                             always_invalidate_head: true,
                             latest_valid_ancestor,
                         }
                     } else {
-                        InvalidationOperation::InvalidateOne {
-                            block_root: head_block_root,
-                        }
+                        InvalidationOperation::InvalidateOne { head_hash }
                     };
                     fork_choice
                         .process_execution_payload_invalidation::<MainnetEthSpec>(
