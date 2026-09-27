@@ -85,19 +85,19 @@ impl InvalidPayloadRig {
             .get_blinded_block(&block_root)
             .unwrap()
             .unwrap();
-        // Pre-Gloas the block contains the payload. In Gloas the block commits only to a bid, so
-        // fork choice holds the hash.
+        // Pre-Gloas the block contains the payload. In Gloas the block commits only to a bid,
+        // which carries the hash. Reading it from the block rather than from fork choice keeps
+        // this working for blocks fork choice has already pruned.
         if let Ok(payload) = block.message().body().execution_payload() {
             return payload.block_hash();
         }
-        self.harness
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_block(&block_root)
+        block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
             .unwrap()
-            .execution_payload_block_hash
-            .unwrap()
+            .message
+            .block_hash
     }
 
     fn execution_status(&self, block_root: Hash256) -> ExecutionStatus {
@@ -546,8 +546,10 @@ async fn immediate_forkchoice_update_payload_invalid_terminal_block() {
 /// Ensure the client tries to exit when the justified checkpoint is invalidated.
 #[tokio::test]
 async fn justified_checkpoint_becomes_invalid() {
-    // Pre-Gloas only. In Gloas the error arrives as `EnvelopeError(BeaconChainError(..))`,
-    // which the error predicate of this test does not match.
+    // Pre-Gloas only. In Gloas the justified block's payload being invalid does not make the
+    // checkpoint invalid, but the node shuts down anyway, so the error arrives wrapped as
+    // `EnvelopeError(BeaconChainError(JustifiedPayloadInvalid))`. Re-enable once an invalid
+    // payload stops being treated as an invalid block.
     if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
@@ -592,7 +594,10 @@ async fn justified_checkpoint_becomes_invalid() {
 /// Ensure that a `latest_valid_hash` for a pre-finality block only reverts a single block.
 #[tokio::test]
 async fn pre_finalized_latest_valid_hash() {
-    // Pre-Gloas only. The block is absent from fork choice in Gloas. Not yet diagnosed.
+    // Pre-Gloas only. Under Gloas the invalidation reaches the justified block, and
+    // `BeaconChain::process_invalid_execution_payload` reads its raw block status, so the node
+    // declares the justified checkpoint invalid and shuts down. Re-enable once an invalid payload
+    // stops being treated as an invalid block.
     if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
@@ -696,7 +701,8 @@ async fn latest_valid_hash_will_not_validate() {
 /// Check behaviour when the `latest_valid_hash` is a junk value.
 #[tokio::test]
 async fn latest_valid_hash_is_junk() {
-    // Pre-Gloas only. Head selection gives a different root in Gloas. Not yet diagnosed.
+    // Pre-Gloas only, for the same reason as `pre_finalized_latest_valid_hash`: the junk hash
+    // invalidates through the justified block and the node shuts down.
     if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
@@ -843,9 +849,7 @@ async fn invalidates_all_descendants() {
 /// Check that the head will switch after the canonical branch is invalidated.
 #[tokio::test]
 async fn switches_heads() {
-    // Pre-Gloas only. This test builds its fork block with `make_block`, so no envelope is
-    // imported and the block has no `FULL` node.
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
         return;
     }
     let num_blocks = E::slots_per_epoch() * 4 + E::slots_per_epoch() / 2;
@@ -944,9 +948,7 @@ async fn switches_heads() {
 
 #[tokio::test]
 async fn invalid_during_processing() {
-    // Pre-Gloas only. In Gloas the block is valid when only its payload is rejected, so the
-    // block stays in the database.
-    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
         return;
     }
     let mut rig = InvalidPayloadRig::new();
@@ -968,11 +970,14 @@ async fn invalid_during_processing() {
             .unwrap()
             .is_some()
     );
-    // 1 should *not* be present in the chain.
-    assert_eq!(
-        rig.harness.chain.get_blinded_block(&roots[1]).unwrap(),
-        None
-    );
+    // Pre-Gloas the rejected payload rejects the whole block, so 1 is absent. In Gloas only the
+    // payload was rejected; the block itself is valid on its `EMPTY` node and is kept.
+    let block_1 = rig.harness.chain.get_blinded_block(&roots[1]).unwrap();
+    if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        assert!(block_1.is_some());
+    } else {
+        assert_eq!(block_1, None);
+    }
     // 2 should be the head.
     let head_block_root = rig.harness.head_block_root();
     assert_eq!(head_block_root, roots[2]);
@@ -1126,8 +1131,9 @@ async fn payload_preparation() {
 
 #[tokio::test]
 async fn invalid_parent() {
-    // Pre-Gloas only. In Gloas a rejected payload leaves the parent `Irrelevant`, not
-    // `Invalid`, and a child can build on the `EMPTY` node of the parent.
+    // Pre-Gloas only. In Gloas the parent is `Invalid` on its `FULL` node but still viable on
+    // `EMPTY`, yet `block_verification` reads the raw block status and rejects the child anyway.
+    // Re-enable once an invalid payload stops being treated as an invalid block.
     if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
