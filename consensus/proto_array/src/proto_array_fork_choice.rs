@@ -986,82 +986,99 @@ impl ProtoArrayForkChoice {
     /// status to be optimistic.
     ///
     /// In practice this means forgetting any `VALID` or `INVALID` statuses.
-    pub fn set_all_blocks_to_optimistic<E: EthSpec>(&mut self) -> Result<(), String> {
-        // Iterate backwards through all nodes in the `proto_array`. Whilst it's not strictly
-        // required to do this process in reverse, it seems natural when we consider how LMD votes
-        // are counted.
-        //
-        // This function will touch all blocks, even those that do not descend from the finalized
-        // block. Since this function is expected to run at start-up during very rare
-        // circumstances we prefer simplicity over efficiency.
-        for node_index in (0..self.proto_array.nodes.len()).rev() {
-            let node = self
-                .proto_array
-                .nodes
-                .get_mut(node_index)
-                .ok_or("unreachable index out of bounds in proto_array nodes")?;
+    pub fn set_all_blocks_to_optimistic<E: EthSpec>(
+        &mut self,
+        equivocating_indices: &BTreeSet<u64>,
+    ) -> Result<(), String> {
+        let node_slots = self
+            .proto_array
+            .nodes
+            .iter()
+            .map(|node| node.slot())
+            .collect::<Vec<_>>();
 
-            match node.execution_status() {
-                Ok(ExecutionStatus::Invalid(block_hash)) => {
-                    if let ProtoNode::V17(node) = node {
-                        node.execution_status = ExecutionStatus::Optimistic(block_hash);
+        // Settle pending vote moves and slashings through an ordinary production round first: a
+        // slashing persisted but not yet processed must credit the equivocation score against
+        // the old weights, exactly as the next `find_head` would have.
+        let deltas = compute_deltas(
+            &self.proto_array.indices,
+            &node_slots,
+            &mut self.votes,
+            &self.balances.effective_balances,
+            &self.balances.effective_balances,
+            equivocating_indices,
+        )
+        .map_err(|e| {
+            format!(
+                "set_all_blocks_to_optimistic compute_deltas failed: {:?}",
+                e
+            )
+        })?;
+        self.proto_array
+            .apply_score_changes::<E>(deltas)
+            .map_err(|e| {
+                format!(
+                    "set_all_blocks_to_optimistic apply_score_changes failed: {:?}",
+                    e
+                )
+            })?;
+
+        // Clear every `VALID`/`INVALID` verdict. `Irrelevant` has no verdict to reset, and Gloas
+        // nodes track no execution status yet. This must happen before the replay below:
+        // `apply_score_changes` discards deltas aimed at invalid nodes.
+        for node in self.proto_array.nodes.iter_mut() {
+            match node {
+                ProtoNode::V17(node) => match node.execution_status {
+                    ExecutionStatus::Valid(hash)
+                    | ExecutionStatus::Invalid(hash)
+                    | ExecutionStatus::Optimistic(hash) => {
+                        node.execution_status = ExecutionStatus::Optimistic(hash);
                     }
-
-                    // Restore the weight of the node, it would have been set to `0` in
-                    // `apply_score_changes` when it was invalidated.
-                    let restored_weight: u64 = self
-                        .votes
-                        .0
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(validator_index, vote)| {
-                            if vote.current_root == node.root() {
-                                // Any voting validator that does not have a balance should be
-                                // ignored. This is consistent with `compute_deltas`.
-                                self.balances.effective_balances.get(validator_index)
-                            } else {
-                                None
-                            }
-                        })
-                        .sum();
-
-                    // Add the restored weight to the node and all ancestors.
-                    if restored_weight > 0 {
-                        let mut node_or_ancestor = node;
-                        loop {
-                            *node_or_ancestor.weight_mut() = node_or_ancestor
-                                .weight()
-                                .checked_add(restored_weight)
-                                .ok_or("Overflow when adding weight to ancestor")?;
-
-                            if let Some(parent_index) = node_or_ancestor.parent() {
-                                node_or_ancestor = self
-                                    .proto_array
-                                    .nodes
-                                    .get_mut(parent_index)
-                                    .ok_or(format!("Missing parent index: {}", parent_index))?;
-                            } else {
-                                // This is either the finalized block or a block that does not
-                                // descend from the finalized block.
-                                break;
-                            }
-                        }
-                    }
-                }
-                // There are no balance changes required if the node was either valid or
-                // optimistic.
-                Ok(ExecutionStatus::Valid(block_hash))
-                | Ok(ExecutionStatus::Optimistic(block_hash)) => {
-                    if let ProtoNode::V17(node) = node {
-                        node.execution_status = ExecutionStatus::Optimistic(block_hash)
-                    }
-                }
-                // An irrelevant node cannot become optimistic, this is a no-op.
-                Ok(ExecutionStatus::Irrelevant(_)) | Err(_) => (),
+                    ExecutionStatus::Irrelevant(_) => (),
+                },
+                ProtoNode::V29(_) => (),
             }
         }
 
-        Ok(())
+        // Reset every weight before rebuilding.
+        for node in self.proto_array.nodes.iter_mut() {
+            *node.weight_mut() = 0;
+            match node {
+                ProtoNode::V29(node) => {
+                    node.full_payload_weight = 0;
+                    node.empty_payload_weight = 0;
+                }
+                ProtoNode::V17(_) => (),
+            }
+        }
+
+        // Replay every settled vote through the production accounting: against a zero-balance
+        // past, `compute_deltas` emits each validator's full balance as a delta, and
+        // `apply_score_changes` rebuilds the weights, the payload buckets and the
+        // back-propagation exactly as `find_head` does.
+        let deltas = compute_deltas(
+            &self.proto_array.indices,
+            &node_slots,
+            &mut self.votes,
+            &[],
+            &self.balances.effective_balances,
+            equivocating_indices,
+        )
+        .map_err(|e| {
+            format!(
+                "set_all_blocks_to_optimistic compute_deltas failed: {:?}",
+                e
+            )
+        })?;
+
+        self.proto_array
+            .apply_score_changes::<E>(deltas)
+            .map_err(|e| {
+                format!(
+                    "set_all_blocks_to_optimistic apply_score_changes failed: {:?}",
+                    e
+                )
+            })
     }
 
     pub fn maybe_prune(&mut self, finalized_root: Hash256) -> Result<(), String> {

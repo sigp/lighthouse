@@ -16,7 +16,7 @@ use execution_layer::{
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus, ExecutionVerdict};
 use slot_clock::SlotClock;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::ShutdownReason;
@@ -1412,7 +1412,7 @@ async fn weights_after_resetting_optimistic_status() {
         .canonical_head
         .fork_choice_write_lock()
         .proto_array_mut()
-        .set_all_blocks_to_optimistic::<E>()
+        .set_all_blocks_to_optimistic::<E>(&BTreeSet::new())
         .unwrap();
 
     let new_weights = rig
