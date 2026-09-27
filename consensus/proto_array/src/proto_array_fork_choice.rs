@@ -1048,14 +1048,17 @@ impl ProtoArrayForkChoice {
             match parent {
                 ProtoNode::V29(parent) => {
                     let bucket = match edge {
-                        ParentPayloadStatus::Full => &mut parent.full_payload_weight,
-                        ParentPayloadStatus::Empty | ParentPayloadStatus::PreGloas => {
-                            &mut parent.empty_payload_weight
-                        }
+                        ParentPayloadStatus::Full => Some(&mut parent.full_payload_weight),
+                        ParentPayloadStatus::Empty => Some(&mut parent.empty_payload_weight),
+                        // `apply_score_changes` routes a pre-Gloas edge to no bucket; the rebuild
+                        // must match it.
+                        ParentPayloadStatus::PreGloas => None,
                     };
-                    *bucket = bucket
-                        .checked_add(weight)
-                        .ok_or("Overflow when adding child weight to a payload bucket")?;
+                    if let Some(bucket) = bucket {
+                        *bucket = bucket
+                            .checked_add(weight)
+                            .ok_or("Overflow when adding child weight to a payload bucket")?;
+                    }
                 }
                 ProtoNode::V17(_) => (),
             }
