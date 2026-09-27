@@ -2,7 +2,8 @@ use crate::{
     JustifiedBalances,
     error::Error,
     proto_array::{
-        InvalidationOperation, Iter, NodeDelta, ProtoArray, ProtoNode, calculate_committee_fraction,
+        InvalidationOperation, Iter, NodeDelta, ParentPayloadStatus, ProtoArray, ProtoNode,
+        calculate_committee_fraction,
     },
     ssz_container::SszContainer,
 };
@@ -202,6 +203,13 @@ impl ForkChoiceNode {
     }
 }
 
+/// The execution block a beacon block commits to. Says nothing about its validity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PayloadBlockHash {
+    PreMerge,
+    Hash(ExecutionBlockHash),
+}
+
 impl ExecutionStatus {
     pub fn is_execution_enabled(&self) -> bool {
         !matches!(self, ExecutionStatus::Irrelevant(_))
@@ -209,15 +217,6 @@ impl ExecutionStatus {
 
     pub fn irrelevant() -> Self {
         ExecutionStatus::Irrelevant(false)
-    }
-
-    pub fn block_hash(&self) -> Option<ExecutionBlockHash> {
-        match self {
-            ExecutionStatus::Valid(hash)
-            | ExecutionStatus::Invalid(hash)
-            | ExecutionStatus::Optimistic(hash) => Some(*hash),
-            ExecutionStatus::Irrelevant(_) => None,
-        }
     }
 
     /// Returns `true` if the block:
@@ -344,8 +343,7 @@ pub struct Block {
     pub next_epoch_shuffling_id: AttestationShufflingId,
     pub justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
-    /// Indicates if an execution node has marked this block as valid. Also contains the execution
-    /// block hash.
+    /// Indicates if an execution node has marked this block as valid.
     pub execution_status: ExecutionStatus,
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
@@ -359,22 +357,46 @@ pub struct Block {
 }
 
 impl Block {
-    /// Spec: `head_block_hash` for `notify_forkchoice_updated`. Pre-Gloas the payload is embedded.
-    pub fn head_payload_block_hash(
-        &self,
-        payload_status: PayloadStatus,
-    ) -> Option<ExecutionBlockHash> {
-        self.execution_status.block_hash().or(match payload_status {
-            PayloadStatus::Full => self.execution_payload_block_hash,
-            PayloadStatus::Pending | PayloadStatus::Empty => self.execution_payload_parent_hash,
-        })
+    /// The execution block this block commits to.
+    pub fn block_hash(&self) -> PayloadBlockHash {
+        // Post-Gloas the bid commits the hash; pre-Gloas the embedded payload carries it.
+        if let Some(hash) = self.execution_payload_block_hash {
+            PayloadBlockHash::Hash(hash)
+        } else {
+            match self.execution_status {
+                ExecutionStatus::Valid(hash)
+                | ExecutionStatus::Invalid(hash)
+                | ExecutionStatus::Optimistic(hash) => PayloadBlockHash::Hash(hash),
+                ExecutionStatus::Irrelevant(_) => PayloadBlockHash::PreMerge,
+            }
+        }
     }
 
-    /// Spec: `finalized_block_hash` and `get_safe_execution_block_hash`, the bid's parent payload.
-    pub fn checkpoint_payload_block_hash(&self) -> Option<ExecutionBlockHash> {
-        self.execution_status
-            .block_hash()
-            .or(self.execution_payload_parent_hash)
+    /// The `head_block_hash` argument for `notify_forkchoice_updated`.
+    pub fn head_payload_block_hash(&self, payload_status: PayloadStatus) -> PayloadBlockHash {
+        if let (Some(block_hash), Some(parent_hash)) = (
+            self.execution_payload_block_hash,
+            self.execution_payload_parent_hash,
+        ) {
+            // Post-Gloas the bid commits both hashes, and the elected node says which one ran.
+            PayloadBlockHash::Hash(match payload_status {
+                PayloadStatus::Full => block_hash,
+                PayloadStatus::Pending | PayloadStatus::Empty => parent_hash,
+            })
+        } else {
+            // Pre-Gloas the payload is embedded, so it ran whatever the payload status.
+            self.block_hash()
+        }
+    }
+
+    /// Spec: `finalized_block_hash` and `get_safe_execution_block_hash`. Post-Gloas that is
+    /// the bid's parent payload, not this block's own.
+    pub fn checkpoint_payload_block_hash(&self) -> PayloadBlockHash {
+        if let Some(parent_hash) = self.execution_payload_parent_hash {
+            PayloadBlockHash::Hash(parent_hash)
+        } else {
+            self.block_hash()
+        }
     }
 
     /// Compute the proposer shuffling decision root of a child block in `child_block_epoch`.
@@ -1170,7 +1192,11 @@ impl ProtoArrayForkChoice {
         let fc_node = IndexedForkChoiceNode {
             root: proto_node.root(),
             proto_node_index: *block_index,
-            payload_status: proto_node.get_parent_payload_status(),
+            payload_status: match proto_node.get_parent_payload_status() {
+                ParentPayloadStatus::Full => PayloadStatus::Full,
+                // A pre-Gloas parent has a single virtual node, conventionally `EMPTY`.
+                ParentPayloadStatus::Empty | ParentPayloadStatus::PreGloas => PayloadStatus::Empty,
+            },
         };
         self.proto_array
             .should_extend_payload::<E>(&fc_node, proto_node, current_slot, proposer_boost_root)
