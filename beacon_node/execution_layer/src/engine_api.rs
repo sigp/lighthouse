@@ -766,6 +766,7 @@ impl EngineCapabilities {
     pub fn to_response(&self) -> Vec<&str> {
         match self {
             Self::JsonRpc(capabilities) => capabilities.to_response(),
+            // SSZ uses the structured /engine/v1/capabilities schema, not a method-name list.
             Self::Ssz(_capabilities) => vec![],
         }
     }
