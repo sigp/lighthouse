@@ -1133,9 +1133,8 @@ async fn payload_preparation() {
 
 #[tokio::test]
 async fn invalid_parent() {
-    // Pre-Gloas only. In Gloas the parent is `Invalid` on its `FULL` node but still viable on
-    // `EMPTY`, yet `block_verification` reads the raw block status and rejects the child anyway.
-    // Re-enable once an invalid payload stops being treated as an invalid block.
+    // Pre-Gloas only. In Gloas neither gossip nor fork choice checks the parent payload, and
+    // `gloas_invalid_payload_rejects_only_full_children` covers import.
     if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
@@ -1713,6 +1712,65 @@ async fn gloas_fcu_invalid_on_empty_head_condemns_the_parent_payload() {
 
     assert!(rig.execution_status(parent_root).is_invalid());
     assert!(rig.execution_status(block_root).is_invalid());
+}
+
+/// An invalid payload condemns the children built on it. A child of `(X, EMPTY)` builds on the
+/// payload X's bid extends, so it still imports.
+#[tokio::test]
+async fn gloas_invalid_payload_rejects_only_full_children() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new();
+    rig.import_block(Payload::Valid).await;
+    let block_root = rig.import_block(Payload::Syncing).await;
+    rig.invalidate_manually(block_root).await;
+    assert!(rig.execution_status(block_root).is_invalid());
+
+    let block = rig.harness.get_block(block_root.into()).unwrap();
+    let block_post_state = rig
+        .harness
+        .get_hot_state(block.state_root().into())
+        .unwrap();
+    let child_slot = block.slot() + 1;
+
+    let ((full_child, full_child_blobs), _, _) = rig
+        .harness
+        .make_block_with_envelope_on(
+            block_post_state.clone(),
+            child_slot,
+            proto_array::PayloadStatus::Full,
+        )
+        .await;
+    let result = rig
+        .harness
+        .process_block(
+            child_slot,
+            full_child.canonical_root(),
+            (full_child, full_child_blobs),
+        )
+        .await;
+    let Err(BlockError::ParentExecutionPayloadInvalid { parent_root }) = result else {
+        panic!("a child on the FULL node builds on the invalid payload: {result:?}");
+    };
+    assert_eq!(parent_root, block_root);
+
+    let ((empty_child, empty_child_blobs), _, _) = rig
+        .harness
+        .make_block_with_envelope_on(
+            block_post_state,
+            child_slot,
+            proto_array::PayloadStatus::Empty,
+        )
+        .await;
+    rig.harness
+        .process_block(
+            child_slot,
+            empty_child.canonical_root(),
+            (empty_child, empty_child_blobs),
+        )
+        .await
+        .expect("a child on the EMPTY node builds on a valid payload");
 }
 
 fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
