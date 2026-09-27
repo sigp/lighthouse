@@ -919,7 +919,13 @@ impl ProtoArray {
     ) -> Result<(), Error> {
         // Find `Pn`, the deepest node to invalidate, from every block that commits to the head
         // payload.
-        for head_index in self.execution_block_hash_to_node_indices(&op.head_hash()) {
+        let head_indices = self.execution_block_hash_to_node_indices(&op.head_hash());
+        // The head payload must be tracked, as the old `NodeUnknown` guard required. Only
+        // `notify_new_payload` (invalidate_head == false) may name a pre-merge parent with no node.
+        if head_indices.is_empty() && op.invalidate_head() {
+            return Err(Error::PayloadHashUnknown(op.head_hash()));
+        }
+        for head_index in head_indices {
             if let Some(deepest_executed_index) = self.find_deepest_node_to_invalidate::<E>(
                 head_index,
                 op,
