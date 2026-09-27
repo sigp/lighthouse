@@ -57,7 +57,6 @@ use store::{
 };
 use tempfile::{TempDir, tempdir};
 use tracing::info;
-use types::ExecutionBlockHash;
 use types::test_utils::test_arbitrary_instance;
 use types::*;
 

@@ -433,8 +433,7 @@ where
 
         let (execution_status, execution_payload_parent_hash, execution_payload_block_hash) =
             if let Ok(signed_bid) = anchor_block.message().body().signed_execution_payload_bid() {
-                // Gloas: execution status is irrelevant post-Gloas; payload validation
-                // is decoupled from beacon blocks.
+                // Gloas: `on_block` ignores this and starts a V29 node as `NotYetRevealed`.
                 (
                     ExecutionStatus::irrelevant(),
                     Some(signed_bid.message.parent_block_hash),
@@ -719,9 +718,8 @@ where
         }
     }
 
-    /// Mark a Gloas payload envelope as valid and received.
-    ///
-    /// This must only be called for valid Gloas payloads.
+    /// Record the execution layer's verdict for a Gloas payload envelope, and mark the envelope
+    /// as received.
     pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
@@ -743,7 +741,8 @@ where
             }
         };
 
-        // `on_payload_envelope_received` promotes the ancestry itself. It starts at the parent.
+        // `on_payload_envelope_received` promotes the ancestry itself, starting at this node's
+        // own `FULL` side.
         self.proto_array
             .on_payload_envelope_received(block_root, execution_status)
             .map_err(Error::FailedToProcessValidExecutionPayload)?;
@@ -763,8 +762,6 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
-    /// Pre-Gloas only.
-    ///
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,

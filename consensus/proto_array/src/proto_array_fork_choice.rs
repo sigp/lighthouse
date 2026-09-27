@@ -647,9 +647,8 @@ impl ProtoArrayForkChoice {
         })
     }
 
-    /// Mark a Gloas payload envelope as valid and received.
-    ///
-    /// This must only be called for valid Gloas payloads.
+    /// Record the execution layer's verdict for a Gloas payload envelope, and mark the envelope
+    /// as received.
     pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
@@ -952,6 +951,10 @@ impl ProtoArrayForkChoice {
             .any(|node| node.execution_status().is_invalid())
     }
 
+    /// For all nodes, regardless of their relationship to the finalized block, set their execution
+    /// status to be optimistic.
+    ///
+    /// In practice this means forgetting any `VALID` or `INVALID` statuses.
     pub fn set_all_blocks_to_optimistic<E: EthSpec>(&mut self) -> Result<(), String> {
         // Clear every `VALID`/`INVALID` verdict. `Irrelevant` and `NotYetRevealed` have no verdict
         // to reset.

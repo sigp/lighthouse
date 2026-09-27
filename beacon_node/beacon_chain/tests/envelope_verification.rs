@@ -657,13 +657,12 @@ async fn import_block_and_envelope(
         .await
         .expect("envelope import should succeed even when the execution layer is syncing");
 
-    assert!(
-        matches!(
-            status,
-            beacon_chain::AvailabilityProcessingStatus::Imported(..)
-        ),
-        "envelope for slot {slot} should import, got {status:?}",
-    );
+    match status {
+        beacon_chain::AvailabilityProcessingStatus::Imported(..) => {}
+        beacon_chain::AvailabilityProcessingStatus::MissingComponents(..) => {
+            panic!("envelope for slot {slot} should import, got {status:?}")
+        }
+    }
 
     // The next block builds on the payload status of the head. If the head does not catch up
     // here, every block extends the `EMPTY` variant of its parent.
@@ -687,8 +686,7 @@ fn execution_status(
 }
 
 /// An execution layer that answers `SYNCING` must not stop the import of an envelope. The
-/// node holds the payload as `Optimistic`. It does not refuse the payload with
-/// `OptimisticSyncNotSupported`.
+/// node holds the payload as `Optimistic` rather than refusing it.
 #[tokio::test]
 async fn syncing_execution_layer_imports_payload_optimistically() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {

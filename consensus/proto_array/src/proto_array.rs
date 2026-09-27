@@ -115,8 +115,8 @@ pub struct ProtoNode {
     #[superstruct(only(V17), partial_getter(copy))]
     #[ssz(with = "four_byte_option_usize")]
     pub best_descendant: Option<usize>,
-    /// Validity of the payload that this block reveals, and its execution block hash. The status
-    /// is `Irrelevant` until a Gloas envelope reveals the payload.
+    /// Validity of the payload that this block reveals, and its execution block hash. On a Gloas
+    /// node the status is `NotYetRevealed` until an envelope reveals the payload.
     ///
     /// This is the status of one payload, not of the block. A head on `(root, EMPTY)` ran the
     /// payload of an ancestor. Use `ProtoArrayForkChoice::get_node_execution_status` when the
@@ -685,14 +685,13 @@ impl ProtoArray {
         };
 
         // If the parent has an invalid execution status, return an error before adding the
-        // block to `self`. This applies only when the parent is a V17 node with execution tracking.
+        // block to `self`. This check applies only to V17 (pre-Gloas) parents.
         if let Some(parent_index) = node.parent() {
             let parent = self
                 .nodes
                 .get(parent_index)
                 .ok_or(Error::InvalidNodeIndex(parent_index))?;
 
-            // Execution status tracking only exists on V17 (pre-Gloas) nodes.
             if let Ok(v17) = parent.as_v17()
                 && v17.execution_status.is_invalid()
             {
@@ -822,9 +821,9 @@ impl ProtoArray {
         Ok(!has_equivocation)
     }
 
-    /// Process a valid execution payload envelope for a Gloas block.
+    /// Record the execution layer's verdict for a Gloas block's payload envelope.
     ///
-    /// Sets `payload_received` to true.
+    /// Sets `payload_received` to true whatever the verdict.
     pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
@@ -1179,7 +1178,7 @@ impl ProtoArray {
 
         // Since there are no valid descendants of a justified block with an invalid execution
         // payload, there would be no head to choose from.
-        // Execution status tracking only exists on V17 (pre-Gloas) nodes.
+        // Only V17 (pre-Gloas) justified nodes are checked here.
         if let Ok(v17) = justified_node.as_v17()
             && v17.execution_status.is_invalid()
         {

@@ -345,7 +345,7 @@ impl InvalidPayloadRig {
                     if is_gloas {
                         // In Gloas the block is still valid. Only its payload was rejected, so
                         // the block stays in fork choice on its `EMPTY` node. The payload is
-                        // `Irrelevant` when the envelope never reached fork choice. It is
+                        // `NotYetRevealed` when the envelope never reached fork choice. It is
                         // `Invalid` when invalidation ran. It is never valid.
                         assert!(
                             !is_valid_and_post_bellatrix(

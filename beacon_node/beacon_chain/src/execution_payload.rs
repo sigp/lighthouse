@@ -169,9 +169,8 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 // `latest_valid_hash` is `Some` and non-zero.
                 //
                 // A `None` latest valid hash indicates that the EE was unable
-                // to determine the most recent valid ancestor. Since `block`
-                // has not yet been applied to fork choice, there's nothing to
-                // invalidate.
+                // to determine the most recent valid ancestor, so there is no
+                // ancestor to invalidate from.
                 //
                 // An all-zeros payload indicates that an EIP-3675 check has
                 // failed regarding the validity of the terminal block. Rather
