@@ -5,8 +5,9 @@ use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
 use crate::fetch_blobs::{
     FetchEngineBlobError, PartialHeaderOrBid, fetch_and_process_engine_blobs_inner,
 };
+use crate::observed_data_sidecars::ObservationKey;
 use crate::partial_data_column_assembler::PartialDataColumnAssembler;
-use crate::pending_payload_cache::PendingPayloadCache;
+use crate::pending_payload_cache::{Availability, PendingPayloadCache};
 use crate::test_utils::{
     EphemeralHarnessType, NumBlobs, generate_data_column_indices_rand_order,
     generate_rand_block_and_blobs, get_kzg,
@@ -22,8 +23,9 @@ use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use types::test_utils::test_unstructured;
 use types::{
-    BeaconBlock, BeaconBlockFulu, ChainSpec, EmptyBlock, EthSpec, ForkName, Hash256,
-    SignedBeaconBlock, SignedBeaconBlockFulu, SignedExecutionPayloadBid, Slot, Spec,
+    BeaconBlock, BeaconBlockFulu, ChainSpec, ColumnIndex, DataColumnSidecar, EmptyBlock, EthSpec,
+    ForkName, Hash256, SignedBeaconBlock, SignedBeaconBlockFulu, SignedExecutionPayloadBid, Slot,
+    Spec,
 };
 
 type E = Spec;
@@ -31,7 +33,7 @@ type T = EphemeralHarnessType<E>;
 
 mod get_blobs_v2 {
     use super::*;
-    use types::{ColumnIndex, PartialDataColumnHeader};
+    use types::PartialDataColumnHeader;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_no_blobs_in_block() {
@@ -264,25 +266,14 @@ mod get_blobs_v2 {
         let cache = supernode_pending_payload_cache(mock_adapter.spec());
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block_root, bid, blobs_and_proofs) = create_test_gloas_bid_and_blobs(2);
+        let slot = bid.slot();
 
         mock_adapter
             .expect_pending_payload_cache()
             .return_const(cache.clone());
         mock_get_blobs_v2_response(&mut mock_adapter, Some(blobs_and_proofs));
         mock_block_data_imported(&mut mock_adapter, vec![]);
-        mock_adapter
-            .expect_data_column_known_for_observation_key()
-            .returning(|_| None);
-        mock_adapter
-            .expect_cached_data_column_indexes()
-            .returning(|_, _| None);
-        mock_adapter
-            .expect_process_payload_envelope_availability()
-            .return_once(move |slot, _availability| {
-                Ok(AvailabilityProcessingStatus::MissingComponents(
-                    slot, block_root,
-                ))
-            });
+        mock_gloas_columns_import(&mut mock_adapter, block_root, slot);
 
         let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
@@ -298,20 +289,16 @@ mod get_blobs_v2 {
         assert_eq!(
             processing_status,
             Some(AvailabilityProcessingStatus::MissingComponents(
-                bid.slot(),
-                block_root
+                slot, block_root
             ))
         );
-        assert_eq!(
-            extract_published_blobs(publish_fn_args).len(),
-            custody_columns.len(),
-            "all custody columns should be published"
-        );
-        assert!(
-            custody_columns
-                .iter()
-                .all(|index| cache.is_column_complete(&block_root, *index)),
-            "the custody columns should be merged into the pending payload cache"
+
+        assert_gloas_custody_columns_imported(
+            publish_fn_args,
+            &cache,
+            block_root,
+            slot,
+            &custody_columns,
         );
     }
 
@@ -334,11 +321,81 @@ mod get_blobs_v2 {
     }
 }
 
+/// `PartialHeaderOrBid::try_from_block` picks the commitments source by fork: the execution payload
+/// bid (Gloas), the partial data column header (Deneb..=Fulu), or `None` for blocks that carry
+/// neither.
+mod try_from_block {
+    use super::*;
+
+    fn random_block(fork_name: ForkName, num_blobs: NumBlobs) -> SignedBeaconBlock<E> {
+        let mut u = test_unstructured();
+        let (block, _blobs) = generate_rand_block_and_blobs::<E>(fork_name, num_blobs, &mut u)
+            .expect("generate block");
+        block
+    }
+
+    #[test]
+    fn gloas_block_resolves_to_bid() {
+        let block = random_block(ForkName::Gloas, NumBlobs::Number(2));
+        let bid = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .expect("gloas block has a bid");
+
+        let header_or_bid = PartialHeaderOrBid::try_from_block(&block)
+            .expect("Gloas block carries a commitments source");
+
+        assert!(
+            matches!(header_or_bid, PartialHeaderOrBid::Bid(_)),
+            "Gloas block should resolve to the execution payload bid"
+        );
+        assert_eq!(header_or_bid.slot(), bid.slot());
+        assert_eq!(
+            header_or_bid.kzg_commitments().to_vec(),
+            bid.message().blob_kzg_commitments().to_vec()
+        );
+    }
+
+    #[test]
+    fn fulu_block_resolves_to_partial_header() {
+        let block = random_block(ForkName::Fulu, NumBlobs::Number(2));
+
+        let header_or_bid = PartialHeaderOrBid::try_from_block(&block)
+            .expect("Fulu block carries a commitments source");
+
+        assert!(
+            matches!(header_or_bid, PartialHeaderOrBid::PartialHeader(_)),
+            "Fulu block should resolve to the partial data column header"
+        );
+        assert_eq!(header_or_bid.slot(), block.slot());
+        assert_eq!(
+            header_or_bid.kzg_commitments().to_vec(),
+            block
+                .message()
+                .body()
+                .blob_kzg_commitments()
+                .expect("fulu block has commitments")
+                .to_vec()
+        );
+    }
+
+    #[test]
+    fn pre_deneb_block_resolves_to_none() {
+        // Base blocks carry neither a bid nor blob commitments.
+        let block = random_block(ForkName::Base, NumBlobs::None);
+        assert!(
+            PartialHeaderOrBid::try_from_block(&block).is_none(),
+            "pre-Deneb block has no commitments source"
+        );
+    }
+}
+
 mod get_blobs_v4 {
     use super::*;
     use execution_layer::json_structures::{BlobCellsAndProofsV1, GetBlobsV4List, JsonCell};
     use kzg::KzgProof;
-    use types::{Cell, ColumnIndex, PartialDataColumnHeader};
+    use types::{Cell, PartialDataColumnHeader};
 
     const CUSTODY_COLUMNS: [ColumnIndex; 3] = [0, 1, 2];
 
@@ -575,29 +632,18 @@ mod get_blobs_v4 {
         let cache = supernode_pending_payload_cache(mock_adapter.spec());
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block_root, bid, _blobs_and_proofs) = create_test_gloas_bid_and_blobs(2);
+        let slot = bid.slot();
 
         mock_adapter
             .expect_pending_payload_cache()
-            .return_const(cache);
+            .return_const(cache.clone());
 
         let response = make_v4_response(2, CUSTODY_COLUMNS.len(), |_, _| true);
         mock_adapter
             .expect_get_blobs_v4()
             .return_once(move |_, _| Ok(response));
         mock_block_data_imported(&mut mock_adapter, vec![]);
-        mock_adapter
-            .expect_data_column_known_for_observation_key()
-            .returning(|_| None);
-        mock_adapter
-            .expect_cached_data_column_indexes()
-            .returning(|_, _| None);
-        mock_adapter
-            .expect_process_payload_envelope_availability()
-            .return_once(move |slot, _availability| {
-                Ok(AvailabilityProcessingStatus::MissingComponents(
-                    slot, block_root,
-                ))
-            });
+        mock_gloas_columns_import(&mut mock_adapter, block_root, slot);
 
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
@@ -609,14 +655,18 @@ mod get_blobs_v4 {
         .await
         .expect("fetch blobs should succeed");
 
-        assert!(
-            processing_status.is_some(),
-            "the gloas path should return an availability status"
-        );
         assert_eq!(
-            extract_published_blobs(publish_fn_args).len(),
-            CUSTODY_COLUMNS.len(),
-            "all three custody columns should complete and be published"
+            processing_status,
+            Some(AvailabilityProcessingStatus::MissingComponents(
+                slot, block_root
+            ))
+        );
+        assert_gloas_custody_columns_imported(
+            publish_fn_args,
+            &cache,
+            block_root,
+            slot,
+            &CUSTODY_COLUMNS,
         );
     }
 
@@ -677,6 +727,75 @@ fn mock_block_data_imported(
     mock_adapter
         .expect_is_block_data_imported()
         .returning(move |block_root| block_roots.contains(&block_root));
+}
+
+/// Expectations for a Gloas fetch whose columns are all new: neither gossip nor the availability
+/// cache knows any of them, and the merged columns are handed to envelope availability processing.
+fn mock_gloas_columns_import(
+    mock_adapter: &mut MockFetchBlobsBeaconAdapter<T>,
+    block_root: Hash256,
+    slot: Slot,
+) {
+    // Gloas keys gossip observation by block root rather than by proposer.
+    let expected_key = ObservationKey::new_block_root_key(block_root, slot);
+    mock_adapter
+        .expect_data_column_known_for_observation_key()
+        .withf(move |key| *key == expected_key)
+        .times(1)
+        .returning(|_| None);
+    mock_adapter
+        .expect_cached_data_column_indexes()
+        .returning(|_, _| None);
+    // No envelope has been inserted, so the merge reports the block's components as missing.
+    mock_adapter
+        .expect_process_payload_envelope_availability()
+        .withf(move |availability_slot, availability| {
+            *availability_slot == slot
+                && matches!(
+                    availability,
+                    Availability::MissingComponents(root) if *root == block_root
+                )
+        })
+        .return_once(move |slot, _availability| {
+            Ok(AvailabilityProcessingStatus::MissingComponents(
+                slot, block_root,
+            ))
+        });
+}
+
+/// Assert that a Gloas fetch published each of `custody_columns` exactly once, as Gloas sidecars
+/// for `block_root` at `slot`, and merged them into the pending payload `cache`.
+fn assert_gloas_custody_columns_imported(
+    publish_fn_args: Arc<Mutex<Vec<Vec<KzgVerifiedCustodyDataColumn<E>>>>>,
+    cache: &PendingPayloadCache<T>,
+    block_root: Hash256,
+    slot: Slot,
+    custody_columns: &[ColumnIndex],
+) {
+    let published_columns = extract_published_blobs(publish_fn_args);
+    let mut published_indices = published_columns
+        .iter()
+        .map(|column| column.index())
+        .collect::<Vec<_>>();
+    published_indices.sort_unstable();
+    let mut expected_indices = custody_columns.to_vec();
+    expected_indices.sort_unstable();
+    assert_eq!(
+        published_indices, expected_indices,
+        "should publish exactly the custody columns, each once"
+    );
+    for column in &published_columns {
+        let sidecar = column.as_data_column();
+        assert!(matches!(sidecar, DataColumnSidecar::Gloas(_)));
+        assert_eq!(sidecar.slot(), slot);
+        assert_eq!(sidecar.block_root(), block_root);
+    }
+    assert!(
+        custody_columns
+            .iter()
+            .all(|index| cache.is_column_complete(&block_root, *index)),
+        "the custody columns should be merged into the pending payload cache"
+    );
 }
 
 fn create_test_block_and_blobs(

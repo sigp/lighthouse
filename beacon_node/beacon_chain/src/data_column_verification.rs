@@ -1920,13 +1920,15 @@ mod test {
         GossipVerifiedPartialDataColumnHeader, KzgVerifiedCustodyPartialDataColumnFulu,
         PartialColumnVerificationResult, load_gloas_payload_bid,
         validate_data_column_sidecar_for_gossip_fulu,
+        validate_data_column_sidecar_for_gossip_gloas,
         validate_partial_data_column_sidecar_for_gossip,
     };
     use crate::observed_data_sidecars::Observe;
     use crate::test_utils::{
         BeaconChainHarness, EphemeralHarnessType, NumBlobs, fork_name_from_env,
-        generate_data_column_sidecars_from_block, generate_rand_block_and_data_columns, test_spec,
+        generate_rand_block_and_data_columns, test_spec,
     };
+    use bls::Signature;
     use eth2::types::BlobsBundle;
     use execution_layer::test_utils::generate_blobs;
     use kzg::KzgProof;
@@ -1935,19 +1937,19 @@ mod test {
     use std::sync::Arc;
     use std::time::UNIX_EPOCH;
     use types::{
-        Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
-        ForkName, Hash256, PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas,
-        PartialDataColumnHeader, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas, Slot,
-        Spec, test_utils::test_unstructured,
+        BeaconBlock, BlockImportSource, Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu,
+        DataColumnSidecarGloas, DataColumnSubnetId, EthSpec, ForkName, Hash256, KzgCommitment,
+        PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnHeader,
+        PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas, SignedBeaconBlock, Slot, Spec,
+        test_utils::test_unstructured,
     };
 
     type E = Spec;
 
-    // TODO(gloas) make this generic over gloas/fulu
-    #[tokio::test]
-    async fn test_validate_data_column_sidecar_for_gossip_fulu() {
-        // Setting up harness is slow, we initialise once and use it for all gossip validation tests.
-        let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    /// Build a gossip-validation harness at `fork`'s genesis, advanced one slot. Harness setup is
+    /// slow, so each test builds one and reuses it across checks.
+    fn gossip_harness(fork: ForkName) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+        let spec = fork.make_genesis_spec(E::default_spec());
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.into())
             .deterministic_keypairs(64)
@@ -1955,40 +1957,67 @@ mod test {
             .mock_execution_layer()
             .build();
         harness.advance_slot();
+        harness
+    }
 
-        let verify_fn = |column_sidecar: DataColumnSidecar<E>| {
-            let col_index = *column_sidecar.index();
+    /// The commitments-length gossip checks (no commitments → `UnexpectedDataColumn`, over-max →
+    /// `MaxBlobsPerBlockExceeded`) are shared by both forks; only the commitments *source* differs
+    /// (Fulu reads them off the sidecar, Gloas off the bid). Each fork's test runs them against
+    /// both gossip entry points: the per-fork validator and the block-publishing constructor.
+    #[tokio::test]
+    async fn test_validate_data_column_sidecar_for_gossip_fulu() {
+        let harness = gossip_harness(ForkName::Fulu);
+
+        let verify_gossip = |column_sidecar: DataColumnSidecar<E>| {
+            let subnet =
+                DataColumnSubnetId::from_column_index(*column_sidecar.index(), &harness.spec);
             validate_data_column_sidecar_for_gossip_fulu::<_, Observe>(
                 Arc::new(column_sidecar),
-                DataColumnSubnetId::from_column_index(col_index, &harness.spec),
+                subnet,
                 &harness.chain,
             )
         };
-        empty_data_column_sidecars_fails_validation_fulu(&harness, &verify_fn).await;
-        data_column_sidecar_commitments_exceed_max_blobs_per_block(&harness, &verify_fn).await;
-    }
+        empty_commitments_fail_validation(&harness, &verify_gossip).await;
+        commitments_exceeding_max_fail_validation(&harness, &verify_gossip).await;
 
-    // TODO(gloas) make this generic over gloas/fulu
-    #[tokio::test]
-    async fn test_new_for_block_publishing_fulu() {
-        // Setting up harness is slow, we initialise once and use it for all gossip validation tests.
-        let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
-        let harness = BeaconChainHarness::builder(E::default())
-            .spec(spec.into())
-            .deterministic_keypairs(64)
-            .fresh_ephemeral_store()
-            .mock_execution_layer()
-            .build();
-        harness.advance_slot();
-
-        let verify_fn = |column_sidecar: DataColumnSidecar<E>| {
+        let verify_publishing = |column_sidecar: DataColumnSidecar<E>| {
             GossipVerifiedDataColumn::<_>::new_for_block_publishing(
                 column_sidecar.into(),
                 &harness.chain,
             )
         };
-        empty_data_column_sidecars_fails_validation_fulu(&harness, &verify_fn).await;
-        data_column_sidecar_commitments_exceed_max_blobs_per_block(&harness, &verify_fn).await;
+        empty_commitments_fail_validation(&harness, &verify_publishing).await;
+        commitments_exceeding_max_fail_validation(&harness, &verify_publishing).await;
+    }
+
+    /// See [`test_validate_data_column_sidecar_for_gossip_fulu`]. Gloas additionally requires the
+    /// column's block root to resolve to a known bid.
+    #[tokio::test]
+    async fn test_validate_data_column_sidecar_for_gossip_gloas() {
+        let harness = gossip_harness(ForkName::Gloas);
+
+        let verify_gossip = |column_sidecar: DataColumnSidecar<E>| {
+            let subnet =
+                DataColumnSubnetId::from_column_index(*column_sidecar.index(), &harness.spec);
+            validate_data_column_sidecar_for_gossip_gloas::<_, Observe>(
+                Arc::new(column_sidecar),
+                subnet,
+                &harness.chain,
+            )
+        };
+        empty_commitments_fail_validation(&harness, &verify_gossip).await;
+        commitments_exceeding_max_fail_validation(&harness, &verify_gossip).await;
+        gloas_column_with_unknown_block_root_is_rejected(&harness, &verify_gossip);
+
+        let verify_publishing = |column_sidecar: DataColumnSidecar<E>| {
+            GossipVerifiedDataColumn::<_>::new_for_block_publishing(
+                column_sidecar.into(),
+                &harness.chain,
+            )
+        };
+        empty_commitments_fail_validation(&harness, &verify_publishing).await;
+        commitments_exceeding_max_fail_validation(&harness, &verify_publishing).await;
+        gloas_column_with_unknown_block_root_is_rejected(&harness, &verify_publishing);
     }
 
     #[tokio::test]
@@ -2055,77 +2084,108 @@ mod test {
         );
     }
 
-    // TODO(gloas) make this generic over gloas/fulu
-    async fn empty_data_column_sidecars_fails_validation_fulu<D>(
+    /// A column for a block/bid carrying no commitments is rejected with `UnexpectedDataColumn`.
+    async fn empty_commitments_fail_validation<D>(
         harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
         verify_fn: &impl Fn(DataColumnSidecar<E>) -> Result<D, GossipDataColumnError>,
     ) {
-        let slot = harness.get_current_slot();
-        let state = harness.get_current_state();
-        let ((block, _blobs_opt), _state) = harness
-            .make_block_with_modifier(state, slot, |block| {
-                *block.body_mut().blob_kzg_commitments_mut().unwrap() = vec![].try_into().unwrap();
-            })
-            .await;
-
-        let index = 0;
-        let column_sidecar: DataColumnSidecar<E> = DataColumnSidecar::Fulu(DataColumnSidecarFulu {
-            index,
-            column: vec![].try_into().unwrap(),
-            kzg_commitments: vec![].try_into().unwrap(),
-            kzg_proofs: vec![].try_into().unwrap(),
-            signed_block_header: block.signed_block_header(),
-            kzg_commitments_inclusion_proof: block
-                .message()
-                .body()
-                .kzg_commitments_merkle_proof()
-                .unwrap(),
-        });
-
-        let result = verify_fn(column_sidecar);
-        assert!(matches!(
-            result.err(),
-            Some(GossipDataColumnError::UnexpectedDataColumn)
-        ));
+        let column_sidecar = column_sidecar_with_commitment_count(harness, 0).await;
+        let err = verify_fn(column_sidecar).err();
+        assert!(
+            matches!(err, Some(GossipDataColumnError::UnexpectedDataColumn)),
+            "expected UnexpectedDataColumn, got {err:?}"
+        );
     }
 
-    async fn data_column_sidecar_commitments_exceed_max_blobs_per_block<D>(
+    /// A column whose commitment count exceeds `max_blobs_per_block` is rejected with
+    /// `MaxBlobsPerBlockExceeded`.
+    async fn commitments_exceeding_max_fail_validation<D>(
         harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
         verify_fn: &impl Fn(DataColumnSidecar<E>) -> Result<D, GossipDataColumnError>,
     ) {
-        let slot = harness.get_current_slot();
-        let epoch = slot.epoch(E::slots_per_epoch());
-        let state = harness.get_current_state();
+        let epoch = harness.get_current_slot().epoch(E::slots_per_epoch());
         let max_blobs_per_block = harness.spec.max_blobs_per_block(epoch) as usize;
-        let fork = harness.spec.fork_name_at_epoch(epoch);
+        let column_sidecar =
+            column_sidecar_with_commitment_count(harness, max_blobs_per_block + 1).await;
+        let err = verify_fn(column_sidecar).err();
+        assert!(
+            matches!(
+                err,
+                Some(GossipDataColumnError::MaxBlobsPerBlockExceeded { .. })
+            ),
+            "expected MaxBlobsPerBlockExceeded, got {err:?}"
+        );
+    }
 
-        // Generate data column sidecar with blob count exceeding max_blobs_per_block.
-        let blob_count = max_blobs_per_block + 1;
-        let BlobsBundle::<E> {
-            commitments: preloaded_commitments_single,
-            proofs: _,
-            blobs: _,
-        } = generate_blobs(1, fork).unwrap().0;
+    /// A Gloas column whose block root has no known bid (pending payload cache, early-attester
+    /// cache, or store) is rejected with `BlockRootUnknown`: columns must not be accepted before
+    /// the block carrying the bid arrives. Fulu has no analogue, as it reads the commitments off
+    /// the sidecar itself.
+    fn gloas_column_with_unknown_block_root_is_rejected<D>(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+        verify_fn: &impl Fn(DataColumnSidecar<E>) -> Result<D, GossipDataColumnError>,
+    ) {
+        let column_sidecar = empty_gloas_sidecar(harness.get_current_slot(), Hash256::random());
+        let err = verify_fn(column_sidecar).err();
+        assert!(
+            matches!(err, Some(GossipDataColumnError::BlockRootUnknown { .. })),
+            "expected BlockRootUnknown, got {err:?}"
+        );
+    }
 
-        let ((block, _blobs_opt), _state) = harness
-            .make_block_with_modifier(state, slot, |block| {
-                *block.body_mut().blob_kzg_commitments_mut().unwrap() =
-                    vec![preloaded_commitments_single[0]; blob_count]
-                        .try_into()
-                        .unwrap();
+    /// Register the fork-appropriate commitments source for `num_commitments` blobs and return a
+    /// column sidecar (index 0) the validator will check against that count: Fulu carries the
+    /// commitments on the sidecar itself, next to the header and inclusion proof of a block
+    /// produced with the same commitments; Gloas registers a bid carrying them in the pending
+    /// payload cache. Either way the sidecar's own cells are left empty, as the commitments-length
+    /// checks run before the cells are inspected.
+    async fn column_sidecar_with_commitment_count(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+        num_commitments: usize,
+    ) -> DataColumnSidecar<E> {
+        let slot = harness.get_current_slot();
+        let fork = harness
+            .spec
+            .fork_name_at_epoch(slot.epoch(E::slots_per_epoch()));
+        let commitment = generate_blobs::<E>(1, fork).unwrap().0.commitments[0];
+        let commitments = vec![commitment; num_commitments];
+
+        if fork.gloas_enabled() {
+            let block_root = Hash256::random();
+            insert_gloas_bid(harness, block_root, slot, commitments);
+            empty_gloas_sidecar(slot, block_root)
+        } else {
+            let state = harness.get_current_state();
+            let ((block, _blobs_opt), _state) = harness
+                .make_block_with_modifier(state, slot, |block| {
+                    *block.body_mut().blob_kzg_commitments_mut().unwrap() =
+                        commitments.clone().try_into().unwrap();
+                })
+                .await;
+            DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+                index: 0,
+                column: vec![].try_into().unwrap(),
+                kzg_commitments: commitments.try_into().unwrap(),
+                kzg_proofs: vec![].try_into().unwrap(),
+                signed_block_header: block.signed_block_header(),
+                kzg_commitments_inclusion_proof: block
+                    .message()
+                    .body()
+                    .kzg_commitments_merkle_proof()
+                    .unwrap(),
             })
-            .await;
+        }
+    }
 
-        let column_sidecar = generate_data_column_sidecars_from_block(&block, &harness.spec)
-            .into_iter()
-            .next()
-            .unwrap();
-
-        let result = verify_fn(Arc::try_unwrap(column_sidecar).unwrap());
-        assert!(matches!(
-            result.err(),
-            Some(GossipDataColumnError::MaxBlobsPerBlockExceeded { .. })
-        ));
+    /// An empty Gloas column sidecar (index 0, no cells) for `block_root` at `slot`.
+    fn empty_gloas_sidecar(slot: Slot, block_root: Hash256) -> DataColumnSidecar<E> {
+        DataColumnSidecar::Gloas(DataColumnSidecarGloas {
+            index: 0,
+            column: ProgressiveVariableList::empty(),
+            kzg_proofs: ProgressiveVariableList::empty(),
+            slot,
+            beacon_block_root: block_root,
+        })
     }
 
     #[tokio::test]
@@ -2444,6 +2504,27 @@ mod test {
             },
         }
         .into()
+    }
+
+    /// Register a Gloas bid for `block_root` at `slot`, carrying `commitments`, in the chain's
+    /// pending payload cache. A bid only enters the cache with a component, here its block.
+    fn insert_gloas_bid(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+        block_root: Hash256,
+        slot: Slot,
+        commitments: Vec<KzgCommitment>,
+    ) {
+        let mut block = BeaconBlock::<E>::empty(&harness.spec);
+        let block_gloas = block.as_gloas_mut().expect("should be a Gloas block");
+        block_gloas.slot = slot;
+        let bid = &mut block_gloas.body.signed_execution_payload_bid.message;
+        bid.slot = slot;
+        bid.blob_kzg_commitments = ProgressiveVariableList::new(commitments).unwrap();
+        harness.chain.pending_payload_cache.insert_block(
+            block_root,
+            Arc::new(SignedBeaconBlock::from_block(block, Signature::empty())),
+            BlockImportSource::Gossip,
+        );
     }
 
     async fn gloas_partial_slot_mismatch_returns_error(
