@@ -23,17 +23,21 @@ use crate::{
     deposit::Deposit,
     execution::{
         AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
-        BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, Eth1Data, ExecutionPayload,
-        ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
-        ExecutionRequestsElectra, ExecutionRequestsGloas, FullPayload, FullPayloadBellatrix,
-        FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu,
-        SignedBlsToExecutionChange,
+        BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu,
+        EXECUTION_PAYLOAD_BID_ACTIVE_FIELDS, Eth1Data, ExecutionPayload, ExecutionPayloadBellatrix,
+        ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra,
+        ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequestsElectra,
+        ExecutionRequestsGloas, FullPayload, FullPayloadBellatrix, FullPayloadCapella,
+        FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu, SignedBlsToExecutionChange,
     },
     exit::SignedVoluntaryExit,
     fork::{ForkName, map_fork_name},
     kzg_ext::KzgCommitments,
-    light_client::consts::{EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_PROOF_LEN},
+    light_client::consts::{
+        EXECUTION_BLOCK_HASH_INDEX_GLOAS, EXECUTION_PAYLOAD_BID_PARENT_BLOCK_HASH_FIELD_INDEX,
+        EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_PROOF_LEN,
+        SIGNED_EXECUTION_PAYLOAD_BID_FIELD_INDEX,
+    },
     slashing::{
         AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas, AttesterSlashingRef,
         ProposerSlashing,
@@ -51,6 +55,11 @@ use crate::{
 pub const NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES: usize = 16;
 /// Index of the `blob_kzg_commitments` leaf in the `BeaconBlockBody` tree post-deneb.
 pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
+
+/// The `active_fields` of the progressive-container `BeaconBlockBody` variants (EIP-7688).
+///
+/// Must match the `active_fields` attribute on the struct.
+pub const BEACON_BLOCK_BODY_ACTIVE_FIELDS: [bool; 13] = [true; 13];
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
@@ -374,14 +383,43 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         Ok(FixedVector::new(proof)?)
     }
 
+    /// Produces the proof of inclusion for the execution block hash, for Gloas and later.
+    ///
+    /// [Modified in Gloas:EIP7732] the block commits to a payload bid rather than to a payload, so
+    /// the hash the light client can prove is the bid's `parent_block_hash`.
+    fn gloas_execution_block_hash_proof(&self) -> Result<Vec<Hash256>, BeaconStateError> {
+        let signed_bid = self.signed_execution_payload_bid()?;
+
+        let mut proof = merkle_proof::progressive_container_proof(
+            &signed_bid.message.field_roots(),
+            &EXECUTION_PAYLOAD_BID_ACTIVE_FIELDS,
+            EXECUTION_PAYLOAD_BID_PARENT_BLOCK_HASH_FIELD_INDEX,
+        )?;
+
+        proof.push(signed_bid.signature.tree_hash_root());
+
+        proof.extend(merkle_proof::progressive_container_proof(
+            &self.body_merkle_leaves(),
+            &BEACON_BLOCK_BODY_ACTIVE_FIELDS,
+            SIGNED_EXECUTION_PAYLOAD_BID_FIELD_INDEX,
+        )?);
+
+        Ok(proof)
+    }
+
     pub fn block_body_merkle_proof(
         &self,
         generalized_index: usize,
     ) -> Result<Vec<Hash256>, BeaconStateError> {
         // [Modified in Gloas:EIP7688] the body is a progressive container with different
-        // generalized indices, which are not implemented yet.
+        // generalized indices.
         if self.fork_name().gloas_enabled() {
-            return Err(BeaconStateError::ProgressiveMerkleProofNotSupported);
+            return match generalized_index {
+                EXECUTION_BLOCK_HASH_INDEX_GLOAS => self.gloas_execution_block_hash_proof(),
+                _ => Err(BeaconStateError::GeneralizedIndexNotSupported(
+                    generalized_index,
+                )),
+            };
         }
         let field_index = match generalized_index {
             EXECUTION_PAYLOAD_INDEX => {
@@ -1626,6 +1664,12 @@ mod tests {
             let expected = tree_hash::mix_in_active_fields(&container_root, active_fields);
 
             assert_eq!(body.tree_hash_root(), expected);
+
+            assert_eq!(field_roots.len(), BEACON_BLOCK_BODY_ACTIVE_FIELDS.len());
+            assert_eq!(
+                merkle_proof::pack_active_fields(&BEACON_BLOCK_BODY_ACTIVE_FIELDS).unwrap(),
+                Hash256::from(active_fields)
+            );
         }
     }
 }
