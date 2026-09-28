@@ -833,21 +833,19 @@ impl ProtoArray {
         Ok(())
     }
 
-    /// Updates the `block_root` and all ancestors to have validated execution payloads.
+    /// The EL judged the payload `block_hash` VALID. Promotes every pre-Gloas block that commits
+    /// to it, and every payload their branches executed. Gloas nodes track no execution status
+    /// yet, so they are skipped.
     ///
-    /// Returns an error if:
-    ///
-    /// - The `block-root` is unknown.
-    /// - Any of the to-be-validated payloads are already invalid.
+    /// Returns an error if any of the to-be-validated payloads are already invalid.
     pub fn propagate_execution_payload_validation(
         &mut self,
-        block_root: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<(), Error> {
-        let index = *self
-            .indices
-            .get(&block_root)
-            .ok_or(Error::NodeUnknown(block_root))?;
-        self.propagate_execution_payload_validation_by_index(index)
+        for index in self.execution_block_hash_to_node_indices(&block_hash) {
+            self.propagate_execution_payload_validation_by_index(index)?;
+        }
+        Ok(())
     }
 
     /// Updates the `verified_node_index` and all ancestors to have validated execution payloads.
