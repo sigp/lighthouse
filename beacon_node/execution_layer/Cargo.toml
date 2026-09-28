@@ -22,7 +22,7 @@ fork_choice = { workspace = true }
 # is pinned to the 0.15 series, and one type cannot implement two versions of
 # `hash_db::Hasher`. `cargo upgrade` will otherwise bump this and fail the build
 # with `the trait bound KeccakHasher: hash_db::Hasher is not satisfied`.
-hash-db = "0.15.2"
+hash-db = "~0.15.2"
 hash256-std-hasher = "0.15.2"
 hashlink = { workspace = true }
 hex = { workspace = true }
