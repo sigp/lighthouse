@@ -433,9 +433,9 @@ where
 
         let (execution_status, execution_payload_parent_hash, execution_payload_block_hash) =
             if let Ok(signed_bid) = anchor_block.message().body().signed_execution_payload_bid() {
-                // Gloas: `on_block` ignores this and starts a V29 node as `NotYetRevealed`.
+                // Gloas: checkpoint sync fetches the anchor's payload later.
                 (
-                    ExecutionStatus::irrelevant(),
+                    ExecutionStatus::NotYetRevealed(signed_bid.message.block_hash),
                     Some(signed_bid.message.parent_block_hash),
                     Some(signed_bid.message.block_hash),
                 )
@@ -1673,18 +1673,9 @@ where
 
     /// Returns `true` if fork choice has marked the execution payload `block_hash` invalid.
     pub fn is_invalid(&self, block_hash: ExecutionBlockHash) -> bool {
-        let proto_array = self.proto_array.core_proto_array();
-        proto_array
-            .execution_block_hash_to_node_indices(&block_hash)
-            .into_iter()
-            .filter_map(|index| proto_array.nodes.get(index))
-            .any(|node| match node.execution_status() {
-                ExecutionStatus::Invalid(_) => true,
-                ExecutionStatus::Valid(_)
-                | ExecutionStatus::Optimistic(_)
-                | ExecutionStatus::Irrelevant(_)
-                | ExecutionStatus::NotYetRevealed(_) => false,
-            })
+        self.proto_array
+            .core_proto_array()
+            .is_payload_invalid(&block_hash)
     }
 
     /// Called by the proposer to decide whether to build on the full or empty parent.

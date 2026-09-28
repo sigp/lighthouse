@@ -1137,8 +1137,8 @@ async fn payload_preparation() {
 
 #[tokio::test]
 async fn invalid_parent() {
-    // Pre-Gloas only. In Gloas neither gossip nor fork choice checks the parent payload, and
-    // `gloas_invalid_payload_rejects_only_full_children` covers import.
+    // Pre-Gloas only. In Gloas gossip does not check the parent payload, and
+    // `gloas_invalid_payload_rejects_only_full_children` covers import and fork choice.
     if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled()) {
         return;
     }
@@ -1741,7 +1741,7 @@ async fn gloas_invalid_payload_rejects_only_full_children() {
         .unwrap();
     let child_slot = block.slot() + 1;
 
-    let ((full_child, full_child_blobs), _, _) = rig
+    let ((full_child, full_child_blobs), _, full_child_state) = rig
         .harness
         .make_block_with_envelope_on(
             block_post_state.clone(),
@@ -1749,18 +1749,45 @@ async fn gloas_invalid_payload_rejects_only_full_children() {
             proto_array::PayloadStatus::Full,
         )
         .await;
+    let full_child_root = full_child.canonical_root();
     let result = rig
         .harness
         .process_block(
             child_slot,
-            full_child.canonical_root(),
-            (full_child, full_child_blobs),
+            full_child_root,
+            (full_child.clone(), full_child_blobs),
         )
         .await;
     let Err(BlockError::ParentExecutionPayloadInvalid { parent_root }) = result else {
         panic!("a child on the FULL node builds on the invalid payload: {result:?}");
     };
     assert_eq!(parent_root, block_root);
+
+    // Fork choice refuses it too.
+    let on_block_result = rig
+        .harness
+        .chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .on_block(
+            child_slot,
+            full_child.message(),
+            full_child_root,
+            Duration::from_secs(0),
+            &full_child_state,
+            PayloadVerificationStatus::Optimistic,
+            &rig.harness.chain.spec,
+        );
+    let Err(ForkChoiceError::ProtoArrayStringError(message)) = on_block_result else {
+        panic!("fork choice must refuse a child on the FULL node: {on_block_result:?}");
+    };
+    assert!(message.contains(&format!(
+        "{:?}",
+        ProtoArrayError::ParentExecutionStatusIsInvalid {
+            block_root: full_child_root,
+            parent_root: block_root,
+        }
+    )));
 
     let ((empty_child, empty_child_blobs), _, _) = rig
         .harness

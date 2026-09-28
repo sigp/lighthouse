@@ -699,16 +699,27 @@ impl ProtoArray {
             })
         };
 
-        // If the parent has an invalid execution status, return an error before adding the
-        // block to `self`. This check applies only to V17 (pre-Gloas) parents.
+        // If the block builds on an invalid payload, return an error before adding it to `self`.
         if let Some(parent_index) = node.parent() {
             let parent = self
                 .nodes
                 .get(parent_index)
                 .ok_or(Error::InvalidNodeIndex(parent_index))?;
 
+            // A pre-Gloas parent carries its payload inside itself.
             if let Ok(v17) = parent.as_v17()
                 && v17.execution_status.is_invalid()
+            {
+                return Err(Error::ParentExecutionStatusIsInvalid {
+                    block_root: block.root,
+                    parent_root: parent.root(),
+                });
+            }
+
+            // A Gloas block builds on the payload its bid names: its parent's own on a `FULL`
+            // edge, an older one on an `EMPTY` edge.
+            if let Ok(gloas_node) = node.as_v29()
+                && self.is_payload_invalid(&gloas_node.execution_payload_parent_hash)
             {
                 return Err(Error::ParentExecutionStatusIsInvalid {
                     block_root: block.root,
@@ -1207,22 +1218,6 @@ impl ProtoArray {
             .copied()
             .ok_or(Error::JustifiedNodeUnknown(*justified_root))?;
 
-        let justified_node = self
-            .nodes
-            .get(justified_index)
-            .ok_or(Error::InvalidJustifiedIndex(justified_index))?;
-
-        // Since there are no valid descendants of a justified block with an invalid execution
-        // payload, there would be no head to choose from.
-        // Only V17 (pre-Gloas) justified nodes are checked here.
-        if let Ok(v17) = justified_node.as_v17()
-            && v17.execution_status.is_invalid()
-        {
-            return Err(Error::InvalidJustifiedCheckpointExecutionStatus {
-                justified_root: *justified_root,
-            });
-        }
-
         let best_fc_node = self.find_head_walk::<E>(
             justified_index,
             current_slot,
@@ -1295,15 +1290,17 @@ impl ProtoArray {
         best_finalized_checkpoint: Checkpoint,
         viable: &mut HashSet<usize>,
     ) -> Result<(), Error> {
-        // Forward pass: a node is "excluded" if it (or any ancestor down to
-        // `start_index`) builds on an invalid payload.
+        // Forward pass: a node is "excluded" if its latest payload (or that of any ancestor down
+        // to `start_index`) is invalid.
         let invalid_payloads: HashSet<ExecutionBlockHash> = self
             .nodes
             .iter()
-            .filter(|node| node.is_invalid())
-            .filter_map(|node| match node.block_hash() {
-                PayloadBlockHash::Hash(block_hash) => Some(block_hash),
-                PayloadBlockHash::PreMerge => None,
+            .filter_map(|node| match node.execution_status() {
+                ExecutionStatus::Invalid(block_hash) => Some(block_hash),
+                ExecutionStatus::Valid(_)
+                | ExecutionStatus::Optimistic(_)
+                | ExecutionStatus::Irrelevant(_)
+                | ExecutionStatus::NotYetRevealed(_) => None,
             })
             .collect();
         let mut excluded = vec![false; self.nodes.len()];
@@ -1313,15 +1310,15 @@ impl ProtoArray {
                 Some(p) => *excluded.get(p).ok_or(Error::InvalidNodeIndex(p))?,
                 None => false,
             };
-            // A pre-Gloas block carries its own payload. A Gloas block builds on the payload its
-            // bid names.
-            let builds_on_invalid_payload = match node {
+            // The payload the block's state ends on (`latest_block_hash`): pre-Gloas its own,
+            // post-Gloas the one its bid names.
+            let latest_payload_invalid = match node {
                 ProtoNode::V17(_) => node.is_invalid(),
                 ProtoNode::V29(gloas_node) => {
                     invalid_payloads.contains(&gloas_node.execution_payload_parent_hash)
                 }
             };
-            excluded[i] = parent_excluded || builds_on_invalid_payload;
+            excluded[i] = parent_excluded || latest_payload_invalid;
         }
 
         for node_index in (start_index..self.nodes.len()).rev() {
@@ -2257,6 +2254,20 @@ impl ProtoArray {
             })
             .map(|(index, _)| index)
             .collect()
+    }
+
+    /// Returns `true` if fork choice has marked the execution payload `block_hash` invalid.
+    pub fn is_payload_invalid(&self, block_hash: &ExecutionBlockHash) -> bool {
+        self.execution_block_hash_to_node_indices(block_hash)
+            .into_iter()
+            .filter_map(|index| self.nodes.get(index))
+            .any(|node| match node.execution_status() {
+                ExecutionStatus::Invalid(_) => true,
+                ExecutionStatus::Valid(_)
+                | ExecutionStatus::Optimistic(_)
+                | ExecutionStatus::Irrelevant(_)
+                | ExecutionStatus::NotYetRevealed(_) => false,
+            })
     }
 
     /// Returns the first *beacon block root* which contains an execution payload with the given
