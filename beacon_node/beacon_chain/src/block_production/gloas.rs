@@ -1539,9 +1539,9 @@ fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
 mod tests {
     use super::*;
     use ssz_types::ProgressiveVariableList;
-    use types::{ConsolidationRequest, Epoch, MainnetEthSpec, VoluntaryExit, WithdrawalRequest};
+    use types::{ConsolidationRequest, Epoch, Spec, VoluntaryExit, WithdrawalRequest};
 
-    type TestSpec = MainnetEthSpec;
+    type TestSpec = Spec;
 
     fn pubkey(byte: u8) -> PublicKeyBytes {
         PublicKeyBytes::deserialize(&[byte; 48]).expect("valid pubkey byte length")
