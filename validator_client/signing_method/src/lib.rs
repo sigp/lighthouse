@@ -4,6 +4,7 @@
 //! - Via a remote signer (Web3Signer)
 
 use bls::{Keypair, PublicKey, Signature};
+use builder_types::RequestAuth;
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
 use parking_lot::Mutex;
@@ -52,6 +53,7 @@ pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     ExecutionPayloadEnvelope(&'a ExecutionPayloadEnvelope<E>),
     PayloadAttestationData(&'a PayloadAttestationData),
     ProposerPreferences(&'a ProposerPreferences),
+    RequestAuth(&'a RequestAuth),
     InclusionList(&'a InclusionList),
 }
 
@@ -77,6 +79,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload
             SignableMessage::ExecutionPayloadEnvelope(e) => e.signing_root(domain),
             SignableMessage::PayloadAttestationData(d) => d.signing_root(domain),
             SignableMessage::ProposerPreferences(p) => p.signing_root(domain),
+            SignableMessage::RequestAuth(r) => r.signing_root(domain),
             SignableMessage::InclusionList(l) => l.signing_root(domain),
         }
     }
@@ -250,6 +253,7 @@ impl SigningMethod {
                     SignableMessage::ProposerPreferences(p) => {
                         Web3SignerObject::ProposerPreferences(p)
                     }
+                    SignableMessage::RequestAuth(r) => Web3SignerObject::RequestAuth(r),
                     SignableMessage::InclusionList(l) => Web3SignerObject::InclusionList(l),
                 };
 

@@ -18,6 +18,14 @@ pub struct HeadEvent {
     pub slot: types::Slot,
     pub beacon_block_root: Hash256,
 }
+// This is used to send a signal when a payload is available to the
+// `PayloadAttestationService` for further processing.
+#[derive(Debug)]
+pub struct PayloadAvailableEvent {
+    pub beacon_node_index: usize,
+    pub slot: types::Slot,
+    pub block_root: Hash256,
+}
 
 /// Cache to maintain the latest head received from each of the beacon nodes
 /// in the `BeaconNodeFallback`.
@@ -189,6 +197,81 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
     }
 
     Err("Stream ended unexpectedly".into())
+}
+
+pub async fn poll_payload_available_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'static>(
+    beacon_nodes: Arc<BeaconNodeFallback<T>>,
+) -> Result<(), String> {
+    let payload_available_send = beacon_nodes
+        .payload_available_send
+        .clone()
+        .ok_or("Unable to start payload monitor without payload_available_send")?;
+
+    let candidates = {
+        let candidates_guard = beacon_nodes.candidates.read().await;
+        candidates_guard.clone()
+    };
+
+    let mut streams = vec![];
+
+    for candidate in &candidates {
+        let payload_event_stream = candidate
+            .beacon_node
+            .get_events::<E>(&[EventTopic::ExecutionPayloadAvailable])
+            .await;
+        let payload_event_stream = match payload_event_stream {
+            Ok(stream) => stream,
+            Err(e) => {
+                warn!(error = ?e, node_index = candidate.index,
+                      "Failed to get execution payload available stream");
+                continue;
+            }
+        };
+
+        streams.push(payload_event_stream.map(|event| (candidate.index, event)))
+    }
+
+    if streams.is_empty() {
+        return Err("No beacon nodes available for payload_available streaming".to_string());
+    }
+
+    let mut combined = futures::stream::select_all(streams);
+
+    while let Some((candidate_index, event_result)) = combined.next().await {
+        match event_result {
+            Ok(EventKind::ExecutionPayloadAvailable(ev)) => {
+                debug!(
+                    candidate_index,
+                    block_root = ?ev.block_root,
+                    slot = %ev.slot,
+                    "New payload from beacon node"
+                );
+                if payload_available_send
+                    .send(PayloadAvailableEvent {
+                        beacon_node_index: candidate_index,
+                        slot: ev.slot,
+                        block_root: ev.block_root,
+                    })
+                    .await
+                    .is_err()
+                {
+                    return Err("Payload available channel closed".into());
+                }
+            }
+            Ok(event) => {
+                warn!(
+                    event_kind = event.topic_name(),
+                    "Unexpected event in payload_available stream"
+                );
+                continue;
+            }
+            Err(e) => {
+                return Err(format!("payload_available stream error: {e:?}"));
+            }
+        }
+    }
+
+    Err("payload_available stream ended unexpectedly".into())
 }
 
 #[cfg(test)]

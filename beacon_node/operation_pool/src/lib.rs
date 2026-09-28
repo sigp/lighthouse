@@ -229,6 +229,9 @@ impl<E: EthSpec> OperationPool<E> {
         spec: &ChainSpec,
     ) -> Result<Vec<PayloadAttestation<E>>, OpPoolError> {
         let target_slot = state.slot().saturating_sub(1u64);
+        if !spec.fork_name_at_slot::<E>(target_slot).gloas_enabled() {
+            return Ok(vec![]);
+        }
 
         let ptc = state
             .get_ptc(target_slot, spec)
