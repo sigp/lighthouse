@@ -692,12 +692,13 @@ mod tests {
         async fn new(head_monitoring: bool) -> Self {
             let mut spec = E::default_spec();
             spec.altair_fork_epoch = Some(Epoch::new(0));
-            Self::new_with_spec(head_monitoring, Arc::new(spec)).await
+            Self::new_with_spec(head_monitoring, spec).await
         }
 
-        async fn new_with_spec(head_monitoring: bool, spec: Arc<ChainSpec>) -> Self {
+        async fn new_with_spec(head_monitoring: bool, spec: ChainSpec) -> Self {
             let mut harness =
-                ValidatorClientHarness::new_with_spec(1, spec, &Default::default()).await;
+                ValidatorClientHarness::new_with_spec_and_config(1, spec, &Default::default())
+                    .await;
             harness
                 .mock_beacon_node_1
                 .mock_sync_committee_subscriptions();
@@ -1090,7 +1091,7 @@ mod tests {
         let mut spec = E::default_spec();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.gloas_fork_epoch = Some(Epoch::new(0));
-        let mut harness = TestHarness::new_with_spec(false, Arc::new(spec)).await;
+        let mut harness = TestHarness::new_with_spec(false, spec).await;
         harness.insert_duties().await;
         let _root_mock = harness
             .harness

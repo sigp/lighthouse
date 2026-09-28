@@ -1,6 +1,6 @@
 # To download/extract nightly tests, run:
 # CONSENSUS_SPECS_TEST_VERSION=nightly make
-CONSENSUS_SPECS_TEST_VERSION ?= v1.7.0-beta.0
+CONSENSUS_SPECS_TEST_VERSION ?= v1.7.0-beta.2
 REPO_NAME := consensus-spec-tests
 OUTPUT_DIR := ./$(REPO_NAME)
 
@@ -42,4 +42,3 @@ $(BLS_OUTPUT_DIR):
 		$(BLS_BASE_URL)/$(BLS_TEST).tar.gz
 	tar -xzf *.tar.gz -C $(BLS_OUTPUT_DIR)
 	rm -f *.tar.gz
-

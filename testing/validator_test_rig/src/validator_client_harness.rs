@@ -42,14 +42,15 @@ impl ValidatorClientHarness {
     pub async fn new_with_config(num_validators: usize, config: &ValidatorStoreConfig) -> Self {
         let mut default_spec = MainnetEthSpec::default_spec();
         default_spec.gloas_fork_epoch = Some(Epoch::new(0));
-        Self::new_with_spec(num_validators, Arc::new(default_spec), config).await
+        Self::new_with_spec_and_config(num_validators, default_spec, config).await
     }
 
-    pub async fn new_with_spec(
+    pub async fn new_with_spec_and_config(
         num_validators: usize,
-        spec: Arc<ChainSpec>,
+        spec: ChainSpec,
         config: &ValidatorStoreConfig,
     ) -> Self {
+        let spec = Arc::new(spec);
         let test_runtime = TestRuntime::default();
         let executor = test_runtime.task_executor.clone();
         let slot_duration = spec.get_slot_duration();
