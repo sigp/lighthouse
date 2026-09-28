@@ -955,9 +955,41 @@ impl ProtoArrayForkChoice {
     /// status to be optimistic.
     ///
     /// In practice this means forgetting any `VALID` or `INVALID` statuses.
-    pub fn set_all_blocks_to_optimistic<E: EthSpec>(&mut self) -> Result<(), String> {
+    pub fn set_all_blocks_to_optimistic<E: EthSpec>(
+        &mut self,
+        equivocating_indices: &BTreeSet<u64>,
+    ) -> Result<(), String> {
+        let node_slots = self
+            .proto_array
+            .nodes
+            .iter()
+            .map(|node| node.slot())
+            .collect::<Vec<_>>();
+
+        // Settle pending vote moves and slashings through an ordinary production round first: a
+        // slashing persisted but not yet processed must credit the equivocation score against
+        // the old weights, exactly as the next `find_head` would have.
+        let deltas = compute_deltas(
+            &self.proto_array.indices,
+            &node_slots,
+            &mut self.votes,
+            &self.balances.effective_balances,
+            &self.balances.effective_balances,
+            equivocating_indices,
+        )
+        .map_err(|e| format!("optimistic reset settle compute_deltas failed: {:?}", e))?;
+        self.proto_array
+            .apply_score_changes::<E>(deltas)
+            .map_err(|e| {
+                format!(
+                    "optimistic reset settle apply_score_changes failed: {:?}",
+                    e
+                )
+            })?;
+
         // Clear every `VALID`/`INVALID` verdict. `Irrelevant` and `NotYetRevealed` have no verdict
-        // to reset.
+        // to reset. This must happen before the replay below: `apply_score_changes` discards
+        // deltas aimed at invalid nodes.
         for node in self.proto_array.nodes.iter_mut() {
             match node.execution_status() {
                 ExecutionStatus::Valid(hash)
@@ -981,93 +1013,28 @@ impl ProtoArrayForkChoice {
             }
         }
 
-        // Add each validator's balance to the node it votes for, splitting a Gloas vote into the
-        // full or empty bucket exactly as `compute_deltas` does.
-        for (validator_index, vote) in self.votes.0.iter().enumerate() {
-            let Some(&node_index) = self.proto_array.indices.get(&vote.current_root) else {
-                continue;
-            };
-            // A voting validator without a balance is ignored, consistent with `compute_deltas`.
-            let Some(&balance) = self.balances.effective_balances.get(validator_index) else {
-                continue;
-            };
-            let node = self
-                .proto_array
-                .nodes
-                .get_mut(node_index)
-                .ok_or("unreachable index out of bounds in proto_array nodes")?;
-            let node_slot = node.slot();
-            *node.weight_mut() = node
-                .weight()
-                .checked_add(balance)
-                .ok_or("Overflow when adding vote weight")?;
-            let bucket = match node {
-                ProtoNode::V29(node) => match PayloadStatus::from_vote(
-                    vote.current_slot,
-                    vote.current_payload_present,
-                    node_slot,
-                ) {
-                    PayloadStatus::Full => Some(&mut node.full_payload_weight),
-                    PayloadStatus::Empty => Some(&mut node.empty_payload_weight),
-                    PayloadStatus::Pending => None,
-                },
-                ProtoNode::V17(_) => None,
-            };
-            if let Some(bucket) = bucket {
-                *bucket = bucket
-                    .checked_add(balance)
-                    .ok_or("Overflow when adding vote weight to a payload bucket")?;
-            }
-        }
+        // Replay every settled vote through the production accounting: against a zero-balance
+        // past, `compute_deltas` emits each validator's full balance as a delta, and
+        // `apply_score_changes` rebuilds the weights, the payload buckets and the
+        // back-propagation exactly as `find_head` does.
+        let deltas = compute_deltas(
+            &self.proto_array.indices,
+            &node_slots,
+            &mut self.votes,
+            &[],
+            &self.balances.effective_balances,
+            equivocating_indices,
+        )
+        .map_err(|e| format!("optimistic reset replay compute_deltas failed: {:?}", e))?;
 
-        // Propagate each node's aggregate weight to its parent, routed into the parent's full or
-        // empty bucket by the edge the child extends. Children have higher indices than parents, so
-        // a reverse pass finishes each node's subtree weight before it reaches the parent.
-        for node_index in (0..self.proto_array.nodes.len()).rev() {
-            let (weight, edge, parent_index) = {
-                let node = self
-                    .proto_array
-                    .nodes
-                    .get(node_index)
-                    .ok_or("unreachable index out of bounds in proto_array nodes")?;
-                (
-                    node.weight(),
-                    node.get_parent_payload_status(),
-                    node.parent(),
+        self.proto_array
+            .apply_score_changes::<E>(deltas)
+            .map_err(|e| {
+                format!(
+                    "optimistic reset replay apply_score_changes failed: {:?}",
+                    e
                 )
-            };
-            let Some(parent_index) = parent_index else {
-                continue;
-            };
-            let parent = self
-                .proto_array
-                .nodes
-                .get_mut(parent_index)
-                .ok_or(format!("Missing parent index: {}", parent_index))?;
-            *parent.weight_mut() = parent
-                .weight()
-                .checked_add(weight)
-                .ok_or("Overflow when adding weight to ancestor")?;
-            match parent {
-                ProtoNode::V29(parent) => {
-                    let bucket = match edge {
-                        ParentPayloadStatus::Full => Some(&mut parent.full_payload_weight),
-                        ParentPayloadStatus::Empty => Some(&mut parent.empty_payload_weight),
-                        // `apply_score_changes` routes a pre-Gloas edge to no bucket; the rebuild
-                        // must match it.
-                        ParentPayloadStatus::PreGloas => None,
-                    };
-                    if let Some(bucket) = bucket {
-                        *bucket = bucket
-                            .checked_add(weight)
-                            .ok_or("Overflow when adding child weight to a payload bucket")?;
-                    }
-                }
-                ProtoNode::V17(_) => (),
-            }
-        }
-
-        Ok(())
+            })
     }
 
     pub fn maybe_prune(&mut self, finalized_root: Hash256) -> Result<(), String> {

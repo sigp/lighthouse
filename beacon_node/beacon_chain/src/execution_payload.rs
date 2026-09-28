@@ -168,20 +168,20 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 // `latest_valid_hash` is `Some` and non-zero.
                 //
                 // A `None` latest valid hash indicates that the EE was unable
-                // to determine the most recent valid ancestor, so there is no
-                // ancestor to invalidate from.
+                // to determine the most recent valid ancestor. Since `block`
+                // has not yet been applied to fork choice, there's nothing to
+                // invalidate.
                 //
                 // An all-zeros payload indicates that an EIP-3675 check has
                 // failed regarding the validity of the terminal block. Rather
                 // than iterating back in the chain to find the terminal block
                 // and invalidating that, we simply reject this block without
                 // invalidating anything else.
-                //
-                // The rejected payload never reaches fork choice, so invalidate from its parent
-                // payload. The parent is only condemned when the latest valid hash lies below it.
                 if let Some(latest_valid_hash) =
                     latest_valid_hash.filter(|hash| *hash != ExecutionBlockHash::zero())
                 {
+                    // The rejected payload never reaches fork choice, so invalidate from its parent
+                    // payload. The parent is only condemned when the latest valid hash lies below it.
                     chain
                         .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
                             head_hash: parent_block_hash,

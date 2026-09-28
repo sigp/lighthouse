@@ -980,6 +980,36 @@ impl ProtoArray {
         }
     }
 
+    /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.
+    ///
+    /// See `find_deepest_node_to_invalidate` for the model, and the documentation of
+    /// `InvalidationOperation` for usage.
+    pub fn propagate_execution_payload_invalidation<E: EthSpec>(
+        &mut self,
+        op: &InvalidationOperation,
+        best_finalized_checkpoint: Checkpoint,
+    ) -> Result<(), Error> {
+        // Find `Pn`, the deepest node to invalidate, from every block that commits to the head
+        // payload.
+        let head_indices = self.execution_block_hash_to_node_indices(&op.head_hash());
+        // The head payload must be tracked, as the old `NodeUnknown` guard required. Only
+        // `notify_new_payload` (invalidate_head == false) may name a pre-merge parent with no node.
+        if head_indices.is_empty() && op.invalidate_head() {
+            return Err(Error::PayloadHashUnknown(op.head_hash()));
+        }
+        for head_index in head_indices {
+            if let Some(deepest_executed_index) = self.find_deepest_node_to_invalidate::<E>(
+                head_index,
+                op,
+                best_finalized_checkpoint,
+            )? {
+                self.invalidate_node_and_descendants(deepest_executed_index)?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Find `Pn`, the deepest node an `InvalidationOperation` condemns.
     ///
     /// Spec — `H`: EL hash, `B`: beacon block root, `P`: proto node entry:
@@ -1080,29 +1110,6 @@ impl ProtoArray {
             .rev()
             .find(|&&(_, payload_executed)| payload_executed)
             .map(|&(index, _)| index))
-    }
-    /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.
-    ///
-    /// See `find_deepest_node_to_invalidate` for the model, and the documentation of
-    /// `InvalidationOperation` for usage.
-    pub fn propagate_execution_payload_invalidation<E: EthSpec>(
-        &mut self,
-        op: &InvalidationOperation,
-        best_finalized_checkpoint: Checkpoint,
-    ) -> Result<(), Error> {
-        // Find `Pn`, the deepest node to invalidate, from every block that commits to the head
-        // payload.
-        for head_index in self.execution_block_hash_to_node_indices(&op.head_hash()) {
-            if let Some(deepest_executed_index) = self.find_deepest_node_to_invalidate::<E>(
-                head_index,
-                op,
-                best_finalized_checkpoint,
-            )? {
-                self.invalidate_node_and_descendants(deepest_executed_index)?;
-            }
-        }
-
-        Ok(())
     }
 
     /// Invalidate `Pn` and all its descendants, walking the children index. The only exception:
