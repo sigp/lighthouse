@@ -2024,10 +2024,10 @@ where
             // Although we may have already made this call whilst loading `proto_array`, try it
             // again since we may have mutated the `proto_array` during `get_head` and therefore may
             // get a different result.
-            let equivocating_indices = fork_choice.fc_store.equivocating_indices().clone();
+            let equivocating_indices = fork_choice.fc_store.equivocating_indices();
             fork_choice
                 .proto_array
-                .set_all_blocks_to_optimistic::<E>(&equivocating_indices)?;
+                .set_all_blocks_to_optimistic::<E>(equivocating_indices)?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
             fork_choice.get_head(current_slot, spec)?;
