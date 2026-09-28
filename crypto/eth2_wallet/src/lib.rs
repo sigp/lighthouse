@@ -3,7 +3,7 @@ mod wallet;
 
 pub mod json_wallet;
 
-pub use bip39;
+pub use bip0039;
 pub use validator_path::{COIN_TYPE, KeyType, PURPOSE, ValidatorPath};
 pub use wallet::{
     DerivedKey, Error, KeystoreError, PlainText, Uuid, ValidatorKeystores, Wallet, WalletBuilder,

@@ -1,7 +1,7 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use account_utils::{
     eth2_keystore::Keystore,
-    eth2_wallet::{WalletBuilder, bip39::Mnemonic},
+    eth2_wallet::{WalletBuilder, bip0039::Mnemonic},
     random_mnemonic, random_password,
 };
 use eth2::lighthouse_vc::types::{self as api_types};

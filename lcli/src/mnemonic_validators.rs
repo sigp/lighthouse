@@ -1,8 +1,7 @@
 use account_utils::eth2_keystore::{Keystore, KeystoreBuilder, keypair_from_secret};
 use account_utils::random_password;
 use clap::ArgMatches;
-use eth2_wallet::bip39::Seed;
-use eth2_wallet::bip39::{Language, Mnemonic};
+use eth2_wallet::bip0039::Mnemonic;
 use eth2_wallet::{KeyType, recover_validator_secret_from_mnemonic};
 use rayon::prelude::*;
 use std::fs;
@@ -25,14 +24,14 @@ pub fn generate_validator_dirs(
         fs::create_dir_all(&secrets_dir)
             .map_err(|e| format!("Unable to create secrets dir: {:?}", e))?;
     }
-    let mnemonic = Mnemonic::from_phrase(mnemonic_phrase, Language::English).map_err(|e| {
+    let mnemonic: Mnemonic = Mnemonic::from_phrase(mnemonic_phrase).map_err(|e| {
         format!(
             "Unable to derive mnemonic from string {:?}: {:?}",
             mnemonic_phrase, e
         )
     })?;
 
-    let seed = Seed::new(&mnemonic, "");
+    let seed = mnemonic.to_seed("");
 
     let _: Vec<_> = indices
         .par_iter()
@@ -41,7 +40,7 @@ pub fn generate_validator_dirs(
 
             let derive = |key_type: KeyType, password: &[u8]| -> Result<Keystore, String> {
                 let (secret, path) = recover_validator_secret_from_mnemonic(
-                    seed.as_bytes(),
+                    &seed,
                     *index as u32,
                     key_type,
                 )
