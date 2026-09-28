@@ -43,7 +43,7 @@ use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::{Mutex, RwLockWriteGuard};
-use proto_array::{PayloadBlockHash, PayloadStatus};
+use proto_array::PayloadStatus;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -983,21 +983,6 @@ where
 
     pub fn head_block_root(&self) -> Hash256 {
         self.chain.canonical_head.cached_head().head_block_root()
-    }
-
-    /// The execution payload hash that `block_root` commits to, read from fork choice.
-    pub fn execution_block_hash(&self, block_root: Hash256) -> ExecutionBlockHash {
-        match self
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_block(&block_root)
-            .expect("block should be in fork choice")
-            .block_hash()
-        {
-            PayloadBlockHash::Hash(block_hash) => block_hash,
-            PayloadBlockHash::PreMerge => panic!("block {block_root:?} has no payload"),
-        }
     }
 
     pub fn finalized_checkpoint(&self) -> Checkpoint {
