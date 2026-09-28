@@ -57,8 +57,9 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
             .map_err(|error| Error::PayloadBodiesByHashV2Failure(Box::new(error)).into())
     }
 
-    pub(crate) fn get_split_slot(&self) -> Slot {
-        self.chain.store.get_split_info().slot
+    pub(crate) fn get_split(&self) -> (Slot, Hash256) {
+        let split = self.chain.store.get_split_info();
+        (split.slot, split.block_root)
     }
 
     pub(crate) fn block_has_canonical_payload(

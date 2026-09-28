@@ -216,7 +216,8 @@ async fn assert_stream_matches(
 async fn stream_envelopes_by_range() {
     let chain = build_chain(8, &[], &[], &[]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(0));
+    mock.expect_get_split()
+        .return_const((Slot::new(0), Hash256::ZERO));
     mock_envelopes(&mut mock, &chain);
     mock_canonical_head(&mut mock, &chain);
 
@@ -230,7 +231,8 @@ async fn stream_envelopes_by_range() {
 async fn stream_envelopes_by_range_mixed() {
     let chain = build_chain(12, &[3, 8], &[5], &[7, 11]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(0));
+    mock.expect_get_split()
+        .return_const((Slot::new(0), Hash256::ZERO));
     mock_envelopes(&mut mock, &chain);
     mock_canonical_head(&mut mock, &chain);
 
@@ -247,7 +249,8 @@ async fn stream_envelopes_by_range_before_split() {
     let chain = build_chain(10, &[], &[], &[2, 4, 8]);
     let split_slot = Slot::new(6);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(split_slot);
+    mock.expect_get_split()
+        .return_const((split_slot, Hash256::ZERO));
     mock_envelopes(&mut mock, &chain);
     mock_canonical_head(&mut mock, &chain);
 
@@ -256,10 +259,33 @@ async fn stream_envelopes_by_range_before_split() {
     assert_stream_matches(&mut stream, &chain, Some(split_slot)).await;
 }
 
+/// A skipped checkpoint has a split block older than the split slot. Its payload status is still
+/// determined by fork choice until a canonical child finalizes it.
+#[tokio::test]
+async fn stream_envelopes_by_range_checks_unaligned_split_block() {
+    let chain = build_chain(1, &[], &[], &[1]);
+    let block_root = chain[0].block_root;
+    let (mut mock, _runtime) = mock_adapter();
+    mock.expect_get_split()
+        .return_const((Slot::new(2), block_root));
+    mock_envelopes(&mut mock, &chain);
+    mock.expect_block_has_canonical_payload()
+        .withf(move |root| *root == block_root)
+        .times(1)
+        .returning(|_| Ok(false));
+
+    let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
+    let mut stream = streamer.launch_stream(vec![block_root]);
+    let (_, result) = stream.next().await.expect("should get one result");
+    assert!(unwrap_result(&result).is_none());
+    assert!(stream.next().await.is_none());
+}
+
 #[tokio::test]
 async fn stream_envelopes_empty_roots() {
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(0));
+    mock.expect_get_split()
+        .return_const((Slot::new(0), Hash256::ZERO));
 
     let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
     let mut stream = streamer.launch_stream(vec![]);
@@ -273,7 +299,8 @@ async fn stream_envelopes_empty_roots() {
 async fn stream_envelopes_single_root() {
     let chain = build_chain(3, &[], &[], &[]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(0));
+    mock.expect_get_split()
+        .return_const((Slot::new(0), Hash256::ZERO));
     mock_envelopes(&mut mock, &chain);
     mock_canonical_head(&mut mock, &chain);
 
@@ -298,7 +325,8 @@ async fn stream_envelopes_single_root() {
 async fn stream_reconstructs_pruned_envelopes() {
     let chain = build_chain(4, &[], &[], &[]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(5));
+    mock.expect_get_split()
+        .return_const((Slot::new(5), Hash256::ZERO));
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[2, 4]);
     mock.expect_block_has_canonical_payload().times(0);
 
@@ -331,7 +359,8 @@ async fn stream_batches_pruned_envelope_requests() {
     let chain = build_chain(65, &[], &[], &[]);
     let pruned_payload_slots = (1..=65).collect::<Vec<_>>();
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(66));
+    mock.expect_get_split()
+        .return_const((Slot::new(66), Hash256::ZERO));
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &pruned_payload_slots);
     mock.expect_block_has_canonical_payload().times(0);
 
@@ -362,7 +391,8 @@ async fn stream_batches_pruned_envelope_requests() {
 async fn stream_rejects_invalid_payload_body_response_length() {
     let chain = build_chain(1, &[], &[], &[]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(2));
+    mock.expect_get_split()
+        .return_const((Slot::new(2), Hash256::ZERO));
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
     mock.expect_block_has_canonical_payload().times(0);
     mock.expect_get_payload_bodies_by_hash_v2()
@@ -389,7 +419,8 @@ async fn stream_rejects_invalid_payload_body_response_length() {
 async fn stream_handles_payload_missing_from_execution_layer() {
     let chain = build_chain(1, &[], &[], &[]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(2));
+    mock.expect_get_split()
+        .return_const((Slot::new(2), Hash256::ZERO));
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
     mock.expect_block_has_canonical_payload().times(0);
     mock.expect_get_payload_bodies_by_hash_v2()
@@ -413,7 +444,8 @@ async fn stream_handles_payload_missing_from_execution_layer() {
 async fn stream_rejects_payload_body_with_wrong_hash() {
     let chain = build_chain(1, &[], &[], &[]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(2));
+    mock.expect_get_split()
+        .return_const((Slot::new(2), Hash256::ZERO));
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
     mock.expect_block_has_canonical_payload().times(0);
 
@@ -440,7 +472,8 @@ async fn stream_rejects_payload_body_with_wrong_hash() {
 async fn stream_rejects_payload_body_without_withdrawals() {
     let chain = build_chain(1, &[], &[], &[]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(2));
+    mock.expect_get_split()
+        .return_const((Slot::new(2), Hash256::ZERO));
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
     mock.expect_block_has_canonical_payload().times(0);
 
@@ -467,7 +500,8 @@ async fn stream_rejects_payload_body_without_withdrawals() {
 async fn stream_rejects_payload_body_without_block_access_list() {
     let chain = build_chain(1, &[], &[], &[]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(2));
+    mock.expect_get_split()
+        .return_const((Slot::new(2), Hash256::ZERO));
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
     mock.expect_block_has_canonical_payload().times(0);
 
@@ -495,7 +529,8 @@ async fn stream_rejects_payload_body_without_block_access_list() {
 async fn stream_envelopes_by_root() {
     let chain = build_chain(8, &[], &[], &[3, 5, 7]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(0));
+    mock.expect_get_split()
+        .return_const((Slot::new(0), Hash256::ZERO));
     mock_envelopes(&mut mock, &chain);
     mock.expect_block_has_canonical_payload().times(0);
 
@@ -530,7 +565,8 @@ async fn stream_envelopes_by_root() {
 async fn stream_envelopes_error() {
     let chain = build_chain(4, &[], &[], &[]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(0));
+    mock.expect_get_split()
+        .return_const((Slot::new(0), Hash256::ZERO));
     mock_envelopes(&mut mock, &chain);
     mock.expect_block_has_canonical_payload().returning(|_| {
         Err(BeaconChainError::ForkChoiceError(
@@ -561,7 +597,8 @@ async fn stream_envelopes_error() {
 #[tokio::test]
 async fn stream_envelopes_by_range_unknown_roots() {
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(0));
+    mock.expect_get_split()
+        .return_const((Slot::new(0), Hash256::ZERO));
     mock.expect_get_payload_envelope_summary()
         .returning(|_| Ok(None));
 
@@ -594,7 +631,8 @@ async fn stream_envelopes_by_range_unknown_roots() {
 async fn stream_envelopes_by_root_missing_envelopes() {
     let chain = build_chain(6, &[], &[2, 4], &[]);
     let (mut mock, _runtime) = mock_adapter();
-    mock.expect_get_split_slot().return_const(Slot::new(0));
+    mock.expect_get_split()
+        .return_const((Slot::new(0), Hash256::ZERO));
     mock_envelopes(&mut mock, &chain);
     mock.expect_block_has_canonical_payload().times(0);
 

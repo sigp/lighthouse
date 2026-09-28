@@ -10,7 +10,10 @@ use store::hot_cold_store::{HotColdDBError, migrate_database};
 use store::{Error, ItemStore, Split, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use tracing::{debug, error, info, warn};
-use types::{BeaconState, BeaconStateHash, Checkpoint, Epoch, EthSpec, Hash256, Slot};
+use types::{
+    BeaconState, BeaconStateHash, Checkpoint, Epoch, EthSpec, Hash256, SignedBlindedBeaconBlock,
+    Slot,
+};
 
 /// Compact at least this frequently, finalization permitting (7 days).
 const MAX_COMPACTION_PERIOD_SECONDS: u64 = 604800;
@@ -625,9 +628,13 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
             .ok_or(PruningError::EmptyFinalizedStates)?;
 
         // Note: ancestors_of includes the finalized block
-        let newly_finalized_blocks = state_summaries_dag
+        let mut newly_finalized_blocks = state_summaries_dag
             .blocks_of_states(newly_finalized_state_roots.iter())
             .map_err(|e| PruningError::SummariesDagError("blocks of newly finalized", e))?;
+        // Skipped slots can produce several state summaries for the same block. Sorting and
+        // deduplicating lets us follow consecutive canonical blocks, rather than consecutive slots.
+        newly_finalized_blocks.sort_unstable_by_key(|(_, slot)| *slot);
+        newly_finalized_blocks.dedup();
 
         // Compute the set of finalized state roots that we must keep to make the dynamic HDiff system
         // work.
@@ -786,10 +793,12 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
         // Prune sync committee branches of non-checkpoint canonical finalized blocks
         Self::prune_non_checkpoint_sync_committee_branches(&newly_finalized_blocks, &mut batch);
 
-        // Prune all payloads of the canonical finalized blocks
-        if store.get_config().prune_payloads {
-            Self::prune_finalized_payloads(new_finalized_slot, &newly_finalized_blocks, &mut batch);
-        }
+        Self::prune_finalized_payloads(
+            &store,
+            new_finalized_slot,
+            &newly_finalized_blocks,
+            &mut batch,
+        )?;
 
         store.do_atomically_with_block_and_blobs_cache(batch)?;
 
@@ -804,19 +813,43 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
     }
 
     fn prune_finalized_payloads(
+        store: &HotColdDB<E, Hot, Cold>,
         new_finalized_slot: Slot,
         finalized_blocks: &[(Hash256, Slot)],
         hot_db_ops: &mut Vec<StoreOp<E>>,
-    ) {
-        for (block_root, slot) in finalized_blocks {
+    ) -> Result<(), BeaconChainError> {
+        let prune_payloads = store.get_config().prune_payloads;
+        let mut child_block: Option<SignedBlindedBeaconBlock<E>> = None;
+
+        // The input is sorted by slot with duplicates removed. A canonical child's bid commits
+        // to its parent's payload status, including when there are skipped slots between them.
+        for (block_root, slot) in finalized_blocks.iter().rev() {
+            if store.spec.fork_name_at_slot::<E>(*slot).gloas_enabled() {
+                let block = store
+                    .get_blinded_block(block_root)?
+                    .ok_or(PruningError::MissingBlindedBlock(*block_root))?;
+
+                if let Some(child) = &child_block
+                    && child.parent_root() == *block_root
+                    && !child.is_parent_block_full(block.payload_bid_block_hash()?)
+                {
+                    // An envelope may have been received even though its block finalized as
+                    // EMPTY. Remove its summary as well, so by-range RPCs cannot reconstruct it.
+                    // This applies even to nodes that retain canonical payload bodies.
+                    hot_db_ops.push(StoreOp::DeletePayloadWithSummary(*block_root));
+                }
+                child_block = Some(block);
+            }
+
             // Delete the execution payload if payload pruning is enabled. At a skipped slot we may
             // delete the payload for the finalized block itself, but that's OK as we only guarantee
             // that payloads are present for slots >= the split slot.
-            if *slot < new_finalized_slot {
+            if prune_payloads && *slot < new_finalized_slot {
                 hot_db_ops.push(StoreOp::DeleteExecutionPayload(*block_root));
                 hot_db_ops.push(StoreOp::DeletePayload(*block_root));
             }
         }
+        Ok(())
     }
 
     fn prune_non_checkpoint_sync_committee_branches(

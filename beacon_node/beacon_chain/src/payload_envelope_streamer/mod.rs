@@ -118,7 +118,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
     ) -> Result<Vec<(Hash256, Arc<PayloadEnvelopeResult<T::EthSpec>>)>, BeaconChainError> {
         let streamer = self.clone();
         let block_roots = block_roots.to_vec();
-        let split_slot = streamer.adapter.get_split_slot();
+        let (split_slot, split_block_root) = streamer.adapter.get_split();
         // Loading from the DB is slow -> spawn a blocking task
         let loaded_envelopes = self
             .adapter
@@ -139,8 +139,10 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
                                 return (root, loaded);
                             };
 
-                            // Before the split, non-canonical envelopes have already been pruned.
-                            if split_slot > slot {
+                            // Before the split, non-canonical envelopes have already been pruned,
+                            // except for the split block when the checkpoint slot was skipped.
+                            // Its child may not be finalized yet, so use fork choice for it.
+                            if split_slot > slot && root != split_block_root {
                                 return (root, loaded);
                             }
 

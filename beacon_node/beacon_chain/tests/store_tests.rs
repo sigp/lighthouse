@@ -29,6 +29,7 @@ use beacon_chain::{
 use bls::{Keypair, Signature, SignatureBytes};
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::PayloadStatus;
+use futures::StreamExt;
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
@@ -48,6 +49,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::KeyValueStore;
 use store::database::interface::BeaconNodeBackend;
+use store::invariants::InvariantViolation;
 use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
 use store::{
     BlobInfo, DBColumn, HotColdDB, StoreConfig, StoreOp,
@@ -2085,6 +2087,363 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     assert!(!rig.knows_head(&stray_head));
 
     check_db_invariants(&rig);
+}
+
+#[tokio::test]
+async fn prunes_envelopes_finalized_as_empty() {
+    check_prunes_envelopes_finalized_as_empty(true).await;
+}
+
+#[tokio::test]
+async fn prunes_envelopes_finalized_as_empty_without_payload_pruning() {
+    check_prunes_envelopes_finalized_as_empty(false).await;
+}
+
+async fn check_prunes_envelopes_finalized_as_empty(prune_payloads: bool) {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(
+        &db_path,
+        StoreConfig {
+            prune_payloads,
+            ..StoreConfig::default()
+        },
+        spec,
+    );
+    let rig = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+    let mut state = rig.get_current_state();
+    let mut blocks: Vec<(Hash256, Slot, bool)> = Vec::new();
+    let mut checked_skipped_checkpoint = false;
+
+    // Include consecutive EMPTY parents, a return to FULL, and EMPTY parents separated from
+    // their children by skipped slots. Slots 8 and 16 are skipped checkpoints, and the EMPTY
+    // parent of slot 48 must remain because it is still unfinalized.
+    let empty_parent_slots = [4, 5, 10, 15, 18, 48];
+    for slot in 1..=rig.epoch_start_slot(6) {
+        if [3, 6, 8, 9, 16, 17].contains(&slot) {
+            continue;
+        }
+        let parent_payload_status = if empty_parent_slots.contains(&slot) {
+            PayloadStatus::Empty
+        } else {
+            rig.chain.canonical_head.cached_head().head_payload_status()
+        };
+
+        rig.set_current_slot(Slot::new(slot));
+        let (contents, envelope, mut new_state) = rig
+            .make_block_with_envelope_on(state, Slot::new(slot), parent_payload_status)
+            .await;
+        let block = &contents.0;
+        let block_root = block.canonical_root();
+        let block_hash = rig
+            .process_block(Slot::new(slot), block_root, contents.clone())
+            .await
+            .unwrap();
+        // Receive every envelope, including those that the next block will decline to build on.
+        rig.process_envelope(
+            block_root,
+            envelope.expect("Gloas block should have an envelope"),
+            &new_state,
+            block.state_root(),
+        )
+        .await;
+
+        let state_root = new_state.canonical_root().unwrap();
+        rig.attest_block(&new_state, state_root, block_hash, block, &validators);
+        rig.chain.recompute_head_at_current_slot().await;
+
+        let split = store.get_split_info();
+        if split.slot > Slot::new(0) {
+            assert!(
+                store
+                    .payload_envelope_summary_exists(&split.block_root)
+                    .unwrap(),
+                "the newest finalized block's summary must remain until its child finalizes"
+            );
+        }
+
+        if slot == 18 {
+            let parent_root = blocks.last().expect("slot 15 parent").0;
+            assert_eq!(block.parent_root(), parent_root);
+            // Model a skipped slot-16 finalized checkpoint while its slot-15 split block is
+            // still present in fork choice. Restore the actual split before the next block.
+            store.set_split(Slot::new(16), split.state_root, parent_root);
+            let results = rig
+                .chain
+                .get_payload_envelopes(
+                    vec![parent_root],
+                    beacon_chain::payload_envelope_streamer::EnvelopeRequestSource::ByRange,
+                )
+                .collect::<Vec<_>>()
+                .await;
+            store.set_split(split.slot, split.state_root, split.block_root);
+            assert_eq!(results.len(), 1);
+            assert!(
+                results[0].1.as_ref().as_ref().unwrap().is_none(),
+                "the skipped-checkpoint split block is EMPTY and must not be served"
+            );
+            checked_skipped_checkpoint = true;
+        }
+
+        if let Some((parent_root, _, parent_payload_is_full)) = blocks.last_mut() {
+            assert_eq!(block.parent_root(), *parent_root);
+            *parent_payload_is_full = parent_payload_status == PayloadStatus::Full;
+        }
+        blocks.push((block_root, Slot::new(slot), true));
+        state = new_state;
+    }
+
+    let split_slot = store.get_split_slot();
+    assert!(
+        split_slot > Slot::new(18),
+        "test blocks should be finalized"
+    );
+    assert!(checked_skipped_checkpoint);
+    let mut empty_roots = Vec::new();
+    for (block_root, slot, payload_is_full) in blocks {
+        assert!(store.get_blinded_block(&block_root).unwrap().is_some());
+        let has_summary = store.payload_envelope_summary_exists(&block_root).unwrap();
+        let has_body = store.payload_body_exists(&block_root).unwrap();
+
+        if slot < split_slot && !payload_is_full {
+            empty_roots.push(block_root);
+            assert!(
+                !has_summary,
+                "finalized EMPTY summary at {slot} should be pruned"
+            );
+            assert!(!has_body, "finalized EMPTY body at {slot} should be pruned");
+        } else {
+            assert!(
+                has_summary,
+                "FULL or unfinalized summary at {slot} should remain"
+            );
+            assert_eq!(
+                has_body,
+                !prune_payloads || slot >= split_slot,
+                "body retention at {slot} should follow payload pruning"
+            );
+        }
+    }
+    assert_eq!(empty_roots.len(), 5);
+
+    // Before the split, the by-range streamer relies on pruning instead of fork choice to
+    // filter EMPTY payloads. Removed summaries must prevent reconstruction from the EL.
+    let results = rig
+        .chain
+        .get_payload_envelopes(
+            empty_roots,
+            beacon_chain::payload_envelope_streamer::EnvelopeRequestSource::ByRange,
+        )
+        .collect::<Vec<_>>()
+        .await;
+    assert_eq!(results.len(), 5);
+    for (_, result) in results {
+        assert!(result.as_ref().as_ref().unwrap().is_none());
+    }
+    check_db_invariants(&rig);
+}
+
+#[tokio::test]
+async fn gloas_payload_database_invariants() {
+    for prune_payloads in [true, false] {
+        let db_path = tempdir().unwrap();
+        let store = get_store_generic(
+            &db_path,
+            StoreConfig {
+                prune_payloads,
+                ..StoreConfig::default()
+            },
+            ForkName::Gloas.make_genesis_spec(E::default_spec()),
+        );
+        let rig = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+        rig.execution_block_generator().set_generate_blobs(false);
+        let slot = Slot::new(1);
+        let (contents, envelope, state) = rig
+            .make_block_with_envelope(rig.get_current_state(), slot)
+            .await;
+        let block_root = contents.0.canonical_root();
+        let block_state_root = contents.0.state_root();
+        rig.process_block(slot, block_root, contents).await.unwrap();
+
+        // A block whose envelope has not arrived needs neither a summary nor a body,
+        // including when payload pruning is disabled.
+        assert!(!store.payload_envelope_summary_exists(&block_root).unwrap());
+        assert!(!store.payload_body_exists(&block_root).unwrap());
+        check_db_invariants(&rig);
+
+        let envelope = envelope.unwrap();
+        rig.process_envelope(block_root, envelope.clone(), &state, block_state_root)
+            .await;
+        check_db_invariants(&rig);
+
+        // The parent stays unfinalized and received, but its child selects it as EMPTY.
+        // The summary requirement must not depend on payload canonicity.
+        let child_slot = Slot::new(2);
+        rig.set_current_slot(child_slot);
+        let (child_contents, child_envelope, child_state) = rig
+            .make_block_with_envelope_on(state, child_slot, PayloadStatus::Empty)
+            .await;
+        assert!(
+            !child_contents
+                .0
+                .is_parent_block_full(envelope.message.payload.block_hash)
+        );
+        let child_root = child_contents.0.canonical_root();
+        let child_state_root = child_contents.0.state_root();
+        rig.process_block(child_slot, child_root, child_contents)
+            .await
+            .unwrap();
+        rig.process_envelope(
+            child_root,
+            child_envelope.unwrap(),
+            &child_state,
+            child_state_root,
+        )
+        .await;
+        check_db_invariants(&rig);
+
+        // Summary-only storage is valid even if the node now has payload pruning disabled.
+        store
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayload(block_root)])
+            .unwrap();
+        check_db_invariants(&rig);
+
+        store
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadWithSummary(
+                block_root,
+            )])
+            .unwrap();
+        let result = rig.chain.check_database_invariants().unwrap();
+        assert_eq!(result.violations.len(), 1, "{:#?}", result.violations);
+        assert!(matches!(
+            result.violations.first(),
+            Some(InvariantViolation::ForkChoicePayloadSummaryMissing {
+                block_root: missing_root,
+                slot: missing_slot,
+            }) if *missing_root == block_root && *missing_slot == slot
+        ));
+
+        store
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::PutPayloadEnvelope(
+                block_root,
+                Arc::new(envelope),
+            )])
+            .unwrap();
+        check_db_invariants(&rig);
+
+        // Simulate corruption that leaves a body without its atomically written summary.
+        store
+            .hot_db
+            .key_delete(DBColumn::PayloadSummary, block_root.as_slice())
+            .unwrap();
+        let result = rig.chain.check_database_invariants().unwrap();
+        assert_eq!(result.violations.len(), 2, "{:#?}", result.violations);
+        assert!(result.violations.iter().any(|violation| matches!(
+            violation,
+            InvariantViolation::ForkChoicePayloadSummaryMissing {
+                block_root: missing_root,
+                slot: missing_slot,
+            } if *missing_root == block_root && *missing_slot == slot
+        )));
+        assert!(result.violations.iter().any(|violation| matches!(
+            violation,
+            InvariantViolation::PayloadBodyMissingSummary { block_root: missing_root }
+                if *missing_root == block_root
+        )));
+    }
+}
+
+#[tokio::test]
+async fn gloas_database_invariants_check_noncanonical_received_payloads() {
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(
+        &db_path,
+        StoreConfig::default(),
+        ForkName::Gloas.make_genesis_spec(E::default_spec()),
+    );
+    let rig = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    rig.execution_block_generator().set_generate_blobs(false);
+    let state = rig.get_current_state();
+    let slot = Slot::new(1);
+    let mut roots = Vec::new();
+    for _ in 0..2 {
+        let (contents, envelope, block_state) = rig
+            .make_block_with_envelope_on(state.clone(), slot, PayloadStatus::Empty)
+            .await;
+        let block_root = contents.0.canonical_root();
+        let state_root = contents.0.state_root();
+        rig.process_block(slot, block_root, contents).await.unwrap();
+        rig.process_envelope(block_root, envelope.unwrap(), &block_state, state_root)
+            .await;
+        roots.push(block_root);
+    }
+    assert_ne!(roots[0], roots[1]);
+    check_db_invariants(&rig);
+
+    let noncanonical_root = roots
+        .into_iter()
+        .find(|root| *root != rig.head_block_root())
+        .unwrap();
+    assert!(
+        rig.chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&noncanonical_root)
+    );
+    store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayloadWithSummary(
+            noncanonical_root,
+        )])
+        .unwrap();
+    let result = rig.chain.check_database_invariants().unwrap();
+    assert_eq!(result.violations.len(), 1, "{:#?}", result.violations);
+    assert!(matches!(
+        result.violations.first(),
+        Some(InvariantViolation::ForkChoicePayloadSummaryMissing {
+            block_root,
+            slot: missing_slot,
+        }) if *block_root == noncanonical_root && *missing_slot == slot
+    ));
+}
+
+#[tokio::test]
+async fn pre_gloas_database_invariants_require_execution_payloads() {
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(
+        &db_path,
+        StoreConfig {
+            prune_payloads: false,
+            ..StoreConfig::default()
+        },
+        ForkName::Bellatrix.make_genesis_spec(E::default_spec()),
+    );
+    let rig = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    rig.extend_chain(
+        1,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    )
+    .await;
+    check_db_invariants(&rig);
+    let block_root = rig.head_block_root();
+    let slot = rig.chain.head_snapshot().beacon_block.slot();
+    store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeleteExecutionPayload(block_root)])
+        .unwrap();
+    let result = rig.chain.check_database_invariants().unwrap();
+    assert_eq!(result.violations.len(), 1, "{:#?}", result.violations);
+    assert!(matches!(
+        result.violations.first(),
+        Some(InvariantViolation::ExecutionPayloadMissing {
+            block_root: missing_root,
+            slot: missing_slot,
+        }) if *missing_root == block_root && *missing_slot == slot
+    ));
 }
 
 #[tokio::test]
@@ -4887,6 +5246,52 @@ async fn light_client_update_schema_v30_migration() {
 }
 
 #[tokio::test]
+async fn payload_envelope_storage_body_encoding() {
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
+    let block_root = Hash256::repeat_byte(0x11);
+
+    for payload in [
+        ExecutionPayloadGloas::default(),
+        ExecutionPayloadGloas {
+            transactions: vec![vec![0x01, 0x02].into(), vec![0x03].into()].into(),
+            withdrawals: vec![Withdrawal {
+                index: 1,
+                validator_index: 2,
+                address: Address::repeat_byte(0x44),
+                amount: 3,
+            }]
+            .into(),
+            block_access_list: vec![0x05, 0x06, 0x07].into(),
+            ..Default::default()
+        },
+    ] {
+        let envelope = SignedExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope {
+                payload,
+                execution_requests: Default::default(),
+                builder_index: 42,
+                beacon_block_root: block_root,
+                parent_beacon_block_root: Hash256::repeat_byte(0x33),
+            },
+            signature: Signature::empty(),
+        };
+        store.put_payload_envelope(&block_root, &envelope).unwrap();
+        assert_eq!(
+            store
+                .hot_db
+                .get_bytes(DBColumn::PayloadBody, block_root.as_slice())
+                .unwrap(),
+            Some(ExecutionPayloadBody::from(&envelope.message.payload).as_ssz_bytes())
+        );
+        assert_eq!(
+            store.get_signed_payload_envelope(&block_root).unwrap(),
+            Some(envelope)
+        );
+    }
+}
+
+#[tokio::test]
 async fn payload_envelope_schema_v31_migration() {
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
@@ -4940,6 +5345,210 @@ async fn payload_envelope_schema_v31_migration() {
         store.get_signed_payload_envelope(&block_root).unwrap(),
         Some(envelope)
     );
+}
+
+#[tokio::test]
+async fn payload_envelope_schema_v31_migration_prunes_finalized_bodies() {
+    check_payload_envelope_schema_v31_migration_pruning(true);
+}
+
+#[tokio::test]
+async fn payload_envelope_schema_v31_migration_retains_bodies_without_pruning() {
+    check_payload_envelope_schema_v31_migration_pruning(false);
+}
+
+#[tokio::test]
+async fn payload_envelope_schema_v31_migration_discards_finalized_empty_envelopes() {
+    for prune_payloads in [false, true] {
+        for parent_payload_status in [PayloadStatus::Empty, PayloadStatus::Full] {
+            let db_path = tempdir().unwrap();
+            let store = get_store_generic(
+                &db_path,
+                StoreConfig {
+                    prune_payloads,
+                    ..StoreConfig::default()
+                },
+                ForkName::Gloas.make_genesis_spec(E::default_spec()),
+            );
+            let rig = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+            let parent_slot = Slot::new(1);
+            let (parent_contents, parent_envelope, parent_state) = rig
+                .make_block_with_envelope(rig.get_current_state(), parent_slot)
+                .await;
+            let parent_root = parent_contents.0.canonical_root();
+            let parent_state_root = parent_contents.0.state_root();
+            rig.process_block(parent_slot, parent_root, parent_contents)
+                .await
+                .unwrap();
+            let parent_envelope = parent_envelope.unwrap();
+            rig.process_envelope(
+                parent_root,
+                parent_envelope.clone(),
+                &parent_state,
+                parent_state_root,
+            )
+            .await;
+
+            let child_slot = Slot::new(4);
+            rig.set_current_slot(child_slot);
+            let (child_contents, _, mut child_state) = rig
+                .make_block_with_envelope_on(parent_state, child_slot, parent_payload_status)
+                .await;
+            let child_root = child_contents.0.canonical_root();
+            assert_eq!(
+                child_contents
+                    .0
+                    .is_parent_block_full(parent_envelope.message.payload.block_hash),
+                parent_payload_status == PayloadStatus::Full
+            );
+            rig.process_block(child_slot, child_root, child_contents)
+                .await
+                .unwrap();
+
+            // Simulate a v30 database with skipped slots between parent and child, and a
+            // skipped split slot after the child.
+            store.set_split(
+                Slot::new(5),
+                child_state.canonical_root().unwrap(),
+                child_root,
+            );
+            for skipped_slot in 2_u64..4 {
+                store
+                    .cold_db
+                    .put_bytes(
+                        DBColumn::BeaconBlockRoots,
+                        &skipped_slot.to_be_bytes(),
+                        parent_root.as_slice(),
+                    )
+                    .unwrap();
+            }
+            store
+                .cold_db
+                .put_bytes(
+                    DBColumn::BeaconBlockRoots,
+                    &child_slot.as_u64().to_be_bytes(),
+                    child_root.as_slice(),
+                )
+                .unwrap();
+            store
+                .hot_db
+                .key_delete(DBColumn::PayloadSummary, parent_root.as_slice())
+                .unwrap();
+            store
+                .hot_db
+                .put_bytes(
+                    DBColumn::PayloadBody,
+                    parent_root.as_slice(),
+                    &parent_envelope.as_ssz_bytes(),
+                )
+                .unwrap();
+
+            migrate_schema::<DiskHarnessType<E>>(
+                store.clone(),
+                SchemaVersion(30),
+                SchemaVersion(31),
+            )
+            .expect("schema upgrade to v31 should succeed");
+
+            let expect_summary = parent_payload_status == PayloadStatus::Full;
+            let expect_body = expect_summary && !prune_payloads;
+            assert_eq!(
+                store.payload_envelope_summary_exists(&parent_root).unwrap(),
+                expect_summary
+            );
+            assert_eq!(
+                store.payload_body_exists(&parent_root).unwrap(),
+                expect_body
+            );
+        }
+    }
+}
+
+fn check_payload_envelope_schema_v31_migration_pruning(prune_payloads: bool) {
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(
+        &db_path,
+        StoreConfig {
+            prune_payloads,
+            ..StoreConfig::default()
+        },
+        test_spec::<E>(),
+    );
+    let split_slot = Slot::new(8);
+    store.set_split(split_slot, Hash256::zero(), Hash256::zero());
+
+    let envelopes = [0, 7, 8, 9].map(|slot| SignedExecutionPayloadEnvelope {
+        message: ExecutionPayloadEnvelope {
+            payload: ExecutionPayloadGloas {
+                slot_number: Slot::new(slot),
+                block_hash: ExecutionBlockHash::from_root(Hash256::from_low_u64_be(slot + 1)),
+                transactions: vec![vec![0x01, 0x02].into(), vec![0x03].into()].into(),
+                withdrawals: vec![Withdrawal {
+                    index: 1,
+                    validator_index: 2,
+                    address: Address::repeat_byte(0x44),
+                    amount: 3,
+                }]
+                .into(),
+                block_access_list: vec![0x05, 0x06, 0x07].into(),
+                ..Default::default()
+            },
+            execution_requests: Default::default(),
+            builder_index: 42,
+            beacon_block_root: Hash256::from_low_u64_be(slot + 1),
+            parent_beacon_block_root: Hash256::repeat_byte(0x33),
+        },
+        signature: Signature::empty(),
+    });
+
+    for envelope in &envelopes {
+        store
+            .hot_db
+            .put_bytes(
+                DBColumn::PayloadBody,
+                envelope.message.beacon_block_root.as_slice(),
+                &envelope.as_ssz_bytes(),
+            )
+            .unwrap();
+    }
+
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(30), SchemaVersion(31))
+        .expect("schema upgrade to v31 should succeed");
+
+    for envelope in envelopes {
+        let block_root = envelope.message.beacon_block_root;
+        let summary = store
+            .get_payload_envelope_summary(&block_root)
+            .unwrap()
+            .expect("every migrated envelope should retain its summary");
+        assert_eq!(
+            summary.as_ssz_bytes(),
+            SignedExecutionPayloadEnvelopeSummary::from(&envelope).as_ssz_bytes()
+        );
+        let retain_body = !prune_payloads || envelope.slot() >= split_slot;
+        assert_eq!(
+            store
+                .hot_db
+                .get_bytes(DBColumn::PayloadBody, block_root.as_slice())
+                .unwrap(),
+            retain_body
+                .then(|| ExecutionPayloadBody::from(&envelope.message.payload).as_ssz_bytes())
+        );
+        assert_eq!(
+            store
+                .hot_db
+                .key_exists(DBColumn::PayloadBody, block_root.as_slice())
+                .unwrap(),
+            retain_body,
+            "unexpected body retention at slot {}",
+            envelope.slot()
+        );
+        assert_eq!(
+            store.get_signed_payload_envelope(&block_root).unwrap(),
+            retain_body.then_some(envelope)
+        );
+    }
 }
 
 #[tokio::test]
