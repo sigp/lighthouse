@@ -3,7 +3,7 @@ use bls::{Keypair, Signature, get_withdrawal_credentials};
 use deposit_contract::{Error as DepositError, encode_eth1_tx_data};
 use eth2_keystore::{Error as KeystoreError, Keystore, KeystoreBuilder, PlainText};
 use filesystem::create_with_600_perms;
-use rand::{Rng, distr::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 use std::fs::{File, create_dir_all};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};

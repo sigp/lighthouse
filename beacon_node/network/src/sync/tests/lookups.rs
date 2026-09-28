@@ -31,7 +31,7 @@ use lighthouse_network::{
     service::api_types::{AppRequestId, SyncRequestId},
     types::SyncState,
 };
-use rand::Rng;
+use rand::RngExt;
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::collections::HashSet;
 use std::sync::Arc;

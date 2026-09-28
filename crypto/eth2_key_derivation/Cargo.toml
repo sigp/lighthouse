@@ -8,7 +8,7 @@ autotests = false
 
 [dependencies]
 bls = { workspace = true }
-num-bigint-dig = { version = "0.8.4", features = ["zeroize"] }
+num-bigint-dig = { version = "0.9.1", features = ["zeroize"] }
 ring = { workspace = true }
 sha2 = { workspace = true }
 zeroize = { workspace = true }

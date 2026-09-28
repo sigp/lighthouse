@@ -21,7 +21,7 @@ ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 filesystem = { workspace = true }
 fixed_bytes = { workspace = true }
-flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
+flate2 = { version = "1.1.10", features = ["zlib"], default-features = false }
 hashlink = { workspace = true }
 lmdb-rkv = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
 lmdb-rkv-sys = { git = "https://github.com/sigp/lmdb-rs", rev = "f33845c6469b94265319aac0ed5085597862c27e", optional = true }
@@ -32,7 +32,7 @@ metrics = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 
-redb = { version = "2.1.4", optional = true }
+redb = { version = "4.3.0", optional = true }
 safe_arith = { workspace = true }
 serde = { workspace = true }
 ssz_types = { workspace = true }

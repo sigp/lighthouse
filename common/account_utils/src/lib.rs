@@ -7,7 +7,7 @@ use eth2_wallet::{
     bip0039::{Count, Mnemonic},
 };
 use filesystem::{Error as FsError, create_with_600_perms};
-use rand::{Rng, distr::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 use std::fs::{self, File};
 use std::io;
 use std::io::prelude::*;
@@ -139,11 +139,13 @@ pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
 /// Reads a password from TTY or stdin if `use_stdin == true`.
 pub fn read_password_from_user(use_stdin: bool) -> Result<Zeroizing<String>, String> {
     let result = if use_stdin {
-        rpassword::prompt_password_stderr("")
+        let config = rpassword::ConfigBuilder::new()
+            .input_file_path("/dev/stdin")
+            .build();
+        rpassword::read_password_with_config(config)
             .map_err(|e| format!("Error reading from stdin: {}", e))
     } else {
-        rpassword::read_password_from_tty(None)
-            .map_err(|e| format!("Error reading from tty: {}", e))
+        rpassword::read_password().map_err(|e| format!("Error reading from tty: {}", e))
     };
 
     result.map(Zeroizing::from)

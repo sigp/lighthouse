@@ -14,7 +14,7 @@ fn get_workspace_crates() -> Result<Vec<String>, Box<dyn Error>> {
                 .packages
                 .iter()
                 .find(|package| &package.id == member_id)
-                .map(|package| package.name.clone())
+                .map(|package| package.name.clone().to_string())
         })
         .collect())
 }

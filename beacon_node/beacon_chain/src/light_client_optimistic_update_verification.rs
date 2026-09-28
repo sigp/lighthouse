@@ -2,6 +2,7 @@ use crate::{BeaconChain, BeaconChainTypes};
 use educe::Educe;
 use eth2::types::Hash256;
 use slot_clock::SlotClock;
+use std::marker::PhantomData;
 use std::time::Duration;
 use strum::AsRefStr;
 use types::{LightClientOptimisticUpdate, Slot};
@@ -48,13 +49,15 @@ pub enum Error {
     Ignore,
 }
 
-/// Wraps a `LightClientOptimisticUpdate` that has been verified for propagation on the gossip network.
+/// Proof that a `LightClientOptimisticUpdate` was verified for propagation on the gossip network.
+///
+/// The update itself is no longer retained — only `parent_root`, which is logged when the update
+/// is accepted. The payload is intended for the light client server work tracked in #3651.
 #[derive(Educe)]
 #[educe(Clone(bound(T: BeaconChainTypes)))]
 pub struct VerifiedLightClientOptimisticUpdate<T: BeaconChainTypes> {
-    light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
     pub parent_root: Hash256,
-    seen_timestamp: Duration,
+    _phantom: PhantomData<T>,
 }
 
 impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
@@ -153,9 +156,8 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
 
         let parent_root = rcv_optimistic_update.get_parent_root();
         Ok(Self {
-            light_client_optimistic_update: rcv_optimistic_update,
             parent_root,
-            seen_timestamp,
+            _phantom: PhantomData,
         })
     }
 }

@@ -70,7 +70,7 @@ fn random_test(seed: u64, mut db: SlasherDB<E>, test_config: TestConfig) -> Slas
     for _ in 0..num_attestations {
         let num_attesters = rng.random_range(1..num_validators);
         let mut attesting_indices = validators
-            .choose_multiple(&mut rng, num_attesters)
+            .sample(&mut rng, num_attesters)
             .copied()
             .collect::<Vec<u64>>();
         attesting_indices.sort_unstable();

@@ -12,7 +12,7 @@ eth2_wallet = { workspace = true }
 filesystem = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
-rpassword = "5.0.0"
+rpassword = "7.5.4"
 serde = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }

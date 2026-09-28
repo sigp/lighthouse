@@ -810,7 +810,7 @@ impl StorageStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{Rng, SeedableRng, rng, rngs::SmallRng};
+    use rand::{Rng, RngExt, SeedableRng, rng, rngs::SmallRng};
 
     #[test]
     fn default_storage_strategy() {

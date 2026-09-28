@@ -110,9 +110,8 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         let withdrawal_password = random_password();
 
         let derive = |key_type: KeyType, password: &[u8]| -> Result<Keystore, String> {
-            let (secret, path) =
-                recover_validator_secret_from_mnemonic(&seed, index, key_type)
-                    .map_err(|e| format!("Unable to recover validator keys: {:?}", e))?;
+            let (secret, path) = recover_validator_secret_from_mnemonic(&seed, index, key_type)
+                .map_err(|e| format!("Unable to recover validator keys: {:?}", e))?;
 
             let keypair = keypair_from_secret(secret.as_bytes())
                 .map_err(|e| format!("Unable build keystore: {:?}", e))?;

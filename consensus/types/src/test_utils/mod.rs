@@ -13,7 +13,7 @@ pub use generate_deterministic_keypairs::load_keypairs_from_yaml;
 /// Deterministic 256 KiB seed.
 #[cfg(feature = "arbitrary")]
 static SEED: std::sync::LazyLock<Vec<u8>> = std::sync::LazyLock::new(|| {
-    use rand::RngCore;
+    use rand::Rng;
     use rand::SeedableRng;
     let mut bytes = vec![0u8; 256 * 1024];
     rand_xorshift::XorShiftRng::from_seed([0x42; 16]).fill_bytes(&mut bytes);

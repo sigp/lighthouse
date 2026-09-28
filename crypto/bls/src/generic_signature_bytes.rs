@@ -78,6 +78,8 @@ impl<Pub, Sig> GenericSignatureBytes<Pub, Sig> {
     }
 }
 
+impl<Pub, Sig> Eq for GenericSignatureBytes<Pub, Sig> {}
+
 impl<Pub, Sig> PartialEq for GenericSignatureBytes<Pub, Sig> {
     fn eq(&self, other: &Self) -> bool {
         self.bytes[..] == other.bytes[..]

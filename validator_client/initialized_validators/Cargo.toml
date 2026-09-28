@@ -14,7 +14,7 @@ lockfile = { workspace = true }
 metrics = { workspace = true }
 p12-keystore = "0.3"
 parking_lot = { workspace = true }
-pem = "3"
+pem = "4"
 rand = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

@@ -24,7 +24,7 @@ fnv = { workspace = true }
 futures = { workspace = true }
 hashlink = { workspace = true }
 hex = { workspace = true }
-if-addrs = "0.14"
+if-addrs = "0.15"
 itertools = { workspace = true }
 libp2p = { workspace = true }
 libp2p-mplex = { git = "https://github.com/libp2p/rust-libp2p.git" }
