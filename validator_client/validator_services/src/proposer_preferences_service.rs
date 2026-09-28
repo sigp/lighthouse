@@ -147,10 +147,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
                 .entry((epoch, dependent_root))
                 .or_default();
 
-            let preferences_to_sign =
-                preferences_to_publish(dependent_root, &duties, published, |pubkey| {
-                    self.validator_store.proposal_data(pubkey)
-                });
+            let preferences_to_sign = preferences_to_publish(
+                dependent_root,
+                &duties,
+                published,
+                self.chain_spec.get_scheduled_gas_limit(epoch),
+                |pubkey| self.validator_store.proposal_data_at_epoch(pubkey, epoch),
+            );
 
             if preferences_to_sign.is_empty() {
                 continue;
@@ -271,6 +274,7 @@ fn preferences_to_publish(
     dependent_root: Hash256,
     duties: &[ProposerData],
     published: &HashSet<(u64, Slot)>,
+    scheduled_gas_limit: Option<u64>,
     proposal_data: impl Fn(&PublicKeyBytes) -> Option<ProposalData>,
 ) -> Vec<(PublicKeyBytes, ProposerPreferences)> {
     duties
@@ -291,6 +295,17 @@ fn preferences_to_publish(
                 );
                 return None;
             };
+            if let Some(scheduled_gas_limit) = scheduled_gas_limit
+                && proposal_data.gas_limit > scheduled_gas_limit
+            {
+                warn!(
+                    validator = ?duty.pubkey,
+                    slot = %duty.slot,
+                    configured_gas_limit = proposal_data.gas_limit,
+                    scheduled_gas_limit,
+                    "Configured gas limit exceeds the recommended maximum from the gas limit schedule"
+                );
+            }
             Some((
                 duty.pubkey,
                 ProposerPreferences {
@@ -313,7 +328,9 @@ mod tests {
     use futures::FutureExt;
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
-    use types::{Address, ForkName, Hash256, Slot};
+    use types::{
+        Address, ForkName, GasLimitSchedule, GasLimitScheduleEntry, Hash256, MainnetEthSpec, Slot,
+    };
     use validator_test_rig::validator_client_harness::{
         S, ValidatorClientHarness, ValidatorStoreConfig,
     };
@@ -358,8 +375,13 @@ mod tests {
         let published = published_preferences
             .entry((epoch, dependent_root))
             .or_default();
-        let to_sign =
-            preferences_to_publish(dependent_root, duties, published, default_proposal_data);
+        let to_sign = preferences_to_publish(
+            dependent_root,
+            duties,
+            published,
+            None,
+            default_proposal_data,
+        );
         let count = to_sign.len();
         published.extend(
             to_sign
@@ -376,12 +398,29 @@ mod tests {
 
     impl TestHarness {
         async fn new_with_validators(num_validators: usize) -> Self {
+            let mut spec = MainnetEthSpec::default_spec();
+            spec.gloas_fork_epoch = Some(Epoch::new(0));
+            Self::new_with_spec(num_validators, spec).await
+        }
+
+        async fn new_with_spec(num_validators: usize, spec: ChainSpec) -> Self {
+            Self::new_with_spec_and_gas_limit(num_validators, spec, None).await
+        }
+
+        async fn new_with_spec_and_gas_limit(
+            num_validators: usize,
+            spec: ChainSpec,
+            gas_limit: Option<u64>,
+        ) -> Self {
             let config = ValidatorStoreConfig {
                 // Need to have a fee_recipient for proposer preferences
                 fee_recipient: Some(FEE_RECIPIENT),
+                gas_limit,
                 ..Default::default()
             };
-            let harness = ValidatorClientHarness::new_with_config(num_validators, &config).await;
+            let harness =
+                ValidatorClientHarness::new_with_spec_and_config(num_validators, spec, &config)
+                    .await;
 
             let duties_service = Arc::new(
                 DutiesServiceBuilder::new()
@@ -419,7 +458,7 @@ mod tests {
                 .map(|(i, pubkey)| ProposerData {
                     pubkey: *pubkey,
                     validator_index: i as u64,
-                    slot: Slot::new(0),
+                    slot: epoch.start_slot(MainnetEthSpec::slots_per_epoch()),
                 })
                 .collect();
             self.service
@@ -442,8 +481,13 @@ mod tests {
         let duties = [duty(1, 1), duty(2, 2), duty(3, 3)];
         let published = HashSet::from([(1, Slot::new(1)), (2, Slot::new(2))]);
 
-        let result =
-            preferences_to_publish(dependent_root, &duties, &published, default_proposal_data);
+        let result = preferences_to_publish(
+            dependent_root,
+            &duties,
+            &published,
+            None,
+            default_proposal_data,
+        );
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, pubkey(3));
@@ -459,6 +503,7 @@ mod tests {
             dependent_root,
             &duties,
             &HashSet::new(),
+            None,
             default_proposal_data,
         );
 
@@ -481,16 +526,13 @@ mod tests {
         let mut published = HashSet::new();
 
         let result =
-            preferences_to_publish(
-                dependent_root,
-                &duties,
-                &published,
-                |pubkey_in| match pubkey_in {
+            preferences_to_publish(dependent_root, &duties, &published, None, |pubkey_in| {
+                match pubkey_in {
                     pk if *pk == pubkey(1) => Some(proposal_data(None)),
                     pk if *pk == pubkey(3) => None,
                     _ => Some(proposal_data(Some(FEE_RECIPIENT))),
-                },
-            );
+                }
+            });
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, pubkey(2));
@@ -498,9 +540,10 @@ mod tests {
         // A later poll, after validator 1's fee recipient becomes available and validator 2's
         // preferences were published. Validator 3 still has no proposal data.
         published.insert((2, Slot::new(2)));
-        let result = preferences_to_publish(dependent_root, &duties, &published, |pubkey_in| {
-            (*pubkey_in != pubkey(3)).then(|| proposal_data(Some(FEE_RECIPIENT)))
-        });
+        let result =
+            preferences_to_publish(dependent_root, &duties, &published, None, |pubkey_in| {
+                (*pubkey_in != pubkey(3)).then(|| proposal_data(Some(FEE_RECIPIENT)))
+            });
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, pubkey(1));
@@ -512,8 +555,13 @@ mod tests {
         let duties = [duty(1, 10), duty(1, 11)];
         let published = HashSet::from([(1, Slot::new(10))]);
 
-        let result =
-            preferences_to_publish(dependent_root, &duties, &published, default_proposal_data);
+        let result = preferences_to_publish(
+            dependent_root,
+            &duties,
+            &published,
+            None,
+            default_proposal_data,
+        );
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].0, pubkey(1));
@@ -703,6 +751,60 @@ mod tests {
         assert!(result.is_empty());
         // When there is no proposer duty, the function should return early and does not call the post proposer preferences endpoint
         mock_ssz.expect(0).assert();
+    }
+
+    #[tokio::test]
+    async fn preferences_use_the_gas_limit_scheduled_for_the_proposal_epoch() {
+        let scheduled_gas_limit = 70_000_000;
+        let next_epoch = Epoch::new(1);
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.gloas_fork_epoch = Some(Epoch::new(0));
+        spec.gas_limit_schedule = GasLimitSchedule::new(vec![GasLimitScheduleEntry {
+            epoch: next_epoch,
+            gas_limit: scheduled_gas_limit,
+        }]);
+        let mut test_harness = TestHarness::new_with_spec(1, spec).await;
+        test_harness.insert_proposer_duties(next_epoch);
+
+        let mock_json = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_proposer_preferences_json_with_gas_limit(scheduled_gas_limit);
+
+        test_harness
+            .service
+            .poll_and_publish_preferences(Epoch::new(0), &mut HashMap::new())
+            .await;
+
+        mock_json.expect(1).assert();
+    }
+
+    #[tokio::test]
+    async fn configured_gas_limit_above_the_schedule_is_published() {
+        let scheduled_gas_limit = 60_000_000;
+        let configured_gas_limit = 70_000_000;
+        let current_epoch = Epoch::new(0);
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.gloas_fork_epoch = Some(current_epoch);
+        spec.gas_limit_schedule = GasLimitSchedule::new(vec![GasLimitScheduleEntry {
+            epoch: current_epoch,
+            gas_limit: scheduled_gas_limit,
+        }]);
+        let mut test_harness =
+            TestHarness::new_with_spec_and_gas_limit(1, spec, Some(configured_gas_limit)).await;
+        test_harness.insert_proposer_duties(current_epoch);
+
+        let mock_json = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_proposer_preferences_json_with_gas_limit(configured_gas_limit);
+
+        test_harness
+            .service
+            .poll_and_publish_preferences(current_epoch, &mut HashMap::new())
+            .await;
+
+        mock_json.expect(1).assert();
     }
 
     #[tokio::test]

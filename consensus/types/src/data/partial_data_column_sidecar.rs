@@ -61,6 +61,19 @@ pub struct PartialDataColumnSidecar<E: EthSpec> {
     pub header: ListEncodedOption<PartialDataColumnHeader<E>>,
 }
 
+impl<E: EthSpec> PartialDataColumnSidecarGloas<E> {
+    pub fn max_size(max_blobs_per_block: usize) -> usize {
+        use ssz::Encode;
+
+        let cell_with_proof_size = <Cell<E> as Encode>::ssz_fixed_len()
+            .saturating_add(<KzgProof as Encode>::ssz_fixed_len());
+        let bitmap_size = (max_blobs_per_block / 8).saturating_add(1); // Include the length bit.
+        (3 * ssz::BYTES_PER_LENGTH_OFFSET)
+            .saturating_add(bitmap_size)
+            .saturating_add(max_blobs_per_block.saturating_mul(cell_with_proof_size))
+    }
+}
+
 /// Equivalent to `PartialDataColumnSidecar`, but containing references to the cells. This is done
 /// so that we can get a part of a sidecar without expensively cloning all the contents.
 #[superstruct(
