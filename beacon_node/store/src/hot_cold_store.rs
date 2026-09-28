@@ -1078,11 +1078,17 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         envelope: &SignedExecutionPayloadEnvelope<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
-        let payload_body = ExecutionPayloadBody::from(&envelope.message.payload);
+        let payload = &envelope.message.payload;
         ops.push(KeyValueStoreOp::PutKeyValue(
             DBColumn::PayloadBody,
             key.as_slice().into(),
-            payload_body.as_ssz_bytes(),
+            // The tuple has the same SSZ container layout as `ExecutionPayloadBody`.
+            (
+                &payload.transactions,
+                &payload.withdrawals,
+                &payload.block_access_list,
+            )
+                .as_ssz_bytes(),
         ));
 
         self.payload_envelope_summary_as_kv_store_op(key, envelope, ops);
