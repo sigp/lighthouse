@@ -84,8 +84,8 @@ pub enum Operation {
         expected_len: usize,
     },
     InvalidatePayload {
-        head_block_root: Hash256,
-        latest_valid_ancestor_root: Option<ExecutionBlockHash>,
+        head_hash: ExecutionBlockHash,
+        latest_valid_ancestor: Option<ExecutionBlockHash>,
     },
     AssertWeight {
         block_root: Hash256,
@@ -424,19 +424,17 @@ impl ForkChoiceTestDefinition {
                     );
                 }
                 Operation::InvalidatePayload {
-                    head_block_root,
-                    latest_valid_ancestor_root,
+                    head_hash,
+                    latest_valid_ancestor,
                 } => {
-                    let op = if let Some(latest_valid_ancestor) = latest_valid_ancestor_root {
+                    let op = if let Some(latest_valid_ancestor) = latest_valid_ancestor {
                         InvalidationOperation::InvalidateMany {
-                            head_block_root,
+                            head_hash,
                             always_invalidate_head: true,
                             latest_valid_ancestor,
                         }
                     } else {
-                        InvalidationOperation::InvalidateOne {
-                            block_root: head_block_root,
-                        }
+                        InvalidationOperation::InvalidateOne { head_hash }
                     };
                     fork_choice
                         .process_execution_payload_invalidation::<MainnetEthSpec>(
