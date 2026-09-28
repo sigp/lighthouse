@@ -16,7 +16,7 @@ use execution_layer::{
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus, ExecutionVerdict};
 use slot_clock::SlotClock;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::ShutdownReason;
@@ -172,11 +172,12 @@ impl InvalidPayloadRig {
     }
 
     fn validate_manually(&self, block_root: Hash256) {
+        let block_hash = self.block_hash(block_root);
         self.harness
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_valid_execution_payload(block_root)
+            .on_valid_execution_payload(block_hash)
             .unwrap();
     }
 
@@ -274,8 +275,8 @@ impl InvalidPayloadRig {
                 let execution_status = self.execution_status(root.into());
 
                 match forkchoice_response {
-                    Payload::Syncing => assert!(execution_status.is_strictly_optimistic()),
-                    Payload::Valid => assert!(execution_status.is_valid_and_post_bellatrix()),
+                    Payload::Syncing => assert!(is_optimistic(execution_status)),
+                    Payload::Valid => assert!(is_valid_and_post_bellatrix(execution_status)),
                     Payload::Invalid { .. } | Payload::InvalidBlockHash => unreachable!(),
                 }
 
@@ -342,10 +343,10 @@ impl InvalidPayloadRig {
         block_root
     }
 
-    async fn invalidate_manually(&self, block_root: Hash256) {
+    async fn invalidate_manually(&self, head_hash: ExecutionBlockHash) {
         self.harness
             .chain
-            .process_invalid_execution_payload(&InvalidationOperation::InvalidateOne { block_root })
+            .process_invalid_execution_payload(&InvalidationOperation::InvalidateOne { head_hash })
             .await
             .unwrap();
     }
@@ -391,7 +392,7 @@ async fn invalid_payload_invalidates_parent() {
     })
     .await;
 
-    assert!(rig.execution_status(roots[0]).is_strictly_optimistic());
+    assert!(is_optimistic(rig.execution_status(roots[0])));
     assert!(rig.execution_status(roots[1]).is_invalid());
     assert!(rig.execution_status(roots[2]).is_invalid());
 
@@ -539,9 +540,9 @@ async fn pre_finalized_latest_valid_hash() {
         let slot = Slot::new(i);
         let root = rig.block_root_at_slot(slot).unwrap();
         if slot == 1 {
-            assert!(rig.execution_status(root).is_valid_and_post_bellatrix());
+            assert!(is_valid_and_post_bellatrix(rig.execution_status(root)));
         } else {
-            assert!(rig.execution_status(root).is_strictly_optimistic());
+            assert!(is_optimistic(rig.execution_status(root)));
         }
     }
 }
@@ -589,11 +590,11 @@ async fn latest_valid_hash_will_not_validate() {
         if slot > LATEST_VALID_SLOT {
             assert!(execution_status.is_invalid())
         } else if slot == 0 {
-            assert!(execution_status.is_irrelevant())
+            assert!(is_irrelevant(execution_status))
         } else if slot == 1 {
-            assert!(execution_status.is_valid_and_post_bellatrix())
+            assert!(is_valid_and_post_bellatrix(execution_status))
         } else {
-            assert!(execution_status.is_strictly_optimistic())
+            assert!(is_optimistic(execution_status))
         }
     }
 }
@@ -634,9 +635,9 @@ async fn latest_valid_hash_is_junk() {
         let slot = Slot::new(i);
         let root = rig.block_root_at_slot(slot).unwrap();
         if slot == 1 {
-            assert!(rig.execution_status(root).is_valid_and_post_bellatrix());
+            assert!(is_valid_and_post_bellatrix(rig.execution_status(root)));
         } else {
-            assert!(rig.execution_status(root).is_strictly_optimistic());
+            assert!(is_optimistic(rig.execution_status(root)));
         }
     }
 }
@@ -730,13 +731,13 @@ async fn invalidates_all_descendants() {
         let execution_status = rig.execution_status(root);
         if slot == 0 {
             // Genesis block is pre-bellatrix.
-            assert!(execution_status.is_irrelevant());
+            assert!(is_irrelevant(execution_status));
         } else if slot == 1 {
             // First slot was imported as valid.
-            assert!(execution_status.is_valid_and_post_bellatrix());
+            assert!(is_valid_and_post_bellatrix(execution_status));
         } else if slot <= latest_valid_slot {
             // Blocks prior to and included the latest valid hash are not marked as valid.
-            assert!(execution_status.is_strictly_optimistic());
+            assert!(is_optimistic(execution_status));
         } else {
             // Blocks after the latest valid hash are invalid.
             assert!(execution_status.is_invalid());
@@ -808,10 +809,10 @@ async fn switches_heads() {
     assert_eq!(rig.harness.head_block_root(), fork_parent_root);
 
     // The fork block has not yet been validated.
-    assert!(
-        rig.execution_status(fork_block_root)
-            .is_optimistic_or_invalid()
-    );
+    assert!(matches!(
+        rig.execution_status(fork_block_root),
+        ExecutionStatus::Optimistic(_) | ExecutionStatus::Invalid(_)
+    ));
 
     for root in blocks {
         let slot = rig
@@ -830,13 +831,13 @@ async fn switches_heads() {
         let execution_status = rig.execution_status(root);
         if slot == 0 {
             // Genesis block is pre-bellatrix.
-            assert!(execution_status.is_irrelevant());
+            assert!(is_irrelevant(execution_status));
         } else if slot == 1 {
             // First slot was imported as valid.
-            assert!(execution_status.is_valid_and_post_bellatrix());
+            assert!(is_valid_and_post_bellatrix(execution_status));
         } else if slot <= latest_valid_slot {
             // Blocks prior to and included the latest valid hash are not marked as valid.
-            assert!(execution_status.is_strictly_optimistic());
+            assert!(is_optimistic(execution_status));
         } else {
             // Blocks after the latest valid hash are invalid.
             assert!(execution_status.is_invalid());
@@ -929,13 +930,13 @@ async fn manually_validate_child() {
     let parent = rig.import_block(Payload::Syncing).await;
     let child = rig.import_block(Payload::Syncing).await;
 
-    assert!(rig.execution_status(parent).is_strictly_optimistic());
-    assert!(rig.execution_status(child).is_strictly_optimistic());
+    assert!(is_optimistic(rig.execution_status(parent)));
+    assert!(is_optimistic(rig.execution_status(child)));
 
     rig.validate_manually(child);
 
-    assert!(rig.execution_status(parent).is_valid_and_post_bellatrix());
-    assert!(rig.execution_status(child).is_valid_and_post_bellatrix());
+    assert!(is_valid_and_post_bellatrix(rig.execution_status(parent)));
+    assert!(is_valid_and_post_bellatrix(rig.execution_status(child)));
 }
 
 #[tokio::test]
@@ -949,13 +950,13 @@ async fn manually_validate_parent() {
     let parent = rig.import_block(Payload::Syncing).await;
     let child = rig.import_block(Payload::Syncing).await;
 
-    assert!(rig.execution_status(parent).is_strictly_optimistic());
-    assert!(rig.execution_status(child).is_strictly_optimistic());
+    assert!(is_optimistic(rig.execution_status(parent)));
+    assert!(is_optimistic(rig.execution_status(child)));
 
     rig.validate_manually(parent);
 
-    assert!(rig.execution_status(parent).is_valid_and_post_bellatrix());
-    assert!(rig.execution_status(child).is_strictly_optimistic());
+    assert!(is_valid_and_post_bellatrix(rig.execution_status(parent)));
+    assert!(is_optimistic(rig.execution_status(child)));
 }
 
 #[tokio::test]
@@ -1049,7 +1050,7 @@ async fn invalid_parent() {
     assert_eq!(block.parent_root(), parent_root);
 
     // Invalidate the parent block.
-    rig.invalidate_manually(parent_root).await;
+    rig.invalidate_manually(rig.block_hash(parent_root)).await;
     assert!(rig.execution_status(parent_root).is_invalid());
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
@@ -1108,7 +1109,7 @@ async fn attesting_to_optimistic_head() {
         "the head should be the latest imported block"
     );
     assert!(
-        rig.execution_status(root).is_strictly_optimistic(),
+        is_optimistic(rig.execution_status(root)),
         "the head should be optimistic"
     );
 
@@ -1186,7 +1187,7 @@ async fn attesting_to_optimistic_head() {
 
     rig.validate_manually(root);
     assert!(
-        rig.execution_status(root).is_valid_and_post_bellatrix(),
+        is_valid_and_post_bellatrix(rig.execution_status(root)),
         "the head should no longer be optimistic"
     );
 
@@ -1270,7 +1271,7 @@ impl InvalidHeadSetup {
             .set_current_slot(new_wall_clock_epoch.start_slot(slots_per_epoch));
 
         // Invalidate the head block.
-        rig.invalidate_manually(invalid_head.head_block_root())
+        rig.invalidate_manually(invalid_head.head_hash().unwrap())
             .await;
 
         // Ensure the justified root is the head. This is the spec-correct choice of head when
@@ -1405,14 +1406,14 @@ async fn weights_after_resetting_optimistic_status() {
         .map(|node| (node.root(), node.weight()))
         .collect::<HashMap<_, _>>();
 
-    rig.invalidate_manually(roots[1]).await;
+    rig.invalidate_manually(rig.block_hash(roots[1])).await;
 
     rig.harness
         .chain
         .canonical_head
         .fork_choice_write_lock()
         .proto_array_mut()
-        .set_all_blocks_to_optimistic::<E>()
+        .set_all_blocks_to_optimistic::<E>(&BTreeSet::new())
         .unwrap();
 
     let new_weights = rig
@@ -1452,4 +1453,16 @@ async fn weights_after_resetting_optimistic_status() {
     for _ in 0..E::slots_per_epoch() * 4 {
         rig.import_block(Payload::Valid).await;
     }
+}
+
+fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
+    matches!(status, ExecutionStatus::Valid(_))
+}
+
+fn is_optimistic(status: ExecutionStatus) -> bool {
+    matches!(status, ExecutionStatus::Optimistic(_))
+}
+
+fn is_irrelevant(status: ExecutionStatus) -> bool {
+    matches!(status, ExecutionStatus::Irrelevant(_))
 }

@@ -1307,8 +1307,8 @@ mod tests {
 
         // Invalidate block 1 (V17). filter_block_tree excludes the entire branch.
         ops.push(Operation::InvalidatePayload {
-            head_block_root: get_root(1),
-            latest_valid_ancestor_root: Some(get_hash(0)),
+            head_hash: get_hash(1),
+            latest_valid_ancestor: Some(get_hash(0)),
         });
 
         // Head falls back to genesis — the invalid branch is no longer selectable.
