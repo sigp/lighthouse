@@ -75,7 +75,7 @@ use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, ParentImportStatus, PayloadVerificationStatus};
 use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
-use proto_array::Block as ProtoBlock;
+use proto_array::{Block as ProtoBlock, PayloadBlockHash};
 use safe_arith::ArithError;
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -975,10 +975,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
             let parent_is_full =
                 parent_block.execution_payload_block_hash == Some(bid.message.parent_block_hash);
-            let parent_execution_head = parent_block
-                .execution_payload_parent_hash
-                .or_else(|| parent_block.execution_status.block_hash())
-                .unwrap_or_default();
+            let parent_execution_head = match parent_block.checkpoint_payload_block_hash() {
+                PayloadBlockHash::Hash(hash) => hash,
+                PayloadBlockHash::PreMerge => ExecutionBlockHash::zero(),
+            };
             if !parent_is_full && bid.message.parent_block_hash != parent_execution_head {
                 return Err(BlockError::BidParentBlockHashMismatch {
                     bid_parent_block_hash: bid.message.parent_block_hash,
