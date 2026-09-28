@@ -2425,7 +2425,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .chain
             .verify_finality_update_for_gossip(light_client_finality_update, seen_timestamp)
         {
-            Ok(_verified_light_client_finality_update) => {
+            Ok(()) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
             }
             Err(e) => {

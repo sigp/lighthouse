@@ -7,7 +7,7 @@ use account_utils::{
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2_wallet::{
     PlainText,
-    bip39::{Language, Mnemonic, MnemonicType},
+    bip0039::{Count, Mnemonic},
 };
 use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
 use filesystem::create_with_600_perms;
@@ -22,12 +22,12 @@ pub const PASSWORD_FLAG: &str = "password-file";
 pub const TYPE_FLAG: &str = "type";
 pub const MNEMONIC_FLAG: &str = "mnemonic-output-path";
 pub const MNEMONIC_LENGTH_FLAG: &str = "mnemonic-length";
-pub const MNEMONIC_TYPES: &[MnemonicType] = &[
-    MnemonicType::Words12,
-    MnemonicType::Words15,
-    MnemonicType::Words18,
-    MnemonicType::Words21,
-    MnemonicType::Words24,
+pub const MNEMONIC_TYPES: &[Count] = &[
+    Count::Words12,
+    Count::Words15,
+    Count::Words18,
+    Count::Words21,
+    Count::Words24,
 ];
 pub const NEW_WALLET_PASSWORD_PROMPT: &str =
     "Enter a password for your new wallet that is at least 12 characters long:";
@@ -93,7 +93,7 @@ pub fn cli_app() -> Command {
                     match len
                         .parse::<usize>()
                         .ok()
-                        .and_then(|words| MnemonicType::for_word_count(words).ok())
+                        .and_then(|words| Count::try_from(words).ok())
                         {
                             Some(_) => Ok(len.to_string()),
                             None => Err(format!(
@@ -116,11 +116,10 @@ pub fn cli_run(matches: &ArgMatches, wallet_base_dir: PathBuf) -> Result<(), Str
 
     // Create a new random mnemonic.
     //
-    // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
-    let mnemonic_length = clap_utils::parse_required(matches, MNEMONIC_LENGTH_FLAG)?;
-    let mnemonic = Mnemonic::new(
-        MnemonicType::for_word_count(mnemonic_length).expect("Mnemonic length already validated"),
-        Language::English,
+    // The `bip0039` crate uses `thread_rng()` for this entropy.
+    let mnemonic_length: usize = clap_utils::parse_required(matches, MNEMONIC_LENGTH_FLAG)?;
+    let mnemonic = Mnemonic::generate(
+        Count::try_from(mnemonic_length).expect("Mnemonic length already validated"),
     );
 
     let wallet = create_wallet_from_mnemonic(matches, wallet_base_dir.as_path(), &mnemonic)?;

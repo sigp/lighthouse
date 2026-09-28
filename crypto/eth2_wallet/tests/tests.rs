@@ -1,8 +1,7 @@
 #![cfg(not(debug_assertions))]
 
 use eth2_wallet::{
-    DerivedKey, Error, KeyType, KeystoreError, Wallet, WalletBuilder,
-    bip39::{Language, Mnemonic, Seed},
+    DerivedKey, Error, KeyType, KeystoreError, Wallet, WalletBuilder, bip0039::Mnemonic,
     recover_validator_secret,
 };
 use std::fs::File;
@@ -75,16 +74,16 @@ fn manually_derived_withdrawal_key(index: u32) -> Vec<u8> {
 
 #[test]
 fn mnemonic_equality() {
-    let m = Mnemonic::from_phrase(MNEMONIC, Language::English).unwrap();
+    let m = Mnemonic::from_phrase(MNEMONIC).unwrap();
 
     let from_mnemonic = WalletBuilder::from_mnemonic(&m, WALLET_PASSWORD, NAME.into())
         .expect("should init builder")
         .build()
         .expect("should build wallet");
 
-    let seed = Seed::new(&m, "");
+    let seed = m.to_seed("");
 
-    let from_seed = WalletBuilder::from_seed_bytes(seed.as_bytes(), WALLET_PASSWORD, NAME.into())
+    let from_seed = WalletBuilder::from_seed_bytes(&seed, WALLET_PASSWORD, NAME.into())
         .expect("should init builder")
         .build()
         .expect("should build wallet");

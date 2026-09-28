@@ -31,12 +31,12 @@ use libp2p::gossipsub::{
 use libp2p::identity::Keypair;
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;
-use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent};
+use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent, dial_opts::DialOpts};
 use libp2p::upnp::tokio::Behaviour as Upnp;
 use libp2p::{PeerId, SwarmBuilder, identify};
 use logging::crit;
 use network_utils::enr_ext::EnrExt;
-use std::num::{NonZeroU8, NonZeroUsize};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -493,8 +493,7 @@ impl<E: EthSpec> Network<E> {
                 .with_notify_handler_buffer_size(NonZeroUsize::new(7).expect("Not zero"))
                 .with_per_connection_event_buffer_size(4)
                 .with_idle_connection_timeout(Duration::from_secs(10)) // Other clients can timeout
-                // during negotiation
-                .with_dial_concurrency_factor(NonZeroU8::new(1).unwrap());
+                .with_smart_dial();
 
             let builder = SwarmBuilder::with_existing_identity(local_keypair)
                 .with_tokio()
@@ -583,51 +582,33 @@ impl<E: EthSpec> Network<E> {
         }
 
         // helper closure for dialing peers
-        let mut dial = |mut multiaddr: Multiaddr| {
-            // strip the p2p protocol if it exists
-            strip_peer_id(&mut multiaddr);
-            match self.swarm.dial(multiaddr.clone()) {
-                Ok(()) => debug!(address = %multiaddr, "Dialing libp2p peer"),
-                Err(err) => {
-                    debug!(address = %multiaddr, error = ?err, "Could not connect to peer")
-                }
-            };
+        let mut dial = |opts: DialOpts| {
+            debug!(?opts, "Dialing libp2p peer");
+            if let Err(error) = self.swarm.dial(opts) {
+                debug!(%error, "Could not connect to peer");
+            }
         };
-
-        // attempt to connect to user-input libp2p nodes
-        // DEPRECATED: can be removed in v8.2.0./v9.0.0
-        for multiaddr in &config.libp2p_nodes {
-            dial(multiaddr.clone());
-        }
 
         // attempt to connect to any specified boot-nodes
         let mut boot_nodes = config.boot_nodes_enr.clone();
         boot_nodes.dedup();
 
         for bootnode_enr in boot_nodes {
-            // If QUIC is enabled, attempt QUIC connections first
-            if !config.disable_quic_support {
-                for quic_multiaddr in &bootnode_enr.dialable_multiaddrs_quic() {
-                    if !self
-                        .network_globals
-                        .peers
-                        .read()
-                        .is_connected_or_dialing(&bootnode_enr.peer_id())
-                    {
-                        dial(quic_multiaddr.clone());
-                    }
-                }
-            }
+            // Dial all of the boot node's addresses in a single attempt so smart
+            // dialing can rank them (QUIC first) and apply Happy Eyeballs delays.
+            let mut multiaddrs = if config.disable_quic_support {
+                vec![]
+            } else {
+                bootnode_enr.dialable_multiaddrs_quic()
+            };
+            multiaddrs.extend(bootnode_enr.dialable_multiaddrs_tcp());
 
-            for multiaddr in &bootnode_enr.dialable_multiaddrs_tcp() {
-                if !self
-                    .network_globals
-                    .peers
-                    .read()
-                    .is_connected_or_dialing(&bootnode_enr.peer_id())
-                {
-                    dial(multiaddr.clone());
-                }
+            if !multiaddrs.is_empty() {
+                dial(
+                    DialOpts::peer_id(bootnode_enr.peer_id())
+                        .addresses(multiaddrs)
+                        .build(),
+                );
             }
         }
 
@@ -637,7 +618,10 @@ impl<E: EthSpec> Network<E> {
                 .iter()
                 .any(|proto| matches!(proto, MProtocol::Tcp(_)))
             {
-                dial(multiaddr.clone());
+                let mut multiaddr = multiaddr.clone();
+                // strip the p2p protocol if it exists
+                strip_peer_id(&mut multiaddr);
+                dial(multiaddr.into());
             }
         }
 

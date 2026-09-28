@@ -1,4 +1,5 @@
 #![cfg(test)]
+use base64::prelude::{BASE64_STANDARD, Engine as _};
 use eth2_interop_keypairs::{be_private_key, keypair};
 use num_bigint::BigUint;
 
@@ -45,7 +46,9 @@ fn reference_public_keys() {
     ];
     reference.iter().enumerate().for_each(|(i, reference)| {
         let pair = keypair(i);
-        let reference = base64::decode(reference).expect("Reference should be valid base64");
+        let reference = BASE64_STANDARD
+            .decode(reference)
+            .expect("Reference should be valid base64");
 
         assert_eq!(
             reference.len(),

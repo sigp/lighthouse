@@ -9,7 +9,7 @@ alloy-consensus = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
 alloy-rpc-types-eth = { workspace = true }
-arc-swap = "1.6.0"
+arc-swap = "1.9.2"
 bls = { workspace = true }
 builder_client = { workspace = true }
 bytes = { workspace = true }
@@ -18,12 +18,16 @@ ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 fixed_bytes = { workspace = true }
 fork_choice = { workspace = true }
-hash-db = "0.15.2"
+# MUST match `triehash`'s own `hash-db ^0.15.2`. triehash 0.8.4 (latest, 2021)
+# is pinned to the 0.15 series, and one type cannot implement two versions of
+# `hash_db::Hasher`. `cargo upgrade` will otherwise bump this and fail the build
+# with `the trait bound KeccakHasher: hash_db::Hasher is not satisfied`.
+hash-db = "~0.15.2"
 hash256-std-hasher = "0.15.2"
 hashlink = { workspace = true }
 hex = { workspace = true }
-jsonwebtoken = "9"
-keccak-hash = "0.10.0"
+jsonwebtoken = "11"
+keccak-hash = "0.12.0"
 kzg = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }

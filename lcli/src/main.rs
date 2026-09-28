@@ -22,6 +22,10 @@ use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, util::Subscr
 use types::{EthSpec, EthSpecId};
 
 fn main() {
+    // Use `aws-lc-rs` for all rustls-backed TLS (`reqwest` etc.), matching the `lighthouse`
+    // binary.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     let matches = Command::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
         .display_order(0)

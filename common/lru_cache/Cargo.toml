@@ -8,4 +8,4 @@ edition = { workspace = true }
 fnv = { workspace = true }
 
 [dev-dependencies]
-mock_instant = "0.3"
+mock_instant = "0.6"

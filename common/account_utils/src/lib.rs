@@ -4,10 +4,10 @@
 use eth2_keystore::Keystore;
 use eth2_wallet::{
     Wallet,
-    bip39::{Language, Mnemonic, MnemonicType},
+    bip0039::{Count, Mnemonic},
 };
 use filesystem::{Error as FsError, create_with_600_perms};
-use rand::{Rng, distr::Alphanumeric};
+use rand::{RngExt, distr::Alphanumeric};
 use std::fs::{self, File};
 use std::io;
 use std::io::prelude::*;
@@ -139,11 +139,13 @@ pub fn strip_off_newlines(mut bytes: Vec<u8>) -> Vec<u8> {
 /// Reads a password from TTY or stdin if `use_stdin == true`.
 pub fn read_password_from_user(use_stdin: bool) -> Result<Zeroizing<String>, String> {
     let result = if use_stdin {
-        rpassword::prompt_password_stderr("")
+        let config = rpassword::ConfigBuilder::new()
+            .input_file_path("/dev/stdin")
+            .build();
+        rpassword::read_password_with_config(config)
             .map_err(|e| format!("Error reading from stdin: {}", e))
     } else {
-        rpassword::read_password_from_tty(None)
-            .map_err(|e| format!("Error reading from tty: {}", e))
+        rpassword::read_password().map_err(|e| format!("Error reading from tty: {}", e))
     };
 
     result.map(Zeroizing::from)
@@ -198,12 +200,12 @@ pub fn is_password_sufficiently_complex(password: &[u8]) -> Result<(), String> {
 
 /// Returns a random 24-word english mnemonic.
 pub fn random_mnemonic() -> Mnemonic {
-    Mnemonic::new(MnemonicType::Words24, Language::English)
+    Mnemonic::generate(Count::Words24)
 }
 
 /// Attempts to parse a mnemonic phrase.
 pub fn mnemonic_from_phrase(phrase: &str) -> Result<Mnemonic, String> {
-    Mnemonic::from_phrase(phrase, Language::English).map_err(|e| e.to_string())
+    Mnemonic::from_phrase(phrase).map_err(|e| e.to_string())
 }
 
 pub fn read_mnemonic_from_cli(
@@ -217,7 +219,7 @@ pub fn read_mnemonic_from_cli(
                 let bytes_no_newlines: PlainText = strip_off_newlines(bytes).into();
                 let phrase = from_utf8(bytes_no_newlines.as_ref())
                     .map_err(|e| format!("Unable to derive mnemonic: {:?}", e))?;
-                Mnemonic::from_phrase(phrase, Language::English).map_err(|e| {
+                Mnemonic::from_phrase(phrase).map_err(|e| {
                     format!(
                         "Unable to derive mnemonic from string {:?}: {:?}",
                         phrase, e
@@ -230,7 +232,7 @@ pub fn read_mnemonic_from_cli(
 
             let mnemonic = read_input_from_user(stdin_inputs)?;
 
-            match Mnemonic::from_phrase(mnemonic.as_str(), Language::English) {
+            match Mnemonic::from_phrase(mnemonic.as_str()) {
                 Ok(mnemonic_m) => {
                     eprintln!("Valid mnemonic provided.");
                     eprintln!();

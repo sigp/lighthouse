@@ -12,7 +12,7 @@ use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::rpc::methods::MetaDataV3;
 use lighthouse_network::{
     ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
-    discv5::enr::CombinedKey,
+    enr::CombinedKey,
     libp2p::swarm::{
         ConnectionId, NetworkBehaviour,
         behaviour::{ConnectionEstablished, FromSwarm},

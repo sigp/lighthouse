@@ -34,7 +34,7 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
             TreeHash,
         ),
         context_deserialize(ForkName),
-        educe(PartialEq, Hash(bound(E: EthSpec))),
+        educe(PartialEq, Eq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -52,7 +52,7 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
     arbitrary(bound = "E: EthSpec")
 )]
 #[derive(Debug, Clone, Serialize, TreeHash, Encode, Educe, Deserialize)]
-#[educe(PartialEq)]
+#[educe(PartialEq, Eq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]

@@ -40,7 +40,7 @@ use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::inclusion_list_store::{DependentRoot, InclusionListStore};
 use crate::light_client_finality_update_verification::{
-    Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
+    Error as LightClientFinalityUpdateError, verify_finality_update,
 };
 use crate::light_client_optimistic_update_verification::{
     Error as LightClientOptimisticUpdateError, VerifiedLightClientOptimisticUpdate,
@@ -121,7 +121,7 @@ use operation_pool::{
 use parking_lot::{Mutex, RwLock};
 use proof_engine::ProofEngine;
 use proto_array::{DoNotReOrg, PayloadBlockHash, ProposerHeadError, ReOrgThreshold};
-use rand::RngCore;
+use rand::Rng;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
 use slasher::Slasher;
@@ -540,7 +540,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// at startup, so nodes started post-fork skip the cache's allocation entirely.
     pub builder_onboarding_cache: Option<Arc<OnboardBuildersCache>>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
-    pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
+    pub rng: Arc<Mutex<Box<dyn Rng + Send>>>,
 }
 
 pub enum BeaconBlockResponseWrapper<E: EthSpec> {
@@ -2413,13 +2413,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         light_client_finality_update: LightClientFinalityUpdate<T::EthSpec>,
         seen_timestamp: Duration,
-    ) -> Result<VerifiedLightClientFinalityUpdate<T>, LightClientFinalityUpdateError> {
-        VerifiedLightClientFinalityUpdate::verify(
-            light_client_finality_update,
-            self,
-            seen_timestamp,
-        )
-        .inspect(|_| {
+    ) -> Result<(), LightClientFinalityUpdateError> {
+        verify_finality_update(light_client_finality_update, self, seen_timestamp).inspect(|_| {
             metrics::inc_counter(&metrics::FINALITY_UPDATE_PROCESSING_SUCCESSES);
         })
     }

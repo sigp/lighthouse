@@ -2,7 +2,7 @@ use crate::{
     LockedWallet,
     filesystem::{Error as FilesystemError, create},
 };
-use eth2_wallet::{Error as WalletError, Uuid, Wallet, WalletBuilder, bip39::Mnemonic};
+use eth2_wallet::{Error as WalletError, Uuid, Wallet, WalletBuilder, bip0039::Mnemonic};
 use lockfile::LockfileError;
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -198,7 +198,7 @@ impl WalletManager {
 mod tests {
     use super::*;
     use crate::{filesystem::read, locked_wallet::LOCK_FILE};
-    use eth2_wallet::bip39::{Language, Mnemonic};
+    use eth2_wallet::bip0039::Mnemonic;
     use tempfile::tempdir;
 
     const MNEMONIC: &str =
@@ -206,7 +206,7 @@ mod tests {
     const WALLET_PASSWORD: &[u8] = &[43; 43];
 
     fn get_mnemonic() -> Mnemonic {
-        Mnemonic::from_phrase(MNEMONIC, Language::English).unwrap()
+        Mnemonic::from_phrase(MNEMONIC).unwrap()
     }
 
     fn create_wallet(mgr: &WalletManager, id: usize) -> LockedWallet {

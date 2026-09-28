@@ -12,7 +12,7 @@ use eth2::types::BlobsBundle;
 use fixed_bytes::FixedBytesExtended;
 use kzg::{Kzg, KzgCommitment, KzgProof};
 use parking_lot::Mutex;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_types::{FixedVector, ProgressiveVariableList, VariableList};

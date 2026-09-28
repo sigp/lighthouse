@@ -15,7 +15,7 @@ supranational-force-adx = ["supranational", "blst/force-adx"]
 [dependencies]
 alloy-primitives = { workspace = true }
 arbitrary = { workspace = true, optional = true }
-blst = { version = "0.3.3", optional = true }
+blst = { version = "0.3.17", optional = true }
 ethereum_hashing = { workspace = true }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }

@@ -6,7 +6,8 @@ use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::{
     Eth2Enr,
-    discv5::{self, Discv5, enr::NodeId},
+    discv5::{self, Discv5},
+    enr::NodeId,
 };
 use network_utils::enr_ext::EnrExt;
 use tracing::{info, warn};

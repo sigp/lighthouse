@@ -10,12 +10,12 @@ autotests = false
 bls = { workspace = true }
 ethereum_hashing = { workspace = true }
 hex = { workspace = true }
-num-bigint = "0.4.2"
+num-bigint = "0.5.1"
 serde = { workspace = true }
 yaml_serde = { workspace = true }
 
 [dev-dependencies]
-base64 = "0.13.0"
+base64 = "0.23.1"
 
 [[test]]
 name = "eth2_interop_keypairs_tests"

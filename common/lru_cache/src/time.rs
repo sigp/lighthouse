@@ -1,7 +1,7 @@
 //! This implements a time-based LRU cache for fast checking of duplicates
 use fnv::FnvHashSet;
 #[cfg(test)]
-use mock_instant::Instant;
+use mock_instant::global::Instant;
 use std::collections::VecDeque;
 
 #[cfg(not(test))]
@@ -234,16 +234,16 @@ mod test {
         cache.insert("a");
         cache.insert("b");
 
-        mock_instant::MockClock::advance(Duration::from_millis(20));
+        mock_instant::global::MockClock::advance(Duration::from_millis(20));
         cache.insert("a");
         // a is newer now
 
-        mock_instant::MockClock::advance(Duration::from_millis(85));
+        mock_instant::global::MockClock::advance(Duration::from_millis(85));
         assert!(cache.contains(&"a"),);
         // b was inserted first but was not as recent it should have been removed
         assert!(!cache.contains(&"b"));
 
-        mock_instant::MockClock::advance(Duration::from_millis(16));
+        mock_instant::global::MockClock::advance(Duration::from_millis(16));
         assert!(!cache.contains(&"a"));
     }
 }

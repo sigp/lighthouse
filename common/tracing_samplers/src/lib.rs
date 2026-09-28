@@ -1,8 +1,10 @@
 //! OpenTelemetry samplers for filtering traces.
 
-use opentelemetry::Context;
-use opentelemetry::trace::{Link, SamplingDecision, SamplingResult, SpanKind, TraceState};
-use opentelemetry_sdk::trace::ShouldSample;
+use opentelemetry::{
+    Context,
+    trace::{Link, SpanKind, TraceState},
+};
+use opentelemetry_sdk::trace::{SamplingDecision, SamplingResult, ShouldSample};
 
 /// A sampler that only samples spans whose names start with a given prefix.
 ///
