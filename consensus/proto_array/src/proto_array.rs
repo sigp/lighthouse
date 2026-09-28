@@ -24,32 +24,34 @@ four_byte_option_impl!(four_byte_option_usize, usize);
 four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
 /// Defines an operation which may invalidate the `execution_status` of some nodes.
+///
+/// The EL judges payloads, so an operation names payloads by their execution block hash. Fork
+/// choice applies it to every block that commits to the named payload.
 #[derive(Clone, Debug)]
 pub enum InvalidationOperation {
-    /// Invalidate only `block_root` and it's descendants. Don't invalidate any ancestors.
-    InvalidateOne { block_root: Hash256 },
-    /// Invalidate blocks between `head_block_root` and `latest_valid_ancestor`.
+    /// Invalidate only the payload `head_hash` and its descendants. Don't invalidate any
+    /// ancestors.
+    InvalidateOne { head_hash: ExecutionBlockHash },
+    /// Invalidate payloads between `head_hash` and `latest_valid_ancestor`.
     ///
-    /// If the `latest_valid_ancestor` is known to fork choice, invalidate all blocks between
-    /// `head_block_root` and `latest_valid_ancestor`. The `head_block_root` will be invalidated,
-    /// whilst the `latest_valid_ancestor` will not.
+    /// If the `latest_valid_ancestor` is known to fork choice, invalidate all payloads between
+    /// `head_hash` and `latest_valid_ancestor`. The `head_hash` will be invalidated, whilst the
+    /// `latest_valid_ancestor` will not.
     ///
-    /// If `latest_valid_ancestor` is *not* known to fork choice, only invalidate the
-    /// `head_block_root` if `always_invalidate_head == true`.
+    /// If `latest_valid_ancestor` is *not* known to fork choice, only invalidate the `head_hash`
+    /// if `always_invalidate_head == true`.
     InvalidateMany {
-        head_block_root: Hash256,
+        head_hash: ExecutionBlockHash,
         always_invalidate_head: bool,
         latest_valid_ancestor: ExecutionBlockHash,
     },
 }
 
 impl InvalidationOperation {
-    pub fn block_root(&self) -> Hash256 {
+    pub fn head_hash(&self) -> ExecutionBlockHash {
         match self {
-            InvalidationOperation::InvalidateOne { block_root } => *block_root,
-            InvalidationOperation::InvalidateMany {
-                head_block_root, ..
-            } => *head_block_root,
+            InvalidationOperation::InvalidateOne { head_hash } => *head_hash,
+            InvalidationOperation::InvalidateMany { head_hash, .. } => *head_hash,
         }
     }
 
@@ -63,7 +65,7 @@ impl InvalidationOperation {
         }
     }
 
-    pub fn invalidate_block_root(&self) -> bool {
+    pub fn invalidate_head(&self) -> bool {
         match self {
             InvalidationOperation::InvalidateOne { .. } => true,
             InvalidationOperation::InvalidateMany {
@@ -906,168 +908,200 @@ impl ProtoArray {
 
     /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.
     ///
-    /// See the documentation of `InvalidationOperation` for usage.
+    /// See `find_deepest_node_to_invalidate` for the model, and the documentation of
+    /// `InvalidationOperation` for usage.
     pub fn propagate_execution_payload_invalidation<E: EthSpec>(
         &mut self,
         op: &InvalidationOperation,
         best_finalized_checkpoint: Checkpoint,
     ) -> Result<(), Error> {
-        let mut invalidated_indices: HashSet<usize> = <_>::default();
-        let head_block_root = op.block_root();
-
-        /*
-         * Step 1:
-         *
-         * Find the `head_block_root` and maybe iterate backwards and invalidate ancestors. Record
-         * all invalidated block indices in `invalidated_indices`.
-         */
-
-        let mut index = *self
-            .indices
-            .get(&head_block_root)
-            .ok_or(Error::NodeUnknown(head_block_root))?;
-
-        // Try to map the ancestor payload *hash* to an ancestor beacon block *root*.
-        let latest_valid_ancestor_root = op
-            .latest_valid_ancestor()
-            .and_then(|hash| self.execution_block_hash_to_beacon_block_root(&hash));
-
-        // Set to `true` if both conditions are satisfied:
-        //
-        // 1. The `head_block_root` is a descendant of `latest_valid_ancestor_hash`
-        // 2. The `latest_valid_ancestor_hash` is equal to or a descendant of the finalized block.
-        let latest_valid_ancestor_is_descendant =
-            latest_valid_ancestor_root.is_some_and(|ancestor_root| {
-                self.is_descendant(ancestor_root, head_block_root)
-                    && self.is_finalized_checkpoint_or_descendant::<E>(
-                        ancestor_root,
-                        best_finalized_checkpoint,
-                    )
-            });
-
-        // Collect all *ancestors* which were declared invalid since they reside between the
-        // `head_block_root` and the `latest_valid_ancestor_root`.
-        loop {
-            let node = self
-                .nodes
-                .get_mut(index)
-                .ok_or(Error::InvalidNodeIndex(index))?;
-
-            let node_execution_status = node.execution_status();
-            match node_execution_status {
-                Ok(ExecutionStatus::Valid(hash))
-                | Ok(ExecutionStatus::Invalid(hash))
-                | Ok(ExecutionStatus::Optimistic(hash)) => {
-                    // If we're no longer processing the `head_block_root` and the last valid
-                    // ancestor is unknown, exit this loop and proceed to invalidate and
-                    // descendants of `head_block_root`/`latest_valid_ancestor_root`.
-                    //
-                    // In effect, this means that if an unknown hash (junk or pre-finalization) is
-                    // supplied, don't validate any ancestors. The alternative is to invalidate
-                    // *all* ancestors, which would likely involve shutting down the client due to
-                    // an invalid justified checkpoint.
-                    if !latest_valid_ancestor_is_descendant && node.root() != head_block_root {
-                        break;
-                    } else if op.latest_valid_ancestor() == Some(hash) {
-                        // Reached latest valid block, stop invalidating further.
-                        break;
-                    }
-                }
-                Ok(ExecutionStatus::Irrelevant(_)) => break,
-                Err(_) => break,
-            }
-
-            // Only invalidate the head block if either:
-            //
-            // - The head block was specifically indicated to be invalidated.
-            // - The latest valid hash is a known ancestor.
-            if node.root() != head_block_root
-                || op.invalidate_block_root()
-                || latest_valid_ancestor_is_descendant
-            {
-                match node.execution_status() {
-                    // It's illegal for an execution client to declare that some previously-valid block
-                    // is now invalid. This is a consensus failure on their behalf.
-                    Ok(ExecutionStatus::Valid(hash)) => {
-                        return Err(Error::ValidExecutionStatusBecameInvalid {
-                            block_root: node.root(),
-                            payload_block_hash: hash,
-                        });
-                    }
-                    Ok(ExecutionStatus::Optimistic(hash)) => {
-                        invalidated_indices.insert(index);
-                        if let ProtoNode::V17(node) = node {
-                            node.execution_status = ExecutionStatus::Invalid(hash);
-                        }
-                    }
-                    // The block is already invalid, but keep going backwards to ensure all ancestors
-                    // are updated.
-                    Ok(ExecutionStatus::Invalid(_)) => (),
-                    // This block is pre-merge, therefore it has no execution status. Nor do its
-                    // ancestors.
-                    Ok(ExecutionStatus::Irrelevant(_)) => break,
-                    Err(_) => break,
-                }
-            }
-
-            if let Some(parent_index) = node.parent() {
-                index = parent_index
-            } else {
-                // The root of the block tree has been reached (aka the finalized block), without
-                // matching `latest_valid_ancestor_hash`. It's not possible or useful to go any
-                // further back: the finalized checkpoint is invalid so all is lost!
-                break;
+        // Find `Pn`, the deepest node to invalidate, from every block that commits to the head
+        // payload.
+        let head_indices = self.execution_block_hash_to_node_indices(&op.head_hash());
+        // The head payload must be tracked, as the old `NodeUnknown` guard required. Only
+        // `notify_new_payload` (invalidate_head == false) may name a pre-merge parent with no node.
+        if head_indices.is_empty() && op.invalidate_head() {
+            return Err(Error::PayloadHashUnknown(op.head_hash()));
+        }
+        for head_index in head_indices {
+            if let Some(deepest_executed_index) = self.find_deepest_node_to_invalidate::<E>(
+                head_index,
+                op,
+                best_finalized_checkpoint,
+            )? {
+                self.invalidate_node_and_descendants(deepest_executed_index)?;
             }
         }
 
-        /*
-         * Step 2:
-         *
-         * Start at either the `latest_valid_ancestor` or the `head_block_root` and iterate
-         * *forwards* to invalidate all descendants of all blocks in `invalidated_indices`.
-         */
+        Ok(())
+    }
 
-        let starting_block_root = latest_valid_ancestor_root
-            .filter(|_| latest_valid_ancestor_is_descendant)
-            .unwrap_or(head_block_root);
-        let latest_valid_ancestor_index = *self
-            .indices
-            .get(&starting_block_root)
-            .ok_or(Error::NodeUnknown(starting_block_root))?;
-        let first_potential_descendant = latest_valid_ancestor_index + 1;
+    /// Find `Pn`, the deepest node an `InvalidationOperation` condemns.
+    ///
+    /// Spec — `H`: EL hash, `B`: beacon block root, `P`: proto node entry:
+    ///
+    /// On INVALID the EL invalidates a range of EL hashes `H0..=Hn`, head first: `Hn` is the
+    /// deepest and its parent is the latest valid hash. Assuming no equivocations the mapping
+    /// `H-B-P` is exactly one-to-one, so the range maps to proto nodes `P0..=Pn`, independent
+    /// of payload status. If `Hn` is INVALID, all children of `Hn` are INVALID, so all proto
+    /// node children of `Pn` must be marked INVALID regardless of payload status.
+    ///
+    /// The condemned set `Sb` is the path `P0..=Pn` extended past gaps down to the deepest
+    /// executed node. Marking `Pn` and sweeping descendants condemns all of it: the node above
+    /// `Pn` is a `FULL`-edge child of `Pn` (that is what makes `Pn` the deepest executed
+    /// node), so only `Pn` needs returning.
+    ///
+    /// The latest-valid-ancestor rules pick one of three outcomes: the range from the head down to
+    /// the vouched latest valid block (exclusive), the head alone when only the head itself was
+    /// judged, or nothing.
+    ///
+    /// `head_index` is a block that commits to the operation's head payload.
+    fn find_deepest_node_to_invalidate<E: EthSpec>(
+        &self,
+        head_index: usize,
+        op: &InvalidationOperation,
+        best_finalized_checkpoint: Checkpoint,
+    ) -> Result<Option<usize>, Error> {
+        let head_block_root = self
+            .nodes
+            .get(head_index)
+            .ok_or(Error::InvalidNodeIndex(head_index))?
+            .root();
 
-        // Collect all *descendants* which have been declared invalid since they're the descendant of a block
-        // with an invalid execution payload.
-        for index in first_potential_descendant..self.nodes.len() {
+        // Map the latest valid ancestor *hash* to a beacon block *root*, keeping it only if it
+        // is an ancestor of the head, at or above finalization.
+        let latest_valid_ancestor_root = op
+            .latest_valid_ancestor()
+            .and_then(|hash| self.execution_block_hash_to_beacon_block_root(&hash))
+            .filter(|&root| {
+                self.is_descendant(root, head_block_root)
+                    && self
+                        .is_finalized_checkpoint_or_descendant::<E>(root, best_finalized_checkpoint)
+            });
+
+        match latest_valid_ancestor_root {
+            // The chain down to the latest valid block is condemned.
+            Some(root) => {
+                let latest_valid_index =
+                    *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;
+                self.find_deepest_executed_node(head_index, latest_valid_index)
+            }
+            // The head was judged directly but the latest valid hash is unusable (junk or
+            // pre-finalization): condemn the head alone. Guessing at ancestors could reach the
+            // justified checkpoint and shut the client down.
+            None if op.invalidate_head() => Ok(Some(head_index)),
+            // The head was never judged and the latest valid hash is unusable: condemn nothing.
+            None => Ok(None),
+        }
+    }
+
+    /// Walk from `head_index` up to `latest_valid_index` (exclusive) and return the deepest node
+    /// whose payload this branch executed, or `None` when the range is empty.
+    fn find_deepest_executed_node(
+        &self,
+        head_index: usize,
+        latest_valid_index: usize,
+    ) -> Result<Option<usize>, Error> {
+        // Collect every node in the range, recording whether this branch executed its
+        // payload. The head is executed by definition; every other node takes it from its
+        // child's edge.
+        let mut path: Vec<(usize, bool)> = Vec::new();
+        let mut payload_executed = true;
+        let mut index = head_index;
+        loop {
+            if index == latest_valid_index {
+                break;
+            }
+            let node = self
+                .nodes
+                .get(index)
+                .ok_or(Error::InvalidNodeIndex(index))?;
+
+            path.push((index, payload_executed));
+
+            let Some(parent_index) = node.parent() else {
+                break;
+            };
+            // A `PreGloas` payload rides inside its block, so that edge is executed too.
+            payload_executed = match node.get_parent_payload_status() {
+                ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => true,
+                ParentPayloadStatus::Empty => false,
+            };
+            index = parent_index;
+        }
+
+        // `Pn` is the deepest executed entry; the gap tail below it sits on valid state.
+        Ok(path
+            .iter()
+            .rev()
+            .find(|&&(_, payload_executed)| payload_executed)
+            .map(|&(index, _)| index))
+    }
+
+    /// Invalidate `Pn` and all its descendants, walking the children index. The only exception:
+    /// descendants on `Pn`'s `EMPTY` edge stay viable — `Pn` is the one node invalid without an
+    /// invalid payload in its own state lineage. Every deeper parent poisons its descendants
+    /// whichever edge they took, and a `PreGloas` edge never escapes: that parent carries its
+    /// payload inside the block.
+    fn invalidate_node_and_descendants(
+        &mut self,
+        deepest_executed_index: usize,
+    ) -> Result<(), Error> {
+        // Each node has one parent, so it sits in exactly one children list: the walk visits
+        // every condemned node exactly once with no bookkeeping.
+        let mut to_invalidate: Vec<usize> = vec![deepest_executed_index];
+        while let Some(index) = to_invalidate.pop() {
             let node = self
                 .nodes
                 .get_mut(index)
                 .ok_or(Error::InvalidNodeIndex(index))?;
-
-            if let Some(parent_index) = node.parent()
-                && invalidated_indices.contains(&parent_index)
-            {
-                match node.execution_status() {
-                    Ok(ExecutionStatus::Valid(hash)) => {
+            match node {
+                ProtoNode::V17(node) => match node.execution_status {
+                    // It's illegal for an execution client to declare that some previously-valid
+                    // block is now invalid. This is a consensus failure on their behalf.
+                    ExecutionStatus::Valid(hash) => {
                         return Err(Error::ValidExecutionStatusBecameInvalid {
-                            block_root: node.root(),
+                            block_root: node.root,
                             payload_block_hash: hash,
                         });
                     }
-                    Ok(ExecutionStatus::Optimistic(hash)) | Ok(ExecutionStatus::Invalid(hash)) => {
-                        if let ProtoNode::V17(node) = node {
-                            node.execution_status = ExecutionStatus::Invalid(hash)
-                        }
+                    ExecutionStatus::Optimistic(hash) | ExecutionStatus::Invalid(hash) => {
+                        node.execution_status = ExecutionStatus::Invalid(hash);
                     }
-                    Ok(ExecutionStatus::Irrelevant(_)) => {
+                    // A pre-merge descendant of an executed block is a contradiction.
+                    ExecutionStatus::Irrelevant(_) => {
                         return Err(Error::IrrelevantDescendant {
-                            block_root: node.root(),
+                            block_root: node.root,
                         });
                     }
-                    Err(_) => (),
-                }
+                },
+                // Gloas nodes don't track execution status yet; sweep through to their
+                // descendants.
+                ProtoNode::V29(_) => (),
+            }
 
-                invalidated_indices.insert(index);
+            for &child_index in self
+                .children
+                .get(index)
+                .ok_or(Error::InvalidNodeIndex(index))?
+            {
+                let child = self
+                    .nodes
+                    .get(child_index)
+                    .ok_or(Error::InvalidNodeIndex(child_index))?;
+
+                // deepest_executed_index is the oldest ancestor INVALID. We know
+                // parent(deepest_executed_index) is VALID. So EMPTY childs of
+                // deepest_executed_index are descendant of the VALID parent.
+                if index == deepest_executed_index {
+                    match child.get_parent_payload_status() {
+                        ParentPayloadStatus::Empty => continue,
+                        // `Full` executed the invalid payload; a `PreGloas` edge carries the
+                        // parent's payload inside the block.
+                        ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {}
+                    }
+                }
+                to_invalidate.push(child_index);
             }
         }
 
