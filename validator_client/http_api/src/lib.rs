@@ -1254,7 +1254,7 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let graffiti = get_graffiti(pubkey.clone(), validator_store, graffiti_flag)?;
                     Ok(GenericResponse::from(GetGraffitiResponse {
                         pubkey: pubkey.into(),
-                        graffiti,
+                        graffiti: graffiti.as_utf8_lossy(),
                     }))
                 })
             },
