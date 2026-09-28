@@ -4,8 +4,8 @@ use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
     Block as ProtoBlock, ExecutionStatus, ExecutionVerdict, ForkChoiceNode, JustifiedBalances,
-    LatestMessage, PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice,
-    ReOrgThreshold,
+    LatestMessage, PayloadBlockHash, PayloadStatus, ProposerHeadError, ProposerHeadInfo,
+    ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -601,17 +601,26 @@ where
         let (head_root, head_payload_status) = head_node.as_pair();
 
         // Cache some values for the next forkchoiceUpdate call to the execution layer.
-        let head_hash = self
-            .get_block(&head_root)
-            .and_then(|b| b.head_payload_block_hash(head_payload_status));
+        let head_hash = self.get_block(&head_root).and_then(|b| {
+            match b.head_payload_block_hash(head_payload_status) {
+                PayloadBlockHash::Hash(hash) => Some(hash),
+                PayloadBlockHash::PreMerge => None,
+            }
+        });
         let justified_root = self.justified_checkpoint().root;
         let finalized_root = self.finalized_checkpoint().root;
-        let justified_hash = self
-            .get_block(&justified_root)
-            .and_then(|b| b.checkpoint_payload_block_hash());
-        let finalized_hash = self
-            .get_block(&finalized_root)
-            .and_then(|b| b.checkpoint_payload_block_hash());
+        let justified_hash =
+            self.get_block(&justified_root)
+                .and_then(|b| match b.checkpoint_payload_block_hash() {
+                    PayloadBlockHash::Hash(hash) => Some(hash),
+                    PayloadBlockHash::PreMerge => None,
+                });
+        let finalized_hash =
+            self.get_block(&finalized_root)
+                .and_then(|b| match b.checkpoint_payload_block_hash() {
+                    PayloadBlockHash::Hash(hash) => Some(hash),
+                    PayloadBlockHash::PreMerge => None,
+                });
         self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
             head_hash,
@@ -722,15 +731,15 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
-    /// Pre-Gloas only.
+    /// Mark the payload `block_hash` valid, as judged by a forkchoiceUpdated.
     ///
     /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
     pub fn on_valid_execution_payload(
         &mut self,
-        block_root: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_validation(block_root)
+            .process_execution_payload_validation(block_hash)
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
@@ -1927,6 +1936,7 @@ where
         persisted_proto_array: proto_array::core::SszContainer,
         justified_balances: JustifiedBalances,
         reset_payload_statuses: ResetPayloadStatuses,
+        equivocating_indices: &BTreeSet<u64>,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
         let mut proto_array = ProtoArrayForkChoice::from_container(
             persisted_proto_array.clone(),
@@ -1951,7 +1961,7 @@ where
 
         // Reset all blocks back to being "optimistic". This helps recover from an EL consensus
         // fault where an invalid payload becomes valid.
-        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>() {
+        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>(equivocating_indices) {
             // If there is an error resetting the optimistic status then log loudly and revert
             // back to a proto-array which does not have the reset applied. This indicates a
             // significant error in Lighthouse and warrants detailed investigation.
@@ -1981,6 +1991,7 @@ where
             persisted.proto_array,
             justified_balances,
             reset_payload_statuses,
+            fc_store.equivocating_indices(),
         )?;
 
         let current_slot = fc_store.get_current_slot();
@@ -2013,9 +2024,10 @@ where
             // Although we may have already made this call whilst loading `proto_array`, try it
             // again since we may have mutated the `proto_array` during `get_head` and therefore may
             // get a different result.
+            let equivocating_indices = fork_choice.fc_store.equivocating_indices();
             fork_choice
                 .proto_array
-                .set_all_blocks_to_optimistic::<E>()?;
+                .set_all_blocks_to_optimistic::<E>(equivocating_indices)?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
             fork_choice.get_head(current_slot, spec)?;

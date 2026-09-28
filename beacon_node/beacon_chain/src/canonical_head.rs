@@ -57,6 +57,7 @@ use fork_choice::{
     ProtoBlock,
 };
 use itertools::process_results;
+use proto_array::PayloadBlockHash;
 
 use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
@@ -1318,9 +1319,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Resolve the confirmed block's execution payload hash for the EL `safe_block_hash`.
         // This MUST be the parent block hash for Gloas, per the spec.
-        let confirmed_block_hash = confirmed_node.checkpoint_payload_block_hash().ok_or(
-            FastConfirmationError::NodeHasNoBlockHash(fcr.confirmed_root),
-        )?;
+        let confirmed_block_hash = match confirmed_node.checkpoint_payload_block_hash() {
+            PayloadBlockHash::Hash(hash) => hash,
+            PayloadBlockHash::PreMerge => {
+                return Err(FastConfirmationError::NodeHasNoBlockHash(
+                    fcr.confirmed_root,
+                ));
+            }
+        };
 
         Ok(FcrOutcome {
             confirmed_root: fcr.confirmed_root,
@@ -1710,9 +1716,7 @@ fn check_finalized_payload_validity<T: BeaconChainTypes>(
     finalized_verdict: ExecutionVerdict,
 ) -> Result<(), Error> {
     if finalized_verdict.is_invalid() {
-        let block_hash = finalized_proto_block
-            .checkpoint_payload_block_hash()
-            .unwrap_or_else(ExecutionBlockHash::zero);
+        let block_hash = finalized_proto_block.checkpoint_payload_block_hash();
         crit!(
             ?block_hash,
             msg = "You must use the `--purge-db` flag to clear the database and restart sync. \

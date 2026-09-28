@@ -420,14 +420,15 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "INTEGER",
-        default_value_t = 60_000_000,
         requires = "builder_proposals",
         help = "The gas limit to be used in all builder proposals for all validators managed \
-                by this validator client. Note this will not necessarily be used if the gas limit \
-                set here moves too far from the previous block's gas limit.",
+                by this validator client. If this value is not set, the gas limit schedule from \
+                the network config is used, falling back to a default of 60,000,000. Note this \
+                will not necessarily be used if the gas limit set here moves too far from the \
+                previous block's gas limit.",
         display_order = 0
     )]
-    pub gas_limit: u64,
+    pub gas_limit: Option<u64>,
 
     #[clap(
         long,
@@ -500,8 +501,8 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
-        help = "Disable the beacon head monitor which tries to attest as soon as any of the \
-                configured beacon nodes sends a head event. Leaving the service enabled is \
+        help = "Disable the beacon head monitor which triggers attestations and sync committee \
+                messages when a configured beacon node sends a head event. Leaving it enabled is \
                 recommended, but disabling it can lead to reduced bandwidth and more predictable \
                 usage of the primary beacon node (rather than the fastest BN).",
         display_order = 0,
