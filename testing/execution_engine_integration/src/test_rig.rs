@@ -339,6 +339,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 Slot::new(0),
                 Hash256::zero(),
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -421,6 +422,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -463,6 +465,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -620,6 +623,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -658,6 +662,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -712,6 +717,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();

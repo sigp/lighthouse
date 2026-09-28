@@ -86,8 +86,8 @@ Options:
           both IPv4 and IPv6. Defaults to `port6`
       --enable-mplex [<BOOLEAN>]
           Enables the mplex multiplexer alongside yamux. Yamux is preferred when
-          both are available. Disabled by default; set to "true" to enable.
-          [default: false]
+          both are available. Enabled by default; set to "false" to disable.
+          [default: true]
       --enable-partial-columns [<BOOLEAN>]
           Enable partial messages for data columns. This can reduce the amount
           of data sent over the network. Enabled by default on Hoodi, Sepolia

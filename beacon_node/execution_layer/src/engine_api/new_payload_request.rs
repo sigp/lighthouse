@@ -11,6 +11,7 @@ use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
     ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsRef,
+    ProgressiveTransactions,
 };
 
 #[superstruct(
@@ -57,6 +58,8 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub execution_requests: &'block ExecutionRequestsElectra<E>,
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "execution_requests_gloas"))]
     pub execution_requests: &'block ExecutionRequestsGloas<E>,
+    #[superstruct(only(Heze))]
+    pub inclusion_list_transactions: ProgressiveTransactions,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {

@@ -1081,7 +1081,7 @@ pub const CUSTODY_COLUMNS_BITARRAY_BYTES: usize = 16;
 /// EIP-8070 - bitarray of length `CELLS_PER_EXT_BLOB` (=128). Bit `i` of
 /// byte `i / 8` (LSB-first within each byte) indicates column `i`. Used as
 /// the `indices_bitarray` parameter of `engine_getBlobsV4` and the
-/// `custodyColumns` parameter of `engine_forkchoiceUpdatedV4`.
+/// `custodyColumns` parameter of `engine_forkchoiceUpdatedV4` and later.
 ///  The TryFrom impl safeguards against invalid input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -1253,6 +1253,26 @@ impl From<PayloadStatusV1> for JsonPayloadStatusV1 {
         }
     }
 }
+
+impl From<PayloadStatusV2> for JsonPayloadStatusV2 {
+    fn from(p: PayloadStatusV2) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let PayloadStatusV2 {
+            status,
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
+        } = p;
+
+        Self {
+            status: status.into(),
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
+        }
+    }
+}
+
 impl From<JsonPayloadStatusV1> for PayloadStatusV1 {
     fn from(j: JsonPayloadStatusV1) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
@@ -1272,7 +1292,7 @@ impl From<JsonPayloadStatusV1> for PayloadStatusV1 {
     }
 }
 
-impl From<JsonPayloadStatusV2> for PayloadStatusV1 {
+impl From<JsonPayloadStatusV2> for PayloadStatusV2 {
     fn from(j: JsonPayloadStatusV2) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
         let JsonPayloadStatusV2 {
@@ -1875,6 +1895,118 @@ mod tests {
                 "withdrawals": null,
                 "blockAccessList": null,
             })
+        );
+    }
+
+    #[test]
+    fn custody_columns_bitarray_from_indices_round_trip() {
+        // Set bits 0, 7, 8, 64, 127. These touch every byte boundary case.
+        let indices: Vec<ColumnIndex> = vec![0, 7, 8, 64, 127];
+        let bitarray = CustodyColumnsBitArray::try_from(indices.as_slice()).unwrap();
+
+        // Check raw bytes:
+        // bit 0 -> byte 0 bit 0 (0x01) | bit 7 -> byte 0 bit 7 (0x80) => byte 0 = 0x81
+        // bit 8 -> byte 1 bit 0 (0x01)                                => byte 1 = 0x01
+        // bit 64 -> byte 8 bit 0 (0x01)                               => byte 8 = 0x01
+        // bit 127 -> byte 15 bit 7 (0x80)                             => byte 15 = 0x80
+        assert_eq!(bitarray.0[0], 0x81);
+        assert_eq!(bitarray.0[1], 0x01);
+        assert_eq!(bitarray.0[8], 0x01);
+        assert_eq!(bitarray.0[15], 0x80);
+
+        // iter_set_bits round-trip
+        let round_tripped: Vec<ColumnIndex> = bitarray.iter_set_bits().collect();
+        assert_eq!(round_tripped, indices);
+
+        // Out-of-range indices cause an error.
+        let too_high = CustodyColumnsBitArray::try_from([42, 128, 200].as_slice()).unwrap_err();
+        assert_eq!(too_high.0, 128);
+
+        // Empty input is zero.
+        let empty = CustodyColumnsBitArray::try_from([].as_slice()).unwrap();
+        assert_eq!(empty.0, [0u8; 16]);
+    }
+
+    #[test]
+    fn custody_columns_bitarray_hex_serde() {
+        // Set just bit 0 -> first byte 0x01, rest zeros.
+        let bitarray = CustodyColumnsBitArray::try_from([0].as_slice()).unwrap();
+        let json = serde_json::to_string(&bitarray).unwrap();
+        assert_eq!(json, "\"0x01000000000000000000000000000000\"");
+        let parsed: CustodyColumnsBitArray = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, bitarray);
+
+        // Null-equivalent (zero bitarray) still serializes as hex (not null).
+        let zero = CustodyColumnsBitArray::try_from([].as_slice()).unwrap();
+        let zero_json = serde_json::to_string(&zero).unwrap();
+        assert_eq!(zero_json, "\"0x00000000000000000000000000000000\"");
+    }
+}
+
+#[cfg(test)]
+mod payload_status_tests {
+    use super::*;
+
+    /// Engine responses before `engine_newPayloadV6` do not carry `inclusionListSatisfied`.
+    #[test]
+    fn v1_response_carries_no_inclusion_list_information() {
+        let json = serde_json::json!({
+            "status": "VALID",
+            "latestValidHash": null,
+            "validationError": null,
+        });
+
+        let status: JsonPayloadStatusV1 = serde_json::from_value(json).unwrap();
+
+        assert_eq!(PayloadStatusV1::from(status).inclusion_list_satisfied, None);
+    }
+
+    #[test]
+    fn v1_response_does_not_serialize_inclusion_list_satisfied() {
+        let status = PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: None,
+            validation_error: None,
+            inclusion_list_satisfied: Some(true),
+        };
+
+        let json = serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap();
+
+        assert!(json.get("inclusionListSatisfied").is_none());
+    }
+
+    #[test]
+    fn v2_response_serializes_inclusion_list_satisfied() {
+        let status = PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: None,
+            validation_error: None,
+            inclusion_list_satisfied: Some(true),
+        };
+
+        let json = serde_json::to_value(JsonPayloadStatusV2::from(status)).unwrap();
+
+        assert_eq!(
+            json.get("inclusionListSatisfied"),
+            Some(&serde_json::json!(true))
+        );
+    }
+
+    #[test]
+    fn v2_response_round_trips_inclusion_list_satisfied() {
+        let json = serde_json::json!({
+            "status": "VALID",
+            "latestValidHash": null,
+            "validationError": null,
+            "inclusionListSatisfied": true,
+        });
+
+        let status: JsonPayloadStatusV2 = serde_json::from_value(json).unwrap();
+
+        assert_eq!(status.inclusion_list_satisfied, Some(true));
+        assert_eq!(
+            PayloadStatusV1::from(status).inclusion_list_satisfied,
+            Some(true)
         );
     }
 }

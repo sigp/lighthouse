@@ -7,7 +7,7 @@ use crate::http::{
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2, ENGINE_GET_PAYLOAD_V1, ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_GET_PAYLOAD_V6,
     ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
-    ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_NEW_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V6,
 };
 use eth2::types::{
     BlobsBundle, SsePayloadAttributes, SsePayloadAttributesV1, SsePayloadAttributesV2,
@@ -120,9 +120,13 @@ pub struct PayloadStatusV1 {
     pub status: PayloadStatusV1Status,
     pub latest_valid_hash: Option<ExecutionBlockHash>,
     pub validation_error: Option<String>,
-    /// [New in Heze:EIP-7805] Only populated from `engine_forkchoiceUpdatedV5` onwards.
+    /// [New in Heze:EIP-7805] Populated by `engine_forkchoiceUpdatedV5` and `engine_newPayloadV6`.
     pub inclusion_list_satisfied: Option<bool>,
 }
+
+/// A `PayloadStatusV2` is a `PayloadStatusV1` that may carry a value
+/// for the `inclusion_list_satisfied` field
+pub type PayloadStatusV2 = PayloadStatusV1;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(untagged)]
@@ -649,6 +653,7 @@ pub struct EngineCapabilities {
     pub new_payload_v3: bool,
     pub new_payload_v4: bool,
     pub new_payload_v5: bool,
+    pub new_payload_v6: bool,
     pub forkchoice_updated_v1: bool,
     pub forkchoice_updated_v2: bool,
     pub forkchoice_updated_v3: bool,
@@ -686,6 +691,9 @@ impl EngineCapabilities {
         }
         if self.new_payload_v5 {
             response.push(ENGINE_NEW_PAYLOAD_V5);
+        }
+        if self.new_payload_v6 {
+            response.push(ENGINE_NEW_PAYLOAD_V6);
         }
         if self.forkchoice_updated_v1 {
             response.push(ENGINE_FORKCHOICE_UPDATED_V1);
