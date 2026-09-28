@@ -1,6 +1,6 @@
 use crate::metrics;
 use beacon_chain::{
-    BeaconChain, BeaconChainTypes, ExecutionStatus,
+    BeaconChain, BeaconChainTypes, ExecutionVerdict,
     bellatrix_readiness::GenesisExecutionPayloadStatus,
 };
 use execution_layer::{
@@ -367,29 +367,34 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     head_root.short().to_string()
                 };
 
+                // `cached_head.head_hash()` is `None` only pre-merge. Default to zero (display only).
+                let head_hash = beacon_chain
+                    .canonical_head
+                    .cached_head()
+                    .head_hash()
+                    .unwrap_or_else(ExecutionBlockHash::zero);
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
-                    Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
-                    Ok(ExecutionStatus::Valid(hash)) => {
+                    Ok(ExecutionVerdict::Valid) => {
                         metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
-                        format!("{} (verified)", hash)
+                        format!("{} (verified)", head_hash)
                     }
-                    Ok(ExecutionStatus::Optimistic(hash)) => {
+                    Ok(ExecutionVerdict::Optimistic) => {
                         metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 1);
                         warn!(
                             info = "chain not fully verified, \
                             block and attestation production disabled until execution engine syncs",
-                            execution_block_hash = ?hash,
+                            execution_block_hash = ?head_hash,
                             "Head is optimistic"
                         );
-                        format!("{} (unverified)", hash)
+                        format!("{} (unverified)", head_hash)
                     }
-                    Ok(ExecutionStatus::Invalid(hash)) => {
+                    Ok(ExecutionVerdict::Invalid) => {
                         crit!(
                             msg = "this scenario may be unrecoverable",
-                            execution_block_hash = ?hash,
+                            execution_block_hash = ?head_hash,
                             "Head execution payload is invalid"
                         );
-                        format!("{} (invalid)", hash)
+                        format!("{} (invalid)", head_hash)
                     }
                     Err(_) => "unknown".to_string(),
                 };

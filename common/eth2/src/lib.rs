@@ -3048,188 +3048,6 @@ impl BeaconNodeHttpClient {
         opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
     }
 
-    // The legacy `GET v4/validator/blocks/{slot}` client methods below are kept alongside the new
-    // POST variants until the validator client migrates to POST (later in this PR stack), at which
-    // point they are removed.
-
-    /// `GET v4/validator/blocks/{slot}`
-    pub async fn get_validator_blocks_v4<E: EthSpec>(
-        &self,
-        slot: Slot,
-        randao_reveal: &SignatureBytes,
-        graffiti: Option<&Graffiti>,
-        include_payload: bool,
-        builder_booster_factor: Option<u64>,
-        graffiti_policy: Option<GraffitiPolicy>,
-    ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
-        self.get_validator_blocks_v4_modular(
-            slot,
-            randao_reveal,
-            graffiti,
-            SkipRandaoVerification::No,
-            include_payload,
-            builder_booster_factor,
-            graffiti_policy,
-        )
-        .await
-    }
-
-    /// `GET v4/validator/blocks/{slot}`
-    ///
-    /// Returns either a bare block or the full [`BlockAndEnvelope`] (block + execution payload
-    /// envelope + blobs + KZG proofs) depending on the `Eth-Execution-Payload-Included` response
-    /// header. Note that a builder bid yields a bare block even when `include_payload=true`.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn get_validator_blocks_v4_modular<E: EthSpec>(
-        &self,
-        slot: Slot,
-        randao_reveal: &SignatureBytes,
-        graffiti: Option<&Graffiti>,
-        skip_randao_verification: SkipRandaoVerification,
-        include_payload: bool,
-        builder_booster_factor: Option<u64>,
-        graffiti_policy: Option<GraffitiPolicy>,
-    ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
-        let mut path = self
-            .post_validator_blocks_v4_path(
-                slot,
-                randao_reveal,
-                graffiti,
-                skip_randao_verification,
-                include_payload,
-                graffiti_policy,
-            )
-            .await?;
-
-        if let Some(builder_booster_factor) = builder_booster_factor {
-            path.query_pairs_mut()
-                .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
-        }
-
-        let opt_result = self
-            .get_response_with_response_headers(
-                path,
-                Accept::Json,
-                self.timeouts.get_validator_block,
-                |response, headers| async move {
-                    let metadata = ProduceBlockV4Metadata::try_from(&headers)
-                        .map_err(Error::InvalidHeaders)?;
-                    let block_response = if metadata.execution_payload_included {
-                        ProduceBlockV4Response::BlockAndEnvelope(
-                            response
-                                .json::<ForkVersionedResponse<
-                                    BlockAndEnvelope<E>,
-                                    ProduceBlockV4Metadata,
-                                >>()
-                                .await?
-                                .data,
-                        )
-                    } else {
-                        ProduceBlockV4Response::BlockOnly(
-                            response
-                                .json::<ForkVersionedResponse<
-                                    BeaconBlock<E>,
-                                    ProduceBlockV4Metadata,
-                                >>()
-                                .await?
-                                .data,
-                        )
-                    };
-                    Ok((block_response, metadata))
-                },
-            )
-            .await?;
-
-        opt_result.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
-    }
-
-    /// `GET v4/validator/blocks/{slot}` in ssz format
-    pub async fn get_validator_blocks_v4_ssz<E: EthSpec>(
-        &self,
-        slot: Slot,
-        randao_reveal: &SignatureBytes,
-        graffiti: Option<&Graffiti>,
-        include_payload: bool,
-        builder_booster_factor: Option<u64>,
-        graffiti_policy: Option<GraffitiPolicy>,
-    ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
-        self.get_validator_blocks_v4_modular_ssz::<E>(
-            slot,
-            randao_reveal,
-            graffiti,
-            SkipRandaoVerification::No,
-            include_payload,
-            builder_booster_factor,
-            graffiti_policy,
-        )
-        .await
-    }
-
-    /// `GET v4/validator/blocks/{slot}` in ssz format
-    ///
-    /// See [`Self::get_validator_blocks_v4_modular`] for the response semantics.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn get_validator_blocks_v4_modular_ssz<E: EthSpec>(
-        &self,
-        slot: Slot,
-        randao_reveal: &SignatureBytes,
-        graffiti: Option<&Graffiti>,
-        skip_randao_verification: SkipRandaoVerification,
-        include_payload: bool,
-        builder_booster_factor: Option<u64>,
-        graffiti_policy: Option<GraffitiPolicy>,
-    ) -> Result<(ProduceBlockV4Response<E>, ProduceBlockV4Metadata), Error> {
-        let mut path = self
-            .post_validator_blocks_v4_path(
-                slot,
-                randao_reveal,
-                graffiti,
-                skip_randao_verification,
-                include_payload,
-                graffiti_policy,
-            )
-            .await?;
-
-        if let Some(builder_booster_factor) = builder_booster_factor {
-            path.query_pairs_mut()
-                .append_pair("builder_boost_factor", &builder_booster_factor.to_string());
-        }
-
-        let opt_response = self
-            .get_response_with_response_headers(
-                path,
-                Accept::Ssz,
-                self.timeouts.get_validator_block,
-                |response, headers| async move {
-                    let metadata = ProduceBlockV4Metadata::try_from(&headers)
-                        .map_err(Error::InvalidHeaders)?;
-                    let response_bytes = response.bytes().await?;
-                    let block_response = if metadata.execution_payload_included {
-                        ProduceBlockV4Response::BlockAndEnvelope(
-                            BlockAndEnvelope::from_ssz_bytes_for_fork(
-                                &response_bytes,
-                                metadata.consensus_version,
-                            )
-                            .map_err(Error::InvalidSsz)?,
-                        )
-                    } else {
-                        ProduceBlockV4Response::BlockOnly(
-                            BeaconBlock::from_ssz_bytes_for_fork(
-                                &response_bytes,
-                                metadata.consensus_version,
-                            )
-                            .map_err(Error::InvalidSsz)?,
-                        )
-                    };
-
-                    Ok((block_response, metadata))
-                },
-            )
-            .await?;
-
-        opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
-    }
-
     /// `GET v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}`
     pub async fn get_validator_execution_payload_envelopes<E: EthSpec>(
         &self,
@@ -3668,8 +3486,8 @@ impl BeaconNodeHttpClient {
         AttestationData::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
     }
 
-    /// `GET validator/payload_attestation_data/{slot}`
-    /// Returns `None` if no block has been received for the requested slot (404).
+    /// `GET validator/payload_attestation_data?slot`
+    /// Returns `None` if no block has been received for the requested slot (204).
     pub async fn get_validator_payload_attestation_data(
         &self,
         slot: Slot,
@@ -3679,22 +3497,24 @@ impl BeaconNodeHttpClient {
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
-            .push("payload_attestation_data")
-            .push(&slot.to_string());
+            .push("payload_attestation_data");
 
-        let opt_response = self
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string());
+
+        let response = self
             .get_response(path, |b| b.timeout(self.timeouts.payload_attestation))
-            .await
-            .optional()?;
+            .await?;
 
-        match opt_response {
-            Some(response) => Ok(Some(BeaconResponse::ForkVersioned(response.json().await?))),
-            None => Ok(None),
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
         }
+
+        Ok(Some(BeaconResponse::ForkVersioned(response.json().await?)))
     }
 
-    /// `GET validator/payload_attestation_data/{slot}` in SSZ format
-    /// Returns `None` if no block has been received for the requested slot (404).
+    /// `GET validator/payload_attestation_data?slot` in SSZ format
+    /// Returns `None` if no block has been received for the requested slot (204).
     pub async fn get_validator_payload_attestation_data_ssz(
         &self,
         slot: Slot,
@@ -3704,16 +3524,27 @@ impl BeaconNodeHttpClient {
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
-            .push("payload_attestation_data")
-            .push(&slot.to_string());
+            .push("payload_attestation_data");
 
-        let opt_response = self
-            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.payload_attestation)
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string());
+
+        let response = self
+            .get_response(path, |b| {
+                b.accept(Accept::Ssz)
+                    .timeout(self.timeouts.payload_attestation)
+            })
             .await?;
 
-        opt_response
-            .map(|bytes| PayloadAttestationData::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
-            .transpose()
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+
+        let bytes = response.bytes().await?;
+
+        PayloadAttestationData::from_ssz_bytes(&bytes)
+            .map(Some)
+            .map_err(Error::InvalidSsz)
     }
 
     /// `GET v1/validator/aggregate_attestation?slot,attestation_data_root`

@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
-use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumn};
+use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumnRef};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
     DataColumnSidecarList, EthSpec, Hash256, PartialDataColumnSidecarError, PartialDataColumnView,
@@ -251,7 +251,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// do anything with the received column in that case.
     pub fn missing_cells_for_partial_column_sidecar<'a>(
         &'_ self,
-        partial_data_column: &'a PartialDataColumn<T::EthSpec>,
+        partial_data_column: PartialDataColumnRef<'a, T::EthSpec>,
     ) -> Result<Option<PartialDataColumnView<'a, T::EthSpec>>, MissingCellsError> {
         let column_index = *partial_data_column.index();
         let block_root = *partial_data_column.block_root();

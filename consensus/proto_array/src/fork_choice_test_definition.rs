@@ -6,7 +6,7 @@ mod votes;
 
 use crate::error::Error;
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, PayloadStatus, ProtoArrayForkChoice};
-use crate::{InvalidationOperation, JustifiedBalances};
+use crate::{InvalidationOperation, JustifiedBalances, ParentPayloadStatus};
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::BitVector;
@@ -98,7 +98,7 @@ pub enum Operation {
     },
     AssertParentPayloadStatus {
         block_root: Hash256,
-        expected_status: PayloadStatus,
+        expected_status: ParentPayloadStatus,
     },
     SetPayloadTiebreak {
         block_root: Hash256,
@@ -204,7 +204,8 @@ impl ForkChoiceTestDefinition {
                         )
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
-                        });
+                        })
+                        .as_pair();
 
                     assert_eq!(
                         head, expected_head,
@@ -253,7 +254,8 @@ impl ForkChoiceTestDefinition {
                         )
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
-                        });
+                        })
+                        .as_pair();
 
                     assert_eq!(
                         head, expected_head,
@@ -425,16 +427,17 @@ impl ForkChoiceTestDefinition {
                     head_block_root,
                     latest_valid_ancestor_root,
                 } => {
+                    // Operations name payloads. Test blocks commit to `from_root(root)`, as
+                    // `get_hash` spells it.
+                    let head_hash = ExecutionBlockHash::from_root(head_block_root);
                     let op = if let Some(latest_valid_ancestor) = latest_valid_ancestor_root {
                         InvalidationOperation::InvalidateMany {
-                            head_block_root,
+                            head_hash,
                             always_invalidate_head: true,
                             latest_valid_ancestor,
                         }
                     } else {
-                        InvalidationOperation::InvalidateOne {
-                            block_root: head_block_root,
-                        }
+                        InvalidationOperation::InvalidateOne { head_hash }
                     };
                     fork_choice
                         .process_execution_payload_invalidation::<MainnetEthSpec>(

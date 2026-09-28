@@ -113,7 +113,6 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             notify_new_payload(
                 &self.chain,
                 self.block.message().slot(),
-                self.block.message().parent_root(),
                 self.block.message().try_into()?,
             )
             .await
@@ -133,7 +132,6 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     slot: Slot,
-    parent_beacon_block_root: Hash256,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
     let execution_layer = chain
@@ -142,6 +140,7 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
     let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
+    let parent_block_hash = new_payload_request.execution_payload_ref().parent_hash();
     let new_payload_response = execution_layer
         .notify_new_payload(new_payload_request.clone())
         .await;
@@ -181,11 +180,11 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 if let Some(latest_valid_hash) =
                     latest_valid_hash.filter(|hash| *hash != ExecutionBlockHash::zero())
                 {
-                    // This block has not yet been applied to fork choice, so the latest block that was
-                    // imported to fork choice was the parent.
+                    // The rejected payload never reaches fork choice, so invalidate from its parent
+                    // payload. The parent is only condemned when the latest valid hash lies below it.
                     chain
                         .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
-                            head_block_root: parent_beacon_block_root,
+                            head_hash: parent_block_hash,
                             always_invalidate_head: false,
                             latest_valid_ancestor: latest_valid_hash,
                         })
@@ -418,6 +417,7 @@ where
         suggested_fee_recipient,
         withdrawals,
         parent_beacon_block_root,
+        None,
         None,
         None,
     );

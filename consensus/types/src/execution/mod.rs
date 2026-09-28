@@ -41,7 +41,7 @@ pub use execution_requests::{
     ExecutionRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsRef,
     RequestType, WithdrawalRequests,
 };
-pub use inclusion_list::InclusionList;
+pub use inclusion_list::{InclusionList, InclusionListCommittee};
 pub use payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
     BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadRef,

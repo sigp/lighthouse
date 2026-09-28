@@ -347,10 +347,6 @@ pub struct GloasPreset {
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_attester_slashing_size: u64,
     #[serde(with = "serde_utils::quoted_u64")]
-    pub max_data_column_sidecar_size: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub max_partial_data_column_sidecar_size: u64,
-    #[serde(with = "serde_utils::quoted_u64")]
     pub max_signed_execution_payload_bid_size: u64,
 }
 
@@ -366,8 +362,6 @@ impl GloasPreset {
                 as u64,
             max_signed_aggregate_and_proof_size: E::max_signed_aggregate_and_proof_size() as u64,
             max_attester_slashing_size: E::max_attester_slashing_size() as u64,
-            max_data_column_sidecar_size: E::max_data_column_sidecar_size() as u64,
-            max_partial_data_column_sidecar_size: E::max_partial_data_column_sidecar_size() as u64,
             max_signed_execution_payload_bid_size: E::max_signed_execution_payload_bid_size()
                 as u64,
         }

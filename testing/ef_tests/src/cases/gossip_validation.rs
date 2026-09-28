@@ -649,10 +649,11 @@ impl<E: EthSpec> GossipTester<E> {
         match result {
             Ok(_) => {
                 if payload_status == Some(PayloadStatus::Invalidated) {
-                    // The block has been imported optimistically. Mark it invalid in fork choice so
-                    // descendants observe an invalid execution parent.
+                    // The block has been imported optimistically. Mark its payload invalid in fork
+                    // choice so descendants observe an invalid execution parent.
+                    let head_hash = self.harness.execution_block_hash(block_root);
                     self.block_on_dangerous(self.harness.chain.process_invalid_execution_payload(
-                        &InvalidationOperation::InvalidateOne { block_root },
+                        &InvalidationOperation::InvalidateOne { head_hash },
                     ))?
                     .map_err(|e| {
                         Error::InternalError(format!(
@@ -698,6 +699,7 @@ impl<E: EthSpec> GossipTester<E> {
                     status: PayloadStatusV1Status::Valid,
                     latest_valid_hash: Some(block_hash),
                     validation_error: None,
+                    inclusion_list_satisfied: None,
                 },
             );
         }
