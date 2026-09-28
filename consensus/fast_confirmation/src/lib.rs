@@ -75,11 +75,18 @@ pub enum Error {
     AttestationShufflingIdError(BeaconStateError),
     CommitteeCacheError(BeaconStateError),
     ArithError(ArithError),
+    ProtoArrayError(proto_array::Error),
 }
 
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Self {
         Error::ArithError(e)
+    }
+}
+
+impl From<proto_array::Error> for Error {
+    fn from(e: proto_array::Error) -> Self {
+        Error::ProtoArrayError(e)
     }
 }
 
@@ -1247,15 +1254,14 @@ fn parent_node_of<'a>(
         .ok_or(Error::ParentRootNotFound(node.root()))
 }
 
-/// Return `true` if the block's execution payload is `Optimistic` or `Invalid`.
-/// Pre-bellatrix `Irrelevant` payloads and missing nodes are treated as not
-/// optimistic (the spec MUST applies post-merge). A missing node will be
-/// rejected later by `get_block_slot`, so this returning `false` here is safe.
+/// Return `true` if the most recently applied payload on `root`'s branch is `Optimistic` or
+/// `Invalid`. Pre-bellatrix `Irrelevant` payloads are treated as not optimistic (the spec MUST
+/// applies post-merge).
 fn is_optimistic_or_invalid(root: Hash256, proto_array: &ProtoArray) -> Result<bool, Error> {
-    Ok(get_block(root, proto_array)?
-        .execution_status()
-        .ok()
-        .is_some_and(|s| s.is_optimistic_or_invalid()))
+    // Spec: `get_node_for_root` resolves to `PAYLOAD_STATUS_PENDING`, which inherits.
+    Ok(proto_array
+        .inherited_execution_status(root)?
+        .is_optimistic_or_invalid())
 }
 
 /// Spec: `is_ancestor`.

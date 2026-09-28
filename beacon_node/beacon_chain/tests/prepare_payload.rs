@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))]
 #![allow(clippy::result_large_err)]
 
+use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
     PayloadAttestationVote, test_spec,
@@ -9,7 +10,7 @@ use beacon_chain::{
     ChainConfig, ProduceBlockVerification, custody_context::NodeCustodyType,
     graffiti_calculator::GraffitiSettings,
 };
-use bls::Keypair;
+use bls::{Keypair, Signature};
 use eth2::types::{GraffitiPolicy, ProposerPreparationData};
 use execution_layer::http::{ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5};
 use execution_layer::json_structures::{JsonPayloadAttributesV4, JsonPayloadAttributesV5};
@@ -457,10 +458,17 @@ async fn prepare_payload_generic(
                 validator_index: proposer_index as u64,
                 fee_recipient: suggested_fee_recipient,
             },
-            &Some(target_gas_limit),
+            &None,
         )],
     )
     .await;
+    insert_proposer_preferences(
+        &harness,
+        prepare_slot,
+        proposer_index as u64,
+        suggested_fee_recipient,
+        target_gas_limit,
+    );
 
     // Advance the slot clock to just before the prepare slot so the lookahead check passes.
     harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
@@ -798,6 +806,11 @@ async fn prepare_payload_on_fork_boundary(
         "prepare_beacon_proposer should use withdrawals computed from the \
          advanced state"
     );
+
+    let PayloadAttributes::V4(attributes) = attributes else {
+        panic!("expected V4 payload attributes, got {attributes:?}");
+    };
+    assert_eq!(attributes.target_gas_limit, DEFAULT_GAS_LIMIT);
 }
 
 #[tokio::test]
@@ -1094,4 +1107,142 @@ async fn gloas_pre_payload_attributes_reorg_uses_parent_randao() {
 
     // value should always be none post gloas
     assert_eq!(on_parent.parent_block_number, None);
+}
+
+#[tokio::test]
+async fn prepare_payload_preferred_gas_limit_wins() {
+    let scheduled_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
+    let preferred_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(2);
+    prepare_payload_gas_limit_generic(
+        Some(scheduled_gas_limit),
+        Some(preferred_gas_limit),
+        None,
+        preferred_gas_limit,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_falls_back_to_default_gas_limit() {
+    prepare_payload_gas_limit_generic(None, None, None, DEFAULT_GAS_LIMIT).await;
+}
+
+#[tokio::test]
+async fn prepare_payload_falls_back_to_scheduled_gas_limit_over_registered() {
+    let scheduled_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
+    let registered_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(2);
+    prepare_payload_gas_limit_generic(
+        Some(scheduled_gas_limit),
+        None,
+        Some(registered_gas_limit),
+        scheduled_gas_limit,
+    )
+    .await;
+}
+
+fn insert_proposer_preferences(
+    harness: &TestHarness,
+    proposal_slot: Slot,
+    validator_index: u64,
+    fee_recipient: Address,
+    target_gas_limit: u64,
+) {
+    let dependent_root = harness
+        .chain
+        .head_snapshot()
+        .beacon_state
+        .proposer_shuffling_decision_root_at_epoch(
+            proposal_slot.epoch(E::slots_per_epoch()),
+            harness.head_block_root(),
+            &harness.chain.spec,
+        )
+        .unwrap();
+    harness
+        .chain
+        .gossip_verified_proposer_preferences_cache
+        .insert_preferences(GossipVerifiedProposerPreferences {
+            signed_preferences: Arc::new(SignedProposerPreferences {
+                message: ProposerPreferences {
+                    dependent_root,
+                    proposal_slot,
+                    validator_index,
+                    fee_recipient,
+                    target_gas_limit,
+                },
+                signature: Signature::empty(),
+            }),
+        });
+}
+
+async fn prepare_payload_gas_limit_generic(
+    scheduled_gas_limit: Option<u64>,
+    preferred_gas_limit: Option<u64>,
+    registered_gas_limit: Option<u64>,
+    expected_gas_limit: u64,
+) {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    if let Some(gas_limit) = scheduled_gas_limit {
+        spec.gas_limit_schedule = GasLimitSchedule::new(vec![GasLimitScheduleEntry {
+            epoch: spec.gloas_fork_epoch.unwrap(),
+            gas_limit,
+        }]);
+    }
+    let spec = Arc::new(spec);
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let prepare_slot = Slot::new(1);
+    let current_slot = prepare_slot - 1;
+    let proposer_index = harness
+        .get_current_state()
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &registered_gas_limit,
+        )],
+    )
+    .await;
+
+    if let Some(target_gas_limit) = preferred_gas_limit {
+        insert_proposer_preferences(
+            &harness,
+            prepare_slot,
+            proposer_index as u64,
+            Address::repeat_byte(42),
+            target_gas_limit,
+        );
+    }
+
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+
+    let attributes = el
+        .payload_attributes(
+            prepare_slot,
+            harness.head_block_root(),
+            PayloadStatus::Empty,
+        )
+        .await
+        .unwrap();
+    let PayloadAttributes::V4(attributes) = attributes else {
+        panic!("expected V4 payload attributes, got {attributes:?}");
+    };
+    assert_eq!(attributes.target_gas_limit, expected_gas_limit);
 }
