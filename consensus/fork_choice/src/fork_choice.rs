@@ -1936,6 +1936,7 @@ where
         persisted_proto_array: proto_array::core::SszContainer,
         justified_balances: JustifiedBalances,
         reset_payload_statuses: ResetPayloadStatuses,
+        equivocating_indices: &BTreeSet<u64>,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
         let mut proto_array = ProtoArrayForkChoice::from_container(
             persisted_proto_array.clone(),
@@ -1960,7 +1961,7 @@ where
 
         // Reset all blocks back to being "optimistic". This helps recover from an EL consensus
         // fault where an invalid payload becomes valid.
-        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>() {
+        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>(equivocating_indices) {
             // If there is an error resetting the optimistic status then log loudly and revert
             // back to a proto-array which does not have the reset applied. This indicates a
             // significant error in Lighthouse and warrants detailed investigation.
@@ -1990,6 +1991,7 @@ where
             persisted.proto_array,
             justified_balances,
             reset_payload_statuses,
+            fc_store.equivocating_indices(),
         )?;
 
         let current_slot = fc_store.get_current_slot();
@@ -2022,9 +2024,10 @@ where
             // Although we may have already made this call whilst loading `proto_array`, try it
             // again since we may have mutated the `proto_array` during `get_head` and therefore may
             // get a different result.
+            let equivocating_indices = fork_choice.fc_store.equivocating_indices();
             fork_choice
                 .proto_array
-                .set_all_blocks_to_optimistic::<E>()?;
+                .set_all_blocks_to_optimistic::<E>(equivocating_indices)?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
             fork_choice.get_head(current_slot, spec)?;
