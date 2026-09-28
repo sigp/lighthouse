@@ -12,10 +12,10 @@ use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, MigratorConfig, ServerSentEventHandler,
     builder::{BeaconChainBuilder, Witness},
+    light_client_epoch_backfill::backfill_light_client_epoch_data,
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, StoreConfig},
-    light_client_epoch_backfill::backfill_light_client_epoch_data,
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
@@ -836,8 +836,7 @@ where
                         };
 
                         let epoch_duration = Duration::from_secs(
-                            inner_chain.slot_clock.slot_duration().as_secs()
-                                * E::slots_per_epoch(),
+                            inner_chain.slot_clock.slot_duration().as_secs() * E::slots_per_epoch(),
                         );
 
                         // poll network_globals.sync_state()

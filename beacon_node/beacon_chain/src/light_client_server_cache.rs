@@ -290,6 +290,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!("Missing state {:?}", block_state_root))
             })?;
+        state.apply_pending_mutations()?;
         let new_value = LightClientCachedData::from_state(&mut state)?;
 
         // Insert value and return owned

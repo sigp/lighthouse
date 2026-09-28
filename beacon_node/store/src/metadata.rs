@@ -268,6 +268,23 @@ impl StoreItem for LightClientEpochBackfillProgress {
         self.0.as_ssz_bytes()
     }
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(LightClientEpochBackfillProgress(u64::from_ssz_bytes(bytes)?))
+        Ok(LightClientEpochBackfillProgress(u64::from_ssz_bytes(
+            bytes,
+        )?))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn lc_epoch_backfill_progress_round_trips() {
+        let original = LightClientEpochBackfillProgress(1234);
+        let bytes = original.as_store_bytes();
+
+        let recovered = LightClientEpochBackfillProgress::from_store_bytes(&bytes).unwrap();
+
+        assert_eq!(original, recovered);
     }
 }

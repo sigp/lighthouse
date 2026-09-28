@@ -1,7 +1,7 @@
-use types::{ChainSpec, Epoch, Hash256, EthSpec};
-use store::metadata::{LC_EPOCH_BACKFILL_PROGRESS_KEY, LightClientEpochBackfillProgress};
 use crate::{BeaconChain, BeaconChainError as Error, BeaconChainTypes};
-use tracing::{warn};
+use store::metadata::{LC_EPOCH_BACKFILL_PROGRESS_KEY, LightClientEpochBackfillProgress};
+use tracing::warn;
+use types::{ChainSpec, Epoch, EthSpec, Hash256};
 
 /// Walks finalized sync committee periods forward from the node's
 /// earliest available state up to the most recently finalized period at the
@@ -30,7 +30,7 @@ pub fn backfill_light_client_epoch_data<T: BeaconChainTypes>(
         .epoch(slots_per_epoch)
         .sync_committee_period(spec)?;
 
-    // Resume from the watermark i.e the highest sync committee period 
+    // Resume from the watermark i.e the highest sync committee period
     // that has been fully processed and recorded in persistent storage.
     let start_period = chain
         .store
