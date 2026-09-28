@@ -6562,7 +6562,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             crit!(
                 error = ?e,
                 latest_valid_ancestor = ?op.latest_valid_ancestor(),
-                block_root = ?op.block_root(),
+                head_hash = ?op.head_hash(),
                 "Failed to process invalid payload"
             );
         }
@@ -7039,28 +7039,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Invalid execution payload"
                     );
 
+                    // The EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
+                    // ancestor's payload, not the head block's.
                     match latest_valid_hash {
                         // The `latest_valid_hash` is set to `None` when the EE
                         // "cannot determine the ancestor of the invalid
                         // payload". In such a scenario we should only
-                        // invalidate the head block and nothing else.
+                        // invalidate the head payload and nothing else.
                         None => {
                             self.process_invalid_execution_payload(
-                                &InvalidationOperation::InvalidateOne {
-                                    block_root: head_block_root,
-                                },
+                                &InvalidationOperation::InvalidateOne { head_hash },
                             )
                             .await?;
                         }
                         // An all-zeros execution block hash implies that
                         // the terminal block was invalid. We are being
-                        // explicit in invalidating only the head block in
+                        // explicit in invalidating only the head payload in
                         // this case.
                         Some(hash) if hash == ExecutionBlockHash::zero() => {
                             self.process_invalid_execution_payload(
-                                &InvalidationOperation::InvalidateOne {
-                                    block_root: head_block_root,
-                                },
+                                &InvalidationOperation::InvalidateOne { head_hash },
                             )
                             .await?;
                         }
@@ -7069,7 +7067,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         Some(latest_valid_hash) => {
                             self.process_invalid_execution_payload(
                                 &InvalidationOperation::InvalidateMany {
-                                    head_block_root,
+                                    head_hash,
                                     always_invalidate_head: true,
                                     latest_valid_ancestor: latest_valid_hash,
                                 },
@@ -7090,13 +7088,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         method = "fcU",
                         "Invalid execution payload block hash"
                     );
-                    // The execution engine has stated that the head block is invalid, however it
+                    // The execution engine has stated that the head payload is invalid, however it
                     // hasn't returned a latest valid ancestor.
                     //
-                    // Using a `None` latest valid ancestor will result in only the head block
+                    // Using a `None` latest valid ancestor will result in only the head payload
                     // being invalidated (no ancestors).
                     self.process_invalid_execution_payload(&InvalidationOperation::InvalidateOne {
-                        block_root: head_block_root,
+                        head_hash,
                     })
                     .await?;
 

@@ -344,9 +344,10 @@ impl InvalidPayloadRig {
     }
 
     async fn invalidate_manually(&self, block_root: Hash256) {
+        let head_hash = self.block_hash(block_root);
         self.harness
             .chain
-            .process_invalid_execution_payload(&InvalidationOperation::InvalidateOne { block_root })
+            .process_invalid_execution_payload(&InvalidationOperation::InvalidateOne { head_hash })
             .await
             .unwrap();
     }
