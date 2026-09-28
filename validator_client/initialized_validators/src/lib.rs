@@ -408,7 +408,12 @@ pub fn load_pkcs12_identity<P: AsRef<Path>>(
         .read_to_end(&mut buf)
         .map_err(Error::InvalidWeb3SignerClientIdentityCertificateFile)?;
 
-    let keystore = p12_keystore::KeyStore::from_pkcs12(&buf, password).map_err(|e| {
+    let keystore = p12_keystore::KeyStore::from_pkcs12(
+        &buf,
+        password,
+        p12_keystore::Pkcs12ImportPolicy::Strict,
+    )
+    .map_err(|e| {
         Error::InvalidWeb3SignerClientIdentityCertificateFile(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("PKCS12 parse error: {e:?}"),
@@ -419,9 +424,9 @@ pub fn load_pkcs12_identity<P: AsRef<Path>>(
         .private_key_chain()
         .ok_or(Error::MissingWeb3SignerClientIdentityCertificateFile)?;
 
-    let key_pem = pem::encode(&pem::Pem::new("PRIVATE KEY", key_chain.key()));
+    let key_pem = pem::encode(&pem::Pem::new("PRIVATE KEY", key_chain.key().as_der()));
     let certs_pem: String = key_chain
-        .chain()
+        .certs()
         .iter()
         .map(|cert| pem::encode(&pem::Pem::new("CERTIFICATE", cert.as_der())))
         .collect::<Vec<_>>()

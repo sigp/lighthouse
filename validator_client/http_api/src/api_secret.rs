@@ -1,6 +1,6 @@
 use filesystem::create_with_600_perms;
 use rand::distr::Alphanumeric;
-use rand::{Rng, rng};
+use rand::{RngExt, rng};
 use std::fs;
 use std::path::{Path, PathBuf};
 use warp::Filter;

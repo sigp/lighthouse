@@ -7,13 +7,13 @@ autotests = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bip0039 = "0.14"
 eth2_key_derivation = { workspace = true }
 eth2_keystore = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_repr = { workspace = true }
-tiny-bip39 = "2"
 uuid = { workspace = true }
 
 [dev-dependencies]

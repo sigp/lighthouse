@@ -33,7 +33,7 @@ use logging::crit;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proof_engine::ProofEngine;
-use rand::RngCore;
+use rand::Rng;
 use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -114,7 +114,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     node_custody_type: NodeCustodyType,
     ordered_custody_column_indices: Option<Vec<CustodyIndex>>,
-    rng: Option<Box<dyn RngCore + Send>>,
+    rng: Option<Box<dyn Rng + Send>>,
 }
 
 impl<TSlotClock, E, THotStore, TColdStore>
@@ -731,7 +731,7 @@ where
     /// Sets the `rng` field.
     ///
     /// Currently used for shuffling column sidecars in block publishing.
-    pub fn rng(mut self, rng: Box<dyn RngCore + Send>) -> Self {
+    pub fn rng(mut self, rng: Box<dyn Rng + Send>) -> Self {
         self.rng = Some(rng);
         self
     }

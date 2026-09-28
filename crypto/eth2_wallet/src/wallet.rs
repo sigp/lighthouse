@@ -5,7 +5,7 @@ use crate::{
         Kdf, KdfModule, Sha256Checksum, TypeField, Version,
     },
 };
-pub use bip39::{Mnemonic, Seed as Bip39Seed};
+pub use bip0039::Mnemonic;
 pub use eth2_key_derivation::{DerivedKey, DerivedKeyError};
 pub use eth2_keystore::{Error as KeystoreError, PlainText};
 use eth2_keystore::{
@@ -74,9 +74,9 @@ impl<'a> WalletBuilder<'a> {
         password: &'a [u8],
         name: String,
     ) -> Result<Self, Error> {
-        let seed = Bip39Seed::new(mnemonic, "");
+        let seed = mnemonic.to_seed("");
 
-        Self::from_seed_bytes(seed.as_bytes(), password, name)
+        Self::from_seed_bytes(&seed, password, name)
     }
 
     /// Creates a new builder from a `seed` specified as a byte slice.

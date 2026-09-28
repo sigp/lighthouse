@@ -70,18 +70,24 @@ impl Server {
             });
 
             let result = match self.rustls_config {
-                Some(config) => {
-                    axum_server::from_tcp_rustls(listener, config)
-                        .handle(handle)
-                        .serve(self.router.into_make_service())
-                        .await
-                }
-                None => {
-                    axum_server::from_tcp(listener)
-                        .handle(handle)
-                        .serve(self.router.into_make_service())
-                        .await
-                }
+                Some(config) => match axum_server::from_tcp_rustls(listener, config) {
+                    Ok(server) => {
+                        server
+                            .handle(handle)
+                            .serve(self.router.into_make_service())
+                            .await
+                    }
+                    Err(e) => Err(e),
+                },
+                None => match axum_server::from_tcp(listener) {
+                    Ok(server) => {
+                        server
+                            .handle(handle)
+                            .serve(self.router.into_make_service())
+                            .await
+                    }
+                    Err(e) => Err(e),
+                },
             };
 
             // Abort the shutdown listener if it's still running (server exited first).

@@ -6,7 +6,6 @@ use account_utils::{STDIN_INPUTS_FLAG, random_password, read_mnemonic_from_cli};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use directory::{DEFAULT_SECRET_DIR, parse_path_or_default_with_flag};
-use eth2_wallet::bip39::Seed;
 use eth2_wallet::{KeyType, ValidatorKeystores, recover_validator_secret_from_mnemonic};
 use std::fs::create_dir_all;
 use std::path::PathBuf;
@@ -104,16 +103,15 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
 
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
 
-    let seed = Seed::new(&mnemonic, "");
+    let seed = mnemonic.to_seed("");
 
     for index in first_index..first_index + count {
         let voting_password = random_password();
         let withdrawal_password = random_password();
 
         let derive = |key_type: KeyType, password: &[u8]| -> Result<Keystore, String> {
-            let (secret, path) =
-                recover_validator_secret_from_mnemonic(seed.as_bytes(), index, key_type)
-                    .map_err(|e| format!("Unable to recover validator keys: {:?}", e))?;
+            let (secret, path) = recover_validator_secret_from_mnemonic(&seed, index, key_type)
+                .map_err(|e| format!("Unable to recover validator keys: {:?}", e))?;
 
             let keypair = keypair_from_secret(secret.as_bytes())
                 .map_err(|e| format!("Unable build keystore: {:?}", e))?;

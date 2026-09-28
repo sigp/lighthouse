@@ -4,7 +4,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use sysinfo::{CpuExt, DiskExt, NetworkExt, NetworksExt, System, SystemExt};
+use sysinfo::{Disks, Networks, System};
 use types::EthSpec;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -83,13 +83,13 @@ fn observe_system_health(
     app_uptime: u64,
 ) -> SystemHealth {
     let sysinfo = sysinfo.read();
-    let loadavg = sysinfo.load_average();
+    let loadavg = System::load_average();
 
     let cpus = sysinfo.cpus();
 
-    let disks = sysinfo.disks();
+    let disks = Disks::new_with_refreshed_list();
 
-    let system_uptime = sysinfo.uptime();
+    let system_uptime = System::uptime();
 
     // Helper functions to extract specific data
 
@@ -102,7 +102,7 @@ fn observe_system_health(
         let mut root_fs_disk = None;
         let mut other_matching_fs = None;
 
-        for disk in disks.iter() {
+        for disk in disks.list().iter() {
             if disk.mount_point() == Path::new("/")
                 || disk.mount_point() == Path::new("C:\\")
                 || disk.mount_point() == Path::new("/System/Volumes/Data")
@@ -174,17 +174,17 @@ fn observe_system_health(
         sys_loadavg_1: loadavg.one,
         sys_loadavg_5: loadavg.five,
         sys_loadavg_15: loadavg.fifteen,
-        cpu_cores: sysinfo.physical_core_count().unwrap_or(0),
+        cpu_cores: System::physical_core_count().unwrap_or(0),
         cpu_threads: cpus.len(),
         global_cpu_frequency,
         disk_bytes_total,
         disk_bytes_free,
         system_uptime,
         app_uptime,
-        system_name: sysinfo.name().unwrap_or_else(|| String::from("")),
-        kernel_version: sysinfo.kernel_version().unwrap_or_else(|| "".into()),
-        os_version: sysinfo.long_os_version().unwrap_or_else(|| "".into()),
-        host_name: sysinfo.host_name().unwrap_or_else(|| "".into()),
+        system_name: System::name().unwrap_or_default(),
+        kernel_version: System::kernel_version().unwrap_or_default(),
+        os_version: System::long_os_version().unwrap_or_default(),
+        host_name: System::host_name().unwrap_or_default(),
     }
 }
 
@@ -251,12 +251,12 @@ pub fn observe_system_health_bn<E: EthSpec>(
     app_uptime: u64,
     network_globals: Arc<NetworkGlobals<E>>,
 ) -> SystemHealthBN {
-    let system_health = observe_system_health(sysinfo.clone(), data_dir, app_uptime);
+    let system_health = observe_system_health(sysinfo, data_dir, app_uptime);
 
     // Find the network with the most traffic and assume this is the main network
-    let sysinfo = sysinfo.read();
-    let networks = sysinfo.networks();
+    let networks = Networks::new_with_refreshed_list();
     let (network_name, network_bytes_total_received, network_bytes_total_transmit) = networks
+        .list()
         .iter()
         .max_by_key(|(_name, network)| network.total_received())
         .map(|(name, network)| {

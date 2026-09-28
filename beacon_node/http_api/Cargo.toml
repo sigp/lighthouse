@@ -11,7 +11,7 @@ axum_utils = { workspace = true }
 beacon_chain = { workspace = true }
 beacon_processor = { workspace = true }
 bls = { workspace = true }
-bs58 = "0.4.0"
+bs58 = "0.5.1"
 bytes = { workspace = true }
 context_deserialize = { workspace = true }
 directory = { workspace = true }

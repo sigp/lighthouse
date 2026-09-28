@@ -107,6 +107,7 @@ pub use prometheus_client;
 pub use config::Config as NetworkConfig;
 pub use discovery::Eth2Enr;
 pub use discv5;
+pub use enr;
 pub use libp2p;
 pub use libp2p::gossipsub::{IdentTopic, MessageAcceptance, MessageId, Topic, TopicHash};
 pub use libp2p::{Multiaddr, identity, multiaddr};

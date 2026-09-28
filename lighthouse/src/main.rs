@@ -103,6 +103,14 @@ fn main() {
         }
     }
 
+    // Make `aws-lc-rs` the process-wide rustls crypto provider. Both `ring` (pulled in by
+    // `reqwest`) and `aws-lc-rs` (pulled in by `libp2p-tls`/`libp2p-quic`) are compiled into
+    // rustls, so without an explicit default rustls cannot pick one and panics as soon as a TLS
+    // config is built (e.g. `--http-enable-tls`). Installing the default up front also makes
+    // `reqwest` use `aws-lc-rs` instead of falling back to `ring`. This cannot fail here because
+    // nothing has had a chance to install a provider yet.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     // Parse the CLI parameters.
     let cli = Command::new("Lighthouse")
         .version(SHORT_VERSION.as_str())

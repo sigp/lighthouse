@@ -482,7 +482,8 @@ impl<E: EthSpec> PeerManager<E> {
             vec![]
         };
 
-        // Prioritize Quic connections over Tcp ones.
+        // The order doesn't matter: with smart dialing enabled, libp2p's dial
+        // ranker orders the addresses (QUIC > TCP, IPv6 > IPv4) and applies staggered delays.
         [multiaddr_quic, enr.dialable_multiaddrs_tcp()].concat()
     }
 
@@ -1777,7 +1778,7 @@ mod tests {
     }
 
     fn enr_with_tcp4_port(port: u16) -> Enr {
-        let key = discv5::enr::CombinedKey::generate_secp256k1();
+        let key = enr::CombinedKey::generate_secp256k1();
         Enr::builder()
             .ip4(std::net::Ipv4Addr::LOCALHOST)
             .tcp4(port)

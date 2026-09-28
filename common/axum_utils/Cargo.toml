@@ -6,12 +6,12 @@ edition = { workspace = true }
 
 [dependencies]
 axum = { workspace = true }
-axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
+axum-server = { version = "0.8", features = ["tls-rustls-no-provider"] }
 http = "1"
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tower-http = { version = "0.6", features = ["cors", "set-header"] }
+tower-http = { version = "0.7", features = ["cors", "set-header"] }
 
 [dev-dependencies]
 tower = { workspace = true }

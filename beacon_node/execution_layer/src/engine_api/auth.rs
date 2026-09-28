@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode, get_current_timestamp};
-use rand::Rng;
+use rand::RngExt;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 

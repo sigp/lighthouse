@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 use crate::{core::Hash256, fork::ForkName};
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct DepositRequest {
     pub pubkey: PublicKeyBytes,

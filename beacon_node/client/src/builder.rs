@@ -35,7 +35,7 @@ use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
 use proof_engine::ProofEngine;
 use rand::SeedableRng;
-use rand::rngs::{OsRng, StdRng};
+use rand::rngs::{StdRng, SysRng};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use std::path::{Path, PathBuf};
@@ -250,7 +250,7 @@ where
             .ordered_custody_column_indices(ordered_custody_column_indices)
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
-                StdRng::try_from_rng(&mut OsRng)
+                StdRng::try_from_rng(&mut SysRng)
                     .map_err(|e| format!("Failed to create RNG: {:?}", e))?,
             ));
 

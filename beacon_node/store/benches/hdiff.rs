@@ -1,6 +1,6 @@
 use bls::PublicKeyBytes;
 use criterion::{Criterion, criterion_group, criterion_main};
-use rand::Rng;
+use rand::{Rng, RngExt};
 use ssz::Decode;
 use store::{
     StoreConfig,

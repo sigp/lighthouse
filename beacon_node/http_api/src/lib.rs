@@ -94,7 +94,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
-use sysinfo::{System, SystemExt};
+use sysinfo::System;
 use system_health::{observe_nat, observe_system_health_bn};
 use task_spawner::{Priority, TaskSpawner};
 use tokio::sync::mpsc::UnboundedSender;
@@ -521,10 +521,8 @@ pub async fn serve<T: BeaconChainTypes>(
     {
         // grab write access for initialisation
         let mut system_info = system_info.write();
-        system_info.refresh_disks_list();
-        system_info.refresh_networks_list();
         system_info.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
-        system_info.refresh_cpu();
+        system_info.refresh_cpu_usage();
     } // end lock
 
     let system_info_filter =
@@ -532,14 +530,10 @@ pub async fn serve<T: BeaconChainTypes>(
             .map(move || system_info.clone())
             .map(|sysinfo: Arc<RwLock<System>>| {
                 {
-                    // refresh stats
                     let mut sysinfo_lock = sysinfo.write();
                     sysinfo_lock.refresh_memory();
                     sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
-                    sysinfo_lock.refresh_cpu();
-                    sysinfo_lock.refresh_system();
-                    sysinfo_lock.refresh_networks();
-                    sysinfo_lock.refresh_disks();
+                    sysinfo_lock.refresh_cpu_usage();
                 } // end lock
                 sysinfo
             });

@@ -182,7 +182,7 @@ mod tests {
 
         let metric = gather()
             .into_iter()
-            .find(|metric| metric.get_name() == "process_cpu_seconds_total")
+            .find(|metric| metric.name() == "process_cpu_seconds_total")
             .expect("process_cpu_seconds_total should be registered");
         assert_eq!(metric.get_field_type(), MetricType::COUNTER);
     }

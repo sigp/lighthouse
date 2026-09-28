@@ -159,7 +159,7 @@ pub fn gather_metrics(metrics_map: &HashMap<String, JsonMetric>) -> Option<serde
     let metric_families = metrics::gather();
     let mut res = serde_json::Map::with_capacity(metrics_map.len());
     for mf in metric_families.iter() {
-        let metric_name = mf.get_name();
+        let metric_name = mf.name();
         if metrics_map.contains_key(metric_name) {
             let value = get_value(mf).unwrap_or_default();
             let metric = metrics_map.get(metric_name)?;

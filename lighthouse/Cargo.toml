@@ -4,7 +4,7 @@ version = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
-rust-version = "1.88.0"
+rust-version = "1.89.0"
 
 # Prevent cargo-udeps from flagging the dummy package `target_check`, which exists only
 # to assert properties of the compilation target.
@@ -62,6 +62,7 @@ network_utils = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
+rustls = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 slasher = { workspace = true }

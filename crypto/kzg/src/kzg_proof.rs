@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use tree_hash::{PackedEncoding, TreeHash};
 
-#[derive(PartialEq, Hash, Clone, Copy, Encode, Decode)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, Encode, Decode)]
 #[ssz(struct_behaviour = "transparent")]
 pub struct KzgProof(pub [u8; BYTES_PER_PROOF]);
 

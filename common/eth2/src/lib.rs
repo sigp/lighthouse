@@ -39,9 +39,9 @@ use reqwest::{
     Body, IntoUrl, RequestBuilder, Response, StatusCode, Url,
     header::{HeaderMap, HeaderValue},
 };
-#[cfg(feature = "events")]
-use reqwest_eventsource::{Event, RequestBuilderExt};
 use serde::{Serialize, de::DeserializeOwned};
+#[cfg(feature = "events")]
+use sse_reqwest_client::{RequestBuilderExt, SseEvent};
 use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
@@ -3855,28 +3855,36 @@ impl BeaconNodeHttpClient {
             .client
             .get(path)
             .timeout(Duration::MAX)
-            .eventsource()
-            .map_err(Error::SseEventSource)?;
-        // If we don't await `Event::Open` here, then the consumer
+            .into_event_source_builder()
+            .retry_transient_errors(true)
+            .build();
+        // If we don't await `SseEvent::Open` here, then the consumer
         // will not get any Message events until they start awaiting the stream.
         // This is a way to register the stream with the sse server before
         // message events start getting emitted.
         while let Some(event) = es.next().await {
-            match event {
-                Ok(Event::Open) => break,
-                Err(err) => return Err(Error::SseClient(err.into())),
+            match event.map_err(|e| Error::SseClient(Box::new(e)))? {
+                SseEvent::Open => break,
                 // This should never happen as we are guaranteed to get the
                 // Open event before any message starts coming through.
-                Ok(Event::Message(_)) => continue,
+                SseEvent::Message(_) => continue,
+                // The connection dropped and the client is reconnecting with
+                // backoff. Recoverable, so don't tear down the stream.
+                SseEvent::Error(_) => continue,
+                // An oversized payload was dropped; the connection is still healthy.
+                SseEvent::Discarded(_) => continue,
             }
         }
         Ok(Box::pin(es.filter_map(|event| async move {
-            match event {
-                Ok(Event::Open) => None,
-                Ok(Event::Message(message)) => {
+            match event.map_err(|e| Error::SseClient(Box::new(e))) {
+                Err(err) => Some(Err(err)),
+                Ok(SseEvent::Open) => None,
+                Ok(SseEvent::Message(message)) => {
                     Some(EventKind::from_sse_bytes(&message.event, &message.data))
                 }
-                Err(err) => Some(Err(Error::SseClient(err.into()))),
+                // Recoverable connection/oversized-payload events: skip them, the
+                // event source is still delivering messages.
+                Ok(SseEvent::Error(_) | SseEvent::Discarded(_)) => None,
             }
         })))
     }

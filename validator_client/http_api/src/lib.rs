@@ -49,7 +49,7 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
-use sysinfo::{System, SystemExt};
+use sysinfo::System;
 use system_health::observe_system_health_vc;
 use task_executor::TaskExecutor;
 use tokio_stream::{StreamExt, wrappers::BroadcastStream};
@@ -264,26 +264,19 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     // Create a `warp` filter that provides access to local system information.
     let system_info = Arc::new(RwLock::new(sysinfo::System::new()));
-    {
-        // grab write access for initialisation
-        let mut system_info = system_info.write();
-        system_info.refresh_disks_list();
-        system_info.refresh_networks_list();
-    } // end lock
 
     let system_info_filter =
         warp::any()
             .map(move || system_info.clone())
             .map(|sysinfo: Arc<RwLock<System>>| {
                 {
-                    // refresh stats
+                    // Refresh the stats owned by `System`. Disks and networks are
+                    // refreshed where they are read: sysinfo 0.30 moved them off
+                    // `System` onto their own `Disks`/`Networks` collections.
                     let mut sysinfo_lock = sysinfo.write();
                     sysinfo_lock.refresh_memory();
                     sysinfo_lock.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
-                    sysinfo_lock.refresh_cpu();
-                    sysinfo_lock.refresh_system();
-                    sysinfo_lock.refresh_networks();
-                    sysinfo_lock.refresh_disks();
+                    sysinfo_lock.refresh_cpu_usage();
                 } // end lock
                 sysinfo
             });
