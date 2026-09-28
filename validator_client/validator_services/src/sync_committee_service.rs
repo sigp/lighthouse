@@ -9,7 +9,6 @@ use futures::StreamExt;
 use futures::future::FutureExt;
 use logging::crit;
 use slot_clock::SlotClock;
-use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -145,7 +144,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     continue;
                 };
 
-                // Wait for the sync message due point of the next slot, or a head event for the
+                // Wait for the sync message deadline for the next slot, or a head event for the
                 // current slot, whichever comes first.
                 let head_event = head_event_or_deadline(
                     &mut head_monitor_rx,
@@ -301,7 +300,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             "sync_committee_signature_publish",
         );
 
-        let aggregators = slot_duties.aggregators;
         let service = self.clone();
         self.inner.executor.spawn(
             async move {
@@ -309,7 +307,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                     .publish_sync_committee_aggregates(
                         slot,
                         block_root,
-                        aggregators,
                         aggregate_production_instant,
                     )
                     .map(|_| ())
@@ -389,10 +386,23 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
-        aggregators: HashMap<SyncSubnetId, Vec<(u64, PublicKeyBytes, SyncSelectionProof)>>,
         aggregate_instant: Instant,
     ) {
-        for (subnet_id, subnet_aggregators) in aggregators {
+        sleep_until(aggregate_instant).await;
+
+        // Read the aggregators now rather than when the slot was triggered, since selection
+        // proofs can be stored after the trigger (e.g. with `--distributed`, where the proof
+        // for a slot is only computed once that slot has started).
+        let Some(slot_duties) = self
+            .duties_service
+            .sync_duties
+            .get_duties_for_slot::<S::E>(slot, &self.duties_service.spec)
+        else {
+            debug!(%slot, "No duties known for slot at contribution deadline");
+            return;
+        };
+
+        for (subnet_id, subnet_aggregators) in slot_duties.aggregators {
             let service = self.clone();
             self.inner.executor.spawn(
                 async move {
@@ -402,7 +412,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                             beacon_block_root,
                             subnet_id,
                             subnet_aggregators,
-                            aggregate_instant,
                         )
                         .map(|_| ())
                         .await
@@ -419,10 +428,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         beacon_block_root: Hash256,
         subnet_id: SyncSubnetId,
         subnet_aggregators: Vec<(u64, PublicKeyBytes, SyncSelectionProof)>,
-        aggregate_instant: Instant,
     ) -> Result<(), ()> {
-        sleep_until(aggregate_instant).await;
-
         let contribution = &self
             .beacon_nodes
             .first_success(|beacon_node| async move {
@@ -677,7 +683,7 @@ mod tests {
     };
     use bls::FixedBytesExtended;
     use slot_clock::ManualSlotClock;
-    use types::{Epoch, MainnetEthSpec};
+    use types::{Epoch, MainnetEthSpec, SignedContributionAndProof, SyncCommitteeContribution};
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
 
     type E = MainnetEthSpec;
@@ -755,6 +761,23 @@ mod tests {
             tokio::time::pause();
         }
 
+        /// Store a selection proof making the validator an aggregator for `slot`.
+        async fn insert_selection_proof(&self, slot: Slot) {
+            tokio::time::resume();
+            let subnet_id = SyncSubnetId::new(0);
+            let proof = self
+                .harness
+                .validator_store
+                .produce_sync_selection_proof(&self.harness.pubkeys[0], slot, subnet_id)
+                .await
+                .unwrap();
+            tokio::time::pause();
+            self.service
+                .duties_service
+                .sync_duties
+                .insert_proof(0, 0, slot, subnet_id, proof);
+        }
+
         fn start(&self) {
             self.service
                 .clone()
@@ -784,6 +807,20 @@ mod tests {
                 .unwrap()
                 .clone()
         }
+
+        fn contributions(&self) -> Vec<SignedContributionAndProof<E>> {
+            self.harness
+                .mock_beacon_node_1
+                .sync_committee_contributions
+                .lock()
+                .unwrap()
+                .clone()
+        }
+
+        /// The contribution a beacon node would build from the first published message.
+        fn contribution(&self) -> SyncCommitteeContribution<E> {
+            SyncCommitteeContribution::from_message(&self.messages()[0], 0, 0).unwrap()
+        }
     }
 
     async fn yield_to_service() {
@@ -793,16 +830,24 @@ mod tests {
     }
 
     /// Resume real time so the service can complete signing and HTTP requests, then pause again.
-    async fn wait_for_message_count(harness: &TestHarness, count: usize) {
+    async fn wait_for_count(len: impl Fn() -> usize, count: usize) {
         tokio::time::resume();
         let deadline = Instant::now() + Duration::from_secs(5);
 
-        while harness.messages().len() < count && Instant::now() < deadline {
+        while len() < count && Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
         tokio::time::pause();
-        assert_eq!(harness.messages().len(), count);
+        assert_eq!(len(), count);
+    }
+
+    async fn wait_for_message_count(harness: &TestHarness, count: usize) {
+        wait_for_count(|| harness.messages().len(), count).await;
+    }
+
+    async fn wait_for_contribution_count(harness: &TestHarness, count: usize) {
+        wait_for_count(|| harness.contributions().len(), count).await;
     }
 
     fn head_event(slot: u64, block_root: u64) -> HeadEvent {
@@ -1018,7 +1063,7 @@ mod tests {
         yield_to_service().await;
         assert!(harness.messages().is_empty());
 
-        // The skip is latched and the timer still covers the next slot at its due point.
+        // The skip is latched and the timer still covers the next slot at its deadline.
         harness
             .advance_time(Duration::from_secs(7) + Duration::from_millis(1))
             .await;
@@ -1084,6 +1129,127 @@ mod tests {
         assert_eq!(messages[0].slot, Slot::new(1));
         assert_eq!(messages[0].beacon_block_root, expected_root);
         post_mock.expect(1).assert();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn head_event_after_timer_handled_slot_is_ignored() {
+        let mut harness = TestHarness::new(true).await;
+        harness.insert_duties().await;
+        let expected_root = Hash256::from_low_u64_be(22);
+        let _root_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_head_block_root(expected_root);
+        let post_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_sync_committee_messages();
+        harness.start();
+        yield_to_service().await;
+
+        // The timer handles slot 1 at its sync message deadline (12s + 4s).
+        harness
+            .advance_time(Duration::from_secs(16) + Duration::from_millis(1))
+            .await;
+        wait_for_message_count(&harness, 1).await;
+
+        // A head event for slot 1 arriving after the deadline must not sign again.
+        harness.advance_time(Duration::from_secs(1)).await;
+        harness.send_head(1, 11);
+        yield_to_service().await;
+
+        // The next messages are those of the timer for slot 2.
+        harness.advance_time(Duration::from_secs(11)).await;
+        wait_for_message_count(&harness, 2).await;
+
+        let messages = harness.messages();
+        assert_eq!(messages[0].slot, Slot::new(1));
+        assert_eq!(messages[1].slot, Slot::new(2));
+        assert_eq!(messages[0].beacon_block_root, expected_root);
+        assert_eq!(messages[1].beacon_block_root, expected_root);
+        post_mock.expect(2).assert();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn contribution_published_at_contribution_deadline() {
+        let mut harness = TestHarness::new(true).await;
+        harness.insert_duties().await;
+        harness.insert_selection_proof(Slot::new(0)).await;
+        let _post_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_sync_committee_messages();
+        harness.start();
+        yield_to_service().await;
+
+        harness.send_head(0, 11);
+        wait_for_message_count(&harness, 1).await;
+        let contribution = harness.contribution();
+        let _get_contribution_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_sync_committee_contribution(&contribution);
+        let post_contribution_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_contribution_and_proofs();
+
+        // The pre-Gloas contribution deadline for slot 0 is 8s.
+        harness.advance_time(Duration::from_secs(6)).await;
+        assert!(harness.contributions().is_empty());
+
+        harness
+            .advance_time(Duration::from_secs(2) + Duration::from_millis(1))
+            .await;
+        wait_for_contribution_count(&harness, 1).await;
+
+        let contribution = &harness.contributions()[0].message;
+        assert_eq!(contribution.aggregator_index, 0);
+        assert_eq!(contribution.contribution.slot, Slot::new(0));
+        assert_eq!(
+            contribution.contribution.beacon_block_root,
+            Hash256::from_low_u64_be(11)
+        );
+        post_contribution_mock.expect(1).assert();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn contribution_uses_selection_proof_stored_after_head_event() {
+        let mut harness = TestHarness::new(true).await;
+        harness.insert_duties().await;
+        let _post_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_sync_committee_messages();
+        harness.start();
+        yield_to_service().await;
+
+        // The head event arrives before the selection proof for the slot is stored, as happens
+        // when proofs are only computed once the slot has started (e.g. `--distributed`).
+        harness.send_head(0, 11);
+        wait_for_message_count(&harness, 1).await;
+        let contribution = harness.contribution();
+        let _get_contribution_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_sync_committee_contribution(&contribution);
+        let post_contribution_mock = harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_contribution_and_proofs();
+
+        harness.advance_time(Duration::from_secs(2)).await;
+        harness.insert_selection_proof(Slot::new(0)).await;
+
+        harness
+            .advance_time(Duration::from_secs(6) + Duration::from_millis(1))
+            .await;
+        wait_for_contribution_count(&harness, 1).await;
+
+        let contribution = &harness.contributions()[0].message;
+        assert_eq!(contribution.aggregator_index, 0);
+        assert_eq!(contribution.contribution.slot, Slot::new(0));
+        post_contribution_mock.expect(1).assert();
     }
 
     #[tokio::test(start_paused = true)]

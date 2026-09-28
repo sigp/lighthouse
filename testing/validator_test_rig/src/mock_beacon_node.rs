@@ -16,7 +16,8 @@ use tracing::info;
 use types::{
     ChainSpec, ConfigAndPreset, Epoch, EthSpec, ExecutionPayloadEnvelope, ForkName, Hash256,
     PayloadAttestationData, PayloadAttestationMessage, SignedBlindedBeaconBlock,
-    SignedExecutionPayloadEnvelope, Slot, SyncCommitteeMessage, SyncDuty,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelope, Slot, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncDuty,
 };
 
 pub struct MockBeaconNode<E: EthSpec> {
@@ -31,6 +32,7 @@ pub struct MockBeaconNode<E: EthSpec> {
     pub payload_attestation_message: Arc<Mutex<Vec<PayloadAttestationMessage>>>,
     pub builder_preferences: Arc<Mutex<Vec<SubmittedBuilderPreferences>>>,
     pub sync_committee_messages: Arc<Mutex<Vec<SyncCommitteeMessage>>>,
+    pub sync_committee_contributions: Arc<Mutex<Vec<SignedContributionAndProof<E>>>>,
 }
 
 impl<E: EthSpec> MockBeaconNode<E> {
@@ -52,6 +54,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             payload_attestation_message: Arc::new(Mutex::new(Vec::new())),
             builder_preferences: Arc::new(Mutex::new(Vec::new())),
             sync_committee_messages: Arc::new(Mutex::new(Vec::new())),
+            sync_committee_contributions: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -157,6 +160,56 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 let messages: Vec<SyncCommitteeMessage> = serde_json::from_slice(body)
                     .expect("Failed to deserialize sync committee messages");
                 sync_committee_messages.lock().unwrap().extend(messages);
+                vec![]
+            })
+            .create()
+    }
+
+    /// Mocks `GET /eth/v1/validator/sync_committee_contribution`, matching the slot, block root
+    /// and subcommittee index of `contribution`.
+    pub fn mock_get_sync_committee_contribution(
+        &mut self,
+        contribution: &SyncCommitteeContribution<E>,
+    ) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/sync_committee_contribution$").unwrap();
+        let response = GenericResponse::from(contribution.clone());
+
+        self.server
+            .mock("GET", Matcher::Regex(path_pattern.to_string()))
+            .match_query(Matcher::AllOf(vec![
+                Matcher::UrlEncoded("slot".into(), contribution.slot.to_string()),
+                Matcher::UrlEncoded(
+                    "beacon_block_root".into(),
+                    format!("{:?}", contribution.beacon_block_root),
+                ),
+                Matcher::UrlEncoded(
+                    "subcommittee_index".into(),
+                    contribution.subcommittee_index.to_string(),
+                ),
+            ]))
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::to_string(&response).unwrap())
+            .create()
+    }
+
+    /// Mocks `POST /eth/v1/validator/contribution_and_proofs`
+    pub fn mock_post_contribution_and_proofs(&mut self) -> Mock {
+        let path_pattern = Regex::new(r"^/eth/v1/validator/contribution_and_proofs$").unwrap();
+        let sync_committee_contributions = Arc::clone(&self.sync_committee_contributions);
+
+        self.server
+            .mock("POST", Matcher::Regex(path_pattern.to_string()))
+            .with_status(200)
+            .with_body_from_request(move |request| {
+                let body = request.body().expect("Failed to get request body");
+                let contributions: Vec<SignedContributionAndProof<E>> =
+                    serde_json::from_slice(body)
+                        .expect("Failed to deserialize sync committee contributions");
+                sync_committee_contributions
+                    .lock()
+                    .unwrap()
+                    .extend(contributions);
                 vec![]
             })
             .create()

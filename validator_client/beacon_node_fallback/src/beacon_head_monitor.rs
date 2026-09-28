@@ -326,6 +326,7 @@ mod tests {
     use bls::FixedBytesExtended;
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
+    use tokio::time::Instant;
     use types::{Hash256, Slot};
 
     fn create_sse_head(slot: u64, block_root: u8) -> SseHead {
@@ -515,6 +516,58 @@ mod tests {
                 .await
                 .is_none()
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_head_event_returned_before_deadline() {
+        let slot_clock =
+            ManualSlotClock::new(Slot::new(0), Duration::ZERO, Duration::from_secs(12));
+        let (sender, receiver) = broadcast::channel(1);
+        let mut head_monitor_rx = Some(receiver);
+        sender.send(head_event(0, 1)).unwrap();
+
+        let start = Instant::now();
+        let event =
+            head_event_or_deadline(&mut head_monitor_rx, &slot_clock, Duration::from_secs(4))
+                .await
+                .unwrap();
+
+        assert_eq!(event.beacon_block_root, Hash256::from_low_u64_be(1));
+        assert_eq!(start.elapsed(), Duration::ZERO);
+        assert!(head_monitor_rx.is_some());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_deadline_keeps_head_monitoring_enabled() {
+        let slot_clock =
+            ManualSlotClock::new(Slot::new(0), Duration::ZERO, Duration::from_secs(12));
+        let (_sender, receiver) = broadcast::channel::<HeadEvent>(1);
+        let mut head_monitor_rx = Some(receiver);
+
+        let start = Instant::now();
+        let event =
+            head_event_or_deadline(&mut head_monitor_rx, &slot_clock, Duration::from_secs(4)).await;
+
+        assert!(event.is_none());
+        assert_eq!(start.elapsed(), Duration::from_secs(4));
+        assert!(head_monitor_rx.is_some());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_closed_channel_disables_head_monitoring_and_awaits_deadline() {
+        let slot_clock =
+            ManualSlotClock::new(Slot::new(0), Duration::ZERO, Duration::from_secs(12));
+        let (sender, receiver) = broadcast::channel::<HeadEvent>(1);
+        let mut head_monitor_rx = Some(receiver);
+        drop(sender);
+
+        let start = Instant::now();
+        let event =
+            head_event_or_deadline(&mut head_monitor_rx, &slot_clock, Duration::from_secs(4)).await;
+
+        assert!(event.is_none());
+        assert_eq!(start.elapsed(), Duration::from_secs(4));
+        assert!(head_monitor_rx.is_none());
     }
 
     #[tokio::test]
