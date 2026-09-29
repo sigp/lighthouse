@@ -388,12 +388,16 @@ impl ChainSpec {
 
     /// Returns the `next_fork_version`.
     ///
-    /// `next_fork_version = current_fork_version` if no future fork is planned,
+    /// This is the fork version in effect at the next digest epoch. BPO forks do not change the
+    /// fork version, so a BPO fork scheduled before the next regular fork keeps the current one.
+    /// `next_fork_version = current_fork_version` if no future fork is planned.
     pub fn next_fork_version<E: EthSpec>(&self, slot: Slot) -> [u8; 4] {
-        match self.next_fork_epoch::<E>(slot) {
-            Some((fork, _)) => self.fork_version_for_name(fork),
-            None => self.fork_version_for_name(self.fork_name_at_slot::<E>(slot)),
-        }
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let version_epoch = self
+            .next_digest_epoch(epoch)
+            .filter(|next_epoch| *next_epoch != self.far_future_epoch)
+            .unwrap_or(epoch);
+        self.fork_version_for_name(self.fork_name_at_epoch(version_epoch))
     }
 
     /// Returns the epoch of the next scheduled fork along with its corresponding `ForkName`.
@@ -3454,6 +3458,103 @@ mod tests {
                 // Fork is not activated, check that `next_fork_epoch` returns `None`.
                 assert_eq!(spec.next_fork_epoch::<E>(last_fork_slot), None);
             }
+        }
+    }
+
+    #[test]
+    fn enr_fork_id_next_fork_with_bpo() {
+        type E = MainnetEthSpec;
+        let far_future = Epoch::new(u64::MAX);
+        let slot = Epoch::new(10).start_slot(E::slots_per_epoch());
+
+        let cases = [
+            (
+                ForkName::Fulu,
+                None,
+                Some(20),
+                Some(30),
+                ForkName::Fulu,
+                Epoch::new(20),
+            ),
+            (
+                ForkName::Fulu,
+                None,
+                Some(20),
+                Some(20),
+                ForkName::Gloas,
+                Epoch::new(20),
+            ),
+            (
+                ForkName::Fulu,
+                None,
+                Some(30),
+                Some(20),
+                ForkName::Gloas,
+                Epoch::new(20),
+            ),
+            (
+                ForkName::Fulu,
+                None,
+                Some(20),
+                None,
+                ForkName::Fulu,
+                Epoch::new(20),
+            ),
+            (
+                ForkName::Fulu,
+                None,
+                Some(5),
+                Some(30),
+                ForkName::Gloas,
+                Epoch::new(30),
+            ),
+            (ForkName::Fulu, None, None, None, ForkName::Fulu, far_future),
+            (
+                ForkName::Fulu,
+                None,
+                None,
+                Some(u64::MAX),
+                ForkName::Fulu,
+                far_future,
+            ),
+            (
+                ForkName::Electra,
+                Some(20),
+                Some(30),
+                None,
+                ForkName::Fulu,
+                Epoch::new(20),
+            ),
+        ];
+
+        for (genesis_fork, fulu_epoch, bpo_epoch, gloas_epoch, expected_fork, expected_epoch) in
+            cases
+        {
+            let mut spec = genesis_fork.make_genesis_spec(E::default_spec());
+            if let Some(fulu_epoch) = fulu_epoch {
+                spec.fulu_fork_epoch = Some(Epoch::new(fulu_epoch));
+            }
+            spec.gloas_fork_epoch = gloas_epoch.map(Epoch::new);
+            spec.blob_schedule = BlobSchedule::new(
+                bpo_epoch
+                    .into_iter()
+                    .map(|epoch| BlobParameters {
+                        epoch: Epoch::new(epoch),
+                        max_blobs_per_block: 21,
+                    })
+                    .collect(),
+            );
+
+            let enr_fork_id = spec.enr_fork_id::<E>(slot, Hash256::zero());
+            assert_eq!(
+                enr_fork_id.next_fork_version,
+                spec.fork_version_for_name(expected_fork),
+                "bpo {bpo_epoch:?}, gloas {gloas_epoch:?}"
+            );
+            assert_eq!(
+                enr_fork_id.next_fork_epoch, expected_epoch,
+                "bpo {bpo_epoch:?}, gloas {gloas_epoch:?}"
+            );
         }
     }
 
