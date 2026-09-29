@@ -1074,30 +1074,6 @@ impl ChainSpec {
         }
     }
 
-    pub fn compute_time_at_slot_ms<E: EthSpec>(
-        &self,
-        genesis_time_ms: u64,
-        slot: Slot,
-    ) -> Result<u64, ArithError> {
-        self.slot_duration_schedule().compute_time_at_slot_ms(
-            E::slots_per_epoch(),
-            genesis_time_ms,
-            slot,
-        )
-    }
-
-    pub fn compute_slot_at_time_ms<E: EthSpec>(
-        &self,
-        genesis_time_ms: u64,
-        time_ms: u64,
-    ) -> Result<Slot, ArithError> {
-        self.slot_duration_schedule().compute_slot_at_time_ms(
-            E::slots_per_epoch(),
-            genesis_time_ms,
-            time_ms,
-        )
-    }
-
     /// Compute values that are derived from other config values.
     ///
     /// Must be called after loading or modifying a ChainSpec's fields.
@@ -2203,17 +2179,30 @@ impl SlotDurationSchedule {
         genesis_time_ms: u64,
         slot: Slot,
     ) -> Result<u64, ArithError> {
-        let mut end_slot = slot;
-        let mut time_ms = genesis_time_ms;
-        for entry in self {
+        let mut entries = self.as_vec().iter().rev();
+        let genesis = entries.next().ok_or(ArithError::Overflow)?;
+        let mut start_slot = genesis.epoch.start_slot(slots_per_epoch);
+        let mut start_time_ms = genesis_time_ms;
+        let mut slot_duration_ms = genesis.slot_duration_ms;
+        for entry in entries {
             let entry_slot = entry.epoch.start_slot(slots_per_epoch);
-            if entry_slot < end_slot {
-                let slots = end_slot.as_u64().safe_sub(entry_slot.as_u64())?;
-                time_ms.safe_add_assign(slots.safe_mul(entry.slot_duration_ms)?)?;
-                end_slot = entry_slot;
+            if slot <= entry_slot {
+                break;
             }
+            start_time_ms.safe_add_assign(
+                entry_slot
+                    .safe_sub(start_slot)?
+                    .as_u64()
+                    .safe_mul(slot_duration_ms)?,
+            )?;
+            start_slot = entry_slot;
+            slot_duration_ms = entry.slot_duration_ms;
         }
-        Ok(time_ms)
+        start_time_ms.safe_add(
+            slot.safe_sub(start_slot)?
+                .as_u64()
+                .safe_mul(slot_duration_ms)?,
+        )
     }
 
     pub fn compute_slot_at_time_ms(
@@ -2222,21 +2211,30 @@ impl SlotDurationSchedule {
         genesis_time_ms: u64,
         time_ms: u64,
     ) -> Result<Slot, ArithError> {
-        let mut found = None;
-        for entry in self {
+        let mut entries = self.as_vec().iter().rev();
+        let genesis = entries.next().ok_or(ArithError::Overflow)?;
+        let mut start_slot = genesis.epoch.start_slot(slots_per_epoch);
+        let mut start_time_ms = genesis_time_ms;
+        let mut slot_duration_ms = genesis.slot_duration_ms;
+        for entry in entries {
             let entry_slot = entry.epoch.start_slot(slots_per_epoch);
-            let entry_time_ms =
-                self.compute_time_at_slot_ms(slots_per_epoch, genesis_time_ms, entry_slot)?;
-            found = Some((entry, entry_slot, entry_time_ms));
-            if time_ms >= entry_time_ms {
+            let entry_time_ms = start_time_ms.safe_add(
+                entry_slot
+                    .safe_sub(start_slot)?
+                    .as_u64()
+                    .safe_mul(slot_duration_ms)?,
+            )?;
+            if time_ms < entry_time_ms {
                 break;
             }
+            start_slot = entry_slot;
+            start_time_ms = entry_time_ms;
+            slot_duration_ms = entry.slot_duration_ms;
         }
-        let (entry, entry_slot, entry_time_ms) = found.ok_or(ArithError::Overflow)?;
         let slots = time_ms
-            .safe_sub(entry_time_ms)?
-            .safe_div(entry.slot_duration_ms)?;
-        entry_slot.safe_add(slots)
+            .safe_sub(start_time_ms)?
+            .safe_div(slot_duration_ms)?;
+        start_slot.safe_add(slots)
     }
 
     fn validate(&self, genesis_slot_duration_ms: u64) -> Result<(), String> {
@@ -4979,13 +4977,18 @@ mod yaml_tests {
         let genesis_time_ms = 1_606_824_023_000;
         for slot in [0, 1, 31, 32, 12_345, 10_000_000] {
             assert_eq!(
-                spec.compute_time_at_slot_ms::<MainnetEthSpec>(genesis_time_ms, Slot::new(slot)),
+                spec.slot_duration_schedule().compute_time_at_slot_ms(
+                    MainnetEthSpec::slots_per_epoch(),
+                    genesis_time_ms,
+                    Slot::new(slot)
+                ),
                 Ok(genesis_time_ms + slot * 12000)
             );
         }
         for offset_ms in [0, 1, 11_999, 12_000, 123_456_789] {
             assert_eq!(
-                spec.compute_slot_at_time_ms::<MainnetEthSpec>(
+                spec.slot_duration_schedule().compute_slot_at_time_ms(
+                    MainnetEthSpec::slots_per_epoch(),
                     genesis_time_ms,
                     genesis_time_ms + offset_ms
                 ),
@@ -4993,7 +4996,12 @@ mod yaml_tests {
             );
         }
         assert!(
-            spec.compute_slot_at_time_ms::<MainnetEthSpec>(genesis_time_ms, genesis_time_ms - 1)
+            spec.slot_duration_schedule()
+                .compute_slot_at_time_ms(
+                    MainnetEthSpec::slots_per_epoch(),
+                    genesis_time_ms,
+                    genesis_time_ms - 1
+                )
                 .is_err()
         );
     }
@@ -5005,11 +5013,21 @@ mod yaml_tests {
             slot_duration_schedule(&[(0, 12000), (10, 10000), (20, 6000)]);
         let genesis_time_ms = 1_000_000;
         let time_at = |slot: u64| {
-            spec.compute_time_at_slot_ms::<MainnetEthSpec>(genesis_time_ms, Slot::new(slot))
+            spec.slot_duration_schedule()
+                .compute_time_at_slot_ms(
+                    MainnetEthSpec::slots_per_epoch(),
+                    genesis_time_ms,
+                    Slot::new(slot),
+                )
                 .unwrap()
         };
         let slot_at = |time_ms: u64| {
-            spec.compute_slot_at_time_ms::<MainnetEthSpec>(genesis_time_ms, time_ms)
+            spec.slot_duration_schedule()
+                .compute_slot_at_time_ms(
+                    MainnetEthSpec::slots_per_epoch(),
+                    genesis_time_ms,
+                    time_ms,
+                )
                 .unwrap()
                 .as_u64()
         };
