@@ -55,6 +55,9 @@ impl Default for InvariantCheckResult {
 pub struct InvariantContext {
     /// Block roots tracked by fork choice (invariant 1).
     pub fork_choice_blocks: Vec<(Hash256, Slot)>,
+    /// Unfinalized descendants of the finalized checkpoint whose Gloas payloads have been
+    /// received, regardless of payload canonicity (invariant 1b).
+    pub fork_choice_payloads: Vec<(Hash256, Slot)>,
     /// State roots held in the in-memory state cache (invariant 8).
     pub state_cache_roots: Vec<Hash256>,
     /// Custody columns for the current epoch (invariant 7).
@@ -73,6 +76,13 @@ pub enum InvariantViolation {
     /// block in fork_choice && descends_from_finalized -> block in hot_db
     /// ```
     ForkChoiceBlockMissing { block_root: Hash256, slot: Slot },
+    /// Invariant 1b: received fork choice payloads have summaries.
+    ///
+    /// ```text
+    /// unfinalized block in fork_choice && descends_from_finalized && block.payload_received
+    ///   -> payload_summary in hot_db
+    /// ```
+    ForkChoicePayloadSummaryMissing { block_root: Hash256, slot: Slot },
     /// Invariant 2: block and state consistency.
     ///
     /// ```text
@@ -118,10 +128,11 @@ pub enum InvariantViolation {
         slot: Slot,
         previous_state_root: Hash256,
     },
-    /// Invariant 5: block and execution payload consistency.
+    /// Invariant 5: pre-Gloas block and execution payload consistency.
     ///
     /// ```text
-    /// block in hot_db && !prune_payloads -> payload for block.root in hot_db
+    /// pre-Gloas execution block in hot_db && !prune_payloads
+    ///   -> payload for block.root in hot_db
     /// ```
     ExecutionPayloadMissing { block_root: Hash256, slot: Slot },
     /// Invariant 6: block and blobs consistency.
@@ -240,6 +251,12 @@ pub enum InvariantViolation {
     ///   -> slot |-> state diff/snapshot/nothing in cold_db according to diff hierarchy
     /// ```
     ColdStateBaseSummaryMissing { slot: Slot, base_slot: Slot },
+    /// Invariant 13: payload body and summary consistency.
+    ///
+    /// ```text
+    /// payload_body in hot_db -> payload_summary in hot_db
+    /// ```
+    PayloadBodyMissingSummary { block_root: Hash256 },
 }
 
 impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
@@ -252,6 +269,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         let split = self.get_split_info();
 
         result.merge(self.check_fork_choice_block_consistency(ctx)?);
+        result.merge(self.check_payload_body_summary_consistency()?);
         result.merge(self.check_hot_block_invariants(&split, ctx)?);
         result.merge(self.check_hot_state_summary_diff_consistency()?);
         result.merge(self.check_hot_state_summary_chain_consistency(&split)?);
@@ -264,15 +282,17 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         Ok(result)
     }
 
-    /// Invariant 1 (Hot DB): Fork choice block consistency.
+    /// Invariants 1 and 1b (Hot DB): Fork choice block and received payload consistency.
     ///
     /// ```text
     /// block in fork_choice && descends_from_finalized -> block in hot_db
+    /// unfinalized block in fork_choice && descends_from_finalized && block.payload_received
+    ///   -> payload_summary in hot_db
     /// ```
     ///
-    /// Every canonical fork choice block (descending from finalized) must exist in the hot
-    /// database. Pruned non-canonical fork blocks may linger in the proto-array and are
-    /// excluded from this check.
+    /// Every fork choice block descending from finalized must exist in the hot database, and
+    /// its summary must exist if its unfinalized payload was received. Pruned fork blocks may
+    /// linger in the proto-array and are excluded from the context.
     fn check_fork_choice_block_consistency(
         &self,
         ctx: &InvariantContext,
@@ -289,6 +309,36 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             }
         }
 
+        for &(block_root, slot) in &ctx.fork_choice_payloads {
+            if !self.payload_envelope_summary_exists(&block_root)? {
+                result.add_violation(InvariantViolation::ForkChoicePayloadSummaryMissing {
+                    block_root,
+                    slot,
+                });
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Invariant 13 (Hot DB): Every stored payload body has a summary.
+    ///
+    /// Bodies and summaries are written atomically. The converse is not required: bodies may
+    /// have been pruned even if payload pruning is currently disabled.
+    fn check_payload_body_summary_consistency(&self) -> Result<InvariantCheckResult, Error> {
+        let mut result = InvariantCheckResult::new();
+
+        // Iterate keys only: checking consistency does not require loading or decoding bodies.
+        for res in self
+            .hot_db
+            .iter_column_keys::<Hash256>(DBColumn::PayloadBody)
+        {
+            let block_root = res?;
+            if !self.payload_envelope_summary_exists(&block_root)? {
+                result.add_violation(InvariantViolation::PayloadBodyMissingSummary { block_root });
+            }
+        }
+
         Ok(result)
     }
 
@@ -296,7 +346,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     ///
     /// Iterates hot DB blocks once and checks:
     /// - Invariant 2: block-state summary consistency
-    /// - Invariant 5: execution payload consistency (when prune_payloads=false)
+    /// - Invariant 5: pre-Gloas execution payload consistency (when prune_payloads=false)
     /// - Invariant 6: blob sidecar consistency (Deneb to Fulu)
     /// - Invariant 7: data column consistency (post-Fulu, when custody_columns provided)
     fn check_hot_block_invariants(
@@ -350,25 +400,13 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             if check_payloads
                 && let Some(bellatrix_slot) = bellatrix_fork_slot
                 && slot >= bellatrix_slot
+                && gloas_fork_slot.is_none_or(|gloas_slot| slot < gloas_slot)
+                && !self.execution_payload_exists(&block_root)?
             {
-                if let Some(gloas_slot) = gloas_fork_slot
-                    && slot >= gloas_slot
-                {
-                    // For Gloas there is never a true payload stored at slot 0.
-                    // TODO(gloas): still need to account for non-canonical payloads once pruning
-                    // is implemented.
-                    if slot != 0 && !self.payload_envelope_exists(&block_root)? {
-                        result.add_violation(InvariantViolation::ExecutionPayloadMissing {
-                            block_root,
-                            slot,
-                        });
-                    }
-                } else if !self.execution_payload_exists(&block_root)? {
-                    result.add_violation(InvariantViolation::ExecutionPayloadMissing {
-                        block_root,
-                        slot,
-                    });
-                }
+                result.add_violation(InvariantViolation::ExecutionPayloadMissing {
+                    block_root,
+                    slot,
+                });
             }
 
             // Invariant 6: blob sidecar consistency.
@@ -792,5 +830,46 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         }
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{KeyValueStore, MemoryStore, StoreConfig};
+
+    #[test]
+    fn payload_body_summary_consistency_checks_keys_only() {
+        let store = HotColdDB::<MinimalEthSpec, MemoryStore, MemoryStore>::open_ephemeral(
+            StoreConfig::default(),
+            MinimalEthSpec::default_spec().into(),
+        )
+        .unwrap();
+        let block_root = Hash256::repeat_byte(0x42);
+
+        // An orphan body must be detected even without a block or fork choice entry.
+        // Neither value is valid SSZ: this check should only inspect key existence.
+        store
+            .hot_db
+            .put_bytes(DBColumn::PayloadBody, block_root.as_slice(), b"body")
+            .unwrap();
+        let result = store.check_payload_body_summary_consistency().unwrap();
+        assert_eq!(result.violations.len(), 1);
+        assert!(matches!(
+            result.violations.first(),
+            Some(InvariantViolation::PayloadBodyMissingSummary { block_root: missing_root })
+                if *missing_root == block_root
+        ));
+
+        store
+            .hot_db
+            .put_bytes(DBColumn::PayloadSummary, block_root.as_slice(), b"summary")
+            .unwrap();
+        assert!(
+            store
+                .check_payload_body_summary_consistency()
+                .unwrap()
+                .is_ok()
+        );
     }
 }
