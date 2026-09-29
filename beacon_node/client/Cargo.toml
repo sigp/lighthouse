@@ -4,6 +4,9 @@ version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 
+[features]
+ere-verifier = ["proof_engine/ere-verifier"]
+
 [dependencies]
 beacon_chain = { workspace = true }
 beacon_processor = { workspace = true }

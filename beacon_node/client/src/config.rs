@@ -5,6 +5,7 @@ use directory::DEFAULT_ROOT_DIR;
 use environment::LoggerConfig;
 use kzg::trusted_setup::get_trusted_setup;
 use network::NetworkConfig;
+use proof_engine::ProofEngineConfig;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -69,7 +70,7 @@ pub struct Config {
     pub network: network::NetworkConfig,
     pub chain: beacon_chain::ChainConfig,
     pub execution_layer: Option<execution_layer::Config>,
-    pub proof_engine_endpoint: Option<SensitiveUrl>,
+    pub proof_engine: Option<ProofEngineConfig>,
     pub trusted_setup: Vec<u8>,
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
@@ -95,7 +96,7 @@ impl Default for Config {
             network: NetworkConfig::default(),
             chain: <_>::default(),
             execution_layer: None,
-            proof_engine_endpoint: None,
+            proof_engine: None,
             trusted_setup: get_trusted_setup(),
             beacon_graffiti: GraffitiOrigin::default(),
             http_api: <_>::default(),

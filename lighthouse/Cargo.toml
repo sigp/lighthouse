@@ -13,6 +13,8 @@ normal = ["target_check"]
 
 [features]
 default = ["slasher-lmdb", "beacon-node-leveldb"]
+# Statically link the pinned ERE verifier for in-process execution-proof verification.
+ere-verifier = ["beacon_node/ere-verifier"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.

@@ -41,7 +41,7 @@ use crate::metrics::{
 use crate::observed_data_sidecars::ObservationStrategy;
 use crate::partial_data_column_assembler::PartialMergeResult;
 use pending_components::{PendingComponents, ReconstructColumnsDecision};
-use types::execution::SignedExecutionProof;
+use types::execution::SignedExecutionProofEnvelope;
 use types::{SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope};
 
 /// The LRU Cache stores `PendingComponents`, which store the block root, the execution payload bid, and its associated column data.
@@ -292,7 +292,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     /// extras skip the check rather than importing twice.
     pub(crate) fn put_execution_proof(
         &self,
-        proof: Arc<SignedExecutionProof>,
+        proof: Arc<SignedExecutionProofEnvelope>,
         bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let block_root = proof.beacon_block_root();
@@ -696,7 +696,7 @@ mod data_availability_checker_tests {
     use slot_clock::{SlotClock, TestingSlotClock};
     use ssz_types::ProgressiveVariableList;
     use std::time::Duration;
-    use types::execution::{ExecutionProof, ProofData, ProofType, PublicInput};
+    use types::execution::{ExecutionProofEnvelope, ProofData, ProofType};
     use types::{
         Cell, CellBitmap, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas,
         ForkName, MinimalEthSpec, PartialDataColumnGloas, PartialDataColumnSidecarGloas,
@@ -832,14 +832,11 @@ mod data_availability_checker_tests {
     }
 
     /// Unverified proof: the cache only reads `beacon_block_root` and `proof_type`.
-    fn execution_proof(block_root: Hash256, proof_type: ProofType) -> SignedExecutionProof {
-        SignedExecutionProof {
-            message: ExecutionProof {
+    fn execution_proof(block_root: Hash256, proof_type: ProofType) -> SignedExecutionProofEnvelope {
+        SignedExecutionProofEnvelope {
+            message: ExecutionProofEnvelope {
                 proof_data: ProofData::new(vec![1_u8]).expect("proof data"),
                 proof_type,
-                public_input: PublicInput {
-                    new_payload_request_root: Hash256::random(),
-                },
                 beacon_block_root: block_root,
             },
             validator_index: 0,
@@ -1026,20 +1023,22 @@ mod data_availability_checker_tests {
         s.put_envelope();
         assert_missing(s.put_columns(s.custody.clone()));
 
+        let assigned = ProofType::all();
+
         // One prover, however many proofs, is never enough.
         for _ in 0..=REQUIRED_EXECUTION_PROOFS {
-            assert_missing(s.put_proof(0));
+            assert_missing(s.put_proof(assigned[0]));
         }
 
         // Distinct provers up to the requirement flip it to available.
         let mut availability = None;
-        for proof_type in 1..REQUIRED_EXECUTION_PROOFS {
-            availability = Some(s.put_proof(proof_type as ProofType));
+        for proof_type in &assigned[1..REQUIRED_EXECUTION_PROOFS] {
+            availability = Some(s.put_proof(*proof_type));
         }
         let envelope = assert_available(availability.expect("gate needs two provers or more"));
         assert_eq!(envelope.block_root, s.block_root);
 
-        assert_missing(s.put_proof(REQUIRED_EXECUTION_PROOFS as ProofType));
+        assert_missing(s.put_proof(assigned[REQUIRED_EXECUTION_PROOFS]));
     }
 
     // ────────── Gloas partial column merge ─────────────────────────────────

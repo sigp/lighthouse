@@ -9,6 +9,8 @@ name = "beacon_node"
 path = "src/lib.rs"
 
 [features]
+# Statically link the pinned ERE verifier for in-process execution-proof verification.
+ere-verifier = ["client/ere-verifier"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_chain/write_ssz_files"]
 # Enables testing-only CLI flags.

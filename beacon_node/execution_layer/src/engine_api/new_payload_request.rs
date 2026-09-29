@@ -1,8 +1,11 @@
 use crate::{Error, block_hash::calculate_execution_block_hash, metrics};
 
 use crate::versioned_hashes::verify_versioned_hashes;
+use ssz_derive::Encode;
+use ssz_types::{ProgressiveVariableList, VariableList};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use superstruct::superstruct;
+use tree_hash_derive::TreeHash;
 use types::{
     BeaconBlockRef, BeaconStateError, EthSpec, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadRef, Hash256, VersionedHash,
@@ -17,6 +20,7 @@ use types::{
 #[superstruct(
     variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(derive(Clone, Debug, PartialEq),),
+    specific_variant_attributes(Gloas(derive(Encode, TreeHash))),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
     cast_error(
@@ -47,8 +51,16 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub execution_payload: &'block ExecutionPayloadGloas<E>,
     #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
     pub execution_payload: &'block ExecutionPayloadHeze<E>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
-    pub versioned_hashes: Vec<VersionedHash>,
+    #[superstruct(
+        only(Deneb, Electra, Fulu),
+        partial_getter(rename = "versioned_hashes_bounded")
+    )]
+    pub versioned_hashes: VariableList<VersionedHash, <E as EthSpec>::MaxBlobCommitmentsPerBlock>,
+    #[superstruct(
+        only(Gloas, Heze),
+        partial_getter(rename = "versioned_hashes_progressive")
+    )]
+    pub versioned_hashes: ProgressiveVariableList<VersionedHash>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub parent_beacon_block_root: Hash256,
     #[superstruct(
@@ -63,6 +75,18 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
+    /// Unified access to the blob versioned hashes across bounded and progressive lists.
+    pub fn versioned_hashes(&self) -> Result<&[VersionedHash], BeaconStateError> {
+        match self {
+            Self::Bellatrix(_) | Self::Capella(_) => Err(BeaconStateError::IncorrectStateVariant),
+            Self::Deneb(request) => Ok(&request.versioned_hashes),
+            Self::Electra(request) => Ok(&request.versioned_hashes),
+            Self::Fulu(request) => Ok(&request.versioned_hashes),
+            Self::Gloas(request) => Ok(&request.versioned_hashes),
+            Self::Heze(request) => Ok(&request.versioned_hashes),
+        }
+    }
+
     pub fn parent_hash(&self) -> ExecutionBlockHash {
         match self {
             Self::Bellatrix(payload) => payload.execution_payload.parent_hash,
@@ -217,33 +241,39 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<'a, E>
             })),
             BeaconBlockRef::Deneb(block_ref) => Ok(Self::Deneb(NewPayloadRequestDeneb {
                 execution_payload: &block_ref.body.execution_payload.execution_payload,
-                versioned_hashes: block_ref
-                    .body
-                    .blob_kzg_commitments
-                    .iter()
-                    .map(kzg_commitment_to_versioned_hash)
-                    .collect(),
+                versioned_hashes: VariableList::new(
+                    block_ref
+                        .body
+                        .blob_kzg_commitments
+                        .iter()
+                        .map(kzg_commitment_to_versioned_hash)
+                        .collect(),
+                )?,
                 parent_beacon_block_root: block_ref.parent_root,
             })),
             BeaconBlockRef::Electra(block_ref) => Ok(Self::Electra(NewPayloadRequestElectra {
                 execution_payload: &block_ref.body.execution_payload.execution_payload,
-                versioned_hashes: block_ref
-                    .body
-                    .blob_kzg_commitments
-                    .iter()
-                    .map(kzg_commitment_to_versioned_hash)
-                    .collect(),
+                versioned_hashes: VariableList::new(
+                    block_ref
+                        .body
+                        .blob_kzg_commitments
+                        .iter()
+                        .map(kzg_commitment_to_versioned_hash)
+                        .collect(),
+                )?,
                 parent_beacon_block_root: block_ref.parent_root,
                 execution_requests: &block_ref.body.execution_requests,
             })),
             BeaconBlockRef::Fulu(block_ref) => Ok(Self::Fulu(NewPayloadRequestFulu {
                 execution_payload: &block_ref.body.execution_payload.execution_payload,
-                versioned_hashes: block_ref
-                    .body
-                    .blob_kzg_commitments
-                    .iter()
-                    .map(kzg_commitment_to_versioned_hash)
-                    .collect(),
+                versioned_hashes: VariableList::new(
+                    block_ref
+                        .body
+                        .blob_kzg_commitments
+                        .iter()
+                        .map(kzg_commitment_to_versioned_hash)
+                        .collect(),
+                )?,
                 parent_beacon_block_root: block_ref.parent_root,
                 execution_requests: &block_ref.body.execution_requests,
             })),
@@ -282,9 +312,44 @@ impl<'a, E: EthSpec> TryFrom<ExecutionPayloadRef<'a, E>> for NewPayloadRequest<'
 #[cfg(test)]
 mod test {
     use crate::versioned_hashes::Error as VersionedHashError;
-    use crate::{Error, NewPayloadRequest};
+    use crate::{Error, NewPayloadRequest, NewPayloadRequestGloas};
+    use bls::Signature;
+    use ssz_types::ProgressiveVariableList;
     use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
-    use types::{BeaconBlock, ExecPayload, ExecutionBlockHash, Hash256, MainnetEthSpec};
+    use std::str::FromStr;
+    use tree_hash::TreeHash;
+    use types::kzg_ext::{KzgCommitment, ProgressiveKzgCommitments};
+    use types::{
+        BeaconBlock, ExecPayload, ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256,
+        MainnetEthSpec, SignedExecutionPayloadEnvelope,
+    };
+
+    #[test]
+    fn native_gloas_request_has_eip_8025_tree_hash_root() {
+        let payload_envelope = SignedExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope::<MainnetEthSpec>::empty(),
+            signature: Signature::empty(),
+        };
+        let commitment = KzgCommitment::empty_for_testing();
+        let commitments = ProgressiveKzgCommitments::new(vec![commitment]);
+        let native = NewPayloadRequestGloas {
+            execution_payload: &payload_envelope.message.payload,
+            versioned_hashes: ProgressiveVariableList::new(
+                commitments
+                    .iter()
+                    .map(kzg_commitment_to_versioned_hash)
+                    .collect(),
+            ),
+            parent_beacon_block_root: payload_envelope.message.parent_beacon_block_root,
+            execution_requests: &payload_envelope.message.execution_requests,
+        };
+
+        assert_eq!(
+            native.tree_hash_root(),
+            Hash256::from_str("0x4a10be91224e03ff21b4b01fa8f2ca1cfb282628a4232268fd51aec01e9d89e1")
+                .expect("valid root")
+        );
+    }
 
     #[test]
     fn test_optimistic_sync_verifications_valid_block() {
