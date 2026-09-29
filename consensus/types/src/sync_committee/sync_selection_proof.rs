@@ -123,7 +123,7 @@ mod test {
         let key = keypair(1);
         let fork = &Fork::default();
         let genesis_validators_root = Hash256::zero();
-        let spec = &ChainSpec::mainnet();
+        let spec = &MainnetEthSpec::default_spec();
 
         let proof = SyncSelectionProof::new::<MainnetEthSpec>(
             slot,
