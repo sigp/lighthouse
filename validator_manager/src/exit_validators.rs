@@ -7,7 +7,7 @@ use eth2::types::{ConfigAndPreset, Epoch, StateId, ValidatorId, ValidatorStatus}
 use eth2::{BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use slot_clock::{SlotClock, SystemTimeSlotClock};
+use slot_clock::{SlotClock, SlotTimeline, SystemTimeSlotClock};
 use std::fs::write;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -277,11 +277,10 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
 }
 
 pub fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<Epoch> {
-    let slot_clock = SystemTimeSlotClock::new(
-        spec.genesis_slot,
+    let slot_clock = SystemTimeSlotClock::from_timeline(SlotTimeline::from_spec::<E>(
         Duration::from_secs(genesis_time),
-        spec.get_slot_duration(),
-    );
+        spec,
+    ));
     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
 }
 
