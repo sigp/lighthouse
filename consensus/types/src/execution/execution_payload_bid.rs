@@ -46,7 +46,7 @@ impl<E: EthSpec> SignedRoot for ExecutionPayloadBid<E> {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
 
-    ssz_and_tree_hash_tests!(ExecutionPayloadBid<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(ExecutionPayloadBid<Spec>);
 }

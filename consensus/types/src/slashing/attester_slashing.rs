@@ -218,10 +218,10 @@ mod tests {
     use crate::*;
     mod base {
         use super::*;
-        ssz_and_tree_hash_tests!(AttesterSlashingBase<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(AttesterSlashingBase<Spec>);
     }
     mod electra {
         use super::*;
-        ssz_and_tree_hash_tests!(AttesterSlashingElectra<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(AttesterSlashingElectra<Spec>);
     }
 }

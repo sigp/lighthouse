@@ -550,36 +550,36 @@ mod tests {
     #[cfg(test)]
     mod altair {
         use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateAltair<MainnetEthSpec>);
+        use crate::Spec;
+        ssz_tests!(LightClientUpdateAltair<Spec>);
     }
 
     #[cfg(test)]
     mod capella {
         use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateCapella<MainnetEthSpec>);
+        use crate::Spec;
+        ssz_tests!(LightClientUpdateCapella<Spec>);
     }
 
     #[cfg(test)]
     mod deneb {
         use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateDeneb<MainnetEthSpec>);
+        use crate::Spec;
+        ssz_tests!(LightClientUpdateDeneb<Spec>);
     }
 
     #[cfg(test)]
     mod electra {
         use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateElectra<MainnetEthSpec>);
+        use crate::Spec;
+        ssz_tests!(LightClientUpdateElectra<Spec>);
     }
 
     #[cfg(test)]
     mod fulu {
         use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateFulu<MainnetEthSpec>);
+        use crate::Spec;
+        ssz_tests!(LightClientUpdateFulu<Spec>);
     }
 
     #[test]

@@ -861,8 +861,7 @@ mod tests {
     fn size_of_base() {
         use std::mem::size_of;
 
-        let aggregation_bits =
-            size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxValidatorsPerCommittee>>();
+        let aggregation_bits = size_of::<BitList<<Spec as EthSpec>::MaxValidatorsPerCommittee>>();
         let attestation_data = size_of::<AttestationData>();
         let signature = size_of::<AggregateSignature>();
 
@@ -872,21 +871,16 @@ mod tests {
 
         let attestation_expected = aggregation_bits + attestation_data + signature;
         assert_eq!(attestation_expected, 576);
-        assert_eq!(
-            size_of::<AttestationBase<MainnetEthSpec>>(),
-            attestation_expected
-        );
+        assert_eq!(size_of::<AttestationBase<Spec>>(), attestation_expected);
     }
 
     #[test]
     fn size_of_electra() {
         use std::mem::size_of;
 
-        let aggregation_bits =
-            size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxValidatorsPerSlot>>();
+        let aggregation_bits = size_of::<BitList<<Spec as EthSpec>::MaxValidatorsPerSlot>>();
         let attestation_data = size_of::<AttestationData>();
-        let committee_bits =
-            size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxCommitteesPerSlot>>();
+        let committee_bits = size_of::<BitList<<Spec as EthSpec>::MaxCommitteesPerSlot>>();
         let signature = size_of::<AggregateSignature>();
 
         assert_eq!(aggregation_bits, 144);
@@ -896,18 +890,15 @@ mod tests {
 
         let attestation_expected = aggregation_bits + committee_bits + attestation_data + signature;
         assert_eq!(attestation_expected, 720);
-        assert_eq!(
-            size_of::<AttestationElectra<MainnetEthSpec>>(),
-            attestation_expected
-        );
+        assert_eq!(size_of::<AttestationElectra<Spec>>(), attestation_expected);
     }
 
     mod base {
         use super::*;
-        ssz_and_tree_hash_tests!(AttestationBase<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(AttestationBase<Spec>);
     }
     mod electra {
         use super::*;
-        ssz_and_tree_hash_tests!(AttestationElectra<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(AttestationElectra<Spec>);
     }
 }

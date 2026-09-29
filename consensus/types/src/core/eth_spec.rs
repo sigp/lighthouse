@@ -756,7 +756,7 @@ impl EthSpec for GnosisEthSpec {
 
 #[cfg(test)]
 mod test {
-    use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+    use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec, Spec};
     use typenum::Unsigned;
 
     fn assert_valid_spec<E: EthSpec>() {
@@ -786,5 +786,11 @@ mod test {
     #[test]
     fn gnosis_spec() {
         assert_valid_spec::<GnosisEthSpec>();
+    }
+
+    /// Whichever preset was compiled in must be a valid one.
+    #[test]
+    fn compiled_spec() {
+        assert_valid_spec::<Spec>();
     }
 }

@@ -16,6 +16,7 @@ mod slot_data;
 #[macro_use]
 mod slot_epoch_macros;
 mod slot_epoch;
+mod spec;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
@@ -42,6 +43,7 @@ pub use relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use signing_data::{SignedRoot, SigningData};
 pub use slot_data::SlotData;
 pub use slot_epoch::{Epoch, Slot};
+pub use spec::Spec;
 
 #[cfg(test)]
 pub(crate) use chain_spec::{
