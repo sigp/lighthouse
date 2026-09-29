@@ -6762,8 +6762,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 )
                 .await?;
 
-            match transactions {
-                Ok(transactions) => Some(ProgressiveTransactions::from(transactions)),
+            match transactions.and_then(|transactions| {
+                ProgressiveTransactions::new(transactions).map_err(Into::into)
+            }) {
+                Ok(transactions) => Some(transactions),
                 Err(e) => {
                     warn!(
                         ?head_root,
@@ -7516,7 +7518,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
     ) -> ProgressiveTransactions {
         self.get_inclusion_list_transactions(parent_root, slot, false)
-            .map(ProgressiveTransactions::from)
+            .and_then(|transactions| ProgressiveTransactions::new(transactions).map_err(Into::into))
             .unwrap_or_else(|e| {
                 warn!(
                     ?parent_root,

@@ -1011,8 +1011,10 @@ async fn prepare_payload_inclusion_lists_around_heze_boundary(
 
     // Derive the expectations from where the inclusion list slot sits relative to the fork
     let il_slot = prepare_slot - 1;
-    let il_transactions =
-        ProgressiveTransactions::new(vec![ProgressiveVariableList::<u8>::new(vec![0xaa])]);
+    let il_transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::<u8>::new(vec![0xaa]).unwrap(),
+    ])
+    .unwrap();
     let (expected_insert_outcome, expected_transactions) =
         if spec.fork_name_at_slot::<E>(il_slot).heze_enabled() {
             (InsertOutcome::New, il_transactions.clone())
@@ -1113,8 +1115,10 @@ async fn prepare_payload_inclusion_lists_used_in_block_production() {
     // and a stored list is expected to reach the EL
     let prepare_slot = heze_fork_epoch.start_slot(E::slots_per_epoch()) + 1;
     let il_slot = prepare_slot - 1;
-    let il_transactions =
-        ProgressiveTransactions::new(vec![ProgressiveVariableList::<u8>::new(vec![0xaa])]);
+    let il_transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::<u8>::new(vec![0xaa]).unwrap(),
+    ])
+    .unwrap();
 
     // Produce blocks up to the parent slot, including one Heze block
     let db_path = tempdir().unwrap();
@@ -1192,8 +1196,10 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_block_production() {
     // and a list stored after the warm-up is expected to reach the EL at block production
     let prepare_slot = heze_fork_epoch.start_slot(E::slots_per_epoch()) + 1;
     let il_slot = prepare_slot - 1;
-    let il_transactions =
-        ProgressiveTransactions::new(vec![ProgressiveVariableList::<u8>::new(vec![0xaa])]);
+    let il_transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::<u8>::new(vec![0xaa]).unwrap(),
+    ])
+    .unwrap();
 
     // Produce blocks up to the parent slot, including one Heze block
     let db_path = tempdir().unwrap();
@@ -1302,8 +1308,10 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_proposer_preparation(
     // and a list stored after the warm-up is expected to reach the EL on the next preparation
     let prepare_slot = heze_fork_epoch.start_slot(E::slots_per_epoch()) + 1;
     let il_slot = prepare_slot - 1;
-    let il_transactions =
-        ProgressiveTransactions::new(vec![ProgressiveVariableList::<u8>::new(vec![0xaa])]);
+    let il_transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::<u8>::new(vec![0xaa]).unwrap(),
+    ])
+    .unwrap();
 
     // Produce blocks up to the parent slot, including one Heze block
     let db_path = tempdir().unwrap();

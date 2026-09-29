@@ -293,7 +293,7 @@ async fn proposer_inclusion_list_transactions_returns_the_stored_inclusion_list(
         harness
             .chain
             .proposer_inclusion_list_transactions(block_root, slot),
-        ProgressiveTransactions::new(vec![transaction(0xaa)])
+        ProgressiveTransactions::new(vec![transaction(0xaa)]).unwrap()
     );
 }
 
