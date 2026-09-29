@@ -75,6 +75,7 @@ yaml_serde = { workspace = true }
 [dev-dependencies]
 beacon_chain = { workspace = true }
 criterion = { workspace = true }
+proptest = { workspace = true }
 tokio = { workspace = true }
 types = { path = ".", features = ["arbitrary"] }
 

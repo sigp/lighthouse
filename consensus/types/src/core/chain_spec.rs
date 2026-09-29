@@ -2239,7 +2239,7 @@ impl SlotDurationSchedule {
         start_slot.safe_add(slots)
     }
 
-    fn validate(&self, genesis_slot_duration_ms: u64) -> Result<(), String> {
+    fn validate(&self, genesis_slot_duration_ms: u64, slots_per_epoch: u64) -> Result<(), String> {
         if self.is_empty() {
             return Ok(());
         }
@@ -2258,6 +2258,16 @@ impl SlotDurationSchedule {
             return Err(format!(
                 "slot duration {} at epoch {} is not a positive multiple of 1000",
                 entry.slot_duration_ms, entry.epoch
+            ));
+        }
+        if let Some(entry) = self
+            .as_vec()
+            .iter()
+            .find(|entry| entry.epoch.as_u64().checked_mul(slots_per_epoch).is_none())
+        {
+            return Err(format!(
+                "the start slot of epoch {} does not fit in a u64",
+                entry.epoch
             ));
         }
         match self.as_vec().last() {
@@ -3343,7 +3353,7 @@ impl Config {
         let seconds_per_slot = seconds_per_slot
             .map(|q| q.value)
             .or_else(|| slot_duration_ms.checked_div(1000))?;
-        if let Err(e) = slot_duration_schedule.validate(slot_duration_ms) {
+        if let Err(e) = slot_duration_schedule.validate(slot_duration_ms, E::slots_per_epoch()) {
             error!(error = %e, "Invalid SLOT_DURATION_SCHEDULE");
             return None;
         }
@@ -4938,7 +4948,7 @@ mod yaml_tests {
 
     #[test]
     fn slot_duration_schedule_rejects_invalid_schedules() {
-        let invalid: [(&str, u64, &[(u64, u64)]); 6] = [
+        let invalid: [(&str, u64, &[(u64, u64)]); 7] = [
             ("does not match SLOT_DURATION_MS", 12000, &[(0, 10000)]),
             ("not a positive multiple of 1000", 12500, &[(0, 12500)]),
             ("not a positive multiple of 1000", 0, &[(0, 0)]),
@@ -4953,6 +4963,11 @@ mod yaml_tests {
                 &[(0, 12000), (0, 12000)],
             ),
             (
+                "does not fit in a u64",
+                12000,
+                &[(0, 12000), (u64::MAX, 6000)],
+            ),
+            (
                 "slot duration changes are not supported yet",
                 12000,
                 &[(0, 12000), (10, 10000)],
@@ -4960,7 +4975,7 @@ mod yaml_tests {
         ];
         for (expected, genesis_slot_duration_ms, entries) in invalid {
             let error = slot_duration_schedule(entries)
-                .validate(genesis_slot_duration_ms)
+                .validate(genesis_slot_duration_ms, MainnetEthSpec::slots_per_epoch())
                 .expect_err(expected);
             assert!(
                 error.contains(expected),
@@ -5179,5 +5194,169 @@ mod yaml_tests {
     fn minimal_config_consistent() {
         let spec = ChainSpec::minimal();
         config_test::<MinimalEthSpec>(&spec, "minimal");
+    }
+}
+
+#[cfg(test)]
+mod slot_duration_schedule_properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    const SLOTS_PER_EPOCH: u64 = 32;
+
+    fn spec_time_at_slot(schedule: &[(u64, u64)], genesis_time_ms: u128, slot: u128) -> u128 {
+        let mut end_slot = slot;
+        let mut time_ms = genesis_time_ms;
+        for &(epoch, slot_duration_ms) in schedule.iter().rev() {
+            let entry_slot = u128::from(epoch) * u128::from(SLOTS_PER_EPOCH);
+            if entry_slot < end_slot {
+                time_ms += (end_slot - entry_slot) * u128::from(slot_duration_ms);
+                end_slot = entry_slot;
+            }
+        }
+        time_ms
+    }
+
+    fn spec_slot_at_time(
+        schedule: &[(u64, u64)],
+        genesis_time_ms: u128,
+        time_ms: u128,
+    ) -> Option<u128> {
+        for &(epoch, slot_duration_ms) in schedule.iter().rev() {
+            let entry_slot = u128::from(epoch) * u128::from(SLOTS_PER_EPOCH);
+            let entry_time_ms = spec_time_at_slot(schedule, genesis_time_ms, entry_slot);
+            if time_ms >= entry_time_ms {
+                return Some(entry_slot + (time_ms - entry_time_ms) / u128::from(slot_duration_ms));
+            }
+        }
+        None
+    }
+
+    fn to_schedule(entries: &[(u64, u64)]) -> SlotDurationSchedule {
+        SlotDurationSchedule::new(
+            entries
+                .iter()
+                .map(|&(epoch, slot_duration_ms)| SlotDurationScheduleEntry {
+                    epoch: Epoch::new(epoch),
+                    slot_duration_ms,
+                })
+                .collect(),
+        )
+    }
+
+    fn epoch() -> impl Strategy<Value = u64> {
+        prop_oneof![1u64..200, 1u64..u64::MAX / SLOTS_PER_EPOCH, Just(u64::MAX)]
+    }
+
+    fn slot_duration_ms() -> impl Strategy<Value = u64> {
+        (1u64..=24).prop_map(|seconds| seconds * 1000)
+    }
+
+    fn schedule() -> impl Strategy<Value = Vec<(u64, u64)>> {
+        (
+            slot_duration_ms(),
+            proptest::collection::vec((epoch(), slot_duration_ms()), 0..4),
+        )
+            .prop_map(|(genesis_slot_duration_ms, later)| {
+                let mut entries = vec![(0, genesis_slot_duration_ms)];
+                entries.extend(later);
+                entries.sort_by_key(|&(epoch, _)| epoch);
+                entries.dedup_by_key(|&mut (epoch, _)| epoch);
+                entries
+            })
+    }
+
+    proptest! {
+        #[test]
+        fn time_at_slot_matches_spec(
+            entries in schedule(),
+            genesis_time_ms in 0u64..1 << 44,
+            slot in prop_oneof![0u64..20_000, any::<u64>()],
+        ) {
+            let expected = spec_time_at_slot(&entries, u128::from(genesis_time_ms), u128::from(slot));
+            match to_schedule(&entries).compute_time_at_slot_ms(SLOTS_PER_EPOCH, genesis_time_ms, Slot::new(slot)) {
+                Ok(time_ms) => prop_assert_eq!(u128::from(time_ms), expected),
+                Err(_) => prop_assert!(expected > u128::from(u64::MAX)),
+            }
+        }
+
+        #[test]
+        fn slot_at_time_matches_spec(
+            entries in schedule(),
+            genesis_time_ms in 0u64..1 << 44,
+            offset_ms in prop_oneof![0u64..1 << 30, 0u64..1 << 50],
+        ) {
+            let time_ms = genesis_time_ms + offset_ms;
+            let expected =
+                spec_slot_at_time(&entries, u128::from(genesis_time_ms), u128::from(time_ms));
+            let slot = to_schedule(&entries)
+                .compute_slot_at_time_ms(SLOTS_PER_EPOCH, genesis_time_ms, time_ms);
+            prop_assert_eq!(slot.map(|slot| u128::from(slot.as_u64())).ok(), expected);
+        }
+
+        #[test]
+        fn slot_at_time_inverts_time_at_slot(
+            entries in schedule(),
+            genesis_time_ms in 0u64..1 << 44,
+            slot in 0u64..20_000,
+        ) {
+            let schedule = to_schedule(&entries);
+            let time_at = |slot: u64| {
+                schedule
+                    .compute_time_at_slot_ms(SLOTS_PER_EPOCH, genesis_time_ms, Slot::new(slot))
+                    .unwrap()
+            };
+            let slot_at = |time_ms: u64| {
+                schedule
+                    .compute_slot_at_time_ms(SLOTS_PER_EPOCH, genesis_time_ms, time_ms)
+                    .unwrap()
+                    .as_u64()
+            };
+            prop_assert!(time_at(slot) < time_at(slot + 1));
+            prop_assert_eq!(slot_at(time_at(slot)), slot);
+            prop_assert_eq!(slot_at(time_at(slot + 1) - 1), slot);
+        }
+
+        #[test]
+        fn slot_at_time_is_total_after_genesis(
+            entries in schedule(),
+            genesis_time_ms in 1u64..1 << 44,
+            offset_ms in any::<u64>(),
+        ) {
+            let schedule = to_schedule(&entries);
+            let time_ms = genesis_time_ms.saturating_add(offset_ms);
+            prop_assert!(
+                schedule
+                    .compute_slot_at_time_ms(SLOTS_PER_EPOCH, genesis_time_ms, time_ms)
+                    .is_ok()
+            );
+            prop_assert!(
+                schedule
+                    .compute_slot_at_time_ms(SLOTS_PER_EPOCH, genesis_time_ms, genesis_time_ms - 1)
+                    .is_err()
+            );
+        }
+
+        #[test]
+        fn valid_schedules_meet_the_preconditions(
+            entries in proptest::collection::vec(
+                (prop_oneof![Just(0u64), epoch()], prop_oneof![Just(0u64), 1u64..30_000]),
+                1..5,
+            ),
+            genesis_slot_duration_ms in 0u64..30_000,
+        ) {
+            let schedule = to_schedule(&entries);
+            if schedule.validate(genesis_slot_duration_ms, SLOTS_PER_EPOCH).is_ok() {
+                let entries = schedule.as_vec();
+                prop_assert!(entries.iter().all(|entry| entry.slot_duration_ms > 0
+                    && entry.slot_duration_ms % 1000 == 0
+                    && entry.epoch.as_u64().checked_mul(SLOTS_PER_EPOCH).is_some()));
+                prop_assert!(entries.windows(2).all(|pair| pair[0].epoch > pair[1].epoch));
+                prop_assert_eq!(
+                    entries.last().map(|entry| (entry.epoch, entry.slot_duration_ms)),
+                    Some((Epoch::new(0), genesis_slot_duration_ms))
+                );
+            }
+        }
     }
 }
