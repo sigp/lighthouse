@@ -3488,7 +3488,6 @@ impl ApiTester {
             execution_payment: 0,
             blob_kzg_commitments: Default::default(),
             execution_requests_root: Hash256::zero(),
-            _phantom: std::marker::PhantomData,
         };
 
         let signed = SignedExecutionPayloadBid {
@@ -3876,16 +3875,10 @@ impl ApiTester {
             .nodes
             .iter()
             .map(|node| {
-                let execution_status = if node
+                let execution_status = node
                     .execution_status()
-                    .is_ok_and(|status| status.is_execution_enabled())
-                {
-                    node.execution_status()
-                        .ok()
-                        .map(|status| status.to_string())
-                } else {
-                    None
-                };
+                    .is_execution_enabled()
+                    .then(|| node.execution_status().to_string());
                 ForkChoiceNode {
                     slot: node.slot(),
                     block_root: node.root(),
@@ -3917,11 +3910,7 @@ impl ApiTester {
                         unrealized_finalized_epoch: node
                             .unrealized_finalized_checkpoint()
                             .map(|checkpoint| checkpoint.epoch),
-                        execution_status: node
-                            .execution_status()
-                            .ok()
-                            .map(|status| status.to_string())
-                            .unwrap_or_else(|| "irrelevant".to_string()),
+                        execution_status: node.execution_status().to_string(),
                         best_child: node
                             .best_child()
                             .ok()
