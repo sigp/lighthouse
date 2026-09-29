@@ -2218,12 +2218,14 @@ impl SlotDurationSchedule {
         let mut slot_duration_ms = genesis.slot_duration_ms;
         for entry in entries {
             let entry_slot = entry.epoch.start_slot(slots_per_epoch);
-            let entry_time_ms = start_time_ms.safe_add(
-                entry_slot
-                    .safe_sub(start_slot)?
-                    .as_u64()
-                    .safe_mul(slot_duration_ms)?,
-            )?;
+            let Some(entry_time_ms) = entry_slot
+                .as_u64()
+                .checked_sub(start_slot.as_u64())
+                .and_then(|slots| slots.checked_mul(slot_duration_ms))
+                .and_then(|duration_ms| start_time_ms.checked_add(duration_ms))
+            else {
+                break;
+            };
             if time_ms < entry_time_ms {
                 break;
             }
@@ -2251,7 +2253,7 @@ impl SlotDurationSchedule {
         if let Some(entry) = self
             .as_vec()
             .iter()
-            .find(|entry| entry.slot_duration_ms % 1000 != 0)
+            .find(|entry| entry.slot_duration_ms == 0 || entry.slot_duration_ms % 1000 != 0)
         {
             return Err(format!(
                 "slot duration {} at epoch {} is not a positive multiple of 1000",
@@ -5003,6 +5005,20 @@ mod yaml_tests {
                     genesis_time_ms - 1
                 )
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn slot_time_mapping_ignores_unreachable_entries() {
+        let schedule = slot_duration_schedule(&[(0, 12000), (u64::MAX, 6000)]);
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        assert_eq!(
+            schedule.compute_slot_at_time_ms(slots_per_epoch, 0, 120_000),
+            Ok(Slot::new(10))
+        );
+        assert_eq!(
+            schedule.compute_time_at_slot_ms(slots_per_epoch, 0, Slot::new(10)),
+            Ok(120_000)
         );
     }
 
