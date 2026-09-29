@@ -1,4 +1,4 @@
-use super::SlotClock;
+use super::{SlotClock, SlotTimeline};
 use parking_lot::RwLock;
 use std::ops::Add;
 use std::sync::Arc;
@@ -7,35 +7,25 @@ use types::Slot;
 
 /// Determines the present slot based upon a manually-incremented UNIX timestamp.
 pub struct ManualSlotClock {
-    genesis_slot: Slot,
-    /// Duration from UNIX epoch to genesis.
-    genesis_duration: Duration,
+    timeline: SlotTimeline,
     /// Duration from UNIX epoch to right now.
     current_time: Arc<RwLock<Duration>>,
-    /// The length of each slot.
-    slot_duration: Duration,
 }
 
 impl Clone for ManualSlotClock {
     fn clone(&self) -> Self {
         ManualSlotClock {
-            genesis_slot: self.genesis_slot,
-            genesis_duration: self.genesis_duration,
+            timeline: self.timeline.clone(),
             current_time: Arc::clone(&self.current_time),
-            slot_duration: self.slot_duration,
         }
     }
 }
 
 impl ManualSlotClock {
     pub fn set_slot(&self, slot: u64) {
-        let slots_since_genesis = slot
-            .checked_sub(self.genesis_slot.as_u64())
-            .expect("slot must be post-genesis")
-            .try_into()
-            .expect("slot must fit within a u32");
-        *self.current_time.write() =
-            self.genesis_duration + self.slot_duration * slots_since_genesis;
+        *self.current_time.write() = self
+            .start_of(Slot::new(slot))
+            .expect("slot must be post-genesis and fit within a u32");
     }
 
     pub fn set_current_time(&self, duration: Duration) {
@@ -51,8 +41,8 @@ impl ManualSlotClock {
         self.set_slot(self.now().unwrap().as_u64() + 1)
     }
 
-    pub fn genesis_duration(&self) -> &Duration {
-        &self.genesis_duration
+    pub fn genesis_duration(&self) -> Duration {
+        self.timeline.genesis_duration()
     }
 
     /// Returns the duration from `now` until the start of `slot`.
@@ -64,8 +54,9 @@ impl ManualSlotClock {
 
     /// Returns the duration between `now` and the start of the next slot.
     pub fn duration_to_next_slot_from(&self, now: Duration) -> Option<Duration> {
-        if now < self.genesis_duration {
-            self.genesis_duration.checked_sub(now)
+        let genesis_duration = self.genesis_duration();
+        if now < genesis_duration {
+            genesis_duration.checked_sub(now)
         } else {
             self.duration_to_slot(self.slot_of(now)? + 1, now)
         }
@@ -77,8 +68,9 @@ impl ManualSlotClock {
         now: Duration,
         slots_per_epoch: u64,
     ) -> Option<Duration> {
-        if now < self.genesis_duration {
-            self.genesis_duration.checked_sub(now)
+        let genesis_duration = self.genesis_duration();
+        if now < genesis_duration {
+            genesis_duration.checked_sub(now)
         } else {
             let next_epoch_start_slot =
                 (self.slot_of(now)?.epoch(slots_per_epoch) + 1).start_slot(slots_per_epoch);
@@ -89,17 +81,19 @@ impl ManualSlotClock {
 }
 
 impl SlotClock for ManualSlotClock {
-    fn new(genesis_slot: Slot, genesis_duration: Duration, slot_duration: Duration) -> Self {
-        if slot_duration.as_millis() == 0 {
+    fn from_timeline(timeline: SlotTimeline) -> Self {
+        if timeline.min_slot_duration().as_millis() == 0 {
             panic!("ManualSlotClock cannot have a < 1ms slot duration");
         }
 
         Self {
-            genesis_slot,
-            current_time: Arc::new(RwLock::new(genesis_duration)),
-            genesis_duration,
-            slot_duration,
+            current_time: Arc::new(RwLock::new(timeline.genesis_duration())),
+            timeline,
         }
+    }
+
+    fn timeline(&self) -> &SlotTimeline {
+        &self.timeline
     }
 
     fn now(&self) -> Option<Slot> {
@@ -107,26 +101,11 @@ impl SlotClock for ManualSlotClock {
     }
 
     fn is_prior_to_genesis(&self) -> Option<bool> {
-        Some(*self.current_time.read() < self.genesis_duration)
+        Some(*self.current_time.read() < self.genesis_duration())
     }
 
     fn now_duration(&self) -> Option<Duration> {
         Some(*self.current_time.read())
-    }
-
-    fn slot_of(&self, now: Duration) -> Option<Slot> {
-        let genesis = self.genesis_duration;
-
-        if now >= genesis {
-            let since_genesis = now
-                .checked_sub(genesis)
-                .expect("Control flow ensures now is greater than or equal to genesis");
-            let slot =
-                Slot::from((since_genesis.as_millis() / self.slot_duration.as_millis()) as u64);
-            Some(slot + self.genesis_slot)
-        } else {
-            None
-        }
     }
 
     fn duration_to_next_slot(&self) -> Option<Duration> {
@@ -137,32 +116,8 @@ impl SlotClock for ManualSlotClock {
         self.duration_to_next_epoch_from(*self.current_time.read(), slots_per_epoch)
     }
 
-    fn slot_duration(&self) -> Duration {
-        self.slot_duration
-    }
-
     fn duration_to_slot(&self, slot: Slot) -> Option<Duration> {
         self.duration_to_slot(slot, *self.current_time.read())
-    }
-
-    /// Returns the duration between UNIX epoch and the start of `slot`.
-    fn start_of(&self, slot: Slot) -> Option<Duration> {
-        let slot = slot
-            .as_u64()
-            .checked_sub(self.genesis_slot.as_u64())?
-            .try_into()
-            .ok()?;
-        let unadjusted_slot_duration = self.slot_duration.checked_mul(slot)?;
-
-        self.genesis_duration.checked_add(unadjusted_slot_duration)
-    }
-
-    fn genesis_slot(&self) -> Slot {
-        self.genesis_slot
-    }
-
-    fn genesis_duration(&self) -> Duration {
-        self.genesis_duration
     }
 }
 

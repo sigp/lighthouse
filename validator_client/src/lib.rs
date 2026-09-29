@@ -27,6 +27,7 @@ use lighthouse_validator_store::LighthouseValidatorStore;
 use parking_lot::RwLock;
 use reqwest::{Certificate, ClientBuilder, StatusCode};
 use slot_clock::SlotClock;
+use slot_clock::SlotTimeline;
 use slot_clock::SystemTimeSlotClock;
 use std::fs::File;
 use std::io::Read;
@@ -407,11 +408,10 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             ctx.shared.write().genesis_time = Some(genesis_time);
         }
 
-        let slot_clock = SystemTimeSlotClock::new(
-            context.eth2_config.spec.genesis_slot,
+        let slot_clock = SystemTimeSlotClock::from_timeline(SlotTimeline::from_spec::<E>(
             Duration::from_secs(genesis_time),
-            context.eth2_config.spec.get_slot_duration(),
-        );
+            &context.eth2_config.spec,
+        ));
 
         beacon_nodes.set_slot_clock(slot_clock.clone());
         proposer_nodes.set_slot_clock(slot_clock.clone());

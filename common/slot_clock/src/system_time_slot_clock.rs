@@ -1,4 +1,4 @@
-use super::{ManualSlotClock, SlotClock};
+use super::{ManualSlotClock, SlotClock, SlotTimeline};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use types::Slot;
 
@@ -9,10 +9,14 @@ pub struct SystemTimeSlotClock {
 }
 
 impl SlotClock for SystemTimeSlotClock {
-    fn new(genesis_slot: Slot, genesis_duration: Duration, slot_duration: Duration) -> Self {
+    fn from_timeline(timeline: SlotTimeline) -> Self {
         Self {
-            clock: ManualSlotClock::new(genesis_slot, genesis_duration, slot_duration),
+            clock: ManualSlotClock::from_timeline(timeline),
         }
+    }
+
+    fn timeline(&self) -> &SlotTimeline {
+        self.clock.timeline()
     }
 
     fn now(&self) -> Option<Slot> {
@@ -22,15 +26,11 @@ impl SlotClock for SystemTimeSlotClock {
 
     fn is_prior_to_genesis(&self) -> Option<bool> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-        Some(now < *self.clock.genesis_duration())
+        Some(now < self.clock.genesis_duration())
     }
 
     fn now_duration(&self) -> Option<Duration> {
         SystemTime::now().duration_since(UNIX_EPOCH).ok()
-    }
-
-    fn slot_of(&self, now: Duration) -> Option<Slot> {
-        self.clock.slot_of(now)
     }
 
     fn duration_to_next_slot(&self) -> Option<Duration> {
@@ -43,25 +43,9 @@ impl SlotClock for SystemTimeSlotClock {
         self.clock.duration_to_next_epoch_from(now, slots_per_epoch)
     }
 
-    fn slot_duration(&self) -> Duration {
-        self.clock.slot_duration()
-    }
-
     fn duration_to_slot(&self, slot: Slot) -> Option<Duration> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
         self.clock.duration_to_slot(slot, now)
-    }
-
-    fn start_of(&self, slot: Slot) -> Option<Duration> {
-        self.clock.start_of(slot)
-    }
-
-    fn genesis_slot(&self) -> Slot {
-        self.clock.genesis_slot()
-    }
-
-    fn genesis_duration(&self) -> Duration {
-        *self.clock.genesis_duration()
     }
 }
 
