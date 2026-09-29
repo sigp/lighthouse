@@ -8,11 +8,12 @@ use std::future::Future;
 use std::sync::Arc;
 use types::{
     Address, Attestation, AttestationData, BlindedBeaconBlock, Epoch, EthSpec,
-    ExecutionPayloadEnvelope, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedValidatorRegistrationData, SingleAttestation, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    ExecutionPayloadEnvelope, Graffiti, Hash256, InclusionList, PayloadAttestationData,
+    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
+    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
+    SignedInclusionList, SignedProposerPreferences, SignedValidatorRegistrationData,
+    SingleAttestation, Slot, SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof,
+    SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -234,6 +235,11 @@ pub trait ValidatorStore: Send + Sync {
     /// Like `proposal_data`, with the gas limit schedule evaluated at `epoch`.
     fn proposal_data_at_epoch(&self, pubkey: &PublicKeyBytes, epoch: Epoch)
     -> Option<ProposalData>;
+    fn sign_inclusion_list(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        inclusion_list: InclusionList,
+    ) -> impl Future<Output = Result<SignedInclusionList, Error<Self::Error>>> + Send;
 }
 
 #[derive(Debug)]

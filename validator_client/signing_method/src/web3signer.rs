@@ -25,6 +25,8 @@ pub enum MessageType {
     PayloadAttestation,
     ProposerPreferences,
     RequestAuth,
+    // TODO(heze) verify w/ web3signer specs
+    InclusionList,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize)]
@@ -86,6 +88,7 @@ pub enum Web3SignerObject<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
     PayloadAttestationData(&'a PayloadAttestationData),
     ProposerPreferences(&'a ProposerPreferences),
     RequestAuth(&'a RequestAuth),
+    InclusionList(&'a InclusionList),
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Payload> {
@@ -160,6 +163,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
             Web3SignerObject::PayloadAttestationData(_) => MessageType::PayloadAttestation,
             Web3SignerObject::ProposerPreferences(_) => MessageType::ProposerPreferences,
             Web3SignerObject::RequestAuth(_) => MessageType::RequestAuth,
+            Web3SignerObject::InclusionList(_) => MessageType::InclusionList,
         }
     }
 }

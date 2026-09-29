@@ -54,6 +54,7 @@ pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     PayloadAttestationData(&'a PayloadAttestationData),
     ProposerPreferences(&'a ProposerPreferences),
     RequestAuth(&'a RequestAuth),
+    InclusionList(&'a InclusionList),
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload> {
@@ -79,6 +80,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload
             SignableMessage::PayloadAttestationData(d) => d.signing_root(domain),
             SignableMessage::ProposerPreferences(p) => p.signing_root(domain),
             SignableMessage::RequestAuth(r) => r.signing_root(domain),
+            SignableMessage::InclusionList(l) => l.signing_root(domain),
         }
     }
 }
@@ -252,6 +254,7 @@ impl SigningMethod {
                         Web3SignerObject::ProposerPreferences(p)
                     }
                     SignableMessage::RequestAuth(r) => Web3SignerObject::RequestAuth(r),
+                    SignableMessage::InclusionList(l) => Web3SignerObject::InclusionList(l),
                 };
 
                 // Determine the Web3Signer message type.
