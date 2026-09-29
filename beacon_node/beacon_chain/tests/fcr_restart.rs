@@ -98,7 +98,7 @@ fn announced<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Option<(Hash256, Sl
         .fast_confirmation
         .as_ref()?
         .lock()
-        .restart_resilient_confirmed_root;
+        .get_restart_resilient_confirmed_root();
     let slot = chain
         .canonical_head
         .fork_choice_read_lock()

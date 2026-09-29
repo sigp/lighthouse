@@ -45,7 +45,10 @@ fn confirmed_roots(chain: &BeaconChain<EphemeralHarnessType<E>>) -> (Hash256, Ha
         .as_ref()
         .expect("FCR is enabled")
         .lock();
-    (fcr.confirmed_root, fcr.restart_resilient_confirmed_root)
+    (
+        fcr.confirmed_root,
+        fcr.get_restart_resilient_confirmed_root(),
+    )
 }
 
 fn slot_of(chain: &BeaconChain<EphemeralHarnessType<E>>, root: Hash256) -> Slot {

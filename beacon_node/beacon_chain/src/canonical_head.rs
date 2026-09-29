@@ -1238,7 +1238,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_state_root: Hash256,
     ) -> Result<FcrOutcome, FastConfirmationError> {
         let _fcr_timer = metrics::start_timer(&fcr_metrics::FAST_CONFIRMATION_TIMES);
-        let old_confirmed_root = fcr.restart_resilient_confirmed_root;
+        let old_confirmed_root = fcr.get_restart_resilient_confirmed_root();
 
         let finalized_cp = fork_choice.finalized_checkpoint();
         let unrealized_justified_cp = fork_choice.unrealized_justified_checkpoint();
@@ -1309,7 +1309,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &store.spec,
         )?;
 
-        let confirmed_root = fcr.restart_resilient_confirmed_root;
+        let confirmed_root = fcr.get_restart_resilient_confirmed_root();
         let confirmed_node = fork_choice
             .get_block(&confirmed_root)
             .ok_or(FastConfirmationError::NodeNotFound(confirmed_root))?;
@@ -1673,7 +1673,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The announced root is written in the same batch as the fork choice that contains it.
         if let Some(fcr_mutex) = self.canonical_head.fast_confirmation.as_ref() {
             batch.push(persist_confirmed_root_in_batch(
-                fcr_mutex.lock().restart_resilient_confirmed_root,
+                fcr_mutex.lock().get_restart_resilient_confirmed_root(),
             ));
         }
         self.store.hot_db.do_atomically(batch)?;

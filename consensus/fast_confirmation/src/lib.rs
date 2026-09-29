@@ -121,14 +121,11 @@ pub struct FastConfirmationRule {
     // === Output ===
     /// The raw output of `get_latest_confirmed`.
     pub confirmed_root: Hash256,
-    /// Spec `get_restart_resilient_confirmed_root`, recomputed on every run: the root this node
-    /// announces, fed into `safe_block_hash` for the EL and into the `fast_confirmation` event.
-    pub restart_resilient_confirmed_root: Hash256,
 
     // === Restart resilience ===
     /// Spec `get_root_confirmed_before_restart`: the root this node announced before it was
-    /// restarted, loaded from disk by the caller. `None` when nothing was persisted, i.e. on a
-    /// fresh database or the first run with FCR enabled.
+    /// restarted, loaded from disk by the caller. `None` once it no longer applies, and from the
+    /// start when nothing was persisted: a fresh database, or the first run with FCR enabled.
     root_confirmed_before_restart: Option<Hash256>,
 
     // === Tracking state (spec's 6 new store fields) ===
@@ -204,10 +201,11 @@ impl FastConfirmationRule {
         }
         let checkpoint_balance =
             BalanceSourceData::new(checkpoint_state, finalized_checkpoint.root)?;
+        if let Some(root) = root_confirmed_before_restart {
+            debug!(%root, "FCR restored the root confirmed before the restart");
+        }
         Ok(Self {
             confirmed_root: finalized_checkpoint.root,
-            restart_resilient_confirmed_root: root_confirmed_before_restart
-                .unwrap_or(finalized_checkpoint.root),
             root_confirmed_before_restart,
             previous_epoch_observed_justified: CheckpointAndBalance::new(
                 finalized_checkpoint,
@@ -288,14 +286,25 @@ impl FastConfirmationRule {
             )?;
         }
 
-        // Outside the `spec_test_mode` guard: with nothing loaded from disk this is just
-        // `confirmed_root`, which the spec test runner sets itself.
-        self.restart_resilient_confirmed_root = self.get_restart_resilient_confirmed_root::<E>(
-            head_root,
-            finalized_checkpoint,
-            current_slot,
-            proto_array,
-        )?;
+        // Outside the `spec_test_mode` guard, where nothing is ever loaded from disk and this is a
+        // no-op.
+        if let Some(root) = self.root_confirmed_before_restart
+            && let Some(reason) = self.root_confirmed_before_restart_expiry_reason::<E>(
+                root,
+                head_root,
+                current_slot,
+                proto_array,
+            )?
+        {
+            debug!(
+                root_before_restart = %root,
+                confirmed = %self.confirmed_root,
+                slot = %current_slot,
+                reason = reason,
+                "FCR dropped the root confirmed before the restart"
+            );
+            self.root_confirmed_before_restart = None;
+        }
 
         Ok(())
     }
@@ -528,40 +537,51 @@ impl FastConfirmationRule {
         Ok(confirmed_root)
     }
 
-    /// Spec: `get_restart_resilient_confirmed_root`.
+    /// Spec: `get_restart_resilient_confirmed_root`. The root this node announces: the one it
+    /// confirmed before the restart while that still applies, otherwise the rule's own output.
+    pub fn get_restart_resilient_confirmed_root(&self) -> Hash256 {
+        self.root_confirmed_before_restart
+            .unwrap_or(self.confirmed_root)
+    }
+
+    /// The spec's tests on the root confirmed before the restart, run once per FCR run. `Some` is
+    /// the reason it no longer applies.
     ///
-    /// Announces the root confirmed before the restart until the freshly seeded rule re-confirms a
-    /// block at least as recent, or until that root is old enough that it should have been
-    /// finalized by now.
-    fn get_restart_resilient_confirmed_root<E: EthSpec>(
+    /// DIVERGENCE: the spec re-evaluates these tests against a constant
+    /// `get_root_confirmed_before_restart()`, so a root can stop applying and apply again. Here the
+    /// caller forgets it the first time any test fails, which can only announce `confirmed_root`
+    /// where the spec would announce the older root — never the other way round, since while the
+    /// root is still held no test has ever failed.
+    fn root_confirmed_before_restart_expiry_reason<E: EthSpec>(
         &self,
+        root_before_restart: Hash256,
         head_root: Hash256,
-        finalized_checkpoint: &Checkpoint,
         current_slot: Slot,
         proto_array: &ProtoArray,
-    ) -> Result<Hash256, Error> {
-        let Some(root_before_restart) = self.root_confirmed_before_restart else {
-            return Ok(self.confirmed_root);
-        };
-
+    ) -> Result<Option<&'static str>, Error> {
         let root_before_restart_slot = match get_block_slot(root_before_restart, proto_array) {
             Ok(slot) => slot,
-            // Not in fork choice: either finality has moved past it, or this database was rebuilt
-            // since it was written. Either way the fresh root is the best we have.
-            Err(Error::NodeNotFound(_)) => return Ok(self.confirmed_root),
+            // Not in fork choice: finality has moved past it, or fork choice was rebuilt from the
+            // finalized checkpoint since it was written.
+            Err(Error::NodeNotFound(_)) => return Ok(Some("pruned")),
             Err(e) => return Err(e),
         };
 
         // Recent confirmed block has advanced beyond the block that was confirmed before the
         // node restart.
         if root_before_restart_slot <= get_block_slot(self.confirmed_root, proto_array)? {
-            return Ok(self.confirmed_root);
+            return Ok(Some("caught_up"));
         }
 
         // If the block is old enough it either has been finalized already or finality has been
-        // delayed, which makes the block confirmed before the restart unreliable.
+        // delayed, which makes the block confirmed before the restart unreliable. The spec returns
+        // `store.finalized_checkpoint.root` here; announcing `confirmed_root` is the same block,
+        // because a root this old has already sent `get_latest_confirmed` back to the finalized
+        // block: it can neither have restarted the chain from the observed justified checkpoint,
+        // which is a later block and would have ended this root's life above, nor advanced from a
+        // finalized block two epochs back.
         if block_should_be_finalized::<E>(root_before_restart_slot, current_slot) {
-            return Ok(finalized_checkpoint.root);
+            return Ok(Some("should_be_finalized"));
         }
 
         // DIVERGENCE: the spec does not check this. A `safe_block_hash` outside the head's chain
@@ -569,22 +589,10 @@ impl FastConfirmationRule {
         // `-38002: Invalid forkchoice state`, so a root that has been reorged out since the restart
         // cannot be announced. `get_latest_confirmed` applies the same rule to `confirmed_root`.
         if !is_ancestor(head_root, root_before_restart, proto_array)? {
-            return Ok(self.confirmed_root);
+            return Ok(Some("not_ancestor"));
         }
 
-        // The field still holds the previous run's value, so this fires on the run that starts
-        // announcing the pre-restart root, not on every run until it is left behind.
-        if self.restart_resilient_confirmed_root != root_before_restart {
-            debug!(
-                root_before_restart = %root_before_restart,
-                slot_before_restart = %root_before_restart_slot,
-                confirmed = %self.confirmed_root,
-                slot = %current_slot,
-                "FCR announcing the root confirmed before the restart"
-            );
-        }
-
-        Ok(root_before_restart)
+        Ok(None)
     }
 
     /// Spec: find_latest_confirmed_descendant
