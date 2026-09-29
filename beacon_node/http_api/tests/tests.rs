@@ -3441,7 +3441,6 @@ impl ApiTester {
             execution_payment: 0,
             blob_kzg_commitments: Default::default(),
             execution_requests_root: Hash256::zero(),
-            _phantom: std::marker::PhantomData,
         };
 
         let signed = SignedExecutionPayloadBid {
