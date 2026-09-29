@@ -59,11 +59,11 @@ mod tests {
 
     /// A transaction of `len` non-zero bytes.
     fn tx(len: usize) -> ProgressiveVariableList<u8> {
-        ProgressiveVariableList::new(vec![0xaa; len])
+        ProgressiveVariableList::new(vec![0xaa; len]).unwrap()
     }
 
     fn transactions(txs: Vec<ProgressiveVariableList<u8>>) -> ProgressiveTransactions {
-        ProgressiveVariableList::new(txs)
+        ProgressiveVariableList::new(txs).unwrap()
     }
 
     #[test]
@@ -128,7 +128,7 @@ mod tests {
 
     #[test]
     fn inclusion_list_with_blob_transaction_is_rejected() {
-        let blob_tx = ProgressiveVariableList::new(vec![BLOB_TX_TYPE_ID, 0xaa]);
+        let blob_tx = ProgressiveVariableList::new(vec![BLOB_TX_TYPE_ID, 0xaa]).unwrap();
         let txs = vec![tx(10), blob_tx, tx(10)];
 
         assert_eq!(

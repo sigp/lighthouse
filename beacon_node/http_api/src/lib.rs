@@ -2173,20 +2173,12 @@ pub async fn serve<T: BeaconChainTypes>(
                         .nodes
                         .iter()
                         .map(|node| {
-                            let execution_status = if node
+                            let execution_status = node
                                 .execution_status()
-                                .is_ok_and(|status| status.is_execution_enabled())
-                            {
-                                node.execution_status()
-                                    .ok()
-                                    .map(|status| status.to_string())
-                            } else {
-                                None
-                            };
+                                .is_execution_enabled()
+                                .then(|| node.execution_status().to_string());
 
-                            let execution_status_string = node
-                                .execution_status()
-                                .map_or_else(|_| "irrelevant".to_string(), |s| s.to_string());
+                            let execution_status_string = node.execution_status().to_string();
 
                             ForkChoiceNode {
                                 slot: node.slot(),
@@ -2620,7 +2612,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
-    // GET validator/payload_attestation_data/{slot}
+    // GET validator/payload_attestation_data?slot
     let get_validator_payload_attestation_data = get_validator_payload_attestation_data(
         eth_v1.clone(),
         chain_filter.clone(),

@@ -2,6 +2,7 @@
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     ChainConfig,
+    chain_config::DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy,
         fork_name_from_env, test_spec,
@@ -260,7 +261,7 @@ pub async fn proposer_boost_re_org_epoch_boundary_skip32() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_slot_after_epoch_boundary() {
     proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(33),
+        head_slot: Slot::new(2 * E::slots_per_epoch() + 1),
         ..Default::default()
     })
     .await;
@@ -269,7 +270,7 @@ pub async fn proposer_boost_re_org_slot_after_epoch_boundary() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_bad_ffg() {
     proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(64 + 22),
+        head_slot: Slot::new(2 * E::slots_per_epoch() + (2 * E::slots_per_epoch()).div_ceil(3)),
         should_re_org: false,
         ..Default::default()
     })
@@ -279,7 +280,7 @@ pub async fn proposer_boost_re_org_bad_ffg() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_no_finality() {
     proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(96),
+        head_slot: Slot::new(3 * E::slots_per_epoch()),
         percent_parent_votes: 100,
         percent_empty_votes: 0,
         percent_head_votes: 100,
@@ -292,7 +293,7 @@ pub async fn proposer_boost_re_org_no_finality() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn proposer_boost_re_org_finality() {
     proposer_boost_re_org_test(ReOrgTest {
-        head_slot: Slot::new(129),
+        head_slot: Slot::new(4 * E::slots_per_epoch() + 1),
         ..Default::default()
     })
     .await;
@@ -395,11 +396,19 @@ pub async fn proposer_boost_re_org_test(
     let num_empty_votes = Some(attesters_per_slot * percent_empty_votes / 100);
     let num_head_votes = Some(attesters_per_slot * percent_head_votes / 100);
 
+    // Scale the lookahead with the slot duration, or it lands before the block B reveal at
+    // half way through the slot and we measure the wrong fork choice update.
+    let chain_config = ChainConfig {
+        prepare_payload_lookahead: spec.get_slot_duration()
+            / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+        ..Default::default()
+    };
+
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
         Some(spec),
         validator_count,
         None,
-        None,
+        Some(Box::new(move |builder| builder.chain_config(chain_config))),
         Default::default(),
         false,
         NodeCustodyType::Fullnode,
@@ -1428,9 +1437,10 @@ async fn get_validator_inclusion_list() {
     let spec = fork_name.make_genesis_spec(E::default_spec());
     let tester = InteractiveTester::<E>::new(Some(spec), 64).await;
 
-    let transactions = ProgressiveTransactions::new(vec![ProgressiveVariableList::new(
-        static_valid_tx::<E>().unwrap().to_vec(),
-    )]);
+    let transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::new(static_valid_tx::<E>().unwrap().to_vec()).unwrap(),
+    ])
+    .unwrap();
     set_mock_inclusion_list(&tester, transactions.clone());
 
     let slot = tester.harness.chain.slot().unwrap();
@@ -1502,7 +1512,10 @@ async fn get_validator_inclusion_list_oversized() {
         .max_transactions_bytes_per_inclusion_list as usize;
     set_mock_inclusion_list(
         &tester,
-        ProgressiveTransactions::new(vec![ProgressiveVariableList::new(vec![0xaa; max + 1])]),
+        ProgressiveTransactions::new(vec![
+            ProgressiveVariableList::new(vec![0xaa; max + 1]).unwrap(),
+        ])
+        .unwrap(),
     );
 
     let slot = tester.harness.chain.slot().unwrap();
@@ -1524,7 +1537,7 @@ async fn get_validator_inclusion_list_empty_transaction() {
 
     set_mock_inclusion_list(
         &tester,
-        ProgressiveTransactions::new(vec![ProgressiveVariableList::empty()]),
+        ProgressiveTransactions::new(vec![ProgressiveVariableList::empty()]).unwrap(),
     );
 
     let slot = tester.harness.chain.slot().unwrap();
@@ -1548,9 +1561,10 @@ async fn get_validator_inclusion_list_blob_transaction() {
     set_mock_inclusion_list(
         &tester,
         ProgressiveTransactions::new(vec![
-            ProgressiveVariableList::new(static_valid_tx::<E>().unwrap().to_vec()),
-            ProgressiveVariableList::new(vec![0x03, 0xaa]),
-        ]),
+            ProgressiveVariableList::new(static_valid_tx::<E>().unwrap().to_vec()).unwrap(),
+            ProgressiveVariableList::new(vec![0x03, 0xaa]).unwrap(),
+        ])
+        .unwrap(),
     );
 
     let slot = tester.harness.chain.slot().unwrap();
