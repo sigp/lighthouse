@@ -10,7 +10,7 @@ use beacon_chain::{
 use bls::Keypair;
 use eth2::types::SignedBlockContentsTuple;
 use fast_confirmation::FastConfirmationRule;
-use proto_array::{ExecutionStatus, ProtoArrayForkChoice};
+use proto_array::{ExecutionStatus, PayloadBlockHash, ProtoArrayForkChoice};
 use slot_clock::SlotClock;
 use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
@@ -646,14 +646,18 @@ async fn the_confirmed_root_reaches_the_execution_layer() {
         .cached_head()
         .forkchoice_update_parameters()
         .justified_hash;
-    let expected_hash = rig
+    let expected_hash = match rig
         .node
         .chain
         .canonical_head
         .fork_choice_read_lock()
         .get_block(&rig.confirmed_before)
         .unwrap()
-        .checkpoint_payload_block_hash();
+        .checkpoint_payload_block_hash()
+    {
+        PayloadBlockHash::Hash(hash) => Some(hash),
+        PayloadBlockHash::PreMerge => None,
+    };
     assert_eq!(safe_block_hash, expected_hash);
 }
 

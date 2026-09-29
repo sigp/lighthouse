@@ -10,6 +10,7 @@ use beacon_chain::chain_config::FastConfirmationMode;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
+    PayloadVerificationStatus,
     attestation_verification::VerifiedAttestation,
     blob_verification::KzgVerifiedBlob,
     custody_context::NodeCustodyType,
@@ -19,7 +20,7 @@ use bls::AggregateSignature;
 use execution_layer::{
     PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
 };
-use proto_array::ReOrgThreshold;
+use proto_array::{PayloadBlockHash, ReOrgThreshold};
 use serde::Deserialize;
 use ssz_derive::Decode;
 use ssz_types::VariableList;
@@ -1353,7 +1354,11 @@ impl<E: EthSpec> Tester<E> {
                 .chain
                 .canonical_head
                 .fork_choice_write_lock()
-                .on_valid_payload_envelope_received(block_root)
+                .on_payload_envelope_received(
+                    block_root,
+                    PayloadVerificationStatus::Verified,
+                    block_hash,
+                )
                 .map_err(|e| {
                     Error::InternalError(format!(
                         "on_execution_payload for block root {} failed: {:?}",
@@ -1564,11 +1569,10 @@ impl<E: EthSpec> Tester<E> {
                 "confirmed block {confirmed_root:?} not found in fork choice"
             ))
         })?;
-        let actual = block
-            .execution_status
-            .block_hash()
-            .or(block.execution_payload_parent_hash)
-            .unwrap_or_else(ExecutionBlockHash::zero);
+        let actual = match block.checkpoint_payload_block_hash() {
+            PayloadBlockHash::Hash(hash) => hash,
+            PayloadBlockHash::PreMerge => ExecutionBlockHash::zero(),
+        };
         check_equal("safe_execution_block_hash", actual, expected)
     }
 

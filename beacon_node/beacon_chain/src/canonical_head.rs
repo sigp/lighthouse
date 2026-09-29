@@ -59,6 +59,7 @@ use fork_choice::{
     ProtoBlock,
 };
 use itertools::process_results;
+use proto_array::PayloadBlockHash;
 
 use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
@@ -1101,7 +1102,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let execution_envelope = if new_payload_status == PayloadStatus::Full {
                     let envelope = self
                         .store
-                        .get_payload_envelope(&new_view.head_block_root)?
+                        .get_signed_payload_envelope(&new_view.head_block_root)?
                         .map(Arc::new)
                         .ok_or(Error::MissingExecutionPayloadEnvelope(
                             new_view.head_block_root,
@@ -1392,9 +1393,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(FastConfirmationError::NodeNotFound(confirmed_root))?;
 
         // The EL `safe_block_hash`. This MUST be the parent block hash for Gloas, per the spec.
-        let confirmed_block_hash = confirmed_node
-            .checkpoint_payload_block_hash()
-            .ok_or(FastConfirmationError::NodeHasNoBlockHash(confirmed_root))?;
+        let confirmed_block_hash = match confirmed_node.checkpoint_payload_block_hash() {
+            PayloadBlockHash::Hash(hash) => hash,
+            PayloadBlockHash::PreMerge => {
+                return Err(FastConfirmationError::NodeHasNoBlockHash(confirmed_root));
+            }
+        };
 
         Ok(FcrOutcome {
             confirmed_root,
@@ -1800,9 +1804,7 @@ fn check_finalized_payload_validity<T: BeaconChainTypes>(
     finalized_verdict: ExecutionVerdict,
 ) -> Result<(), Error> {
     if finalized_verdict.is_invalid() {
-        let block_hash = finalized_proto_block
-            .checkpoint_payload_block_hash()
-            .unwrap_or_else(ExecutionBlockHash::zero);
+        let block_hash = finalized_proto_block.checkpoint_payload_block_hash();
         crit!(
             ?block_hash,
             msg = "You must use the `--purge-db` flag to clear the database and restart sync. \
