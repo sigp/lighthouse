@@ -8721,7 +8721,7 @@ dependencies = [
 [[package]]
 name = "ssz_types"
 version = "0.14.1"
-source = "git+https://github.com/sigp/ssz_types?rev=a9aa0eb9e72b329491dd96f3ce21d20bf0e1beab#a9aa0eb9e72b329491dd96f3ce21d20bf0e1beab"
+source = "git+https://github.com/sigp/ssz_types?rev=8955d22edc7633f26fe3b5ac933facb5121d717a#8955d22edc7633f26fe3b5ac933facb5121d717a"
 dependencies = [
  "arbitrary",
  "context_deserialize",
