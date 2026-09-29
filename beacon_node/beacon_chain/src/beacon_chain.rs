@@ -173,9 +173,7 @@ type HashBlockTuple<E> = (Hash256, RangeSyncBlock<E>);
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::ZERO;
 pub const OP_POOL_DB_KEY: Hash256 = Hash256::ZERO;
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::ZERO;
-/// The highest-slot root FCR has confirmed, read back after a restart by
-/// `load_root_confirmed_before_restart`. Shares the `ForkChoice` column with `FORK_CHOICE_DB_KEY`,
-/// so it cannot be zero.
+/// The highest-slot root FCR has confirmed. Shares the `ForkChoice` column, so not zero.
 pub const FAST_CONFIRMATION_DB_KEY: Hash256 = Hash256::repeat_byte(1);
 
 /// Defines how old a block can be before it's no longer a candidate for the early attester cache.

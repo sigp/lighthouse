@@ -15,8 +15,8 @@
 //! 3. `Mutex<()>`: Is used to prevent concurrent execution of `BeaconChain::recompute_head`.
 //! 4. `Option<Mutex<FastConfirmationRule>>`: FCR state (None when disabled), locked inside
 //!    `recompute_head_at_slot_internal` while the fork choice read lock (1) is held and
-//!    `recompute_head_lock` (3) serializes access, and inside `persist_fork_choice`, again while
-//!    (1) is held. Nothing takes (1) while holding (4).
+//!    `recompute_head_lock` (3) serializes access, and inside `persist_fork_choice`, again under
+//!    (1). Nothing takes (1) while holding (4).
 //!
 //! This module has to take great efforts to avoid causing a deadlock with these three methods. Any
 //! developers working in this module should tread carefully and seek a detailed review.
@@ -267,16 +267,11 @@ impl<T: BeaconChainTypes> Deref for ForkChoiceUpgradableReadGuard<'_, T> {
     }
 }
 
-/// The outcome of one FCR run. `announced_*` is the restart-resilient confirmed root (spec:
-/// `get_restart_resilient_confirmed_root`), what the EL and the `fast_confirmation` event are told.
-/// `confirmed_root` and `old_confirmed_root` are the rule's own output before and after the run,
-/// which is what the reorg counters are about: a restart lets us keep announcing a root the rule
-/// has not re-confirmed, and that is not a reorg.
+/// One FCR run. The roots are spec `get_restart_resilient_confirmed_root`, before and after it.
 struct FcrOutcome {
-    announced_root: Hash256,
-    announced_slot: Slot,
-    announced_block_hash: ExecutionBlockHash,
     confirmed_root: Hash256,
+    confirmed_slot: Slot,
+    confirmed_block_hash: ExecutionBlockHash,
     old_confirmed_root: Hash256,
     new_update_slot: bool,
 }
@@ -916,25 +911,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 new_head_proto_block.state_root,
             ) {
                 Ok(FcrOutcome {
-                    announced_root,
-                    announced_slot,
-                    announced_block_hash,
                     confirmed_root,
+                    confirmed_slot,
+                    confirmed_block_hash,
                     old_confirmed_root,
                     new_update_slot,
                 }) => {
                     // FC update params are only updated after successful FCR runs. This is
                     // conservative and will revert the `safe` tag to justified instead of using a
                     // previously confirmed root that may be stale by now if FCR can't reconfirm it.
-                    new_forkchoice_update_parameters.justified_hash = Some(announced_block_hash);
+                    new_forkchoice_update_parameters.justified_hash = Some(confirmed_block_hash);
 
                     let delay = current_slot
                         .as_u64()
-                        .saturating_sub(announced_slot.as_u64());
+                        .saturating_sub(confirmed_slot.as_u64());
                     metrics::set_gauge(&fcr_metrics::FAST_CONFIRMATION_DELAY_SLOTS, delay as i64);
                     metrics::set_gauge(
                         &fcr_metrics::FAST_CONFIRMATION_SLOT,
-                        announced_slot.as_u64() as i64,
+                        confirmed_slot.as_u64() as i64,
                     );
                     // Sample the settled-delay histogram only on the first recompute that advanced
                     // FCR's per-slot update, so intra-slot block-import recomputes don't bias it.
@@ -994,8 +988,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         && event_handler.has_fast_confirmation_subscribers()
                     {
                         event_handler.register(EventKind::FastConfirmation(SseFastConfirmation {
-                            block: announced_root,
-                            slot: announced_slot,
+                            block: confirmed_root,
+                            slot: confirmed_slot,
                             current_slot,
                         }));
                     }
@@ -1250,7 +1244,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let votes = fork_choice.proto_array().votes();
         let equivocating_indices = fork_choice.fc_store().equivocating_indices();
 
-        let old_confirmed_root = fcr.confirmed_root;
+        // Recomputed rather than remembered, so the reorg counters below miss a change that the
+        // moving head or clock caused rather than the rule.
+        let old_confirmed_root = fcr.get_restart_resilient_confirmed_root::<T::EthSpec>(
+            head_root,
+            &finalized_cp,
+            current_slot,
+            proto_array,
+        )?;
 
         // The current head's pulled-up state (spec `get_pulled_up_head_state`). FCR errors
         // must never affect consensus, so on failure we log and skip it this tick.
@@ -1315,27 +1316,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &store.spec,
         )?;
 
-        let announced_root = fcr.get_restart_resilient_confirmed_root::<T::EthSpec>(
+        let confirmed_root = fcr.get_restart_resilient_confirmed_root::<T::EthSpec>(
             head_root,
             &finalized_cp,
             current_slot,
             proto_array,
         )?;
-        let announced_node = fork_choice
-            .get_block(&announced_root)
-            .ok_or(FastConfirmationError::NodeNotFound(announced_root))?;
+        let confirmed_node = fork_choice
+            .get_block(&confirmed_root)
+            .ok_or(FastConfirmationError::NodeNotFound(confirmed_root))?;
 
-        // Resolve the announced block's execution payload hash for the EL `safe_block_hash`.
-        // This MUST be the parent block hash for Gloas, per the spec.
-        let announced_block_hash = announced_node
+        // The EL `safe_block_hash`. This MUST be the parent block hash for Gloas, per the spec.
+        let confirmed_block_hash = confirmed_node
             .checkpoint_payload_block_hash()
-            .ok_or(FastConfirmationError::NodeHasNoBlockHash(announced_root))?;
+            .ok_or(FastConfirmationError::NodeHasNoBlockHash(confirmed_root))?;
 
         Ok(FcrOutcome {
-            announced_root,
-            announced_slot: announced_node.slot,
-            announced_block_hash,
-            confirmed_root: fcr.confirmed_root,
+            confirmed_root,
+            confirmed_slot: confirmed_node.slot,
+            confirmed_block_hash,
             old_confirmed_root,
             new_update_slot: fcr.last_update_slot() != old_update_slot,
         })
@@ -1688,17 +1687,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Return a database operation for writing FCR's confirmed root, for the next boot to read back
-    /// as the root confirmed before the restart, when it is at a higher slot than the root already
-    /// on disk.
-    ///
-    /// Keeping the highest slot is what makes the stored root worth reading: a block this node
-    /// confirmed. A persist that lands just after `get_latest_confirmed` falls back to the finalized
-    /// block, which an epoch transition can be, cannot lower it. The cost is that a root FCR later
-    /// reverted, or that a reorg took off the canonical chain, stays on disk until the live chain
-    /// confirms above its slot; the read side then announces the fresh root instead, since
-    /// `get_restart_resilient_confirmed_root` requires the stored root to be an ancestor of the head
-    /// and young enough, though nothing there can tell that the rule had reverted it.
+    /// Write FCR's confirmed root for the next boot, if its slot beats the stored one. Only the
+    /// higher slot, so a persist just after a fallback to finalized cannot lower it; the cost is
+    /// that a reverted or reorged root stays until the live chain confirms past it.
     fn persist_fast_confirmation_root_in_batch(&self) -> Option<KeyValueStoreOp> {
         let stored_root = match load_root_confirmed_before_restart(&self.store) {
             Ok(stored_root) => stored_root,
@@ -1716,8 +1707,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .lock()
             .confirmed_root;
         let confirmed_slot = fork_choice.get_block(&confirmed_root)?.slot;
-        // A stored root that fork choice no longer holds was pruned or left on a dead branch, and
-        // either way the next boot could not use it.
+        // Gone from fork choice: pruned or on a dead branch, so no use to the next boot.
         let stored_slot = stored_root
             .and_then(|stored_root| fork_choice.get_block(&stored_root))
             .map(|stored_block| stored_block.slot);

@@ -1,17 +1,13 @@
 #![cfg(not(debug_assertions))]
 
-//! The root the Fast Confirmation Rule announces must not move backwards across a restart.
-//!
-//! The announced root is `restart_resilient_confirmed_root`. The rule itself is re-seeded from the
-//! finalized checkpoint on every boot, so its `confirmed_root` does drop back and re-derive.
+//! The root the Fast Confirmation Rule reports must not move backwards across a restart. The rule
+//! itself is re-seeded from the finalized checkpoint on every boot, so its `confirmed_root` does.
 //!
 //! Oracle: a harness node that never restarts is fed the same blocks, attestations and clock as
 //! the node under test. The node may only regress when the harness does, which excludes the
 //! reverts the spec mandates. Restarts go through `BeaconChainBuilder::resume_from_db`.
 //!
-//! The scenarios at the end of the file are the ones that the oracle cannot express: what reaches
-//! execution layer, a fork that takes the root out of the head's chain, and the revert that the
-//! three-epoch window mandates.
+//! The tests at the end are the ones that oracle cannot state.
 
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, ChainConfig,
@@ -99,7 +95,7 @@ fn validators(n: usize) -> Vec<usize> {
     (0..n).collect()
 }
 
-fn announced<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Option<(Hash256, Slot)> {
+fn confirmed<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Option<(Hash256, Slot)> {
     let fcr_mutex = chain.canonical_head.fast_confirmation.as_ref()?;
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
     let head_root = chain.canonical_head.cached_head().head_block_root();
@@ -113,17 +109,6 @@ fn announced<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Option<(Hash256, Sl
         )
         .unwrap();
     Some((root, fork_choice.get_block(&root).unwrap().slot))
-}
-
-/// The rule's own output, which every boot re-seeds from the finalized checkpoint.
-fn confirmed<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Hash256 {
-    chain
-        .canonical_head
-        .fast_confirmation
-        .as_ref()
-        .expect("FCR is enabled")
-        .lock()
-        .confirmed_root
 }
 
 fn finalized<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Hash256 {
@@ -148,9 +133,9 @@ struct Rig {
     node_store: Store,
     _dbs: (TempDir, TempDir),
     blocks: Vec<Produced>,
-    /// Announced root and slot at the moment the node was stopped.
+    /// Confirmed root and slot at the moment the node was stopped.
     stopped: Option<(Hash256, Slot)>,
-    /// Highest confirmed slot the node has announced.
+    /// Highest confirmed slot the node has reached.
     high_water: Slot,
     log: Vec<String>,
 }
@@ -264,7 +249,7 @@ impl Rig {
     /// chain's own epoch-transition writes (`BeaconChain::drop` would persist, so leak it).
     fn stop(&mut self, graceful: bool) {
         let node = self.node.take().unwrap();
-        self.stopped = announced(&node.chain);
+        self.stopped = confirmed(&node.chain);
         if graceful {
             node.chain.persist_fork_choice().unwrap();
             node.chain.persist_op_pool().unwrap();
@@ -288,7 +273,7 @@ impl Rig {
         if let Some((root, slot)) = self.stopped
             && slot == self.slot()
         {
-            let (now, _) = announced(&self.node().chain).unwrap();
+            let (now, _) = confirmed(&self.node().chain).unwrap();
             assert_eq!(now, root, "same slot, same block");
         }
         self.observe("boot");
@@ -301,14 +286,14 @@ impl Rig {
         }
     }
 
-    /// The invariant: the node never announces a confirmed slot below its own high-water mark
+    /// The invariant: the node never confirms a slot below its own high-water mark
     /// unless the harness is below it too, and both roots are on the same branch.
     fn observe(&mut self, phase: &str) {
         let Some(node) = &self.node else { return };
-        let Some((mine_root, mine)) = announced(&node.chain) else {
+        let Some((mine_root, mine)) = confirmed(&node.chain) else {
             return;
         };
-        let (harness_root, harness) = announced(&self.harness.chain).unwrap();
+        let (harness_root, harness) = confirmed(&self.harness.chain).unwrap();
         let (ancestor, descendant) = if mine <= harness {
             (mine_root, harness_root)
         } else {
@@ -326,7 +311,7 @@ impl Rig {
         let floor = self.high_water.min(harness);
         let head = node.chain.canonical_head.cached_head().head_slot();
         self.log.push(format!(
-            "slot {:>3} {phase:<8} harness={harness:>3} node head={head:>3} announced={mine:>3}",
+            "slot {:>3} {phase:<8} harness={harness:>3} node head={head:>3} confirmed={mine:>3}",
             self.slot()
         ));
         assert!(
@@ -336,9 +321,8 @@ impl Rig {
             self.log.join("\n")
         );
         // Once caught up the node has at most the harness's votes, so it can never be ahead —
-        // except while it still announces the root it confirmed before the restart. That is the
-        // mechanism: the harness may have reverted past that root in the meantime, because it can
-        // no longer re-confirm the chain, while the node keeps the confirmation it already made.
+        // except while it still reports the pre-restart root, which the harness, having lost the
+        // votes to re-confirm it, may have reverted past.
         let pinned = self.stopped.is_some_and(|(root, _)| root == mine_root);
         let harness_head = self.harness.chain.canonical_head.cached_head().head_slot();
         assert!(
@@ -436,13 +420,12 @@ impl Scenario {
             rig.boot().await;
         }
         rig.steps(epoch, &validators(self.attesters_after)).await;
-        // Two epochs, not one: where participation collapsed, the harness fell back to finalized
-        // and can only re-derive at the boundary after a fully attested epoch. The node's re-seeded
-        // rule catches up at that same boundary, and not before.
+        // Two epochs: where participation collapsed, both sides can only re-derive at the
+        // boundary after a fully attested epoch.
         rig.steps(2 * epoch, &all).await;
         assert_eq!(
-            announced(&rig.harness.chain),
-            announced(&rig.node().chain),
+            confirmed(&rig.harness.chain),
+            confirmed(&rig.node().chain),
             "node did not converge on the harness\n{}",
             rig.log.join("\n")
         );
@@ -459,9 +442,8 @@ async fn instant_restart_mid_epoch() {
     Scenario::default().run().await;
 }
 
-/// The votes queued in the epoch's last slot are lost with `PersistedForkChoiceV29`, so the
-/// re-seeded rule lands a block behind the harness at the boundary. The announced root does not
-/// depend on them.
+/// The votes queued in the epoch's last slot are lost with `PersistedForkChoiceV29`. The
+/// pre-restart root does not need them.
 #[tokio::test]
 async fn instant_restart_at_epoch_end() {
     Scenario::default().at(7).run().await;
@@ -482,9 +464,7 @@ async fn downtime_across_an_epoch_boundary() {
     Scenario::default().at(6).down(4).run().await;
 }
 
-/// The guard on the width of the window: twelve slots of downtime leaves the pre-restart root
-/// inside it, so it is still announced. A two-epoch window would drop it at boot instead, below the
-/// node's own high-water mark.
+/// The guard on the width of the window: twelve slots still leaves the root inside it.
 #[tokio::test]
 async fn downtime_of_more_than_an_epoch() {
     Scenario::default().down(12).run().await;
@@ -537,15 +517,14 @@ async fn two_restarts_in_a_row() {
 }
 
 /// Boots from the last epoch-transition persist, with the confirmed root it had then.
-#[ignore = "needs the announced root persisted every slot, not only with fork choice"]
+#[ignore = "needs the confirmed root persisted every slot, not only with fork choice"]
 #[tokio::test]
 async fn crash_instead_of_graceful_shutdown() {
     Scenario::default().down(1).crash().run().await;
 }
 
-/// A node that runs with FCR disabled leaves the persisted root alone, so turning FCR back on
-/// finds a root from several epochs ago. With the chain stalled in the meantime finality never
-/// passes that root, so only its age can reject it — and it must.
+/// FCR off leaves the persisted root alone. With the chain stalled meanwhile, finality never passes
+/// that root, so only its age can reject it — and it must.
 #[tokio::test]
 async fn re_enabling_fcr_drops_a_stale_root() {
     let all = validators(VALIDATOR_COUNT);
@@ -584,17 +563,16 @@ async fn re_enabling_fcr_drops_a_stale_root() {
         .root;
     assert_ne!(stale, finalized);
     assert_eq!(
-        announced(&rig.node().chain).unwrap().0,
+        confirmed(&rig.node().chain).unwrap().0,
         finalized,
-        "a root from four epochs ago must not be announced"
+        "a root from four epochs ago must not be used"
     );
 }
 
-/// A `--reset-payload-statuses` boot marks every pre-Gloas block optimistic. The root confirmed
-/// before the restart is announced regardless: the EL validated it before the restart, and nothing
-/// optimistic gets confirmed afresh.
+/// A `--reset-payload-statuses` boot marks every pre-Gloas block optimistic. The pre-restart root
+/// is kept anyway: the EL validated it before the restart.
 #[tokio::test]
-async fn a_payload_status_reset_keeps_the_announced_root() {
+async fn a_payload_status_reset_keeps_the_confirmed_root() {
     let all = validators(VALIDATOR_COUNT);
     let mut rig = Rig::new();
     rig.steps(WARMUP_SLOTS, &all).await;
@@ -608,21 +586,20 @@ async fn a_payload_status_reset_keeps_the_announced_root() {
         true,
     ));
     rig.node().chain.recompute_head_at_current_slot().await;
-    let (root, _) = announced(&rig.node().chain).unwrap();
+    let (root, _) = confirmed(&rig.node().chain).unwrap();
     assert_eq!(root, stopped);
 }
 
 // ---------------------------------------------------------------------------
-// Single-chain tests, for the three properties the oracle above cannot state.
+// Single-chain tests, for what the oracle above cannot state.
 // ---------------------------------------------------------------------------
 
-/// A chain that confirmed a block ahead of finality, was shut down gracefully, and came back
-/// `slots_of_downtime` slots later. The stopped harness is held, not read: the restarted node
-/// shares its store, its clock and its mock execution layer.
+/// A chain that confirmed a block ahead of finality, stopped gracefully, and came back
+/// `slots_of_downtime` later. The stopped harness is held for its store, clock and execution layer.
 struct Restarted {
     _stopped: Harness,
     node: Harness,
-    announced_before: Hash256,
+    confirmed_before: Hash256,
     slot_before: Slot,
     _db: TempDir,
 }
@@ -639,9 +616,9 @@ async fn restart_after(slots_of_downtime: u64) -> Restarted {
         )
         .await;
 
-    let (announced_before, slot_before) = announced(&stopped.chain).unwrap();
+    let (confirmed_before, slot_before) = confirmed(&stopped.chain).unwrap();
     assert_ne!(
-        announced_before,
+        confirmed_before,
         finalized(&stopped.chain),
         "FCR should have confirmed a block ahead of the finalized checkpoint"
     );
@@ -656,28 +633,22 @@ async fn restart_after(slots_of_downtime: u64) -> Restarted {
     Restarted {
         _stopped: stopped,
         node,
-        announced_before,
+        confirmed_before,
         slot_before,
         _db: db,
     }
 }
 
-/// The parameters the next `forkchoiceUpdated` carries name the announced root, so the execution
-/// layer's safe block hash does not regress across the restart either, even though the rule itself
-/// has gone back to the finalized block.
+/// The next `forkchoiceUpdated` names that root, so the EL's safe block hash does not regress
+/// either, even though the rule itself has gone back to the finalized block.
 #[tokio::test]
-async fn the_announced_root_reaches_the_execution_layer() {
+async fn the_confirmed_root_reaches_the_execution_layer() {
     let rig = restart_after(1).await;
 
     assert_eq!(
-        confirmed(&rig.node.chain),
-        finalized(&rig.node.chain),
-        "a freshly seeded rule has not re-confirmed anything yet"
-    );
-    assert_eq!(
-        announced(&rig.node.chain).unwrap().0,
-        rig.announced_before,
-        "the root confirmed before the restart should still be announced"
+        confirmed(&rig.node.chain).unwrap().0,
+        rig.confirmed_before,
+        "the root confirmed before the restart should still hold"
     );
 
     let safe_block_hash = rig
@@ -692,20 +663,18 @@ async fn the_announced_root_reaches_the_execution_layer() {
         .chain
         .canonical_head
         .fork_choice_read_lock()
-        .get_block(&rig.announced_before)
+        .get_block(&rig.confirmed_before)
         .unwrap()
         .checkpoint_payload_block_hash();
     assert_eq!(safe_block_hash, expected_hash);
 }
 
-/// A root outside the head's chain cannot be announced: the execution layer rejects the whole
-/// `forkchoiceUpdated` call for such a safe block hash.
+/// A root off the head's chain is dropped: the EL rejects such a `forkchoiceUpdated`.
 #[tokio::test]
-async fn does_not_announce_a_root_that_was_reorged_out() {
+async fn drops_a_root_that_was_reorged_out() {
     let rig = restart_after(1).await;
 
-    // A fork from the parent of the pre-restart root, attested by every validator, takes the head
-    // off that branch.
+    // A fork from the pre-restart root's parent, attested by all, takes the head off that branch.
     let first_slot = rig.node.chain.slot().unwrap();
     rig.node
         .extend_chain(
@@ -723,7 +692,7 @@ async fn does_not_announce_a_root_that_was_reorged_out() {
             .chain
             .canonical_head
             .fork_choice_read_lock()
-            .is_descendant(rig.announced_before, rig.node.head_block_root()),
+            .is_descendant(rig.confirmed_before, rig.node.head_block_root()),
         "the fork should have reorged the pre-restart root out"
     );
     assert!(
@@ -731,27 +700,25 @@ async fn does_not_announce_a_root_that_was_reorged_out() {
         "the pre-restart root must still be recent, or it would be dropped as stale instead"
     );
     assert!(
-        confirmed(&rig.node.chain) != rig.announced_before
-            && announced(&rig.node.chain).unwrap().1 < rig.slot_before,
+        confirmed(&rig.node.chain).unwrap().1 < rig.slot_before,
         "the rule must not have caught up, or that is what dropped the root"
     );
-    assert_eq!(
-        announced(&rig.node.chain).unwrap().0,
-        confirmed(&rig.node.chain)
+    assert_ne!(
+        confirmed(&rig.node.chain).unwrap().0,
+        rig.confirmed_before,
+        "a root off the head's chain must be dropped"
     );
 }
 
-/// Three epochs of downtime leave the root confirmed before the restart outside the window: it
-/// should have been finalized by now, and if it wasn't then finality is delayed and it cannot be
-/// trusted. This is the revert the differential oracle has to forbid.
+/// Three epochs down puts the root outside the window: the revert the oracle above has to forbid.
 #[tokio::test]
 async fn falls_back_to_finalized_after_a_long_downtime() {
     let rig = restart_after(3 * E::slots_per_epoch()).await;
 
-    assert_ne!(rig.announced_before, finalized(&rig.node.chain));
+    assert_ne!(rig.confirmed_before, finalized(&rig.node.chain));
     assert_eq!(
-        announced(&rig.node.chain).unwrap().0,
+        confirmed(&rig.node.chain).unwrap().0,
         finalized(&rig.node.chain),
-        "a stale pre-restart root must not be announced"
+        "a stale pre-restart root must not be used"
     );
 }
