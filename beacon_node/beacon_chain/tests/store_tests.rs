@@ -4,6 +4,7 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::{LookupBlock, RangeSyncBlock};
 use beacon_chain::builder::BeaconChainBuilder;
+use beacon_chain::chain_config::FastConfirmationMode;
 use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
@@ -27,9 +28,11 @@ use beacon_chain::{
     migrate::MigratorConfig,
 };
 use bls::{Keypair, Signature, SignatureBytes};
+use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
-use fork_choice::PayloadStatus;
-use fork_choice::PayloadVerificationStatus;
+use fork_choice::{
+    ForkChoiceStore, PayloadStatus, PayloadVerificationStatus, ResetPayloadStatuses,
+};
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
 use rand::Rng;
@@ -49,9 +52,12 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::KeyValueStore;
 use store::database::interface::BeaconNodeBackend;
-use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
+use store::hot_cold_store::{HotColdDBError, migrate_database};
+use store::metadata::{
+    AnchorInfo, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion,
+};
 use store::{
-    BlobInfo, DBColumn, HotColdDB, StoreConfig, StoreOp,
+    BlobInfo, DBColumn, Error as StoreError, HotColdDB, StoreConfig, StoreOp,
     hdiff::HierarchyConfig,
     iter::{BlockRootsIterator, StateRootsIterator},
 };
@@ -4432,6 +4438,386 @@ async fn finalizes_after_resuming_from_db() {
         state.finalized_checkpoint().epoch,
         state.current_epoch() - 2,
         "the head should be finalized two behind the current epoch"
+    );
+}
+
+/// On-disk fork choice finalized at epoch `N`, with the freezer split already at epoch `N + 1`.
+struct SplitAheadOfForkChoice {
+    _db_path: TempDir,
+    store: Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>,
+    slot_clock: TestingSlotClock,
+    execution_layer: Option<ExecutionLayer<E>>,
+    finalized: Checkpoint,
+    split_block_root: Hash256,
+    historic_state_retained: bool,
+}
+
+fn fcr_chain_config() -> ChainConfig {
+    ChainConfig {
+        fast_confirmation: FastConfirmationMode::Enabled,
+        verify_envelope_payload_hash_in_backfill: false,
+        ..ChainConfig::default()
+    }
+}
+
+/// Build a chain whose persisted fork choice is finalized one epoch behind the freezer split.
+///
+/// The resumed slot clock stays at the persisted fork-choice time, so startup's `get_head` does
+/// not pull finality forward. The head block is newer than the new split, so its hot state is
+/// still present and the builder's finalized-epoch sanity check passes.
+async fn split_ahead_of_finalized_fork_choice(
+    skip_finalized_boundary: bool,
+    retain_historic_states: bool,
+) -> SplitAheadOfForkChoice {
+    split_ahead_of_finalized_fork_choice_through_epoch(
+        skip_finalized_boundary,
+        retain_historic_states,
+        5,
+    )
+    .await
+}
+
+/// When the finalized boundary has a block, the last produced slot is
+/// `head_epoch * slots_per_epoch`. Epoch 5 finalizes epoch 3, whose start slot is replayed from
+/// genesis. Epoch 6 finalizes epoch 4, whose start slot is a freezer diff.
+async fn split_ahead_of_finalized_fork_choice_through_epoch(
+    skip_finalized_boundary: bool,
+    retain_historic_states: bool,
+    head_epoch: u64,
+) -> SplitAheadOfForkChoice {
+    let validator_count = 16;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_disk_store(store.clone())
+        .mock_execution_layer()
+        .build();
+
+    if skip_finalized_boundary {
+        let boundary = Slot::new(E::slots_per_epoch() * 4);
+        harness.extend_to_slot(boundary - 1).await;
+        // Two advances: one would land on the epoch start, and `extend_to_slot` would fill it.
+        harness.advance_slot();
+        harness.advance_slot();
+        harness
+            .extend_to_slot(Slot::new(E::slots_per_epoch() * 6))
+            .await;
+    } else {
+        harness
+            .extend_to_slot(Slot::new(E::slots_per_epoch() * head_epoch))
+            .await;
+    }
+
+    let (finalized, justified, justified_state_root) = {
+        let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+        let store = fork_choice.fc_store();
+        (
+            *store.finalized_checkpoint(),
+            *store.justified_checkpoint(),
+            store.justified_state_root(),
+        )
+    };
+    let finalized_slot = finalized.epoch.start_slot(E::slots_per_epoch());
+    let justified_slot = justified.epoch.start_slot(E::slots_per_epoch());
+    assert_eq!(
+        justified.epoch,
+        finalized.epoch + 1,
+        "justified epoch should be one ahead of finalized"
+    );
+    assert!(
+        harness.head_slot() >= justified_slot,
+        "head must stay in the hot database after the split advances"
+    );
+    assert_eq!(
+        harness.get_current_state().finalized_checkpoint().epoch,
+        finalized.epoch,
+        "head state finality must match fork choice or startup rejects the database"
+    );
+
+    let justified_state = store
+        .get_hot_state(&justified_state_root, false)
+        .unwrap()
+        .expect("justified epoch-start state should be in the hot database");
+    assert_eq!(justified_state.slot(), justified_slot);
+    let justified_block_root = justified_state.get_latest_block_root(justified_state_root);
+
+    harness
+        .chain
+        .persist_fork_choice()
+        .expect("should persist fork choice");
+    if retain_historic_states {
+        // With historic states disabled, `state_upper_limit` is the no-retain sentinel and
+        // migration stores only the genesis state. Set it to 0 so this migration writes the
+        // finalized boundary.
+        let anchor = store.get_anchor_info();
+        store
+            .compare_and_set_anchor_info_with_write(
+                anchor.clone(),
+                AnchorInfo {
+                    state_upper_limit: Slot::new(0),
+                    ..anchor
+                },
+            )
+            .unwrap();
+    }
+    migrate_database(
+        store.clone(),
+        justified_state_root,
+        justified_block_root,
+        &justified_state,
+    )
+    .expect("should advance the split to the justified epoch");
+    assert_eq!(store.get_split_slot(), justified_slot);
+    assert_eq!(
+        store.get_cold_state_root(finalized_slot).unwrap().is_some(),
+        retain_historic_states,
+        "freezer retention should match the test mode"
+    );
+    let hot_error = store
+        .get_advanced_hot_state(finalized.root, finalized_slot, Hash256::ZERO)
+        .expect_err("finalized epoch-start slot is below the split");
+    assert!(matches!(
+        hot_error,
+        StoreError::HotColdDBError(HotColdDBError::FinalizedStateNotInHotDatabase { .. })
+    ));
+
+    if skip_finalized_boundary {
+        let block = store
+            .get_blinded_block(&finalized.root)
+            .unwrap()
+            .expect("finalized block should be stored");
+        assert!(
+            block.slot() < finalized_slot,
+            "finalized boundary slot should have been skipped"
+        );
+    }
+
+    let slot_clock = harness.chain.slot_clock.clone();
+    let execution_layer = harness.chain.execution_layer.clone();
+    // Drop persists the in-memory fork choice, which is still finalized at epoch N.
+    drop(harness);
+
+    SplitAheadOfForkChoice {
+        _db_path: db_path,
+        store,
+        slot_clock,
+        execution_layer,
+        finalized,
+        split_block_root: justified_block_root,
+        historic_state_retained: retain_historic_states,
+    }
+}
+
+fn fcr_confirmed_root(harness: &TestHarness) -> Hash256 {
+    harness
+        .chain
+        .canonical_head
+        .fast_confirmation
+        .as_ref()
+        .expect("fast confirmation should be enabled")
+        .lock()
+        .confirmed_root
+}
+
+fn resume_with_fcr(setup: &SplitAheadOfForkChoice) -> TestHarness {
+    BeaconChainHarness::<DiskHarnessType<E>>::builder(MinimalEthSpec)
+        .default_spec()
+        .chain_config(fcr_chain_config())
+        .keypairs(KEYPAIRS[0..16].to_vec())
+        .resumed_disk_store(setup.store.clone())
+        .testing_slot_clock(setup.slot_clock.clone())
+        .execution_layer(setup.execution_layer.clone())
+        .build()
+}
+
+fn assert_resume_panics_with(setup: &SplitAheadOfForkChoice, expected: &str) {
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| resume_with_fcr(setup)))
+        .expect_err("resume should fail");
+    let message = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or("");
+    assert!(
+        message.contains(expected),
+        "resume panic should contain {expected:?}, got: {message}"
+    );
+}
+
+#[tokio::test]
+async fn fcr_resume_uses_split_state_when_history_is_not_retained() {
+    let setup = split_ahead_of_finalized_fork_choice(false, false).await;
+    let resumed = resume_with_fcr(&setup);
+    assert_eq!(resumed.finalized_checkpoint(), setup.finalized);
+    assert_eq!(fcr_confirmed_root(&resumed), setup.split_block_root);
+}
+
+#[tokio::test]
+async fn fcr_resume_loads_skipped_finalized_boundary_from_freezer() {
+    let setup = split_ahead_of_finalized_fork_choice(true, true).await;
+    let resumed = resume_with_fcr(&setup);
+    assert_eq!(resumed.finalized_checkpoint(), setup.finalized);
+    assert_eq!(fcr_confirmed_root(&resumed), setup.finalized.root);
+    let state = store_frozen_checkpoint_state(&setup);
+    assert_eq!(
+        state.slot(),
+        setup.finalized.epoch.start_slot(E::slots_per_epoch())
+    );
+    let state_root = setup
+        .store
+        .get_cold_state_root(state.slot())
+        .unwrap()
+        .expect("frozen checkpoint state root");
+    assert_eq!(
+        state.get_latest_block_root(state_root),
+        setup.finalized.root
+    );
+}
+
+#[tokio::test]
+async fn fcr_resume_fails_when_retained_history_is_deleted() {
+    let setup = split_ahead_of_finalized_fork_choice(false, true).await;
+    assert!(setup.historic_state_retained);
+    let finalized_slot = setup.finalized.epoch.start_slot(E::slots_per_epoch());
+    setup
+        .store
+        .cold_db
+        .key_delete(
+            DBColumn::BeaconStateRoots,
+            &finalized_slot.as_u64().to_be_bytes(),
+        )
+        .unwrap();
+
+    assert_resume_panics_with(&setup, "missing state root for a slot this node retains");
+}
+
+/// The epoch-start header state root is still zero, so the stored root is part of the block hash.
+///
+/// The chain runs to epoch 6 so the epoch-start slot is a freezer diff. Replacing the root of a
+/// replay slot makes the freezer iterator gap before this check runs.
+#[tokio::test]
+async fn fcr_resume_fails_when_freezer_state_does_not_match_checkpoint() {
+    let setup = split_ahead_of_finalized_fork_choice_through_epoch(false, true, 6).await;
+    let finalized_slot = setup.finalized.epoch.start_slot(E::slots_per_epoch());
+    let block = setup
+        .store
+        .get_blinded_block(&setup.finalized.root)
+        .unwrap()
+        .expect("finalized block should be stored");
+    assert_eq!(block.slot(), finalized_slot);
+    // Default hierarchy exponent 5 stores this slot as a diff, so loading it does not walk roots.
+    assert_eq!(finalized_slot.as_u64() % 32, 0);
+    assert!(finalized_slot > 0);
+    let real_root = setup
+        .store
+        .get_cold_state_root(finalized_slot)
+        .unwrap()
+        .expect("finalized epoch-start state root should be in the freezer");
+    let wrong_root = Hash256::repeat_byte(0x11);
+    assert_ne!(wrong_root, real_root);
+    setup
+        .store
+        .cold_db
+        .put_bytes(
+            DBColumn::BeaconStateRoots,
+            &finalized_slot.as_u64().to_be_bytes(),
+            &wrong_root.as_ssz_bytes(),
+        )
+        .unwrap();
+    assert_eq!(
+        setup.store.get_cold_state_root(finalized_slot).unwrap(),
+        Some(wrong_root)
+    );
+
+    assert_resume_panics_with(&setup, "latest block root does not match checkpoint");
+}
+
+fn store_frozen_checkpoint_state(setup: &SplitAheadOfForkChoice) -> BeaconState<E> {
+    let slot = setup.finalized.epoch.start_slot(E::slots_per_epoch());
+    setup.store.load_cold_state_by_slot(slot).unwrap()
+}
+
+fn fork_choice_finality(harness: &TestHarness) -> (Epoch, Epoch) {
+    let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+    (
+        fork_choice.finalized_checkpoint().epoch,
+        fork_choice.unrealized_finalized_checkpoint().epoch,
+    )
+}
+
+fn persisted_finalized_epoch(harness: &TestHarness) -> Epoch {
+    BeaconChain::<DiskHarnessType<E>>::load_fork_choice(
+        harness.chain.store.clone(),
+        ResetPayloadStatuses::OnlyWithInvalidPayload,
+        &harness.chain.spec,
+    )
+    .expect("fork choice should load from disk")
+    .expect("fork choice should be stored")
+    .finalized_checkpoint()
+    .epoch
+}
+
+/// An epoch-start tick with no new block finalizes and migrates. The on-disk fork choice must
+/// record that checkpoint.
+#[tokio::test]
+async fn fork_choice_persisted_when_tick_finalizes_without_new_head() {
+    let validator_count = 16;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_disk_store(store.clone())
+        .mock_execution_layer()
+        .build();
+
+    let mut boundary = Slot::new(E::slots_per_epoch() * 5);
+    let (finalized_before, unrealized_before) = loop {
+        harness.extend_to_slot(boundary - 1).await;
+        let (finalized_epoch, unrealized_epoch) = fork_choice_finality(&harness);
+        if unrealized_epoch > finalized_epoch {
+            break (finalized_epoch, unrealized_epoch);
+        }
+        boundary += E::slots_per_epoch();
+        assert!(
+            boundary <= Slot::new(E::slots_per_epoch() * 8),
+            "unrealized finality should lead stored finality before an epoch boundary"
+        );
+    };
+
+    let split_before = store.get_split_slot();
+    assert_eq!(
+        persisted_finalized_epoch(&harness),
+        finalized_before,
+        "disk fork choice should match the stored checkpoint before the tick"
+    );
+
+    harness.advance_slot();
+    assert_eq!(harness.get_current_slot(), boundary);
+    assert!(
+        harness.head_slot() < boundary,
+        "the epoch-start slot should have no block"
+    );
+
+    harness.chain.recompute_head_at_current_slot().await;
+
+    let (finalized_after, _) = fork_choice_finality(&harness);
+    assert!(
+        finalized_after > finalized_before,
+        "the epoch-start tick should pull finality from {unrealized_before:?}"
+    );
+    assert_eq!(
+        store.get_split_slot(),
+        finalized_after.start_slot(E::slots_per_epoch()),
+        "migration should advance the split to the new finalized epoch"
+    );
+    assert!(store.get_split_slot() > split_before);
+    assert_eq!(
+        persisted_finalized_epoch(&harness),
+        finalized_after,
+        "on-disk fork choice should record the new finalized checkpoint"
     );
 }
 

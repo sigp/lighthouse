@@ -70,12 +70,21 @@ use std::panic::Location;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
+use store::hot_cold_store::HotColdDBError;
 use store::{
     Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreConfig, iter::StateRootsIterator,
 };
 use task_executor::{JoinHandle, ShutdownReason};
 use tracing::{debug, error, info, instrument, warn};
 use types::*;
+
+/// Outcome of loading the fast-confirmation checkpoint state.
+enum LoadedCheckpointState<E: EthSpec> {
+    /// The checkpoint's epoch-start state.
+    State(BeaconState<E>),
+    /// `target_slot` is below the split and outside the historic range this node stores.
+    NotRetained { target_slot: Slot },
+}
 
 /// Simple wrapper around `RwLock` that uses private visibility to prevent any other modules from
 /// accessing the contained lock without it being explicitly noted in this module.
@@ -1119,12 +1128,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Only run on head *block* changes - payload status changes only need the
         // `cached_head` update above, not re-org detection or event emission.
+        let finalized_changed = new_view.finalized_checkpoint != old_view.finalized_checkpoint;
         if new_snapshot.beacon_block_root != old_snapshot.beacon_block_root
             && let Err(e) = self.after_new_head(
                 &old_cached_head,
                 &new_cached_head,
                 new_head_proto_block,
                 new_head_verdict,
+                finalized_changed,
             )
         {
             crit!(
@@ -1191,7 +1202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // The `after_finalization` function will take a write-lock on `fork_choice`, therefore it
         // is a dead-lock risk to hold any other lock on fork choice at this point.
-        if new_view.finalized_checkpoint != old_view.finalized_checkpoint
+        if finalized_changed
             && let Err(e) = self.after_finalization(
                 &new_cached_head,
                 new_view,
@@ -1331,7 +1342,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// When the head snapshot *is* the checkpoint state — same block root, state at the first slot
     /// of the checkpoint's epoch, as at genesis or checkpoint-sync startup — it is reused directly;
-    /// otherwise the checkpoint state is loaded from the `store`.
+    /// otherwise the checkpoint state is loaded from the `store`. If that state is below the split
+    /// and was not retained, seed from the hot split state instead.
     fn new_fast_confirmation_rule(
         finalized_checkpoint: Checkpoint,
         snapshot: &BeaconSnapshot<T::EthSpec>,
@@ -1343,19 +1355,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .start_slot(T::EthSpec::slots_per_epoch());
         let snapshot_is_checkpoint_state = snapshot.beacon_block_root == finalized_checkpoint.root
             && snapshot.beacon_state.slot() == target_slot;
-        let loaded_checkpoint_state = if snapshot_is_checkpoint_state {
-            None
+        let (fcr_checkpoint, loaded_checkpoint_state) = if snapshot_is_checkpoint_state {
+            (finalized_checkpoint, None)
         } else {
-            Some(Self::load_fcr_checkpoint_state(
-                store,
-                None,
-                finalized_checkpoint,
-            )?)
+            match Self::try_load_fcr_checkpoint_state(store, None, finalized_checkpoint)? {
+                LoadedCheckpointState::State(state) => (finalized_checkpoint, Some(state)),
+                // Below the split and not retained: seed from the hot split state.
+                LoadedCheckpointState::NotRetained { target_slot } => {
+                    let (checkpoint, state) = Self::load_split_checkpoint_state_for_fcr(
+                        store,
+                        finalized_checkpoint,
+                        target_slot,
+                    )?;
+                    (checkpoint, Some(state))
+                }
+            }
         };
         FastConfirmationRule::new(
             snapshot.beacon_block_root,
             &snapshot.beacon_state,
-            finalized_checkpoint,
+            fcr_checkpoint,
             loaded_checkpoint_state
                 .as_ref()
                 .unwrap_or(&snapshot.beacon_state),
@@ -1375,6 +1394,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         builder_onboarding_cache: Option<&OnboardBuildersCache>,
         checkpoint: Checkpoint,
     ) -> Result<BeaconState<T::EthSpec>, FastConfirmationError> {
+        match Self::try_load_fcr_checkpoint_state(store, builder_onboarding_cache, checkpoint)? {
+            LoadedCheckpointState::State(state) => Ok(state),
+            LoadedCheckpointState::NotRetained { target_slot } => {
+                Err(FastConfirmationError::UnableToObtainCheckpointState(
+                    format!("checkpoint state not retained at slot {target_slot}"),
+                ))
+            }
+        }
+    }
+
+    fn try_load_fcr_checkpoint_state(
+        store: &BeaconStore<T>,
+        builder_onboarding_cache: Option<&OnboardBuildersCache>,
+        checkpoint: Checkpoint,
+    ) -> Result<LoadedCheckpointState<T::EthSpec>, FastConfirmationError> {
         let block = store
             .get_blinded_block(&checkpoint.root)
             .map_err(|e| FastConfirmationError::UnableToObtainCheckpointState(format!("{e:?}")))?
@@ -1383,27 +1417,134 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 epoch: checkpoint.epoch,
             })?;
         let target_slot = checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
-        let (state_root, mut state) = store
-            .get_advanced_hot_state(checkpoint.root, target_slot, block.state_root())
-            .map_err(|e| FastConfirmationError::UnableToObtainCheckpointState(format!("{e:?}")))?
-            .ok_or_else(|| {
-                FastConfirmationError::UnableToObtainCheckpointState("not found".to_owned())
-            })?;
-        if state.slot() < target_slot {
-            complete_state_advance(
-                &mut state,
-                Some(state_root),
-                target_slot,
-                builder_onboarding_cache,
-                &store.spec,
-            )
-            .map_err(|e| {
-                FastConfirmationError::UnableToObtainCheckpointState(format!(
-                    "Error advancing checkpoint state: {e:?}"
-                ))
-            })?;
+        match store.get_advanced_hot_state(checkpoint.root, target_slot, block.state_root()) {
+            Ok(Some((state_root, mut state))) => {
+                if state.slot() < target_slot {
+                    complete_state_advance(
+                        &mut state,
+                        Some(state_root),
+                        target_slot,
+                        builder_onboarding_cache,
+                        &store.spec,
+                    )
+                    .map_err(|e| {
+                        FastConfirmationError::UnableToObtainCheckpointState(format!(
+                            "Error advancing checkpoint state: {e:?}"
+                        ))
+                    })?;
+                }
+                Ok(LoadedCheckpointState::State(state))
+            }
+            Ok(None) => Err(FastConfirmationError::UnableToObtainCheckpointState(
+                "not found".to_owned(),
+            )),
+            // Below the split, so the hot block post-state is gone. On a skip that post-state is an
+            // earlier slot; load the epoch-start state from the freezer when this node stored it.
+            Err(StoreError::HotColdDBError(HotColdDBError::FinalizedStateNotInHotDatabase {
+                ..
+            })) => Self::load_frozen_fcr_checkpoint_state(store, checkpoint, target_slot),
+            Err(e) => Err(FastConfirmationError::UnableToObtainCheckpointState(
+                format!("{e:?}"),
+            )),
         }
-        Ok(state)
+    }
+
+    /// Load the canonical state at `target_slot` from the freezer and check that it is the
+    /// checkpoint's epoch-start state.
+    ///
+    /// Returns `NotRetained` when `target_slot` is outside the historic range this node stores.
+    /// A missing root inside that range is an error.
+    fn load_frozen_fcr_checkpoint_state(
+        store: &BeaconStore<T>,
+        checkpoint: Checkpoint,
+        target_slot: Slot,
+    ) -> Result<LoadedCheckpointState<T::EthSpec>, FastConfirmationError> {
+        let corrupt = |detail: String| {
+            FastConfirmationError::UnableToObtainCheckpointState(format!(
+                "checkpoint state unavailable in freezer at slot {target_slot}: {detail}"
+            ))
+        };
+        let Some(state_root) = store
+            .get_cold_state_root(target_slot)
+            .map_err(|e| corrupt(format!("{e:?}")))?
+        else {
+            if Self::historic_state_should_be_stored(store, target_slot) {
+                return Err(corrupt(
+                    "missing state root for a slot this node retains".to_string(),
+                ));
+            }
+            return Ok(LoadedCheckpointState::NotRetained { target_slot });
+        };
+        let state = store
+            .load_cold_state_by_slot(target_slot)
+            .map_err(|e| corrupt(format!("{e:?}")))?;
+        if state.slot() != target_slot {
+            return Err(corrupt(format!("loaded state at slot {}", state.slot())));
+        }
+        if state.get_latest_block_root(state_root) != checkpoint.root {
+            return Err(corrupt(format!(
+                "latest block root does not match checkpoint {}",
+                checkpoint.root
+            )));
+        }
+        Ok(LoadedCheckpointState::State(state))
+    }
+
+    /// True when `target_slot` is below the split and the anchor says this node stores that slot.
+    ///
+    /// Matches the hot-cold store: a slot below the split is available when it is at or below
+    /// `state_lower_limit`, or at or above `min(split.slot, state_upper_limit)`.
+    fn historic_state_should_be_stored(store: &BeaconStore<T>, target_slot: Slot) -> bool {
+        let anchor = store.get_anchor_info();
+        let split_slot = store.get_split_slot();
+        target_slot < split_slot
+            && (target_slot <= anchor.state_lower_limit
+                || target_slot >= std::cmp::min(split_slot, anchor.state_upper_limit))
+    }
+
+    /// Load the hot split state, which is the finalized epoch-start state the migrator kept.
+    fn load_split_checkpoint_state_for_fcr(
+        store: &BeaconStore<T>,
+        stale_checkpoint: Checkpoint,
+        target_slot: Slot,
+    ) -> Result<(Checkpoint, BeaconState<T::EthSpec>), FastConfirmationError> {
+        let split = store.get_split_info();
+        let unavailable = |detail: String| {
+            FastConfirmationError::UnableToObtainCheckpointState(format!(
+                "hot split state unavailable at slot {} for checkpoint slot {target_slot}: {detail}",
+                split.slot
+            ))
+        };
+        let split_epoch = split.slot.epoch(T::EthSpec::slots_per_epoch());
+        if split.slot == 0 || split_epoch <= stale_checkpoint.epoch {
+            return Err(unavailable(format!(
+                "split slot {} is not ahead of finalized epoch {}",
+                split.slot, stale_checkpoint.epoch
+            )));
+        }
+        let state = store
+            .get_hot_state(&split.state_root, false)
+            .map_err(|e| unavailable(format!("{e:?}")))?
+            .ok_or_else(|| unavailable(format!("missing split state {}", split.state_root)))?;
+        if state.slot() != split.slot {
+            return Err(unavailable(format!(
+                "split state is at slot {}",
+                state.slot()
+            )));
+        }
+        if state.get_latest_block_root(split.state_root) != split.block_root {
+            return Err(unavailable(format!(
+                "split block root {} does not match the split state",
+                split.block_root
+            )));
+        }
+        Ok((
+            Checkpoint {
+                epoch: split_epoch,
+                root: split.block_root,
+            },
+            state,
+        ))
     }
 
     /// Perform updates to caches and other components after the canonical head has been changed.
@@ -1414,6 +1555,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         new_cached_head: &CachedHead<T::EthSpec>,
         new_head_proto_block: ProtoBlock,
         new_head_verdict: ExecutionVerdict,
+        finalized_changed: bool,
     ) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_AFTER_NEW_HEAD_TIMES);
         let old_snapshot = &old_cached_head.snapshot;
@@ -1474,7 +1616,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         if is_epoch_transition || reorg_distance.is_some() {
-            self.persist_fork_choice()?;
+            // `after_finalization` persists this same fork choice, including the new head,
+            // before migration. Skip the extra write when that path will run.
+            if !finalized_changed {
+                self.persist_fork_choice()?;
+            }
             self.op_pool.prune_attestations(self.epoch()?);
         }
 
@@ -1584,6 +1730,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 execution_optimistic: finalized_block_is_optimistic,
             }));
         }
+
+        // Persist before the lookup below can fail. The epoch-transition persist is skipped when
+        // this same recompute finalizes, and a tick can finalize with no new head. Sync the write
+        // so a crash cannot leave the split ahead of the on-disk checkpoint.
+        self.persist_fork_choice()?;
+        self.store.hot_db.sync()?;
 
         // The store migration task and op pool pruning require the *state at the first slot of the
         // finalized epoch*, rather than the state of the latest finalized block. These two values
