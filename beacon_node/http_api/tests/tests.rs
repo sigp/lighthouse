@@ -9515,7 +9515,7 @@ impl ApiTester {
             slot,
             validator_index,
             dependent_root,
-            transactions: ProgressiveTransactions::new(Vec::new()),
+            transactions: ProgressiveTransactions::new(Vec::new()).unwrap(),
         };
 
         self.sign_inclusion_list(

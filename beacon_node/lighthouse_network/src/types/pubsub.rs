@@ -941,9 +941,11 @@ mod tests {
     #[test]
     fn heze_inclusion_list_size_bound() {
         let max = E::max_signed_inclusion_list_size();
-        let err = decode_oversized(GossipKind::InclusionList, max + 1).unwrap_err();
+        let err =
+            decode_oversized(&heze_fork_context(), GossipKind::InclusionList, max + 1).unwrap_err();
         assert!(err.contains("MAX_SIGNED_INCLUSION_LIST_SIZE"), "{err}");
-        let err = decode_oversized(GossipKind::InclusionList, max).unwrap_err();
+        let err =
+            decode_oversized(&heze_fork_context(), GossipKind::InclusionList, max).unwrap_err();
         assert!(!err.contains("MAX_SIGNED_INCLUSION_LIST_SIZE"), "{err}");
     }
 }
