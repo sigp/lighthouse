@@ -852,7 +852,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: ProgressiveVariableList::empty(),
-                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone()),
+                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone())
+                        .map_err(|e| format!("invalid withdrawals: {e:?}"))?,
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
                     block_access_list: ProgressiveVariableList::empty(),
@@ -876,7 +877,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: ProgressiveVariableList::empty(),
-                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone()),
+                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone())
+                        .map_err(|e| format!("invalid withdrawals: {e:?}"))?,
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
                     block_access_list: ProgressiveVariableList::empty(),
@@ -907,7 +909,12 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                         .transactions_progressive_mut()
                         .map_err(|e| format!("invalid payload variant: {e:?}"))?;
                     for tx in Vec::from(transactions) {
-                        payload_transactions.push(ProgressiveVariableList::<u8>::new(tx.into()));
+                        payload_transactions
+                            .push(
+                                ProgressiveVariableList::<u8>::new(tx.into())
+                                    .map_err(|e| format!("invalid transaction: {e:?}"))?,
+                            )
+                            .map_err(|e| format!("invalid transactions: {e:?}"))?;
                     }
                 } else {
                     for tx in Vec::from(transactions) {

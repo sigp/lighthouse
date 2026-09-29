@@ -26,7 +26,8 @@ pub type Transactions<E> = VariableList<
 pub type ProgressiveTransactions = ProgressiveVariableList<ProgressiveVariableList<u8>>;
 
 /// Progressive withdrawals list \[Modified in Gloas:EIP7688\].
-pub type ProgressiveWithdrawals = ProgressiveVariableList<Withdrawal>;
+pub type ProgressiveWithdrawals<E> =
+    ProgressiveVariableList<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
 
 /// Opaque encoded block access list \[New in Gloas:EIP7928\].
 pub type BlockAccessList = ProgressiveVariableList<u8>;
@@ -207,7 +208,7 @@ pub struct ExecutionPayload<E: EthSpec> {
     )]
     pub withdrawals: Withdrawals<E>,
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "withdrawals_progressive"))]
-    pub withdrawals: ProgressiveWithdrawals,
+    pub withdrawals: ProgressiveWithdrawals<E>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub blob_gas_used: u64,
