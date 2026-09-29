@@ -7,6 +7,7 @@ pub enum Error {
     FinalizedNodeUnknown(Hash256),
     JustifiedNodeUnknown(Hash256),
     NodeUnknown(Hash256),
+    PayloadHashUnknown(ExecutionBlockHash),
     InvalidFinalizedRootChange,
     InvalidNodeIndex(usize),
     InvalidJustifiedIndex(usize),
