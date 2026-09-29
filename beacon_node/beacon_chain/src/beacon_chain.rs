@@ -6576,19 +6576,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Use a blocking task since it interacts with the `canonical_head` lock. Lock contention
         // on the core executor is bad.
         let chain = self.clone();
-        let justified_block = self
+        let (justified_block, justified_block_is_invalid) = self
             .spawn_blocking_handle(
                 move || {
-                    chain
-                        .canonical_head
-                        .fork_choice_read_lock()
-                        .get_justified_block()
+                    let fork_choice = chain.canonical_head.fork_choice_read_lock();
+                    let justified_block = fork_choice.get_justified_block()?;
+                    // A Gloas justified block whose own payload is invalid is dead only on its
+                    // `FULL` node; the checkpoint is invalid only when the payload its branch
+                    // actually executed is. `inherited_execution_status` resolves that payload.
+                    let is_invalid = fork_choice
+                        .inherited_execution_status(&justified_block.root)?
+                        .is_some_and(|verdict| verdict.is_invalid());
+                    Ok::<_, ForkChoiceError>((justified_block, is_invalid))
                 },
                 "invalid_payload_fork_choice_get_justified",
             )
             .await??;
 
-        if justified_block.execution_status.is_invalid() {
+        if justified_block_is_invalid {
             crit!(
                 msg = "ensure you are not connected to a malicious network. This error is not \
                 recoverable, please reach out to the lighthouse developers for assistance.",
