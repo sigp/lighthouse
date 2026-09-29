@@ -385,7 +385,7 @@ impl InvalidPayloadRig {
 
     /// Pre-Gloas the block contains the payload and there is no envelope to import. In Gloas the
     /// execution layer sees the payload only when the envelope arrives. A block on its own
-    /// leaves the node `Irrelevant`.
+    /// leaves the node `NotYetRevealed`.
     async fn import_envelope(
         &self,
         block: &Arc<SignedBeaconBlock<E>>,
@@ -436,8 +436,7 @@ impl InvalidPayloadRig {
         })
     }
 
-    async fn invalidate_manually(&self, block_root: Hash256) {
-        let head_hash = self.block_hash(block_root);
+    async fn invalidate_manually(&self, head_hash: ExecutionBlockHash) {
         self.harness
             .chain
             .process_invalid_execution_payload(&InvalidationOperation::InvalidateOne { head_hash })
@@ -1162,7 +1161,7 @@ async fn invalid_parent() {
     assert_eq!(block.parent_root(), parent_root);
 
     // Invalidate the parent block.
-    rig.invalidate_manually(parent_root).await;
+    rig.invalidate_manually(rig.block_hash(parent_root)).await;
     assert!(rig.execution_status(parent_root).is_invalid());
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
@@ -1387,7 +1386,7 @@ impl InvalidHeadSetup {
             .set_current_slot(new_wall_clock_epoch.start_slot(slots_per_epoch));
 
         // Invalidate the head block.
-        rig.invalidate_manually(invalid_head.head_block_root())
+        rig.invalidate_manually(invalid_head.head_hash().unwrap())
             .await;
 
         // Ensure the justified root is the head. This is the spec-correct choice of head when
@@ -1525,7 +1524,7 @@ async fn weights_after_resetting_optimistic_status() {
         .map(|node| (node.root(), node.weight()))
         .collect::<HashMap<_, _>>();
 
-    rig.invalidate_manually(roots[1]).await;
+    rig.invalidate_manually(rig.block_hash(roots[1])).await;
 
     rig.harness
         .chain
@@ -1731,7 +1730,7 @@ async fn gloas_invalid_payload_rejects_only_full_children() {
     let mut rig = InvalidPayloadRig::new();
     rig.import_block(Payload::Valid).await;
     let block_root = rig.import_block(Payload::Syncing).await;
-    rig.invalidate_manually(block_root).await;
+    rig.invalidate_manually(rig.block_hash(block_root)).await;
     assert!(rig.execution_status(block_root).is_invalid());
 
     let block = rig.harness.get_block(block_root.into()).unwrap();
@@ -1817,7 +1816,7 @@ async fn gloas_invalid_payload_keeps_its_block_viable_on_empty() {
     let mut rig = InvalidPayloadRig::new();
     rig.import_block(Payload::Valid).await;
     let block_root = rig.import_block(Payload::Syncing).await;
-    rig.invalidate_manually(block_root).await;
+    rig.invalidate_manually(rig.block_hash(block_root)).await;
     rig.recompute_head().await;
 
     let cached_head = rig.cached_head();

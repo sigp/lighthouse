@@ -44,7 +44,7 @@ use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::{Mutex, RwLockWriteGuard};
-use proto_array::{PayloadBlockHash, PayloadStatus};
+use proto_array::PayloadStatus;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -984,21 +984,6 @@ where
 
     pub fn head_block_root(&self) -> Hash256 {
         self.chain.canonical_head.cached_head().head_block_root()
-    }
-
-    /// The execution payload hash that `block_root` commits to, read from fork choice.
-    pub fn execution_block_hash(&self, block_root: Hash256) -> ExecutionBlockHash {
-        match self
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_block(&block_root)
-            .expect("block should be in fork choice")
-            .block_hash()
-        {
-            PayloadBlockHash::Hash(block_hash) => block_hash,
-            PayloadBlockHash::PreMerge => panic!("block {block_root:?} has no payload"),
-        }
     }
 
     pub fn finalized_checkpoint(&self) -> Checkpoint {
@@ -2559,10 +2544,9 @@ where
         };
         let mut attestation_1 = if fork_name.gloas_enabled() {
             IndexedAttestation::Gloas(IndexedAttestationGloas {
-                attesting_indices: ProgressiveVariableList::new(validator_indices),
+                attesting_indices: ProgressiveVariableList::new(validator_indices).unwrap(),
                 data,
                 signature: AggregateSignature::infinity(),
-                _phantom: std::marker::PhantomData,
             })
         } else if fork_name.electra_enabled() {
             IndexedAttestation::Electra(IndexedAttestationElectra {
@@ -2639,17 +2623,15 @@ where
 
         let (mut attestation_1, mut attestation_2) = if fork_name.gloas_enabled() {
             let attestation_1 = IndexedAttestationGloas {
-                attesting_indices: ProgressiveVariableList::new(validator_indices_1),
+                attesting_indices: ProgressiveVariableList::new(validator_indices_1).unwrap(),
                 data: data.clone(),
                 signature: AggregateSignature::infinity(),
-                _phantom: std::marker::PhantomData,
             };
 
             let attestation_2 = IndexedAttestationGloas {
-                attesting_indices: ProgressiveVariableList::new(validator_indices_2),
+                attesting_indices: ProgressiveVariableList::new(validator_indices_2).unwrap(),
                 data,
                 signature: AggregateSignature::infinity(),
-                _phantom: std::marker::PhantomData,
             };
 
             (
@@ -4182,8 +4164,8 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 .body
                 .signed_execution_payload_bid
                 .message
-                .blob_kzg_commitments =
-                ProgressiveVariableList::from_iter(bundle.commitments.iter().cloned());
+                .blob_kzg_commitments = ProgressiveVariableList::new(bundle.commitments.to_vec())
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?;
             return Ok((block, blob_sidecars));
         }
         _ => return Ok((block, blob_sidecars)),

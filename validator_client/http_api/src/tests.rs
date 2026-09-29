@@ -831,11 +831,10 @@ impl ApiTester {
 
     pub async fn test_get_graffiti(self, index: usize, expected_graffiti: &str) -> Self {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
-        let expected_graffiti_str = GraffitiString::from_str(expected_graffiti).unwrap();
         let resp = self.client.get_graffiti(&validator.voting_pubkey).await;
 
         assert!(resp.is_ok());
-        assert_eq!(&resp.unwrap().graffiti, &expected_graffiti_str.into());
+        assert_eq!(resp.unwrap().graffiti, expected_graffiti);
 
         self
     }
