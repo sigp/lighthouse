@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .body()
                     .signed_execution_payload_bid()
                     .ok()
-                    .map(|bid| bid.message.parent_block_hash)
+                    .map(|bid| bid.message().parent_block_hash())
             });
 
         let mut blob_batch = Vec::<KeyValueStoreOp>::new();
@@ -240,7 +240,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .body()
                 .signed_execution_payload_bid()
                 .ok()
-                .map(|bid| bid.message.block_hash)
+                .map(|bid| bid.message().block_hash())
                 .and_then(|bid_hash| {
                     child_bid_parent_hash.map(|child_parent_hash| bid_hash == child_parent_hash)
                 });
@@ -326,7 +326,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .body()
                 .signed_execution_payload_bid()
                 .ok()
-                .map(|bid| bid.message.parent_block_hash);
+                .map(|bid| bid.message().parent_block_hash());
             signed_blocks.push(block);
 
             // If we've reached genesis, add the genesis block root to the batch for all slots

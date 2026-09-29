@@ -10,7 +10,10 @@ use ssz_types::{BitVector, ProgressiveVariableList};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
-use types::{ChainSpec, EthSpec, Hash256, InclusionListCommittee, SignedInclusionList, Slot};
+use types::{
+    ChainSpec, EthSpec, Hash256, InclusionListBits, InclusionListCommittee, SignedInclusionList,
+    Slot,
+};
 
 /// The shuffling `dependent_root` an inclusion list was produced against.
 pub type DependentRoot = Hash256;
@@ -61,6 +64,19 @@ pub struct InclusionListStore<E: EthSpec> {
     /// envelope reads the slot `S-1` lists, and might not be processed until the clock is at `S+1`.
     slots_retained: u64,
     _phantom: PhantomData<E>,
+}
+
+/// Returns whether `bits` is inclusive of `local`: every bit set in `local` is also set in `bits`.
+pub fn inclusion_list_bits_are_inclusive<E: EthSpec>(
+    local: &InclusionListBits<E>,
+    bits: &InclusionListBits<E>,
+) -> Result<bool, Error> {
+    for i in 0..local.len() {
+        if local.get(i)? && !bits.get(i)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 impl<E: EthSpec> InclusionListStore<E> {
@@ -235,12 +251,7 @@ impl<E: EthSpec> InclusionListStore<E> {
     ) -> Result<bool, Error> {
         let local =
             self.get_inclusion_list_bits(slot, dependent_root, il_committee, only_timely)?;
-        for i in 0..local.len() {
-            if local.get(i)? && !bits.get(i)? {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        inclusion_list_bits_are_inclusive::<E>(&local, bits)
     }
 
     /// The stored signed inclusion lists for the given `validators`, used to serve

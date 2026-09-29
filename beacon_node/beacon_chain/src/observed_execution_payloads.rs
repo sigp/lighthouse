@@ -51,13 +51,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .insert(payload.block_hash(), payload.gas_limit());
             }
         } else if block.slot() == self.spec.genesis_slot {
-            let bid = &block
+            let bid = block
                 .body()
                 .signed_execution_payload_bid()
                 .map_err(BeaconChainError::BeaconStateError)?
-                .message;
+                .message();
             self.observed_execution_payloads
-                .insert(bid.parent_block_hash, bid.gas_limit);
+                .insert(bid.parent_block_hash(), bid.gas_limit());
         } else if let Some(envelope) = head.snapshot.execution_envelope.as_ref() {
             let payload = &envelope.message.payload;
             self.observed_execution_payloads

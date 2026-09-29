@@ -4239,7 +4239,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(parent_block_hash = ?bid.message.parent_block_hash, parent_block_root = ?bid.message.parent_block_root),
+        fields(parent_block_hash = ?bid.message().parent_block_hash(), parent_block_root = ?bid.message().parent_block_root()),
     )]
     pub fn process_gossip_execution_payload_bid(
         self: &Arc<Self>,
@@ -4284,7 +4284,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)
                 | PayloadBidError::InvalidBidSlot { .. }
-                | PayloadBidError::UnableToReadSlot,
+                | PayloadBidError::UnableToReadSlot
+                | PayloadBidError::InclusionListBitsNotInclusive { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
