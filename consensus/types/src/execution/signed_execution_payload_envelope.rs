@@ -305,7 +305,7 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelopeSummary<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
 
-    ssz_and_tree_hash_tests!(SignedExecutionPayloadEnvelope<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(SignedExecutionPayloadEnvelope<Spec>);
 }
