@@ -49,14 +49,17 @@ Options:
           builders, and will use the local execution engine for payload
           construction. After the Gloas fork a skip is a slot whose beacon block
           landed but whose execution payload did not; slots with no beacon block
-          are not counted. [default: 3]
+          are not counted. After the Gloas fork a bid already received over
+          gossip is still used if the local build fails. [default: 3]
       --builder-fallback-skips-per-epoch <builder-fallback-skips-per-epoch>
           If this node is proposing a block and has seen this number of skip
           slots on the canonical chain in the past `SLOTS_PER_EPOCH`, it will
           NOT query any connected builders, and will use the local execution
           engine for payload construction. After the Gloas fork a skip is a slot
           whose beacon block landed but whose execution payload did not; slots
-          with no beacon block are not counted. [default: 8]
+          with no beacon block are not counted. After the Gloas fork a bid
+          already received over gossip is still used if the local build fails.
+          [default: 8]
       --builder-header-timeout <MILLISECONDS>
           Defines a timeout value (in milliseconds) to use when fetching a block
           header from the builder API. [default: 1000]

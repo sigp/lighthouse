@@ -319,8 +319,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     error!(
                         error = ?e,
                         slot = %produce_at_slot,
-                        "Local execution payload build failed and no external bids are available \
-                         (circuit breaker may have excluded them); block production will fail"
+                        "Local execution payload build failed and no external bids are available; \
+                         block production will fail"
                     );
                 } else {
                     error!(
@@ -1047,8 +1047,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         parent_execution_requests: &ExecutionRequestsGloas<T::EthSpec>,
     ) -> Vec<BidCandidate<T::EthSpec>> {
         // Post-Gloas circuit breaker: if too many recent payloads never landed on this chain,
-        // ignore external builders entirely for this proposal and build locally.
-        match self
+        // prefer the local build. The cached gossip bid still competes, demoted below the local
+        // build, so a failed local build can fall back to it instead of missing the slot. Direct
+        // builders are not contacted while tripped.
+        let breaker_tripped = match self
             .circuit_breaker
             .evaluate_skips_for_state(state, ctx.slot)
         {
@@ -1062,28 +1064,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             the expected health conditions.",
                     failed_condition = ?condition,
                     slot = %ctx.slot,
-                    "Chain is unhealthy, ignoring external payload bids and building locally"
+                    "Chain is unhealthy, preferring the local build over external payload bids"
                 );
-                return Vec::new();
+                true
             }
-            Ok(None) => {
-                // Circuit breaker passed, continue acquiring external bids
-            }
+            Ok(None) => false,
             Err(e) => {
                 warn!(
                     error = ?e,
                     slot = %ctx.slot,
-                    "Failed to evaluate circuit breaker skip rules; ignoring external bids"
+                    "Failed to evaluate circuit breaker skip rules; preferring the local build"
                 );
-                return Vec::new();
+                true
             }
-        }
+        };
 
         let mut externals = Vec::new();
 
-        // Direct bids: only when there are builders to contact and the proposer submitted preferences
-        // to validate against.
-        if !builder_config.builders.is_empty() {
+        // Direct bids: only when the circuit breaker has not tripped, there are builders to contact,
+        // and the proposer submitted preferences to validate against.
+        if !breaker_tripped && !builder_config.builders.is_empty() {
             if let Some(proposer_preferences) = proposer_preferences {
                 externals.extend(
                     self.acquire_direct_bid_candidates(
@@ -1169,6 +1169,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             !exit_requested && !banned
         });
+
+        // A tripped circuit breaker demotes what survives (at most the cached gossip bid) below the
+        // local build. Builders banned on this chain were already dropped above, so they can never
+        // be the fallback.
+        if breaker_tripped {
+            for candidate in &mut externals {
+                candidate.demote_for_circuit_breaker();
+            }
+        }
 
         externals
     }

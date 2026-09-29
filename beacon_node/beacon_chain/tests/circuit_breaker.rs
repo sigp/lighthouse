@@ -1,18 +1,23 @@
 //! Tests for the post-Gloas builder circuit breaker: the missed-payload skip rules that gate
 //! external bids during block production, and the bans recorded for builders that fail to reveal.
 
-use beacon_chain::ChainConfig;
 use beacon_chain::circuit_breaker::BanEntry;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
     PayloadAttestationVote, fork_name_from_env, test_spec,
 };
+use beacon_chain::{BlockProductionError, ChainConfig};
 use bls::PublicKeyBytes;
+use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use fork_choice::PayloadVerificationStatus;
 use proto_array::PayloadStatus;
+use state_processing::state_advance::complete_state_advance;
 use std::sync::Arc;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
-use types::{BeaconState, BuilderIndex, EthSpec, Hash256, MinimalEthSpec, SignedBeaconBlock, Slot};
+use types::{
+    BeaconState, BuilderIndex, EthSpec, ExecutionBlockHash, Hash256, MinimalEthSpec,
+    SignedBeaconBlock, Slot,
+};
 
 type E = MinimalEthSpec;
 type Harness = BeaconChainHarness<EphemeralHarnessType<E>>;
@@ -76,6 +81,50 @@ fn block_builder_index(block: &SignedBeaconBlock<E>) -> BuilderIndex {
 
 fn always_canonical(_: &BanEntry) -> bool {
     true
+}
+
+/// Make the mock EL refuse to build on `parent_block_hash`: forkchoice updates with that head
+/// return SYNCING without a payload id, so the local payload build fails.
+fn fail_local_builds_on(harness: &Harness, parent_block_hash: ExecutionBlockHash) {
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .expect("harness should have a mock EL")
+        .server
+        .set_fcu_payload_status(
+            parent_block_hash,
+            PayloadStatusV1 {
+                status: PayloadStatusV1Status::Syncing,
+                latest_valid_hash: None,
+                validation_error: None,
+                inclusion_list_satisfied: None,
+            },
+        );
+}
+
+/// Assert the circuit breaker's skip rules have tripped for a proposal at `slot` extending
+/// `state` on an EMPTY parent, as block production would evaluate them.
+fn assert_breaker_tripped(harness: &Harness, state: &BeaconState<E>, slot: Slot) {
+    let mut production_state = state.clone();
+    complete_state_advance(&mut production_state, None, slot, None, &harness.spec)
+        .expect("should advance state to the proposal slot");
+    assert!(
+        harness
+            .chain
+            .circuit_breaker
+            .evaluate_skips_for_state(&production_state, slot)
+            .expect("should evaluate skip rules")
+            .is_some(),
+        "circuit breaker should have tripped"
+    );
+}
+
+/// The execution block hash a block extending `state` on an EMPTY parent builds on.
+fn empty_parent_block_hash(state: &BeaconState<E>) -> ExecutionBlockHash {
+    state
+        .latest_execution_payload_bid()
+        .expect("Gloas state should have a bid")
+        .parent_block_hash
 }
 
 /// What `import_builder_block` produced: the block at `slot`, the state after it, and the head
@@ -166,7 +215,25 @@ async fn reveal_payloads(harness: &Harness, count: usize) {
     }
 }
 
-/// Produce a block at the next slot on `state` with a gossip bid from `builder_index` in the
+/// Put a signed gossip bid from `builder_index` for the current slot into the chain's bid cache.
+fn observe_gossip_bid(
+    harness: &Harness,
+    state: &BeaconState<E>,
+    parent_payload_status: PayloadStatus,
+    builder_index: BuilderIndex,
+    value: u64,
+) {
+    let slot = harness.get_current_slot();
+    let signed_bid =
+        harness.make_signed_gossip_bid(state, slot, parent_payload_status, builder_index, value);
+    assert!(harness.chain.gossip_verified_payload_bid_cache.observe_bid(
+        beacon_chain::payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid {
+            signed_bid: Arc::new(signed_bid),
+        }
+    ));
+}
+
+/// Produce a block at the current slot on `state` with a gossip bid from `builder_index` in the
 /// cache, and return the builder index that won.
 async fn produce_with_gossip_bid(
     harness: &Harness,
@@ -176,13 +243,7 @@ async fn produce_with_gossip_bid(
     value: u64,
 ) -> BuilderIndex {
     let slot = harness.get_current_slot();
-    let signed_bid =
-        harness.make_signed_gossip_bid(&state, slot, parent_payload_status, builder_index, value);
-    assert!(harness.chain.gossip_verified_payload_bid_cache.observe_bid(
-        beacon_chain::payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid {
-            signed_bid: Arc::new(signed_bid),
-        }
-    ));
+    observe_gossip_bid(harness, &state, parent_payload_status, builder_index, value);
     let (block_contents, _envelope, _post_state) =
         Box::pin(harness.make_block_with_envelope_on(state, slot, parent_payload_status)).await;
     block_builder_index(&block_contents.0)
@@ -499,4 +560,85 @@ async fn missed_payloads_in_window_trip_breaker_and_roll_off() {
     let winner =
         produce_with_gossip_bid(&harness, state, PayloadStatus::Full, BUILDER_A, BID_VALUE).await;
     assert_eq!(winner, BUILDER_A);
+}
+
+#[tokio::test]
+async fn tripped_breaker_falls_back_to_gossip_bid_when_local_build_fails() {
+    let Some(harness) = gloas_harness(ChainConfig {
+        // A single missed payload trips the consecutive rule.
+        builder_fallback_skips: 0,
+        ..ChainConfig::default()
+    }) else {
+        return;
+    };
+    Box::pin(finalize(&harness)).await;
+    let state = Box::pin(withhold_payloads(&harness, 1)).await;
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+
+    // The breaker has tripped, so the bid is demoted below the local build. With the local build
+    // failing it still wins rather than the slot being missed.
+    assert_breaker_tripped(&harness, &state, slot);
+    fail_local_builds_on(&harness, empty_parent_block_hash(&state));
+    let (block_contents, _post_state) = Box::pin(harness.make_block_with_gossip_bid(
+        state,
+        slot,
+        PayloadStatus::Empty,
+        BUILDER_A,
+        BID_VALUE,
+    ))
+    .await;
+    assert_eq!(block_builder_index(&block_contents.0), BUILDER_A);
+}
+
+#[tokio::test]
+async fn tripped_breaker_never_falls_back_to_banned_builder() {
+    let Some(harness) = gloas_harness(ChainConfig {
+        // A single missed payload trips the consecutive rule.
+        builder_fallback_skips: 0,
+        ..ChainConfig::default()
+    }) else {
+        return;
+    };
+    Box::pin(finalize(&harness)).await;
+
+    // Builder A withholds the payload for a well-attested block: it is banned on this chain, and
+    // the missed payload trips the breaker for the next proposal.
+    let block = Box::pin(import_builder_block(&harness, true)).await;
+    harness.advance_slot();
+    harness.chain.per_slot_task().await;
+    assert_eq!(harness.chain.circuit_breaker.num_ban_entries(), 1);
+    let slot = harness.get_current_slot();
+
+    // With the local build failing, builder A's bid is still refused, so production fails.
+    assert_breaker_tripped(&harness, &block.post_state, slot);
+    fail_local_builds_on(&harness, empty_parent_block_hash(&block.post_state));
+    observe_gossip_bid(
+        &harness,
+        &block.post_state,
+        PayloadStatus::Empty,
+        BUILDER_A,
+        BID_VALUE,
+    );
+    let result = Box::pin(harness.try_make_gloas_block_with_envelope_on(
+        block.post_state.clone(),
+        slot,
+        PayloadStatus::Empty,
+    ))
+    .await;
+    assert!(
+        matches!(result, Err(BlockProductionError::NoViablePayloadBid)),
+        "production should fail with no viable bid"
+    );
+
+    // An unbanned builder's bid is an acceptable fallback.
+    let (block_contents, _post_state) = Box::pin(harness.make_block_with_gossip_bid(
+        block.post_state,
+        slot,
+        PayloadStatus::Empty,
+        BUILDER_B,
+        BID_VALUE + 1,
+    ))
+    .await;
+    assert_eq!(block_builder_index(&block_contents.0), BUILDER_B);
 }

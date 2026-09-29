@@ -1457,7 +1457,9 @@ pub fn cli_app() -> Command {
                         on the canonical chain in a row, it will NOT query any connected builders, \
                         and will use the local execution engine for payload construction. After \
                         the Gloas fork a skip is a slot whose beacon block landed but whose \
-                        execution payload did not; slots with no beacon block are not counted.")
+                        execution payload did not; slots with no beacon block are not counted. \
+                        After the Gloas fork a bid already received over gossip is still used if \
+                        the local build fails.")
                 .default_value("3")
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -1470,7 +1472,8 @@ pub fn cli_app() -> Command {
                         any connected builders, and will use the local execution engine for \
                         payload construction. After the Gloas fork a skip is a slot whose beacon \
                         block landed but whose execution payload did not; slots with no beacon \
-                        block are not counted.")
+                        block are not counted. After the Gloas fork a bid already received over \
+                        gossip is still used if the local build fails.")
                 .default_value("8")
                 .action(ArgAction::Set)
                 .display_order(0)

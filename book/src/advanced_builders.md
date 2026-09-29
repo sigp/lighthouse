@@ -205,9 +205,10 @@ show up as blocks whose payloads never land, not as missed slots, and the circui
 * A "skip" for `--builder-fallback-skips` and `--builder-fallback-skips-per-epoch` is a slot whose beacon block
   landed but whose execution payload did not. Slots with no beacon block at all are not counted. Both rules are
   evaluated on the chain the proposal extends, so a re-org never leaves stale counts behind.
-* When either rule trips, no external bids are considered at all (neither gossip bids nor bids from
-  `--payload-builders`) and the block is built with the local execution engine. If the local build also fails, the
-  proposal fails.
+* When either rule trips, the builders configured with `--payload-builders` are not queried and the local execution
+  engine's payload is preferred. A bid already received over gossip is used only if the local build fails, so a
+  failing execution engine does not also cost the slot. It is never used if its builder is banned on the chain being
+  extended.
 * `--builder-fallback-epochs-since-finalization` no longer applies: the chain can finalize without any payloads.
 * A builder that fails to reveal its payload for a block that received enough attestations to charge it is banned:
   its bids are ignored for `--builder-fallback-ban-slots` slots (default and minimum `SLOTS_PER_EPOCH`). A ban is tied
