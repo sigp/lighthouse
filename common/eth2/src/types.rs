@@ -912,6 +912,11 @@ pub struct InclusionListTransactions {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+pub struct ValidatorInclusionListQuery {
+    pub slot: Slot,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ValidatorAttestationDataQuery {
     pub slot: Slot,
     pub committee_index: CommitteeIndex,

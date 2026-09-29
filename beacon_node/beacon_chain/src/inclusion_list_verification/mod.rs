@@ -3,6 +3,12 @@ use std::sync::Arc;
 use types::{BeaconStateError, Slot};
 
 pub mod gossip_verified_inclusion_list;
+mod transactions;
+
+pub use transactions::{
+    InclusionListTransactionsError, verify_inclusion_list_transactions_bounds,
+    verify_no_blob_transactions,
+};
 
 #[derive(Debug)]
 pub enum InclusionListVerificationError {
