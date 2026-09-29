@@ -730,7 +730,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
 
                 let Some(min_epochs_for_blobs) = chain
                     .spec
-                    .min_epoch_data_availability_boundary(current_epoch)
+                    .min_epoch_data_availability_boundary::<T::EthSpec>(current_epoch)
                 else {
                     // Shutdown service if deneb fork epoch not set. Unreachable as the same check is performed above.
                     break;

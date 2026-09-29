@@ -315,6 +315,7 @@ pub struct ChainSpec {
      */
     pub blob_schedule: BlobSchedule,
     pub min_epochs_for_data_column_sidecars_requests: u64,
+    pub min_blob_data_retention_ms: u64,
 
     /*
      * Networking Gloas
@@ -924,14 +925,27 @@ impl ChainSpec {
     /// Returns the min epoch for blob / data column sidecar requests based on the current epoch.
     /// Switch to use the column sidecar config once the `blob_retention_epoch` has passed Fulu fork epoch.
     /// Never uses the `blob_retention_epoch` for networks that started with Fulu enabled.
-    pub fn min_epoch_data_availability_boundary(&self, current_epoch: Epoch) -> Option<Epoch> {
+    pub fn min_epoch_data_availability_boundary<E: EthSpec>(
+        &self,
+        current_epoch: Epoch,
+    ) -> Option<Epoch> {
         let deneb_fork_epoch = self.deneb_fork_epoch?;
         let blob_retention_epoch =
             current_epoch.saturating_sub(self.min_epochs_for_blob_sidecars_requests);
+        let data_column_retention_epoch =
+            current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests);
         if let Some(fulu_fork_epoch) = self.fulu_fork_epoch
             && blob_retention_epoch >= fulu_fork_epoch
         {
-            Some(current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests))
+            // EIP-8198 activates at the Heze fork.
+            if self.fork_name_at_epoch(current_epoch).heze_enabled() {
+                Some(
+                    self.compute_blob_data_retention_start_epoch::<E>(current_epoch)
+                        .unwrap_or(data_column_retention_epoch),
+                )
+            } else {
+                Some(data_column_retention_epoch)
+            }
         } else {
             Some(std::cmp::max(deneb_fork_epoch, blob_retention_epoch))
         }
@@ -1064,6 +1078,26 @@ impl ChainSpec {
             .filter(|&fork_epoch| fork_epoch != self.far_future_epoch)
             .map(|fork_epoch| (fork_epoch, self.slot_duration_ms_eip8198));
         std::iter::once((Epoch::new(0), self.slot_duration_ms)).chain(eip8198)
+    }
+
+    /// Spec: `compute_blob_data_retention_start_epoch`.
+    pub fn compute_blob_data_retention_start_epoch<E: EthSpec>(
+        &self,
+        epoch: Epoch,
+    ) -> Result<Epoch, ArithError> {
+        let schedule = self.slot_duration_schedule();
+        let current_start_ms = schedule.compute_time_at_slot_ms(
+            E::slots_per_epoch(),
+            0,
+            epoch.start_slot(E::slots_per_epoch()),
+        )?;
+        let Some(window_start_ms) = current_start_ms.checked_sub(self.min_blob_data_retention_ms)
+        else {
+            return Ok(Epoch::new(0));
+        };
+        Ok(schedule
+            .compute_slot_at_time_ms(E::slots_per_epoch(), 0, window_start_ms)?
+            .epoch(E::slots_per_epoch()))
     }
 
     /// Spec: `get_slot_duration_ms`.
@@ -1554,6 +1588,7 @@ impl ChainSpec {
             ]),
             min_epochs_for_data_column_sidecars_requests:
                 default_min_epochs_for_data_column_sidecars_requests(),
+            min_blob_data_retention_ms: default_min_blob_data_retention_ms(),
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
             max_payload_envelopes_by_root_request: default_max_payload_envelopes_by_root_request(),
 
@@ -1648,6 +1683,7 @@ impl ChainSpec {
             // Heze
             heze_fork_version: [0x08, 0x00, 0x00, 0x01],
             heze_fork_epoch: None,
+            min_blob_data_retention_ms: 196608000,
 
             // Networking Fulu
             blob_schedule: BlobSchedule::default(),
@@ -1974,6 +2010,7 @@ impl ChainSpec {
              */
             blob_schedule: BlobSchedule::default(),
             min_epochs_for_data_column_sidecars_requests: 16384,
+            min_blob_data_retention_ms: 1310720000,
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
             max_payload_envelopes_by_root_request: default_max_payload_envelopes_by_root_request(),
 
@@ -2486,6 +2523,9 @@ pub struct Config {
     #[serde(default = "default_min_epochs_for_data_column_sidecars_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_data_column_sidecars_requests: u64,
+    #[serde(default = "default_min_blob_data_retention_ms")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_blob_data_retention_ms: u64,
 
     #[serde(default = "default_proposer_reorg_cutoff_bps")]
     #[serde(with = "serde_utils::quoted_u64")]
@@ -2765,6 +2805,10 @@ const fn default_balance_per_additional_custody_group() -> u64 {
 
 const fn default_min_epochs_for_data_column_sidecars_requests() -> u64 {
     4096
+}
+
+const fn default_min_blob_data_retention_ms() -> u64 {
+    1572864000
 }
 
 const fn default_proposer_reorg_cutoff_bps() -> u64 {
@@ -3102,6 +3146,7 @@ impl Config {
             balance_per_additional_custody_group: spec.balance_per_additional_custody_group,
             min_epochs_for_data_column_sidecars_requests: spec
                 .min_epochs_for_data_column_sidecars_requests,
+            min_blob_data_retention_ms: spec.min_blob_data_retention_ms,
 
             proposer_reorg_cutoff_bps: spec.proposer_reorg_cutoff_bps,
             attestation_due_bps: spec.attestation_due_bps,
@@ -3220,6 +3265,7 @@ impl Config {
             validator_custody_requirement,
             balance_per_additional_custody_group,
             min_epochs_for_data_column_sidecars_requests,
+            min_blob_data_retention_ms,
             proposer_reorg_cutoff_bps,
             attestation_due_bps,
             attestation_due_bps_gloas,
@@ -3390,6 +3436,7 @@ impl Config {
             validator_custody_requirement,
             balance_per_additional_custody_group,
             min_epochs_for_data_column_sidecars_requests,
+            min_blob_data_retention_ms,
 
             proposer_reorg_cutoff_bps,
             attestation_due_bps,
@@ -4321,14 +4368,14 @@ mod yaml_tests {
         // `min_epochs_for_data_sidecar_requests` cannot be earlier than Deneb fork epoch.
         assert_eq!(
             spec.deneb_fork_epoch,
-            spec.min_epoch_data_availability_boundary(Epoch::new(blob_retention_epochs / 2))
+            spec.min_epoch_data_availability_boundary::<E>(Epoch::new(blob_retention_epochs / 2))
         );
 
         let current_epoch = Epoch::new(blob_retention_epochs * 2);
         let expected_min_blob_epoch = current_epoch - blob_retention_epochs;
         assert_eq!(
             Some(expected_min_blob_epoch),
-            spec.min_epoch_data_availability_boundary(current_epoch)
+            spec.min_epoch_data_availability_boundary::<E>(current_epoch)
         );
     }
 
@@ -4352,7 +4399,7 @@ mod yaml_tests {
         let expected_blob_retention_epoch = fulu_fork_epoch - blob_retention_epochs;
         assert_eq!(
             Some(expected_blob_retention_epoch),
-            spec.min_epoch_data_availability_boundary(fulu_fork_epoch)
+            spec.min_epoch_data_availability_boundary::<E>(fulu_fork_epoch)
         );
 
         // Now, the blob retention period starts still before the fulu fork epoch, so the boundary
@@ -4362,7 +4409,7 @@ mod yaml_tests {
             half_blob_retention_epoch_after_fulu - blob_retention_epochs;
         assert_eq!(
             Some(expected_blob_retention_epoch),
-            spec.min_epoch_data_availability_boundary(half_blob_retention_epoch_after_fulu)
+            spec.min_epoch_data_availability_boundary::<E>(half_blob_retention_epoch_after_fulu)
         );
 
         // If the retention period starts with the fulu fork epoch, there are no more blobs to
@@ -4371,7 +4418,7 @@ mod yaml_tests {
         let expected_data_column_retention_epoch = current_epoch - data_column_retention_epochs;
         assert_eq!(
             Some(expected_data_column_retention_epoch),
-            spec.min_epoch_data_availability_boundary(current_epoch)
+            spec.min_epoch_data_availability_boundary::<E>(current_epoch)
         );
     }
 
@@ -4394,7 +4441,7 @@ mod yaml_tests {
             let epoch = Epoch::new(epoch);
             assert_eq!(
                 Some(epoch.saturating_sub(data_column_retention_epochs)),
-                spec.min_epoch_data_availability_boundary(epoch)
+                spec.min_epoch_data_availability_boundary::<E>(epoch)
             )
         };
 
@@ -5024,6 +5071,51 @@ mod yaml_tests {
         assert_eq!(spec.compute_slot_at_time::<E>(100, 136), Ok(Slot::new(3)));
         assert_eq!(spec.compute_slot_at_time::<E>(100, 147), Ok(Slot::new(3)));
         assert!(spec.compute_slot_at_time::<E>(100, 99).is_err());
+    }
+
+    #[test]
+    fn min_blob_data_retention_ms_matches_data_column_retention_epochs() {
+        for (spec, slots_per_epoch) in [
+            (ChainSpec::mainnet(), MainnetEthSpec::slots_per_epoch()),
+            (ChainSpec::minimal(), MinimalEthSpec::slots_per_epoch()),
+            (
+                ChainSpec::gnosis(),
+                crate::core::GnosisEthSpec::slots_per_epoch(),
+            ),
+        ] {
+            assert_eq!(
+                spec.min_blob_data_retention_ms,
+                spec.min_epochs_for_data_column_sidecars_requests
+                    * slots_per_epoch
+                    * spec.slot_duration_ms
+            );
+        }
+    }
+
+    #[test]
+    fn data_retention_window_keeps_its_length_in_ms_after_eip8198() {
+        type E = MainnetEthSpec;
+        let mut spec = ForkName::Fulu
+            .make_genesis_spec(E::default_spec())
+            .set_slot_duration_schedule::<E>(slot_duration_schedule(&[(0, 12000), (10000, 6000)]));
+        spec.heze_fork_epoch = Some(Epoch::new(10000));
+
+        assert_eq!(
+            spec.min_epoch_data_availability_boundary::<E>(Epoch::new(9999)),
+            Some(Epoch::new(5903))
+        );
+        assert_eq!(
+            spec.min_epoch_data_availability_boundary::<E>(Epoch::new(10000)),
+            Some(Epoch::new(5904))
+        );
+        assert_eq!(
+            spec.min_epoch_data_availability_boundary::<E>(Epoch::new(14096)),
+            Some(Epoch::new(7952))
+        );
+        assert_eq!(
+            spec.compute_blob_data_retention_start_epoch::<E>(Epoch::new(100)),
+            Ok(Epoch::new(0))
+        );
     }
 
     #[test]
