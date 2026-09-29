@@ -602,24 +602,22 @@ mod tests {
             amount: 0,
         };
         let max = E::max_withdrawals_per_payload();
-        envelope.payload.withdrawals = ProgressiveVariableList::new(vec![withdrawal.clone(); max]);
+        envelope.payload.withdrawals =
+            ProgressiveVariableList::new(vec![withdrawal.clone(); max]).unwrap();
         assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
 
-        envelope.payload.withdrawals = ProgressiveVariableList::new(vec![withdrawal; max + 1]);
-        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
-        assert!(matches!(
-            result,
-            Err(EnvelopeError::OperationListTooLong {
-                kind: "withdrawals",
-                ..
-            })
-        ));
+        assert!(
+            ProgressiveVariableList::<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>::new(
+                vec![withdrawal; max + 1]
+            )
+            .is_err()
+        );
     }
 
     fn assert_requests_list_bound(
         kind: &'static str,
         max: usize,
-        set_len: impl Fn(&mut ExecutionRequestsGloas<E>, usize),
+        set_len: impl Fn(&mut ExecutionRequestsGloas<E>, usize) -> Result<(), ssz_types::Error>,
     ) {
         let slot = Slot::new(10);
         let builder_index = 1;
@@ -628,7 +626,7 @@ mod tests {
         let mut envelope = make_envelope(slot, builder_index, block_hash);
         let block = make_block(slot);
 
-        set_len(&mut envelope.execution_requests, max);
+        set_len(&mut envelope.execution_requests, max).unwrap();
         let bid = ExecutionPayloadBid {
             builder_index,
             block_hash,
@@ -640,14 +638,9 @@ mod tests {
             "{kind} at max should be accepted"
         );
 
-        set_len(&mut envelope.execution_requests, max + 1);
-        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
         assert!(
-            matches!(
-                result,
-                Err(EnvelopeError::OperationListTooLong { kind: k, .. }) if k == kind
-            ),
-            "{kind} over max should be rejected"
+            set_len(&mut envelope.execution_requests, max + 1).is_err(),
+            "{kind} over max should be rejected during construction"
         );
     }
 
@@ -662,7 +655,8 @@ mod tests {
                     validator_pubkey: PublicKeyBytes::empty(),
                     amount: 0,
                 };
-                requests.withdrawals = ProgressiveVariableList::new(vec![withdrawal_request; len]);
+                requests.withdrawals = ProgressiveVariableList::new(vec![withdrawal_request; len])?;
+                Ok(())
             },
         );
 
@@ -676,7 +670,8 @@ mod tests {
                     target_pubkey: PublicKeyBytes::empty(),
                 };
                 requests.consolidations =
-                    ProgressiveVariableList::new(vec![consolidation_request; len]);
+                    ProgressiveVariableList::new(vec![consolidation_request; len])?;
+                Ok(())
             },
         );
 
@@ -691,7 +686,8 @@ mod tests {
                     signature: SignatureBytes::empty(),
                 };
                 requests.builder_deposits =
-                    ProgressiveVariableList::new(vec![builder_deposit_request; len]);
+                    ProgressiveVariableList::new(vec![builder_deposit_request; len])?;
+                Ok(())
             },
         );
 
@@ -704,7 +700,8 @@ mod tests {
                     pubkey: PublicKeyBytes::empty(),
                 };
                 requests.builder_exits =
-                    ProgressiveVariableList::new(vec![builder_exit_request; len]);
+                    ProgressiveVariableList::new(vec![builder_exit_request; len])?;
+                Ok(())
             },
         );
     }
