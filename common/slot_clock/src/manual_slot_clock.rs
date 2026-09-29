@@ -403,7 +403,8 @@ mod tests {
             let genesis_ms = GENESIS.as_millis() as u64;
             for slot in (0..1024).map(Slot::new) {
                 let spec_start_ms = spec
-                    .compute_time_at_slot_ms::<MainnetEthSpec>(genesis_ms, slot)
+                    .slot_duration_schedule()
+                    .compute_time_at_slot_ms(MainnetEthSpec::slots_per_epoch(), genesis_ms, slot)
                     .unwrap();
                 let start = clock.start_of(slot).unwrap();
                 assert_eq!(start, Duration::from_millis(spec_start_ms), "slot {slot}");
