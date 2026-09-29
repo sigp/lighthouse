@@ -543,7 +543,7 @@ mod tests {
         harness.insert_il_duties(slot, dependent_root);
 
         let transactions = InclusionListTransactions {
-            transactions: vec![vec![0xaa; 3].into()].into(),
+            transactions: vec![vec![0xaa; 3].try_into().unwrap()].try_into().unwrap(),
         };
         harness
             .harness
@@ -574,7 +574,7 @@ mod tests {
         harness.insert_il_duties(slot, dependent_root);
 
         let transactions = InclusionListTransactions {
-            transactions: vec![vec![0xaa; 3].into()].into(),
+            transactions: vec![vec![0xaa; 3].try_into().unwrap()].try_into().unwrap(),
         };
         harness
             .harness
