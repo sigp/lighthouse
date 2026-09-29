@@ -9,7 +9,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
-use std::marker::PhantomData;
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
@@ -94,17 +93,12 @@ pub struct ExecutionPayloadBid<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub execution_payment: u64,
     // [Modified in Gloas:EIP7688]
-    pub blob_kzg_commitments: ProgressiveKzgCommitments,
+    pub blob_kzg_commitments: ProgressiveKzgCommitments<E>,
     #[superstruct(getter(copy))]
     pub execution_requests_root: Hash256,
     // [New in Heze:EIP7805]
     #[superstruct(only(Heze))]
     pub inclusion_list_bits: BitVector<E::InclusionListCommitteeSize>,
-    #[ssz(skip_serializing, skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[serde(skip)]
-    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub _phantom: PhantomData<E>,
 }
 
 impl<E: EthSpec> SignedRoot for ExecutionPayloadBid<E> {}

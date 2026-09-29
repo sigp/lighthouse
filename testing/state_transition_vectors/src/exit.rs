@@ -4,12 +4,14 @@ use state_processing::{
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
     per_block_processing, per_block_processing::errors::ExitInvalid,
 };
+use std::sync::LazyLock;
 use types::{BeaconBlock, Epoch};
 
 // Default validator index to exit.
 pub const VALIDATOR_INDEX: u64 = 0;
-// Epoch that the state will be transitioned to by default, equal to SHARD_COMMITTEE_PERIOD.
-pub const STATE_EPOCH: Epoch = Epoch::new(256);
+
+pub static STATE_EPOCH: LazyLock<Epoch> =
+    LazyLock::new(|| Epoch::new(E::default_spec().shard_committee_period));
 
 struct ExitTest {
     validator_index: u64,
@@ -28,8 +30,8 @@ impl Default for ExitTest {
     fn default() -> Self {
         Self {
             validator_index: VALIDATOR_INDEX,
-            exit_epoch: STATE_EPOCH,
-            state_epoch: STATE_EPOCH,
+            exit_epoch: *STATE_EPOCH,
+            state_epoch: *STATE_EPOCH,
             state_modifier: Box::new(|_| ()),
             block_modifier: Box::new(|_, _| ()),
             expected: Ok(()),
@@ -79,7 +81,7 @@ impl ExitTest {
     async fn run(self) -> BeaconState<E> {
         let spec = &test_spec::<E>();
         let expected = self.expected.clone();
-        assert_eq!(STATE_EPOCH, spec.shard_committee_period);
+        assert_eq!(*STATE_EPOCH, spec.shard_committee_period);
 
         let (block, mut state) = self.block_and_pre_state().await;
 
@@ -116,8 +118,8 @@ vectors_and_tests!(
     valid_three_exits,
     ExitTest {
         block_modifier: Box::new(|harness, block| {
-            harness.add_voluntary_exit(block, 1, STATE_EPOCH);
-            harness.add_voluntary_exit(block, 2, STATE_EPOCH);
+            harness.add_voluntary_exit(block, 1, *STATE_EPOCH);
+            harness.add_voluntary_exit(block, 2, *STATE_EPOCH);
         }),
         ..ExitTest::default()
     },
@@ -170,7 +172,7 @@ vectors_and_tests!(
     invalid_exit_already_initiated,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut().get_mut(0).unwrap().exit_epoch = STATE_EPOCH + 1;
+            state.validators_mut().get_mut(0).unwrap().exit_epoch = *STATE_EPOCH + 1;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -209,7 +211,7 @@ vectors_and_tests!(
     invalid_not_active_after_exit_epoch,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut().get_mut(0).unwrap().exit_epoch = STATE_EPOCH;
+            state.validators_mut().get_mut(0).unwrap().exit_epoch = *STATE_EPOCH;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -226,7 +228,7 @@ vectors_and_tests!(
     // Ensures we can process an exit from the previous epoch.
     valid_previous_epoch,
     ExitTest {
-        exit_epoch: STATE_EPOCH - 1,
+        exit_epoch: *STATE_EPOCH - 1,
         ..ExitTest::default()
     },
     // Tests the following line of the spec:
@@ -240,12 +242,12 @@ vectors_and_tests!(
     // ```
     invalid_future_exit_epoch,
     ExitTest {
-        exit_epoch: STATE_EPOCH + 1,
+        exit_epoch: *STATE_EPOCH + 1,
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
             reason: ExitInvalid::FutureEpoch {
-                state: STATE_EPOCH,
-                exit: STATE_EPOCH + 1,
+                state: *STATE_EPOCH,
+                exit: *STATE_EPOCH + 1,
             },
         }),
         ..ExitTest::default()
@@ -260,13 +262,13 @@ vectors_and_tests!(
     // ```
     invalid_too_young_by_one_epoch,
     ExitTest {
-        state_epoch: STATE_EPOCH - 1,
-        exit_epoch: STATE_EPOCH - 1,
+        state_epoch: *STATE_EPOCH - 1,
+        exit_epoch: *STATE_EPOCH - 1,
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
             reason: ExitInvalid::TooYoungToExit {
-                current_epoch: STATE_EPOCH - 1,
-                earliest_exit_epoch: STATE_EPOCH,
+                current_epoch: *STATE_EPOCH - 1,
+                earliest_exit_epoch: *STATE_EPOCH,
             },
         }),
         ..ExitTest::default()
@@ -287,7 +289,7 @@ vectors_and_tests!(
             index: 0,
             reason: ExitInvalid::TooYoungToExit {
                 current_epoch: Epoch::new(0),
-                earliest_exit_epoch: STATE_EPOCH,
+                earliest_exit_epoch: *STATE_EPOCH,
             },
         }),
         ..ExitTest::default()
@@ -357,8 +359,8 @@ mod custom_tests {
     async fn valid_three() {
         let state = ExitTest {
             block_modifier: Box::new(|harness, block| {
-                harness.add_voluntary_exit(block, 1, STATE_EPOCH);
-                harness.add_voluntary_exit(block, 2, STATE_EPOCH);
+                harness.add_voluntary_exit(block, 1, *STATE_EPOCH);
+                harness.add_voluntary_exit(block, 2, *STATE_EPOCH);
             }),
             ..ExitTest::default()
         }
