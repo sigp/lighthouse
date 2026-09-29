@@ -11,6 +11,7 @@ use crate::{
     StateId, attester_duties, inclusion_list_duties, proposer_duties, ptc_duties, sync_committees,
 };
 use beacon_chain::attestation_verification::VerifiedAttestation;
+use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::PublicKeyBytes;
@@ -35,8 +36,8 @@ use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 use types::{
     BeaconState, Epoch, EthSpec, ForkName, ProposerPreparationData, SignedAggregateAndProof,
-    SignedContributionAndProof, SignedProposerPreferences, SignedValidatorRegistrationData, Slot,
-    SyncContributionData, ValidatorSubscription,
+    SignedContributionAndProof, SignedInclusionList, SignedProposerPreferences,
+    SignedValidatorRegistrationData, Slot, SyncContributionData, ValidatorSubscription,
 };
 use warp::{Filter, Rejection, Reply, http::response::Builder};
 use warp_utils::reject::convert_rejection;
@@ -75,7 +76,7 @@ pub fn get_validator_sync_committee_contribution<T: BeaconChainTypes>(
         .and(warp::path("sync_committee_contribution"))
         .and(warp::path::end())
         .and(warp::query::<SyncContributionData>())
-        .and(not_while_syncing_filter.clone())
+        .and(not_while_syncing_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
@@ -122,7 +123,7 @@ pub fn post_validator_duties_sync<T: BeaconChainTypes>(
             ))
         }))
         .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
+        .and(not_while_syncing_filter)
         .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
@@ -1553,5 +1554,149 @@ fn publish_proposer_preferences<T: BeaconChainTypes>(
             "error processing proposer preferences".to_string(),
             failures,
         ))
+    }
+}
+
+/// POST validator/inclusion_list (JSON)
+pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    not_while_syncing_filter: NotWhileSyncingFilter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+    chain_filter: ChainFilter<T>,
+    network_tx_filter: NetworkTxFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("inclusion_list"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(not_while_syncing_filter.clone())
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .and(network_tx_filter)
+        .then(
+            |request_body: GenericResponse<SignedInclusionList>,
+             fork_name: ForkName,
+             not_synced_filter: Result<(), Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    not_synced_filter?;
+                    ensure_heze_consensus_version(fork_name)?;
+                    publish_inclusion_list(&chain, &network_tx, request_body.data)?;
+                    Ok(warp::reply())
+                })
+            },
+        )
+        .boxed()
+}
+
+/// POST validator/inclusion_list (SSZ)
+pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    not_while_syncing_filter: NotWhileSyncingFilter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+    chain_filter: ChainFilter<T>,
+    network_tx_filter: NetworkTxFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("inclusion_list"))
+        .and(warp::path::end())
+        .and(warp::body::bytes())
+        .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
+        .and(not_while_syncing_filter)
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .and(network_tx_filter)
+        .then(
+            |body_bytes: Bytes,
+             fork_name: ForkName,
+             not_synced_filter: Result<(), Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    not_synced_filter?;
+                    ensure_heze_consensus_version(fork_name)?;
+                    let signed_inclusion_list = SignedInclusionList::from_ssz_bytes(&body_bytes)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                        })?;
+                    publish_inclusion_list(&chain, &network_tx, signed_inclusion_list)?;
+                    Ok(warp::reply())
+                })
+            },
+        )
+        .boxed()
+}
+
+fn ensure_heze_consensus_version(fork_name: ForkName) -> Result<(), Rejection> {
+    if !fork_name.heze_enabled() {
+        return Err(warp_utils::reject::custom_bad_request(format!(
+            "Eth-Consensus-Version {fork_name} is not supported for inclusion lists"
+        )));
+    }
+    Ok(())
+}
+
+fn publish_inclusion_list<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    signed_inclusion_list: SignedInclusionList,
+) -> Result<(), warp::Rejection> {
+    let slot = signed_inclusion_list.message.slot;
+    let validator_index = signed_inclusion_list.message.validator_index;
+    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+
+    if !fork_name.heze_enabled() {
+        return Err(warp_utils::reject::custom_bad_request(
+            "Inclusion lists publishing is not supported before the Heze fork".into(),
+        ));
+    }
+
+    match chain.verify_inclusion_list_for_gossip(signed_inclusion_list) {
+        Ok(verified_inclusion_list) => {
+            crate::utils::publish_pubsub_message(
+                network_tx,
+                PubsubMessage::InclusionList(Box::new(
+                    verified_inclusion_list.signed_inclusion_list,
+                )),
+            )?;
+            Ok(())
+        }
+        Err(InclusionListVerificationError::AlreadySeenTwice { .. }) => {
+            debug!(
+                %slot,
+                %validator_index,
+                "Two valid inclusion lists were already seen"
+            );
+            Ok(())
+        }
+        Err(
+            e @ (InclusionListVerificationError::BeaconChainError(_)
+            | InclusionListVerificationError::BeaconStateError(_)
+            | InclusionListVerificationError::UnableToReadSlot),
+        ) => {
+            error!(%slot, error = ?e, "Internal error verifying inclusion list");
+            Err(warp_utils::reject::custom_server_error(format!(
+                "internal error verifying inclusion list: {e}"
+            )))
+        }
+        // TODO(heze): remove once the IL gossip verification errors are added to InclusionListVerificationError
+        #[allow(unreachable_patterns)]
+        Err(e) => {
+            warn!(
+                %slot,
+                %validator_index,
+                error = ?e,
+                "Inclusion list failed gossip verification"
+            );
+            Err(warp_utils::reject::custom_bad_request(format!(
+                "inclusion list failed gossip verification: {e}"
+            )))
+        }
     }
 }
