@@ -17,8 +17,8 @@ use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
 use tempfile::{TempDir, tempdir};
 use types::{
-    AttestationShufflingId, BeaconState, Checkpoint, Epoch, EthSpec, Hash256, MinimalEthSpec,
-    SignedExecutionPayloadEnvelope, Slot,
+    AttestationShufflingId, BeaconState, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -738,8 +738,9 @@ fn a_pruned_confirmed_root_is_a_revert_not_an_error() {
         shuffling_id.clone(),
         shuffling_id,
         ExecutionStatus::irrelevant(),
-        None,
-        None,
+        // Gloas nodes need payload hashes. The rule never reads them.
+        Some(ExecutionBlockHash::zero()),
+        Some(ExecutionBlockHash::zero()),
         0,
         &spec,
     )
