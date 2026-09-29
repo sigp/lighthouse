@@ -517,8 +517,8 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `get_restart_resilient_confirmed_root`. The root confirmed before the restart, until
-    /// the re-seeded rule catches up with it or it should have been finalized by now. Always a block
-    /// fork choice holds, so a caller may ask at any point in a run.
+    /// the re-seeded rule catches up with it or it is old enough to have been finalized. Always a
+    /// block fork choice holds, so a caller may ask at any point in a run.
     pub fn get_restart_resilient_confirmed_root<E: EthSpec>(
         &self,
         head_root: Hash256,
@@ -527,7 +527,7 @@ impl FastConfirmationRule {
         proto_array: &ProtoArray,
     ) -> Result<Hash256, Error> {
         // The spec assumes the store holds `confirmed_root`; finality can have pruned ours. Take
-        // the revert `get_latest_confirmed` makes of it as given, rather than failing the run.
+        // the revert `get_latest_confirmed` will make as given, rather than failing the run.
         let (confirmed_root, confirmed_slot) =
             match get_block_slot(self.confirmed_root, proto_array) {
                 Ok(slot) => (self.confirmed_root, slot),

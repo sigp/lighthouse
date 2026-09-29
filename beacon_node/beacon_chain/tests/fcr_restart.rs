@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))]
 
-//! The root the Fast Confirmation Rule reports must not move backwards across a restart. The rule
-//! itself is re-seeded from the finalized checkpoint on every boot, so its `confirmed_root` does.
+//! The root the Fast Confirmation Rule sends the EL must not move backwards across a restart. The
+//! rule itself is re-seeded from the finalized checkpoint on every boot, so its own root does.
 //!
 //! Oracle: a harness node that never restarts is fed the same blocks, attestations and clock as
 //! the node under test. The node may only regress when the harness does, which excludes the
@@ -95,19 +95,11 @@ fn validators(n: usize) -> Vec<usize> {
     (0..n).collect()
 }
 
+/// The root the node last sent its EL, as the node recorded it.
 fn confirmed<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Option<(Hash256, Slot)> {
     let fcr_mutex = chain.canonical_head.fast_confirmation.as_ref()?;
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
-    let head_root = chain.canonical_head.cached_head().head_block_root();
-    let root = fcr_mutex
-        .lock()
-        .get_restart_resilient_confirmed_root::<T::EthSpec>(
-            head_root,
-            &fork_choice.finalized_checkpoint(),
-            chain.slot().unwrap(),
-            fork_choice.proto_array().core_proto_array(),
-        )
-        .unwrap();
+    let root = fcr_mutex.lock().1.announced_root;
     Some((root, fork_choice.get_block(&root).unwrap().slot))
 }
 
@@ -321,8 +313,8 @@ impl Rig {
             self.log.join("\n")
         );
         // Once caught up the node has at most the harness's votes, so it can never be ahead —
-        // except while it still reports the pre-restart root, which the harness, having lost the
-        // votes to re-confirm it, may have reverted past.
+        // except while it still sends the pre-restart root, which the harness may have reverted
+        // past, having lost the votes to re-confirm it.
         let pinned = self.stopped.is_some_and(|(root, _)| root == mine_root);
         let harness_head = self.harness.chain.canonical_head.cached_head().head_slot();
         assert!(
