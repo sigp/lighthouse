@@ -1978,6 +1978,8 @@ impl ProtoArray {
             .ok_or(Error::InvalidNodeIndex(parent_index))?
             .root();
 
+        // TODO(heze): also require the payload to satisfy the inclusion lists, as per the spec's
+        // `is_payload_inclusion_list_satisfied`
         Ok((proto_node.payload_timeliness::<E>(true)?
             && proto_node.payload_data_availability::<E>(true)?)
             || proposer_boost_parent_root != fc_node.root

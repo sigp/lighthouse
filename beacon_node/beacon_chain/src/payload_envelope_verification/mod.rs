@@ -417,6 +417,8 @@ pub fn build_new_payload_request<'a, E: EthSpec>(
         .map(state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash)
         .collect();
 
+    // TODO(heze): build a `NewPayloadRequest::Heze` for Heze envelopes, carrying the timely
+    // inclusion list transactions, so the payload is sent through `engine_newPayloadV6`
     Ok(execution_layer::NewPayloadRequest::Gloas(
         execution_layer::NewPayloadRequestGloas {
             execution_payload: &envelope.message.payload,
