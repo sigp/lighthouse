@@ -1,7 +1,6 @@
 mod manual_slot_clock;
 mod metrics;
 mod system_time_slot_clock;
-mod timeline;
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -9,8 +8,8 @@ pub use crate::manual_slot_clock::ManualSlotClock as TestingSlotClock;
 pub use crate::manual_slot_clock::ManualSlotClock;
 pub use crate::system_time_slot_clock::SystemTimeSlotClock;
 pub use metrics::scrape_for_metrics;
-pub use timeline::SlotTimeline;
 pub use types::Slot;
+use types::{ChainSpec, Epoch, EthSpec, SlotDurationSchedule, SlotDurationScheduleEntry};
 
 /// A clock that reports the current slot.
 ///
@@ -19,18 +18,37 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     /// Creates a new slot clock where the first slot is `genesis_slot`, genesis occurred
     /// `genesis_duration` after the `UNIX_EPOCH` and each slot is `slot_duration` apart.
     fn new(genesis_slot: Slot, genesis_duration: Duration, slot_duration: Duration) -> Self {
-        Self::from_timeline(SlotTimeline::new(
-            genesis_slot,
-            genesis_duration,
-            slot_duration,
-        ))
+        let slot_duration_schedule = SlotDurationSchedule::new(vec![SlotDurationScheduleEntry {
+            epoch: Epoch::new(0),
+            slot_duration_ms: slot_duration.as_millis() as u64,
+        }]);
+        Self::from_schedule(genesis_slot, genesis_duration, slot_duration_schedule, 1)
     }
 
-    /// Creates a new slot clock that follows the slot duration schedule of `timeline`.
-    fn from_timeline(timeline: SlotTimeline) -> Self;
+    /// Creates a new slot clock that follows the slot duration schedule of `spec`.
+    fn from_spec<E: EthSpec>(genesis_duration: Duration, spec: &ChainSpec) -> Self {
+        Self::from_schedule(
+            spec.genesis_slot,
+            genesis_duration,
+            spec.slot_duration_schedule(),
+            E::slots_per_epoch(),
+        )
+    }
 
-    /// Returns the mapping between wall-clock time and slots.
-    fn timeline(&self) -> &SlotTimeline;
+    /// Creates a new slot clock where the first slot is `genesis_slot`, genesis occurred
+    /// `genesis_duration` after the `UNIX_EPOCH` and slot durations follow `slot_duration_schedule`.
+    fn from_schedule(
+        genesis_slot: Slot,
+        genesis_duration: Duration,
+        slot_duration_schedule: SlotDurationSchedule,
+        slots_per_epoch: u64,
+    ) -> Self;
+
+    /// Returns the slot duration schedule the clock follows.
+    fn slot_duration_schedule(&self) -> &SlotDurationSchedule;
+
+    /// Returns the number of slots per epoch used to read the slot duration schedule.
+    fn slots_per_epoch(&self) -> u64;
 
     /// Returns the slot at this present time.
     fn now(&self) -> Option<Slot>;
@@ -56,9 +74,7 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     fn now_duration(&self) -> Option<Duration>;
 
     /// Returns the slot of the given duration since the UNIX epoch.
-    fn slot_of(&self, now: Duration) -> Option<Slot> {
-        self.timeline().slot_of(now)
-    }
+    fn slot_of(&self, now: Duration) -> Option<Slot>;
 
     /// Returns the duration of the current slot, or of the genesis slot prior to genesis.
     fn slot_duration(&self) -> Duration {
@@ -67,7 +83,13 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
 
     /// Returns the duration of `slot`.
     fn slot_duration_at(&self, slot: Slot) -> Duration {
-        self.timeline().slot_duration_at(slot)
+        let slots_since_genesis = slot.as_u64().saturating_sub(self.genesis_slot().as_u64());
+        let epoch = Slot::new(slots_since_genesis).epoch(self.slots_per_epoch());
+        Duration::from_millis(
+            self.slot_duration_schedule()
+                .slot_duration_ms_for_epoch(epoch)
+                .unwrap_or_default(),
+        )
     }
 
     /// Returns the duration from now until `slot`.
@@ -80,19 +102,13 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration>;
 
     /// Returns the start time of the slot, as a duration since `UNIX_EPOCH`.
-    fn start_of(&self, slot: Slot) -> Option<Duration> {
-        self.timeline().start_of(slot)
-    }
+    fn start_of(&self, slot: Slot) -> Option<Duration>;
 
     /// Returns the first slot to be returned at the genesis time.
-    fn genesis_slot(&self) -> Slot {
-        self.timeline().genesis_slot()
-    }
+    fn genesis_slot(&self) -> Slot;
 
     /// Returns the `Duration` from `UNIX_EPOCH` to the genesis time.
-    fn genesis_duration(&self) -> Duration {
-        self.timeline().genesis_duration()
-    }
+    fn genesis_duration(&self) -> Duration;
 
     /// Returns the slot if the internal clock were advanced by `duration`.
     fn now_with_future_tolerance(&self, tolerance: Duration) -> Option<Slot> {
@@ -128,7 +144,12 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     ///
     /// This is useful for observing the slot clock at arbitrary fixed points in time.
     fn freeze_at(&self, freeze_at: Duration) -> ManualSlotClock {
-        let slot_clock = ManualSlotClock::from_timeline(self.timeline().clone());
+        let slot_clock = ManualSlotClock::from_schedule(
+            self.genesis_slot(),
+            self.genesis_duration(),
+            self.slot_duration_schedule().clone(),
+            self.slots_per_epoch(),
+        );
         slot_clock.set_current_time(freeze_at);
         slot_clock
     }

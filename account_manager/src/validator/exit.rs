@@ -12,7 +12,7 @@ use eth2_network_config::Eth2NetworkConfig;
 use safe_arith::SafeArith;
 use sensitive_url::SensitiveUrl;
 use serde_json;
-use slot_clock::{SlotClock, SlotTimeline, SystemTimeSlotClock};
+use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::sleep;
@@ -349,10 +349,7 @@ async fn is_syncing(client: &BeaconNodeHttpClient) -> Result<bool, String> {
 
 /// Calculates the current epoch from the genesis time and current time.
 fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<Epoch> {
-    let slot_clock = SystemTimeSlotClock::from_timeline(SlotTimeline::from_spec::<E>(
-        Duration::from_secs(genesis_time),
-        spec,
-    ));
+    let slot_clock = SystemTimeSlotClock::from_spec::<E>(Duration::from_secs(genesis_time), spec);
     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
 }
 

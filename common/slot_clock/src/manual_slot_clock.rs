@@ -1,22 +1,29 @@
-use super::{SlotClock, SlotTimeline};
+use super::SlotClock;
 use parking_lot::RwLock;
 use std::ops::Add;
 use std::sync::Arc;
 use std::time::Duration;
-use types::Slot;
+use types::{Slot, SlotDurationSchedule};
 
 /// Determines the present slot based upon a manually-incremented UNIX timestamp.
 pub struct ManualSlotClock {
-    timeline: SlotTimeline,
+    genesis_slot: Slot,
+    /// Duration from UNIX epoch to genesis.
+    genesis_duration: Duration,
     /// Duration from UNIX epoch to right now.
     current_time: Arc<RwLock<Duration>>,
+    slot_duration_schedule: SlotDurationSchedule,
+    slots_per_epoch: u64,
 }
 
 impl Clone for ManualSlotClock {
     fn clone(&self) -> Self {
         ManualSlotClock {
-            timeline: self.timeline.clone(),
+            genesis_slot: self.genesis_slot,
+            genesis_duration: self.genesis_duration,
             current_time: Arc::clone(&self.current_time),
+            slot_duration_schedule: self.slot_duration_schedule.clone(),
+            slots_per_epoch: self.slots_per_epoch,
         }
     }
 }
@@ -25,7 +32,7 @@ impl ManualSlotClock {
     pub fn set_slot(&self, slot: u64) {
         *self.current_time.write() = self
             .start_of(Slot::new(slot))
-            .expect("slot must be post-genesis and fit within a u32");
+            .expect("slot must be post-genesis");
     }
 
     pub fn set_current_time(&self, duration: Duration) {
@@ -41,8 +48,8 @@ impl ManualSlotClock {
         self.set_slot(self.now().unwrap().as_u64() + 1)
     }
 
-    pub fn genesis_duration(&self) -> Duration {
-        self.timeline.genesis_duration()
+    pub fn genesis_duration(&self) -> &Duration {
+        &self.genesis_duration
     }
 
     /// Returns the duration from `now` until the start of `slot`.
@@ -54,9 +61,8 @@ impl ManualSlotClock {
 
     /// Returns the duration between `now` and the start of the next slot.
     pub fn duration_to_next_slot_from(&self, now: Duration) -> Option<Duration> {
-        let genesis_duration = self.genesis_duration();
-        if now < genesis_duration {
-            genesis_duration.checked_sub(now)
+        if now < self.genesis_duration {
+            self.genesis_duration.checked_sub(now)
         } else {
             self.duration_to_slot(self.slot_of(now)? + 1, now)
         }
@@ -68,9 +74,8 @@ impl ManualSlotClock {
         now: Duration,
         slots_per_epoch: u64,
     ) -> Option<Duration> {
-        let genesis_duration = self.genesis_duration();
-        if now < genesis_duration {
-            genesis_duration.checked_sub(now)
+        if now < self.genesis_duration {
+            self.genesis_duration.checked_sub(now)
         } else {
             let next_epoch_start_slot =
                 (self.slot_of(now)?.epoch(slots_per_epoch) + 1).start_slot(slots_per_epoch);
@@ -81,19 +86,35 @@ impl ManualSlotClock {
 }
 
 impl SlotClock for ManualSlotClock {
-    fn from_timeline(timeline: SlotTimeline) -> Self {
-        if timeline.min_slot_duration().as_millis() == 0 {
+    fn from_schedule(
+        genesis_slot: Slot,
+        genesis_duration: Duration,
+        slot_duration_schedule: SlotDurationSchedule,
+        slots_per_epoch: u64,
+    ) -> Self {
+        if slot_duration_schedule.is_empty()
+            || (&slot_duration_schedule)
+                .into_iter()
+                .any(|entry| entry.slot_duration_ms == 0)
+        {
             panic!("ManualSlotClock cannot have a < 1ms slot duration");
         }
 
         Self {
-            current_time: Arc::new(RwLock::new(timeline.genesis_duration())),
-            timeline,
+            genesis_slot,
+            current_time: Arc::new(RwLock::new(genesis_duration)),
+            genesis_duration,
+            slot_duration_schedule,
+            slots_per_epoch,
         }
     }
 
-    fn timeline(&self) -> &SlotTimeline {
-        &self.timeline
+    fn slot_duration_schedule(&self) -> &SlotDurationSchedule {
+        &self.slot_duration_schedule
+    }
+
+    fn slots_per_epoch(&self) -> u64 {
+        self.slots_per_epoch
     }
 
     fn now(&self) -> Option<Slot> {
@@ -101,11 +122,20 @@ impl SlotClock for ManualSlotClock {
     }
 
     fn is_prior_to_genesis(&self) -> Option<bool> {
-        Some(*self.current_time.read() < self.genesis_duration())
+        Some(*self.current_time.read() < self.genesis_duration)
     }
 
     fn now_duration(&self) -> Option<Duration> {
         Some(*self.current_time.read())
+    }
+
+    fn slot_of(&self, now: Duration) -> Option<Slot> {
+        let since_genesis = now.checked_sub(self.genesis_duration)?;
+        let slot = self
+            .slot_duration_schedule
+            .compute_slot_at_time_ms(self.slots_per_epoch, 0, since_genesis.as_millis() as u64)
+            .ok()?;
+        Some(slot + self.genesis_slot)
     }
 
     fn duration_to_next_slot(&self) -> Option<Duration> {
@@ -118,6 +148,25 @@ impl SlotClock for ManualSlotClock {
 
     fn duration_to_slot(&self, slot: Slot) -> Option<Duration> {
         self.duration_to_slot(slot, *self.current_time.read())
+    }
+
+    /// Returns the duration between UNIX epoch and the start of `slot`.
+    fn start_of(&self, slot: Slot) -> Option<Duration> {
+        let slots_since_genesis = slot.as_u64().checked_sub(self.genesis_slot.as_u64())?;
+        let time_ms = self
+            .slot_duration_schedule
+            .compute_time_at_slot_ms(self.slots_per_epoch, 0, Slot::new(slots_since_genesis))
+            .ok()?;
+        self.genesis_duration
+            .checked_add(Duration::from_millis(time_ms))
+    }
+
+    fn genesis_slot(&self) -> Slot {
+        self.genesis_slot
+    }
+
+    fn genesis_duration(&self) -> Duration {
+        self.genesis_duration
     }
 }
 
@@ -322,5 +371,114 @@ mod tests {
             Slot::new(0),
             "significant past tolerance should return previous slot"
         );
+    }
+
+    mod slot_duration_schedule {
+        use super::*;
+        use types::{ChainSpec, Epoch, EthSpec, MainnetEthSpec, SlotDurationScheduleEntry};
+
+        const GENESIS: Duration = Duration::from_secs(1_606_824_023);
+
+        fn spec_with_schedule(entries: &[(u64, u64)]) -> ChainSpec {
+            let schedule = SlotDurationSchedule::new(
+                entries
+                    .iter()
+                    .map(|&(epoch, slot_duration_ms)| SlotDurationScheduleEntry {
+                        epoch: Epoch::new(epoch),
+                        slot_duration_ms,
+                    })
+                    .collect(),
+            );
+            ChainSpec::mainnet().set_slot_duration_schedule::<MainnetEthSpec>(schedule)
+        }
+
+        fn multi_era_spec() -> ChainSpec {
+            spec_with_schedule(&[(0, 12000), (10, 10000), (20, 6000)])
+        }
+
+        #[test]
+        fn clock_matches_spec_time_functions() {
+            let spec = multi_era_spec();
+            let clock = ManualSlotClock::from_spec::<MainnetEthSpec>(GENESIS, &spec);
+            let genesis_ms = GENESIS.as_millis() as u64;
+            for slot in (0..1024).map(Slot::new) {
+                let spec_start_ms = spec
+                    .compute_time_at_slot_ms::<MainnetEthSpec>(genesis_ms, slot)
+                    .unwrap();
+                let start = clock.start_of(slot).unwrap();
+                assert_eq!(start, Duration::from_millis(spec_start_ms), "slot {slot}");
+                assert_eq!(clock.slot_of(start), Some(slot), "slot {slot}");
+                let next_start = clock.start_of(slot + 1).unwrap();
+                assert_eq!(
+                    clock.slot_of(next_start - Duration::from_millis(1)),
+                    Some(slot),
+                    "slot {slot}"
+                );
+                assert_eq!(
+                    clock.slot_duration_at(slot),
+                    Duration::from_millis(
+                        spec.get_slot_duration_ms(slot.epoch(MainnetEthSpec::slots_per_epoch()))
+                    ),
+                    "slot {slot}"
+                );
+            }
+            assert_eq!(clock.slot_of(GENESIS - Duration::from_millis(1)), None);
+        }
+
+        #[test]
+        fn single_entry_schedule_matches_fixed_duration() {
+            let from_spec =
+                ManualSlotClock::from_spec::<MainnetEthSpec>(GENESIS, &ChainSpec::mainnet());
+            let fixed = ManualSlotClock::new(Slot::new(0), GENESIS, Duration::from_secs(12));
+            for slot in [0, 1, 31, 32, 12_345].map(Slot::new) {
+                assert_eq!(from_spec.start_of(slot), fixed.start_of(slot));
+            }
+        }
+
+        #[test]
+        fn clock_follows_slot_duration_changes() {
+            let clock = ManualSlotClock::from_spec::<MainnetEthSpec>(GENESIS, &multi_era_spec());
+
+            clock.set_slot(319);
+            assert_eq!(clock.slot_duration(), Duration::from_secs(12));
+            assert_eq!(clock.duration_to_next_slot(), Some(Duration::from_secs(12)));
+
+            clock.advance_slot();
+            assert_eq!(clock.now(), Some(Slot::new(320)));
+            assert_eq!(clock.slot_duration(), Duration::from_secs(10));
+            assert_eq!(
+                clock.slot_duration_at(Slot::new(319)),
+                Duration::from_secs(12)
+            );
+
+            clock.advance_time(Duration::from_millis(12_500));
+            assert_eq!(clock.now(), Some(Slot::new(321)));
+            assert_eq!(
+                clock.millis_from_current_slot_start(),
+                Some(Duration::from_millis(2_500))
+            );
+            assert_eq!(
+                clock.seconds_from_current_slot_start(),
+                Some(Duration::from_secs(2))
+            );
+
+            clock.set_slot(630);
+            assert_eq!(
+                clock.duration_to_next_epoch(MainnetEthSpec::slots_per_epoch()),
+                Some(Duration::from_secs(100))
+            );
+
+            clock.set_slot(640);
+            assert_eq!(clock.slot_duration(), Duration::from_secs(6));
+            clock.advance_time(Duration::from_secs(6));
+            assert_eq!(clock.now(), Some(Slot::new(641)));
+
+            let frozen = clock.freeze_at(clock.start_of(Slot::new(700)).unwrap());
+            assert_eq!(frozen.now(), Some(Slot::new(700)));
+            assert_eq!(
+                frozen.slot_duration_schedule(),
+                clock.slot_duration_schedule()
+            );
+        }
     }
 }

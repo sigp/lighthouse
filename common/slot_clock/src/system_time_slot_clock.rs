@@ -1,6 +1,6 @@
-use super::{ManualSlotClock, SlotClock, SlotTimeline};
+use super::{ManualSlotClock, SlotClock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use types::Slot;
+use types::{Slot, SlotDurationSchedule};
 
 /// Determines the present slot based upon the present system time.
 #[derive(Clone)]
@@ -9,14 +9,28 @@ pub struct SystemTimeSlotClock {
 }
 
 impl SlotClock for SystemTimeSlotClock {
-    fn from_timeline(timeline: SlotTimeline) -> Self {
+    fn from_schedule(
+        genesis_slot: Slot,
+        genesis_duration: Duration,
+        slot_duration_schedule: SlotDurationSchedule,
+        slots_per_epoch: u64,
+    ) -> Self {
         Self {
-            clock: ManualSlotClock::from_timeline(timeline),
+            clock: ManualSlotClock::from_schedule(
+                genesis_slot,
+                genesis_duration,
+                slot_duration_schedule,
+                slots_per_epoch,
+            ),
         }
     }
 
-    fn timeline(&self) -> &SlotTimeline {
-        self.clock.timeline()
+    fn slot_duration_schedule(&self) -> &SlotDurationSchedule {
+        self.clock.slot_duration_schedule()
+    }
+
+    fn slots_per_epoch(&self) -> u64 {
+        self.clock.slots_per_epoch()
     }
 
     fn now(&self) -> Option<Slot> {
@@ -26,11 +40,15 @@ impl SlotClock for SystemTimeSlotClock {
 
     fn is_prior_to_genesis(&self) -> Option<bool> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
-        Some(now < self.clock.genesis_duration())
+        Some(now < *self.clock.genesis_duration())
     }
 
     fn now_duration(&self) -> Option<Duration> {
         SystemTime::now().duration_since(UNIX_EPOCH).ok()
+    }
+
+    fn slot_of(&self, now: Duration) -> Option<Slot> {
+        self.clock.slot_of(now)
     }
 
     fn duration_to_next_slot(&self) -> Option<Duration> {
@@ -46,6 +64,18 @@ impl SlotClock for SystemTimeSlotClock {
     fn duration_to_slot(&self, slot: Slot) -> Option<Duration> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
         self.clock.duration_to_slot(slot, now)
+    }
+
+    fn start_of(&self, slot: Slot) -> Option<Duration> {
+        self.clock.start_of(slot)
+    }
+
+    fn genesis_slot(&self) -> Slot {
+        self.clock.genesis_slot()
+    }
+
+    fn genesis_duration(&self) -> Duration {
+        *self.clock.genesis_duration()
     }
 }
 

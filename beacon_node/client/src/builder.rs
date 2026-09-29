@@ -12,7 +12,7 @@ use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, MigratorConfig, ServerSentEventHandler,
     builder::{BeaconChainBuilder, Witness},
-    slot_clock::{SlotClock, SlotTimeline, SystemTimeSlotClock},
+    slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, StoreConfig},
 };
@@ -969,10 +969,8 @@ where
             .clone()
             .ok_or("system_time_slot_clock requires a chain spec")?;
 
-        let slot_clock = SystemTimeSlotClock::from_timeline(SlotTimeline::from_spec::<E>(
-            Duration::from_secs(genesis_time),
-            &spec,
-        ));
+        let slot_clock =
+            SystemTimeSlotClock::from_spec::<E>(Duration::from_secs(genesis_time), &spec);
 
         self.slot_clock = Some(slot_clock);
         Ok(self)
