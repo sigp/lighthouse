@@ -173,7 +173,7 @@ type HashBlockTuple<E> = (Hash256, RangeSyncBlock<E>);
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::ZERO;
 pub const OP_POOL_DB_KEY: Hash256 = Hash256::ZERO;
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::ZERO;
-/// The root FCR announced most recently, read back after a restart by
+/// The highest-slot root FCR has confirmed, read back after a restart by
 /// `load_root_confirmed_before_restart`. Shares the `ForkChoice` column with `FORK_CHOICE_DB_KEY`,
 /// so it cannot be zero.
 pub const FAST_CONFIRMATION_DB_KEY: Hash256 = Hash256::repeat_byte(1);

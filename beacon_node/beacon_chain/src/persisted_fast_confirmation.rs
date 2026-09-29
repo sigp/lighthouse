@@ -3,11 +3,12 @@ use ssz::{Decode, Encode};
 use store::{DBColumn, Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp, StoreItem};
 use types::{EthSpec, Hash256};
 
-/// The root most recently announced by the Fast Confirmation Rule.
+/// The highest-slot root the Fast Confirmation Rule has confirmed.
 pub struct PersistedFastConfirmation(Hash256);
 
-/// Spec: `get_root_confirmed_before_restart`. The root FCR announced before this node was
-/// restarted, or `None` if none was ever written: a fresh database, or FCR has never run here.
+/// Spec: `get_root_confirmed_before_restart`. The highest-slot root FCR had confirmed before this
+/// node was restarted, or `None` if none was ever written: a fresh database, or FCR has never run
+/// here.
 pub fn load_root_confirmed_before_restart<E: EthSpec, Hot: ItemStore, Cold: ItemStore>(
     store: &HotColdDB<E, Hot, Cold>,
 ) -> Result<Option<Hash256>, StoreError> {
@@ -16,7 +17,7 @@ pub fn load_root_confirmed_before_restart<E: EthSpec, Hot: ItemStore, Cold: Item
         .map(|persisted| persisted.0))
 }
 
-/// The database operation that writes the announced root for the next restart to read.
+/// The database operation that writes a confirmed root for the next restart to read.
 pub fn persist_confirmed_root_in_batch(confirmed_root: Hash256) -> KeyValueStoreOp {
     PersistedFastConfirmation(confirmed_root).as_kv_store_op(FAST_CONFIRMATION_DB_KEY)
 }

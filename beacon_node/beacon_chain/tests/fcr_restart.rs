@@ -8,14 +8,21 @@
 //! Oracle: a harness node that never restarts is fed the same blocks, attestations and clock as
 //! the node under test. The node may only regress when the harness does, which excludes the
 //! reverts the spec mandates. Restarts go through `BeaconChainBuilder::resume_from_db`.
+//!
+//! The scenarios at the end of the file are the ones that the oracle cannot express: what reaches
+//! execution layer, a fork that takes the root out of the head's chain, and the revert that the
+//! three-epoch window mandates.
 
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, ChainConfig,
     chain_config::FastConfirmationMode,
-    test_utils::{BeaconChainHarness, DiskHarnessType, test_spec},
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
+    },
 };
 use bls::Keypair;
 use eth2::types::SignedBlockContentsTuple;
+use slot_clock::SlotClock;
 use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
@@ -93,19 +100,38 @@ fn validators(n: usize) -> Vec<usize> {
 }
 
 fn announced<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Option<(Hash256, Slot)> {
-    let root = chain
+    let fcr_mutex = chain.canonical_head.fast_confirmation.as_ref()?;
+    let fork_choice = chain.canonical_head.fork_choice_read_lock();
+    let head_root = chain.canonical_head.cached_head().head_block_root();
+    let root = fcr_mutex
+        .lock()
+        .get_restart_resilient_confirmed_root::<T::EthSpec>(
+            head_root,
+            &fork_choice.finalized_checkpoint(),
+            chain.slot().unwrap(),
+            fork_choice.proto_array().core_proto_array(),
+        )
+        .unwrap();
+    Some((root, fork_choice.get_block(&root).unwrap().slot))
+}
+
+/// The rule's own output, which every boot re-seeds from the finalized checkpoint.
+fn confirmed<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Hash256 {
+    chain
         .canonical_head
         .fast_confirmation
-        .as_ref()?
+        .as_ref()
+        .expect("FCR is enabled")
         .lock()
-        .get_restart_resilient_confirmed_root();
-    let slot = chain
+        .confirmed_root
+}
+
+fn finalized<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Hash256 {
+    chain
         .canonical_head
         .fork_choice_read_lock()
-        .get_block(&root)
-        .unwrap()
-        .slot;
-    Some((root, slot))
+        .finalized_checkpoint()
+        .root
 }
 
 struct Produced {
@@ -584,4 +610,148 @@ async fn a_payload_status_reset_keeps_the_announced_root() {
     rig.node().chain.recompute_head_at_current_slot().await;
     let (root, _) = announced(&rig.node().chain).unwrap();
     assert_eq!(root, stopped);
+}
+
+// ---------------------------------------------------------------------------
+// Single-chain tests, for the three properties the oracle above cannot state.
+// ---------------------------------------------------------------------------
+
+/// A chain that confirmed a block ahead of finality, was shut down gracefully, and came back
+/// `slots_of_downtime` slots later. The stopped harness is held, not read: the restarted node
+/// shares its store, its clock and its mock execution layer.
+struct Restarted {
+    _stopped: Harness,
+    node: Harness,
+    announced_before: Hash256,
+    slot_before: Slot,
+    _db: TempDir,
+}
+
+async fn restart_after(slots_of_downtime: u64) -> Restarted {
+    let db = tempdir().unwrap();
+    let store = store(&db);
+    let stopped = harness(store.clone());
+    stopped
+        .extend_chain(
+            WARMUP_SLOTS as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let (announced_before, slot_before) = announced(&stopped.chain).unwrap();
+    assert_ne!(
+        announced_before,
+        finalized(&stopped.chain),
+        "FCR should have confirmed a block ahead of the finalized checkpoint"
+    );
+    stopped.chain.persist_fork_choice().unwrap();
+
+    let slot_clock = stopped.chain.slot_clock.clone();
+    let restart_slot = slot_clock.now().unwrap() + slots_of_downtime;
+    slot_clock.set_slot(restart_slot.as_u64());
+    let node = node(store, &stopped, false, true, false);
+    node.chain.recompute_head_at_current_slot().await;
+
+    Restarted {
+        _stopped: stopped,
+        node,
+        announced_before,
+        slot_before,
+        _db: db,
+    }
+}
+
+/// The parameters the next `forkchoiceUpdated` carries name the announced root, so the execution
+/// layer's safe block hash does not regress across the restart either, even though the rule itself
+/// has gone back to the finalized block.
+#[tokio::test]
+async fn the_announced_root_reaches_the_execution_layer() {
+    let rig = restart_after(1).await;
+
+    assert_eq!(
+        confirmed(&rig.node.chain),
+        finalized(&rig.node.chain),
+        "a freshly seeded rule has not re-confirmed anything yet"
+    );
+    assert_eq!(
+        announced(&rig.node.chain).unwrap().0,
+        rig.announced_before,
+        "the root confirmed before the restart should still be announced"
+    );
+
+    let safe_block_hash = rig
+        .node
+        .chain
+        .canonical_head
+        .cached_head()
+        .forkchoice_update_parameters()
+        .justified_hash;
+    let expected_hash = rig
+        .node
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&rig.announced_before)
+        .unwrap()
+        .checkpoint_payload_block_hash();
+    assert_eq!(safe_block_hash, expected_hash);
+}
+
+/// A root outside the head's chain cannot be announced: the execution layer rejects the whole
+/// `forkchoiceUpdated` call for such a safe block hash.
+#[tokio::test]
+async fn does_not_announce_a_root_that_was_reorged_out() {
+    let rig = restart_after(1).await;
+
+    // A fork from the parent of the pre-restart root, attested by every validator, takes the head
+    // off that branch.
+    let first_slot = rig.node.chain.slot().unwrap();
+    rig.node
+        .extend_chain(
+            2,
+            BlockStrategy::ForkCanonicalChainAt {
+                previous_slot: rig.slot_before - 1,
+                first_slot,
+            },
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    assert!(
+        !rig.node
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_descendant(rig.announced_before, rig.node.head_block_root()),
+        "the fork should have reorged the pre-restart root out"
+    );
+    assert!(
+        rig.slot_before.epoch(E::slots_per_epoch()) + 2 > rig.node.chain.epoch().unwrap(),
+        "the pre-restart root must still be recent, or it would be dropped as stale instead"
+    );
+    assert!(
+        confirmed(&rig.node.chain) != rig.announced_before
+            && announced(&rig.node.chain).unwrap().1 < rig.slot_before,
+        "the rule must not have caught up, or that is what dropped the root"
+    );
+    assert_eq!(
+        announced(&rig.node.chain).unwrap().0,
+        confirmed(&rig.node.chain)
+    );
+}
+
+/// Three epochs of downtime leave the root confirmed before the restart outside the window: it
+/// should have been finalized by now, and if it wasn't then finality is delayed and it cannot be
+/// trusted. This is the revert the differential oracle has to forbid.
+#[tokio::test]
+async fn falls_back_to_finalized_after_a_long_downtime() {
+    let rig = restart_after(3 * E::slots_per_epoch()).await;
+
+    assert_ne!(rig.announced_before, finalized(&rig.node.chain));
+    assert_eq!(
+        announced(&rig.node.chain).unwrap().0,
+        finalized(&rig.node.chain),
+        "a stale pre-restart root must not be announced"
+    );
 }
