@@ -691,9 +691,9 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     overflow_cache: Arc<DataAvailabilityCheckerInner<T>>,
     partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
 ) {
-    let epoch_duration =
-        chain.slot_clock.current_slot_duration() * T::EthSpec::slots_per_epoch() as u32;
     loop {
+        let epoch_duration =
+            chain.slot_clock.current_slot_duration() * T::EthSpec::slots_per_epoch() as u32;
         match chain
             .slot_clock
             .duration_to_next_epoch(T::EthSpec::slots_per_epoch())

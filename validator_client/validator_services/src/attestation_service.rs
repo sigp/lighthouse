@@ -173,13 +173,12 @@ fn attestation_deadline<E: EthSpec>(
 
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, T> {
     /// Starts the service which periodically produces attestations.
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service(self) -> Result<(), String> {
         if self.disable {
             info!("Attestation service disabled");
             return Ok(());
         }
 
-        let slot_duration = spec.get_slot_duration();
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -197,7 +196,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             loop {
                 let Some(now) = self.slot_clock.now_duration() else {
                     error!("Failed to read slot clock");
-                    sleep(slot_duration).await;
+                    sleep(self.slot_clock.current_slot_duration()).await;
                     continue;
                 };
                 let (attestation_slot, duration_to_attestation_deadline) =
@@ -205,7 +204,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 let Some(duration_to_attestation_deadline) = duration_to_attestation_deadline
                 else {
                     error!(%attestation_slot, "Failed to determine attestation deadline");
-                    sleep(slot_duration).await;
+                    sleep(self.slot_clock.current_slot_duration()).await;
                     continue;
                 };
 
@@ -316,7 +315,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         .checked_add(self.chain_spec.get_attestation_due::<S::E>(slot))
                 })
                 .map(|next_slot_deadline| {
-                    next_slot_deadline.saturating_sub(self.chain_spec.get_slot_duration())
+                    next_slot_deadline.saturating_sub(self.slot_clock.slot_duration_at(slot))
                 })
                 .unwrap_or(Duration::from_secs(0));
             sleep(duration_to_deadline).await;
@@ -375,7 +374,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
                 .checked_add(self.chain_spec.get_aggregate_attestation_due::<S::E>(slot))
-                .and_then(|offset| offset.checked_sub(self.chain_spec.get_slot_duration()))
+                .and_then(|offset| offset.checked_sub(self.slot_clock.slot_duration_at(slot)))
                 .unwrap_or_else(|| Duration::from_secs(0));
 
         let aggregate_duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = self

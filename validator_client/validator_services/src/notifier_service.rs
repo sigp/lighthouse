@@ -4,7 +4,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
-use types::{ChainSpec, EthSpec};
+use types::EthSpec;
 use validator_metrics::set_gauge;
 use validator_store::ValidatorStore;
 
@@ -12,19 +12,19 @@ use validator_store::ValidatorStore;
 pub fn spawn_notifier<S: ValidatorStore + 'static, T: SlotClock + 'static>(
     duties_service: Arc<DutiesService<S, T>>,
     executor: TaskExecutor,
-    spec: &ChainSpec,
 ) -> Result<(), String> {
-    let slot_duration = spec.get_slot_duration();
-
     let interval_fut = async move {
         loop {
             if let Some(duration_to_next_slot) = duties_service.slot_clock.duration_to_next_slot() {
-                sleep(duration_to_next_slot + slot_duration / 2).await;
+                sleep(
+                    duration_to_next_slot + duties_service.slot_clock.current_slot_duration() / 2,
+                )
+                .await;
                 notify(&duties_service).await;
             } else {
                 error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
-                sleep(slot_duration).await;
+                sleep(duties_service.slot_clock.current_slot_duration()).await;
                 continue;
             }
         }

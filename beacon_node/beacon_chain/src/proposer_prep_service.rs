@@ -29,9 +29,8 @@ async fn proposer_prep_service<T: BeaconChainTypes>(
     executor: TaskExecutor,
     chain: Arc<BeaconChain<T>>,
 ) {
-    let slot_duration = chain.slot_clock.current_slot_duration();
-
     loop {
+        let slot_duration = chain.slot_clock.current_slot_duration();
         match chain.slot_clock.duration_to_next_slot() {
             Some(duration) => {
                 let additional_delay =

@@ -187,7 +187,7 @@ where
                             .get_payload_attestation_due::<S::E>(attestation_slot),
                     )
                 })
-                .map(|d| d.saturating_sub(self.chain_spec.get_slot_duration()))
+                .map(|d| d.saturating_sub(self.slot_clock.slot_duration_at(attestation_slot)))
                 .unwrap_or_default();
             sleep(deadline).await;
             data_result = self
@@ -218,11 +218,9 @@ where
     }
 
     async fn wait_for_attestation_slot(&self) -> Option<Slot> {
-        let slot_duration = self.chain_spec.get_slot_duration();
-
         let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() else {
             error!("Failed to read slot clock");
-            sleep(slot_duration).await;
+            sleep(self.slot_clock.current_slot_duration()).await;
             return None;
         };
 
@@ -251,7 +249,7 @@ where
                         .saturating_sub(1u64);
                     self.slot_clock.duration_to_slot(pre_fork_slot)
                 })
-                .unwrap_or(slot_duration);
+                .unwrap_or_else(|| self.slot_clock.current_slot_duration());
             sleep(sleep_duration).await;
             return None;
         }

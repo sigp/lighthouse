@@ -628,19 +628,8 @@ where
             .network_globals
             .clone()
             .ok_or("slot_notifier requires a libp2p network")?;
-        let slot_duration = self
-            .chain_spec
-            .as_ref()
-            .ok_or("slot_notifier requires a chain spec")?
-            .get_slot_duration();
-
-        spawn_notifier(
-            context.executor,
-            beacon_chain,
-            network_globals,
-            slot_duration,
-        )
-        .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
+        spawn_notifier(context.executor, beacon_chain, network_globals)
+            .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
         Ok(self)
     }

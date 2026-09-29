@@ -692,12 +692,12 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         self.attestation_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service()
             .map_err(|e| format!("Unable to start attestation service: {}", e))?;
 
         self.sync_committee_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service()
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
 
         if self.context.eth2_config.spec.is_gloas_scheduled() {
@@ -736,12 +736,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         }
 
         let context = self.context.clone();
-        spawn_notifier(
-            self.duties_service.clone(),
-            context.executor,
-            &self.context.eth2_config.spec,
-        )
-        .map_err(|e| format!("Failed to start notifier: {}", e))?;
+        spawn_notifier(self.duties_service.clone(), context.executor)
+            .map_err(|e| format!("Failed to start notifier: {}", e))?;
 
         if self.config.enable_latency_measurement_service {
             latency_service::start_latency_service(

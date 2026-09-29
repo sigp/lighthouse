@@ -137,7 +137,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
     }
 
     pub fn start_update_service(self) -> Result<(), String> {
-        let slot_duration = self.inner.chain_spec.get_slot_duration();
         info!("Builder preferences service started");
 
         let executor = self.inner.executor.clone();
@@ -148,7 +147,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
             loop {
                 let Some(current_slot) = self.inner.slot_clock.now() else {
                     error!("Failed to read slot clock");
-                    sleep(slot_duration).await;
+                    sleep(self.inner.slot_clock.current_slot_duration()).await;
                     continue;
                 };
 
@@ -162,7 +161,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
                     .inner
                     .slot_clock
                     .duration_to_next_slot()
-                    .unwrap_or(slot_duration);
+                    .unwrap_or_else(|| self.inner.slot_clock.current_slot_duration());
                 sleep(duration_to_next_slot).await;
             }
         };
