@@ -1064,15 +1064,15 @@ impl ChainSpec {
             .unwrap_or(self.slot_duration_ms)
     }
 
-    fn slot_duration_eras(&self) -> impl Iterator<Item = (Epoch, u64)> + '_ {
-        let genesis_era = self
-            .slot_duration_schedule
-            .is_empty()
-            .then_some((Epoch::new(0), self.slot_duration_ms));
-        (&self.slot_duration_schedule)
-            .into_iter()
-            .map(|entry| (entry.epoch, entry.slot_duration_ms))
-            .chain(genesis_era)
+    pub fn slot_duration_schedule(&self) -> SlotDurationSchedule {
+        if self.slot_duration_schedule.is_empty() {
+            SlotDurationSchedule::new(vec![SlotDurationScheduleEntry {
+                epoch: Epoch::new(0),
+                slot_duration_ms: self.slot_duration_ms,
+            }])
+        } else {
+            self.slot_duration_schedule.clone()
+        }
     }
 
     /// Spec: `compute_time_at_slot_ms`.
@@ -1081,17 +1081,11 @@ impl ChainSpec {
         genesis_time_ms: u64,
         slot: Slot,
     ) -> Result<u64, ArithError> {
-        let mut end_slot = slot;
-        let mut time_ms = genesis_time_ms;
-        for (epoch, slot_duration_ms) in self.slot_duration_eras() {
-            let entry_slot = epoch.start_slot(E::slots_per_epoch());
-            if entry_slot < end_slot {
-                let slots = end_slot.as_u64().safe_sub(entry_slot.as_u64())?;
-                time_ms.safe_add_assign(slots.safe_mul(slot_duration_ms)?)?;
-                end_slot = entry_slot;
-            }
-        }
-        Ok(time_ms)
+        self.slot_duration_schedule().compute_time_at_slot_ms(
+            E::slots_per_epoch(),
+            genesis_time_ms,
+            slot,
+        )
     }
 
     /// Spec: `compute_slot_at_time_ms`.
@@ -1100,20 +1094,11 @@ impl ChainSpec {
         genesis_time_ms: u64,
         time_ms: u64,
     ) -> Result<Slot, ArithError> {
-        let mut era = None;
-        for (epoch, slot_duration_ms) in self.slot_duration_eras() {
-            let entry_slot = epoch.start_slot(E::slots_per_epoch());
-            let entry_time_ms = self.compute_time_at_slot_ms::<E>(genesis_time_ms, entry_slot)?;
-            era = Some((entry_slot, entry_time_ms, slot_duration_ms));
-            if time_ms >= entry_time_ms {
-                break;
-            }
-        }
-        let (entry_slot, entry_time_ms, slot_duration_ms) = era.ok_or(ArithError::Overflow)?;
-        let slots = time_ms
-            .safe_sub(entry_time_ms)?
-            .safe_div(slot_duration_ms)?;
-        entry_slot.safe_add(slots)
+        self.slot_duration_schedule().compute_slot_at_time_ms(
+            E::slots_per_epoch(),
+            genesis_time_ms,
+            time_ms,
+        )
     }
 
     /// Compute values that are derived from other config values.
@@ -2215,6 +2200,50 @@ impl SlotDurationSchedule {
             .map(|entry| entry.slot_duration_ms)
     }
 
+    /// Spec: `compute_time_at_slot_ms`.
+    pub fn compute_time_at_slot_ms(
+        &self,
+        slots_per_epoch: u64,
+        genesis_time_ms: u64,
+        slot: Slot,
+    ) -> Result<u64, ArithError> {
+        let mut end_slot = slot;
+        let mut time_ms = genesis_time_ms;
+        for entry in self {
+            let entry_slot = entry.epoch.start_slot(slots_per_epoch);
+            if entry_slot < end_slot {
+                let slots = end_slot.as_u64().safe_sub(entry_slot.as_u64())?;
+                time_ms.safe_add_assign(slots.safe_mul(entry.slot_duration_ms)?)?;
+                end_slot = entry_slot;
+            }
+        }
+        Ok(time_ms)
+    }
+
+    /// Spec: `compute_slot_at_time_ms`.
+    pub fn compute_slot_at_time_ms(
+        &self,
+        slots_per_epoch: u64,
+        genesis_time_ms: u64,
+        time_ms: u64,
+    ) -> Result<Slot, ArithError> {
+        let mut found = None;
+        for entry in self {
+            let entry_slot = entry.epoch.start_slot(slots_per_epoch);
+            let entry_time_ms =
+                self.compute_time_at_slot_ms(slots_per_epoch, genesis_time_ms, entry_slot)?;
+            found = Some((entry, entry_slot, entry_time_ms));
+            if time_ms >= entry_time_ms {
+                break;
+            }
+        }
+        let (entry, entry_slot, entry_time_ms) = found.ok_or(ArithError::Overflow)?;
+        let slots = time_ms
+            .safe_sub(entry_time_ms)?
+            .safe_div(entry.slot_duration_ms)?;
+        entry_slot.safe_add(slots)
+    }
+
     fn validate(&self, genesis_slot_duration_ms: u64) -> Result<(), String> {
         if self.is_empty() {
             return Ok(());
@@ -2229,7 +2258,7 @@ impl SlotDurationSchedule {
         if let Some(entry) = self
             .as_vec()
             .iter()
-            .find(|entry| entry.slot_duration_ms == 0 || entry.slot_duration_ms % 1000 != 0)
+            .find(|entry| entry.slot_duration_ms % 1000 != 0)
         {
             return Err(format!(
                 "slot duration {} at epoch {} is not a positive multiple of 1000",
@@ -4848,50 +4877,14 @@ mod yaml_tests {
         spec.compute_derived_values::<MainnetEthSpec>();
     }
 
-    const SLOT_DURATION_BASE_CONFIG: &str = r#"
-PRESET_BASE: 'mainnet'
-MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 384
-MIN_GENESIS_TIME: 1748264340
-GENESIS_FORK_VERSION: 0x10355025
-GENESIS_DELAY: 60
-SECONDS_PER_ETH1_BLOCK: 12
-MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
-SHARD_COMMITTEE_PERIOD: 256
-ETH1_FOLLOW_DISTANCE: 2048
-INACTIVITY_SCORE_BIAS: 4
-INACTIVITY_SCORE_RECOVERY_RATE: 16
-EJECTION_BALANCE: 16000000000
-MIN_PER_EPOCH_CHURN_LIMIT: 4
-CHURN_LIMIT_QUOTIENT: 65536
-MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
-PROPOSER_SCORE_BOOST: 40
-REORG_HEAD_WEIGHT_THRESHOLD: 20
-REORG_PARENT_WEIGHT_THRESHOLD: 160
-REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
-EPOCHS_PER_SUBNET_SUBSCRIPTION: 256
-ATTESTATION_SUBNET_COUNT: 64
-ATTESTATION_SUBNET_EXTRA_BITS: 0
-DEPOSIT_CHAIN_ID: 7042643276
-DEPOSIT_NETWORK_ID: 7042643276
-DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
-ALTAIR_FORK_VERSION: 0x20355025
-ALTAIR_FORK_EPOCH: 0
-BELLATRIX_FORK_VERSION: 0x30355025
-BELLATRIX_FORK_EPOCH: 0
-CAPELLA_FORK_VERSION: 0x40355025
-CAPELLA_FORK_EPOCH: 0
-DENEB_FORK_VERSION: 0x50355025
-DENEB_FORK_EPOCH: 0
-ELECTRA_FORK_VERSION: 0x60355025
-ELECTRA_FORK_EPOCH: 0
-FULU_FORK_VERSION: 0x70355025
-FULU_FORK_EPOCH: 0
-"#;
-
-    fn spec_with_slot_config(slot_config: &str) -> Option<ChainSpec> {
-        let config: Config =
-            yaml_serde::from_str(&format!("{SLOT_DURATION_BASE_CONFIG}{slot_config}"))
-                .expect("error while deserializing");
+    fn spec_with_slot_config(
+        slot_duration_ms: Option<u64>,
+        schedule: SlotDurationSchedule,
+    ) -> Option<ChainSpec> {
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&ChainSpec::mainnet());
+        config.seconds_per_slot = None;
+        config.slot_duration_ms = slot_duration_ms.map(|value| MaybeQuoted { value });
+        config.slot_duration_schedule = schedule;
         ChainSpec::from_config::<MainnetEthSpec>(&config)
     }
 
@@ -4908,11 +4901,17 @@ FULU_FORK_EPOCH: 0
     }
 
     #[test]
+    fn slot_duration_schedule_yaml_keys() {
+        let schedule: SlotDurationSchedule =
+            yaml_serde::from_str("- EPOCH: 0\n  SLOT_DURATION_MS: 12000\n")
+                .expect("error while deserializing");
+        assert_eq!(schedule, slot_duration_schedule(&[(0, 12000)]));
+    }
+
+    #[test]
     fn slot_duration_schedule_with_genesis_entry() {
-        let spec = spec_with_slot_config(
-            "SLOT_DURATION_MS: 12000\nSLOT_DURATION_SCHEDULE:\n  - EPOCH: 0\n    SLOT_DURATION_MS: 12000\n",
-        )
-        .expect("valid schedule");
+        let spec = spec_with_slot_config(Some(12000), slot_duration_schedule(&[(0, 12000)]))
+            .expect("valid schedule");
         assert_eq!(
             spec.slot_duration_schedule,
             slot_duration_schedule(&[(0, 12000)])
@@ -4927,17 +4926,16 @@ FULU_FORK_EPOCH: 0
 
     #[test]
     fn slot_duration_schedule_sets_slot_duration() {
-        let spec = spec_with_slot_config(
-            "SLOT_DURATION_SCHEDULE:\n  - EPOCH: 0\n    SLOT_DURATION_MS: 12000\n",
-        )
-        .expect("valid schedule");
-        assert_eq!(spec.slot_duration_ms, 12000);
-        assert_eq!(spec.seconds_per_slot, 12);
+        let spec = spec_with_slot_config(None, slot_duration_schedule(&[(0, 6000)]))
+            .expect("valid schedule");
+        assert_eq!(spec.slot_duration_ms, 6000);
+        assert_eq!(spec.seconds_per_slot, 6);
     }
 
     #[test]
     fn slot_duration_schedule_without_entries_uses_slot_duration() {
-        let spec = spec_with_slot_config("SLOT_DURATION_MS: 6000\n").expect("valid config");
+        let spec = spec_with_slot_config(Some(6000), SlotDurationSchedule::default())
+            .expect("valid config");
         assert!(spec.slot_duration_schedule.is_empty());
         assert_eq!(spec.get_slot_duration_ms(Epoch::new(0)), 6000);
         assert_eq!(spec.get_slot_duration_ms(Epoch::new(1_000_000)), 6000);
@@ -4945,35 +4943,39 @@ FULU_FORK_EPOCH: 0
 
     #[test]
     fn slot_duration_schedule_rejects_invalid_schedules() {
-        let invalid = [
+        let invalid: [(&str, u64, &[(u64, u64)]); 6] = [
+            ("does not match SLOT_DURATION_MS", 12000, &[(0, 10000)]),
+            ("not a positive multiple of 1000", 12500, &[(0, 12500)]),
+            ("not a positive multiple of 1000", 0, &[(0, 0)]),
             (
-                "genesis mismatch",
-                "SLOT_DURATION_MS: 12000\nSLOT_DURATION_SCHEDULE:\n  - EPOCH: 0\n    SLOT_DURATION_MS: 10000\n",
+                "the first entry must be at the genesis epoch",
+                12000,
+                &[(5, 12000)],
             ),
             (
-                "not a multiple of 1000",
-                "SLOT_DURATION_MS: 12500\nSLOT_DURATION_SCHEDULE:\n  - EPOCH: 0\n    SLOT_DURATION_MS: 12500\n",
+                "multiple entries for epoch",
+                12000,
+                &[(0, 12000), (0, 12000)],
             ),
             (
-                "zero duration",
-                "SLOT_DURATION_SCHEDULE:\n  - EPOCH: 0\n    SLOT_DURATION_MS: 0\n",
-            ),
-            (
-                "no genesis entry",
-                "SLOT_DURATION_MS: 12000\nSLOT_DURATION_SCHEDULE:\n  - EPOCH: 5\n    SLOT_DURATION_MS: 12000\n",
-            ),
-            (
-                "duplicate epoch",
-                "SLOT_DURATION_SCHEDULE:\n  - EPOCH: 0\n    SLOT_DURATION_MS: 12000\n  - EPOCH: 0\n    SLOT_DURATION_MS: 12000\n",
-            ),
-            (
-                "entry after genesis",
-                "SLOT_DURATION_SCHEDULE:\n  - EPOCH: 0\n    SLOT_DURATION_MS: 12000\n  - EPOCH: 10\n    SLOT_DURATION_MS: 10000\n",
+                "slot duration changes are not supported yet",
+                12000,
+                &[(0, 12000), (10, 10000)],
             ),
         ];
-        for (name, slot_config) in invalid {
-            assert!(spec_with_slot_config(slot_config).is_none(), "{name}");
+        for (expected, genesis_slot_duration_ms, entries) in invalid {
+            let error = slot_duration_schedule(entries)
+                .validate(genesis_slot_duration_ms)
+                .expect_err(expected);
+            assert!(
+                error.contains(expected),
+                "expected {expected:?}, got {error:?}"
+            );
         }
+        assert!(
+            spec_with_slot_config(None, slot_duration_schedule(&[(0, 12000), (10, 10000)]))
+                .is_none()
+        );
     }
 
     #[test]
