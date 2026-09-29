@@ -131,7 +131,7 @@ fn mock_envelopes_with_pruned_payloads(
     mock.expect_get_payload_envelope_summary()
         .returning(move |root| Ok(summary_map.get(root).cloned().flatten()));
 
-    let payload_map: HashMap<Hash256, Option<ExecutionPayloadBody>> = chain
+    let payload_map: HashMap<Hash256, Option<ExecutionPayloadBody<E>>> = chain
         .iter()
         .map(|entry| {
             (
@@ -148,7 +148,7 @@ fn mock_envelopes_with_pruned_payloads(
         .returning(move |root| Ok(payload_map.get(root).cloned().flatten()));
 }
 
-fn payload_body(payload: &ExecutionPayloadGloas<E>) -> ExecutionPayloadBodyV2 {
+fn payload_body(payload: &ExecutionPayloadGloas<E>) -> ExecutionPayloadBodyV2<E> {
     ExecutionPayloadBodyV2 {
         transactions: payload.transactions.clone(),
         withdrawals: Some(payload.withdrawals.clone()),
@@ -330,7 +330,7 @@ async fn stream_reconstructs_pruned_envelopes() {
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[2, 4]);
     mock.expect_block_has_canonical_payload().times(0);
 
-    let payload_bodies: HashMap<ExecutionBlockHash, ExecutionPayloadBodyV2> = chain
+    let payload_bodies: HashMap<ExecutionBlockHash, ExecutionPayloadBodyV2<E>> = chain
         .iter()
         .filter(|entry| [2, 4].contains(&entry.slot.as_u64()))
         .map(|entry| {
@@ -364,7 +364,7 @@ async fn stream_batches_pruned_envelope_requests() {
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &pruned_payload_slots);
     mock.expect_block_has_canonical_payload().times(0);
 
-    let payload_bodies: HashMap<ExecutionBlockHash, ExecutionPayloadBodyV2> = chain
+    let payload_bodies: HashMap<ExecutionBlockHash, ExecutionPayloadBodyV2<E>> = chain
         .iter()
         .map(|entry| {
             let payload = entry.envelope.as_ref().unwrap().message.payload.clone();
@@ -450,7 +450,8 @@ async fn stream_rejects_payload_body_with_wrong_hash() {
     mock.expect_block_has_canonical_payload().times(0);
 
     let mut wrong_body = payload_body(&chain[0].envelope.as_ref().unwrap().message.payload);
-    wrong_body.block_access_list = Some(BlockAccessList::new(vec![1]));
+    wrong_body.block_access_list =
+        Some(BlockAccessList::new(vec![1]).expect("valid block access list"));
     mock.expect_get_payload_bodies_by_hash_v2()
         .times(1)
         .return_once(move |_| Ok(vec![Some(wrong_body)]));

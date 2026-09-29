@@ -203,7 +203,7 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
     async fn fetch_payload_bodies(
         &self,
         block_hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, BeaconChainError> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2<T::EthSpec>>>, BeaconChainError> {
         let mut payload_bodies = Vec::with_capacity(block_hashes.len());
         for chunk in block_hashes.chunks(MAX_PAYLOAD_BODIES_PER_REQUEST) {
             let chunk_payload_bodies = self
@@ -277,7 +277,7 @@ const MAX_PAYLOAD_BODIES_PER_REQUEST: usize = 32;
 
 fn reconstruct_envelope_from_body<E: EthSpec>(
     summary: SignedExecutionPayloadEnvelopeSummary<E>,
-    payload_body: ExecutionPayloadBodyV2,
+    payload_body: ExecutionPayloadBodyV2<E>,
 ) -> PayloadEnvelopeResult<E> {
     let expected_payload_hash = summary.block_hash();
     let withdrawals = payload_body

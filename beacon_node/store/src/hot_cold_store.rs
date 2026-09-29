@@ -763,7 +763,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     pub fn get_payload_body(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<ExecutionPayloadBody>, Error> {
+    ) -> Result<Option<ExecutionPayloadBody<E>>, Error> {
         self.hot_db
             .get_bytes(DBColumn::PayloadBody, block_root.as_slice())?
             .map(|bytes| ExecutionPayloadBody::from_ssz_bytes(&bytes).map_err(Error::from))

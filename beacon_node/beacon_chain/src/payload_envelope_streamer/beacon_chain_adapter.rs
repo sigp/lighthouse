@@ -37,14 +37,14 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
     pub(crate) fn get_payload_body(
         &self,
         root: &Hash256,
-    ) -> Result<Option<ExecutionPayloadBody>, store::Error> {
+    ) -> Result<Option<ExecutionPayloadBody<T::EthSpec>>, store::Error> {
         self.chain.store.get_payload_body(root)
     }
 
     pub(crate) async fn get_payload_bodies_by_hash_v2(
         &self,
         block_hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, BeaconChainError> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2<T::EthSpec>>>, BeaconChainError> {
         let execution_layer = self
             .chain
             .execution_layer

@@ -40,7 +40,7 @@ use rand_xorshift::XorShiftRng;
 use safe_arith::SafeArith;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
-use ssz_types::VariableList;
+use ssz_types::{ProgressiveVariableList, VariableList};
 use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -5431,15 +5431,19 @@ async fn payload_envelope_storage_body_encoding() {
     for payload in [
         ExecutionPayloadGloas::default(),
         ExecutionPayloadGloas {
-            transactions: vec![vec![0x01, 0x02].into(), vec![0x03].into()].into(),
-            withdrawals: vec![Withdrawal {
+            transactions: ProgressiveTransactions::new(vec![
+                ProgressiveVariableList::new(vec![0x01, 0x02]).unwrap(),
+                ProgressiveVariableList::new(vec![0x03]).unwrap(),
+            ])
+            .unwrap(),
+            withdrawals: ProgressiveWithdrawals::<E>::new(vec![Withdrawal {
                 index: 1,
                 validator_index: 2,
                 address: Address::repeat_byte(0x44),
                 amount: 3,
-            }]
-            .into(),
-            block_access_list: vec![0x05, 0x06, 0x07].into(),
+            }])
+            .unwrap(),
+            block_access_list: BlockAccessList::new(vec![0x05, 0x06, 0x07]).unwrap(),
             ..Default::default()
         },
     ] {
@@ -5660,15 +5664,19 @@ fn check_payload_envelope_schema_v31_migration_pruning(prune_payloads: bool) {
             payload: ExecutionPayloadGloas {
                 slot_number: Slot::new(slot),
                 block_hash: ExecutionBlockHash::from_root(Hash256::from_low_u64_be(slot + 1)),
-                transactions: vec![vec![0x01, 0x02].into(), vec![0x03].into()].into(),
-                withdrawals: vec![Withdrawal {
+                transactions: ProgressiveTransactions::new(vec![
+                    ProgressiveVariableList::new(vec![0x01, 0x02]).unwrap(),
+                    ProgressiveVariableList::new(vec![0x03]).unwrap(),
+                ])
+                .unwrap(),
+                withdrawals: ProgressiveWithdrawals::<E>::new(vec![Withdrawal {
                     index: 1,
                     validator_index: 2,
                     address: Address::repeat_byte(0x44),
                     amount: 3,
-                }]
-                .into(),
-                block_access_list: vec![0x05, 0x06, 0x07].into(),
+                }])
+                .unwrap(),
+                block_access_list: BlockAccessList::new(vec![0x05, 0x06, 0x07]).unwrap(),
                 ..Default::default()
             },
             execution_requests: Default::default(),

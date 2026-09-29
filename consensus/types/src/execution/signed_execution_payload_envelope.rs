@@ -160,13 +160,13 @@ pub struct ExecutionPayloadHeaderGloas<E: EthSpec> {
 ///
 /// The remaining payload fields are retained in [`ExecutionPayloadHeaderGloas`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
-pub struct ExecutionPayloadBody {
+pub struct ExecutionPayloadBody<E: EthSpec> {
     pub transactions: ProgressiveTransactions,
-    pub withdrawals: ProgressiveWithdrawals,
+    pub withdrawals: ProgressiveWithdrawals<E>,
     pub block_access_list: BlockAccessList,
 }
 
-impl<E: EthSpec> From<&ExecutionPayloadGloas<E>> for ExecutionPayloadBody {
+impl<E: EthSpec> From<&ExecutionPayloadGloas<E>> for ExecutionPayloadBody<E> {
     fn from(payload: &ExecutionPayloadGloas<E>) -> Self {
         Self {
             transactions: payload.transactions.clone(),
@@ -203,7 +203,7 @@ impl<E: EthSpec> ExecutionPayloadHeaderGloas<E> {
     pub fn into_payload(
         self,
         transactions: ProgressiveTransactions,
-        withdrawals: ProgressiveWithdrawals,
+        withdrawals: ProgressiveWithdrawals<E>,
         block_access_list: BlockAccessList,
     ) -> ExecutionPayloadGloas<E> {
         ExecutionPayloadGloas {
@@ -270,7 +270,7 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelopeSummary<E> {
 
     pub fn into_envelope(
         self,
-        payload_body: ExecutionPayloadBody,
+        payload_body: ExecutionPayloadBody<E>,
     ) -> SignedExecutionPayloadEnvelope<E> {
         let payload = self.payload_header.into_payload(
             payload_body.transactions,
@@ -292,7 +292,7 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelopeSummary<E> {
     pub fn into_envelope_from_payload_body(
         self,
         transactions: ProgressiveTransactions,
-        withdrawals: ProgressiveWithdrawals,
+        withdrawals: ProgressiveWithdrawals<E>,
         block_access_list: BlockAccessList,
     ) -> SignedExecutionPayloadEnvelope<E> {
         self.into_envelope(ExecutionPayloadBody {
