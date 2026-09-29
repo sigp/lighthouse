@@ -4948,8 +4948,8 @@ mod yaml_tests {
 
     #[test]
     fn slot_duration_schedule_rejects_invalid_schedules() {
-        let invalid: [(&str, u64, &[(u64, u64)]); 7] = [
-            ("does not match SLOT_DURATION_MS", 12000, &[(0, 10000)]),
+        let invalid = [
+            ("does not match SLOT_DURATION_MS", 12000, &[(0, 10000)][..]),
             ("not a positive multiple of 1000", 12500, &[(0, 12500)]),
             ("not a positive multiple of 1000", 0, &[(0, 0)]),
             (
