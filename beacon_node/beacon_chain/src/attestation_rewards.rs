@@ -179,7 +179,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 total_active_balance.safe_div(spec.effective_balance_increment)?;
 
             let base_reward_per_increment =
-                BaseRewardPerIncrement::new(total_active_balance, spec)?;
+                BaseRewardPerIncrement::new(total_active_balance, previous_epoch, spec)?;
 
             for effective_balance_eth in
                 1..=self.max_effective_balance_increment_steps(previous_epoch)?

@@ -326,8 +326,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         && !validator_participation.has_flag(flag_index)?
                     {
                         validator_participation.add_flag(flag_index)?;
-                        proposer_reward_numerator
-                            .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
+                        proposer_reward_numerator.safe_add_assign(
+                            state
+                                .get_base_reward_for_epoch(index, data.target.epoch)?
+                                .safe_mul(weight)?,
+                        )?;
                     }
                 }
             }

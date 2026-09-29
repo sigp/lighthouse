@@ -93,7 +93,10 @@ impl PreEpochCache {
         let total_active_balance =
             std::cmp::max(self.total_active_balance, spec.effective_balance_increment);
         let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_active_balance);
-        let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
+        let base_reward_per_increment =
+            BaseRewardPerIncrement::new(total_active_balance, epoch, spec)?;
+        let previous_epoch_base_reward_per_increment =
+            BaseRewardPerIncrement::new(total_active_balance, epoch.saturating_sub(1u64), spec)?;
 
         let effective_balance_increment = spec.effective_balance_increment;
         let max_effective_balance =
@@ -102,21 +105,36 @@ impl PreEpochCache {
             max_effective_balance.safe_div(effective_balance_increment)?;
 
         let mut base_rewards = Vec::with_capacity(max_effective_balance_eth.safe_add(1)? as usize);
+        let mut previous_epoch_base_rewards =
+            Vec::with_capacity(max_effective_balance_eth.safe_add(1)? as usize);
 
         for effective_balance_eth in 0..=max_effective_balance_eth {
             let effective_balance = effective_balance_eth.safe_mul(effective_balance_increment)?;
-            let base_reward = if spec.fork_name_at_epoch(epoch) == ForkName::Base {
-                base::get_base_reward(effective_balance, sqrt_total_active_balance, spec)?
+            let (base_reward, previous_epoch_base_reward) = if spec.fork_name_at_epoch(epoch)
+                == ForkName::Base
+            {
+                let base_reward =
+                    base::get_base_reward(effective_balance, sqrt_total_active_balance, spec)?;
+                (base_reward, base_reward)
             } else {
-                altair::get_base_reward(effective_balance, base_reward_per_increment, spec)?
+                (
+                    altair::get_base_reward(effective_balance, base_reward_per_increment, spec)?,
+                    altair::get_base_reward(
+                        effective_balance,
+                        previous_epoch_base_reward_per_increment,
+                        spec,
+                    )?,
+                )
             };
             base_rewards.push(base_reward);
+            previous_epoch_base_rewards.push(previous_epoch_base_reward);
         }
 
         Ok(EpochCache::new(
             self.epoch_key,
             self.effective_balances,
             base_rewards,
+            previous_epoch_base_rewards,
             activation_queue,
             spec,
         ))

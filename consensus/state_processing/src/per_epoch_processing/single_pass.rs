@@ -265,7 +265,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             || (validator.slashed && previous_epoch.safe_add(1)? < validator.withdrawable_epoch);
 
         let base_reward = if is_eligible {
-            epoch_cache.get_base_reward(index)?
+            epoch_cache.get_base_reward_for_epoch(index, previous_epoch)?
         } else {
             0
         };
@@ -753,9 +753,14 @@ fn get_inactivity_penalty_delta(
         let penalty_numerator = validator_info
             .effective_balance
             .safe_mul(*inactivity_score)?;
+        let previous_epoch = state_ctxt.current_epoch.saturating_sub(1u64);
+        let genesis_slot_duration_ms = spec.get_slot_duration_ms(Epoch::new(0));
+        let previous_slot_duration_ms = spec.get_slot_duration_ms(previous_epoch);
         let penalty_denominator = spec
             .inactivity_score_bias
-            .safe_mul(spec.inactivity_penalty_quotient_for_fork(state_ctxt.fork_name))?;
+            .safe_mul(spec.inactivity_penalty_quotient_for_fork(state_ctxt.fork_name))?
+            .safe_mul(genesis_slot_duration_ms.safe_mul(genesis_slot_duration_ms)?)?
+            .safe_div(previous_slot_duration_ms.safe_mul(previous_slot_duration_ms)?)?;
         delta.penalize(penalty_numerator.safe_div(penalty_denominator)?)?;
     }
     Ok(())
@@ -994,13 +999,22 @@ fn get_activation_exit_churn_limit(
     state_ctxt: &StateContext,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
-    let max_limit = if state_ctxt.fork_name.gloas_enabled() {
-        spec.max_per_epoch_activation_churn_limit_gloas
-    } else {
-        spec.max_per_epoch_activation_exit_churn_limit
-    };
+    if state_ctxt.fork_name.gloas_enabled() {
+        let churn = std::cmp::max(
+            spec.min_per_epoch_churn_limit_electra,
+            state_ctxt
+                .total_active_balance
+                .safe_div(spec.churn_limit_quotient_gloas)?,
+        );
+        // EIP-8198 caps, scales, then rounds once. This equals the Gloas rule while the cap is a
+        // multiple of `effective_balance_increment`.
+        let churn = std::cmp::min(spec.max_per_epoch_activation_churn_limit_gloas, churn)
+            .safe_mul(spec.get_slot_duration_ms(state_ctxt.current_epoch))?
+            .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?;
+        return Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?);
+    }
     Ok(std::cmp::min(
-        max_limit,
+        spec.max_per_epoch_activation_exit_churn_limit,
         get_balance_churn_limit(state_ctxt, spec)?,
     ))
 }
@@ -1016,6 +1030,13 @@ fn get_balance_churn_limit(state_ctxt: &StateContext, spec: &ChainSpec) -> Resul
         spec.min_per_epoch_churn_limit_electra,
         total_active_balance.safe_div(quotient)?,
     );
+    let churn = if state_ctxt.fork_name.gloas_enabled() {
+        churn
+            .safe_mul(spec.get_slot_duration_ms(state_ctxt.current_epoch))?
+            .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?
+    } else {
+        churn
+    };
 
     Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
 }

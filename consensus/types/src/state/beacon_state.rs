@@ -3137,6 +3137,15 @@ impl<E: EthSpec> BeaconState<E> {
         self.epoch_cache().get_base_reward(validator_index)
     }
 
+    pub fn get_base_reward_for_epoch(
+        &self,
+        validator_index: usize,
+        epoch: Epoch,
+    ) -> Result<u64, EpochCacheError> {
+        self.epoch_cache()
+            .get_base_reward_for_epoch(validator_index, epoch)
+    }
+
     /// Get the proportional slashing multiplier for the current fork.
     pub fn get_proportional_slashing_multiplier(&self, spec: &ChainSpec) -> u64 {
         let fork_name = self.fork_name_unchecked();
@@ -3187,6 +3196,13 @@ impl<E: EthSpec> BeaconState<E> {
             spec.min_per_epoch_churn_limit_electra,
             total_active_balance.safe_div(quotient)?,
         );
+        let churn = if self.fork_name_unchecked().gloas_enabled() {
+            churn
+                .safe_mul(spec.get_slot_duration_ms(self.current_epoch()))?
+                .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?
+        } else {
+            churn
+        };
 
         Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
     }
@@ -3199,13 +3215,21 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
         spec: &ChainSpec,
     ) -> Result<u64, BeaconStateError> {
-        let max_limit = if self.fork_name_unchecked().gloas_enabled() {
-            spec.max_per_epoch_activation_churn_limit_gloas
-        } else {
-            spec.max_per_epoch_activation_exit_churn_limit
-        };
+        if self.fork_name_unchecked().gloas_enabled() {
+            let churn = std::cmp::max(
+                spec.min_per_epoch_churn_limit_electra,
+                self.get_total_active_balance()?
+                    .safe_div(spec.churn_limit_quotient_gloas)?,
+            );
+            // EIP-8198 caps, scales, then rounds once. This equals the Gloas rule while the cap is a
+            // multiple of `effective_balance_increment`.
+            let churn = std::cmp::min(spec.max_per_epoch_activation_churn_limit_gloas, churn)
+                .safe_mul(spec.get_slot_duration_ms(self.current_epoch()))?
+                .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?;
+            return Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?);
+        }
         Ok(std::cmp::min(
-            max_limit,
+            spec.max_per_epoch_activation_exit_churn_limit,
             self.get_balance_churn_limit(spec)?,
         ))
     }
@@ -3220,7 +3244,10 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_consolidation_churn_limit(&self, spec: &ChainSpec) -> Result<u64, BeaconStateError> {
         if self.fork_name_unchecked().gloas_enabled() {
             let total_active_balance = self.get_total_active_balance()?;
-            let churn = total_active_balance.safe_div(spec.consolidation_churn_limit_quotient)?;
+            let churn = total_active_balance
+                .safe_div(spec.consolidation_churn_limit_quotient)?
+                .safe_mul(spec.get_slot_duration_ms(self.current_epoch()))?
+                .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?;
             Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
         } else {
             self.get_balance_churn_limit(spec)?
