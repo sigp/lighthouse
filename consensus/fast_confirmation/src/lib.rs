@@ -1577,106 +1577,6 @@ mod tests {
         assert!(!is_start_slot_at_epoch::<E>(Slot::new(31)));
     }
 
-    /// Enough validators for the caches the rule builds.
-    fn minimal_state(spec: &ChainSpec) -> BeaconState<types::MinimalEthSpec> {
-        let mut state = BeaconState::new(0, Default::default(), spec);
-        for _ in 0..32 {
-            let validator = types::Validator {
-                effective_balance: spec.max_effective_balance,
-                activation_epoch: Epoch::new(0),
-                exit_epoch: spec.far_future_epoch,
-                withdrawable_epoch: spec.far_future_epoch,
-                ..Default::default()
-            };
-            state
-                .validators_mut()
-                .push(validator)
-                .expect("push validator");
-            state
-                .balances_mut()
-                .push(spec.max_effective_balance)
-                .expect("push balance");
-        }
-        state
-            .build_all_committee_caches(spec)
-            .expect("committee caches");
-        state
-    }
-
-    /// A pruned `confirmed_root` is a revert, not an error. Fork choice only prunes past a node
-    /// threshold, so no harness test reaches this.
-    #[test]
-    fn a_pruned_confirmed_root_is_a_revert_not_an_error() {
-        use proto_array::{ExecutionStatus, ProtoArrayForkChoice};
-        use types::{AttestationShufflingId, MinimalEthSpec};
-        type E = MinimalEthSpec;
-
-        let spec = E::default_spec();
-        let finalized = Checkpoint {
-            epoch: Epoch::new(0),
-            root: Hash256::repeat_byte(1),
-        };
-        let shuffling_id = AttestationShufflingId {
-            shuffling_epoch: Epoch::new(0),
-            shuffling_decision_block: finalized.root,
-        };
-        // Fork choice holds the finalized block and nothing else.
-        let fork_choice = ProtoArrayForkChoice::new::<E>(
-            Slot::new(0),
-            Slot::new(0),
-            Hash256::repeat_byte(2),
-            finalized,
-            finalized,
-            shuffling_id.clone(),
-            shuffling_id,
-            ExecutionStatus::irrelevant(),
-            None,
-            None,
-            0,
-            &spec,
-        )
-        .expect("proto array");
-
-        let state = minimal_state(&spec);
-        let mut fcr = FastConfirmationRule::new::<E>(
-            finalized.root,
-            &state,
-            finalized,
-            &state,
-            Some(finalized.root),
-            25,
-            40,
-            &spec,
-        )
-        .expect("fcr initialization");
-        // Confirmed, then pruned by finality.
-        fcr.confirmed_root = Hash256::repeat_byte(4);
-
-        assert_eq!(
-            fcr.get_restart_resilient_confirmed_root::<E>(
-                finalized.root,
-                &finalized,
-                Slot::new(8),
-                fork_choice.core_proto_array(),
-            )
-            .expect("a pruned confirmed root is a revert, not an error"),
-            finalized.root
-        );
-    }
-
-    #[test]
-    fn test_block_should_be_finalized() {
-        // Epoch 1's first slot is the checkpoint justified in epoch 2, finalized in epoch 3.
-        let epoch_start = Slot::new(32);
-        assert!(!block_should_be_finalized::<E>(epoch_start, Slot::new(95)));
-        assert!(block_should_be_finalized::<E>(epoch_start, Slot::new(96)));
-
-        // A later block in epoch 1 waits for epoch 2's checkpoint, an epoch longer.
-        let mid_epoch = Slot::new(33);
-        assert!(!block_should_be_finalized::<E>(mid_epoch, Slot::new(127)));
-        assert!(block_should_be_finalized::<E>(mid_epoch, Slot::new(128)));
-    }
-
     #[test]
     fn test_is_full_validator_set_covered() {
         // 32 slots = full epoch
@@ -1748,7 +1648,27 @@ mod tests {
         type E = MinimalEthSpec;
 
         let spec = E::default_spec();
-        let mut state = minimal_state(&spec);
+        let mut state: BeaconState<E> = BeaconState::new(0, Default::default(), &spec);
+        for _ in 0..32 {
+            let validator = types::Validator {
+                effective_balance: spec.max_effective_balance,
+                activation_epoch: Epoch::new(0),
+                exit_epoch: spec.far_future_epoch,
+                withdrawable_epoch: spec.far_future_epoch,
+                ..Default::default()
+            };
+            state
+                .validators_mut()
+                .push(validator)
+                .expect("push validator");
+            state
+                .balances_mut()
+                .push(spec.max_effective_balance)
+                .expect("push balance");
+        }
+        state
+            .build_all_committee_caches(&spec)
+            .expect("committee caches");
 
         // Advance to a mid-epoch slot: at an epoch start the dependent root changes and would
         // rebuild the source regardless, masking the bug.

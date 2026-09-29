@@ -3,7 +3,7 @@ use ssz::{Decode, Encode};
 use store::{DBColumn, Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp, StoreItem};
 use types::{EthSpec, Hash256};
 
-/// The highest-slot root the Fast Confirmation Rule has confirmed.
+/// The deepest root sent to the EL as the FCU safe block hash.
 pub struct PersistedFastConfirmation(Hash256);
 
 /// Spec: `get_root_confirmed_before_restart`. `None` if nothing was ever written.

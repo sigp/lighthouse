@@ -13,13 +13,13 @@ pub static FAST_CONFIRMATION_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(
 pub static FAST_CONFIRMATION_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "beacon_fast_confirmation_slot",
-        "Slot of the block sent to the EL as the FCU safe block hash",
+        "Slot of the most recent confirmed block",
     )
 });
 pub static FAST_CONFIRMATION_ROOT_CHANGES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_fast_confirmation_root_changes_total",
-        "Count of times the root sent as the FCU safe block hash has changed",
+        "Count of times the FCR confirmed root has changed",
     )
 });
 pub static FAST_CONFIRMATION_ERRORS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
@@ -32,7 +32,7 @@ pub static FAST_CONFIRMATION_ERRORS: LazyLock<Result<IntCounterVec>> = LazyLock:
 pub static FAST_CONFIRMATION_DELAY_SLOTS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "beacon_fast_confirmation_delay_slots",
-        "Confirmation delay: current slot minus the slot of the block sent as the FCU safe block hash",
+        "Confirmation delay: current head slot minus confirmed root slot",
     )
 });
 pub static FAST_CONFIRMATION_SETTLED_DELAY_SLOTS: LazyLock<Result<Histogram>> = LazyLock::new(
@@ -55,7 +55,7 @@ pub(crate) static FAST_CONFIRMATION_FALLBACKS: LazyLock<Result<IntCounter>> = La
 pub static FAST_CONFIRMATION_REORG_DISTANCE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "beacon_fast_confirmation_reorg_distance",
-        "Slots from the deepest root sent as the FCU safe block hash back to its fork point with the head",
+        "Slots between a block FCR had confirmed and the point the confirmation withdrew to",
     )
 });
 pub(crate) static FAST_CONFIRMATION_FALLBACK_REASONS: LazyLock<Result<IntCounterVec>> =
@@ -69,14 +69,14 @@ pub(crate) static FAST_CONFIRMATION_FALLBACK_REASONS: LazyLock<Result<IntCounter
 pub static FAST_CONFIRMATION_ROOT_REORGS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_fast_confirmation_root_reorgs_total",
-        "Count of times the newly confirmed root was on a different branch from the deepest root \
-         sent as the FCU safe block hash, i.e. a block FCR had confirmed was reorged out",
+        "Count of times the newly confirmed root was not a descendant of the block FCR had \
+         previously confirmed, i.e. FCR itself moved off a block it had confirmed",
     )
 });
 pub static FAST_CONFIRMATION_REORGS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_fast_confirmation_reorgs_total",
-        "Count of times the head left the chain of the deepest root sent as the FCU safe block hash",
+        "Total number of confirmed block reorganizations",
     )
 });
 pub(crate) static FAST_CONFIRMATION_FALLBACK_SUPPORT_RATIO: LazyLock<Result<Histogram>> =

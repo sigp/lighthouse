@@ -14,8 +14,7 @@
 //! 2. `RwLock<CachedHead>`: Contains a cached block/state from the last run of `proto_array`.
 //! 3. `Mutex<()>`: Is used to prevent concurrent execution of `BeaconChain::recompute_head`.
 //! 4. `Option<Mutex<(FastConfirmationRule, FastConfirmationRoots)>>`: FCR state and the roots it
-//!    has sent the EL (None when disabled). Locked in `recompute_head_at_slot_internal` and in
-//!    `persist_fork_choice`, in both cases while (1) is held. Nothing takes (1) while holding (4).
+//!    has sent the EL (None when disabled).
 //!
 //! This module has to take great efforts to avoid causing a deadlock with these three methods. Any
 //! developers working in this module should tread carefully and seek a detailed review.
@@ -266,7 +265,6 @@ impl<T: BeaconChainTypes> Deref for ForkChoiceUpgradableReadGuard<'_, T> {
     }
 }
 
-/// One FCR run. Its root is spec `get_restart_resilient_confirmed_root`.
 struct FcrOutcome {
     confirmed_root: Hash256,
     confirmed_slot: Slot,
@@ -467,8 +465,9 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     recompute_head_lock: Mutex<()>,
     /// Fast Confirmation Rule state. `None` = FCR disabled.
     ///
-    /// Updated in `recompute_head_at_slot_internal`, under the fork-choice read lock: the rule
-    /// runs, then the root it produced is recorded.
+    /// Updated inside `recompute_head_at_slot_internal` after `get_head` completes, while
+    /// the fork-choice read lock is still held. The Mutex is only locked briefly during
+    /// FCR computation, which is already serialized by `recompute_head_lock`.
     pub fast_confirmation: Option<Mutex<(FastConfirmationRule, FastConfirmationRoots)>>,
     /// Set when fork choice has diverged from the store. Poisoned fork choice is never persisted.
     fork_choice_poisoned: AtomicBool,
@@ -476,10 +475,9 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
 
 /// The roots this node has sent its EL as the FCU safe block hash.
 pub struct FastConfirmationRoots {
-    /// The root sent last: FCR's confirmed root when it ran, the finalized block when it did not.
+    /// The root sent last.
     pub announced_root: Hash256,
-    /// The deepest root sent so far. Stepping back to an ancestor of it is a loss of confidence,
-    /// not a reorg, so reorgs are measured against this one.
+    /// Deepest announced descendant of `announced_root`.
     pub deepest_announced_root: Hash256,
 }
 
@@ -507,10 +505,11 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
                 spec,
             )
             .map_err(|e| format!("Unable to initialize fast confirmation rule: {e:?}"))?;
-            // Nothing sent yet, and the startup update sends the finalized block.
+            // The startup update sends the finalized block. The deepest carries on from disk.
             let roots = FastConfirmationRoots {
                 announced_root: fork_choice_view.finalized_checkpoint.root,
-                deepest_announced_root: fork_choice_view.finalized_checkpoint.root,
+                deepest_announced_root: root_confirmed_before_restart
+                    .unwrap_or(fork_choice_view.finalized_checkpoint.root),
             };
             Some(Mutex::new((rule, roots)))
         } else {
@@ -1020,7 +1019,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 old_deepest
             } else {
                 // A block FCR confirmed was reorged out. Its assumptions rule this out.
-                crit!(
+                warn!(
                     previous_deepest = ?old_deepest,
                     ?confirmed_root,
                     %current_slot,
@@ -1062,9 +1061,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // Exit early if nothing changed — unless the safe block hash moved, in which case we
-        // proceed so it reaches the EL now rather than at the next head change. The head-unchanged
-        // path below handles that (reuses the snapshot, skips `after_new_head`).
+        // Exit early if nothing changed — unless FCR advanced `confirmed_root`, in which case we
+        // proceed so the new `safe_block_hash` reaches the EL now instead of at the next head
+        // change. The head-unchanged path below handles this (reuses the snapshot, skips
+        // `after_new_head`).
         if new_view == old_view
             && new_payload_status == old_payload_status
             && new_forkchoice_update_parameters == old_forkchoice_update_parameters
@@ -1286,10 +1286,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(Some(el_update_handle))
     }
 
-    /// `ForkChoice::is_descendant`, with an ancestor fork choice no longer holds read as the
-    /// finalized block. Everything fork choice holds descends from that one. Only roots behind
-    /// finality get there: a root on a dead branch stops being tracked on the run before the
-    /// finalization that prunes it.
+    /// `ForkChoice::is_descendant`, reading an ancestor fork choice has pruned as the finalized
+    /// block, which everything descends from.
     fn is_descendant(
         fork_choice: &BeaconForkChoice<T>,
         ancestor_root: Hash256,
@@ -1753,35 +1751,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Write FCR's confirmed root for the next boot, if its slot beats the stored one. Keeping the
-    /// higher slot stops a persist just after a fallback from lowering it. A reverted or reorged
-    /// root then stays until the live chain confirms past its slot.
+    /// Write the deepest root sent as the FCU safe block hash, for the next boot to read. It only
+    /// moves along one chain, so a fallback to finality cannot lower what a restart finds.
     fn persist_fast_confirmation_root_in_batch(&self) -> Option<KeyValueStoreOp> {
-        let stored_root = match load_root_confirmed_before_restart(&self.store) {
-            Ok(stored_root) => stored_root,
-            Err(e) => {
-                debug!(error = ?e, "Not persisting the FCR confirmed root");
-                return None;
-            }
-        };
-
-        let fork_choice = self.canonical_head.fork_choice_read_lock();
-        let confirmed_root = self
+        let deepest_announced_root = self
             .canonical_head
             .fast_confirmation
             .as_ref()?
             .lock()
-            .0
-            .confirmed_root;
-        let confirmed_slot = fork_choice.get_block(&confirmed_root)?.slot;
-        // Gone from fork choice, so no use to the next boot.
-        let stored_slot = stored_root
-            .and_then(|stored_root| fork_choice.get_block(&stored_root))
-            .map(|stored_block| stored_block.slot);
-
-        stored_slot
-            .is_none_or(|stored_slot| confirmed_slot > stored_slot)
-            .then(|| persist_confirmed_root_in_batch(confirmed_root))
+            .1
+            .deepest_announced_root;
+        Some(persist_confirmed_root_in_batch(deepest_announced_root))
     }
 
     /// Return a database operation for writing fork choice to disk.

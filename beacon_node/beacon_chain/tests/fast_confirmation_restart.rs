@@ -1,14 +1,5 @@
 #![cfg(not(debug_assertions))]
 
-//! The root the Fast Confirmation Rule sends the EL must not move backwards across a restart. The
-//! rule itself is re-seeded from the finalized checkpoint on every boot, so its own root does.
-//!
-//! Oracle: a harness node that never restarts is fed the same blocks, attestations and clock as
-//! the node under test. The node may only regress when the harness does, which excludes the
-//! reverts the spec mandates. Restarts go through `BeaconChainBuilder::resume_from_db`.
-//!
-//! The tests at the end are the ones that oracle cannot state.
-
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, ChainConfig,
     chain_config::FastConfirmationMode,
@@ -18,12 +9,17 @@ use beacon_chain::{
 };
 use bls::Keypair;
 use eth2::types::SignedBlockContentsTuple;
+use fast_confirmation::FastConfirmationRule;
+use proto_array::{ExecutionStatus, ProtoArrayForkChoice};
 use slot_clock::SlotClock;
 use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
 use tempfile::{TempDir, tempdir};
-use types::{BeaconState, EthSpec, Hash256, MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot};
+use types::{
+    AttestationShufflingId, BeaconState, Checkpoint, Epoch, EthSpec, Hash256, MinimalEthSpec,
+    SignedExecutionPayloadEnvelope, Slot,
+};
 
 type E = MinimalEthSpec;
 type Harness = BeaconChainHarness<DiskHarnessType<E>>;
@@ -712,5 +708,84 @@ async fn falls_back_to_finalized_after_a_long_downtime() {
         confirmed(&rig.node.chain).unwrap().0,
         finalized(&rig.node.chain),
         "a stale pre-restart root must not be used"
+    );
+}
+
+/// A pruned `confirmed_root` is a revert, not an error. Fork choice only prunes past a node
+/// threshold, so no harness test reaches this.
+#[test]
+fn a_pruned_confirmed_root_is_a_revert_not_an_error() {
+    let spec = test_spec::<E>();
+    let finalized = Checkpoint {
+        epoch: Epoch::new(0),
+        root: Hash256::repeat_byte(1),
+    };
+    let shuffling_id = AttestationShufflingId {
+        shuffling_epoch: Epoch::new(0),
+        shuffling_decision_block: finalized.root,
+    };
+    // Fork choice holds the finalized block and nothing else.
+    let fork_choice = ProtoArrayForkChoice::new::<E>(
+        Slot::new(0),
+        Slot::new(0),
+        Hash256::repeat_byte(2),
+        finalized,
+        finalized,
+        shuffling_id.clone(),
+        shuffling_id,
+        ExecutionStatus::irrelevant(),
+        None,
+        None,
+        0,
+        &spec,
+    )
+    .expect("proto array");
+
+    // Enough validators for the caches the rule builds.
+    let mut state: BeaconState<E> = BeaconState::new(0, Default::default(), &spec);
+    for _ in 0..32 {
+        let validator = types::Validator {
+            effective_balance: spec.max_effective_balance,
+            activation_epoch: Epoch::new(0),
+            exit_epoch: spec.far_future_epoch,
+            withdrawable_epoch: spec.far_future_epoch,
+            ..Default::default()
+        };
+        state
+            .validators_mut()
+            .push(validator)
+            .expect("push validator");
+        state
+            .balances_mut()
+            .push(spec.max_effective_balance)
+            .expect("push balance");
+    }
+    state
+        .build_all_committee_caches(&spec)
+        .expect("committee caches");
+
+    let mut fcr = FastConfirmationRule::new::<E>(
+        finalized.root,
+        &state,
+        finalized,
+        &state,
+        Some(finalized.root),
+        25,
+        40,
+        &spec,
+    )
+    .expect("fcr initialization");
+    // Confirmed, then pruned by finality.
+    fcr.confirmed_root = Hash256::repeat_byte(4);
+
+    assert_eq!(
+        fcr.get_restart_resilient_confirmed_root::<E>(
+            finalized.root,
+            &finalized,
+            Slot::new(8),
+            fork_choice.core_proto_array(),
+        )
+        .expect("a pruned confirmed root is a revert, not an error"),
+        finalized.root
     );
 }

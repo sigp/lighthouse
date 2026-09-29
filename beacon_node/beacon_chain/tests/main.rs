@@ -6,7 +6,7 @@ mod block_verification;
 mod column_verification;
 mod envelope_verification;
 mod events;
-mod fcr_restart;
+mod fast_confirmation_restart;
 mod inclusion_list_store;
 mod op_verification;
 mod payload_invalidation;
