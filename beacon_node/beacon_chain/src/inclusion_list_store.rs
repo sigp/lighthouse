@@ -311,7 +311,7 @@ mod tests {
     }
 
     fn tx(byte: u8) -> ProgressiveVariableList<u8> {
-        ProgressiveVariableList::new(vec![byte])
+        ProgressiveVariableList::new(vec![byte]).unwrap()
     }
 
     fn signed_il(
@@ -327,7 +327,8 @@ mod tests {
                 dependent_root,
                 transactions: ProgressiveVariableList::new(
                     tx_bytes.iter().map(|b| tx(*b)).collect(),
-                ),
+                )
+                .unwrap(),
             },
             signature: Signature::empty(),
         }

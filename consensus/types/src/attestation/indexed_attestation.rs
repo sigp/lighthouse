@@ -68,17 +68,9 @@ pub struct IndexedAttestation<E: EthSpec> {
     // [Modified in Gloas:EIP7688]
     #[superstruct(only(Gloas), partial_getter(rename = "attesting_indices_gloas"))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    pub attesting_indices: ProgressiveVariableList<u64>,
+    pub attesting_indices: ProgressiveVariableList<u64, E::MaxValidatorsPerSlot>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
-    // The Gloas variant has no fields referencing `E`, so it requires a phantom field. This is
-    // skipped for all (de)serialization and hashing purposes.
-    #[superstruct(only(Gloas))]
-    #[ssz(skip_serializing, skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[serde(skip)]
-    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub _phantom: std::marker::PhantomData<E>,
 }
 
 impl<E: EthSpec> IndexedAttestation<E> {
@@ -167,19 +159,18 @@ impl<E: EthSpec> IndexedAttestation<E> {
         }
     }
 
-    pub fn to_gloas(self) -> IndexedAttestationGloas<E> {
-        let attesting_indices = ProgressiveVariableList::new(self.attesting_indices_to_vec());
+    pub fn to_gloas(self) -> Result<IndexedAttestationGloas<E>, ssz_types::Error> {
+        let attesting_indices = ProgressiveVariableList::new(self.attesting_indices_to_vec())?;
         let (data, signature) = match self {
             Self::Base(att) => (att.data, att.signature),
             Self::Electra(att) => (att.data, att.signature),
-            Self::Gloas(att) => return att,
+            Self::Gloas(att) => return Ok(att),
         };
-        IndexedAttestationGloas {
+        Ok(IndexedAttestationGloas {
             attesting_indices,
             data,
             signature,
-            _phantom: std::marker::PhantomData,
-        }
+        })
     }
 }
 
