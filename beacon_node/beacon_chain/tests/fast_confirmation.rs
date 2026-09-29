@@ -231,23 +231,3 @@ async fn falls_back_to_finalized_after_a_long_downtime() {
         "FCR should fall back to the finalized block"
     );
 }
-
-#[tokio::test]
-async fn announced_root_is_persisted_for_the_next_restart() {
-    let pre = confirm_then_shut_down().await;
-
-    // The first restart announces the pre-restart root without confirming anything itself. That
-    // root must be written again, or a second restart would fall back to the finalized block.
-    let restarted = restart(&pre.harness, 1);
-    restarted.chain.recompute_head_at_current_slot().await;
-    restarted
-        .chain
-        .persist_fork_choice()
-        .expect("should persist fork choice");
-
-    let restarted_again = restart(&restarted, 1);
-    restarted_again.chain.recompute_head_at_current_slot().await;
-
-    let (_, announced_root) = confirmed_roots(&restarted_again.chain);
-    assert_eq!(announced_root, pre.confirmed_root);
-}
