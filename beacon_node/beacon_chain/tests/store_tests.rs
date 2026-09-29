@@ -2248,6 +2248,174 @@ async fn check_prunes_envelopes_finalized_as_empty(prune_payloads: bool) {
     check_db_invariants(&rig);
 }
 
+/// A missing finalized block must not abort hot DB pruning, otherwise every later prune would
+/// fail on the same block.
+#[tokio::test]
+async fn payload_pruning_tolerates_missing_finalized_block() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(
+        &db_path,
+        StoreConfig {
+            prune_payloads: true,
+            ..StoreConfig::default()
+        },
+        spec,
+    );
+    let rig = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    rig.extend_chain(
+        E::slots_per_epoch() as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    )
+    .await;
+
+    let block_root_at = |slot: u64| {
+        rig.chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap()
+            .unwrap()
+    };
+    let missing_root = block_root_at(4);
+    let pruned_root = block_root_at(3);
+    assert!(store.payload_body_exists(&pruned_root).unwrap());
+    store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeleteBlock(missing_root)])
+        .unwrap();
+
+    rig.advance_slot();
+    rig.extend_chain(
+        E::slots_per_epoch() as usize * 4,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    )
+    .await;
+
+    assert!(
+        store.get_split_slot() > Slot::new(4),
+        "missing block should be finalized"
+    );
+    assert!(
+        !store.payload_body_exists(&pruned_root).unwrap(),
+        "hot DB pruning should continue past the missing block"
+    );
+    assert!(
+        store.payload_envelope_summary_exists(&pruned_root).unwrap(),
+        "the parent of the missing block keeps its summary"
+    );
+}
+
+/// Payload attribute withdrawals only need the parent's execution requests, which remain
+/// available from the summary after the parent's payload body has been pruned.
+#[tokio::test]
+async fn payload_attribute_withdrawals_use_summary_after_body_pruning() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let rig = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    rig.extend_chain(
+        4,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    )
+    .await;
+
+    // Propose on the head's parent, so that the parent envelope is loaded from the store rather
+    // than the cached head.
+    let head = rig.chain.head_snapshot();
+    let parent_root = head.beacon_block.parent_root();
+    let parent_block = store.get_blinded_block(&parent_root).unwrap().unwrap();
+    let params = fork_choice::ForkchoiceUpdateParameters {
+        head_root: parent_root,
+        head_hash: Some(parent_block.payload_bid_block_hash().unwrap()),
+        justified_hash: None,
+        finalized_hash: None,
+    };
+    let proposal_slot = head.beacon_block.slot() + 1;
+    let expected = rig
+        .chain
+        .compute_withdrawals_for_payload_attributes(&params, proposal_slot)
+        .unwrap();
+
+    store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayload(parent_root)])
+        .unwrap();
+    assert!(!store.payload_body_exists(&parent_root).unwrap());
+
+    let withdrawals = rig
+        .chain
+        .compute_withdrawals_for_payload_attributes(&params, proposal_slot)
+        .unwrap();
+    assert_eq!(withdrawals, expected);
+}
+
+#[tokio::test]
+async fn payload_attribute_withdrawals_use_head_summary_after_restart() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let rig = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    rig.extend_chain(
+        4,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    )
+    .await;
+
+    let head = rig.chain.head_snapshot();
+    let head_root = head.beacon_block_root;
+    let params = fork_choice::ForkchoiceUpdateParameters {
+        head_root,
+        head_hash: Some(head.beacon_block.payload_bid_block_hash().unwrap()),
+        justified_hash: None,
+        finalized_hash: None,
+    };
+    let proposal_slot = head.beacon_block.slot() + 1;
+    let expected = rig
+        .chain
+        .compute_withdrawals_for_payload_attributes(&params, proposal_slot)
+        .unwrap();
+
+    store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayload(head_root)])
+        .unwrap();
+    assert!(store.payload_envelope_summary_exists(&head_root).unwrap());
+    assert!(!store.payload_body_exists(&head_root).unwrap());
+    rig.chain.persist_fork_choice().unwrap();
+    rig.chain.persist_op_pool().unwrap();
+
+    let resumed = TestHarness::builder(MinimalEthSpec)
+        .spec(store.get_chain_spec().clone())
+        .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
+        .resumed_disk_store(store)
+        .testing_slot_clock(rig.chain.slot_clock.clone())
+        .execution_layer(rig.chain.execution_layer.clone())
+        .chain_config(ChainConfig {
+            archive: true,
+            ..ChainConfig::default()
+        })
+        .build();
+    assert!(resumed.chain.head_snapshot().execution_envelope.is_none());
+
+    let withdrawals = resumed
+        .chain
+        .compute_withdrawals_for_payload_attributes(&params, proposal_slot)
+        .unwrap();
+    assert_eq!(withdrawals, expected);
+}
+
 #[tokio::test]
 async fn gloas_payload_database_invariants() {
     for prune_payloads in [true, false] {

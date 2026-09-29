@@ -825,11 +825,10 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
         // to its parent's payload status, including when there are skipped slots between them.
         for (block_root, slot) in finalized_blocks.iter().rev() {
             if store.spec.fork_name_at_slot::<E>(*slot).gloas_enabled() {
-                let block = store
-                    .get_blinded_block(block_root)?
-                    .ok_or(PruningError::MissingBlindedBlock(*block_root))?;
+                let block = store.get_blinded_block(block_root)?;
 
-                if let Some(child) = &child_block
+                if let Some(block) = &block
+                    && let Some(child) = &child_block
                     && child.parent_root() == *block_root
                     && !child.is_parent_block_full(block.payload_bid_block_hash()?)
                 {
@@ -838,7 +837,18 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
                     // This applies even to nodes that retain canonical payload bodies.
                     hot_db_ops.push(StoreOp::DeletePayloadWithSummary(*block_root));
                 }
-                child_block = Some(block);
+
+                if block.is_none() {
+                    // Erroring here would abort the entire hot DB prune, and every later prune
+                    // would fail on the same block. Without this block its parent's payload
+                    // status is unknown, so the parent's summary is conservatively retained.
+                    error!(
+                        ?block_root,
+                        %slot,
+                        "Missing finalized block while pruning payload envelopes"
+                    );
+                }
+                child_block = block;
             }
 
             // Delete the execution payload if payload pruning is enabled. At a skipped slot we may

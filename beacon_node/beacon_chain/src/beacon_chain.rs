@@ -5386,21 +5386,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // For Gloas, when the head payload is Full, we need to apply the parent's
         // execution requests to the state to get the correct withdrawals.
         if parent_payload_status == Some(fork_choice::PayloadStatus::Full) {
-            let envelope = if parent_block_root == head_block_root {
-                cached_head.snapshot.execution_envelope.clone()
+            // Only the execution requests are needed. A restarted head may have no cached
+            // envelope if its payload body was pruned, but its summary is still retained.
+            let cached_execution_requests = if parent_block_root == head_block_root {
+                cached_head
+                    .snapshot
+                    .execution_envelope
+                    .as_ref()
+                    .map(|envelope| envelope.message.execution_requests.clone())
             } else {
-                self.store
-                    .get_signed_payload_envelope(&parent_block_root)?
-                    .map(Arc::new)
-            }
-            .ok_or(Error::MissingExecutionPayloadEnvelope(parent_block_root))?;
+                None
+            };
+            let execution_requests = match cached_execution_requests {
+                Some(requests) => requests,
+                None => self
+                    .store
+                    .get_payload_envelope_summary(&parent_block_root)?
+                    .map(|summary| summary.execution_requests)
+                    .ok_or(Error::MissingExecutionPayloadEnvelope(parent_block_root))?,
+            };
 
-            apply_parent_execution_payload(
-                &mut advanced_state,
-                &envelope.message.execution_requests,
-                &self.spec,
-            )
-            .map_err(Error::PrepareProposerFailed)?;
+            apply_parent_execution_payload(&mut advanced_state, &execution_requests, &self.spec)
+                .map_err(Error::PrepareProposerFailed)?;
         }
 
         get_expected_withdrawals(&advanced_state, &self.spec)
