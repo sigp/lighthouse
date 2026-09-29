@@ -257,7 +257,8 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
             source_address: Address::repeat_byte(0),
             validator_pubkey: PublicKeyBytes::empty(),
             amount: 0,
-        });
+        })
+        .unwrap();
 
     let result = harness
         .chain
