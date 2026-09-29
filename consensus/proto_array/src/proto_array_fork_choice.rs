@@ -98,7 +98,7 @@ pub struct LatestMessage {
     pub payload_present: bool,
 }
 
-/// Represents the verification status of an execution payload pre-Gloas.
+/// Represents the verification status of an execution payload.
 ///
 /// Do not implement a direct conversion to `ExecutionVerdict`; deriving a verdict requires fork
 /// choice state.
