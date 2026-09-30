@@ -90,6 +90,7 @@ struct StateContext {
 struct RewardsAndPenaltiesContext {
     unslashed_participating_increments_array: [u64; NUM_FLAG_INDICES],
     active_increments: u64,
+    inactivity_penalty_denominator: u64,
 }
 
 struct SlashingsContext {
@@ -301,7 +302,6 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                     validator_info,
                     rewards_ctxt,
                     state_ctxt,
-                    spec,
                 )?;
             }
         }
@@ -670,7 +670,6 @@ fn process_single_reward_and_penalty(
     validator_info: &ValidatorInfo,
     rewards_ctxt: &RewardsAndPenaltiesContext,
     state_ctxt: &StateContext,
-    spec: &ChainSpec,
 ) -> Result<(), Error> {
     if !validator_info.is_eligible {
         return Ok(());
@@ -686,13 +685,7 @@ fn process_single_reward_and_penalty(
             state_ctxt,
         )?;
     }
-    get_inactivity_penalty_delta(
-        &mut delta,
-        validator_info,
-        inactivity_score,
-        state_ctxt,
-        spec,
-    )?;
+    get_inactivity_penalty_delta(&mut delta, validator_info, inactivity_score, rewards_ctxt)?;
 
     if delta.rewards != 0 || delta.penalties != 0 {
         let balance = balance.make_mut()?;
@@ -746,22 +739,13 @@ fn get_inactivity_penalty_delta(
     delta: &mut Delta,
     validator_info: &ValidatorInfo,
     inactivity_score: &u64,
-    state_ctxt: &StateContext,
-    spec: &ChainSpec,
+    rewards_ctxt: &RewardsAndPenaltiesContext,
 ) -> Result<(), Error> {
     if !validator_info.is_unslashed_participating_index(TIMELY_TARGET_FLAG_INDEX)? {
         let penalty_numerator = validator_info
             .effective_balance
             .safe_mul(*inactivity_score)?;
-        let previous_epoch = state_ctxt.current_epoch.saturating_sub(1u64);
-        let genesis_slot_duration_ms = spec.get_slot_duration_ms(Epoch::new(0));
-        let previous_slot_duration_ms = spec.get_slot_duration_ms(previous_epoch);
-        let penalty_denominator = spec
-            .inactivity_score_bias
-            .safe_mul(spec.inactivity_penalty_quotient_for_fork(state_ctxt.fork_name))?
-            .safe_mul(genesis_slot_duration_ms.safe_mul(genesis_slot_duration_ms)?)?
-            .safe_div(previous_slot_duration_ms.safe_mul(previous_slot_duration_ms)?)?;
-        delta.penalize(penalty_numerator.safe_div(penalty_denominator)?)?;
+        delta.penalize(penalty_numerator.safe_div(rewards_ctxt.inactivity_penalty_denominator)?)?;
     }
     Ok(())
 }
@@ -786,10 +770,19 @@ impl RewardsAndPenaltiesContext {
         let active_increments = state_ctxt
             .total_active_balance
             .safe_div(spec.effective_balance_increment)?;
+        let previous_epoch = state_ctxt.current_epoch.saturating_sub(1u64);
+        let genesis_slot_duration_ms = spec.get_slot_duration_ms(Epoch::new(0));
+        let previous_slot_duration_ms = spec.get_slot_duration_ms(previous_epoch);
+        let inactivity_penalty_denominator = spec
+            .inactivity_score_bias
+            .safe_mul(spec.inactivity_penalty_quotient_for_fork(state_ctxt.fork_name))?
+            .safe_mul(genesis_slot_duration_ms.safe_mul(genesis_slot_duration_ms)?)?
+            .safe_div(previous_slot_duration_ms.safe_mul(previous_slot_duration_ms)?)?;
 
         Ok(Self {
             unslashed_participating_increments_array,
             active_increments,
+            inactivity_penalty_denominator,
         })
     }
 

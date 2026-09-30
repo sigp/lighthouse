@@ -205,7 +205,7 @@ pub fn initialize_epoch_cache<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{Epoch, MinimalEthSpec};
+    use types::{Epoch, MinimalEthSpec, SlotDurationSchedule, SlotDurationScheduleEntry};
 
     /// Regression test for division-by-zero when all validators have zero effective balance.
     ///
@@ -236,5 +236,52 @@ mod tests {
 
         // Base reward for validator index 0 should be 0.
         assert_eq!(epoch_cache.get_base_reward(0).unwrap(), 0);
+    }
+
+    #[test]
+    fn base_reward_for_epoch_across_a_slot_duration_change() {
+        let mut spec = ChainSpec::minimal().set_slot_duration_schedule::<MinimalEthSpec>(
+            SlotDurationSchedule::new(vec![
+                SlotDurationScheduleEntry {
+                    epoch: Epoch::new(0),
+                    slot_duration_ms: 6000,
+                },
+                SlotDurationScheduleEntry {
+                    epoch: Epoch::new(2),
+                    slot_duration_ms: 3000,
+                },
+            ]),
+        );
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        let epoch_cache_at = |epoch: u64| {
+            PreEpochCache {
+                epoch_key: EpochCacheKey {
+                    epoch: Epoch::new(epoch),
+                    decision_block_root: Hash256::zero(),
+                },
+                effective_balances: vec![spec.max_effective_balance; 4],
+                total_active_balance: spec.max_effective_balance * 4,
+            }
+            .into_epoch_cache(ActivationQueue::default(), &spec)
+            .unwrap()
+        };
+        let epoch_cache = epoch_cache_at(2);
+
+        let current = epoch_cache
+            .get_base_reward_for_epoch(0, Epoch::new(2))
+            .unwrap();
+        let previous = epoch_cache
+            .get_base_reward_for_epoch(0, Epoch::new(1))
+            .unwrap();
+        assert_eq!(current, epoch_cache.get_base_reward(0).unwrap());
+        assert_eq!(previous, epoch_cache_at(1).get_base_reward(0).unwrap());
+        assert!(current < previous);
+
+        for epoch in [0, 3] {
+            assert!(matches!(
+                epoch_cache.get_base_reward_for_epoch(0, Epoch::new(epoch)),
+                Err(EpochCacheError::IncorrectEpoch { .. })
+            ));
+        }
     }
 }
