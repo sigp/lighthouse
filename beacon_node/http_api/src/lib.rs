@@ -2736,6 +2736,14 @@ pub async fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    // Manual finalization is not compatible with FCR.
+                    // See: https://github.com/sigp/lighthouse/issues/10166
+                    if chain.canonical_head.fast_confirmation.is_some() {
+                        return Err(warp_utils::reject::custom_bad_request(
+                            "manual finalization is not compatible with FCR".into(),
+                        ));
+                    }
+
                     let checkpoint = Checkpoint {
                         epoch: request_data.epoch,
                         root: request_data.block_root,

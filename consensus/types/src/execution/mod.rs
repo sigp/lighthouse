@@ -57,5 +57,8 @@ pub use signed_execution_payload_bid::{
     SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
     SignedExecutionPayloadBidRef,
 };
-pub use signed_execution_payload_envelope::SignedExecutionPayloadEnvelope;
+pub use signed_execution_payload_envelope::{
+    ExecutionPayloadBody, ExecutionPayloadHeaderGloas, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeSummary,
+};
 pub use signed_inclusion_list::SignedInclusionList;
