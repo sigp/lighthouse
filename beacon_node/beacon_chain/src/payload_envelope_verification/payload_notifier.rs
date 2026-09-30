@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use execution_layer::{NewPayloadRequest, NewPayloadRequestGloas};
+use execution_layer::{NewPayloadRequest, NewPayloadRequestGloas, NewPayloadRequestHeze};
 use fork_choice::PayloadVerificationStatus;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use tracing::warn;
@@ -31,7 +31,8 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
-                    let new_payload_request = Self::build_new_payload_request(&envelope, &block)?;
+                    let new_payload_request =
+                        Self::build_new_payload_request(&chain, &envelope, &block)?;
                     // TODO(gloas): check and test RLP block hash calculation post-Gloas
                     if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
@@ -63,12 +64,14 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
-            let request = Self::build_new_payload_request(&self.envelope, &self.block)?;
+            let request =
+                Self::build_new_payload_request(&self.chain, &self.envelope, &self.block)?;
             notify_new_payload(&self.chain, self.envelope.slot(), request).await
         }
     }
 
     fn build_new_payload_request<'a>(
+        chain: &BeaconChain<T>,
         envelope: &'a SignedExecutionPayloadEnvelope<T::EthSpec>,
         block: &'a SignedBeaconBlock<T::EthSpec>,
     ) -> Result<NewPayloadRequest<'a, T::EthSpec>, PayloadVerificationError> {
@@ -85,11 +88,29 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             .map(kzg_commitment_to_versioned_hash)
             .collect();
 
-        Ok(NewPayloadRequest::Gloas(NewPayloadRequestGloas {
-            execution_payload: &envelope.message.payload,
-            versioned_hashes,
-            parent_beacon_block_root: envelope.message.parent_beacon_block_root,
-            execution_requests: &envelope.message.execution_requests,
-        }))
+        if chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(block.slot())
+            .heze_enabled()
+        {
+            let inclusion_list_transactions = chain.payload_inclusion_list_transactions(
+                block.parent_root(),
+                block.slot().saturating_sub(1_u64),
+            );
+            Ok(NewPayloadRequest::Heze(NewPayloadRequestHeze {
+                execution_payload: &envelope.message.payload,
+                versioned_hashes,
+                parent_beacon_block_root: envelope.message.parent_beacon_block_root,
+                execution_requests: &envelope.message.execution_requests,
+                inclusion_list_transactions,
+            }))
+        } else {
+            Ok(NewPayloadRequest::Gloas(NewPayloadRequestGloas {
+                execution_payload: &envelope.message.payload,
+                versioned_hashes,
+                parent_beacon_block_root: envelope.message.parent_beacon_block_root,
+                execution_requests: &envelope.message.execution_requests,
+            }))
+        }
     }
 }
