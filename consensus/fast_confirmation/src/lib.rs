@@ -533,11 +533,12 @@ impl FastConfirmationRule {
             return Ok(confirmed_root);
         };
 
-        let root_before_restart_slot = match get_block_slot(root_before_restart, proto_array) {
-            Ok(slot) => slot,
-            // Finality moved past it, or fork choice was rebuilt: the fresh root is all we have.
-            Err(Error::NodeNotFound(_)) => return Ok(confirmed_root),
-            Err(e) => return Err(e),
+        // Finality moved past it, or fork choice was rebuilt: the fresh root is all we have.
+        let Some(root_before_restart_slot) = proto_array
+            .get_block(root_before_restart)
+            .map(|node| node.slot())
+        else {
+            return Ok(confirmed_root);
         };
 
         // Recent confirmed block has advanced beyond the block that was confirmed before the
