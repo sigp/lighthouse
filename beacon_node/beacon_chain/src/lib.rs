@@ -100,7 +100,7 @@ pub use custody_context::CustodyContext;
 pub use events::ServerSentEventHandler;
 pub use execution_layer::EngineState;
 pub use execution_payload::NotifyExecutionLayer;
-pub use fork_choice::{ExecutionStatus, ForkchoiceUpdateParameters};
+pub use fork_choice::{ExecutionVerdict, ForkchoiceUpdateParameters};
 pub use kzg::{Kzg, TrustedSetup};
 pub use metrics::scrape_for_metrics;
 pub use migrate::MigratorConfig;
@@ -108,7 +108,7 @@ pub use parking_lot;
 pub use slot_clock;
 pub use state_processing::per_block_processing::errors::{
     AttestationValidationError, AttesterSlashingValidationError, DepositValidationError,
-    ExitValidationError, ProposerSlashingValidationError,
+    ExitInvalid, ExitValidationError, ProposerSlashingValidationError,
 };
 pub use store;
 pub use types;

@@ -1,16 +1,20 @@
 #![cfg(not(debug_assertions))]
 #![allow(clippy::result_large_err)]
 
+use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+    PayloadAttestationVote, test_spec,
 };
 use beacon_chain::{
     ChainConfig, ProduceBlockVerification, custody_context::NodeCustodyType,
     graffiti_calculator::GraffitiSettings,
 };
-use bls::Keypair;
+use bls::{Keypair, Signature};
 use eth2::types::{GraffitiPolicy, ProposerPreparationData};
-use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes, PayloadAttributesV4};
+use execution_layer::http::{ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5};
+use execution_layer::json_structures::{JsonPayloadAttributesV4, JsonPayloadAttributesV5};
+use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes};
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
 use ssz_types::ProgressiveVariableList;
@@ -21,7 +25,6 @@ use state_processing::{
     },
     state_advance::complete_state_advance,
 };
-use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
@@ -104,6 +107,121 @@ fn get_harness_generic(
         .build();
     harness.advance_slot();
     harness
+}
+
+// Regression test for incorrect parent_root calculation in Gloas block production.
+// Previously we had a bug where we were using a stale `state.block_roots` read to determine
+// `should_build_on_full`.
+#[tokio::test]
+async fn gloas_block_production_parent_root_with_unadvanced_state() {
+    // Post-Gloas test.
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    // Check the advanced-state control first, then the unadvanced-state regression.
+    for cache_advanced_state in [true, false] {
+        let db_path = tempdir().unwrap();
+        let store = get_store(&db_path, spec.clone());
+        let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+        harness
+            .execution_block_generator()
+            .set_generate_blobs(false);
+        harness
+            .extend_chain(
+                2,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+
+        let parent_root = harness.head_block_root();
+        let parent_state = harness.get_current_state();
+        let parent_slot = parent_state.slot();
+        let slot = parent_slot + 1;
+        let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
+        assert_ne!(parent_bid.block_hash, parent_bid.parent_block_hash);
+
+        // The head's full branch has attestation weight, but negative PTC votes should make the
+        // next proposer build on empty. Looking up the grandparent (as the buggy code did) instead
+        // skips this check.
+        let (messages, _) = harness.make_payload_attestation_messages(
+            &parent_state,
+            parent_root,
+            parent_slot,
+            vec![PayloadAttestationVote {
+                validator_count: E::ptc_size(),
+                payload_present: false,
+                blob_data_available: false,
+            }],
+        );
+        harness
+            .import_payload_attestation_messages(messages)
+            .unwrap();
+        harness.set_current_slot(slot);
+        harness.chain.recompute_head_at_current_slot().await;
+        let head = harness.chain.canonical_head.cached_head();
+        assert_eq!(head.head_block_root(), parent_root);
+        assert_eq!(head.head_payload_status(), PayloadStatus::Full);
+
+        let (state_root, mut state) = store
+            .get_advanced_hot_state(parent_root, slot, head.head_state_root())
+            .unwrap()
+            .unwrap();
+        assert_eq!(state.slot(), parent_slot);
+        complete_state_advance(&mut state, Some(state_root), slot, None, &spec).unwrap();
+        let proposer_index = state.get_beacon_proposer_index(slot, &spec).unwrap();
+        let randao_reveal = harness.sign_randao_reveal(&state, proposer_index, slot);
+        if cache_advanced_state {
+            // Model the state advance timer completing before the proposal request.
+            let state_root = state.update_tree_hash_cache().unwrap();
+            store.put_state(&state_root, &state).unwrap();
+        }
+        let (_, loaded_state) = store
+            .get_advanced_hot_state(parent_root, slot, head.head_state_root())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            loaded_state.slot(),
+            if cache_advanced_state {
+                slot
+            } else {
+                parent_slot
+            }
+        );
+        drop(head);
+
+        // Pass no state to production: it must load the correct parent through the public API.
+        let (block, _, _, _, payload_contents, _) = harness
+            .chain
+            .produce_block_with_verification_gloas(
+                randao_reveal,
+                slot,
+                GraffitiSettings::Unspecified,
+                ProduceBlockVerification::VerifyRandao,
+                eth2::types::BuilderConfig::empty(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(block.parent_root(), parent_root);
+
+        // The block should build on the Empty variant of the parent due to the PTC vote for empty.
+        // Prior to fixing the bug, we would build on the full variant because we would look up
+        // the grandparent.
+        assert_eq!(
+            block
+                .body()
+                .signed_execution_payload_bid()
+                .unwrap()
+                .message
+                .parent_block_hash,
+            parent_bid.parent_block_hash,
+        );
+        let (envelope, _, _) = payload_contents.unwrap();
+        assert_eq!(envelope.parent_beacon_block_root, parent_root);
+        assert_eq!(envelope.payload.parent_hash, parent_bid.parent_block_hash);
+    }
 }
 
 #[tokio::test]
@@ -195,10 +313,9 @@ async fn prepare_payload_generic(
     let execution_requests = ExecutionRequests::Gloas(ExecutionRequestsGloas::<E> {
         deposits: ProgressiveVariableList::empty(),
         withdrawals: ProgressiveVariableList::empty(),
-        consolidations: ProgressiveVariableList::new(vec![consolidation_request]),
+        consolidations: ProgressiveVariableList::new(vec![consolidation_request]).unwrap(),
         builder_deposits: ProgressiveVariableList::empty(),
         builder_exits: ProgressiveVariableList::empty(),
-        _phantom: PhantomData,
     });
 
     // Inject the execution requests into the mock EL so the next payload includes them.
@@ -339,10 +456,17 @@ async fn prepare_payload_generic(
                 validator_index: proposer_index as u64,
                 fee_recipient: suggested_fee_recipient,
             },
-            &Some(target_gas_limit),
+            &None,
         )],
     )
     .await;
+    insert_proposer_preferences(
+        &harness,
+        prepare_slot,
+        proposer_index as u64,
+        suggested_fee_recipient,
+        target_gas_limit,
+    );
 
     // Advance the slot clock to just before the prepare slot so the lookahead check passes.
     harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
@@ -368,21 +492,24 @@ async fn prepare_payload_generic(
         carried_withdrawals
     };
 
+    let expected_attributes = PayloadAttributes::new(
+        compute_timestamp_at_slot(&advanced_empty_state, prepare_slot, &spec).unwrap(),
+        *advanced_empty_state
+            .get_randao_mix(advanced_empty_state.current_epoch())
+            .unwrap(),
+        suggested_fee_recipient,
+        Some(expected_withdrawals),
+        Some(advanced_empty_state.latest_block_header().canonical_root()),
+        Some(prepare_slot.as_u64()),
+        Some(target_gas_limit),
+        spec.fork_name_at_slot::<E>(prepare_slot)
+            .heze_enabled()
+            .then(ProgressiveTransactions::default),
+    );
+
     assert_eq!(
-        attributes,
-        PayloadAttributes::V4(PayloadAttributesV4 {
-            timestamp: compute_timestamp_at_slot(&advanced_empty_state, prepare_slot, &spec)
-                .unwrap(),
-            prev_randao: *advanced_empty_state
-                .get_randao_mix(advanced_empty_state.current_epoch())
-                .unwrap(),
-            suggested_fee_recipient,
-            withdrawals: expected_withdrawals,
-            parent_beacon_block_root: advanced_empty_state.latest_block_header().canonical_root(),
-            slot_number: prepare_slot.as_u64(),
-            target_gas_limit,
-        }),
-        "prepare_beacon_proposer should cache the expected V4 payload attributes for the \
+        attributes, expected_attributes,
+        "prepare_beacon_proposer should cache the expected payload attributes for the \
          {parent_payload_status:?} parent"
     );
 
@@ -398,6 +525,7 @@ async fn prepare_payload_generic(
         _consensus_block_value,
         _execution_payload_value,
         payload_contents,
+        _builder_url,
     ) = harness
         .chain
         .produce_block_with_verification_gloas(
@@ -405,7 +533,7 @@ async fn prepare_payload_generic(
             prepare_slot,
             graffiti_settings,
             ProduceBlockVerification::VerifyRandao,
-            None,
+            eth2::types::BuilderConfig::empty(),
         )
         .await
         .unwrap();
@@ -676,6 +804,138 @@ async fn prepare_payload_on_fork_boundary(
         "prepare_beacon_proposer should use withdrawals computed from the \
          advanced state"
     );
+
+    let PayloadAttributes::V4(attributes) = attributes else {
+        panic!("expected V4 payload attributes, got {attributes:?}");
+    };
+    assert_eq!(attributes.target_gas_limit, DEFAULT_GAS_LIMIT);
+}
+
+#[tokio::test]
+async fn prepare_payload_on_heze_boundary() {
+    let heze_fork_epoch = Epoch::new(1);
+    prepare_payload_around_heze_boundary(
+        heze_fork_epoch.start_slot(E::slots_per_epoch()),
+        heze_fork_epoch,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_before_heze_boundary() {
+    let heze_fork_epoch = Epoch::new(1);
+    prepare_payload_around_heze_boundary(
+        heze_fork_epoch.start_slot(E::slots_per_epoch()) - 1,
+        heze_fork_epoch,
+    )
+    .await;
+}
+
+/// Prepare a payload for `prepare_slot` on a chain with a Heze fork at `heze_fork_epoch` and
+/// verify that the fcU sent to the execution layer uses the engine API version required for the
+/// fork of `prepare_slot`: `engine_forkchoiceUpdatedV5` with `PayloadAttributesV5` from Heze
+/// onwards, `V4` before
+async fn prepare_payload_around_heze_boundary(prepare_slot: Slot, heze_fork_epoch: Epoch) {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    spec.gloas_fork_epoch = Some(Epoch::new(0));
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+    let spec = Arc::new(spec);
+
+    let prepare_slot_is_heze = spec.fork_name_at_slot::<E>(prepare_slot).heze_enabled();
+
+    // Only produce blocks up to the parent slot, so no Heze block production is required
+    let num_blocks_produced = (prepare_slot - 1).as_u64();
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            num_blocks_produced as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let cached_head = harness.chain.canonical_head.cached_head();
+    let parent_payload_status = cached_head.head_payload_status();
+
+    let mut advanced_state = cached_head.snapshot.beacon_state.clone();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, None, &spec).unwrap();
+
+    // Call `prepare_beacon_proposer` for the next slot.
+    // This sends a fcU with the payload attributes to the execution layer
+    // which validates the method version against the fork at the attributes' timestamp
+    let current_slot = prepare_slot - 1;
+    let proposer_index = advanced_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &None,
+        )],
+    )
+    .await;
+
+    // Advance the slot clock to just before the prepare slot so the lookahead check passes
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+
+    // Inspect the fcU request received by the mock execution layer
+    let request = harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .take_previous_request()
+        .expect("no previous request");
+    let method = request.get("method").expect("no method");
+    let params = request.get("params").expect("no params");
+    let payload_attributes_json = params.get(1).expect("no payload attributes param");
+
+    if prepare_slot_is_heze {
+        assert_eq!(method, ENGINE_FORKCHOICE_UPDATED_V5);
+        let attributes: JsonPayloadAttributesV5 =
+            serde_json::from_value(payload_attributes_json.clone()).unwrap();
+        // We are currently sending the V5 shape with an empty inclusion list
+        assert!(attributes.inclusion_list_transactions.is_empty());
+    } else {
+        assert_eq!(method, ENGINE_FORKCHOICE_UPDATED_V4);
+        let _attributes: JsonPayloadAttributesV4 =
+            serde_json::from_value(payload_attributes_json.clone()).unwrap();
+        assert!(
+            payload_attributes_json
+                .get("inclusionListTransactions")
+                .is_none()
+        );
+    }
+
+    // The cached payload attributes must use the matching variant
+    let head_root = harness.head_block_root();
+    let attributes = el
+        .payload_attributes(prepare_slot, head_root, parent_payload_status)
+        .await
+        .unwrap();
+    if prepare_slot_is_heze {
+        assert!(matches!(attributes, PayloadAttributes::V5(_)));
+    } else {
+        assert!(matches!(attributes, PayloadAttributes::V4(_)));
+    }
 }
 
 #[tokio::test]
@@ -713,9 +973,10 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
     let proposer_index = state.get_beacon_proposer_index(slot, &spec).unwrap();
     let randao_reveal = harness.sign_randao_reveal(&state, proposer_index, slot);
 
-    let (parent_payload_status, parent_envelope) = {
+    let (parent_root, parent_payload_status, parent_envelope) = {
         let head = harness.chain.canonical_head.cached_head();
         (
+            head.head_block_root(),
             head.head_payload_status(),
             head.snapshot.execution_envelope.clone(),
         )
@@ -726,18 +987,19 @@ async fn gloas_block_production_caches_blobs_for_column_publishing() {
         Some(GraffitiPolicy::PreserveUserGraffiti),
     );
 
-    let (block, _post_state, _value, _payload_value, _payload_contents) = harness
+    let (block, _post_state, _value, _payload_value, _payload_contents, _builder_url) = harness
         .chain
         .produce_block_on_state_gloas(
             state,
             None,
+            parent_root,
             parent_payload_status,
             parent_envelope,
             slot,
             randao_reveal,
             graffiti_settings,
             ProduceBlockVerification::VerifyRandao,
-            None,
+            eth2::types::BuilderConfig::empty(),
         )
         .await
         .unwrap();
@@ -843,4 +1105,142 @@ async fn gloas_pre_payload_attributes_reorg_uses_parent_randao() {
 
     // value should always be none post gloas
     assert_eq!(on_parent.parent_block_number, None);
+}
+
+#[tokio::test]
+async fn prepare_payload_preferred_gas_limit_wins() {
+    let scheduled_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
+    let preferred_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(2);
+    prepare_payload_gas_limit_generic(
+        Some(scheduled_gas_limit),
+        Some(preferred_gas_limit),
+        None,
+        preferred_gas_limit,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_falls_back_to_default_gas_limit() {
+    prepare_payload_gas_limit_generic(None, None, None, DEFAULT_GAS_LIMIT).await;
+}
+
+#[tokio::test]
+async fn prepare_payload_falls_back_to_scheduled_gas_limit_over_registered() {
+    let scheduled_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(1);
+    let registered_gas_limit = DEFAULT_GAS_LIMIT.saturating_add(2);
+    prepare_payload_gas_limit_generic(
+        Some(scheduled_gas_limit),
+        None,
+        Some(registered_gas_limit),
+        scheduled_gas_limit,
+    )
+    .await;
+}
+
+fn insert_proposer_preferences(
+    harness: &TestHarness,
+    proposal_slot: Slot,
+    validator_index: u64,
+    fee_recipient: Address,
+    target_gas_limit: u64,
+) {
+    let dependent_root = harness
+        .chain
+        .head_snapshot()
+        .beacon_state
+        .proposer_shuffling_decision_root_at_epoch(
+            proposal_slot.epoch(E::slots_per_epoch()),
+            harness.head_block_root(),
+            &harness.chain.spec,
+        )
+        .unwrap();
+    harness
+        .chain
+        .gossip_verified_proposer_preferences_cache
+        .insert_preferences(GossipVerifiedProposerPreferences {
+            signed_preferences: Arc::new(SignedProposerPreferences {
+                message: ProposerPreferences {
+                    dependent_root,
+                    proposal_slot,
+                    validator_index,
+                    fee_recipient,
+                    target_gas_limit,
+                },
+                signature: Signature::empty(),
+            }),
+        });
+}
+
+async fn prepare_payload_gas_limit_generic(
+    scheduled_gas_limit: Option<u64>,
+    preferred_gas_limit: Option<u64>,
+    registered_gas_limit: Option<u64>,
+    expected_gas_limit: u64,
+) {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    if let Some(gas_limit) = scheduled_gas_limit {
+        spec.gas_limit_schedule = GasLimitSchedule::new(vec![GasLimitScheduleEntry {
+            epoch: spec.gloas_fork_epoch.unwrap(),
+            gas_limit,
+        }]);
+    }
+    let spec = Arc::new(spec);
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let prepare_slot = Slot::new(1);
+    let current_slot = prepare_slot - 1;
+    let proposer_index = harness
+        .get_current_state()
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &registered_gas_limit,
+        )],
+    )
+    .await;
+
+    if let Some(target_gas_limit) = preferred_gas_limit {
+        insert_proposer_preferences(
+            &harness,
+            prepare_slot,
+            proposer_index as u64,
+            Address::repeat_byte(42),
+            target_gas_limit,
+        );
+    }
+
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+
+    let attributes = el
+        .payload_attributes(
+            prepare_slot,
+            harness.head_block_root(),
+            PayloadStatus::Empty,
+        )
+        .await
+        .unwrap();
+    let PayloadAttributes::V4(attributes) = attributes else {
+        panic!("expected V4 payload attributes, got {attributes:?}");
+    };
+    assert_eq!(attributes.target_gas_limit, expected_gas_limit);
 }

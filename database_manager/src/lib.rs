@@ -376,10 +376,10 @@ pub fn prune_blobs<E: EthSpec>(
         spec.clone(),
     )?;
 
-    // Pruning relies on the in-memory `DataInfo` marker, which `open` only loads on schema v31
+    // Pruning relies on the in-memory `DataInfo` marker, which `open` only loads on schema v32
     // and later (schema migrations are deliberately not applied here). Refuse to prune with the
     // uninitialized marker on older schemas.
-    if schema_version < SchemaVersion(31) {
+    if schema_version < SchemaVersion(32) {
         return Err(Error::MigrationError(format!(
             "database schema v{} is too old for blob pruning: run `lighthouse db migrate --to \
              {}` or start the beacon node to upgrade the database first",

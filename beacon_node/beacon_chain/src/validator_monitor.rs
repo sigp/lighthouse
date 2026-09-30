@@ -484,19 +484,18 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         state: &BeaconState<E>,
         spec: &ChainSpec,
     ) {
-        // Add any new validator indices.
-        state
-            .validators()
-            .iter()
-            .enumerate()
-            .skip(self.indices.len())
-            .for_each(|(i, validator)| {
+        // Start after known indices without walking the entire registry. A shorter fork can have
+        // fewer validators than we have already indexed, in which case there is nothing to add.
+        let start_index = self.indices.len();
+        if let Ok(validators) = state.validators().iter_from(start_index) {
+            for (i, validator) in (start_index..).zip(validators) {
                 let i = i as u64;
                 if let Some(validator) = self.validators.get_mut(&validator.pubkey) {
                     validator.set_index(i)
                 }
                 self.indices.insert(i, validator.pubkey);
-            });
+            }
+        }
 
         // Add missed non-finalized blocks for the monitored validators
         self.add_validators_missed_blocks(state, spec);
@@ -2163,5 +2162,81 @@ fn min_opt<T: Ord>(a: Option<T>, b: Option<T>) -> Option<T> {
         (Some(x), None) => Some(x),
         (None, Some(y)) => Some(y),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use execution_layer::test_utils::generate_genesis_header;
+    use genesis::InteropGenesisBuilder;
+    use types::{ForkName, MinimalEthSpec, test_utils::generate_deterministic_keypairs};
+
+    #[test]
+    fn registry_indices_across_growth_and_shorter_forks() {
+        type E = MinimalEthSpec;
+        let keypairs = generate_deterministic_keypairs(33);
+
+        for fork in [ForkName::Base, ForkName::Gloas] {
+            let spec = fork.make_genesis_spec(E::default_spec());
+            let mut state = InteropGenesisBuilder::<E>::new()
+                .set_opt_execution_payload_header(generate_genesis_header::<E>(&spec))
+                .build_genesis_state(&keypairs, 0, Hash256::ZERO, &spec)
+                .unwrap();
+            let validators = state.validators().to_vec();
+            state.take_validators();
+            let mut monitor = ValidatorMonitor::new(
+                ValidatorMonitorConfig::default(),
+                Arc::new(Mutex::new(BeaconProposerCache::default())),
+            );
+            assert!(!monitor.auto_register);
+            assert_eq!(monitor.num_validators(), 0);
+            monitor.process_valid_state(Epoch::new(0), &state, &spec);
+            assert!(monitor.indices.is_empty());
+
+            for validator in &validators[..32] {
+                state.validators_mut().push(validator.clone()).unwrap();
+            }
+            state.validators_mut().apply_updates().unwrap();
+            monitor.process_valid_state(Epoch::new(0), &state, &spec);
+            assert_eq!(monitor.indices.len(), 32);
+            assert_eq!(monitor.num_validators(), 0);
+
+            monitor.add_validator_pubkey(validators[31].pubkey);
+            monitor.add_validator_pubkey(validators[32].pubkey);
+            assert_eq!(monitor.validators[&validators[31].pubkey].index, Some(31));
+            assert_eq!(monitor.validators[&validators[32].pubkey].index, None);
+            let mut shorter_state = state.clone();
+
+            // Leave the append and the new validator's pubkey update pending in Milhouse.
+            state.validators_mut().push(validators[31].clone()).unwrap();
+            state.validators_mut().get_mut(32).unwrap().pubkey = validators[32].pubkey;
+            assert!(state.validators().has_pending_updates());
+            monitor.process_valid_state(Epoch::new(0), &state, &spec);
+            assert_eq!(monitor.validators[&validators[32].pubkey].index, Some(32));
+            let expected_indices = validators
+                .iter()
+                .enumerate()
+                .map(|(i, validator)| (i as u64, validator.pubkey))
+                .collect::<HashMap<_, _>>();
+            assert_eq!(monitor.indices, expected_indices);
+
+            // A shorter registry must still update the monitored validators' balances.
+            *shorter_state.balances_mut().get_mut(31).unwrap() = 123;
+            monitor.process_valid_state(Epoch::new(0), &shorter_state, &spec);
+            assert_eq!(monitor.indices, expected_indices);
+            assert_eq!(
+                monitor.validators[&validators[31].pubkey].get_total_balance(Epoch::new(0)),
+                Some(123)
+            );
+
+            state.validators_mut().apply_updates().unwrap();
+            monitor.process_valid_state(Epoch::new(0), &state, &spec);
+            assert_eq!(monitor.indices, expected_indices);
+            assert_eq!(
+                monitor.validators[&validators[31].pubkey].get_total_balance(Epoch::new(0)),
+                state.balances().get(31).copied()
+            );
+        }
     }
 }

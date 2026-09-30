@@ -8,6 +8,7 @@ use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
+use crate::inclusion_list_store::InclusionListStore;
 use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
@@ -22,6 +23,7 @@ use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ServerSentEventHandler,
 };
 use bls::Signature;
+use builder_client::Builders;
 use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{ForkChoice, PayloadStatus, ResetPayloadStatuses};
@@ -94,6 +96,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     op_pool: Option<OperationPool<T::EthSpec>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     proof_engine: Option<Arc<ProofEngine>>,
+    builders: Option<Arc<Builders>>,
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
@@ -137,6 +140,7 @@ where
             op_pool: None,
             execution_layer: None,
             proof_engine: None,
+            builders: None,
             event_handler: None,
             slot_clock: None,
             shutdown_sender: None,
@@ -631,6 +635,12 @@ where
         self
     }
 
+    /// Sets the `BeaconChain` builder service (the Gloas Builder API client).
+    pub fn builders(mut self, builders: Option<Arc<Builders>>) -> Self {
+        self.builders = builders;
+        self
+    }
+
     /// Sets the node custody type for data column import.
     pub fn node_custody_type(mut self, node_custody_type: NodeCustodyType) -> Self {
         self.node_custody_type = node_custody_type;
@@ -758,9 +768,10 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let (initial_head_block_root, head_payload_status) = fork_choice
+        let head_node = fork_choice
             .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
+        let (initial_head_block_root, head_payload_status) = head_node.as_pair();
 
         let head_block_root = initial_head_block_root;
         let head_block = store
@@ -778,7 +789,7 @@ where
         // Load the execution envelope from the store if the head has a Full payload.
         let execution_envelope = if head_payload_status == PayloadStatus::Full {
             store
-                .get_payload_envelope(&head_block_root)
+                .get_signed_payload_envelope(&head_block_root)
                 .map_err(|e| format!("Error loading head execution envelope: {:?}", e))?
                 .map(Arc::new)
         } else {
@@ -915,7 +926,7 @@ where
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(head_snapshot),
-            head_payload_status,
+            head_node,
             self.chain_config.fast_confirmation,
             &store,
             &self.spec,
@@ -1028,12 +1039,14 @@ where
             observed_execution_proofs: <_>::default(),
             observed_execution_payloads: <_>::default(),
             pending_payload_envelopes: <_>::default(),
+            inclusion_list_store: RwLock::new(InclusionListStore::new(&self.spec)),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
             observed_bls_to_execution_changes: <_>::default(),
             execution_layer: self.execution_layer.clone(),
             proof_engine: self.proof_engine,
+            builders: self.builders,
             genesis_validators_root,
             genesis_time,
             canonical_head,
@@ -1572,8 +1585,11 @@ mod test {
         let validator_count = 1;
         let genesis_time = 13_371_337;
 
-        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> =
-            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
+        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> = HotColdDB::open_ephemeral(
+            StoreConfig::default(),
+            MinimalEthSpec::default_spec().into(),
+        )
+        .unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(

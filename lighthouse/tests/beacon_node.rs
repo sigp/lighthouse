@@ -8,6 +8,7 @@ use beacon_node::{
     beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend,
 };
 use beacon_processor::BeaconProcessorConfig;
+use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::PeerId;
 use network_utils::unused_port::{
     unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port,
@@ -1258,7 +1259,12 @@ fn default_backfill_rate_limiting_flag() {
 }
 #[test]
 fn default_boot_nodes() {
-    let number_of_boot_nodes = 17;
+    let number_of_boot_nodes = Eth2NetworkConfig::constant("mainnet")
+        .unwrap()
+        .unwrap()
+        .boot_enr
+        .unwrap()
+        .len();
 
     CommandLineTest::new()
         .run_with_zero_port()
@@ -2860,12 +2866,12 @@ fn partial_columns() {
             assert!(config.network.enable_partial_columns);
             assert!(config.chain.enable_partial_columns);
         });
-    // And disabled by default on mainnet:
+    // And enabled by default on mainnet:
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.network.enable_partial_columns);
-            assert!(!config.chain.enable_partial_columns);
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
         })
 }
 
@@ -2893,30 +2899,7 @@ fn partial_columns_default_hoodi() {
 }
 
 #[test]
-fn partial_columns_default_sepolia() {
-    CommandLineTest::new()
-        .flag("network", Some("sepolia"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert!(config.network.enable_partial_columns);
-            assert!(config.chain.enable_partial_columns);
-        });
-}
-
-#[test]
-fn partial_columns_false_overrides_hoodi_default() {
-    CommandLineTest::new()
-        .flag("network", Some("hoodi"))
-        .flag("enable-partial-columns", Some("false"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert!(!config.network.enable_partial_columns);
-            assert!(!config.chain.enable_partial_columns);
-        });
-}
-
-#[test]
-fn partial_columns_false_on_mainnet() {
+fn partial_columns_false_overrides_default() {
     CommandLineTest::new()
         .flag("enable-partial-columns", Some("false"))
         .run_with_zero_port()

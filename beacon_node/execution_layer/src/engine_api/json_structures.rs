@@ -5,11 +5,10 @@ use ssz::{Decode, TryFromIter};
 use ssz_types::{FixedVector, ProgressiveVariableList, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
-use types::data::BlobsList;
+use types::data::{BlobsList, Cell, ColumnIndex};
 use types::execution::{
-    BlockAccessList, BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests,
-    DepositRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ProgressiveTransactions,
-    RequestType, WithdrawalRequests,
+    BlockAccessList, ExecutionRequestsElectra, ExecutionRequestsGloas, ProgressiveTransactions,
+    RequestType,
 };
 use types::kzg_ext::KzgCommitments;
 use types::{Blob, KzgProof};
@@ -116,7 +115,7 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     )]
     pub withdrawals: VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "withdrawals_progressive"))]
-    pub withdrawals: ProgressiveVariableList<JsonWithdrawal>,
+    pub withdrawals: ProgressiveVariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
@@ -271,7 +270,9 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -299,7 +300,9 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeze<E>> for JsonExecutionPayloadHeze<E
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -475,7 +478,9 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -503,7 +508,9 @@ impl<E: EthSpec> TryFrom<JsonExecutionPayloadHeze<E>> for ExecutionPayloadHeze<E
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload.withdrawals.into_iter().map(Into::into).collect(),
+            withdrawals: ProgressiveVariableList::try_from_iter(
+                payload.withdrawals.into_iter().map(Into::into),
+            )?,
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
             block_access_list: payload.block_access_list,
@@ -568,28 +575,25 @@ impl<E: EthSpec> From<ExecutionRequests<E>> for JsonExecutionRequests {
     }
 }
 
-/// Parse an EIP-7685 `JsonExecutionRequests` list into its component request lists.
+/// Parse an EIP-7685 `JsonExecutionRequests` list using the request types for the fork.
 ///
-/// Returns the deposit, withdrawal, consolidation, builder deposit and builder exit lists.
-/// Builder lists are empty pre-gloas or post-gloas when no builder requests are present.
-#[allow(clippy::type_complexity)]
+/// Gloas uses progressive lists and removes the deposit-request count limit.
+/// Builder requests are only valid from Gloas onwards.
 fn parse_execution_requests<E: EthSpec>(
     value: JsonExecutionRequests,
-) -> Result<
-    (
-        DepositRequests<E>,
-        WithdrawalRequests<E>,
-        ConsolidationRequests<E>,
-        BuilderDepositRequests<E>,
-        BuilderExitRequests<E>,
-    ),
-    RequestsError,
-> {
-    let mut deposits = DepositRequests::<E>::default();
-    let mut withdrawals = WithdrawalRequests::<E>::default();
-    let mut consolidations = ConsolidationRequests::<E>::default();
-    let mut builder_deposits = BuilderDepositRequests::<E>::default();
-    let mut builder_exits = BuilderExitRequests::<E>::default();
+    fork_name: ForkName,
+) -> Result<ExecutionRequests<E>, RequestsError> {
+    fn decode<T: Decode>(bytes: &[u8], kind: RequestType) -> Result<T, RequestsError> {
+        T::from_ssz_bytes(bytes).map_err(|e| {
+            RequestsError::DecodeError(format!("Failed to decode {kind:?}Request from EL: {e:?}"))
+        })
+    }
+
+    let mut requests = if fork_name.gloas_enabled() {
+        ExecutionRequests::Gloas(ExecutionRequestsGloas::<E>::default())
+    } else {
+        ExecutionRequests::Electra(ExecutionRequestsElectra::<E>::default())
+    };
     let mut prev_prefix: Option<RequestType> = None;
     for (i, request) in value.0.into_iter().enumerate() {
         // hex string
@@ -614,78 +618,52 @@ fn parse_execution_requests<E: EthSpec>(
         }
         prev_prefix = Some(current_prefix);
 
-        match current_prefix {
-            RequestType::Deposit => {
-                deposits = DepositRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
-                    RequestsError::DecodeError(format!(
-                        "Failed to decode DepositRequest from EL: {:?}",
-                        e
-                    ))
-                })?;
-            }
-            RequestType::Withdrawal => {
-                withdrawals =
-                    WithdrawalRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode WithdrawalRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::Consolidation => {
-                consolidations = ConsolidationRequests::<E>::from_ssz_bytes(request_bytes)
-                    .map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode ConsolidationRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::BuilderDeposit => {
-                builder_deposits = BuilderDepositRequests::<E>::from_ssz_bytes(request_bytes)
-                    .map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode BuilderDepositRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::BuilderExit => {
-                builder_exits =
-                    BuilderExitRequests::<E>::from_ssz_bytes(request_bytes).map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode BuilderExitRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
+        match &mut requests {
+            ExecutionRequests::Electra(requests) => match current_prefix {
+                RequestType::Deposit => {
+                    requests.deposits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Withdrawal => {
+                    requests.withdrawals = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Consolidation => {
+                    requests.consolidations = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderDeposit | RequestType::BuilderExit => {
+                    return Err(RequestsError::VariantMismatch);
+                }
+            },
+            ExecutionRequests::Gloas(requests) => match current_prefix {
+                RequestType::Deposit => {
+                    requests.deposits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Withdrawal => {
+                    requests.withdrawals = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Consolidation => {
+                    requests.consolidations = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderDeposit => {
+                    requests.builder_deposits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderExit => {
+                    requests.builder_exits = decode(request_bytes, current_prefix)?;
+                }
+            },
         }
     }
 
-    Ok((
-        deposits,
-        withdrawals,
-        consolidations,
-        builder_deposits,
-        builder_exits,
-    ))
+    Ok(requests)
 }
 
 impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsElectra<E> {
     type Error = RequestsError;
 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
-        let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
-            parse_execution_requests::<E>(value)?;
-        // Builder requests are not valid pre-Gloas.
-        if !builder_deposits.is_empty() || !builder_exits.is_empty() {
-            return Err(RequestsError::VariantMismatch);
+        match parse_execution_requests::<E>(value, ForkName::Electra)? {
+            ExecutionRequests::Electra(requests) => Ok(requests),
+            ExecutionRequests::Gloas(_) => Err(RequestsError::VariantMismatch),
         }
-        Ok(ExecutionRequestsElectra {
-            deposits,
-            withdrawals,
-            consolidations,
-        })
     }
 }
 
@@ -693,18 +671,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
     type Error = RequestsError;
 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
-        let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
-            parse_execution_requests::<E>(value)?;
-        // [Modified in Gloas:EIP7688] the Gloas variant stores progressive (unbounded) lists, so
-        // re-type the parsed bounded lists.
-        Ok(ExecutionRequestsGloas {
-            deposits: deposits.iter().cloned().collect(),
-            withdrawals: withdrawals.iter().cloned().collect(),
-            consolidations: consolidations.iter().cloned().collect(),
-            builder_deposits: builder_deposits.iter().cloned().collect(),
-            builder_exits: builder_exits.iter().cloned().collect(),
-            _phantom: std::marker::PhantomData,
-        })
+        match parse_execution_requests::<E>(value, ForkName::Gloas)? {
+            ExecutionRequests::Gloas(requests) => Ok(requests),
+            ExecutionRequests::Electra(_) => Err(RequestsError::VariantMismatch),
+        }
     }
 }
 
@@ -905,7 +875,7 @@ impl<'a> From<&'a JsonWithdrawal> for EncodableJsonWithdrawal<'a> {
 }
 
 #[superstruct(
-    variants(V1, V2, V3, V4),
+    variants(V1, V2, V3, V4, V5),
     variant_attributes(
         derive(Debug, Clone, PartialEq, Serialize, Deserialize),
         serde(rename_all = "camelCase")
@@ -921,16 +891,19 @@ pub struct JsonPayloadAttributes {
     pub prev_randao: Hash256,
     #[serde(with = "serde_utils::address_hex")]
     pub suggested_fee_recipient: Address,
-    #[superstruct(only(V2, V3, V4))]
+    #[superstruct(only(V2, V3, V4, V5))]
     pub withdrawals: Vec<JsonWithdrawal>,
-    #[superstruct(only(V3, V4))]
+    #[superstruct(only(V3, V4, V5))]
     pub parent_beacon_block_root: Hash256,
-    #[superstruct(only(V4))]
+    #[superstruct(only(V4, V5))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub slot_number: u64,
-    #[superstruct(only(V4))]
+    #[superstruct(only(V4, V5))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub target_gas_limit: u64,
+    #[superstruct(only(V5))]
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub inclusion_list_transactions: ProgressiveTransactions,
 }
 
 impl From<PayloadAttributes> for JsonPayloadAttributes {
@@ -962,6 +935,16 @@ impl From<PayloadAttributes> for JsonPayloadAttributes {
                 parent_beacon_block_root: pa.parent_beacon_block_root,
                 slot_number: pa.slot_number,
                 target_gas_limit: pa.target_gas_limit,
+            }),
+            PayloadAttributes::V5(pa) => Self::V5(JsonPayloadAttributesV5 {
+                timestamp: pa.timestamp,
+                prev_randao: pa.prev_randao,
+                suggested_fee_recipient: pa.suggested_fee_recipient,
+                withdrawals: pa.withdrawals.into_iter().map(Into::into).collect(),
+                parent_beacon_block_root: pa.parent_beacon_block_root,
+                slot_number: pa.slot_number,
+                target_gas_limit: pa.target_gas_limit,
+                inclusion_list_transactions: pa.inclusion_list_transactions,
             }),
         }
     }
@@ -996,6 +979,16 @@ impl From<JsonPayloadAttributes> for PayloadAttributes {
                 parent_beacon_block_root: jpa.parent_beacon_block_root,
                 slot_number: jpa.slot_number,
                 target_gas_limit: jpa.target_gas_limit,
+            }),
+            JsonPayloadAttributes::V5(jpa) => Self::V5(PayloadAttributesV5 {
+                timestamp: jpa.timestamp,
+                prev_randao: jpa.prev_randao,
+                suggested_fee_recipient: jpa.suggested_fee_recipient,
+                withdrawals: jpa.withdrawals.into_iter().map(Into::into).collect(),
+                parent_beacon_block_root: jpa.parent_beacon_block_root,
+                slot_number: jpa.slot_number,
+                target_gas_limit: jpa.target_gas_limit,
+                inclusion_list_transactions: jpa.inclusion_list_transactions,
             }),
         }
     }
@@ -1050,6 +1043,72 @@ pub struct BlobAndProof<E: EthSpec> {
 
 /// A BlobAndProofV3 is just a BlobAndProofV2 that may also be `null` if unknown by the EL.
 pub type BlobAndProofV3<E> = Option<BlobAndProofV2<E>>;
+
+/// CELLS_PER_EXT_BLOB per EIP-7594; the `custodyColumns` and `indices_bitarray`
+/// EIP-8070 parameters are 128-bit bitarrays (=16 bytes).
+pub const CUSTODY_COLUMNS_BITARRAY_BYTES: usize = 16;
+
+/// EIP-8070 - bitarray of length `CELLS_PER_EXT_BLOB` (=128). Bit `i` of
+/// byte `i / 8` (LSB-first within each byte) indicates column `i`. Used as
+/// the `indices_bitarray` parameter of `engine_getBlobsV4` and the
+/// `custodyColumns` parameter of `engine_forkchoiceUpdatedV4` and later.
+///  The TryFrom impl safeguards against invalid input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct CustodyColumnsBitArray(
+    #[serde(with = "serde_utils::fixed_bytes_hex::bytes_16_hex")]
+    [u8; CUSTODY_COLUMNS_BITARRAY_BYTES],
+);
+
+impl CustodyColumnsBitArray {
+    pub fn iter_set_bits(&self) -> impl Iterator<Item = ColumnIndex> + '_ {
+        (0..CUSTODY_COLUMNS_BITARRAY_BYTES * 8).filter_map(move |i| {
+            let byte = self.0[i / 8];
+            ((byte >> (i % 8)) & 1 == 1).then_some(i as ColumnIndex)
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ColumnIndexTooHighError(pub ColumnIndex);
+
+impl TryFrom<&[ColumnIndex]> for CustodyColumnsBitArray {
+    type Error = ColumnIndexTooHighError;
+
+    fn try_from(indices: &[ColumnIndex]) -> Result<Self, ColumnIndexTooHighError> {
+        let mut buf = [0u8; CUSTODY_COLUMNS_BITARRAY_BYTES];
+        for i in indices {
+            let byte_idx = *i as usize / 8;
+            let bit_idx = i % 8;
+            if byte_idx < CUSTODY_COLUMNS_BITARRAY_BYTES {
+                buf[byte_idx] |= 1u8 << bit_idx;
+            } else {
+                return Err(ColumnIndexTooHighError(*i));
+            }
+        }
+        Ok(Self(buf))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec", transparent)]
+pub struct JsonCell<E: EthSpec>(
+    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")] pub Cell<E>,
+);
+
+/// `blob_cells` is the partial column matrix slice for one blob, indexed
+/// positionally over the bits set in the request's `indices_bitarray`
+/// (lowest set bit first). An entry is `null` when the EL doesn't have
+/// that cell. `proofs[i]` is the KZG cell proof for `blob_cells[i]` and
+/// is only meaningful when the matching cell is `Some`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec")]
+pub struct BlobCellsAndProofsV1<E: EthSpec> {
+    pub blob_cells: Vec<Option<JsonCell<E>>>,
+    pub proofs: Vec<Option<KzgProof>>,
+}
+
+pub type GetBlobsV4List<E> = Vec<Option<BlobCellsAndProofsV1<E>>>;
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1114,6 +1173,15 @@ pub struct JsonPayloadStatusV1 {
     pub validation_error: Option<String>,
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonPayloadStatusV2 {
+    pub status: JsonPayloadStatusV1Status,
+    pub latest_valid_hash: Option<ExecutionBlockHash>,
+    pub validation_error: Option<String>,
+    pub inclusion_list_satisfied: Option<bool>,
+}
+
 impl From<PayloadStatusV1Status> for JsonPayloadStatusV1Status {
     fn from(e: PayloadStatusV1Status) -> Self {
         match e {
@@ -1144,12 +1212,33 @@ impl From<PayloadStatusV1> for JsonPayloadStatusV1 {
             status,
             latest_valid_hash,
             validation_error,
+            // Deliberately dropped because the V1 wire format cannot carry it.
+            inclusion_list_satisfied: _,
         } = p;
 
         Self {
             status: status.into(),
             latest_valid_hash,
             validation_error,
+        }
+    }
+}
+
+impl From<PayloadStatusV2> for JsonPayloadStatusV2 {
+    fn from(p: PayloadStatusV2) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let PayloadStatusV2 {
+            status,
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
+        } = p;
+
+        Self {
+            status: status.into(),
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
         }
     }
 }
@@ -1167,8 +1256,36 @@ impl From<JsonPayloadStatusV1> for PayloadStatusV1 {
             status: status.into(),
             latest_valid_hash,
             validation_error,
+            // The V1 wire format carries no inclusion list information.
+            inclusion_list_satisfied: None,
         }
     }
+}
+
+impl From<JsonPayloadStatusV2> for PayloadStatusV2 {
+    fn from(j: JsonPayloadStatusV2) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonPayloadStatusV2 {
+            status,
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
+        } = j;
+
+        Self {
+            status: status.into(),
+            latest_valid_hash,
+            validation_error,
+            inclusion_list_satisfied,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonForkchoiceUpdatedV2Response {
+    pub payload_status: JsonPayloadStatusV2,
+    pub payload_id: Option<TransparentJsonPayloadId>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -1192,6 +1309,22 @@ impl From<JsonForkchoiceUpdatedV1Response> for ForkchoiceUpdatedResponse {
         }
     }
 }
+
+impl From<JsonForkchoiceUpdatedV2Response> for ForkchoiceUpdatedResponse {
+    fn from(j: JsonForkchoiceUpdatedV2Response) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonForkchoiceUpdatedV2Response {
+            payload_status: status,
+            payload_id,
+        } = j;
+
+        Self {
+            payload_status: status.into(),
+            payload_id: payload_id.map(Into::into),
+        }
+    }
+}
+
 impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     fn from(f: ForkchoiceUpdatedResponse) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
@@ -1208,11 +1341,61 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct JsonBlockAccessList(
+    #[serde(with = "ssz_types::serde_utils::hex_prog_var_list")] pub BlockAccessList,
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "E: EthSpec")]
 pub struct JsonExecutionPayloadBodyV1<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
     pub withdrawals: Option<VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(bound = "E: EthSpec", rename_all = "camelCase")]
+pub struct JsonExecutionPayloadBodyV2<E: EthSpec> {
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub transactions: ProgressiveTransactions,
+    pub withdrawals: Option<ProgressiveVariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>>,
+    #[serde(default)]
+    pub block_access_list: Option<JsonBlockAccessList>,
+}
+
+impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV2<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: JsonExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            transactions: value.transactions,
+            withdrawals: value
+                .withdrawals
+                .map(|withdrawals| {
+                    ProgressiveVariableList::try_from_iter(withdrawals.into_iter().map(Into::into))
+                })
+                .transpose()?,
+            block_access_list: value.block_access_list.map(|list| list.0),
+        })
+    }
+}
+
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for JsonExecutionPayloadBodyV2<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            transactions: value.transactions,
+            withdrawals: value
+                .withdrawals
+                .map(|withdrawals| {
+                    ProgressiveVariableList::try_from_iter(withdrawals.into_iter().map(Into::into))
+                })
+                .transpose()?,
+            block_access_list: value.block_access_list.map(JsonBlockAccessList),
+        })
+    }
 }
 
 impl<E: EthSpec> TryFrom<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E> {
@@ -1343,8 +1526,53 @@ mod tests {
         VariableList::try_from(vec![x.clone()]).unwrap()
     }
 
-    fn singleton_progressive_list<T: Clone>(x: &T) -> ProgressiveVariableList<T> {
-        ProgressiveVariableList::new(vec![x.clone()])
+    fn singleton_progressive_list<T: Clone, N: Unsigned>(x: &T) -> ProgressiveVariableList<T, N> {
+        ProgressiveVariableList::new(vec![x.clone()]).unwrap()
+    }
+
+    #[test]
+    fn deposit_request_limits_by_fork() {
+        let deposit = DepositRequest {
+            pubkey: PublicKeyBytes::empty(),
+            withdrawal_credentials: Hash256::ZERO,
+            amount: 32,
+            signature: SignatureBytes::empty(),
+            index: 0,
+        };
+        let max = MainnetEthSpec::max_deposit_requests_per_payload();
+        for count in [max, max + 1] {
+            let deposits = vec![deposit.clone(); count];
+            let json = JsonExecutionRequests(vec![create_request_string(
+                RequestType::Deposit.to_u8(),
+                &deposits,
+            )]);
+
+            let electra = ExecutionRequestsElectra::<MainnetEthSpec>::try_from(json.clone());
+            if count == max {
+                assert_eq!(electra.unwrap().deposits.to_vec(), deposits);
+            } else {
+                assert!(matches!(electra, Err(RequestsError::DecodeError(_))));
+            }
+            let gloas = ExecutionRequestsGloas::<MainnetEthSpec>::try_from(json.clone()).unwrap();
+            assert_eq!(gloas.deposits.to_vec(), deposits);
+
+            for fork in [ForkName::Fulu, ForkName::Heze] {
+                let parsed = parse_execution_requests::<MainnetEthSpec>(json.clone(), fork);
+                match fork {
+                    ForkName::Fulu if count > max => {
+                        assert!(matches!(parsed, Err(RequestsError::DecodeError(_))));
+                    }
+                    ForkName::Fulu => assert!(matches!(
+                        parsed.unwrap(),
+                        ExecutionRequests::Electra(requests) if requests.deposits.to_vec() == deposits
+                    )),
+                    _ => assert!(matches!(
+                        parsed.unwrap(),
+                        ExecutionRequests::Gloas(requests) if requests.deposits.to_vec() == deposits
+                    )),
+                }
+            }
+        }
     }
 
     /// Tests all error conditions except ssz decoding errors
@@ -1551,6 +1779,42 @@ mod tests {
             pubkey: PublicKeyBytes::empty(),
         };
 
+        // Unlike validator deposits, all other Gloas request lists remain bounded.
+        fn check_limit<T: Encode + Clone>(kind: RequestType, request: T, max: usize) {
+            for count in [max, max + 1] {
+                let json = JsonExecutionRequests(vec![create_request_string(
+                    kind.to_u8(),
+                    &vec![request.clone(); count],
+                )]);
+                let result = ExecutionRequestsGloas::<MainnetEthSpec>::try_from(json);
+                if count == max {
+                    assert!(result.is_ok(), "{kind:?}: {result:?}");
+                } else {
+                    assert!(matches!(result, Err(RequestsError::DecodeError(_))));
+                }
+            }
+        }
+        check_limit(
+            RequestType::Withdrawal,
+            withdrawal_request.clone(),
+            MainnetEthSpec::max_withdrawal_requests_per_payload(),
+        );
+        check_limit(
+            RequestType::Consolidation,
+            consolidation_request.clone(),
+            MainnetEthSpec::max_consolidation_requests_per_payload(),
+        );
+        check_limit(
+            RequestType::BuilderDeposit,
+            builder_deposit_request.clone(),
+            MainnetEthSpec::max_builder_deposit_requests_per_payload(),
+        );
+        check_limit(
+            RequestType::BuilderExit,
+            builder_exit_request.clone(),
+            MainnetEthSpec::max_builder_exit_requests_per_payload(),
+        );
+
         // Valid request with all five request types, in ascending prefix order.
         assert_eq!(
             ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
@@ -1570,7 +1834,6 @@ mod tests {
                 consolidations: singleton_progressive_list(&consolidation_request),
                 builder_deposits: singleton_progressive_list(&builder_deposit_request),
                 builder_exits: singleton_progressive_list(&builder_exit_request),
-                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1586,7 +1849,6 @@ mod tests {
                 consolidations: Default::default(),
                 builder_deposits: Default::default(),
                 builder_exits: Default::default(),
-                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1606,7 +1868,6 @@ mod tests {
                 consolidations: Default::default(),
                 builder_deposits: singleton_progressive_list(&builder_deposit_request),
                 builder_exits: singleton_progressive_list(&builder_exit_request),
-                _phantom: std::marker::PhantomData,
             }
         );
 
@@ -1650,5 +1911,162 @@ mod tests {
             .unwrap_err(),
             RequestsError::EmptyRequest(0)
         ));
+    }
+
+    #[test]
+    fn payload_body_block_access_list_round_trip() {
+        use serde_json::json;
+
+        // Present `blockAccessList` -> `Some`.
+        let with_bal = json!({
+            "transactions": [],
+            "withdrawals": null,
+            "blockAccessList": "0x010203",
+        });
+        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
+            serde_json::from_value(with_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().try_into().unwrap();
+        assert_eq!(
+            internal.block_access_list,
+            Some(ProgressiveVariableList::new(vec![1, 2, 3]).unwrap())
+        );
+        assert_eq!(serde_json::to_value(&body).unwrap(), with_bal);
+
+        // Explicit `null` -> `None`, retained as `null` on re-serialize.
+        let null_bal = json!({
+            "transactions": [],
+            "withdrawals": null,
+            "blockAccessList": null,
+        });
+        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
+            serde_json::from_value(null_bal.clone()).unwrap();
+        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().try_into().unwrap();
+        assert_eq!(internal.block_access_list, None);
+        assert_eq!(serde_json::to_value(&body).unwrap(), null_bal);
+
+        // An omitted field is accepted as `None`, then serialized in its canonical `null` form.
+        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
+            serde_json::from_value(json!({ "transactions": [], "withdrawals": null })).unwrap();
+        assert!(body.block_access_list.is_none());
+        assert_eq!(
+            serde_json::to_value(&body).unwrap(),
+            json!({
+                "transactions": [],
+                "withdrawals": null,
+                "blockAccessList": null,
+            })
+        );
+    }
+
+    #[test]
+    fn custody_columns_bitarray_from_indices_round_trip() {
+        // Set bits 0, 7, 8, 64, 127. These touch every byte boundary case.
+        let indices: Vec<ColumnIndex> = vec![0, 7, 8, 64, 127];
+        let bitarray = CustodyColumnsBitArray::try_from(indices.as_slice()).unwrap();
+
+        // Check raw bytes:
+        // bit 0 -> byte 0 bit 0 (0x01) | bit 7 -> byte 0 bit 7 (0x80) => byte 0 = 0x81
+        // bit 8 -> byte 1 bit 0 (0x01)                                => byte 1 = 0x01
+        // bit 64 -> byte 8 bit 0 (0x01)                               => byte 8 = 0x01
+        // bit 127 -> byte 15 bit 7 (0x80)                             => byte 15 = 0x80
+        assert_eq!(bitarray.0[0], 0x81);
+        assert_eq!(bitarray.0[1], 0x01);
+        assert_eq!(bitarray.0[8], 0x01);
+        assert_eq!(bitarray.0[15], 0x80);
+
+        // iter_set_bits round-trip
+        let round_tripped: Vec<ColumnIndex> = bitarray.iter_set_bits().collect();
+        assert_eq!(round_tripped, indices);
+
+        // Out-of-range indices cause an error.
+        let too_high = CustodyColumnsBitArray::try_from([42, 128, 200].as_slice()).unwrap_err();
+        assert_eq!(too_high.0, 128);
+
+        // Empty input is zero.
+        let empty = CustodyColumnsBitArray::try_from([].as_slice()).unwrap();
+        assert_eq!(empty.0, [0u8; 16]);
+    }
+
+    #[test]
+    fn custody_columns_bitarray_hex_serde() {
+        // Set just bit 0 -> first byte 0x01, rest zeros.
+        let bitarray = CustodyColumnsBitArray::try_from([0].as_slice()).unwrap();
+        let json = serde_json::to_string(&bitarray).unwrap();
+        assert_eq!(json, "\"0x01000000000000000000000000000000\"");
+        let parsed: CustodyColumnsBitArray = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, bitarray);
+
+        // Null-equivalent (zero bitarray) still serializes as hex (not null).
+        let zero = CustodyColumnsBitArray::try_from([].as_slice()).unwrap();
+        let zero_json = serde_json::to_string(&zero).unwrap();
+        assert_eq!(zero_json, "\"0x00000000000000000000000000000000\"");
+    }
+}
+
+#[cfg(test)]
+mod payload_status_tests {
+    use super::*;
+
+    /// Engine responses before `engine_newPayloadV6` do not carry `inclusionListSatisfied`.
+    #[test]
+    fn v1_response_carries_no_inclusion_list_information() {
+        let json = serde_json::json!({
+            "status": "VALID",
+            "latestValidHash": null,
+            "validationError": null,
+        });
+
+        let status: JsonPayloadStatusV1 = serde_json::from_value(json).unwrap();
+
+        assert_eq!(PayloadStatusV1::from(status).inclusion_list_satisfied, None);
+    }
+
+    #[test]
+    fn v1_response_does_not_serialize_inclusion_list_satisfied() {
+        let status = PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: None,
+            validation_error: None,
+            inclusion_list_satisfied: Some(true),
+        };
+
+        let json = serde_json::to_value(JsonPayloadStatusV1::from(status)).unwrap();
+
+        assert!(json.get("inclusionListSatisfied").is_none());
+    }
+
+    #[test]
+    fn v2_response_serializes_inclusion_list_satisfied() {
+        let status = PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: None,
+            validation_error: None,
+            inclusion_list_satisfied: Some(true),
+        };
+
+        let json = serde_json::to_value(JsonPayloadStatusV2::from(status)).unwrap();
+
+        assert_eq!(
+            json.get("inclusionListSatisfied"),
+            Some(&serde_json::json!(true))
+        );
+    }
+
+    #[test]
+    fn v2_response_round_trips_inclusion_list_satisfied() {
+        let json = serde_json::json!({
+            "status": "VALID",
+            "latestValidHash": null,
+            "validationError": null,
+            "inclusionListSatisfied": true,
+        });
+
+        let status: JsonPayloadStatusV2 = serde_json::from_value(json).unwrap();
+
+        assert_eq!(status.inclusion_list_satisfied, Some(true));
+        assert_eq!(
+            PayloadStatusV1::from(status).inclusion_list_satisfied,
+            Some(true)
+        );
     }
 }

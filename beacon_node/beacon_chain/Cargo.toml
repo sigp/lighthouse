@@ -24,6 +24,7 @@ alloy-primitives = { workspace = true }
 arbitrary = { workspace = true, optional = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
+builder_client = { workspace = true }
 educe = { workspace = true }
 eth2 = { workspace = true, features = ["lighthouse", "network"] }
 eth2_network_config = { workspace = true }

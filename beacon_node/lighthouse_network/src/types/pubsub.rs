@@ -19,8 +19,8 @@ use types::{
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
     SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBeaconBlockHeze,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedVoluntaryExit,
-    SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    SignedExecutionPayloadEnvelope, SignedInclusionList, SignedProposerPreferences,
+    SignedVoluntaryExit, SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
     execution::SignedExecutionProof,
 };
 
@@ -56,6 +56,8 @@ pub enum PubsubMessage<E: EthSpec> {
     ProposerPreferences(Arc<SignedProposerPreferences>),
     /// Gossipsub message providing notification of an EIP-8025 execution proof.
     ExecutionProof(Arc<SignedExecutionProof>),
+    /// Gossipsub message providing notification of a signed inclusion list.
+    InclusionList(Box<SignedInclusionList>),
     /// Gossipsub message providing notification of a light client finality update.
     LightClientFinalityUpdate(Box<LightClientFinalityUpdate<E>>),
     /// Gossipsub message providing notification of a light client optimistic update.
@@ -181,6 +183,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::ExecutionPayloadBid(_) => GossipKind::ExecutionPayloadBid,
             PubsubMessage::ProposerPreferences(_) => GossipKind::ProposerPreferences,
             PubsubMessage::ExecutionProof(_) => GossipKind::ExecutionProof,
+            PubsubMessage::InclusionList(_) => GossipKind::InclusionList,
             PubsubMessage::LightClientFinalityUpdate(_) => GossipKind::LightClientFinalityUpdate,
             PubsubMessage::LightClientOptimisticUpdate(_) => {
                 GossipKind::LightClientOptimisticUpdate
@@ -311,12 +314,17 @@ impl<E: EthSpec> PubsubMessage<E> {
                         match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
                             Some(fork) if fork.fulu_enabled() => {
                                 if fork.gloas_enabled()
-                                    && data.len() > E::max_data_column_sidecar_size()
+                                    && data.len()
+                                        > fork_context
+                                            .spec
+                                            .compute_max_data_column_sidecar_size_gloas::<E>()
                                 {
                                     return Err(format!(
                                         "DataColumnSidecar size {} exceeds MAX_DATA_COLUMN_SIDECAR_SIZE {}",
                                         data.len(),
-                                        E::max_data_column_sidecar_size()
+                                        fork_context
+                                            .spec
+                                            .compute_max_data_column_sidecar_size_gloas::<E>()
                                     ));
                                 }
                                 let col_sidecar = Arc::new(
@@ -447,6 +455,18 @@ impl<E: EthSpec> PubsubMessage<E> {
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::ExecutionProof(Arc::new(execution_proof)))
                     }
+                    GossipKind::InclusionList => {
+                        if data.len() > E::max_signed_inclusion_list_size() {
+                            return Err(format!(
+                                "SignedInclusionList size {} exceeds MAX_SIGNED_INCLUSION_LIST_SIZE {}",
+                                data.len(),
+                                E::max_signed_inclusion_list_size()
+                            ));
+                        }
+                        let inclusion_list = SignedInclusionList::from_ssz_bytes(data)
+                            .map_err(|e| format!("{:?}", e))?;
+                        Ok(PubsubMessage::InclusionList(Box::new(inclusion_list)))
+                    }
                     GossipKind::LightClientFinalityUpdate => {
                         let light_client_finality_update = match fork_context
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
@@ -513,6 +533,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::ExecutionPayloadBid(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerPreferences(data) => data.as_ssz_bytes(),
             PubsubMessage::ExecutionProof(data) => data.as_ssz_bytes(),
+            PubsubMessage::InclusionList(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientOptimisticUpdate(data) => data.as_ssz_bytes(),
         }
@@ -533,12 +554,17 @@ pub fn decode_partial<E: EthSpec>(
             let fork = *match fork_context.get_fork_from_context_bytes(topic.fork_digest) {
                 Some(fork) if fork.fulu_enabled() => {
                     if fork.gloas_enabled()
-                        && data.len() > E::max_partial_data_column_sidecar_size()
+                        && data.len()
+                            > fork_context
+                                .spec
+                                .compute_max_partial_data_column_sidecar_size_gloas::<E>()
                     {
                         return Err(format!(
                             "PartialDataColumnSidecar size {} exceeds MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE {}",
                             data.len(),
-                            E::max_partial_data_column_sidecar_size()
+                            fork_context
+                                .spec
+                                .compute_max_partial_data_column_sidecar_size_gloas::<E>()
                         ));
                     }
                     fork
@@ -670,6 +696,13 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                     data.message.beacon_block_root, data.message.proof_type, data.validator_index
                 )
             }
+            PubsubMessage::InclusionList(data) => {
+                write!(
+                    f,
+                    "Inclusion list: slot: {:?}, validator_index: {:?}",
+                    data.message.slot, data.message.validator_index
+                )
+            }
             PubsubMessage::LightClientFinalityUpdate(_data) => {
                 write!(f, "Light CLient Finality Update")
             }
@@ -776,7 +809,10 @@ mod tests {
 
     #[test]
     fn gloas_data_column_sidecar_size_bound() {
-        let max = E::max_data_column_sidecar_size();
+        let fork_context = gloas_fork_context();
+        let max = fork_context
+            .spec
+            .compute_max_data_column_sidecar_size_gloas::<E>();
         let kind = GossipKind::DataColumnSidecar(DataColumnSubnetId::new(0));
         let err = decode_oversized(kind.clone(), max + 1).unwrap_err();
         assert!(err.contains("MAX_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
@@ -797,7 +833,9 @@ mod tests {
             group.extend_from_slice(Hash256::ZERO.as_slice());
             group
         };
-        let max = E::max_partial_data_column_sidecar_size();
+        let max = fork_context
+            .spec
+            .compute_max_partial_data_column_sidecar_size_gloas::<E>();
 
         let data = vec![0u8; max + 1];
         let err = decode_partial::<E>(&topic, &group, &data, &fork_context).unwrap_err();
@@ -827,5 +865,14 @@ mod tests {
             !err.contains("MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn heze_inclusion_list_size_bound() {
+        let max = E::max_signed_inclusion_list_size();
+        let err = decode_oversized(GossipKind::InclusionList, max + 1).unwrap_err();
+        assert!(err.contains("MAX_SIGNED_INCLUSION_LIST_SIZE"), "{err}");
+        let err = decode_oversized(GossipKind::InclusionList, max).unwrap_err();
+        assert!(!err.contains("MAX_SIGNED_INCLUSION_LIST_SIZE"), "{err}");
     }
 }

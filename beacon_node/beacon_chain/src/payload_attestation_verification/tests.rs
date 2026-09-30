@@ -494,6 +494,15 @@ async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
 
         let head = harness.chain.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
+        if slot == fork_boundary_slot {
+            let pre_fork_slot = slot - 1;
+            assert!(state.get_ptc(pre_fork_slot, &harness.spec).is_err());
+            let message = make_payload_attestation(pre_fork_slot, 0, Hash256::ZERO);
+            assert!(matches!(
+                harness.chain.verify_payload_attestation_message_for_gossip(message),
+                Err(PayloadAttestationError::PreGloasSlot { slot }) if slot == pre_fork_slot
+            ));
+        }
         let ptc = state.get_ptc(slot, &harness.spec).expect("should get PTC");
         let validator_index = *ptc.0.first().expect("PTC should have a member") as u64;
         let data = PayloadAttestationData {

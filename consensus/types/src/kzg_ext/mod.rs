@@ -22,9 +22,9 @@ pub type KzgCommitments<E> =
 
 /// Progressive (EIP-7688) variant of `KzgCommitments`, used from Gloas onwards.
 ///
-/// The `MaxBlobCommitmentsPerBlock` limit is no longer enforced by the type and MUST be checked
-/// at runtime where the spec requires it (e.g. on gossip verification of execution payload bids).
-pub type ProgressiveKzgCommitments = ProgressiveVariableList<KzgCommitment>;
+/// The `MaxBlobCommitmentsPerBlock` limit is enforced during deserialization.
+pub type ProgressiveKzgCommitments<E> =
+    ProgressiveVariableList<KzgCommitment, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Util method helpful for logging.
 pub fn format_kzg_commitments(commitments: &[KzgCommitment]) -> String {

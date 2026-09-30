@@ -5,13 +5,12 @@ use bls::Signature;
 use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use parking_lot::{Mutex, RwLock};
-use proto_array::PayloadStatus;
 use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::AllCaches;
 use store::{HotColdDB, MemoryStore, StoreConfig};
 use types::{
-    Address, BeaconBlock, ChainSpec, EthSpec, Hash256, MinimalEthSpec, ProposerPreferences,
-    SignedBeaconBlock, SignedProposerPreferences, Slot,
+    Address, BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec,
+    ProposerPreferences, SignedBeaconBlock, SignedProposerPreferences, Slot,
 };
 
 use crate::{
@@ -24,6 +23,7 @@ use crate::{
         ProposerPreferencesError,
         gossip_verified_proposer_preferences::{
             GossipVerificationContext, GossipVerifiedProposerPreferences,
+            verify_preferences_consistency,
         },
         proposer_preference_cache::GossipVerifiedProposerPreferenceCache,
     },
@@ -92,14 +92,17 @@ impl TestContext {
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), snapshot.clone())
             .expect("should create fork choice store");
-        let fork_choice =
+        let mut fork_choice =
             ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
                 .expect("should create fork choice");
+        let head_node = fork_choice
+            .get_head(Slot::new(0), &spec)
+            .expect("should run get_head");
 
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(snapshot),
-            PayloadStatus::Pending,
+            head_node,
             FastConfirmationMode::Disabled,
             &store,
             &spec,
@@ -568,4 +571,38 @@ fn dependent_root_valid_via_boundary_crossing_child() {
         "expected verification to pass dependent-root checks and fail at proposer resolution, got: {:?}",
         result
     );
+}
+
+#[test]
+fn pre_gloas_proposal_epoch_ignored() {
+    if fork_name_from_env() != Some(ForkName::Gloas) {
+        return;
+    }
+    let mut spec = test_spec::<E>();
+    spec.gloas_fork_epoch = Some(Epoch::new(2));
+
+    let current_slot = Slot::new(E::slots_per_epoch());
+    let prefs = make_signed_preferences(current_slot + 1, 0, Hash256::ZERO);
+    let result = verify_preferences_consistency::<E>(&prefs.message, current_slot, &spec);
+    assert!(
+        matches!(
+            result,
+            Err(ProposerPreferencesError::ProposalEpochPreGloas { .. })
+        ),
+        "got: {result:?}"
+    );
+}
+
+#[test]
+fn gloas_proposal_epoch_passes_fork_check() {
+    if fork_name_from_env() != Some(ForkName::Gloas) {
+        return;
+    }
+    let mut spec = test_spec::<E>();
+    spec.gloas_fork_epoch = Some(Epoch::new(1));
+
+    let current_slot = Slot::new(E::slots_per_epoch());
+    let prefs = make_signed_preferences(current_slot + 1, 0, Hash256::ZERO);
+    let result = verify_preferences_consistency::<E>(&prefs.message, current_slot, &spec);
+    assert!(result.is_ok(), "got: {result:?}");
 }

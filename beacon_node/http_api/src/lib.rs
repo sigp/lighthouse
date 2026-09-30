@@ -68,7 +68,9 @@ use eth2::types::{
     self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
     ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
 };
-use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
+use eth2::{
+    BUILDER_URL_HEADER, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
+};
 use health_metrics::observe::Observe;
 use lighthouse_network::Enr;
 use lighthouse_network::NetworkGlobals;
@@ -78,6 +80,7 @@ use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders};
 use network_utils::enr_ext::EnrExt;
 use parking_lot::RwLock;
+use proto_array::PayloadBlockHash;
 pub use publish_blocks::{
     ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
@@ -106,7 +109,7 @@ use types::{
 };
 use validator::execution_payload_envelopes::get_validator_execution_payload_envelopes;
 use version::{
-    ResponseIncludesVersion, V1, V2, add_consensus_version_header, add_ssz_content_type_header,
+    ResponseIncludesVersion, V1, V2, V4, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
     unsupported_version_rejection,
 };
@@ -384,6 +387,7 @@ pub async fn serve<T: BeaconChainTypes>(
 
     let eth_v1 = single_version(any_version.clone(), V1);
     let eth_v2 = single_version(any_version.clone(), V2);
+    let eth_v4 = single_version(any_version.clone(), V4);
 
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();
@@ -819,6 +823,9 @@ pub async fn serve<T: BeaconChainTypes>(
      */
     let consensus_version_header_filter =
         warp::header::header::<ForkName>(CONSENSUS_VERSION_HEADER).boxed();
+    // The winning builder's URL echoed by the VC on a Gloas block publish (beacon-APIs #630), so the
+    // node forwards the block to that builder. Optional: absent for self-build / p2p-won blocks.
+    let builder_url_header_filter = warp::header::optional::<String>(BUILDER_URL_HEADER).boxed();
 
     let optional_consensus_version_header_filter =
         warp::header::optional::<ForkName>(CONSENSUS_VERSION_HEADER).boxed();
@@ -855,6 +862,8 @@ pub async fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
+                        // Legacy v1 publish: no builder-URL provenance (VC uses v2 for Gloas).
+                        None,
                     )
                     .await
                 })
@@ -892,6 +901,8 @@ pub async fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
+                        // Legacy v1 publish: no builder-URL provenance (VC uses v2 for Gloas).
+                        None,
                     )
                     .await
                 })
@@ -909,13 +920,15 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(builder_url_header_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   value: serde_json::Value,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  builder_url: Option<String>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
                         &value,
@@ -932,6 +945,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
+                        builder_url,
                     )
                     .await
                 })
@@ -949,13 +963,15 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(builder_url_header_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  builder_url: Option<String>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -971,6 +987,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
+                        builder_url,
                     )
                     .await
                 })
@@ -2120,7 +2137,7 @@ pub async fn serve<T: BeaconChainTypes>(
                                 chain
                                     .canonical_head
                                     .fork_choice_read_lock()
-                                    .is_optimistic_or_invalid_block(&root)
+                                    .is_optimistic_or_invalid_block_assuming_full(&root)
                                     .ok()
                             } else {
                                 return Err(unsupported_version_rejection(endpoint_version));
@@ -2156,20 +2173,12 @@ pub async fn serve<T: BeaconChainTypes>(
                         .nodes
                         .iter()
                         .map(|node| {
-                            let execution_status = if node
+                            let execution_status = node
                                 .execution_status()
-                                .is_ok_and(|status| status.is_execution_enabled())
-                            {
-                                node.execution_status()
-                                    .ok()
-                                    .map(|status| status.to_string())
-                            } else {
-                                None
-                            };
+                                .is_execution_enabled()
+                                .then(|| node.execution_status().to_string());
 
-                            let execution_status_string = node
-                                .execution_status()
-                                .map_or_else(|_| "irrelevant".to_string(), |s| s.to_string());
+                            let execution_status_string = node.execution_status().to_string();
 
                             ForkChoiceNode {
                                 slot: node.slot(),
@@ -2182,11 +2191,12 @@ pub async fn serve<T: BeaconChainTypes>(
                                 finalized_epoch: node.finalized_checkpoint().epoch,
                                 weight: node.weight(),
                                 validity: execution_status,
-                                execution_block_hash: node
-                                    .execution_status()
-                                    .ok()
-                                    .and_then(|status| status.block_hash())
-                                    .map(|block_hash| block_hash.into_root()),
+                                execution_block_hash: match node.block_hash() {
+                                    PayloadBlockHash::Hash(block_hash) => {
+                                        Some(block_hash.into_root())
+                                    }
+                                    PayloadBlockHash::PreMerge => None,
+                                },
                                 extra_data: ForkChoiceExtraData {
                                     target_root: node.target_root(),
                                     justified_root: node.justified_checkpoint().root,
@@ -2570,6 +2580,14 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
+    // POST v4/validator/blocks/{slot}
+    let post_validator_blocks_v4 = post_validator_blocks_v4(
+        eth_v4.clone(),
+        chain_filter.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+    );
+
     // GET validator/blinded_blocks/{slot}
     let get_validator_blinded_blocks = get_validator_blinded_blocks(
         eth_v1.clone(),
@@ -2594,7 +2612,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
-    // GET validator/payload_attestation_data/{slot}
+    // GET validator/payload_attestation_data?slot
     let get_validator_payload_attestation_data = get_validator_payload_attestation_data(
         eth_v1.clone(),
         chain_filter.clone(),
@@ -2683,6 +2701,12 @@ pub async fn serve<T: BeaconChainTypes>(
         chain_filter.clone(),
         task_spawner_filter.clone(),
     );
+    // POST validator/builder_preferences
+    let post_validator_builder_preferences = post_validator_builder_preferences(
+        eth_v1.clone(),
+        chain_filter.clone(),
+        task_spawner_filter.clone(),
+    );
     // POST validator/sync_committee_subscriptions
     let post_validator_sync_committee_subscriptions = post_validator_sync_committee_subscriptions(
         eth_v1.clone(),
@@ -2710,6 +2734,14 @@ pub async fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    // Manual finalization is not compatible with FCR.
+                    // See: https://github.com/sigp/lighthouse/issues/10166
+                    if chain.canonical_head.fast_confirmation.is_some() {
+                        return Err(warp_utils::reject::custom_bad_request(
+                            "manual finalization is not compatible with FCR".into(),
+                        ));
+                    }
+
                     let checkpoint = Checkpoint {
                         epoch: request_data.epoch,
                         root: request_data.block_root,
@@ -3496,6 +3528,8 @@ pub async fn serve<T: BeaconChainTypes>(
                     .uor(post_validator_sync_committee_subscriptions)
                     .uor(post_validator_prepare_beacon_proposer)
                     .uor(post_validator_register_validator)
+                    .uor(post_validator_builder_preferences)
+                    .uor(post_validator_blocks_v4)
                     .uor(post_validator_liveness_epoch)
                     .uor(post_lighthouse_liveness)
                     .uor(post_lighthouse_database_reconstruct)

@@ -19,6 +19,7 @@ use logging::crit;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
 use reqwest::StatusCode;
+use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -73,6 +74,62 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
     }
 }
 
+/// If a direct builder won this block's payload bid, forward the signed block to that builder via
+/// `submitSignedBeaconBlock` so it reveals the execution payload envelope.
+///
+/// The builder's URL is the `Eth-Builder-Url` request header the VC echoed on publish (beacon-APIs
+/// #630), so this works even on a beacon node that did not produce the block. `None` (self-built or
+/// p2p-won), no configured builders, or a malformed URL are all no-ops.
+///
+/// Fire-and-forget: the submission runs in a detached task; a failure is logged at high severity
+/// (the validator has already signed the commitment) but never blocks the publish response. Runs
+/// only once per block since it hangs off the single p2p-publish point.
+fn forward_signed_block_to_winning_builder<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    builder_url: Option<&str>,
+) {
+    // The VC echoes the winning builder's URL in the `Eth-Builder-Url` request header (beacon-APIs
+    // #630); absent for a self-built block or a p2p-won bid, in which case there's nothing to forward.
+    let Some(builder_url) = builder_url else {
+        return;
+    };
+    let Some(builders) = chain.builders.as_ref() else {
+        return;
+    };
+    let url = match SensitiveUrl::parse(builder_url) {
+        Ok(url) => url,
+        Err(e) => {
+            warn!(error = ?e, "Ignoring malformed Eth-Builder-Url header");
+            return;
+        }
+    };
+
+    let builders = builders.clone();
+    let slot = block.slot();
+    let block_root = block.canonical_root();
+
+    chain.task_executor.spawn(
+        async move {
+            match builders.forward_signed_block(&url, &block).await {
+                Ok(()) => info!(
+                    %slot,
+                    %block_root,
+                    "Forwarded signed block to winning builder"
+                ),
+                Err(e) => error!(
+                    %slot,
+                    %block_root,
+                    builder_url = ?url,
+                    error = ?e,
+                    "Failed to forward signed block to winning builder"
+                ),
+            }
+        },
+        "forward_signed_block_to_builder",
+    );
+}
+
 /// Handles a request from the HTTP API for full blocks.
 #[allow(clippy::too_many_arguments)]
 #[instrument(
@@ -88,6 +145,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
+    // The `Eth-Builder-Url` request header (beacon-APIs #630): when a direct builder won the block's
+    // payload bid, its URL, so the block is forwarded there for envelope reveal.
+    builder_url: Option<String>,
 ) -> Result<Response, Rejection> {
     let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
     let block_publishing_delay_for_testing = chain.config.block_publishing_delay;
@@ -140,6 +200,14 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             .map_err(|_| {
                 BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
             })?;
+
+        // If a direct builder won this block's payload bid, forward the signed block to it so it
+        // reveals the execution payload envelope.
+        forward_signed_block_to_winning_builder(
+            &publish_chain,
+            block.clone(),
+            builder_url.as_deref(),
+        );
 
         Ok(())
     };
@@ -570,6 +638,8 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
             network_tx,
             validation_level,
             duplicate_status_code,
+            // Blinded (mev-boost) publish predates the Gloas builder-URL round-trip.
+            None,
         )
         .await
     } else {
