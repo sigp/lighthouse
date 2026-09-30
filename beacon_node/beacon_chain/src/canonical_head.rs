@@ -475,7 +475,6 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     fork_choice_poisoned: AtomicBool,
 }
 
-/// The fast confirmation rule, and what this node has done with it.
 pub struct BeaconFastConfirmationRule {
     pub fcr: FastConfirmationRule,
     pub roots: FastConfirmationRoots,
@@ -484,7 +483,6 @@ pub struct BeaconFastConfirmationRule {
 /// The roots this node has sent its EL as the FCU safe block hash.
 #[derive(Clone, Copy, Encode, Decode)]
 pub struct FastConfirmationRoots {
-    /// The root sent last.
     pub announced_root: Hash256,
     /// Deepest announced descendant of `announced_root`.
     pub deepest_announced_root: Hash256,
@@ -1044,12 +1042,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 confirmed_root
             };
 
-            // Only on the run where the head leaves that root's chain. It can stay away for
-            // epochs, and every recompute in between would count the same reorg.
             if let Some(deepest_slot) = fork_choice_read_lock
                 .get_block(&old_deepest)
                 .map(|block| block.slot)
-                && fork_choice_read_lock.is_descendant(old_deepest, old_view.head_block_root)
                 && !fork_choice_read_lock.is_descendant(old_deepest, head_root)
             {
                 let reorg_distance = fork_choice_read_lock
@@ -1773,7 +1768,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    /// Write the roots sent as the FCU safe block hash.
     fn persist_fast_confirmation_roots_in_batch(&self) -> Option<KeyValueStoreOp> {
         let roots = self.canonical_head.fast_confirmation.as_ref()?.lock().roots;
         Some(persist_fast_confirmation_roots_in_batch(&roots))

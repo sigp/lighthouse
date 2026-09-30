@@ -4,7 +4,6 @@ use ssz::{Decode, Encode};
 use store::{DBColumn, Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp, StoreItem};
 use types::EthSpec;
 
-/// The roots sent to the EL as the FCU safe block hash. `None` if nothing was ever written.
 pub fn load_fast_confirmation_roots<E: EthSpec, Hot: ItemStore, Cold: ItemStore>(
     store: &HotColdDB<E, Hot, Cold>,
 ) -> Result<Option<FastConfirmationRoots>, StoreError> {

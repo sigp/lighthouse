@@ -835,8 +835,7 @@ async fn a_pruned_root_is_a_revert_not_an_error_in_the_harness() {
     assert_ne!(confirmed(&node.chain).unwrap().0, abandoned);
 }
 
-/// A pruned `confirmed_root` is a revert, not an error. Fork choice only prunes past a node
-/// threshold, so no harness test reaches this.
+/// A pruned `confirmed_root` is a revert, not an error.
 #[test]
 fn a_pruned_confirmed_root_is_a_revert_not_an_error() {
     let spec = test_spec::<E>();
