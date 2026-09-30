@@ -198,10 +198,11 @@ pub(crate) fn parent_payload_exits_builder<T: BeaconChainTypes>(
     }
 
     let builder = head_state.get_builder(bid.builder_index)?;
-    let parent_envelope = store
-        .get_payload_envelope(&bid.parent_block_root)
+    // Only the execution requests are needed, and the summary survives payload body pruning.
+    let parent_summary = store
+        .get_payload_envelope_summary(&bid.parent_block_root)
         .map_err(|e| {
-            PayloadBidError::InternalError(format!("failed to load parent payload envelope: {e:?}"))
+            PayloadBidError::InternalError(format!("failed to load parent payload summary: {e:?}"))
         })?
         .ok_or(PayloadBidError::ParentExecutionPayloadUnknown {
             parent_block_hash: bid.parent_block_hash,
@@ -209,7 +210,7 @@ pub(crate) fn parent_payload_exits_builder<T: BeaconChainTypes>(
 
     Ok(builder_exit_requested(
         builder,
-        &parent_envelope.message.execution_requests,
+        &parent_summary.execution_requests,
     ))
 }
 

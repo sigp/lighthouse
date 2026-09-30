@@ -9,7 +9,7 @@ use educe::Educe;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::ProgressiveBitList;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{BitList, BitVector, ProgressiveVariableList};
+use ssz_types::{BitList, BitVector};
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
@@ -827,10 +827,9 @@ impl SingleAttestation {
     ) -> Result<IndexedAttestation<E>, ssz_types::Error> {
         if fork_name.gloas_enabled() {
             Ok(IndexedAttestation::Gloas(IndexedAttestationGloas {
-                attesting_indices: ProgressiveVariableList::new(vec![self.attester_index]),
+                attesting_indices: vec![self.attester_index].try_into()?,
                 data: self.data.clone(),
                 signature: self.signature.clone(),
-                _phantom: std::marker::PhantomData,
             }))
         } else if fork_name.electra_enabled() {
             Ok(IndexedAttestation::Electra(IndexedAttestationElectra {

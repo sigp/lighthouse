@@ -21,6 +21,7 @@ use beacon_chain::{
 use bls::{AggregateSignature, Keypair, Signature};
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::PayloadStatus;
+use fork_choice::PayloadVerificationStatus;
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::GloasVerificationContext;
@@ -32,6 +33,7 @@ use state_processing::{
 use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
 use tempfile::tempdir;
+use types::ExecutionBlockHash;
 use types::{test_utils::generate_deterministic_keypair, *};
 
 type E = MainnetEthSpec;
@@ -94,37 +96,17 @@ fn is_fulu_enabled_at_slot(spec: &ChainSpec, slot: Slot) -> bool {
 async fn build_chain_segment_from_harness(
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
 ) -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>) {
-    harness
-        .extend_chain(
-            CHAIN_SEGMENT_LENGTH,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-
     let mut segment = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
     let mut segment_sidecars = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
-    for snapshot in harness
-        .chain
-        .chain_dump()
-        .expect("should dump chain")
-        .into_iter()
-        .skip(1)
-    {
-        let full_block = harness
-            .chain
-            .get_block(&snapshot.beacon_block_root)
-            .await
-            .unwrap()
-            .unwrap();
-        let block_epoch = full_block.epoch();
 
-        segment.push(BeaconSnapshot {
-            beacon_block_root: snapshot.beacon_block_root,
-            execution_envelope: snapshot.execution_envelope,
-            beacon_block: Arc::new(full_block),
-            beacon_state: snapshot.beacon_state,
-        });
+    // Retain each complete snapshot as it is produced. Finalization may prune its envelope payload
+    // from the database before the complete segment has been built.
+    for _ in 0..CHAIN_SEGMENT_LENGTH {
+        let block_root = harness.extend_slots(1).await;
+        let snapshot = harness.chain.head_snapshot();
+        assert_eq!(snapshot.beacon_block_root, block_root);
+
+        let block_epoch = snapshot.beacon_block.epoch();
 
         let fork_name = snapshot.beacon_block.fork_name_unchecked();
 
@@ -150,6 +132,7 @@ async fn build_chain_segment_from_harness(
         };
 
         segment_sidecars.push(data_sidecars);
+        segment.push(snapshot.as_ref().clone());
     }
     (segment, segment_sidecars)
 }
@@ -278,7 +261,11 @@ fn update_fork_choice_with_envelopes(
                 .chain
                 .canonical_head
                 .fork_choice_write_lock()
-                .on_valid_payload_envelope_received(snapshot.beacon_block_root);
+                .on_payload_envelope_received(
+                    snapshot.beacon_block_root,
+                    PayloadVerificationStatus::Verified,
+                    ExecutionBlockHash::zero(),
+                );
         }
     }
 }
@@ -1040,19 +1027,31 @@ async fn invalid_signature_attester_slashing() {
                 // Convert the Electra slashing into the Gloas type (EIP-7688). The SSZ bytes are
                 // the same, only the hash tree root differs.
                 let slashing = attester_slashing.as_electra().unwrap().clone();
-                blk.attester_slashings.push(AttesterSlashingGloas {
-                    attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
-                    attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
-                });
+                blk.attester_slashings
+                    .push(AttesterSlashingGloas {
+                        attestation_1: IndexedAttestation::Electra(slashing.attestation_1)
+                            .to_gloas()
+                            .unwrap(),
+                        attestation_2: IndexedAttestation::Electra(slashing.attestation_2)
+                            .to_gloas()
+                            .unwrap(),
+                    })
+                    .unwrap();
             }
             BeaconBlockBodyRefMut::Heze(blk) => {
                 // Convert the Electra slashing into the Gloas type (EIP-7688). The SSZ bytes are
                 // the same, only the hash tree root differs.
                 let slashing = attester_slashing.as_electra().unwrap().clone();
-                blk.attester_slashings.push(AttesterSlashingGloas {
-                    attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
-                    attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
-                });
+                blk.attester_slashings
+                    .push(AttesterSlashingGloas {
+                        attestation_1: IndexedAttestation::Electra(slashing.attestation_1)
+                            .to_gloas()
+                            .unwrap(),
+                        attestation_2: IndexedAttestation::Electra(slashing.attestation_2)
+                            .to_gloas()
+                            .unwrap(),
+                    })
+                    .unwrap();
             }
         }
         snapshots[block_index].beacon_block =
@@ -1285,7 +1284,11 @@ async fn block_gossip_verification() {
                 .chain
                 .canonical_head
                 .fork_choice_write_lock()
-                .on_valid_payload_envelope_received(snapshot.beacon_block_root)
+                .on_payload_envelope_received(
+                    snapshot.beacon_block_root,
+                    PayloadVerificationStatus::Verified,
+                    ExecutionBlockHash::zero(),
+                )
                 .expect("should update fork choice with envelope");
         }
     }
@@ -1574,7 +1577,7 @@ async fn block_gossip_verification() {
                 signature: bls::SignatureBytes::empty(),
             },
         };
-        gloas_block.body.deposits = ssz_types::ProgressiveVariableList::new(vec![deposit]);
+        gloas_block.body.deposits = ssz_types::ProgressiveVariableList::new(vec![deposit]).unwrap();
         assert!(
             matches!(
                 unwrap_err(
@@ -2566,7 +2569,7 @@ async fn process_chain_segment_imports_missing_envelope_for_duplicate_gloas_bloc
         harness
             .chain
             .store
-            .get_payload_envelope(&block_root)
+            .get_signed_payload_envelope(&block_root)
             .expect("should read envelope from store")
             .is_none(),
         "envelope should start missing from the store"
@@ -2611,7 +2614,7 @@ async fn process_chain_segment_imports_missing_envelope_for_duplicate_gloas_bloc
         harness
             .chain
             .store
-            .get_payload_envelope(&block_root)
+            .get_signed_payload_envelope(&block_root)
             .expect("should read envelope from store")
             .is_some(),
         "range sync should persist the envelope"
@@ -2640,7 +2643,11 @@ async fn process_chain_segment_ignores_duplicate_gloas_block_when_payload_receiv
         .chain
         .canonical_head
         .fork_choice_write_lock()
-        .on_valid_payload_envelope_received(block_root)
+        .on_payload_envelope_received(
+            block_root,
+            PayloadVerificationStatus::Verified,
+            ExecutionBlockHash::zero(),
+        )
         .expect("payload should be marked received");
 
     let data_sidecars = Some(DataSidecars::DataColumns(
@@ -2687,27 +2694,14 @@ async fn filter_chain_segment_keeps_checkpoint_gloas_block_by_split_root() {
         .build();
 
     harness.advance_slot();
-    harness
+    let block_root = harness
         .extend_chain(
-            E::slots_per_epoch() as usize * 4,
+            1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
         .await;
 
-    let finalized_checkpoint = harness
-        .chain
-        .canonical_head
-        .cached_head()
-        .finalized_checkpoint();
-    let finalized_slot = finalized_checkpoint.epoch.start_slot(E::slots_per_epoch());
-    assert!(finalized_slot > Slot::new(1));
-
-    let block_root = harness
-        .chain
-        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::Prev)
-        .unwrap()
-        .unwrap();
     let block = harness
         .chain
         .store
@@ -2717,9 +2711,21 @@ async fn filter_chain_segment_keeps_checkpoint_gloas_block_by_split_root() {
     let envelope = harness
         .chain
         .store
-        .get_payload_envelope(&block_root)
+        .get_signed_payload_envelope(&block_root)
         .unwrap()
         .unwrap();
+
+    harness
+        .extend_slots(E::slots_per_epoch() as usize * 4 - 1)
+        .await;
+
+    let finalized_checkpoint = harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint();
+    let finalized_slot = finalized_checkpoint.epoch.start_slot(E::slots_per_epoch());
+    assert!(finalized_slot > Slot::new(1));
 
     let (mut block_message, signature) = block.deconstruct();
     *block_message.parent_root_mut() = Hash256::repeat_byte(0x42);

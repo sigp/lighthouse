@@ -1483,13 +1483,20 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
 
-        match chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_parent_import_status(block.as_block())
-        {
+        let fork_choice = chain.canonical_head.fork_choice_read_lock();
+        match fork_choice.get_parent_import_status(block.as_block()) {
             ParentImportStatus::Imported(parent) => {
-                if parent.execution_status.is_invalid() {
+                let payload_invalid = match block.as_block().payload_bid_parent_block_hash() {
+                    // Post-Gloas the bid names the payload this block builds on. A child of the
+                    // parent's `EMPTY` node builds on an older payload, not the parent's own.
+                    Ok(block_hash) => fork_choice.is_invalid(block_hash),
+                    // Pre-Gloas a block builds on its parent's payload.
+                    Err(_) => match parent.block_hash() {
+                        PayloadBlockHash::Hash(block_hash) => fork_choice.is_invalid(block_hash),
+                        PayloadBlockHash::PreMerge => false,
+                    },
+                };
+                if payload_invalid {
                     return Err(BlockError::ParentExecutionPayloadInvalid {
                         parent_root: block.parent_root(),
                     });
@@ -1502,6 +1509,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 });
             }
         }
+        drop(fork_choice);
 
         /*
          *  Perform cursory checks to see if the block is even worth processing.

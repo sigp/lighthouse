@@ -10,7 +10,7 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
 use ssz_types::ProgressiveVariableList;
 use state_processing::genesis::genesis_block;
-use store::{HotColdDB, StoreConfig};
+use store::{HotColdDB, StoreConfig, StoreOp};
 use types::{
     Address, BuilderExitRequest, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadHeader,
@@ -329,7 +329,11 @@ impl TestContext {
         builder_exit: BuilderExitRequest,
     ) {
         let mut envelope = ExecutionPayloadEnvelope::<E>::empty();
-        envelope.execution_requests.builder_exits.push(builder_exit);
+        envelope
+            .execution_requests
+            .builder_exits
+            .push(builder_exit)
+            .unwrap();
         self.store
             .put_payload_envelope(
                 &block_root,
@@ -714,6 +718,35 @@ fn parent_payload_exit_check_skipped_when_bid_builds_on_empty_parent() {
 }
 
 #[test]
+fn parent_payload_exit_check_uses_summary_after_body_pruning() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let head = ctx.canonical_head.cached_head();
+    let head_state = &head.snapshot.beacon_state;
+    let builder = head_state.get_builder(0).expect("builder 0 should exist");
+    let parent_block =
+        ctx.slot_1_proto_block(exit_test_parent_root(), exit_test_parent_payload_hash());
+    ctx.put_envelope_with_builder_exit(
+        exit_test_parent_root(),
+        BuilderExitRequest {
+            source_address: builder.execution_address,
+            pubkey: builder.pubkey,
+        },
+    );
+    ctx.store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeletePayload(
+            exit_test_parent_root(),
+        )])
+        .expect("should prune payload body");
+
+    let bid = exit_test_bid(exit_test_parent_payload_hash());
+    let result = parent_payload_exits_builder::<T>(&bid, &parent_block, head_state, &ctx.store);
+    assert!(matches!(result, Ok(true)), "got: {result:?}");
+}
+
+#[test]
 fn parent_payload_exit_check_needs_parent_envelope() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
@@ -1043,7 +1076,7 @@ fn invalid_blob_kzg_commitments() {
             parent_block_root: ctx.genesis_block_root,
             parent_block_hash: ctx.execution_parent_hash(),
             prev_randao: ctx.expected_prev_randao(),
-            blob_kzg_commitments: ProgressiveVariableList::new(commitments),
+            blob_kzg_commitments: ProgressiveVariableList::new(commitments).unwrap(),
             ..ExecutionPayloadBid::default()
         },
         signature: Signature::empty(),
