@@ -502,8 +502,14 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
 
         let fcr = if fast_confirmation.is_enabled() {
+            // FCR can have been off for a while, leaving roots finality has passed.
             let persisted_roots = load_fast_confirmation_roots(store)
-                .map_err(|e| format!("Unable to load the roots sent before the restart: {e:?}"))?;
+                .map_err(|e| format!("Unable to load the roots sent before the restart: {e:?}"))?
+                .filter(|roots| {
+                    fork_choice.is_finalized_checkpoint_or_descendant(roots.announced_root)
+                        && fork_choice
+                            .is_finalized_checkpoint_or_descendant(roots.deepest_announced_root)
+                });
             let fcr = <BeaconChain<T>>::new_fast_confirmation_rule(
                 fork_choice_view.finalized_checkpoint,
                 &snapshot,

@@ -559,6 +559,52 @@ async fn re_enabling_fcr_drops_a_stale_root() {
     );
 }
 
+/// FCR off while the chain keeps finalizing leaves both persisted roots behind finality, so neither
+/// survives the boot that turns it back on.
+#[tokio::test]
+async fn re_enabling_fcr_drops_roots_finality_passed() {
+    let all = validators(VALIDATOR_COUNT);
+    let mut rig = Rig::new();
+    rig.steps(WARMUP_SLOTS, &all).await;
+    rig.stop(true);
+    let (stale, _) = rig.stopped.unwrap();
+
+    rig.node = Some(node(
+        rig.node_store.clone(),
+        &rig.harness,
+        false,
+        false,
+        false,
+    ));
+    rig.steps(4 * E::slots_per_epoch(), &all).await;
+    rig.stop(true);
+
+    rig.node = Some(node(
+        rig.node_store.clone(),
+        &rig.harness,
+        false,
+        true,
+        false,
+    ));
+    let chain = &rig.node().chain;
+    let finalized = finalized(chain);
+    assert!(
+        !chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_finalized_checkpoint_or_descendant(stale),
+        "finality should have passed the root the previous run announced"
+    );
+    let roots = chain
+        .canonical_head
+        .fast_confirmation
+        .as_ref()
+        .unwrap()
+        .lock();
+    assert_eq!(roots.roots.announced_root, finalized);
+    assert_eq!(roots.roots.deepest_announced_root, finalized);
+}
+
 /// A `--reset-payload-statuses` boot marks every pre-Gloas block optimistic, and an optimistic
 /// block is not confirmed. The EL is the one that lost the statuses, so it may lack the block too.
 #[tokio::test]
