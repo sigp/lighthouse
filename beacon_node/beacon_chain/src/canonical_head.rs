@@ -487,21 +487,15 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
 
         let fcr = if fast_confirmation.is_enabled() {
-            match <BeaconChain<T>>::new_fast_confirmation_rule(
-                fork_choice_view.finalized_checkpoint,
-                &snapshot,
-                store,
-                spec,
-            ) {
-                Ok(fcr) => Some(Mutex::new(fcr)),
-                Err(e) => {
-                    error!(
-                        error = ?e,
-                        "Failed to initialize fast confirmation rule, disabling FCR"
-                    );
-                    None
-                }
-            }
+            Some(Mutex::new(
+                <BeaconChain<T>>::new_fast_confirmation_rule(
+                    fork_choice_view.finalized_checkpoint,
+                    &snapshot,
+                    store,
+                    spec,
+                )
+                .map_err(|e| format!("Unable to initialize fast confirmation rule: {e:?}"))?,
+            ))
         } else {
             None
         };
