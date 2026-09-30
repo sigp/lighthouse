@@ -1,12 +1,12 @@
 //! Beacon chain database invariant checks.
 //!
-//! Builds the `InvariantContext` from beacon chain state, delegates store checks to
-//! `HotColdDB::check_invariants`, and checks persisted fork choice.
+//! Builds the `InvariantContext` from beacon chain state and delegates all checks to
+//! `HotColdDB::check_invariants`.
 
 use crate::BeaconChain;
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY};
 use crate::persisted_fork_choice::PersistedForkChoice;
-use store::invariants::{InvariantCheckResult, InvariantContext, InvariantViolation};
+use store::invariants::{InvariantCheckResult, InvariantContext};
 use store::{DBColumn, KeyValueStore};
 use types::EthSpec;
 
@@ -14,7 +14,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Run all database invariant checks.
     ///
     /// Collects context from fork choice, state cache, custody columns, and pubkey cache,
-    /// then runs store-level checks and checks persisted fork choice against the split.
+    /// then delegates all checks to the store.
     pub fn check_database_invariants(&self) -> Result<InvariantCheckResult, store::Error> {
         let (fork_choice_blocks, fork_choice_payloads) = {
             let fc = self.canonical_head.fork_choice_read_lock();
@@ -45,7 +45,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let custody_context = self.custody_context.clone();
 
+        // Read the split before fork choice: a concurrent migration may advance both, but must
+        // persist fork choice first. Comparing an older fork choice with a newer split could
+        // otherwise report a spurious violation.
+        let split = self.store.get_split_info();
+        let persisted_fork_choice = self
+            .store
+            .hot_db
+            .get_bytes(DBColumn::ForkChoice, FORK_CHOICE_DB_KEY.as_slice())?
+            .map(|bytes| PersistedForkChoice::from_bytes(&bytes, self.store.get_config()))
+            .transpose()?;
+
         let ctx = InvariantContext {
+            split,
+            persisted_fork_choice_finalized_checkpoint: persisted_fork_choice
+                .map(|fc| fc.fork_choice_store.finalized_checkpoint),
             fork_choice_blocks,
             fork_choice_payloads,
             state_cache_roots: self.store.state_cache.lock().state_roots(),
@@ -64,33 +78,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
         };
 
-        let mut result = self.store.check_invariants(&ctx)?;
-
-        // Read the split before fork choice: a concurrent migration may advance both, but must
-        // persist fork choice first. Comparing an older fork choice with a newer split could
-        // otherwise report a spurious violation.
-        let split_slot = self.store.get_split_slot();
-        if let Some(bytes) = self
-            .store
-            .hot_db
-            .get_bytes(DBColumn::ForkChoice, FORK_CHOICE_DB_KEY.as_slice())?
-        {
-            let persisted = PersistedForkChoice::from_bytes(&bytes, self.store.get_config())?;
-            let finalized_checkpoint = persisted.fork_choice_store.finalized_checkpoint;
-            if finalized_checkpoint
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch())
-                < split_slot
-            {
-                result.add_violation(
-                    InvariantViolation::ForkChoiceFinalizedCheckpointBehindSplit {
-                        finalized_checkpoint,
-                        split_slot,
-                    },
-                );
-            }
-        }
-
-        Ok(result)
+        self.store.check_invariants(&ctx)
     }
 }
