@@ -51,7 +51,6 @@ impl ValidatorClientHarness {
         config: &ValidatorStoreConfig,
     ) -> Self {
         let spec = Arc::new(spec);
-
         let test_runtime = TestRuntime::default();
         let executor = test_runtime.task_executor.clone();
         let slot_duration = spec.get_slot_duration();

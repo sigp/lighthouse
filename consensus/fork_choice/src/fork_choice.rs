@@ -433,10 +433,9 @@ where
 
         let (execution_status, execution_payload_parent_hash, execution_payload_block_hash) =
             if let Ok(signed_bid) = anchor_block.message().body().signed_execution_payload_bid() {
-                // Gloas: execution status is irrelevant post-Gloas; payload validation
-                // is decoupled from beacon blocks.
+                // Gloas: checkpoint sync fetches the anchor's payload later.
                 (
-                    ExecutionStatus::irrelevant(),
+                    ExecutionStatus::NotYetRevealed(signed_bid.message.block_hash),
                     Some(signed_bid.message.parent_block_hash),
                     Some(signed_bid.message.block_hash),
                 )
@@ -719,32 +718,50 @@ where
         }
     }
 
-    /// Mark a Gloas payload envelope as valid and received.
-    ///
-    /// This must only be called for valid Gloas payloads.
-    pub fn on_valid_payload_envelope_received(
+    /// Record the execution layer's verdict for a Gloas payload envelope, and mark the envelope
+    /// as received.
+    pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
+        payload_verification_status: PayloadVerificationStatus,
+        payload_block_hash: ExecutionBlockHash,
     ) -> Result<(), Error<T::Error>> {
+        let execution_status = match payload_verification_status {
+            PayloadVerificationStatus::Verified => ExecutionStatus::Valid(payload_block_hash),
+            PayloadVerificationStatus::Optimistic => {
+                ExecutionStatus::Optimistic(payload_block_hash)
+            }
+            // A revealed Gloas payload always has execution enabled, so this is a logic error.
+            PayloadVerificationStatus::Irrelevant => {
+                return Err(Error::InvalidPayloadStatus {
+                    block_slot: Slot::new(0),
+                    block_root,
+                    payload_verification_status,
+                });
+            }
+        };
+
+        // `on_payload_envelope_received` promotes the ancestry itself, starting at this node's
+        // own `FULL` side.
         self.proto_array
-            .on_valid_payload_envelope_received(block_root)
-            .map_err(Error::FailedToProcessValidExecutionPayload)
+            .on_payload_envelope_received(block_root, execution_status)
+            .map_err(Error::FailedToProcessValidExecutionPayload)?;
+
+        Ok(())
     }
 
-    /// Pre-Gloas only.
+    /// Mark the payload `block_hash` valid, as judged by a forkchoiceUpdated.
     ///
     /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
     pub fn on_valid_execution_payload(
         &mut self,
-        block_root: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_validation(block_root)
+            .process_execution_payload_validation(block_hash)
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
-    /// Pre-Gloas only.
-    ///
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
@@ -1654,6 +1671,13 @@ where
         }
     }
 
+    /// Returns `true` if fork choice has marked the execution payload `block_hash` invalid.
+    pub fn is_invalid(&self, block_hash: ExecutionBlockHash) -> bool {
+        self.proto_array
+            .core_proto_array()
+            .is_payload_invalid(&block_hash)
+    }
+
     /// Called by the proposer to decide whether to build on the full or empty parent.
     pub fn should_build_on_full(
         &self,
@@ -1936,6 +1960,7 @@ where
         persisted_proto_array: proto_array::core::SszContainer,
         justified_balances: JustifiedBalances,
         reset_payload_statuses: ResetPayloadStatuses,
+        equivocating_indices: &BTreeSet<u64>,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
         let mut proto_array = ProtoArrayForkChoice::from_container(
             persisted_proto_array.clone(),
@@ -1960,7 +1985,7 @@ where
 
         // Reset all blocks back to being "optimistic". This helps recover from an EL consensus
         // fault where an invalid payload becomes valid.
-        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>() {
+        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>(equivocating_indices) {
             // If there is an error resetting the optimistic status then log loudly and revert
             // back to a proto-array which does not have the reset applied. This indicates a
             // significant error in Lighthouse and warrants detailed investigation.
@@ -1990,6 +2015,7 @@ where
             persisted.proto_array,
             justified_balances,
             reset_payload_statuses,
+            fc_store.equivocating_indices(),
         )?;
 
         let current_slot = fc_store.get_current_slot();
@@ -2022,9 +2048,10 @@ where
             // Although we may have already made this call whilst loading `proto_array`, try it
             // again since we may have mutated the `proto_array` during `get_head` and therefore may
             // get a different result.
+            let equivocating_indices = fork_choice.fc_store.equivocating_indices();
             fork_choice
                 .proto_array
-                .set_all_blocks_to_optimistic::<E>()?;
+                .set_all_blocks_to_optimistic::<E>(equivocating_indices)?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
             fork_choice.get_head(current_slot, spec)?;
