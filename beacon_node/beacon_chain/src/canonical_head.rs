@@ -519,8 +519,8 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             )
             .map_err(|e| format!("Unable to initialize fast confirmation rule: {e:?}"))?;
             let roots = persisted_roots.unwrap_or(FastConfirmationRoots {
-                announced_root: fork_choice_view.finalized_checkpoint.root,
-                deepest_announced_root: fork_choice_view.finalized_checkpoint.root,
+                announced_root: fcr.confirmed_root,
+                deepest_announced_root: fcr.confirmed_root,
             });
             Some(Mutex::new(BeaconFastConfirmationRule { fcr, roots }))
         } else {
