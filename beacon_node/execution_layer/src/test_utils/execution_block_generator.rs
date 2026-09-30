@@ -1335,13 +1335,11 @@ mod test {
             let computed = kzg
                 .compute_cells(kzg_blob)
                 .map_err(|e| format!("Failed to compute cells: {e:?}"))?;
-            if embedded_cells.len() != computed.len()
-                || embedded_cells.iter().zip(computed.iter()).any(
-                    |(embedded_cell, computed_cell)| {
-                        embedded_cell[..] != computed_cell.as_ref()[..]
-                    },
-                )
-            {
+            let cells_match = embedded_cells
+                .iter()
+                .map(|cell| &cell[..])
+                .eq(computed.iter().map(|cell| &cell[..]));
+            if !cells_match {
                 return Err(
                     "cells fixture does not match cells computed from the test blobs".into(),
                 );
