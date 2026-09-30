@@ -1,18 +1,20 @@
 //! Beacon chain database invariant checks.
 //!
-//! Builds the `InvariantContext` from beacon chain state and delegates all checks
-//! to `HotColdDB::check_invariants`.
+//! Builds the `InvariantContext` from beacon chain state, delegates store checks to
+//! `HotColdDB::check_invariants`, and checks persisted fork choice.
 
 use crate::BeaconChain;
-use crate::beacon_chain::BeaconChainTypes;
-use store::invariants::{InvariantCheckResult, InvariantContext};
+use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY};
+use crate::persisted_fork_choice::PersistedForkChoice;
+use store::invariants::{InvariantCheckResult, InvariantContext, InvariantViolation};
+use store::{DBColumn, KeyValueStore};
 use types::EthSpec;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Run all database invariant checks.
     ///
     /// Collects context from fork choice, state cache, custody columns, and pubkey cache,
-    /// then delegates to the store-level `check_invariants` method.
+    /// then runs store-level checks and checks persisted fork choice against the split.
     pub fn check_database_invariants(&self) -> Result<InvariantCheckResult, store::Error> {
         let (fork_choice_blocks, fork_choice_payloads) = {
             let fc = self.canonical_head.fork_choice_read_lock();
@@ -62,6 +64,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
         };
 
-        self.store.check_invariants(&ctx)
+        let mut result = self.store.check_invariants(&ctx)?;
+
+        // Read the split before fork choice: a concurrent migration may advance both, but must
+        // persist fork choice first. Comparing an older fork choice with a newer split could
+        // otherwise report a spurious violation.
+        let split_slot = self.store.get_split_slot();
+        if let Some(bytes) = self
+            .store
+            .hot_db
+            .get_bytes(DBColumn::ForkChoice, FORK_CHOICE_DB_KEY.as_slice())?
+        {
+            let persisted = PersistedForkChoice::from_bytes(&bytes, self.store.get_config())?;
+            let finalized_checkpoint = persisted.fork_choice_store.finalized_checkpoint;
+            if finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch())
+                < split_slot
+            {
+                result.add_violation(
+                    InvariantViolation::ForkChoiceFinalizedCheckpointBehindSplit {
+                        finalized_checkpoint,
+                        split_slot,
+                    },
+                );
+            }
+        }
+
+        Ok(result)
     }
 }

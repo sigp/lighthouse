@@ -50,7 +50,7 @@ impl Default for InvariantCheckResult {
 
 /// Context data from the beacon chain needed for invariant checks.
 ///
-/// This allows all invariant checks to live in the store crate while still checking
+/// This allows store-level invariant checks to live in the store crate while still checking
 /// invariants that depend on fork choice, state cache, and custody context.
 pub struct InvariantContext {
     /// Block roots tracked by fork choice (invariant 1).
@@ -257,13 +257,22 @@ pub enum InvariantViolation {
     /// payload_body in hot_db -> payload_summary in hot_db
     /// ```
     PayloadBodyMissingSummary { block_root: Hash256 },
+    /// Invariant 14: persisted fork choice must not lag behind the split.
+    ///
+    /// ```text
+    /// persisted_fork_choice.finalized_checkpoint.epoch.start_slot() >= split.slot
+    /// ```
+    ForkChoiceFinalizedCheckpointBehindSplit {
+        finalized_checkpoint: Checkpoint,
+        split_slot: Slot,
+    },
 }
 
 impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     /// Run all database invariant checks.
     ///
     /// The `ctx` parameter provides data from the beacon chain layer (fork choice, state cache,
-    /// custody columns, pubkey cache) so that all invariant checks can live in this single file.
+    /// custody columns, pubkey cache) needed for the store-level checks.
     pub fn check_invariants(&self, ctx: &InvariantContext) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
         let split = self.get_split_info();

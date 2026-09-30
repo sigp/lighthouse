@@ -535,6 +535,67 @@ async fn fcr_restarts_after_finalization_without_head_change() {
 }
 
 #[tokio::test]
+async fn persisted_fork_choice_finalized_checkpoint_database_invariant() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness_generic(
+        store.clone(),
+        LOW_VALIDATOR_COUNT,
+        ChainConfig {
+            archive: true,
+            epochs_per_migration: 2,
+            ..ChainConfig::default()
+        },
+        NodeCustodyType::Fullnode,
+    );
+    let old_finalized_checkpoint = harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint();
+    let old_fork_choice = harness.chain.persist_fork_choice_in_batch().unwrap();
+    // Equality at genesis is valid, as is finality ahead of a deferred migration.
+    check_db_invariants(&harness);
+    harness
+        .extend_chain(
+            5 * E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    let split_slot = store.get_split_slot();
+    assert!(
+        harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            > split_slot
+    );
+    check_db_invariants(&harness);
+
+    // Only the persisted fork choice is stale; the live fork choice remains ahead of the split.
+    store.hot_db.do_atomically(vec![old_fork_choice]).unwrap();
+    let result = harness.chain.check_database_invariants().unwrap();
+    assert!(
+        matches!(
+            result.violations.as_slice(),
+            [InvariantViolation::ForkChoiceFinalizedCheckpointBehindSplit {
+                finalized_checkpoint,
+                split_slot: reported_split,
+            }] if *finalized_checkpoint == old_finalized_checkpoint && *reported_split == split_slot
+        ),
+        "unexpected invariant violations: {:?}",
+        result.violations
+    );
+
+    harness.chain.persist_fork_choice().unwrap();
+    check_db_invariants(&harness);
+}
+
+#[tokio::test]
 async fn randomised_skips() {
     let num_slots = E::slots_per_epoch() * 5;
     let mut num_blocks_produced = 0;
