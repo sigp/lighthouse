@@ -1533,7 +1533,7 @@ pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
-        .and(not_while_syncing_filter.clone())
+        .and(not_while_syncing_filter)
         .and(task_spawner_filter)
         .and(chain_filter)
         .and(network_tx_filter)
