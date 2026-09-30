@@ -526,17 +526,8 @@ impl FastConfirmationRule {
         current_slot: Slot,
         proto_array: &ProtoArray,
     ) -> Result<Hash256, Error> {
-        // The spec assumes the store holds `confirmed_root`; finality can have pruned ours. Take
-        // the revert `get_latest_confirmed` will make as given, rather than failing the run.
-        let (confirmed_root, confirmed_slot) =
-            match get_block_slot(self.confirmed_root, proto_array) {
-                Ok(slot) => (self.confirmed_root, slot),
-                Err(Error::NodeNotFound(_)) => (
-                    finalized_checkpoint.root,
-                    get_block_slot(finalized_checkpoint.root, proto_array)?,
-                ),
-                Err(e) => return Err(e),
-            };
+        let confirmed_root = self.confirmed_root;
+        let confirmed_slot = get_block_slot(confirmed_root, proto_array)?;
 
         let Some(root_before_restart) = self.root_confirmed_before_restart else {
             return Ok(confirmed_root);
