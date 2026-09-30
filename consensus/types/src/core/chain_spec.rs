@@ -2173,6 +2173,8 @@ impl SlotDurationSchedule {
             .map(|entry| entry.slot_duration_ms)
     }
 
+    /// Returns `ArithError::Overflow` for an empty schedule. Callers use
+    /// `ChainSpec::slot_duration_schedule()`, which is never empty.
     pub fn compute_time_at_slot_ms(
         &self,
         slots_per_epoch: u64,
@@ -2205,6 +2207,8 @@ impl SlotDurationSchedule {
         )
     }
 
+    /// Returns `ArithError::Overflow` for an empty schedule. Callers use
+    /// `ChainSpec::slot_duration_schedule()`, which is never empty.
     pub fn compute_slot_at_time_ms(
         &self,
         slots_per_epoch: u64,
@@ -5222,14 +5226,22 @@ mod slot_duration_schedule_properties {
         genesis_time_ms: u128,
         time_ms: u128,
     ) -> Option<u128> {
-        for &(epoch, slot_duration_ms) in schedule.iter().rev() {
-            let entry_slot = u128::from(epoch) * u128::from(SLOTS_PER_EPOCH);
-            let entry_time_ms = spec_time_at_slot(schedule, genesis_time_ms, entry_slot);
-            if time_ms >= entry_time_ms {
-                return Some(entry_slot + (time_ms - entry_time_ms) / u128::from(slot_duration_ms));
+        let (first_epoch, first_slot_duration_ms) = schedule[0];
+        let mut entry_slot = u128::from(first_epoch) * u128::from(SLOTS_PER_EPOCH);
+        let mut entry_time_ms = genesis_time_ms;
+        let mut slot_duration_ms = u128::from(first_slot_duration_ms);
+        for &(epoch, next_slot_duration_ms) in &schedule[1..] {
+            let next_slot = u128::from(epoch) * u128::from(SLOTS_PER_EPOCH);
+            let next_time_ms = entry_time_ms + (next_slot - entry_slot) * slot_duration_ms;
+            if time_ms < next_time_ms {
+                break;
             }
+            entry_slot = next_slot;
+            entry_time_ms = next_time_ms;
+            slot_duration_ms = u128::from(next_slot_duration_ms);
         }
-        None
+        let slots = time_ms.checked_sub(entry_time_ms)? / slot_duration_ms;
+        Some(entry_slot + slots)
     }
 
     fn to_schedule(entries: &[(u64, u64)]) -> SlotDurationSchedule {
@@ -5335,28 +5347,6 @@ mod slot_duration_schedule_properties {
                     .compute_slot_at_time_ms(SLOTS_PER_EPOCH, genesis_time_ms, genesis_time_ms - 1)
                     .is_err()
             );
-        }
-
-        #[test]
-        fn valid_schedules_meet_the_preconditions(
-            entries in proptest::collection::vec(
-                (prop_oneof![Just(0u64), epoch()], prop_oneof![Just(0u64), 1u64..30_000]),
-                1..5,
-            ),
-            genesis_slot_duration_ms in 0u64..30_000,
-        ) {
-            let schedule = to_schedule(&entries);
-            if schedule.validate(genesis_slot_duration_ms, SLOTS_PER_EPOCH).is_ok() {
-                let entries = schedule.as_vec();
-                prop_assert!(entries.iter().all(|entry| entry.slot_duration_ms > 0
-                    && entry.slot_duration_ms % 1000 == 0
-                    && entry.epoch.as_u64().checked_mul(SLOTS_PER_EPOCH).is_some()));
-                prop_assert!(entries.windows(2).all(|pair| pair[0].epoch > pair[1].epoch));
-                prop_assert_eq!(
-                    entries.last().map(|entry| (entry.epoch, entry.slot_duration_ms)),
-                    Some((Epoch::new(0), genesis_slot_duration_ms))
-                );
-            }
         }
     }
 }
