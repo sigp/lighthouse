@@ -580,6 +580,16 @@ impl<T: BeaconChainTypes> Router<T> {
                         ),
                 )
             }
+            PubsubMessage::InclusionList(inclusion_list) => {
+                trace!(%peer_id, "Received a signed inclusion list");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_inclusion_list(
+                        message_id,
+                        peer_id,
+                        inclusion_list,
+                    ),
+                )
+            }
         }
     }
 
