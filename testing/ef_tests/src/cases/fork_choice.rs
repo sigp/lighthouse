@@ -733,7 +733,7 @@ impl<E: EthSpec> Tester<E> {
         // not on every block/attestation import. We trigger confirmation
         // explicitly in `check_confirmed_root` instead.
         if let Some(ref fcr_mutex) = harness.chain.canonical_head.fast_confirmation {
-            fcr_mutex.lock().0.set_spec_test_mode(true);
+            fcr_mutex.lock().fcr.set_spec_test_mode(true);
         }
 
         Ok(Self {
@@ -1509,7 +1509,7 @@ impl<E: EthSpec> Tester<E> {
                 Error::InternalError(format!("FCR is disabled, cannot check {field_name}"))
             })?;
         let guard = fcr_mutex.lock();
-        Ok(f(&guard.0))
+        Ok(f(&guard.fcr))
     }
 
     pub fn check_confirmed_root(&self, expected: Hash256) -> Result<(), Error> {
@@ -1536,7 +1536,7 @@ impl<E: EthSpec> Tester<E> {
         if let Some(ref fcr_mutex) = self.harness.chain.canonical_head.fast_confirmation {
             let mut guard = fcr_mutex.lock();
             let confirmed_root = guard
-                .0
+                .fcr
                 .get_latest_confirmed::<E>(
                     head_root,
                     &finalized_cp,
@@ -1549,7 +1549,7 @@ impl<E: EthSpec> Tester<E> {
                 .map_err(|e| {
                     Error::InternalError(format!("FCR get_latest_confirmed failed: {e:?}"))
                 })?;
-            guard.0.confirmed_root = confirmed_root;
+            guard.fcr.confirmed_root = confirmed_root;
         }
         drop(fork_choice_lock);
 

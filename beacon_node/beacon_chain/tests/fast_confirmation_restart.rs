@@ -1,7 +1,8 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::{
-    BeaconChain, BeaconChainTypes, ChainConfig,
+    BeaconChain, BeaconChainTypes, ChainConfig, FAST_CONFIRMATION_DB_KEY,
+    canonical_head::FastConfirmationRoots,
     chain_config::FastConfirmationMode,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
@@ -12,9 +13,10 @@ use eth2::types::SignedBlockContentsTuple;
 use fast_confirmation::FastConfirmationRule;
 use proto_array::{ExecutionStatus, PayloadBlockHash, ProtoArrayForkChoice};
 use slot_clock::SlotClock;
+use ssz::Encode;
 use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
-use store::{HotColdDB, StoreConfig};
+use store::{DBColumn, HotColdDB, KeyValueStore, StoreConfig};
 use tempfile::{TempDir, tempdir};
 use types::{
     AttestationShufflingId, BeaconState, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
@@ -95,7 +97,7 @@ fn validators(n: usize) -> Vec<usize> {
 fn confirmed<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> Option<(Hash256, Slot)> {
     let fcr_mutex = chain.canonical_head.fast_confirmation.as_ref()?;
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
-    let root = fcr_mutex.lock().1.announced_root;
+    let root = fcr_mutex.lock().roots.announced_root;
     Some((root, fork_choice.get_block(&root).unwrap().slot))
 }
 
@@ -662,6 +664,49 @@ async fn the_confirmed_root_reaches_the_execution_layer() {
     assert_eq!(safe_block_hash, expected_hash);
 }
 
+/// The startup `forkchoiceUpdated` is sent from the cached head, before any recompute runs, so the
+/// root from before the restart has to be in there already or the EL's safe block hash regresses.
+#[tokio::test]
+async fn the_startup_update_sends_the_restored_root() {
+    let all = validators(VALIDATOR_COUNT);
+    let mut rig = Rig::new();
+    rig.steps(WARMUP_SLOTS, &all).await;
+    rig.stop(true);
+    let (stopped, _) = rig.stopped.unwrap();
+
+    rig.node = Some(node(
+        rig.node_store.clone(),
+        &rig.harness,
+        false,
+        true,
+        false,
+    ));
+    let chain = &rig.node().chain;
+    let expected_hash = match chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&stopped)
+        .unwrap()
+        .checkpoint_payload_block_hash()
+    {
+        PayloadBlockHash::Hash(hash) => Some(hash),
+        PayloadBlockHash::PreMerge => None,
+    };
+    assert_ne!(
+        stopped,
+        finalized(chain),
+        "the pre-restart root must be ahead of finality for this to test anything"
+    );
+    assert_eq!(
+        chain
+            .canonical_head
+            .cached_head()
+            .forkchoice_update_parameters()
+            .justified_hash,
+        expected_hash
+    );
+}
+
 /// A root off the head's chain is dropped: the EL rejects such a `forkchoiceUpdated`.
 #[tokio::test]
 async fn drops_a_root_that_was_reorged_out() {
@@ -714,6 +759,80 @@ async fn falls_back_to_finalized_after_a_long_downtime() {
         finalized(&rig.node.chain),
         "a stale pre-restart root must not be used"
     );
+}
+
+/// The root the previous run announced went non-canonical, and finality then pruned it, so fork
+/// choice has never heard of it at boot. Pruning needs its threshold dropped to happen this early.
+#[tokio::test]
+async fn a_pruned_root_is_a_revert_not_an_error_in_the_harness() {
+    let all = validators(VALIDATOR_COUNT);
+    let db = tempdir().unwrap();
+    let store = store(&db);
+    let stopped = harness(store.clone());
+    stopped
+        .extend_chain(
+            WARMUP_SLOTS as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    let (_, slot_before) = confirmed(&stopped.chain).unwrap();
+
+    // Nobody attests, so this block never takes the head and stays off the canonical chain.
+    let abandoned = stopped
+        .extend_chain(
+            1,
+            BlockStrategy::ForkCanonicalChainAt {
+                previous_slot: slot_before - 1,
+                first_slot: stopped.chain.slot().unwrap() + 1,
+            },
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
+    stopped
+        .chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .proto_array_mut()
+        .set_prune_threshold(0);
+    stopped.advance_slot();
+    stopped
+        .extend_chain(
+            3 * E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    assert!(
+        stopped
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&abandoned)
+            .is_none(),
+        "finality should have pruned the abandoned block"
+    );
+    let _ = all;
+
+    stopped.chain.persist_fork_choice().unwrap();
+    // The roots that run had sent, both now pruned.
+    store
+        .hot_db
+        .put_bytes(
+            DBColumn::ForkChoice,
+            FAST_CONFIRMATION_DB_KEY.as_slice(),
+            &FastConfirmationRoots {
+                announced_root: abandoned,
+                deepest_announced_root: abandoned,
+            }
+            .as_ssz_bytes(),
+        )
+        .unwrap();
+
+    let node = node(store, &stopped, false, true, false);
+    node.chain.recompute_head_at_current_slot().await;
+    // `confirmed` resolves the announced root in fork choice, so this fails if it is the pruned one.
+    assert_ne!(confirmed(&node.chain).unwrap().0, abandoned);
 }
 
 /// A pruned `confirmed_root` is a revert, not an error. Fork choice only prunes past a node

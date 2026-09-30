@@ -74,7 +74,8 @@ pub mod validator_pubkey_cache;
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, AvailabilityProcessingStatus, BeaconBlockResponse,
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus,
-    ChainSegmentResult, ForkChoiceError, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    ChainSegmentResult, FAST_CONFIRMATION_DB_KEY, ForkChoiceError,
+    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, LightClientProducerEvent, OverrideForkchoiceUpdate,
     ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
 };
