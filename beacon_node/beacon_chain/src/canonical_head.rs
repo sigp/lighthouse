@@ -1035,7 +1035,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 let execution_envelope = if new_payload_status == PayloadStatus::Full {
                     let envelope = self
                         .store
-                        .get_payload_envelope(&new_view.head_block_root)?
+                        .get_signed_payload_envelope(&new_view.head_block_root)?
                         .map(Arc::new)
                         .ok_or(Error::MissingExecutionPayloadEnvelope(
                             new_view.head_block_root,
@@ -1626,6 +1626,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.epoch()?,
             &self.spec,
         );
+
+        // Persist before migration can advance the split and prune the checkpoint state needed
+        // to initialize FCR on restart. Finality can advance without a head change.
+        self.persist_fork_choice()?;
 
         // We just pass the state root to the finalization thread. It should be able to reload the
         // state from the state_cache near instantly anyway. We could experiment with sending the
