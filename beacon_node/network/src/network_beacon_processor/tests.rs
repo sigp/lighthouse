@@ -3217,3 +3217,50 @@ async fn test_inclusion_lists_by_indices_rejects_slots_outside_the_window() {
         other => panic!("expected SendErrorResponse, got {:?}", other),
     }
 }
+
+// A verified list that the store has already seen is ignored rather than propagated.
+#[tokio::test]
+async fn test_gossip_inclusion_list_propagation_follows_the_store_outcome() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let slot = rig.chain.slot().unwrap();
+    let (committee, dependent_root) = rig
+        .chain
+        .inclusion_list_committee(rig.chain.head_beacon_block_root(), slot)
+        .unwrap();
+    let validator_index = committee[0];
+
+    let message = signed_inclusion_list(slot, validator_index, dependent_root, 0xaa).message;
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let domain = rig.chain.spec.get_domain(
+        epoch,
+        Domain::InclusionListCommittee,
+        &rig.chain.spec.fork_at_epoch(epoch),
+        rig.chain.genesis_validators_root,
+    );
+    let signature = rig._harness.validator_keypairs[validator_index as usize]
+        .sk
+        .sign(message.signing_root(domain));
+    let inclusion_list = SignedInclusionList { message, signature };
+
+    for expected in [MessageAcceptance::Accept, MessageAcceptance::Ignore] {
+        rig.network_beacon_processor
+            .send_gossip_inclusion_list(
+                junk_message_id(),
+                junk_peer_id(),
+                Box::new(inclusion_list.clone()),
+            )
+            .unwrap();
+
+        let network_message = rig
+            .receive_network_messages_with_timeout(Duration::from_secs(1), Some(1))
+            .await
+            .and_then(|mut messages| messages.pop())
+            .expect("should receive a validation result");
+        match network_message {
+            NetworkMessage::ValidationResult {
+                validation_result, ..
+            } => assert_eq!(validation_result, expected),
+            other => panic!("expected ValidationResult, got {:?}", other),
+        }
+    }
+}

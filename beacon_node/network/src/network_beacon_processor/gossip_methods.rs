@@ -11,6 +11,7 @@ use beacon_chain::data_column_verification::{
 };
 use beacon_chain::execution_proof_verification::Error as ExecutionProofError;
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
+use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
 use beacon_chain::partial_data_column_assembler::UpdatedPartials;
 use beacon_chain::payload_bid_verification::PayloadBidError;
@@ -4372,9 +4373,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match verification_result {
             Ok(verified_inclusion_list) => {
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+                // Concurrent workers can all pass the first-or-second check before any of them
+                // imports, so only propagate based on the import outcome.
                 let outcome = self.chain.import_inclusion_list(verified_inclusion_list);
                 debug!(?outcome, "Imported gossip inclusion list");
+                let acceptance = match outcome {
+                    InsertOutcome::New | InsertOutcome::Equivocating => MessageAcceptance::Accept,
+                    InsertOutcome::Seen
+                    | InsertOutcome::SubsequentEquivocation
+                    | InsertOutcome::Old => MessageAcceptance::Ignore,
+                };
+                self.propagate_validation_result(message_id, peer_id, acceptance);
             }
             Err(
                 InclusionListVerificationError::AlreadySeenTwice { .. }
