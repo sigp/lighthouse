@@ -1719,9 +1719,11 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
             crate::utils::publish_pubsub_message(
                 network_tx,
                 PubsubMessage::InclusionList(Box::new(
-                    verified_inclusion_list.signed_inclusion_list,
+                    verified_inclusion_list.signed_inclusion_list.clone(),
                 )),
             )?;
+
+            chain.import_inclusion_list(verified_inclusion_list);
             Ok(())
         }
         Err(InclusionListVerificationError::AlreadySeenTwice { .. }) => {
@@ -1729,6 +1731,14 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
                 %slot,
                 %validator_index,
                 "Two valid inclusion lists were already seen"
+            );
+            Ok(())
+        }
+        Err(InclusionListVerificationError::EmptyTransactions) => {
+            debug!(
+                %slot,
+                %validator_index,
+                "Not publishing an inclusion list with no transactions"
             );
             Ok(())
         }
@@ -1742,8 +1752,6 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
                 "internal error verifying inclusion list: {e}"
             )))
         }
-        // TODO(heze): remove once the IL gossip verification errors are added to InclusionListVerificationError
-        #[allow(unreachable_patterns)]
         Err(e) => {
             warn!(
                 %slot,

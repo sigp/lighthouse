@@ -1,7 +1,7 @@
 use crate::BeaconChainError;
 use std::sync::Arc;
 use strum::AsRefStr;
-use types::{BeaconStateError, ChainSpec, ProgressiveTransactions, Slot};
+use types::{BeaconStateError, ChainSpec, Hash256, ProgressiveTransactions, Slot};
 
 pub mod gossip_verified_inclusion_list;
 
@@ -10,8 +10,46 @@ const BLOB_TX_TYPE_ID: u8 = 0x03;
 
 #[derive(Debug)]
 pub enum InclusionListVerificationError {
-    /// Two valid inclusion lists were already seen from this validator for this slot.
-    AlreadySeenTwice { validator_index: u64, slot: Slot },
+    /// Two valid inclusion lists were already seen from this validator for this slot and
+    /// dependent root.
+    AlreadySeenTwice {
+        validator_index: u64,
+        slot: Slot,
+        dependent_root: Hash256,
+    },
+    /// The inclusion list is from a slot that is later than the current slot (with respect to
+    /// the gossip clock disparity).
+    FutureSlot {
+        message_slot: Slot,
+        latest_permissible_slot: Slot,
+    },
+    /// The inclusion list is from a slot that is prior to the earliest permissible slot (with
+    /// respect to the gossip clock disparity).
+    PastSlot {
+        message_slot: Slot,
+        earliest_permissible_slot: Slot,
+    },
+    /// The inclusion list transactions have a total size of zero.
+    EmptyTransactions,
+    /// The inclusion list transactions are too large or contain an empty transaction.
+    InvalidTransactions(InclusionListTransactionsError),
+    /// The block with root `dependent_root` has not been seen.
+    DependentRootUnknown { dependent_root: Hash256 },
+    /// The block with root `dependent_root` is not before the start of the lookahead epoch.
+    DependentRootTooRecent {
+        dependent_root: Hash256,
+        block_slot: Slot,
+        dependent_slot: Slot,
+    },
+    /// The block with root `dependent_root` is not a possible dependent block for the given
+    /// epoch.
+    InvalidDependentRoot { dependent_root: Hash256 },
+    /// The validator is not in the inclusion list committee for the slot.
+    NotInCommittee { validator_index: u64, slot: Slot },
+    /// The validator index is not known to the pubkey cache.
+    UnknownValidatorIndex(u64),
+    /// The signature is invalid.
+    InvalidSignature,
     /// The slot clock cannot read.
     UnableToReadSlot,
     /// Beacon Chain error

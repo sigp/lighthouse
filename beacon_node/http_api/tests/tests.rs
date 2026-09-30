@@ -41,6 +41,7 @@ use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use ssz::{BitList, Decode};
+use ssz_types::ProgressiveVariableList;
 use state_processing::GloasVerificationContext;
 use state_processing::per_block_processing::get_expected_withdrawals;
 use state_processing::per_slot_processing;
@@ -9515,7 +9516,10 @@ impl ApiTester {
             slot,
             validator_index,
             dependent_root,
-            transactions: ProgressiveTransactions::new(Vec::new()).unwrap(),
+            transactions: ProgressiveTransactions::new(vec![
+                ProgressiveVariableList::new(vec![0xaa]).unwrap(),
+            ])
+            .unwrap(),
         };
 
         self.sign_inclusion_list(

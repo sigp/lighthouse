@@ -53,8 +53,9 @@ struct SlotEntry {
     by_dependent_root: HashMap<DependentRoot, HashMap<u64, (SignedInclusionList, bool)>>,
     /// Validator indices flagged as equivocators.
     equivocators: HashMap<DependentRoot, HashSet<u64>>,
-    /// Count of valid inclusion lists seen this slot per validator, for the first-or-second rule.
-    validator_counts: HashMap<u64, usize>,
+    /// Count of valid inclusion lists seen per dependent root and validator, for the
+    /// first-or-second rule.
+    validator_counts: HashMap<(DependentRoot, u64), usize>,
 }
 
 pub struct InclusionListStore<E: EthSpec> {
@@ -132,14 +133,20 @@ impl<E: EthSpec> InclusionListStore<E> {
                     .or_default()
                     .insert(validator_index);
                 if newly_flagged {
-                    *entry.validator_counts.entry(validator_index).or_insert(0) += 1;
+                    *entry
+                        .validator_counts
+                        .entry((dependent_root, validator_index))
+                        .or_insert(0) += 1;
                     InsertOutcome::Equivocating
                 } else {
                     InsertOutcome::SubsequentEquivocation
                 }
             }
             None => {
-                *entry.validator_counts.entry(validator_index).or_insert(0) += 1;
+                *entry
+                    .validator_counts
+                    .entry((dependent_root, validator_index))
+                    .or_insert(0) += 1;
                 entry
                     .by_dependent_root
                     .entry(dependent_root)
@@ -151,10 +158,19 @@ impl<E: EthSpec> InclusionListStore<E> {
     }
 
     /// Answers the gossip "first or second valid message from this validator" check.
-    pub fn seen_twice(&self, slot: Slot, validator_index: u64) -> bool {
+    pub fn seen_twice(
+        &self,
+        slot: Slot,
+        dependent_root: DependentRoot,
+        validator_index: u64,
+    ) -> bool {
         self.slots
             .get(&slot)
-            .and_then(|entry| entry.validator_counts.get(&validator_index))
+            .and_then(|entry| {
+                entry
+                    .validator_counts
+                    .get(&(dependent_root, validator_index))
+            })
             .is_some_and(|count| *count >= 2)
     }
 
@@ -344,7 +360,7 @@ mod tests {
         );
         assert_eq!(store.process_inclusion_list(il, true), InsertOutcome::Seen);
         // A duplicate is not a second valid message.
-        assert!(!store.seen_twice(Slot::new(10), 1));
+        assert!(!store.seen_twice(Slot::new(10), root(1), 1));
     }
 
     #[test]
@@ -377,12 +393,12 @@ mod tests {
     #[test]
     fn seen_twice_counts_valid_arrivals() {
         let mut store = new_store();
-        assert!(!store.seen_twice(Slot::new(10), 1));
+        assert!(!store.seen_twice(Slot::new(10), root(1), 1));
         store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true);
-        assert!(!store.seen_twice(Slot::new(10), 1));
+        assert!(!store.seen_twice(Slot::new(10), root(1), 1));
         // A differing (equivocating) message still counts as a valid arrival.
         store.process_inclusion_list(signed_il(10, 1, root(1), &[0xbb]), true);
-        assert!(store.seen_twice(Slot::new(10), 1));
+        assert!(store.seen_twice(Slot::new(10), root(1), 1));
     }
 
     #[test]
@@ -466,8 +482,9 @@ mod tests {
             );
         }
 
-        // Both still count against the first-or-second rule, which is per validator and slot.
-        assert!(store.seen_twice(Slot::new(10), 1));
+        // Each dependent root is counted separately.
+        assert!(!store.seen_twice(Slot::new(10), root(1), 1));
+        assert!(!store.seen_twice(Slot::new(10), root(2), 1));
     }
 
     #[test]
