@@ -4376,19 +4376,15 @@ async fn weak_subjectivity_sync_test(
 
         info!(block_root = ?full_block_root, ?state_root, %slot, "Importing block from chain dump");
         beacon_chain.slot_clock.set_slot(slot.as_u64());
-        beacon_chain
-            .process_block(
-                full_block_root,
-                harness.build_range_sync_block_from_store_blobs(
-                    Some(block_root),
-                    Arc::new(full_block),
-                ),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            )
-            .await
-            .unwrap();
+        Box::pin(beacon_chain.process_block(
+            full_block_root,
+            harness.build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        ))
+        .await
+        .unwrap();
 
         // Store the envelope, its columns, and apply to fork choice.
         if let Some(envelope) = &snapshot.execution_envelope {
