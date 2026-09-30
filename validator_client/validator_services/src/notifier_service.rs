@@ -15,11 +15,13 @@ pub fn spawn_notifier<S: ValidatorStore + 'static, T: SlotClock + 'static>(
 ) -> Result<(), String> {
     let interval_fut = async move {
         loop {
-            if let Some(duration_to_next_slot) = duties_service.slot_clock.duration_to_next_slot() {
-                sleep(
-                    duration_to_next_slot + duties_service.slot_clock.current_slot_duration() / 2,
-                )
-                .await;
+            let slot_clock = &duties_service.slot_clock;
+            if let Some(duration_to_next_slot) = slot_clock.duration_to_next_slot() {
+                let next_slot_duration = slot_clock.now().map_or_else(
+                    || slot_clock.current_slot_duration(),
+                    |slot| slot_clock.slot_duration_at(slot + 1),
+                );
+                sleep(duration_to_next_slot + next_slot_duration / 2).await;
                 notify(&duties_service).await;
             } else {
                 error!("Failed to read slot clock");

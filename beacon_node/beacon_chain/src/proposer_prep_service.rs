@@ -30,11 +30,14 @@ async fn proposer_prep_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
 ) {
     loop {
-        let slot_duration = chain.slot_clock.current_slot_duration();
+        let next_slot_duration = chain.slot_clock.now().map_or_else(
+            || chain.slot_clock.current_slot_duration(),
+            |slot| chain.slot_clock.slot_duration_at(slot + 1),
+        );
         match chain.slot_clock.duration_to_next_slot() {
             Some(duration) => {
                 let additional_delay =
-                    slot_duration.saturating_sub(chain.config.prepare_payload_lookahead);
+                    next_slot_duration.saturating_sub(chain.config.prepare_payload_lookahead);
                 sleep(duration + additional_delay).await;
 
                 debug!("Proposer prepare routine firing");
@@ -60,7 +63,7 @@ async fn proposer_prep_service<T: BeaconChainTypes>(
             None => {
                 error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
-                sleep(slot_duration).await;
+                sleep(next_slot_duration).await;
             }
         };
     }

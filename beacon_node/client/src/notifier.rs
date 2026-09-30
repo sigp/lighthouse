@@ -82,13 +82,19 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         let mut last_custody_backfill_log_slot = None;
 
         loop {
-            let slot_duration = beacon_chain.slot_clock.current_slot_duration();
+            let slot_clock = &beacon_chain.slot_clock;
+            let slot_duration = slot_clock.current_slot_duration();
             // Run the notifier half way through each slot.
             //
             // Keep remeasuring the offset rather than using an interval, so that we can correct
             // for system time clock adjustments.
-            let wait = match beacon_chain.slot_clock.duration_to_next_slot() {
-                Some(duration) => duration + slot_duration / 2,
+            let wait = match slot_clock.duration_to_next_slot() {
+                Some(duration) => {
+                    let next_slot_duration = slot_clock
+                        .now()
+                        .map_or(slot_duration, |slot| slot_clock.slot_duration_at(slot + 1));
+                    duration + next_slot_duration / 2
+                }
                 None => {
                     warn!("Unable to read current slot");
                     sleep(slot_duration).await;

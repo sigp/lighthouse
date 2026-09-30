@@ -116,7 +116,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
             {
                 let sleep_time = slot_clock
                     .duration_to_slot(gloas_fork_slot)
-                    .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
+                    .unwrap_or_else(|| slot_clock.current_slot_duration());
                 sleep(sleep_time).await;
             }
             loop {
@@ -130,7 +130,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
                     );
                     let sleep_time = slot_clock
                         .duration_to_next_slot()
-                        .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
+                        .unwrap_or_else(|| slot_clock.current_slot_duration());
                     sleep(sleep_time).await;
                 }
             }

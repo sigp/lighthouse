@@ -122,13 +122,17 @@ async fn state_advance_timer<T: BeaconChainTypes>(
             continue;
         };
 
+        let next_slot_duration = slot_clock
+            .now()
+            .map_or(slot_duration, |slot| slot_clock.slot_duration_at(slot + 1));
+
         // Run the state advance 3/4 of the way through the slot (9s on mainnet).
         let state_advance_offset = slot_duration / 4;
         let state_advance_instant = if duration_to_next_slot > state_advance_offset {
             Instant::now() + duration_to_next_slot - state_advance_offset
         } else {
             // Skip the state advance for the current slot and wait until the next one.
-            Instant::now() + duration_to_next_slot + slot_duration - state_advance_offset
+            Instant::now() + duration_to_next_slot + next_slot_duration - next_slot_duration / 4
         };
 
         // Run fork choice 23/24s of the way through the slot (11.5s on mainnet).
@@ -137,7 +141,8 @@ async fn state_advance_timer<T: BeaconChainTypes>(
         let fork_choice_instant = if duration_to_next_slot > state_advance_offset {
             Instant::now() + duration_to_next_slot - fork_choice_offset
         } else {
-            Instant::now() + duration_to_next_slot + slot_duration - fork_choice_offset
+            Instant::now() + duration_to_next_slot + next_slot_duration
+                - next_slot_duration / FORK_CHOICE_LOOKAHEAD_FACTOR
         };
 
         // Wait for the state advance.
