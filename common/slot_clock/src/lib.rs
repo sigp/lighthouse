@@ -22,6 +22,7 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
             epoch: Epoch::new(0),
             slot_duration_ms: slot_duration.as_millis() as u64,
         }]);
+        // A schedule with only a genesis entry reads the same for any number of slots per epoch.
         Self::from_schedule(genesis_slot, genesis_duration, slot_duration_schedule, 1)
     }
 
@@ -78,7 +79,7 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
 
     /// Returns the duration of the current slot, or of the genesis slot prior to genesis.
     fn slot_duration(&self) -> Duration {
-        self.slot_duration_at(self.now_or_genesis().unwrap_or(self.genesis_slot()))
+        self.slot_duration_at(self.now().unwrap_or(self.genesis_slot()))
     }
 
     /// Returns the duration of `slot`.

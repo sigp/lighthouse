@@ -92,11 +92,11 @@ impl SlotClock for ManualSlotClock {
         slot_duration_schedule: SlotDurationSchedule,
         slots_per_epoch: u64,
     ) -> Self {
-        if slot_duration_schedule.is_empty()
-            || (&slot_duration_schedule)
-                .into_iter()
-                .any(|entry| entry.slot_duration_ms == 0)
-        {
+        let entries = slot_duration_schedule.as_vec();
+        if entries.last().is_none_or(|entry| entry.epoch != 0) {
+            panic!("ManualSlotClock needs a slot duration schedule that starts at epoch 0");
+        }
+        if entries.iter().any(|entry| entry.slot_duration_ms == 0) {
             panic!("ManualSlotClock cannot have a < 1ms slot duration");
         }
 
