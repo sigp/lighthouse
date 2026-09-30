@@ -392,12 +392,12 @@ impl ChainSpec {
     /// fork version, so a BPO fork scheduled before the next regular fork keeps the current one.
     /// `next_fork_version = current_fork_version` if no future fork is planned.
     pub fn next_fork_version<E: EthSpec>(&self, slot: Slot) -> [u8; 4] {
-        let epoch = slot.epoch(E::slots_per_epoch());
-        let version_epoch = self
-            .next_digest_epoch(epoch)
-            .filter(|next_epoch| *next_epoch != self.far_future_epoch)
-            .unwrap_or(epoch);
-        self.fork_version_for_name(self.fork_name_at_epoch(version_epoch))
+        let current_epoch = slot.epoch(E::slots_per_epoch());
+        let next_fork_epoch = match self.next_digest_epoch(current_epoch) {
+            Some(epoch) if epoch != self.far_future_epoch => epoch,
+            _ => current_epoch,
+        };
+        self.fork_version_for_name(self.fork_name_at_epoch(next_fork_epoch))
     }
 
     /// Returns the epoch of the next scheduled fork along with its corresponding `ForkName`.
