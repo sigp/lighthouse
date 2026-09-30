@@ -3,7 +3,7 @@
 //! These checks verify the consistency of data stored in the database. They are designed to be
 //! called from the HTTP API and from tests to detect data corruption or bugs in the store logic.
 //!
-//! See the `check_invariants` and `check_database_invariants` methods for the full list.
+//! See the `check_invariants` method for the full list.
 
 use crate::hdiff::StorageStrategy;
 use crate::hot_cold_store::{ColdStateSummary, HotStateSummary};
@@ -50,9 +50,13 @@ impl Default for InvariantCheckResult {
 
 /// Context data from the beacon chain needed for invariant checks.
 ///
-/// This allows all invariant checks to live in the store crate while still checking
+/// This allows store-level invariant checks to live in the store crate while still checking
 /// invariants that depend on fork choice, state cache, and custody context.
 pub struct InvariantContext {
+    /// Split snapshot, read before persisted fork choice to avoid racing with migration.
+    pub split: Split,
+    /// Finalized checkpoint from persisted fork choice (invariant 14).
+    pub persisted_fork_choice_finalized_checkpoint: Option<Checkpoint>,
     /// Block roots tracked by fork choice (invariant 1).
     pub fork_choice_blocks: Vec<(Hash256, Slot)>,
     /// Unfinalized descendants of the finalized checkpoint whose Gloas payloads have been
@@ -257,18 +261,28 @@ pub enum InvariantViolation {
     /// payload_body in hot_db -> payload_summary in hot_db
     /// ```
     PayloadBodyMissingSummary { block_root: Hash256 },
+    /// Invariant 14: persisted fork choice must not lag behind the split.
+    ///
+    /// ```text
+    /// persisted_fork_choice.finalized_checkpoint.epoch.start_slot() >= split.slot
+    /// ```
+    ForkChoiceFinalizedCheckpointBehindSplit {
+        finalized_checkpoint: Checkpoint,
+        split_slot: Slot,
+    },
 }
 
 impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     /// Run all database invariant checks.
     ///
     /// The `ctx` parameter provides data from the beacon chain layer (fork choice, state cache,
-    /// custody columns, pubkey cache) so that all invariant checks can live in this single file.
+    /// custody columns, pubkey cache) needed for the store-level checks.
     pub fn check_invariants(&self, ctx: &InvariantContext) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
-        let split = self.get_split_info();
+        let split = ctx.split;
 
         result.merge(self.check_fork_choice_block_consistency(ctx)?);
+        result.merge(self.check_persisted_fork_choice_consistency(ctx));
         result.merge(self.check_payload_body_summary_consistency()?);
         result.merge(self.check_hot_block_invariants(&split, ctx)?);
         result.merge(self.check_hot_state_summary_diff_consistency()?);
@@ -319,6 +333,25 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         }
 
         Ok(result)
+    }
+
+    /// Invariant 14: Persisted fork choice's finalized checkpoint must not lag behind the split.
+    fn check_persisted_fork_choice_consistency(
+        &self,
+        ctx: &InvariantContext,
+    ) -> InvariantCheckResult {
+        let mut result = InvariantCheckResult::new();
+        if let Some(finalized_checkpoint) = ctx.persisted_fork_choice_finalized_checkpoint
+            && finalized_checkpoint.epoch.start_slot(E::slots_per_epoch()) < ctx.split.slot
+        {
+            result.add_violation(
+                InvariantViolation::ForkChoiceFinalizedCheckpointBehindSplit {
+                    finalized_checkpoint,
+                    split_slot: ctx.split.slot,
+                },
+            );
+        }
+        result
     }
 
     /// Invariant 13 (Hot DB): Every stored payload body has a summary.
