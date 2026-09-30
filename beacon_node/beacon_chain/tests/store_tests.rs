@@ -535,6 +535,59 @@ async fn fcr_restarts_after_finalization_without_head_change() {
 }
 
 #[tokio::test]
+async fn fcr_initialization_failure_does_not_prevent_startup() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    harness
+        .extend_chain(
+            5 * E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.chain.persist_fork_choice().unwrap();
+    let head = harness.chain.canonical_head.cached_head();
+
+    // Force FCR's checkpoint lookup to fail while keeping the head and justified states available
+    // for ordinary beacon chain startup.
+    store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeleteBlock(
+            head.finalized_checkpoint().root,
+        )])
+        .unwrap();
+
+    let resumed = TestHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
+        .resumed_disk_store(store)
+        .testing_slot_clock(harness.chain.slot_clock.clone())
+        .execution_layer(harness.chain.execution_layer.clone())
+        .chain_config(ChainConfig {
+            fast_confirmation: FastConfirmationMode::Enabled,
+            ..ChainConfig::default()
+        })
+        .build();
+    assert!(resumed.chain.canonical_head.fast_confirmation.is_none());
+    assert_eq!(
+        resumed.chain.canonical_head.cached_head().head_block_root(),
+        head.head_block_root()
+    );
+    assert_eq!(
+        resumed
+            .chain
+            .canonical_head
+            .cached_head()
+            .forkchoice_update_parameters(),
+        resumed
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_forkchoice_update_parameters()
+    );
+}
+
+#[tokio::test]
 async fn persisted_fork_choice_finalized_checkpoint_database_invariant() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
