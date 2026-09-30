@@ -5,6 +5,7 @@ use logging::crit;
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
@@ -12,6 +13,11 @@ use types::{ChainSpec, EthSpec, ForkName, Hash256, InclusionList, SignedInclusio
 use validator_store::ValidatorStore;
 
 type DependentRoot = Hash256;
+
+/// How long before the inclusion list deadline inclusion lists are produced. By then the execution
+/// layer has usually received the `forkchoiceUpdated` for the slot's payload, which drops the
+/// payload's transactions from its mempool.
+const INCLUSION_LIST_PRODUCTION_MARGIN: Duration = Duration::from_secs(1);
 
 struct InclusionListData {
     dependent_root: DependentRoot,
@@ -75,6 +81,7 @@ where
     pub fn start_update_service(self) -> Result<(), String> {
         info!(
             inclusion_list_due_ms = self.chain_spec.get_inclusion_list_due().as_millis(),
+            inclusion_list_production_due_ms = self.inclusion_list_production_due().as_millis(),
             "Inclusion list service started"
         );
         let executor = self.executor.clone();
@@ -93,13 +100,7 @@ where
     }
 
     async fn spawn_inclusion_list_tasks(&self) -> Result<(), String> {
-        // TODO(heze): consider producing the inclusion list after the slot's envelope is
-        // revealed instead of right at the start of the slot, keeping the current approach
-        // as a fallback. Producing at slot start means the list can include transactions
-        // that the current slot's payload already includes. These would mean redundant constraints
-        // that put no pressure on the next builder. Building after the envelopes reveal would
-        // keep only still-pending transactions
-        let Some(slot) = self.wait_to_next_slot().await else {
+        let Some(slot) = self.wait_for_inclusion_list_production_due().await else {
             return Ok(());
         };
 
@@ -124,8 +125,16 @@ where
         Ok(())
     }
 
-    async fn wait_to_next_slot(&self) -> Option<Slot> {
+    /// Duration into the slot at which inclusion lists are produced.
+    fn inclusion_list_production_due(&self) -> Duration {
+        self.chain_spec
+            .get_inclusion_list_due()
+            .saturating_sub(INCLUSION_LIST_PRODUCTION_MARGIN)
+    }
+
+    async fn wait_for_inclusion_list_production_due(&self) -> Option<Slot> {
         let slot_duration = self.chain_spec.get_slot_duration();
+        let inclusion_list_production_due = self.inclusion_list_production_due();
 
         let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() else {
             error!("Failed to read slot clock");
@@ -154,7 +163,7 @@ where
             return None;
         }
 
-        sleep(duration_to_next_slot).await;
+        sleep(duration_to_next_slot + inclusion_list_production_due).await;
 
         let Some(current_slot) = self.slot_clock.now() else {
             error!("Failed to read slot clock after sleep");
@@ -417,7 +426,7 @@ mod tests {
         let service = &harness.service;
 
         // Add duties for a pre-Heze slot
-        // If the il task execution leaks past the wait_for_next_slot check,
+        // If the il task execution leaks past the wait_for_inclusion_list_production_due check,
         // it would fetch the transactions from the mock BNs and fail the final assertion
         // in the test
         harness.insert_il_duties(Slot::new(1), Hash256::repeat_byte(0xab));
@@ -429,7 +438,7 @@ mod tests {
         assert!(service_wait.as_mut().now_or_never().is_none());
 
         // Advance both slot_clock and tokio::time slot by slot up to 384s (the sleep deadline)
-        // This verifies that wait_to_next_slot waits a whole epoch (not just a slot) before completing
+        // This verifies that wait_for_inclusion_list_production_due waits a whole epoch (not just a slot) before completing
         for _ in 0..E::slots_per_epoch() {
             let duration_to_next_slot = harness.service.slot_clock.duration_to_next_slot().unwrap();
             advance_time(&harness.service.slot_clock, duration_to_next_slot).await;
@@ -447,19 +456,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn waits_until_next_slot() {
+    async fn waits_until_production_due_in_next_slot() {
         tokio::time::pause();
 
         let harness = TestHarness::new_with_validators(1).await;
         let service = &harness.service;
-        let service_wait = service.wait_to_next_slot();
+        let service_wait = service.wait_for_inclusion_list_production_due();
         tokio::pin!(service_wait);
 
         // Start the timer and registers the sleep timer with tokio
         assert!(service_wait.as_mut().now_or_never().is_none());
 
-        let duration_to_wait = harness.service.slot_clock.duration_to_next_slot().unwrap();
-        // Advance both slot_clock and tokio::time to 12s
+        // 7s into the next slot: 1s before the inclusion list deadline
+        let production_due = service.inclusion_list_production_due();
+        assert_eq!(production_due, Duration::from_secs(7));
+        let duration_to_wait = service.slot_clock.duration_to_next_slot().unwrap() + production_due;
+        // Advance both slot_clock and tokio::time to 19s
         advance_time(&harness.service.slot_clock, duration_to_wait).await;
         assert!(
             service_wait.as_mut().now_or_never().is_none(),
