@@ -556,7 +556,7 @@ impl FastConfirmationRule {
         }
 
         // Old enough to be finalized already, or finality is delayed and it cannot be trusted.
-        if block_should_be_finalized::<E>(root_before_restart_slot, current_slot) {
+        if block_should_be_finalized::<E>(root_before_restart_slot, current_slot)? {
             return Ok(finalized_checkpoint.root);
         }
 
@@ -1475,17 +1475,14 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
     epoch.start_slot(E::slots_per_epoch())
 }
 
-/// Spec: `block_should_be_finalized`. A block at the first slot of its epoch is the checkpoint that
-/// gets justified, so it is finalized an epoch earlier than the rest of its epoch.
-fn block_should_be_finalized<E: EthSpec>(block_slot: Slot, current_slot: Slot) -> bool {
-    let block_epoch = block_slot.epoch(E::slots_per_epoch());
-    let current_epoch = current_slot.epoch(E::slots_per_epoch());
-
-    if block_slot == compute_start_slot_at_epoch::<E>(block_epoch) {
-        block_epoch.saturating_add(2u64) <= current_epoch
-    } else {
-        block_epoch.saturating_add(3u64) <= current_epoch
-    }
+/// Spec: `block_should_be_finalized`.
+fn block_should_be_finalized<E: EthSpec>(
+    block_slot: Slot,
+    current_slot: Slot,
+) -> Result<bool, Error> {
+    let spe = E::slots_per_epoch();
+    let checkpoint_epoch = block_slot.safe_add(spe.safe_sub(1)?)?.epoch(spe);
+    Ok(checkpoint_epoch.safe_add(2)? <= current_slot.epoch(spe))
 }
 
 /// Spec: `is_full_validator_set_covered`.
