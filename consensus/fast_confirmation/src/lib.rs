@@ -560,10 +560,15 @@ impl FastConfirmationRule {
             return Ok(finalized_checkpoint.root);
         }
 
-        // DIVERGENCE: not in the spec. The EL rejects a whole `forkchoiceUpdated` whose
-        // `safe_block_hash` is off the head's chain (`-38002`), and `get_latest_confirmed` applies
-        // the same rule to `confirmed_root`.
+        // Not canonical. DIVERGENCE: the spec returns the finalized block here; `confirmed_root` is
+        // on the head's chain too and never older, so the EL keeps a deeper `safe_block_hash`.
         if !is_ancestor(head_root, root_before_restart, proto_array)? {
+            return Ok(confirmed_root);
+        }
+
+        // DIVERGENCE: the spec's confirmed root is always VALID. `--reset-payload-statuses` makes
+        // ours optimistic again, and `is_one_confirmed` refuses to confirm those.
+        if is_optimistic_or_invalid(root_before_restart, proto_array)? {
             return Ok(confirmed_root);
         }
 

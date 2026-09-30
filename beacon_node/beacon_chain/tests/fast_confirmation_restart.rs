@@ -557,10 +557,10 @@ async fn re_enabling_fcr_drops_a_stale_root() {
     );
 }
 
-/// A `--reset-payload-statuses` boot marks every pre-Gloas block optimistic. The pre-restart root
-/// is kept anyway: the EL validated it before the restart.
+/// A `--reset-payload-statuses` boot marks every pre-Gloas block optimistic, and an optimistic
+/// block is not confirmed. The EL is the one that lost the statuses, so it may lack the block too.
 #[tokio::test]
-async fn a_payload_status_reset_keeps_the_confirmed_root() {
+async fn a_payload_status_reset_drops_the_confirmed_root() {
     let all = validators(VALIDATOR_COUNT);
     let mut rig = Rig::new();
     rig.steps(WARMUP_SLOTS, &all).await;
@@ -575,7 +575,8 @@ async fn a_payload_status_reset_keeps_the_confirmed_root() {
     ));
     rig.node().chain.recompute_head_at_current_slot().await;
     let (root, _) = confirmed(&rig.node().chain).unwrap();
-    assert_eq!(root, stopped);
+    assert_ne!(root, stopped);
+    assert_eq!(root, finalized(&rig.node().chain));
 }
 
 // ---------------------------------------------------------------------------
