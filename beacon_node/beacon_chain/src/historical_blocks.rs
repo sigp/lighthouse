@@ -291,11 +291,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             blob_batch.extend(self.store.convert_to_kv_batch(vec![op])?);
                         }
                     }
-                    self.store.payload_envelope_as_kv_store_ops(
-                        &block_root,
-                        &signed_envelope,
-                        &mut hot_batch,
-                    );
+                    if self.store.get_config().prune_payloads {
+                        self.store.payload_envelope_summary_as_kv_store_op(
+                            &block_root,
+                            &signed_envelope,
+                            &mut hot_batch,
+                        );
+                    } else {
+                        self.store.payload_envelope_as_kv_store_ops(
+                            &block_root,
+                            &signed_envelope,
+                            &mut hot_batch,
+                        );
+                    }
                 }
                 None => {
                     // Envelopes must be stored for every revealed payload (even with no blobs)
