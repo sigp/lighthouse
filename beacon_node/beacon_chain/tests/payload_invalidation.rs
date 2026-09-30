@@ -2351,7 +2351,7 @@ async fn gloas_invalid_finalized_payload_on_full_shuts_down_on_optimistic_sync()
         ExecutionVerdict::Invalid
     );
 
-    // The finalized block's payload and the blocks below the justified block's 
+    // The finalized block's payload and the blocks below the justified block's
     // parent are never judged.
     assert!(is_optimistic(rig.execution_status(finalized_root)));
     let justified_parent_index = descendant_roots
