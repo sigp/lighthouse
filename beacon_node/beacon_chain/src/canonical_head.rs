@@ -1024,13 +1024,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let head_root = new_view.head_block_root;
             let old_deepest = roots.deepest_announced_root;
+            let old_deepest_unknown = fork_choice_read_lock.get_block(&old_deepest).is_none();
             let new_descendant_of_old =
-                Self::is_descendant(&fork_choice_read_lock, old_deepest, confirmed_root);
+                fork_choice_read_lock.is_descendant(old_deepest, confirmed_root);
             let old_descendant_of_new =
-                Self::is_descendant(&fork_choice_read_lock, confirmed_root, old_deepest);
+                fork_choice_read_lock.is_descendant(confirmed_root, old_deepest);
 
             roots.announced_root = confirmed_root;
-            roots.deepest_announced_root = if new_descendant_of_old {
+            roots.deepest_announced_root = if old_deepest_unknown {
+                // Finality has passed it, so there is nothing left to compare against.
+                confirmed_root
+            } else if new_descendant_of_old {
                 // Advanced along the chain it was already on.
                 confirmed_root
             } else if old_descendant_of_new {
@@ -1300,21 +1304,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(recompute_head_lock);
 
         Ok(Some(el_update_handle))
-    }
-
-    /// `ForkChoice::is_descendant`, reading an ancestor fork choice has pruned as the finalized
-    /// block, which everything descends from.
-    fn is_descendant(
-        fork_choice: &BeaconForkChoice<T>,
-        ancestor_root: Hash256,
-        descendant_root: Hash256,
-    ) -> bool {
-        let ancestor_root = if fork_choice.get_block(&ancestor_root).is_some() {
-            ancestor_root
-        } else {
-            fork_choice.finalized_checkpoint().root
-        };
-        fork_choice.is_descendant(ancestor_root, descendant_root)
     }
 
     fn run_fcr(
