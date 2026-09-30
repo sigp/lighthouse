@@ -37,8 +37,8 @@ use types::{
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
 const TEST_BLOB_BUNDLE_V2: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle_v2.ssz");
-/// The cells of the (single) blob in `TEST_BLOB_BUNDLE_V2`, as an SSZ-encoded
-/// `FixedVector<Cell<E>, E::CellsPerExtBlob>`.
+/// The cells of each blob in `TEST_BLOB_BUNDLE_V2`, in bundle order, as an SSZ-encoded
+/// `Vec<FixedVector<Cell<E>, E::CellsPerExtBlob>>`.
 const TEST_BLOB_CELLS: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle_v2_cells.ssz");
 
 pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
@@ -927,10 +927,14 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 }
 
                 if fork_name.fulu_enabled() {
-                    // `generate_blobs` only produces copies of the static test blob, so the
-                    // precomputed cells fixture applies to every blob in the bundle.
-                    let cells = load_test_blob_cells::<E>()?;
-                    self.blob_cells.insert(id, vec![cells; bundle.blobs.len()]);
+                    // `generate_blobs` cycles through the fixture blobs, so the precomputed cells
+                    // are cycled the same way.
+                    let cells = load_test_blob_cells::<E>()?
+                        .into_iter()
+                        .cycle()
+                        .take(bundle.blobs.len())
+                        .collect();
+                    self.blob_cells.insert(id, cells);
                 }
 
                 bundle
@@ -974,12 +978,15 @@ pub fn load_test_blobs_bundle_v2<E: EthSpec>() -> Result<BlobsBundle<E>, String>
         .map_err(|e| format!("Unable to decode ssz: {:?}", e))
 }
 
-/// Load the precomputed cells for the single blob in `TEST_BLOB_BUNDLE_V2`.
-///
-/// Every blob served by the mock EL is a copy of that blob, so these cells apply to all of them.
-pub fn load_test_blob_cells<E: EthSpec>() -> Result<Vec<Cell<E>>, String> {
-    FixedVector::<Cell<E>, E::CellsPerExtBlob>::from_ssz_bytes(TEST_BLOB_CELLS)
-        .map(|cells| cells.to_vec())
+/// Load the precomputed cells for each blob in `TEST_BLOB_BUNDLE_V2`, in bundle order.
+pub fn load_test_blob_cells<E: EthSpec>() -> Result<Vec<Vec<Cell<E>>>, String> {
+    Vec::<FixedVector<Cell<E>, E::CellsPerExtBlob>>::from_ssz_bytes(TEST_BLOB_CELLS)
+        .map(|blobs_cells| {
+            blobs_cells
+                .into_iter()
+                .map(|cells| cells.to_vec())
+                .collect()
+        })
         .map_err(|e| format!("Unable to decode ssz: {:?}", e))
 }
 
@@ -1311,24 +1318,34 @@ mod test {
 
     fn validate_test_blob_cells<E: EthSpec>() -> Result<(), String> {
         let kzg = load_kzg()?;
-        let (_, _, blob) = load_test_blobs_bundle_v2::<E>()?;
-        let kzg_blob: KzgBlobRef = blob
-            .as_ref()
-            .try_into()
-            .map_err(|e| format!("Error converting blob to kzg blob ref: {e:?}"))?;
-        let computed = kzg
-            .compute_cells(kzg_blob)
-            .map_err(|e| format!("Failed to compute cells: {e:?}"))?;
+        let bundle = load_test_blobs_bundle_v2::<E>()?;
         let embedded = load_test_blob_cells::<E>()?;
-        if embedded.len() != computed.len()
-            || embedded
-                .iter()
-                .zip(computed.iter())
-                .any(|(embedded_cell, computed_cell)| {
-                    embedded_cell[..] != computed_cell.as_ref()[..]
-                })
-        {
-            return Err("cells fixture does not match cells computed from the test blob".into());
+        if embedded.len() != bundle.blobs.len() {
+            return Err(format!(
+                "cells fixture has cells for {} blobs, the blobs bundle has {} blobs",
+                embedded.len(),
+                bundle.blobs.len()
+            ));
+        }
+        for (blob, embedded_cells) in bundle.blobs.iter().zip(&embedded) {
+            let kzg_blob: KzgBlobRef = blob
+                .as_ref()
+                .try_into()
+                .map_err(|e| format!("Error converting blob to kzg blob ref: {e:?}"))?;
+            let computed = kzg
+                .compute_cells(kzg_blob)
+                .map_err(|e| format!("Failed to compute cells: {e:?}"))?;
+            if embedded_cells.len() != computed.len()
+                || embedded_cells.iter().zip(computed.iter()).any(
+                    |(embedded_cell, computed_cell)| {
+                        embedded_cell[..] != computed_cell.as_ref()[..]
+                    },
+                )
+            {
+                return Err(
+                    "cells fixture does not match cells computed from the test blobs".into(),
+                );
+            }
         }
         Ok(())
     }
