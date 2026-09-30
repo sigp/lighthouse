@@ -2543,3 +2543,292 @@ mod test_find_head {
         }
     }
 }
+
+#[cfg(test)]
+mod optimistic_sync_tests {
+    use super::*;
+    use types::MainnetEthSpec;
+
+    type E = MainnetEthSpec;
+
+    const EMPTY_BALANCE: u64 = 32;
+    const FULL_BALANCE: u64 = 31;
+
+    struct Rig {
+        fork_choice: ProtoArrayForkChoice,
+        spec: ChainSpec,
+        checkpoint: Checkpoint,
+        balances: JustifiedBalances,
+    }
+
+    impl Rig {
+        fn new() -> Self {
+            let mut spec = E::default_spec();
+            spec.gloas_fork_epoch = Some(Epoch::new(0));
+            spec.heze_fork_epoch = None;
+
+            let root = root(1);
+            let checkpoint = Checkpoint {
+                epoch: Epoch::new(0),
+                root,
+            };
+            let shuffling = AttestationShufflingId::from_components(Epoch::new(0), root);
+            let fork_choice = ProtoArrayForkChoice::new::<E>(
+                Slot::new(0),
+                Slot::new(0),
+                root,
+                checkpoint,
+                checkpoint,
+                shuffling.clone(),
+                shuffling,
+                ExecutionStatus::Optimistic(hash(1)),
+                Some(hash(0)),
+                Some(hash(1)),
+                0,
+                &spec,
+            )
+            .unwrap();
+
+            Self {
+                fork_choice,
+                spec,
+                checkpoint,
+                balances: JustifiedBalances::from_effective_balances(vec![
+                    EMPTY_BALANCE,
+                    FULL_BALANCE,
+                    16,
+                ])
+                .unwrap(),
+            }
+        }
+
+        fn add_block(&mut self, id: u64, parent: u64, slot: u64, parent_hash: u64) {
+            let shuffling =
+                AttestationShufflingId::from_components(Epoch::new(0), self.checkpoint.root);
+            self.fork_choice
+                .process_block::<E>(
+                    Block {
+                        slot: Slot::new(slot),
+                        root: root(id),
+                        parent_root: Some(root(parent)),
+                        state_root: root(id),
+                        target_root: self.checkpoint.root,
+                        current_epoch_shuffling_id: shuffling.clone(),
+                        next_epoch_shuffling_id: shuffling,
+                        justified_checkpoint: self.checkpoint,
+                        finalized_checkpoint: self.checkpoint,
+                        execution_status: ExecutionStatus::NotYetRevealed(hash(id)),
+                        unrealized_justified_checkpoint: Some(self.checkpoint),
+                        unrealized_finalized_checkpoint: Some(self.checkpoint),
+                        execution_payload_parent_hash: Some(hash(parent_hash)),
+                        execution_payload_block_hash: Some(hash(id)),
+                        proposer_index: Some(0),
+                        payload_received: false,
+                    },
+                    Slot::new(slot),
+                    &self.spec,
+                    Duration::ZERO,
+                )
+                .unwrap();
+        }
+
+        fn reveal_optimistic(&mut self, id: u64) {
+            self.fork_choice
+                .on_payload_envelope_received(root(id), ExecutionStatus::Optimistic(hash(id)))
+                .unwrap();
+        }
+
+        fn vote(&mut self, validator: usize, block: u64, slot: u64, payload_present: bool) {
+            self.fork_choice
+                .process_attestation(validator, root(block), Slot::new(slot), payload_present)
+                .unwrap();
+        }
+
+        fn head(&mut self) -> ForkChoiceNode {
+            self.fork_choice
+                .find_head::<E>(
+                    self.checkpoint,
+                    self.checkpoint,
+                    &self.balances,
+                    Hash256::zero(),
+                    &BTreeSet::new(),
+                    Slot::new(10),
+                    &self.spec,
+                )
+                .unwrap()
+        }
+
+        fn invalidate_one(&mut self, block_hash_id: u64) {
+            self.fork_choice
+                .process_execution_payload_invalidation::<E>(
+                    &InvalidationOperation::InvalidateOne {
+                        head_hash: hash(block_hash_id),
+                    },
+                    self.checkpoint,
+                )
+                .unwrap();
+        }
+
+        fn invalidate_many(&mut self, head_hash_id: u64, latest_valid_id: u64) {
+            self.fork_choice
+                .process_execution_payload_invalidation::<E>(
+                    &InvalidationOperation::InvalidateMany {
+                        head_hash: hash(head_hash_id),
+                        always_invalidate_head: true,
+                        latest_valid_ancestor: hash(latest_valid_id),
+                    },
+                    self.checkpoint,
+                )
+                .unwrap();
+        }
+
+        fn status(&self, id: u64) -> ExecutionStatus {
+            self.fork_choice
+                .get_block(&root(id))
+                .unwrap()
+                .execution_status
+        }
+
+        fn buckets(&self, id: u64) -> (u64, u64, u64) {
+            let index = self.fork_choice.proto_array.indices[&root(id)];
+            let node = &self.fork_choice.proto_array.nodes[index];
+            (
+                node.weight(),
+                node.attestation_score(PayloadStatus::Empty),
+                node.attestation_score(PayloadStatus::Full),
+            )
+        }
+
+        fn round_trip(&self) -> ProtoArrayForkChoice {
+            ProtoArrayForkChoice::from_bytes(
+                &self.fork_choice.as_bytes(),
+                self.fork_choice.balances.clone(),
+            )
+            .unwrap()
+        }
+    }
+
+    fn root(id: u64) -> Hash256 {
+        Hash256::from_low_u64_be(id)
+    }
+
+    fn hash(id: u64) -> ExecutionBlockHash {
+        ExecutionBlockHash::from_root(root(id))
+    }
+
+    /// The latest valid hash is A's payload, with an unrevealed gap above it. Invalidation
+    /// leaves the gap unrevealed, marks B and its full child invalid, and selects B's empty
+    /// child as head.
+    #[test]
+    fn gloas_latest_valid_hash_gap_spares_empty_branch() {
+        let mut rig = Rig::new();
+        // The anchor is created optimistic. Record its envelope as received.
+        rig.reveal_optimistic(1);
+        assert_eq!(rig.status(1), ExecutionStatus::Optimistic(hash(1)));
+
+        // Gap's bid does not name A's payload.
+        rig.add_block(2, 1, 1, 99);
+        // B's beacon parent is the gap. Its bid names A's payload.
+        rig.add_block(3, 2, 2, 1);
+        // Full child executes B. Empty child names A's payload instead.
+        rig.add_block(4, 3, 3, 3);
+        rig.add_block(5, 3, 3, 1);
+
+        rig.invalidate_many(4, 1);
+        // A later empty vote makes the spared branch the head.
+        rig.vote(0, 5, 5, false);
+        let head = rig.head();
+
+        assert_eq!(rig.status(1), ExecutionStatus::Optimistic(hash(1)));
+        assert_eq!(rig.status(2), ExecutionStatus::NotYetRevealed(hash(2)));
+        assert_eq!(rig.status(3), ExecutionStatus::Invalid(hash(3)));
+        assert_eq!(rig.status(4), ExecutionStatus::Invalid(hash(4)));
+        assert_eq!(rig.status(5), ExecutionStatus::NotYetRevealed(hash(5)));
+        assert_eq!(head.root(), root(5));
+        assert_eq!(head.payload_status(), PayloadStatus::Empty);
+
+        let restored = rig.round_trip();
+        for id in [1, 2, 3, 4, 5] {
+            assert_eq!(
+                restored.get_block(&root(id)).unwrap().execution_status,
+                rig.status(id),
+                "status of block {id} after a fork-choice round trip"
+            );
+        }
+    }
+
+    /// Full weight on an invalid Gloas node drops to zero on the next `find_head`. Empty weight
+    /// stays, an empty child still counts toward its ancestors, and a full child does not. Moving
+    /// that full vote away does not subtract it again, and a new full vote adds nothing.
+    #[test]
+    fn gloas_invalid_payload_weight_accounting() {
+        let mut rig = Rig::new();
+        // Anchor 1. Parent 2. Empty child 3. Full child 4. Sibling 6 takes the moved vote.
+        rig.add_block(2, 1, 1, 1);
+        rig.add_block(3, 2, 2, 1);
+        rig.add_block(4, 2, 2, 2);
+        rig.add_block(6, 1, 1, 99);
+        rig.reveal_optimistic(6);
+
+        // Later than every block slot, so the votes are Empty and Full rather than Pending.
+        rig.vote(0, 3, 5, false);
+        rig.vote(1, 4, 5, true);
+        rig.head();
+
+        let (weight_before, empty_before, full_before) = rig.buckets(2);
+        assert_eq!(empty_before, EMPTY_BALANCE);
+        assert_eq!(full_before, FULL_BALANCE);
+        assert_eq!(weight_before, EMPTY_BALANCE + FULL_BALANCE);
+        assert_eq!(rig.buckets(1).0, EMPTY_BALANCE + FULL_BALANCE);
+
+        rig.invalidate_one(2);
+        rig.head();
+
+        let (weight_after, empty_after, full_after) = rig.buckets(2);
+        assert_eq!(full_after, 0);
+        assert_eq!(empty_after, empty_before);
+        assert_eq!(weight_after, EMPTY_BALANCE);
+        assert_eq!(rig.buckets(4).0, 0, "invalid full child keeps no weight");
+        assert_eq!(rig.buckets(1).0, EMPTY_BALANCE);
+
+        rig.vote(1, 6, 6, true);
+        rig.head();
+        assert_eq!(
+            rig.buckets(2).0,
+            weight_after,
+            "moving a full vote off an invalid node must not subtract it again"
+        );
+        assert_eq!(rig.buckets(1).0, EMPTY_BALANCE + FULL_BALANCE);
+
+        rig.vote(2, 2, 7, true);
+        rig.head();
+        let (weight_final, _, full_final) = rig.buckets(2);
+        assert_eq!(full_final, 0);
+        assert_eq!(weight_final, weight_after);
+        assert_eq!(rig.buckets(1).0, EMPTY_BALANCE + FULL_BALANCE);
+    }
+
+    /// Resetting to optimistic replays the votes from before the invalidation.
+    #[test]
+    fn gloas_optimistic_reset_restores_pre_invalidation_weights() {
+        let mut rig = Rig::new();
+        rig.add_block(2, 1, 1, 1);
+        rig.add_block(3, 2, 2, 1);
+        rig.add_block(4, 2, 2, 2);
+        rig.vote(0, 3, 5, false);
+        rig.vote(1, 4, 5, true);
+        rig.head();
+        let before = rig.buckets(2);
+
+        rig.invalidate_one(2);
+        rig.head();
+        assert_eq!(rig.buckets(2).2, 0);
+
+        rig.fork_choice
+            .set_all_blocks_to_optimistic::<E>(&BTreeSet::new())
+            .unwrap();
+        rig.head();
+
+        assert_eq!(rig.buckets(2), before);
+    }
+}
