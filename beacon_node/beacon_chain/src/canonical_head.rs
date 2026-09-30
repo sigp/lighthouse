@@ -1627,6 +1627,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.spec,
         );
 
+        // Persist before migration can advance the split and prune the checkpoint state needed
+        // to initialize FCR on restart. Finality can advance without a head change.
+        self.persist_fork_choice()?;
+
         // We just pass the state root to the finalization thread. It should be able to reload the
         // state from the state_cache near instantly anyway. We could experiment with sending the
         // state over a channel in future, but it's probably no quicker.
