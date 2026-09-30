@@ -5,7 +5,6 @@ mod metrics;
 mod nat;
 mod network_beacon_processor;
 mod persisted_dht;
-mod router;
 mod status;
 mod subnet_service;
 mod sync;
