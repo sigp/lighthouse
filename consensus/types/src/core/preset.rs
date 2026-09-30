@@ -374,6 +374,8 @@ pub struct HezePreset {
     pub inclusion_list_committee_size: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub max_signed_execution_payload_bid_size_heze: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_signed_inclusion_list_size: u64,
 }
 
 impl HezePreset {
@@ -382,6 +384,7 @@ impl HezePreset {
             inclusion_list_committee_size: E::inclusion_list_committee_size() as u64,
             max_signed_execution_payload_bid_size_heze: spec
                 .max_signed_execution_payload_bid_size_heze,
+            max_signed_inclusion_list_size: E::max_signed_inclusion_list_size() as u64,
         }
     }
 }
