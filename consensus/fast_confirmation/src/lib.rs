@@ -560,10 +560,9 @@ impl FastConfirmationRule {
             return Ok(finalized_checkpoint.root);
         }
 
-        // Not canonical. DIVERGENCE: the spec returns the finalized block here; `confirmed_root` is
-        // on the head's chain too and never older, so the EL keeps a deeper `safe_block_hash`.
+        // Not canonical.
         if !is_ancestor(head_root, root_before_restart, proto_array)? {
-            return Ok(confirmed_root);
+            return Ok(finalized_checkpoint.root);
         }
 
         // DIVERGENCE: the spec's confirmed root is always VALID. `--reset-payload-statuses` makes
