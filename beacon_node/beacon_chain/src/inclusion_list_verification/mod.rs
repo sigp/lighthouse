@@ -8,6 +8,8 @@ pub mod gossip_verified_inclusion_list;
 pub enum InclusionListVerificationError {
     /// Two valid inclusion lists were already seen from this validator for this slot.
     AlreadySeenTwice { validator_index: u64, slot: Slot },
+    /// The inclusion list transactions have a total size of zero.
+    EmptyTransactions,
     /// The slot clock cannot read.
     UnableToReadSlot,
     /// Beacon Chain error

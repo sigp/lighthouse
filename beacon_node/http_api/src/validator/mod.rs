@@ -9,6 +9,7 @@ use crate::utils::{
 use crate::version::{V1, V2, V3, add_ssz_content_type_header, unsupported_version_rejection};
 use crate::{StateId, attester_duties, proposer_duties, ptc_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
+use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
@@ -1621,12 +1622,23 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
 
     match chain.verify_inclusion_list_for_gossip(signed_inclusion_list) {
         Ok(verified_inclusion_list) => {
-            crate::utils::publish_pubsub_message(
-                network_tx,
-                PubsubMessage::InclusionList(Box::new(
-                    verified_inclusion_list.signed_inclusion_list,
-                )),
-            )?;
+            // The import decides whether this is the first or second valid list from the validator,
+            // so only publish based on its outcome.
+            let signed_inclusion_list = verified_inclusion_list.signed_inclusion_list.clone();
+            let outcome = chain.import_inclusion_list(verified_inclusion_list);
+            debug!(%slot, %validator_index, ?outcome, "Imported inclusion list");
+            let publish = match outcome {
+                InsertOutcome::New | InsertOutcome::Equivocating => true,
+                InsertOutcome::Seen
+                | InsertOutcome::SubsequentEquivocation
+                | InsertOutcome::Old => false,
+            };
+            if publish {
+                crate::utils::publish_pubsub_message(
+                    network_tx,
+                    PubsubMessage::InclusionList(Box::new(signed_inclusion_list)),
+                )?;
+            }
             Ok(())
         }
         Err(InclusionListVerificationError::AlreadySeenTwice { .. }) => {
@@ -1634,6 +1646,14 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
                 %slot,
                 %validator_index,
                 "Two valid inclusion lists were already seen"
+            );
+            Ok(())
+        }
+        Err(InclusionListVerificationError::EmptyTransactions) => {
+            debug!(
+                %slot,
+                %validator_index,
+                "Not publishing an inclusion list with no transactions"
             );
             Ok(())
         }

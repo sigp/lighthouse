@@ -1,3 +1,4 @@
+use crate::inclusion_list_store::InsertOutcome;
 use crate::inclusion_list_verification::InclusionListVerificationError;
 use crate::{BeaconChain, BeaconChainTypes};
 use tracing::debug;
@@ -65,5 +66,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(e)
             }
         }
+    }
+
+    pub fn import_inclusion_list(
+        &self,
+        verified_inclusion_list: GossipVerifiedInclusionList,
+    ) -> InsertOutcome {
+        self.inclusion_list_store.write().process_inclusion_list(
+            verified_inclusion_list.signed_inclusion_list,
+            verified_inclusion_list.is_timely,
+        )
     }
 }
