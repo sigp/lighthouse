@@ -49,14 +49,12 @@ use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
 use types::kzg_ext::{KzgCommitments, ProgressiveKzgCommitments};
 use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests,
-    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, ProgressiveTransactions,
-    SignedBlindedBeaconBlock,
+    AbstractExecPayload, BlobsList, ExecutionRequests, ExecutionRequestsElectra,
+    ExecutionRequestsGloas, KzgProofs, ProgressiveTransactions, SignedBlindedBeaconBlock,
 };
 use types::{
     BeaconStateError, BlindedPayload, ChainSpec, ColumnIndex, Epoch, ExecPayload,
-    ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadElectra,
-    ExecutionPayloadFulu, ExecutionPayloadGloas, FullPayload, ProposerPreparationData, Slot,
+    ExecutionPayloadGloas, FullPayload, ProposerPreparationData, Slot,
 };
 
 mod block_hash;
@@ -1713,22 +1711,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<Option<ExecutionPayload<E>>, Error> {
         // Handle default payload body.
         if header.block_hash() == ExecutionBlockHash::zero() {
-            let payload = match fork {
-                ForkName::Bellatrix => ExecutionPayloadBellatrix::default().into(),
-                ForkName::Capella => ExecutionPayloadCapella::default().into(),
-                ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
-                ForkName::Electra => ExecutionPayloadElectra::default().into(),
-                ForkName::Fulu => ExecutionPayloadFulu::default().into(),
-                ForkName::Base | ForkName::Altair => {
-                    return Err(Error::InvalidForkForPayload);
-                }
-                ForkName::Gloas => {
-                    return Err(Error::InvalidForkForPayload);
-                }
-                ForkName::Heze => {
-                    return Err(Error::InvalidForkForPayload);
-                }
-            };
+            let payload = FullPayload::<E>::default_at_fork(fork)
+                .map_err(|_| Error::InvalidForkForPayload)?
+                .execution_payload();
             return Ok(Some(payload));
         }
 
