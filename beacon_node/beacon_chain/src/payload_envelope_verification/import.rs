@@ -398,9 +398,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let split = self.store.get_split_info();
         if block_root == split.block_root && block.state_root() != split.state_root {
-            // The checkpoint state was advanced past an unaligned anchor block, so the block's
-            // own post-state is not stored. Only empty slots lie between the two, which change no
-            // field the envelope is verified against except the slot and the fork.
+            // The anchor's post-state isn't stored, so verify against the split state at its slot.
             let mut state = self
                 .store
                 .get_hot_state(&split.state_root, false)?
