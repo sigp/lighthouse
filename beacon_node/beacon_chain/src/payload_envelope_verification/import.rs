@@ -399,22 +399,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let split = self.store.get_split_info();
         if block_root == split.block_root && block.state_root() != split.state_root {
             // The checkpoint state was advanced past an unaligned anchor block, so the block's
-            // own post-state is not stored. The envelope is already bound to the bid of this
-            // finalized block, so only the self-build signature is left to check.
-            if signed_envelope.message.builder_index == BUILDER_INDEX_SELF_BUILD {
-                let proposer_index = block.message().proposer_index();
-                let pubkey_cache = self.validator_pubkey_cache.read();
-                let pubkey = pubkey_cache
-                    .get(proposer_index as usize)
-                    .ok_or(EnvelopeError::UnknownValidator { proposer_index })?;
-                if !signed_envelope.verify_signature(
-                    pubkey,
-                    &self.spec.fork_at_epoch(signed_envelope.epoch()),
-                    self.genesis_validators_root,
-                    &self.spec,
-                ) {
-                    return Err(EnvelopeError::BadSignature);
-                }
+            // own post-state is not stored. Only empty slots lie between the two, which change no
+            // field the envelope is verified against except the slot and the fork.
+            let mut state = self
+                .store
+                .get_hot_state(&split.state_root, false)?
+                .ok_or_else(|| {
+                    BeaconChainError::DBInconsistent(format!(
+                        "Missing split state {:?}",
+                        split.state_root
+                    ))
+                })?;
+            *state.slot_mut() = block.slot();
+            verify_execution_payload_envelope(
+                &state,
+                &signed_envelope,
+                VerifySignatures::False,
+                block.state_root(),
+                &self.spec,
+            )?;
+
+            let builder_index = signed_envelope.message.builder_index;
+            let pubkey = if builder_index == BUILDER_INDEX_SELF_BUILD {
+                state
+                    .get_validator(block.message().proposer_index() as usize)?
+                    .pubkey
+            } else {
+                state.get_builder(builder_index)?.pubkey
+            };
+            let pubkey = pubkey
+                .decompress()
+                .map_err(|_| EnvelopeError::BadSignature)?;
+            if !signed_envelope.verify_signature(
+                &pubkey,
+                &self.spec.fork_at_epoch(signed_envelope.epoch()),
+                state.genesis_validators_root(),
+                &self.spec,
+            ) {
+                return Err(EnvelopeError::BadSignature);
             }
         } else {
             // Load the state snapshot for envelope processing
