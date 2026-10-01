@@ -11,6 +11,7 @@ use eth2::types::EventKind;
 use execution_layer::test_utils::Block;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
+use tree_hash::TreeHash;
 use types::execution::{ExecutionProof, ProofData, ProofType, PublicInput, SignedExecutionProof};
 use types::{
     Address, BlockImportSource, Epoch, ExecPayload, ExecutionPayload, ForkName, Hash256,
@@ -745,8 +746,8 @@ async fn a_later_valid_payload_promotes_its_optimistic_ancestors() {
     );
 }
 
-/// EIP-8025: a payload the node cannot prove yet is held as optimistic, even though the execution
-/// layer has validated it. The proof that completes the requirement promotes it to valid.
+/// EIP-8025: a payload the node cannot prove yet is held as optimistic. The proof that completes the
+/// requirement promotes it to valid.
 #[tokio::test]
 async fn execution_proofs_validate_an_optimistic_payload() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
@@ -840,24 +841,41 @@ async fn process_proof(
     proof_type: ProofType,
     block_slot: Slot,
 ) {
-    let verified_proof = GossipVerifiedExecutionProof {
-        proof: Arc::new(SignedExecutionProof {
-            message: ExecutionProof {
-                proof_data: ProofData::new(vec![1]).expect("proof data"),
-                proof_type,
-                public_input: PublicInput {
-                    new_payload_request_root: Hash256::random(),
-                },
-                beacon_block_root: block_root,
+    let proof = SignedExecutionProof {
+        message: ExecutionProof {
+            proof_data: ProofData::new(vec![1]).expect("proof data"),
+            proof_type,
+            public_input: PublicInput {
+                new_payload_request_root: Hash256::random(),
             },
-            validator_index: 0,
-            signature: bls::Signature::infinity().expect("infinity signature"),
-        }),
-        block_slot,
+            beacon_block_root: block_root,
+        },
+        validator_index: 0,
+        signature: bls::Signature::infinity().expect("infinity signature"),
     };
+
+    // Gossip verification counts a proof once the engine calls it valid, and the chain reads that
+    // count. The engine is not reachable here, so record the proof as verification would.
+    {
+        let mut observed_execution_proofs = harness.chain.observed_execution_proofs.write();
+        observed_execution_proofs
+            .observe_signature_verified_proof(
+                proof.message.tree_hash_root(),
+                block_root,
+                proof_type,
+                proof.validator_index,
+                block_slot,
+            )
+            .expect("proof should be observable");
+        observed_execution_proofs.observe_valid_proof(block_root, proof_type);
+    }
+
     harness
         .chain
-        .process_execution_proof(&verified_proof)
+        .process_execution_proof(&GossipVerifiedExecutionProof {
+            proof: Arc::new(proof),
+            block_slot,
+        })
         .await
         .expect("execution proof should be processed");
 }

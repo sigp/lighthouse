@@ -254,7 +254,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Read under the fork choice lock so that a proof completing right now either sees the
         // payload in fork choice and promotes it, or is read here.
         let payload_verification_status = if self.execution_proofs_enabled() {
-            if self.payload_validity_cache.read().is_proven(&block_root) {
+            if self.execution_proofs_satisfied(&block_root) {
                 PayloadVerificationStatus::Verified
             } else {
                 PayloadVerificationStatus::Optimistic

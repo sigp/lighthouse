@@ -8,7 +8,8 @@ use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 use crate::{
     BeaconChain, BeaconChainTypes, NotifyExecutionLayer, PayloadVerificationError,
-    execution_payload::notify_new_payload, payload_envelope_verification::EnvelopeError,
+    execution_payload::notify_new_payload,
+    payload_envelope_verification::{EnvelopeError, verify_envelope_payload_hash},
 };
 
 /// Used to await the result of executing payload with a remote EE.
@@ -30,6 +31,13 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         // execution layer. It is received optimistically and the proof that completes its
         // requirement promotes it.
         if chain.execution_proofs_enabled() {
+            // Nothing else recomputes the payload's block hash once the execution layer is out of
+            // the picture, so do it here. The flag is off for a mock execution layer, whose
+            // synthetic hashes cannot survive the recompute.
+            if chain.config.verify_envelope_payload_hash_in_backfill {
+                verify_envelope_payload_hash(&envelope, &block)?;
+            }
+
             return Ok(Self {
                 chain,
                 envelope,

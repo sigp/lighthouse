@@ -110,6 +110,13 @@ impl ObservedExecutionProofs {
         }
     }
 
+    /// Number of distinct proof types with a valid proof for `block_root`.
+    pub fn valid_proof_count(&self, block_root: &Hash256) -> usize {
+        self.items
+            .get(block_root)
+            .map_or(0, |entry| entry.valid_proof_types.len())
+    }
+
     /// Prune all entries for slots at or below `finalized_slot`.
     pub fn prune(&mut self, finalized_slot: Slot) {
         if finalized_slot == 0 || finalized_slot <= self.finalized_slot {

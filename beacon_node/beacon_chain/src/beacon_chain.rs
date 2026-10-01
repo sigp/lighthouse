@@ -36,7 +36,7 @@ use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
 use crate::execution_proof_verification::{
-    GossipVerifiedExecutionProof, ObservedExecutionProofs, PayloadValidityCache,
+    GossipVerifiedExecutionProof, ObservedExecutionProofs, REQUIRED_EXECUTION_PROOFS,
 };
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
@@ -454,9 +454,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of execution proofs seen over the gossip network.
     pub observed_execution_proofs: RwLock<ObservedExecutionProofs>,
-    /// Tracks the two gates on a payload's validity: the execution layer's verdict and its
-    /// EIP-8025 execution proofs. Only consulted with a proof engine configured.
-    pub payload_validity_cache: RwLock<PayloadValidityCache>,
     /// Maintains the gas limit of execution payloads seen through gossip or trusted imports.
     pub observed_execution_payloads: ObservedExecutionPayloads,
     /// Cache of pending execution payload envelopes for local block building.
@@ -4241,18 +4238,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.proof_engine.is_some()
     }
 
+    /// Whether `block_root`'s payload has valid proofs from as many distinct proof systems as we
+    /// require, which is what makes it valid.
+    ///
+    /// Proofs are recursive, so a payload's own proofs are all we ask for, never its ancestors'.
+    ///
+    /// TODO(9658): a proof names the block whose payload it claims to prove, and nothing here checks
+    /// that its `new_payload_request_root` is the one that block's envelope asks the execution layer
+    /// for. Until something does, a proof of another payload carrying this block's root counts.
+    /// https://github.com/sigp/lighthouse/issues/9658
+    pub(crate) fn execution_proofs_satisfied(&self, block_root: &Hash256) -> bool {
+        self.observed_execution_proofs
+            .read()
+            .valid_proof_count(block_root)
+            >= REQUIRED_EXECUTION_PROOFS
+    }
+
     /// Record a gossip-verified execution proof, validating its payload if the proof was the last
     /// one its requirement needed.
+    ///
+    /// Gossip verification has already counted the proof, so this only acts on what it completed.
     pub async fn process_execution_proof(
         self: &Arc<Self>,
         verified_proof: &GossipVerifiedExecutionProof,
     ) -> Result<(), Error> {
         let block_root = verified_proof.proof.beacon_block_root();
-        if !self
-            .payload_validity_cache
-            .write()
-            .insert_proof(block_root, verified_proof.proof.proof_type())
-        {
+        if !self.execution_proofs_satisfied(&block_root) {
             return Ok(());
         }
 
@@ -7052,8 +7063,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
                     // ancestor's payload, not the head block's.
                     //
-                    // For a Gloas payload this verdict is only half of its validity: one short of
-                    // its execution proofs stays optimistic until its last proof arrives.
+                    // A Gloas payload's validity is its execution proofs, so this verdict does not
+                    // promote one. `on_execution_layer_validated_payload` holds it back.
                     let chain = self.clone();
                     let fork_choice_update_result = self
                         .spawn_blocking_handle(

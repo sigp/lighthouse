@@ -6,7 +6,6 @@ use crate::beacon_chain::{
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
-use crate::execution_proof_verification::{PayloadValidityCache, REQUIRED_EXECUTION_PROOFS};
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
 use crate::inclusion_list_store::InclusionListStore;
@@ -1041,9 +1040,6 @@ where
             observed_column_sidecars: RwLock::new(ObservedDataSidecars::new(self.spec.clone())),
             observed_slashable: <_>::default(),
             observed_execution_proofs: <_>::default(),
-            payload_validity_cache: RwLock::new(PayloadValidityCache::new(
-                REQUIRED_EXECUTION_PROOFS,
-            )),
             observed_execution_payloads: <_>::default(),
             pending_payload_envelopes: <_>::default(),
             inclusion_list_store: RwLock::new(InclusionListStore::new(&self.spec)),

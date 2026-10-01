@@ -6,15 +6,22 @@ use types::{Hash256, Slot};
 
 pub mod gossip_verified_execution_proof;
 pub mod observed_execution_proofs;
-pub mod payload_validity;
 
 pub use gossip_verified_execution_proof::{
     GossipVerificationContext, GossipVerifiedExecutionProof,
 };
 pub use observed_execution_proofs::ObservedExecutionProofs;
-pub use payload_validity::{PayloadValidityCache, REQUIRED_EXECUTION_PROOFS};
 
 use observed_execution_proofs::Error as ObservationError;
+
+/// Distinct proof systems that must prove a payload before fork choice calls it valid. More than
+/// one means a soundness bug in a single prover isn't enough to fool us.
+///
+/// Which systems count is the engine's call, we only see its `VALID`. The count is ours because
+/// we're the only ones who see the whole set.
+///
+/// TODO(9658): make configurable. https://github.com/sigp/lighthouse/issues/9658
+pub const REQUIRED_EXECUTION_PROOFS: usize = 2;
 
 #[derive(Debug)]
 pub enum Error {
@@ -34,6 +41,10 @@ pub enum Error {
     PastFinalizedSlot {
         slot: Slot,
         finalized_slot: Slot,
+    },
+    /// The referenced beacon block predates Gloas, so its payload has no proofs (REJECT).
+    BlockPriorToGloas {
+        slot: Slot,
     },
     /// `proof_data` is empty (REJECT).
     EmptyProofData,
