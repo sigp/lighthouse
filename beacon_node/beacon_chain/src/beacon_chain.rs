@@ -35,7 +35,7 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
-use crate::execution_proof_verification::{GossipVerifiedExecutionProof, ObservedExecutionProofs};
+use crate::execution_proof_verification::ObservedExecutionProofs;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::inclusion_list_store::{DependentRoot, InclusionListStore};
@@ -4228,23 +4228,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .process_availability(slot, availability, || Ok(()))
                 .await?)
         }
-    }
-
-    /// Caches an execution proof, importing the payload envelope if that was the last piece.
-    pub async fn check_execution_proof_availability_and_import(
-        self: &Arc<Self>,
-        verified_proof: GossipVerifiedExecutionProof,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        let GossipVerifiedExecutionProof { proof, block_slot } = verified_proof;
-        let bid = self
-            .get_or_load_gloas_payload_bid(proof.beacon_block_root())
-            .await?;
-        let availability = self
-            .pending_payload_cache
-            .put_execution_proof(proof, &bid)
-            .map_err(BlockError::from)?;
-        self.process_payload_envelope_availability(block_slot, availability, || Ok(()))
-            .await
     }
 
     /// Load a persisted Gloas bid without blocking the async runtime.
