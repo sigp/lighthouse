@@ -529,6 +529,7 @@ async fn fcr_restarts_after_finalization_without_head_change() {
             .as_ref()
             .unwrap()
             .lock()
+            .fcr
             .confirmed_root,
         new_head.finalized_checkpoint().root
     );
