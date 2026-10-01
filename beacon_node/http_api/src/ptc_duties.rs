@@ -115,6 +115,7 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
             Some((
                 head.beacon_block_root,
                 head.beacon_state_root(),
+                head.beacon_state.slot(),
                 execution_status.is_optimistic_or_invalid(),
             ))
         } else {
@@ -123,14 +124,14 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
     };
 
     let (state, dependent_block_root, execution_optimistic) =
-        if let Some((block_root, state_root, execution_optimistic)) = state_opt {
+        if let Some((block_root, state_root, head_slot, execution_optimistic)) = state_opt {
+            let max_slot = std::cmp::max(
+                head_slot,
+                request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            );
             let (state_root, mut state) = chain
                 .store
-                .get_advanced_hot_state(
-                    block_root,
-                    request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                    state_root,
-                )
+                .get_advanced_hot_state(block_root, max_slot, state_root)
                 .map_err(BeaconChainError::DBError)
                 .map_err(warp_utils::reject::unhandled_error)?
                 .ok_or(BeaconChainError::MissingBeaconState(state_root))
@@ -179,10 +180,14 @@ fn ensure_state_knows_ptc_duties_for_epoch<E: EthSpec>(
             target_epoch
         )));
     } else if !state.fork_name_unchecked().gloas_enabled() {
+        let fork_epoch = spec.gloas_fork_epoch.unwrap_or(target_epoch);
+        let target_slot = std::cmp::max(fork_epoch, target_epoch.saturating_sub(1_u64))
+            .start_slot(E::slots_per_epoch());
+
         partial_state_advance(
             state,
             Some(state_root),
-            target_epoch.start_slot(E::slots_per_epoch()),
+            target_slot,
             builder_onboarding_cache,
             spec,
         )
