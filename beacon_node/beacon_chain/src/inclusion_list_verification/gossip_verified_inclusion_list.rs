@@ -107,6 +107,7 @@ impl GossipVerifiedInclusionList {
 
         drop(fork_choice_read);
 
+        // The checks above confirm `dependent_root` is the shuffling decision block for `epoch`.
         let committee = with_cached_shuffling(
             ctx.canonical_head,
             ctx.shuffling_cache,
@@ -251,9 +252,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         verified_inclusion_list: GossipVerifiedInclusionList,
     ) -> InsertOutcome {
-        self.inclusion_list_store.write().process_inclusion_list(
-            verified_inclusion_list.signed_inclusion_list,
-            verified_inclusion_list.is_timely,
-        )
+        self.inclusion_list_store
+            .write()
+            .process_inclusion_list(verified_inclusion_list)
     }
 }
