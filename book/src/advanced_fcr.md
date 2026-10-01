@@ -3,6 +3,7 @@
 Lighthouse supports the [fast confirmation rule](https://github.com/ethereum/consensus-specs/blob/master/specs/phase0/fast-confirmation.md) since v8.3.0. To enable fast confirmation rule, use the flag `--enable-fast-confirmation` on the beacon node. It is disabled by default. With fast confirmation, most blocks can be confirmed withing 1-2 slots (12-24 seconds) instead of two epochs (~13 minutes).
 
 ## SSE Event
+
 If you have subscribed to the beacon node Server-Sent-Event stream for fast confirmation, you should see the following:
 
 ```text
@@ -13,13 +14,14 @@ data:{"block":"0x335216055caedd9c20f8e4c5a3f314e1fc11f1031a42ffd030f344a7dfb2898
 where `block` is the block root of `slot`, `slot` is the most recent confirmed block, and `current_slot` is the wall-clock slot. It is normal to see the fast confirmation event being emitted a few times for the same block/slot.
 
 ## Logs
+
 When blocks are produced normally, you should see the following debug log every 12 seconds:
 
 ```text
 DEBUG FCR advanced                                  confirmed: 0xd97ec7d7bfdf842e3b41a136fa4d55cba0586abec9724af517ab9504e75c2d8e, prev: 0xe1ce20d19963d332ba6a084de278fc71e2b0cdaac8c2e43a50ab5a0b0f
 ```
 
-where `confirmed` is the block root of the most recent confirmed slot and `prev` is the block root of the previously confirmed slot. If there is a skipped slot, the next blockt will take a longer time to confirm. The above log will not be observed if the beacon node is syncing or the execution engine is syncing or offline, indicating that no new block has been confirmed.
+where `confirmed` is the block root of the most recent confirmed slot and `prev` is the block root of the previously confirmed slot. If there is a skipped slot, the next block will take a longer time to confirm. The above log will not be observed if the beacon node is syncing or the execution engine is syncing or offline, indicating that no new block has been confirmed.
 
 After a restart of Lighthouse, the following logs will usually be seen across a new epoch:
 
@@ -40,5 +42,5 @@ ERROR Error running FCR: NodeNotFound(0xb471d7f9b3e760aea6a364dad4987fd033db672e
 The error should go away once the beacon node is back in sync.
 
 ## Metrics
-A Grafana dashboard for FCR is available in the [lighthouse-metrics](https://github.com/sigp/lighthouse-metrics) repository.
 
+A Grafana dashboard for FCR is available in the [lighthouse-metrics](https://github.com/sigp/lighthouse-metrics) repository.
