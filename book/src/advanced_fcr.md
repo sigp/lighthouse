@@ -1,6 +1,6 @@
 # Fast Confirmation Rule (FCR)
 
-Lighthouse supports the [fast confirmation rule](https://github.com/ethereum/consensus-specs/blob/master/specs/phase0/fast-confirmation.md) since v8.3.0. To enable fast confirmation rule, use the flag `--enable-fast-confirmation` on the beacon node. It is disabled by default. With fast confirmation, most blocks can be confirmed withing 1-2 slots (12-24 seconds) instead of two epochs (~13 minutes).
+Lighthouse supports the [fast confirmation rule](https://github.com/ethereum/consensus-specs/blob/master/specs/phase0/fast-confirmation.md) since v8.3.0. To enable fast confirmation rule, use the flag `--enable-fast-confirmation` on the beacon node. It is disabled by default. With fast confirmation, most blocks can be confirmed within 1-2 slots (12-24 seconds) instead of two epochs (~13 minutes).
 
 ## SSE Event
 
