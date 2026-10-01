@@ -192,11 +192,6 @@ pub fn get_gloas_invalid_payload_weights_test_definition() -> ForkChoiceTestDefi
         block_root: get_root(1),
         expected: ExecutionStatus::Optimistic(get_hash(1)),
     });
-    // Block 2 never received its envelope, so its payload goes back to unrevealed.
-    ops.push(Operation::AssertExecutionStatus {
-        block_root: get_root(2),
-        expected: ExecutionStatus::NotYetRevealed(get_hash(2)),
-    });
     ops.push(Operation::AssertExecutionStatus {
         block_root: get_root(3),
         expected: ExecutionStatus::NotYetRevealed(get_hash(3)),

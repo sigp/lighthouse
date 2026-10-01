@@ -987,19 +987,15 @@ impl ProtoArrayForkChoice {
                 )
             })?;
 
-        // Clear every `VALID`/`INVALID` verdict: a Gloas node without its envelope goes back to
-        // `NotYetRevealed`, every other node becomes `Optimistic`. This must happen before the
-        // replay below: `apply_score_changes` discards deltas aimed at invalid nodes.
+        // Clear every `VALID`/`INVALID` verdict. `Irrelevant` and `NotYetRevealed` have no verdict
+        // to reset. This must happen before the replay below: `apply_score_changes` discards
+        // deltas aimed at invalid nodes.
         for node in self.proto_array.nodes.iter_mut() {
             match node.execution_status() {
                 ExecutionStatus::Valid(hash)
                 | ExecutionStatus::Invalid(hash)
                 | ExecutionStatus::Optimistic(hash) => {
-                    *node.execution_status_mut() = if matches!(node.payload_received(), Ok(false)) {
-                        ExecutionStatus::NotYetRevealed(hash)
-                    } else {
-                        ExecutionStatus::Optimistic(hash)
-                    };
+                    *node.execution_status_mut() = ExecutionStatus::Optimistic(hash);
                 }
                 ExecutionStatus::Irrelevant(_) | ExecutionStatus::NotYetRevealed(_) => (),
             }
