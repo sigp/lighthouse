@@ -122,9 +122,7 @@ use operation_pool::{
 };
 use parking_lot::{Mutex, RwLock};
 use proof_engine::ProofEngine;
-use proto_array::{
-    DoNotReOrg, ExecutionStatus, PayloadBlockHash, ProposerHeadError, ReOrgThreshold,
-};
+use proto_array::{DoNotReOrg, PayloadBlockHash, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
@@ -4254,44 +4252,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
+        debug!(?block_root, "Execution proofs complete, validating payload");
         let chain = self.clone();
         self.spawn_blocking_handle(
-            move || chain.validate_proven_payload(block_root),
+            move || {
+                chain
+                    .canonical_head
+                    .fork_choice_write_lock()
+                    .on_valid_execution_payload_for_block(block_root)
+                    .map_err(Error::from)
+            },
             "validate_proven_payload",
         )
         .await?
-    }
-
-    /// Tell fork choice that `block_root`'s payload is valid, now that both of its gates are in.
-    ///
-    /// This promotes every payload its branch executed below it too, which is what makes proofs
-    /// recursive: an ancestor is validated by its descendant's proof and never needs one of its own.
-    fn validate_proven_payload(&self, block_root: Hash256) -> Result<(), Error> {
-        let mut fork_choice = self.canonical_head.fork_choice_write_lock();
-
-        let Some(proto_block) = fork_choice.get_block(&block_root) else {
-            return Ok(());
-        };
-        let payload_block_hash = match proto_block.execution_status {
-            ExecutionStatus::Optimistic(payload_block_hash) => payload_block_hash,
-            // Nothing to promote: the payload is settled either way, is pre-merge, or its envelope
-            // has not arrived, in which case its import reads the proofs and validates it there.
-            ExecutionStatus::Valid(_)
-            | ExecutionStatus::Invalid(_)
-            | ExecutionStatus::Irrelevant(_)
-            | ExecutionStatus::NotYetRevealed(_) => return Ok(()),
-        };
-
-        debug!(
-            ?block_root,
-            ?payload_block_hash,
-            "Execution proofs complete, validating payload"
-        );
-        // Fork choice tracks execution validity per payload hash, so this promotes every block
-        // committing to this payload, as the execution layer's own verdict does.
-        fork_choice.on_valid_execution_payload(payload_block_hash)?;
-
-        Ok(())
     }
 
     /// The execution layer called the payload `payload_block_hash` valid.
@@ -4305,27 +4278,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), Error> {
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
 
-        // Pre-Gloas blocks have no proofs to wait for, and a payload fork choice does not know has
-        // no node to promote. Both leave this the plain optimistic sync promotion.
-        let gloas_block_roots = fork_choice.gloas_payload_block_roots(payload_block_hash);
-        if !gloas_block_roots.is_empty() {
-            let mut payload_validity_cache = self.payload_validity_cache.write();
-            let mut fully_verified = false;
-            for block_root in gloas_block_roots {
-                // Record all of them: short-circuiting would leave a block without the verdict.
-                fully_verified |= payload_validity_cache.insert_execution_validated(block_root);
-            }
-
-            if !fully_verified {
-                debug!(
-                    ?payload_block_hash,
-                    "Payload valid by execution layer, waiting on execution proofs"
-                );
-                return Ok(());
-            }
+        // Without EIP-8025 execution proofs this verdict is the whole of a payload's validity, so
+        // promote as fork choice always has.
+        if !self
+            .payload_validity_cache
+            .read()
+            .execution_proofs_required()
+        {
+            fork_choice.on_valid_execution_payload(payload_block_hash)?;
+            return Ok(());
         }
 
-        fork_choice.on_valid_execution_payload(payload_block_hash)?;
+        // A pre-Gloas payload, or one fork choice does not know, has no block waiting on proofs.
+        let gloas_block_roots = fork_choice.gloas_payload_block_roots(payload_block_hash);
+        if gloas_block_roots.is_empty() {
+            fork_choice.on_valid_execution_payload(payload_block_hash)?;
+            return Ok(());
+        }
+
+        let fully_verified_roots = {
+            let mut payload_validity_cache = self.payload_validity_cache.write();
+            let mut fully_verified_roots = vec![];
+            for block_root in gloas_block_roots {
+                // Record all of them: short-circuiting would leave a block without the verdict.
+                if payload_validity_cache.insert_execution_validated(block_root) {
+                    fully_verified_roots.push(block_root);
+                }
+            }
+            fully_verified_roots
+        };
+
+        if fully_verified_roots.is_empty() {
+            debug!(
+                ?payload_block_hash,
+                "Payload valid by execution layer, waiting on execution proofs"
+            );
+            return Ok(());
+        }
+
+        for block_root in fully_verified_roots {
+            fork_choice.on_valid_execution_payload_for_block(block_root)?;
+        }
 
         Ok(())
     }

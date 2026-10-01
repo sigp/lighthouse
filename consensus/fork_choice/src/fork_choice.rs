@@ -762,6 +762,37 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
+    /// Mark the payload of the block `block_root` valid, promoting it and every payload its branch
+    /// executed below it.
+    ///
+    /// Unlike `on_valid_execution_payload`, another block committing to the same payload is left as
+    /// it is. EIP-8025 execution proofs commit to a beacon block root, so a block whose own proofs
+    /// are not in stays optimistic.
+    ///
+    /// Does nothing if the block is unknown, or if its payload needs no promotion.
+    pub fn on_valid_execution_payload_for_block(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        let Some(block) = self.get_block(&block_root) else {
+            return Ok(());
+        };
+
+        match block.execution_status {
+            // The payload is in fork choice and unpromoted, the only case with work to do.
+            ExecutionStatus::Optimistic(_) => self
+                .proto_array
+                .process_execution_payload_validation_for_block(block_root)
+                .map_err(Error::FailedToProcessValidExecutionPayload),
+            // Nothing to promote: the payload is settled either way, is pre-merge, or its envelope
+            // has not arrived, in which case its import is what validates it.
+            ExecutionStatus::Valid(_)
+            | ExecutionStatus::Invalid(_)
+            | ExecutionStatus::Irrelevant(_)
+            | ExecutionStatus::NotYetRevealed(_) => Ok(()),
+        }
+    }
+
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,

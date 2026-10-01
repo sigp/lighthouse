@@ -248,25 +248,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // avoiding taking other locks whilst holding this lock.
         let mut fork_choice = fork_choice_reader.upgrade();
 
-        // EIP-8025: the execution layer's verdict is one of two gates on a payload's validity, so a
-        // payload short of its proofs is received optimistically and its last proof promotes it.
-        //
-        // Recorded under this lock so that a proof completing right now either sees the payload in
-        // fork choice and promotes it, or is counted here.
-        let payload_verification_status = match payload_verification_status {
-            PayloadVerificationStatus::Verified => {
-                if self
-                    .payload_validity_cache
-                    .write()
-                    .insert_execution_validated(block_root)
-                {
-                    PayloadVerificationStatus::Verified
-                } else {
-                    PayloadVerificationStatus::Optimistic
+        // With EIP-8025 execution proofs the execution layer's verdict is only one of two gates on a
+        // payload's validity. Without a proof engine it is the whole of it and the verdict stands.
+        let payload_verification_status = if self
+            .payload_validity_cache
+            .read()
+            .execution_proofs_required()
+        {
+            match payload_verification_status {
+                // Record this gate. While the proofs are short the payload is received
+                // optimistically, exactly like one the execution layer has not validated, and its
+                // last proof promotes it.
+                //
+                // Recorded under the fork choice lock so that a proof completing right now either
+                // sees the payload in fork choice and promotes it, or is counted here.
+                PayloadVerificationStatus::Verified => {
+                    if self
+                        .payload_validity_cache
+                        .write()
+                        .insert_execution_validated(block_root)
+                    {
+                        PayloadVerificationStatus::Verified
+                    } else {
+                        PayloadVerificationStatus::Optimistic
+                    }
+                }
+                // This gate is still open, so proofs cannot make the payload valid either way.
+                PayloadVerificationStatus::Optimistic | PayloadVerificationStatus::Irrelevant => {
+                    payload_verification_status
                 }
             }
-            PayloadVerificationStatus::Optimistic => PayloadVerificationStatus::Optimistic,
-            PayloadVerificationStatus::Irrelevant => PayloadVerificationStatus::Irrelevant,
+        } else {
+            payload_verification_status
         };
 
         // Update the block's payload to received in fork choice, which creates the `Full` virtual

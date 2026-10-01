@@ -51,6 +51,12 @@ impl PayloadValidityCache {
         }
     }
 
+    /// Whether EIP-8025 execution proofs gate payload validity on this node, which they do only with
+    /// a proof engine configured. Without one the execution layer's verdict is the whole of it.
+    pub fn execution_proofs_required(&self) -> bool {
+        self.required_proofs > 0
+    }
+
     /// Record that the execution layer called `block_root`'s payload valid.
     ///
     /// Returns `true` if the payload is now fully verified, which is to say its proofs are in too.
