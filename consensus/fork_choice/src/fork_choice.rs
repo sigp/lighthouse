@@ -1671,6 +1671,13 @@ where
         }
     }
 
+    /// Returns the root of every Gloas block which commits to the execution payload `block_hash`.
+    pub fn gloas_payload_block_roots(&self, block_hash: ExecutionBlockHash) -> Vec<Hash256> {
+        self.proto_array
+            .core_proto_array()
+            .gloas_payload_block_roots(&block_hash)
+    }
+
     /// Returns `true` if fork choice has marked the execution payload `block_hash` invalid.
     pub fn is_invalid(&self, block_hash: ExecutionBlockHash) -> bool {
         self.proto_array

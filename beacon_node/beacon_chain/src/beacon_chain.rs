@@ -35,7 +35,9 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
-use crate::execution_proof_verification::ObservedExecutionProofs;
+use crate::execution_proof_verification::{
+    GossipVerifiedExecutionProof, ObservedExecutionProofs, PayloadValidityCache,
+};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::inclusion_list_store::{DependentRoot, InclusionListStore};
@@ -120,7 +122,9 @@ use operation_pool::{
 };
 use parking_lot::{Mutex, RwLock};
 use proof_engine::ProofEngine;
-use proto_array::{DoNotReOrg, PayloadBlockHash, ProposerHeadError, ReOrgThreshold};
+use proto_array::{
+    DoNotReOrg, ExecutionStatus, PayloadBlockHash, ProposerHeadError, ReOrgThreshold,
+};
 use rand::RngCore;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
@@ -452,6 +456,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of execution proofs seen over the gossip network.
     pub observed_execution_proofs: RwLock<ObservedExecutionProofs>,
+    /// Tracks the two gates on a payload's validity: the execution layer's verdict and its
+    /// EIP-8025 execution proofs.
+    pub payload_validity_cache: RwLock<PayloadValidityCache>,
     /// Maintains the gas limit of execution payloads seen through gossip or trusted imports.
     pub observed_execution_payloads: ObservedExecutionPayloads,
     /// Cache of pending execution payload envelopes for local block building.
@@ -4230,6 +4237,99 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Record a gossip-verified execution proof, validating its payload if the proof was the last
+    /// piece.
+    ///
+    /// A payload the execution layer has not validated stays optimistic however many proofs it has.
+    pub async fn process_execution_proof(
+        self: &Arc<Self>,
+        verified_proof: &GossipVerifiedExecutionProof,
+    ) -> Result<(), Error> {
+        let block_root = verified_proof.proof.beacon_block_root();
+        if !self
+            .payload_validity_cache
+            .write()
+            .insert_proof(block_root, verified_proof.proof.proof_type())
+        {
+            return Ok(());
+        }
+
+        let chain = self.clone();
+        self.spawn_blocking_handle(
+            move || chain.validate_proven_payload(block_root),
+            "validate_proven_payload",
+        )
+        .await?
+    }
+
+    /// Tell fork choice that `block_root`'s payload is valid, now that both of its gates are in.
+    ///
+    /// This promotes every payload its branch executed below it too, which is what makes proofs
+    /// recursive: an ancestor is validated by its descendant's proof and never needs one of its own.
+    fn validate_proven_payload(&self, block_root: Hash256) -> Result<(), Error> {
+        let mut fork_choice = self.canonical_head.fork_choice_write_lock();
+
+        let Some(proto_block) = fork_choice.get_block(&block_root) else {
+            return Ok(());
+        };
+        let payload_block_hash = match proto_block.execution_status {
+            ExecutionStatus::Optimistic(payload_block_hash) => payload_block_hash,
+            // Nothing to promote: the payload is settled either way, is pre-merge, or its envelope
+            // has not arrived, in which case its import reads the proofs and validates it there.
+            ExecutionStatus::Valid(_)
+            | ExecutionStatus::Invalid(_)
+            | ExecutionStatus::Irrelevant(_)
+            | ExecutionStatus::NotYetRevealed(_) => return Ok(()),
+        };
+
+        debug!(
+            ?block_root,
+            ?payload_block_hash,
+            "Execution proofs complete, validating payload"
+        );
+        // Fork choice tracks execution validity per payload hash, so this promotes every block
+        // committing to this payload, as the execution layer's own verdict does.
+        fork_choice.on_valid_execution_payload(payload_block_hash)?;
+
+        Ok(())
+    }
+
+    /// The execution layer called the payload `payload_block_hash` valid.
+    ///
+    /// A Gloas payload also needs its EIP-8025 proofs, so the verdict is recorded and the promotion
+    /// waits for the proof that completes the set. The payloads below it wait on that same proof,
+    /// which validates the whole ancestry when it lands.
+    fn on_execution_layer_validated_payload(
+        &self,
+        payload_block_hash: ExecutionBlockHash,
+    ) -> Result<(), Error> {
+        let mut fork_choice = self.canonical_head.fork_choice_write_lock();
+
+        // Pre-Gloas blocks have no proofs to wait for, and a payload fork choice does not know has
+        // no node to promote. Both leave this the plain optimistic sync promotion.
+        let gloas_block_roots = fork_choice.gloas_payload_block_roots(payload_block_hash);
+        if !gloas_block_roots.is_empty() {
+            let mut payload_validity_cache = self.payload_validity_cache.write();
+            let mut fully_verified = false;
+            for block_root in gloas_block_roots {
+                // Record all of them: short-circuiting would leave a block without the verdict.
+                fully_verified |= payload_validity_cache.insert_execution_validated(block_root);
+            }
+
+            if !fully_verified {
+                debug!(
+                    ?payload_block_hash,
+                    "Payload valid by execution layer, waiting on execution proofs"
+                );
+                return Ok(());
+            }
+        }
+
+        fork_choice.on_valid_execution_payload(payload_block_hash)?;
+
+        Ok(())
+    }
+
     /// Load a persisted Gloas bid without blocking the async runtime.
     pub(crate) async fn get_or_load_gloas_payload_bid(
         self: &Arc<Self>,
@@ -6987,15 +7087,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // Ensure that fork choice knows that the payload is no longer optimistic. The
                     // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
                     // ancestor's payload, not the head block's.
+                    //
+                    // For a Gloas payload this verdict is only half of its validity: one short of
+                    // its execution proofs stays optimistic until its last proof arrives.
                     let chain = self.clone();
                     let fork_choice_update_result = self
                         .spawn_blocking_handle(
-                            move || {
-                                chain
-                                    .canonical_head
-                                    .fork_choice_write_lock()
-                                    .on_valid_execution_payload(head_hash)
-                            },
+                            move || chain.on_execution_layer_validated_payload(head_hash),
                             "update_execution_engine_valid_payload",
                         )
                         .await?;

@@ -6,11 +6,13 @@ use types::{Hash256, Slot};
 
 pub mod gossip_verified_execution_proof;
 pub mod observed_execution_proofs;
+pub mod payload_validity;
 
 pub use gossip_verified_execution_proof::{
     GossipVerificationContext, GossipVerifiedExecutionProof,
 };
 pub use observed_execution_proofs::ObservedExecutionProofs;
+pub use payload_validity::{PayloadValidityCache, REQUIRED_EXECUTION_PROOFS};
 
 use observed_execution_proofs::Error as ObservationError;
 

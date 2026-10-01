@@ -248,6 +248,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // avoiding taking other locks whilst holding this lock.
         let mut fork_choice = fork_choice_reader.upgrade();
 
+        // EIP-8025: the execution layer's verdict is one of two gates on a payload's validity, so a
+        // payload short of its proofs is received optimistically and its last proof promotes it.
+        //
+        // Recorded under this lock so that a proof completing right now either sees the payload in
+        // fork choice and promotes it, or is counted here.
+        let payload_verification_status = match payload_verification_status {
+            PayloadVerificationStatus::Verified => {
+                if self
+                    .payload_validity_cache
+                    .write()
+                    .insert_execution_validated(block_root)
+                {
+                    PayloadVerificationStatus::Verified
+                } else {
+                    PayloadVerificationStatus::Optimistic
+                }
+            }
+            PayloadVerificationStatus::Optimistic => PayloadVerificationStatus::Optimistic,
+            PayloadVerificationStatus::Irrelevant => PayloadVerificationStatus::Irrelevant,
+        };
+
         // Update the block's payload to received in fork choice, which creates the `Full` virtual
         // node which can be eligible for head.
         fork_choice

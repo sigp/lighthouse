@@ -1,15 +1,16 @@
 use beacon_chain::AvailabilityProcessingStatus::{Imported, MissingComponents};
-use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof;
+use beacon_chain::execution_proof_verification::REQUIRED_EXECUTION_PROOFS;
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
+use beacon_chain::{NotifyExecutionLayer, OverrideForkchoiceUpdate};
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
-use types::execution::{ExecutionProof, ProofData, PublicInput, SignedExecutionProof};
+use types::execution::{ExecutionProof, ProofData, ProofType, PublicInput, SignedExecutionProof};
 use types::{
     Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, MinimalEthSpec, Slot,
     WithdrawalRequest,
@@ -728,6 +729,182 @@ async fn a_later_valid_payload_promotes_its_optimistic_ancestors() {
         is_valid_and_post_bellatrix(execution_status(&harness, first_root)),
         "promotion must walk the whole ancestry, not just one step",
     );
+}
+
+/// EIP-8025: a payload the node cannot prove yet is held as optimistic, even though the execution
+/// layer has validated it. The proof that completes the requirement promotes it to valid.
+#[tokio::test]
+async fn execution_proofs_validate_an_optimistic_payload() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = gloas_harness_with_proof_engine();
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    // The payload imports without any proofs, and `import_block_and_envelope` recomputes the head,
+    // which asks the execution layer about it. Neither of those validates it.
+    let slot = Slot::new(2);
+    let block_root = import_block_and_envelope(&harness, slot).await;
+    assert!(
+        is_optimistic(execution_status(&harness, block_root)),
+        "a payload without its execution proofs must be held as optimistic",
+    );
+
+    // Proofs from distinct provers, all but the last of which leave it optimistic.
+    for proof_type in 0..REQUIRED_EXECUTION_PROOFS - 1 {
+        process_proof(&harness, block_root, proof_type as ProofType, slot).await;
+        assert!(
+            is_optimistic(execution_status(&harness, block_root)),
+            "a payload short of a prover must stay optimistic",
+        );
+    }
+
+    process_proof(
+        &harness,
+        block_root,
+        REQUIRED_EXECUTION_PROOFS as ProofType - 1,
+        slot,
+    )
+    .await;
+    assert!(
+        is_valid_and_post_bellatrix(execution_status(&harness, block_root)),
+        "the proof that completes the requirement must validate the payload",
+    );
+}
+
+/// Proofs are recursive, so one proven payload validates every payload below it. An optimistic
+/// ancestor does not need proofs of its own, and the node never fetches old proofs.
+#[tokio::test]
+async fn a_proven_payload_validates_its_optimistic_ancestors() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = gloas_harness_with_proof_engine();
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let mock = harness
+        .mock_execution_layer
+        .as_ref()
+        .expect("mock execution layer");
+
+    // The node imports a payload while the execution layer answers `SYNCING`, so neither half of its
+    // validity is in.
+    mock.server.all_payloads_syncing(true);
+    let ancestor_root = import_block_and_envelope(&harness, Slot::new(2)).await;
+    assert!(is_optimistic(execution_status(&harness, ancestor_root)));
+
+    // The execution layer catches up and validates the next payload, which has no proofs yet. Its
+    // verdict covers the payload below it, but neither payload is valid without proofs.
+    mock.server.all_payloads_valid();
+    let slot = Slot::new(3);
+    let block_root = import_block_and_envelope(&harness, slot).await;
+    assert!(
+        is_optimistic(execution_status(&harness, block_root)),
+        "a payload without its execution proofs must be held as optimistic",
+    );
+    assert!(is_optimistic(execution_status(&harness, ancestor_root)));
+
+    // Proving the newer payload validates the older one with it, which never had a proof of its own.
+    for proof_type in 0..REQUIRED_EXECUTION_PROOFS {
+        process_proof(&harness, block_root, proof_type as ProofType, slot).await;
+    }
+    assert!(is_valid_and_post_bellatrix(execution_status(
+        &harness, block_root
+    )));
+    assert!(
+        is_valid_and_post_bellatrix(execution_status(&harness, ancestor_root)),
+        "one proof must validate every payload below it",
+    );
+}
+
+/// A proven payload whose execution layer was syncing is validated by the verdict that a later
+/// forkchoiceUpdated brings, the proofs being the gate that was already in.
+#[tokio::test]
+async fn a_late_execution_layer_verdict_validates_a_proven_payload() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = gloas_harness_with_proof_engine();
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let mock = harness
+        .mock_execution_layer
+        .as_ref()
+        .expect("mock execution layer");
+
+    mock.server.all_payloads_syncing(true);
+    let slot = Slot::new(2);
+    let block_root = import_block_and_envelope(&harness, slot).await;
+    for proof_type in 0..REQUIRED_EXECUTION_PROOFS {
+        process_proof(&harness, block_root, proof_type as ProofType, slot).await;
+    }
+    assert!(
+        is_optimistic(execution_status(&harness, block_root)),
+        "a proven payload must wait for the execution layer",
+    );
+
+    // The execution layer catches up and answers the next forkchoiceUpdated for this payload.
+    mock.server.all_payloads_valid();
+    let cached_head = harness.chain.canonical_head.cached_head();
+    harness
+        .chain
+        .update_execution_engine_forkchoice(
+            slot,
+            cached_head.forkchoice_update_parameters(),
+            cached_head.head_payload_status(),
+            OverrideForkchoiceUpdate::Yes,
+        )
+        .await
+        .expect("fork choice update should succeed");
+
+    assert!(
+        is_valid_and_post_bellatrix(execution_status(&harness, block_root)),
+        "the verdict completes the payload's validity",
+    );
+}
+
+/// Helper: a Gloas harness that requires EIP-8025 execution proofs.
+fn gloas_harness_with_proof_engine()
+-> BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>> {
+    BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .proof_engine()
+        .build()
+}
+
+/// Helper: hand the chain a proof for `block_root`, bypassing the proof engine.
+async fn process_proof(
+    harness: &BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>>,
+    block_root: Hash256,
+    proof_type: ProofType,
+    block_slot: Slot,
+) {
+    let verified_proof = GossipVerifiedExecutionProof {
+        proof: Arc::new(SignedExecutionProof {
+            message: ExecutionProof {
+                proof_data: ProofData::new(vec![1]).expect("proof data"),
+                proof_type,
+                public_input: PublicInput {
+                    new_payload_request_root: Hash256::random(),
+                },
+                beacon_block_root: block_root,
+            },
+            validator_index: 0,
+            signature: bls::Signature::infinity().expect("infinity signature"),
+        }),
+        block_slot,
+    };
+    harness
+        .chain
+        .process_execution_proof(&verified_proof)
+        .await
+        .expect("execution proof should be processed");
 }
 
 fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
