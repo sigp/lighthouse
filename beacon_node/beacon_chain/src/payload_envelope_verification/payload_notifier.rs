@@ -12,7 +12,8 @@ use crate::{
     payload_envelope_verification::{EnvelopeError, verify_envelope_payload_hash},
 };
 
-/// Used to await the result of executing payload with a remote EE.
+/// Used to await the result of executing payload with a remote EE, or, on a node whose execution
+/// proofs decide validity, to skip it.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,

@@ -1,6 +1,7 @@
 use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, RangeSyncBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
+use crate::execution_proof_verification::GossipVerifiedExecutionProof;
 use crate::graffiti_calculator::GraffitiSettings;
 use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::observed_operations::ObservationOutcome;
@@ -612,9 +613,9 @@ where
         self
     }
 
-    /// Run with an EIP-8025 proof engine, which makes payloads wait on execution proofs before fork
-    /// choice calls them valid. The engine is never contacted: tests build their own
-    /// `GossipVerifiedExecutionProof` rather than going through gossip verification.
+    /// Run with an EIP-8025 proof engine, which makes the proofs a Gloas payload's validity: the
+    /// payload is never sent to the execution layer and waits on its proofs. The engine is never
+    /// contacted; `observe_execution_proof` stands in for gossip verification.
     pub fn proof_engine(mut self) -> Self {
         let url = SensitiveUrl::parse("http://127.0.0.1:0").expect("valid proof engine url");
         self.proof_engine = Some(Arc::new(
@@ -845,6 +846,50 @@ where
     pub fn builder(eth_spec_instance: E) -> Builder<BaseHarnessType<E, Hot, Cold>> {
         create_test_tracing_subscriber();
         Builder::new(eth_spec_instance)
+    }
+
+    /// Record a valid EIP-8025 execution proof for `block_root` and hand it to the chain, standing
+    /// in for gossip verification, which a test cannot run without a reachable proof engine.
+    pub async fn observe_execution_proof(
+        &self,
+        block_root: Hash256,
+        proof_type: ProofType,
+        block_slot: Slot,
+    ) {
+        let proof = SignedExecutionProof {
+            message: ExecutionProof {
+                proof_data: ProofData::new(vec![1]).expect("proof data"),
+                proof_type,
+                public_input: PublicInput {
+                    new_payload_request_root: Hash256::random(),
+                },
+                beacon_block_root: block_root,
+            },
+            validator_index: 0,
+            signature: Signature::infinity().expect("infinity signature"),
+        };
+
+        {
+            let mut observed_execution_proofs = self.chain.observed_execution_proofs.write();
+            observed_execution_proofs
+                .observe_signature_verified_proof(
+                    proof.message.tree_hash_root(),
+                    block_root,
+                    proof_type,
+                    proof.validator_index,
+                    block_slot,
+                )
+                .expect("proof should be observable");
+            observed_execution_proofs.observe_valid_proof(block_root, proof_type);
+        }
+
+        self.chain
+            .process_execution_proof(&GossipVerifiedExecutionProof {
+                proof: Arc::new(proof),
+                block_slot,
+            })
+            .await
+            .expect("execution proof should be processed");
     }
 
     pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<E>> {
