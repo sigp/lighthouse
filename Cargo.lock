@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "account_manager"
-version = "8.2.2"
+version = "8.2.3"
 dependencies = [
  "account_utils",
  "bls",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "8.2.2"
+version = "8.2.3"
 dependencies = [
  "account_utils",
  "axum_utils",
@@ -1631,7 +1631,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "8.2.2"
+version = "8.2.3"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -5077,7 +5077,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "8.2.2"
+version = "8.2.3"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5575,7 +5575,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "8.2.2"
+version = "8.2.3"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -5709,7 +5709,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse_version"
-version = "8.2.2"
+version = "8.2.3"
 dependencies = [
  "regex",
 ]
@@ -7351,9 +7351,9 @@ checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quinn"
-version = "0.11.11"
+version = "0.11.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c1a41e437b6bbd489372cd4971de128e85c855f56c57f283d20ff016cf7c0a8"
+checksum = "4051e23e9185c255a7e33ef59cdbca87a22d359052eecd22fc6b901fb37d9d11"
 dependencies = [
  "bytes",
  "cfg_aliases",
@@ -7372,9 +7372,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.17"
+version = "0.11.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04759210543be93709136e28212294a659ef5001836ff4eab4d663e4529bba83"
+checksum = "0e750cca55fe4f0439a15d0bb529da9651e79993e8e72c61a899a36d462befbe"
 dependencies = [
  "bytes",
  "fastbloom",
@@ -7395,9 +7395,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-udp"
-version = "0.5.14"
+version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "addec6a0dcad8a8d96a771f815f0eaf55f9d1805756410b39f5fa81332574cbd"
+checksum = "af66907df18639dcf4db56ca65490cabc4b27a97dbadd96f2926cca73298f016"
 dependencies = [
  "cfg_aliases",
  "libc",
@@ -9829,7 +9829,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "8.2.2"
+version = "8.2.3"
 dependencies = [
  "account_utils",
  "beacon_node_fallback",
