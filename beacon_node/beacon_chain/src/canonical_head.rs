@@ -1116,12 +1116,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .get_full_block(&new_view.head_block_root)?
                     .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
-                // Load the execution envelope from the store if the head has a Full payload.
+                // Load the execution envelope summary from the store if the head has a Full payload.
                 let state_root = beacon_block.state_root();
                 let execution_envelope = if new_payload_status == PayloadStatus::Full {
                     let envelope = self
                         .store
-                        .get_signed_payload_envelope(&new_view.head_block_root)?
+                        .get_payload_envelope_summary(&new_view.head_block_root)?
                         .map(Arc::new)
                         .ok_or(Error::MissingExecutionPayloadEnvelope(
                             new_view.head_block_root,
