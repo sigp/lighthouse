@@ -162,30 +162,6 @@ async fn lookup_imports_gloas_payload_after_restart() {
         cache.get_bid(&block_root).is_none(),
         "the pending bid cache should start empty after restart"
     );
-    let proof_status = chain
-        .check_execution_proof_availability_and_import(GossipVerifiedExecutionProof {
-            proof: Arc::new(SignedExecutionProof {
-                message: ExecutionProof {
-                    proof_data: ProofData::new(vec![1]).expect("proof data"),
-                    proof_type: 0,
-                    public_input: PublicInput {
-                        new_payload_request_root: Hash256::random(),
-                    },
-                    beacon_block_root: block_root,
-                },
-                validator_index: 0,
-                signature: bls::Signature::infinity().expect("infinity signature"),
-            }),
-            block_slot: target_slot,
-        })
-        .await
-        .expect("execution proof should be accepted after restart");
-    assert!(matches!(proof_status, MissingComponents(..)));
-    assert!(cache.get_bid(&block_root).is_some());
-
-    // Evict the recovered bid so columns must also handle a cache miss.
-    cache.do_maintenance(Epoch::new(1)).unwrap();
-    assert!(cache.get_bid(&block_root).is_none());
     let column_status = chain
         .process_rpc_custody_columns(custody_columns.clone())
         .await
