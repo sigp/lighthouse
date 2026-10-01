@@ -11,6 +11,7 @@ use crate::{
     StateId, attester_duties, inclusion_list_duties, proposer_duties, ptc_duties, sync_committees,
 };
 use beacon_chain::attestation_verification::VerifiedAttestation;
+use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
@@ -1628,7 +1629,7 @@ pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(warp::header::<ForkName>(CONSENSUS_VERSION_HEADER))
-        .and(not_while_syncing_filter.clone())
+        .and(not_while_syncing_filter)
         .and(task_spawner_filter)
         .and(chain_filter)
         .and(network_tx_filter)
@@ -1716,14 +1717,23 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
 
     match chain.verify_inclusion_list_for_gossip(signed_inclusion_list) {
         Ok(verified_inclusion_list) => {
-            crate::utils::publish_pubsub_message(
-                network_tx,
-                PubsubMessage::InclusionList(Box::new(
-                    verified_inclusion_list.signed_inclusion_list.clone(),
-                )),
-            )?;
-
-            chain.import_inclusion_list(verified_inclusion_list);
+            // The import decides whether this is the first or second valid list from the validator,
+            // so only publish based on its outcome.
+            let signed_inclusion_list = verified_inclusion_list.signed_inclusion_list.clone();
+            let outcome = chain.import_inclusion_list(verified_inclusion_list);
+            debug!(%slot, %validator_index, ?outcome, "Imported inclusion list");
+            let publish = match outcome {
+                InsertOutcome::New | InsertOutcome::Equivocating => true,
+                InsertOutcome::Seen
+                | InsertOutcome::SubsequentEquivocation
+                | InsertOutcome::Old => false,
+            };
+            if publish {
+                crate::utils::publish_pubsub_message(
+                    network_tx,
+                    PubsubMessage::InclusionList(Box::new(signed_inclusion_list)),
+                )?;
+            }
             Ok(())
         }
         Err(InclusionListVerificationError::AlreadySeenTwice { .. }) => {

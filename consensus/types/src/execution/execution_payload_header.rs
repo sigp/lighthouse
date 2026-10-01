@@ -55,6 +55,7 @@ use crate::{
         ty = "BeaconStateError",
         expr = "BeaconStateError::IncorrectStateVariant"
     ),
+    map_into(BlindedPayload),
     map_ref_into(ExecutionPayloadHeader)
 )]
 #[cfg_attr(

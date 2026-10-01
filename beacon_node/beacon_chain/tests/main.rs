@@ -6,6 +6,7 @@ mod block_verification;
 mod column_verification;
 mod envelope_verification;
 mod events;
+mod fast_confirmation_restart;
 mod inclusion_list_store;
 mod inclusion_list_verification;
 mod op_verification;

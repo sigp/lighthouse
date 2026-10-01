@@ -342,24 +342,18 @@ impl<E: EthSpec> LightClientUpdate<E> {
         Ok(update)
     }
 
-    pub fn attested_header_slot(&self) -> Slot {
-        match self {
-            LightClientUpdate::Altair(update) => update.attested_header.beacon.slot,
-            LightClientUpdate::Capella(update) => update.attested_header.beacon.slot,
-            LightClientUpdate::Deneb(update) => update.attested_header.beacon.slot,
-            LightClientUpdate::Electra(update) => update.attested_header.beacon.slot,
-            LightClientUpdate::Fulu(update) => update.attested_header.beacon.slot,
-        }
+    pub fn attested_header_slot<'a>(&'a self) -> Slot {
+        map_light_client_update_ref!(&'a _, self.to_ref(), |update, cons| {
+            cons(update);
+            update.attested_header.beacon.slot
+        })
     }
 
-    pub fn finalized_header_slot(&self) -> Slot {
-        match self {
-            LightClientUpdate::Altair(update) => update.finalized_header.beacon.slot,
-            LightClientUpdate::Capella(update) => update.finalized_header.beacon.slot,
-            LightClientUpdate::Deneb(update) => update.finalized_header.beacon.slot,
-            LightClientUpdate::Electra(update) => update.finalized_header.beacon.slot,
-            LightClientUpdate::Fulu(update) => update.finalized_header.beacon.slot,
-        }
+    pub fn finalized_header_slot<'a>(&'a self) -> Slot {
+        map_light_client_update_ref!(&'a _, self.to_ref(), |update, cons| {
+            cons(update);
+            update.finalized_header.beacon.slot
+        })
     }
 
     fn attested_header_sync_committee_period(
