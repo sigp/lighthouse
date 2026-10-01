@@ -849,7 +849,7 @@ impl ProtoArray {
 
     /// Record the execution layer's verdict for a Gloas block's payload envelope.
     ///
-    /// Sets `payload_received` to true whatever the verdict.
+    /// On success, sets `payload_received` whatever the verdict.
     pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
@@ -859,21 +859,39 @@ impl ProtoArray {
             .indices
             .get(&block_root)
             .ok_or(Error::NodeUnknown(block_root))?;
-        let node = self
+        let v29 = self
             .nodes
             .get_mut(index)
-            .ok_or(Error::InvalidNodeIndex(index))?;
-        let v29 = node
+            .ok_or(Error::InvalidNodeIndex(index))?
             .as_v29_mut()
             .map_err(|_| Error::InvalidNodeVariant { block_root })?;
-        // The envelope arrived: record it so sync stops fetching, whatever the verdict.
-        v29.payload_received = true;
 
         // A settled verdict is never revisited: a duplicate `Valid`, or an `Invalid` the
         // invalidation sweep already set from this payload's condemned ancestry.
         match v29.execution_status {
-            ExecutionStatus::NotYetRevealed(_) | ExecutionStatus::Optimistic(_) => {}
-            ExecutionStatus::Valid(_) | ExecutionStatus::Invalid(_) => return Ok(()),
+            ExecutionStatus::NotYetRevealed(_) | ExecutionStatus::Optimistic(_) => {
+                // Store the EL's verdict; only `Valid` also validates the branch this payload
+                // executed.
+                match execution_status {
+                    ExecutionStatus::Optimistic(_) => v29.execution_status = execution_status,
+                    // The walk validates this node on its own `FULL` side and every payload above
+                    // it that its branch executed.
+                    ExecutionStatus::Valid(_) => self.propagate_execution_payload_validation_from(
+                        index,
+                        ParentPayloadStatus::Full,
+                    )?,
+                    // The fork choice wrapper only maps envelope verdicts to `Valid` or
+                    // `Optimistic`.
+                    ExecutionStatus::Invalid(_)
+                    | ExecutionStatus::Irrelevant(_)
+                    | ExecutionStatus::NotYetRevealed(_) => {
+                        return Err(Error::Unexpected(format!(
+                            "envelope carries no EL verdict: {execution_status:?}"
+                        )));
+                    }
+                }
+            }
+            ExecutionStatus::Valid(_) | ExecutionStatus::Invalid(_) => {}
             ExecutionStatus::Irrelevant(_) => {
                 return Err(Error::Unexpected(format!(
                     "pre-merge status on a Gloas node: {block_root:?}"
@@ -881,24 +899,14 @@ impl ProtoArray {
             }
         }
 
-        // Store the EL's verdict; only `Valid` also validates the branch this payload executed.
-        match execution_status {
-            ExecutionStatus::Optimistic(_) => {
-                v29.execution_status = execution_status;
-                Ok(())
-            }
-            ExecutionStatus::Valid(_) => {
-                // The walk validates this node on its own `FULL` side and every payload above it that
-                // its branch executed.
-                self.propagate_execution_payload_validation_from(index, ParentPayloadStatus::Full)
-            }
-            // The fork choice wrapper only maps envelope verdicts to `Valid` or `Optimistic`.
-            ExecutionStatus::Invalid(_)
-            | ExecutionStatus::Irrelevant(_)
-            | ExecutionStatus::NotYetRevealed(_) => Err(Error::Unexpected(format!(
-                "envelope carries no EL verdict: {execution_status:?}"
-            ))),
-        }
+        // Set last: on error the caller does not store the envelope.
+        self.nodes
+            .get_mut(index)
+            .ok_or(Error::InvalidNodeIndex(index))?
+            .as_v29_mut()
+            .map_err(|_| Error::InvalidNodeVariant { block_root })?
+            .payload_received = true;
+        Ok(())
     }
 
     /// The EL judged the payload `block_hash` VALID. Promotes every block that commits to it, and
@@ -937,17 +945,22 @@ impl ProtoArray {
     ///
     /// - The `start_index` is unknown.
     /// - Any of the to-be-validated payloads are already invalid.
+    ///
+    /// No node changes when an error is returned.
     fn propagate_execution_payload_validation_from(
         &mut self,
         start_index: usize,
         start_status: ParentPayloadStatus,
     ) -> Result<(), Error> {
+        // Find every payload to promote before promoting any, so an invalid ancestor leaves the
+        // branch untouched.
+        let mut to_validate = vec![];
         let mut index = start_index;
         let mut status = start_status;
         loop {
             let node = self
                 .nodes
-                .get_mut(index)
+                .get(index)
                 .ok_or(Error::InvalidNodeIndex(index))?;
 
             // Only a `FULL` node has a payload of its own in the execution ancestry of this
@@ -960,15 +973,15 @@ impl ProtoArray {
                 match node.execution_status() {
                     // We have reached a node that we already know is valid. No need to iterate further
                     // since we assume an ancestors have already been set to valid.
-                    ExecutionStatus::Valid(_) => return Ok(()),
+                    ExecutionStatus::Valid(_) => break,
                     // We have reached an irrelevant node, this node is prior to a terminal execution
                     // block. There's no need to iterate further, it's impossible for this block to have
                     // any relevant ancestors.
-                    ExecutionStatus::Irrelevant(_) => return Ok(()),
+                    ExecutionStatus::Irrelevant(_) => break,
                     // The block has an unknown status, set it to valid since any ancestor of a valid
                     // payload can be considered valid.
                     ExecutionStatus::Optimistic(hash) | ExecutionStatus::NotYetRevealed(hash) => {
-                        *node.execution_status_mut() = ExecutionStatus::Valid(hash);
+                        to_validate.push((index, hash));
                     }
                     // An ancestor of the valid payload was invalid. This is a serious error which
                     // indicates a consensus failure in the execution node. This is unrecoverable.
@@ -983,12 +996,21 @@ impl ProtoArray {
 
             let Some(parent_index) = node.parent() else {
                 // We have reached the root block, iteration complete.
-                return Ok(());
+                break;
             };
             // Which of the two nodes of the parent this block extends.
             status = node.get_parent_payload_status();
             index = parent_index;
         }
+
+        for (index, hash) in to_validate {
+            *self
+                .nodes
+                .get_mut(index)
+                .ok_or(Error::InvalidNodeIndex(index))?
+                .execution_status_mut() = ExecutionStatus::Valid(hash);
+        }
+        Ok(())
     }
 
     /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.
