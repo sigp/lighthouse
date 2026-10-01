@@ -31,6 +31,7 @@ pub mod graffiti_calculator;
 pub mod historical_blocks;
 pub mod historical_data_columns;
 pub mod inclusion_list_store;
+pub mod inclusion_list_verification;
 pub mod invariants;
 pub mod kzg_utils;
 pub mod light_client_finality_update_verification;
