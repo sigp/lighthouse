@@ -4070,9 +4070,10 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
 }
 
 /// Range sync cannot import the payload envelope of an unaligned checkpoint anchor, because
-/// checkpoint sync only stores the anchor state advanced to the epoch boundary.
+/// checkpoint sync only stores the anchor state advanced to the epoch boundary. Checkpoint sync
+/// imports the envelope instead, so the anchor's FULL child imports.
 #[tokio::test]
-async fn checkpoint_sync_unaligned_anchor_envelope_import_fails() {
+async fn checkpoint_sync_unaligned_anchor_full_child_imports() {
     let spec = test_spec::<E>();
     if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
         return;
@@ -4115,6 +4116,12 @@ async fn checkpoint_sync_unaligned_anchor_envelope_import_fails() {
         .unwrap()
         .unwrap();
     assert!(wss_block.slot() < checkpoint_slot);
+    let wss_envelope = harness
+        .chain
+        .store
+        .get_signed_payload_envelope(&wss_block_root)
+        .unwrap();
+    assert!(wss_envelope.is_some());
 
     let child_block_root = harness
         .chain
@@ -4162,6 +4169,8 @@ async fn checkpoint_sync_unaligned_anchor_envelope_import_fails() {
             .task_executor(harness.chain.task_executor.clone())
             .weak_subjectivity_state(wss_state, wss_block.clone(), None, genesis_state)
             .unwrap()
+            .weak_subjectivity_envelope(wss_envelope)
+            .unwrap()
             .store_migrator_config(MigratorConfig::default().blocking())
             .slot_clock(slot_clock)
             .shutdown_sender(shutdown_tx)
@@ -4185,7 +4194,7 @@ async fn checkpoint_sync_unaligned_anchor_envelope_import_fails() {
         wss_block_root
     );
     assert!(
-        !beacon_chain
+        beacon_chain
             .canonical_head
             .fork_choice_read_lock()
             .is_payload_received(&wss_block_root)
@@ -4199,19 +4208,15 @@ async fn checkpoint_sync_unaligned_anchor_envelope_import_fails() {
     let result = beacon_chain
         .process_chain_segment(segment, NotifyExecutionLayer::Yes)
         .await;
-
-    // TODO(gloas): import the anchor envelope and assert that the FULL child imports, see
-    // https://github.com/eserilev/lighthouse/pull/88
-    let beacon_chain::ChainSegmentResult::Failed { error, .. } = result else {
-        panic!("expected the anchor envelope import to fail");
-    };
+    if let beacon_chain::ChainSegmentResult::Failed { error, .. } = result {
+        panic!("chain segment failed: {error:?}");
+    }
     assert!(
-        format!("{error:?}").contains("Missing state for envelope block"),
-        "unexpected error: {error:?}"
+        beacon_chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&child_block_root)
     );
-    let fork_choice = beacon_chain.canonical_head.fork_choice_read_lock();
-    assert!(!fork_choice.is_payload_received(&wss_block_root));
-    assert!(!fork_choice.contains_block(&child_block_root));
 }
 
 /// Fetch the anchor (checkpoint) block and append it to a backfill batch, so the batch
