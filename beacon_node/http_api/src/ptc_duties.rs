@@ -34,19 +34,32 @@ pub fn ptc_duties<T: BeaconChainTypes>(
             .epoch(T::EthSpec::slots_per_epoch())
     };
 
+    if !chain.spec.fork_name_at_epoch(request_epoch).gloas_enabled() {
+        return Err(warp_utils::reject::custom_bad_request(format!(
+            "PTC duties are not available before the Gloas fork, request epoch {}",
+            request_epoch
+        )));
+    }
+
+    if chain.spec.gloas_fork_epoch == Some(request_epoch) && tolerant_current_epoch < request_epoch
+    {
+        return Err(warp_utils::reject::custom_bad_request(format!(
+            "PTC duties for the Gloas fork epoch {} are not available until the fork",
+            request_epoch
+        )));
+    }
+
     let is_within_clock_tolerance = request_epoch == current_epoch
         || request_epoch == current_epoch + 1
         || request_epoch == tolerant_current_epoch + 1;
 
     if is_within_clock_tolerance {
-        let head_epoch = chain
-            .canonical_head
-            .cached_head()
-            .snapshot
-            .beacon_state
-            .current_epoch();
+        let cached_head = chain.canonical_head.cached_head();
+        let head_state = &cached_head.snapshot.beacon_state;
+        let head_epoch = head_state.current_epoch();
 
-        let head_can_serve_request = request_epoch == head_epoch || request_epoch == head_epoch + 1;
+        let head_can_serve_request = head_state.fork_name_unchecked().gloas_enabled()
+            && (request_epoch == head_epoch || request_epoch == head_epoch + 1);
 
         if head_can_serve_request {
             compute_ptc_duties_from_cached_head(request_epoch, request_indices, chain)
@@ -100,8 +113,8 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
 
         if head.beacon_state.current_epoch() <= request_epoch {
             Some((
+                head.beacon_block_root,
                 head.beacon_state_root(),
-                head.beacon_state.clone(),
                 execution_status.is_optimistic_or_invalid(),
             ))
         } else {
@@ -109,8 +122,19 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
         }
     };
 
-    let (state, execution_optimistic) =
-        if let Some((state_root, mut state, execution_optimistic)) = state_opt {
+    let (state, dependent_block_root, execution_optimistic) =
+        if let Some((block_root, state_root, execution_optimistic)) = state_opt {
+            let (state_root, mut state) = chain
+                .store
+                .get_advanced_hot_state(
+                    block_root,
+                    request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                    state_root,
+                )
+                .map_err(BeaconChainError::DBError)
+                .map_err(warp_utils::reject::unhandled_error)?
+                .ok_or(BeaconChainError::MissingBeaconState(state_root))
+                .map_err(warp_utils::reject::unhandled_error)?;
             ensure_state_knows_ptc_duties_for_epoch(
                 &mut state,
                 state_root,
@@ -118,12 +142,12 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
                 chain.builder_onboarding_cache.as_deref(),
                 &chain.spec,
             )?;
-            (state, execution_optimistic)
+            (state, block_root, execution_optimistic)
         } else {
             let (state, execution_optimistic, _finalized) =
                 StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch()))
                     .state(chain)?;
-            (state, execution_optimistic)
+            (state, chain.genesis_block_root, execution_optimistic)
         };
 
     if !(state.current_epoch() == request_epoch || state.current_epoch() + 1 == request_epoch) {
@@ -135,12 +159,7 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
     }
 
     let (duties, dependent_root) = chain
-        .compute_ptc_duties(
-            &state,
-            request_epoch,
-            request_indices,
-            chain.genesis_block_root,
-        )
+        .compute_ptc_duties(&state, request_epoch, request_indices, dependent_block_root)
         .map_err(warp_utils::reject::unhandled_error)?;
 
     convert_to_api_response(duties, dependent_root, execution_optimistic)
@@ -159,6 +178,16 @@ fn ensure_state_knows_ptc_duties_for_epoch<E: EthSpec>(
             state.current_epoch(),
             target_epoch
         )));
+    } else if !state.fork_name_unchecked().gloas_enabled() {
+        partial_state_advance(
+            state,
+            Some(state_root),
+            target_epoch.start_slot(E::slots_per_epoch()),
+            builder_onboarding_cache,
+            spec,
+        )
+        .map_err(BeaconChainError::from)
+        .map_err(warp_utils::reject::unhandled_error)?;
     } else if state.current_epoch() + 1 < target_epoch {
         let target_slot = target_epoch
             .saturating_sub(1_u64)
