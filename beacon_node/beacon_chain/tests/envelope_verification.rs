@@ -1,19 +1,20 @@
 use beacon_chain::AvailabilityProcessingStatus::{Imported, MissingComponents};
+use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof;
 use beacon_chain::execution_proof_verification::REQUIRED_EXECUTION_PROOFS;
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
-use beacon_chain::{NotifyExecutionLayer, OverrideForkchoiceUpdate};
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
+use execution_layer::test_utils::Block;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
 use types::execution::{ExecutionProof, ProofData, ProofType, PublicInput, SignedExecutionProof};
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, MinimalEthSpec, Slot,
-    WithdrawalRequest,
+    Address, BlockImportSource, Epoch, ExecPayload, ExecutionPayload, ForkName, Hash256,
+    MinimalEthSpec, Slot, WithdrawalRequest,
 };
 
 type E = MinimalEthSpec;
@@ -616,6 +617,19 @@ async fn import_block_and_envelope(
     harness.process_gossip_columns(&block, None).await;
 
     let signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
+
+    // A node with a proof engine never sends a payload to its execution layer, so the harness does
+    // it here: without it the mock cannot build on this payload and the next slot has no bid to
+    // propose. A real such node cannot propose for exactly this reason.
+    if harness.chain.proof_engine.is_some() {
+        harness
+            .execution_block_generator()
+            .insert_block(Block::PoS(ExecutionPayload::Gloas(
+                signed_envelope.message.payload.clone(),
+            )))
+            .expect("mock execution layer should accept the payload");
+    }
+
     let gossip_verified = harness
         .chain
         .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
@@ -742,8 +756,7 @@ async fn execution_proofs_validate_an_optimistic_payload() {
     let harness = gloas_harness_with_proof_engine();
     harness.extend_to_slot(Slot::new(1)).await;
 
-    // The payload imports without any proofs, and `import_block_and_envelope` recomputes the head,
-    // which asks the execution layer about it. Neither of those validates it.
+    // The payload imports without any proofs, and the execution layer is never asked about it.
     let slot = Slot::new(2);
     let block_root = import_block_and_envelope(&harness, slot).await;
     assert!(
@@ -784,20 +797,9 @@ async fn a_proven_payload_validates_its_optimistic_ancestors() {
     let harness = gloas_harness_with_proof_engine();
     harness.extend_to_slot(Slot::new(1)).await;
 
-    let mock = harness
-        .mock_execution_layer
-        .as_ref()
-        .expect("mock execution layer");
-
-    // The node imports a payload while the execution layer answers `SYNCING`, so neither half of its
-    // validity is in.
-    mock.server.all_payloads_syncing(true);
     let ancestor_root = import_block_and_envelope(&harness, Slot::new(2)).await;
     assert!(is_optimistic(execution_status(&harness, ancestor_root)));
 
-    // The execution layer catches up and validates the next payload, which has no proofs yet. Its
-    // verdict covers the payload below it, but neither payload is valid without proofs.
-    mock.server.all_payloads_valid();
     let slot = Slot::new(3);
     let block_root = import_block_and_envelope(&harness, slot).await;
     assert!(
@@ -816,53 +818,6 @@ async fn a_proven_payload_validates_its_optimistic_ancestors() {
     assert!(
         is_valid_and_post_bellatrix(execution_status(&harness, ancestor_root)),
         "one proof must validate every payload below it",
-    );
-}
-
-/// A proven payload whose execution layer was syncing is validated by the verdict that a later
-/// forkchoiceUpdated brings, the proofs being the gate that was already in.
-#[tokio::test]
-async fn a_late_execution_layer_verdict_validates_a_proven_payload() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-
-    let harness = gloas_harness_with_proof_engine();
-    harness.extend_to_slot(Slot::new(1)).await;
-
-    let mock = harness
-        .mock_execution_layer
-        .as_ref()
-        .expect("mock execution layer");
-
-    mock.server.all_payloads_syncing(true);
-    let slot = Slot::new(2);
-    let block_root = import_block_and_envelope(&harness, slot).await;
-    for proof_type in 0..REQUIRED_EXECUTION_PROOFS {
-        process_proof(&harness, block_root, proof_type as ProofType, slot).await;
-    }
-    assert!(
-        is_optimistic(execution_status(&harness, block_root)),
-        "a proven payload must wait for the execution layer",
-    );
-
-    // The execution layer catches up and answers the next forkchoiceUpdated for this payload.
-    mock.server.all_payloads_valid();
-    let cached_head = harness.chain.canonical_head.cached_head();
-    harness
-        .chain
-        .update_execution_engine_forkchoice(
-            slot,
-            cached_head.forkchoice_update_parameters(),
-            cached_head.head_payload_status(),
-            OverrideForkchoiceUpdate::Yes,
-        )
-        .await
-        .expect("fork choice update should succeed");
-
-    assert!(
-        is_valid_and_post_bellatrix(execution_status(&harness, block_root)),
-        "the verdict completes the payload's validity",
     );
 }
 

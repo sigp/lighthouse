@@ -455,7 +455,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of execution proofs seen over the gossip network.
     pub observed_execution_proofs: RwLock<ObservedExecutionProofs>,
     /// Tracks the two gates on a payload's validity: the execution layer's verdict and its
-    /// EIP-8025 execution proofs.
+    /// EIP-8025 execution proofs. Only consulted with a proof engine configured.
     pub payload_validity_cache: RwLock<PayloadValidityCache>,
     /// Maintains the gas limit of execution payloads seen through gossip or trusted imports.
     pub observed_execution_payloads: ObservedExecutionPayloads,
@@ -4235,10 +4235,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Whether EIP-8025 execution proofs decide payload validity on this node, which needs a proof
+    /// engine to verify them. With one, a Gloas payload is never sent to the execution layer.
+    pub(crate) fn execution_proofs_enabled(&self) -> bool {
+        self.proof_engine.is_some()
+    }
+
     /// Record a gossip-verified execution proof, validating its payload if the proof was the last
-    /// piece.
-    ///
-    /// A payload the execution layer has not validated stays optimistic however many proofs it has.
+    /// one its requirement needed.
     pub async fn process_execution_proof(
         self: &Arc<Self>,
         verified_proof: &GossipVerifiedExecutionProof,
@@ -4269,56 +4273,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// The execution layer called the payload `payload_block_hash` valid.
     ///
-    /// A Gloas payload also needs its EIP-8025 proofs, so the verdict is recorded and the promotion
-    /// waits for the proof that completes the set. The payloads below it wait on that same proof,
-    /// which validates the whole ancestry when it lands.
+    /// A Gloas payload's validity is its EIP-8025 proofs, so this verdict does not promote one. It
+    /// still promotes a pre-Gloas payload, whose execution the execution layer alone judges.
     fn on_execution_layer_validated_payload(
         &self,
         payload_block_hash: ExecutionBlockHash,
     ) -> Result<(), Error> {
         let mut fork_choice = self.canonical_head.fork_choice_write_lock();
 
-        // Without EIP-8025 execution proofs this verdict is the whole of a payload's validity, so
-        // promote as fork choice always has.
-        if !self
-            .payload_validity_cache
-            .read()
-            .execution_proofs_required()
-        {
-            fork_choice.on_valid_execution_payload(payload_block_hash)?;
-            return Ok(());
-        }
-
-        // A pre-Gloas payload, or one fork choice does not know, has no block waiting on proofs.
-        let gloas_block_roots = fork_choice.gloas_payload_block_roots(payload_block_hash);
-        if gloas_block_roots.is_empty() {
-            fork_choice.on_valid_execution_payload(payload_block_hash)?;
-            return Ok(());
-        }
-
-        let fully_verified_roots = {
-            let mut payload_validity_cache = self.payload_validity_cache.write();
-            let mut fully_verified_roots = vec![];
-            for block_root in gloas_block_roots {
-                // Record all of them: short-circuiting would leave a block without the verdict.
-                if payload_validity_cache.insert_execution_validated(block_root) {
-                    fully_verified_roots.push(block_root);
-                }
-            }
-            fully_verified_roots
-        };
-
-        if fully_verified_roots.is_empty() {
+        if self.execution_proofs_enabled() && fork_choice.is_gloas_payload(payload_block_hash) {
             debug!(
                 ?payload_block_hash,
-                "Payload valid by execution layer, waiting on execution proofs"
+                "Execution layer validated a payload its proofs decide"
             );
             return Ok(());
         }
 
-        for block_root in fully_verified_roots {
-            fork_choice.on_valid_execution_payload_for_block(block_root)?;
-        }
+        fork_choice.on_valid_execution_payload(payload_block_hash)?;
 
         Ok(())
     }

@@ -26,6 +26,18 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, EnvelopeError> {
+        // EIP-8025: the execution proofs are this payload's validity, so it is never sent to the
+        // execution layer. It is received optimistically and the proof that completes its
+        // requirement promotes it.
+        if chain.execution_proofs_enabled() {
+            return Ok(Self {
+                chain,
+                envelope,
+                block,
+                payload_verification_status: Some(PayloadVerificationStatus::Optimistic),
+            });
+        }
+
         let payload_verification_status = {
             let payload_message = &envelope.message;
 
