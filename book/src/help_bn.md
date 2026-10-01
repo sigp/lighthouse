@@ -530,6 +530,9 @@ Flags:
           subscriptions. This will only import attestations from
           already-subscribed subnets, use with --subscribe-all-subnets to ensure
           all attestations are received for import.
+      --lc-data-backfill
+          Backfill historical light client data after sync completes, for
+          periods where this node has BeaconState available. Off by default.
       --log-color [<log-color>]
           Enables/Disables colors for logs in terminal. Set it to false to
           disable colors. [default: true] [possible values: true, false]
