@@ -9,7 +9,7 @@ use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
 use types::{
     BlockImportSource, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelope, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 use super::{
@@ -396,18 +396,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), EnvelopeError> {
         let signed_envelope = available_envelope.envelope().clone();
 
-        // Load the state snapshot for envelope processing
-        let state_root = block.state_root();
-        let snapshot = load_snapshot_from_state_root::<T>(block_root, state_root, &self.store)?;
+        let split = self.store.get_split_info();
+        if block_root == split.block_root && block.state_root() != split.state_root {
+            // The checkpoint state was advanced past an unaligned anchor block, so the block's
+            // own post-state is not stored. The envelope is already bound to the bid of this
+            // finalized block, so only the self-build signature is left to check.
+            if signed_envelope.message.builder_index == BUILDER_INDEX_SELF_BUILD {
+                let proposer_index = block.message().proposer_index();
+                let pubkey_cache = self.validator_pubkey_cache.read();
+                let pubkey = pubkey_cache
+                    .get(proposer_index as usize)
+                    .ok_or(EnvelopeError::UnknownValidator { proposer_index })?;
+                if !signed_envelope.verify_signature(
+                    pubkey,
+                    &self.spec.fork_at_epoch(signed_envelope.epoch()),
+                    self.genesis_validators_root,
+                    &self.spec,
+                ) {
+                    return Err(EnvelopeError::BadSignature);
+                }
+            }
+        } else {
+            // Load the state snapshot for envelope processing
+            let snapshot =
+                load_snapshot_from_state_root::<T>(block_root, block.state_root(), &self.store)?;
 
-        // Verify envelope signature and state processing
-        verify_execution_payload_envelope(
-            &snapshot.pre_state,
-            &signed_envelope,
-            VerifySignatures::True,
-            snapshot.state_root,
-            &self.spec,
-        )?;
+            // Verify envelope signature and state processing
+            verify_execution_payload_envelope(
+                &snapshot.pre_state,
+                &signed_envelope,
+                VerifySignatures::True,
+                snapshot.state_root,
+                &self.spec,
+            )?;
+        }
 
         // Send to EL for verification
         let payload_notifier = PayloadNotifier::new(

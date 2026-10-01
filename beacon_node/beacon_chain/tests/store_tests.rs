@@ -4069,10 +4069,11 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     }
 }
 
-/// Range sync cannot import the payload envelope of an unaligned checkpoint anchor, because
-/// checkpoint sync only stores the anchor state advanced to the epoch boundary.
+/// Checkpoint sync only stores the state advanced past an unaligned anchor block. Range sync
+/// still starts from the anchor's epoch and imports its payload envelope, so the anchor's FULL
+/// child imports.
 #[tokio::test]
-async fn checkpoint_sync_unaligned_anchor_envelope_import_fails() {
+async fn checkpoint_sync_unaligned_anchor_full_child_imports() {
     let spec = test_spec::<E>();
     if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
         return;
@@ -4191,6 +4192,12 @@ async fn checkpoint_sync_unaligned_anchor_envelope_import_fails() {
             .is_payload_received(&wss_block_root)
     );
 
+    let finalized_epoch = finalized_slot.epoch(E::slots_per_epoch());
+    assert_eq!(
+        beacon_chain.range_sync_start_epoch(),
+        wss_block.slot().epoch(E::slots_per_epoch())
+    );
+
     let segment = vec![
         harness.build_range_sync_block_from_store_blobs(Some(wss_block_root), Arc::new(wss_block)),
         harness
@@ -4200,18 +4207,14 @@ async fn checkpoint_sync_unaligned_anchor_envelope_import_fails() {
         .process_chain_segment(segment, NotifyExecutionLayer::Yes)
         .await;
 
-    // TODO(gloas): import the anchor envelope and assert that the FULL child imports, see
-    // https://github.com/eserilev/lighthouse/pull/88
-    let beacon_chain::ChainSegmentResult::Failed { error, .. } = result else {
-        panic!("expected the anchor envelope import to fail");
-    };
-    assert!(
-        format!("{error:?}").contains("Missing state for envelope block"),
-        "unexpected error: {error:?}"
-    );
+    if let beacon_chain::ChainSegmentResult::Failed { error, .. } = result {
+        panic!("chain segment failed: {error:?}");
+    }
     let fork_choice = beacon_chain.canonical_head.fork_choice_read_lock();
-    assert!(!fork_choice.is_payload_received(&wss_block_root));
-    assert!(!fork_choice.contains_block(&child_block_root));
+    assert!(fork_choice.is_payload_received(&wss_block_root));
+    assert!(fork_choice.contains_block(&child_block_root));
+    drop(fork_choice);
+    assert_eq!(beacon_chain.range_sync_start_epoch(), finalized_epoch);
 }
 
 /// Fetch the anchor (checkpoint) block and append it to a backfill batch, so the batch
