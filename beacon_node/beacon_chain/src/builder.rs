@@ -13,6 +13,8 @@ use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sideca
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
+use crate::payload_envelope_verification::gossip_verified_envelope::verify_envelope_consistency;
+use crate::payload_envelope_verification::verify_envelope_payload_hash;
 use crate::pending_payload_cache::{PendingPayloadCache, REQUIRED_EXECUTION_PROOFS};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::load_custody_context;
@@ -26,7 +28,7 @@ use bls::Signature;
 use builder_client::Builders;
 use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
-use fork_choice::{ForkChoice, PayloadStatus, ResetPayloadStatuses};
+use fork_choice::{ForkChoice, PayloadStatus, PayloadVerificationStatus, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
 use kzg::Kzg;
 use logging::crit;
@@ -51,7 +53,7 @@ use tree_hash::TreeHash;
 use types::data::CustodyIndex;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -631,6 +633,67 @@ where
         self.fork_choice = Some(fork_choice);
 
         Ok(self.empty_op_pool())
+    }
+
+    /// Imports the payload envelope of the weak subjectivity anchor block.
+    ///
+    /// Range sync and lookups cannot import it: both reject blocks prior to finalization, and the
+    /// anchor block's post-state is not stored when the checkpoint state was advanced to an epoch
+    /// boundary. The anchor block is trusted, so the envelope is checked against its bid only.
+    ///
+    /// Must be called after `weak_subjectivity_state`.
+    pub fn weak_subjectivity_envelope(
+        mut self,
+        envelope: Option<SignedExecutionPayloadEnvelope<E>>,
+    ) -> Result<Self, String> {
+        let Some(envelope) = envelope else {
+            return Ok(self);
+        };
+        let store = self
+            .store
+            .clone()
+            .ok_or("weak_subjectivity_envelope requires a store")?;
+        let fork_choice = self
+            .fork_choice
+            .as_mut()
+            .ok_or("weak_subjectivity_envelope requires fork choice")?;
+
+        let block_root = fork_choice.finalized_checkpoint().root;
+        if envelope.message.beacon_block_root != block_root {
+            return Err(format!(
+                "Checkpoint envelope is for block {:?}, expected {:?}",
+                envelope.message.beacon_block_root, block_root
+            ));
+        }
+        let block = store
+            .get_full_block(&block_root)
+            .map_err(|e| format!("Error loading checkpoint block: {e:?}"))?
+            .ok_or("Checkpoint block missing from store")?;
+        let bid = &block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .map_err(|e| format!("Checkpoint block has no payload bid: {e:?}"))?
+            .message;
+        verify_envelope_consistency(&envelope.message, &block, bid, block.slot())
+            .map_err(|e| format!("Invalid checkpoint envelope: {e:?}"))?;
+        if self.chain_config.verify_envelope_payload_hash_in_backfill {
+            verify_envelope_payload_hash(&envelope, &block)
+                .map_err(|e| format!("Invalid checkpoint envelope payload hash: {e:?}"))?;
+        }
+
+        store
+            .put_payload_envelope(&block_root, &envelope)
+            .map_err(|e| format!("Failed to store checkpoint envelope: {e:?}"))?;
+        fork_choice
+            .on_payload_envelope_received(
+                block_root,
+                PayloadVerificationStatus::Verified,
+                envelope.message.payload.block_hash,
+            )
+            .map_err(|e| format!("Failed to mark checkpoint payload received: {e:?}"))?;
+
+        Ok(self)
     }
 
     /// Sets the `BeaconChain` execution layer.

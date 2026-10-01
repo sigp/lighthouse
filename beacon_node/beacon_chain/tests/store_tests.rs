@@ -4337,6 +4337,11 @@ async fn weak_subjectivity_sync_test(
         .unwrap()
         .unwrap();
     let wss_blobs_opt = get_or_reconstruct_blobs(&harness.chain, &wss_block_root).unwrap();
+    let wss_envelope = harness
+        .chain
+        .store
+        .get_signed_payload_envelope(&wss_block_root)
+        .unwrap();
     let wss_state = full_store
         .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
         .unwrap()
@@ -4409,6 +4414,8 @@ async fn weak_subjectivity_sync_test(
             genesis_state,
         )
         .unwrap()
+        .weak_subjectivity_envelope(wss_envelope)
+        .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
         .slot_clock(slot_clock)
         .shutdown_sender(shutdown_tx)
@@ -4418,20 +4425,6 @@ async fn weak_subjectivity_sync_test(
         .rng(Box::new(StdRng::seed_from_u64(42)))
         .build()
         .expect("should build");
-
-    // Store the WSS envelope to simulate it arriving from network sync.
-    // In production, the envelope would be synced from the network after checkpoint sync.
-    if let Some(envelope) = harness
-        .chain
-        .store
-        .get_signed_payload_envelope(&wss_block.canonical_root())
-        .unwrap_or(None)
-    {
-        beacon_chain
-            .store
-            .put_payload_envelope(&wss_block.canonical_root(), &envelope)
-            .unwrap();
-    }
 
     let beacon_chain = Arc::new(beacon_chain);
     let wss_block_root = wss_block.canonical_root();
@@ -4472,33 +4465,6 @@ async fn weak_subjectivity_sync_test(
     // TODO(fulu): Remove this condition once #6760 (PeerDAS checkpoint sync) is merged.
     if !beacon_chain.spec.is_peer_das_scheduled() {
         assert_eq!(store_wss_blobs_opt, wss_blobs_opt);
-    }
-
-    // Store the WSS block's envelope in the new chain (required for Gloas forward sync).
-    // The first forward block needs the checkpoint block's envelope to determine the parent's
-    // Full state.
-    if let Some(envelope) = harness
-        .chain
-        .store
-        .get_signed_payload_envelope(&wss_block_root)
-        .unwrap()
-    {
-        beacon_chain
-            .store
-            .put_payload_envelope(&wss_block_root, &envelope)
-            .unwrap();
-
-        // `from_anchor` doesn't mark the anchor's payload received, so do it here; otherwise the
-        // first forward block (a FULL child of the anchor) would be rejected with `ParentUnknown`.
-        beacon_chain
-            .canonical_head
-            .fork_choice_write_lock()
-            .on_payload_envelope_received(
-                wss_block_root,
-                PayloadVerificationStatus::Verified,
-                ExecutionBlockHash::zero(),
-            )
-            .unwrap();
     }
 
     // Apply blocks forward to reach head.

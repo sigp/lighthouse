@@ -481,16 +481,36 @@ where
                     None
                 };
 
+                let envelope = if block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .is_ok()
+                {
+                    debug!("Downloading finalized payload envelope");
+                    remote
+                        .get_beacon_execution_payload_envelopes_ssz::<E>(BlockId::Root(block_root))
+                        .await
+                        .map_err(|e| {
+                            format!("Error fetching finalized payload envelope from remote: {e:?}")
+                        })?
+                } else {
+                    None
+                };
+
                 let genesis_state = genesis_state(&runtime_context, &config).await?;
 
                 info!(
                     block_slot = %block.slot(),
                     state_slot = %state.slot(),
                     block_root = ?block_root,
+                    has_envelope = envelope.is_some(),
                     "Loaded checkpoint block and state"
                 );
 
-                builder.weak_subjectivity_state(state, block, blobs, genesis_state)?
+                builder
+                    .weak_subjectivity_state(state, block, blobs, genesis_state)?
+                    .weak_subjectivity_envelope(envelope)?
             }
             ClientGenesis::DepositContract => {
                 return Err("Loading genesis from deposit contract no longer supported".to_string());
