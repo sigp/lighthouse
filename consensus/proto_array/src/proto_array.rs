@@ -849,7 +849,7 @@ impl ProtoArray {
 
     /// Record the execution layer's verdict for a Gloas block's payload envelope.
     ///
-    /// On success, sets `payload_received` whatever the verdict.
+    /// Sets `payload_received` to true whatever the verdict.
     pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
@@ -899,7 +899,6 @@ impl ProtoArray {
             }
         }
 
-        // Set last: on error the caller does not store the envelope.
         self.nodes
             .get_mut(index)
             .ok_or(Error::InvalidNodeIndex(index))?
@@ -941,19 +940,15 @@ impl ProtoArray {
     /// `start_status` is the node that the walk starts on. An `EMPTY` edge is a gap in the
     /// execution chain, not the end of it. The walk steps over that node and continues.
     ///
-    /// Returns an error if:
+    /// Returns an error, and changes no node, if:
     ///
     /// - The `start_index` is unknown.
     /// - Any of the to-be-validated payloads are already invalid.
-    ///
-    /// No node changes when an error is returned.
     fn propagate_execution_payload_validation_from(
         &mut self,
         start_index: usize,
         start_status: ParentPayloadStatus,
     ) -> Result<(), Error> {
-        // Find every payload to promote before promoting any, so an invalid ancestor leaves the
-        // branch untouched.
         let mut to_validate = vec![];
         let mut index = start_index;
         let mut status = start_status;

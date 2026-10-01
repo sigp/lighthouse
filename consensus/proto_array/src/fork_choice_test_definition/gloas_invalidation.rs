@@ -31,8 +31,7 @@ fn assert_weights(block_root: Hash256, weight: u64, full: u64, empty: u64) -> Ve
     ]
 }
 
-/// Invalidate the payload of a Gloas block with weight on both payload sides, then move votes
-/// around and reset every verdict.
+/// Weights around an invalid Gloas payload, before and after `set_all_blocks_to_optimistic`.
 ///
 /// ```text
 ///          0
@@ -81,7 +80,6 @@ pub fn get_gloas_invalid_payload_weights_test_definition() -> ForkChoiceTestDefi
             block_root: get_root(3),
             expected_status: ParentPayloadStatus::Empty,
         },
-        // Only block 1 has its envelope; block 2 commits to a payload that never arrives.
         Operation::ProcessOptimisticExecutionPayloadEnvelope {
             block_root: get_root(1),
             block_hash: get_hash(1),
@@ -122,8 +120,7 @@ pub fn get_gloas_invalid_payload_weights_test_definition() -> ForkChoiceTestDefi
     ops.extend(assert_weights(get_root(2), 4, 4, 0));
     ops.extend(assert_weights(get_root(3), 8, 0, 8));
 
-    // Invalidate the payload of block 1. The sweep condemns its `FULL` child 2 too, even though
-    // the payload of 2 never arrived.
+    // Invalidate the payload of block 1. The sweep also marks its `FULL` child 2 invalid.
     ops.push(Operation::InvalidatePayload {
         head_hash: get_hash(1),
         latest_valid_ancestor: None,
@@ -150,11 +147,11 @@ pub fn get_gloas_invalid_payload_weights_test_definition() -> ForkChoiceTestDefi
     ops.extend(assert_weights(get_root(2), 0, 0, 0));
     // The `EMPTY` child keeps its weight and still passes it up through 1.
     ops.extend(assert_weights(get_root(3), 8, 0, 8));
-    // Neither validator 0 nor the `FULL` child 2 reach past the invalid node.
+    // Block 0 loses the vote of validator 0 and the weight of child 2.
     ops.extend(assert_weights(get_root(0), 10, 0, 10));
 
-    // Validator 0 moves its `FULL` vote on 1 to 3. Its weight already left 1 on invalidation, so
-    // 1 and 0 only gain the vote through 3 and lose nothing.
+    // Validator 0 moves its `FULL` vote on 1 to 3. Invalidation already removed the old vote from
+    // 1, so it is not removed again.
     ops.push(Operation::ProcessGloasAttestation {
         validator_index: 0,
         block_root: get_root(3),
@@ -184,10 +181,8 @@ pub fn get_gloas_invalid_payload_weights_test_definition() -> ForkChoiceTestDefi
     ops.extend(assert_weights(get_root(1), 9, 0, 9));
     ops.extend(assert_weights(get_root(0), 9, 0, 9));
 
-    // A restart forgets every verdict and rebuilds the weights from the current votes, as if the
-    // invalidation never happened.
+    // The weights come back from the current votes, as if no payload was invalid.
     ops.push(Operation::SetAllBlocksToOptimistic);
-    // Block 1 has its envelope, so it goes back to `Optimistic`.
     ops.push(Operation::AssertExecutionStatus {
         block_root: get_root(1),
         expected: ExecutionStatus::Optimistic(get_hash(1)),
@@ -204,8 +199,7 @@ pub fn get_gloas_invalid_payload_weights_test_definition() -> ForkChoiceTestDefi
     gloas_definition(ops)
 }
 
-/// A failed envelope import leaves `payload_received` false and changes no execution status. The
-/// caller also skips the database write.
+/// A failed envelope import leaves `payload_received` false and changes no execution status.
 ///
 /// ```text
 ///   0
