@@ -2,6 +2,7 @@
 #![allow(clippy::result_large_err)]
 
 use beacon_chain::inclusion_list_store::InsertOutcome;
+use beacon_chain::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
 use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
@@ -956,8 +957,8 @@ fn seed_inclusion_list(
         .chain
         .inclusion_list_store
         .write()
-        .process_inclusion_list(
-            SignedInclusionList {
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: SignedInclusionList {
                 message: InclusionList {
                     slot,
                     validator_index: committee[0],
@@ -966,8 +967,8 @@ fn seed_inclusion_list(
                 },
                 signature: Signature::empty(),
             },
-            true,
-        )
+            is_timely: true,
+        })
 }
 
 #[tokio::test]

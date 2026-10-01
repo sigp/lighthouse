@@ -8,7 +8,6 @@ mod envelope_verification;
 mod events;
 mod fast_confirmation_restart;
 mod inclusion_list_store;
-mod inclusion_list_verification;
 mod op_verification;
 mod payload_invalidation;
 mod prepare_payload;

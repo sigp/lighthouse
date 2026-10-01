@@ -6,6 +6,7 @@
 //! keyed by `(slot, dependent_root)`, which pins an inclusion list to the committee it was produced
 //! against.
 
+use crate::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
 use ssz_types::{BitVector, ProgressiveVariableList};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
@@ -98,15 +99,15 @@ impl<E: EthSpec> InclusionListStore<E> {
         }
     }
 
-    /// Validate-and-insert a received `SignedInclusionList`, detecting equivocation.
-    ///
-    /// TODO(heze): accept a `GossipVerifiedInclusionList` once gossip verification lands, so the
-    /// caller cannot skip the p2p checks.
+    /// Insert a `GossipVerifiedInclusionList`, detecting equivocation.
     pub fn process_inclusion_list(
         &mut self,
-        signed_inclusion_list: SignedInclusionList,
-        is_timely: bool,
+        verified_inclusion_list: GossipVerifiedInclusionList,
     ) -> InsertOutcome {
+        let GossipVerifiedInclusionList {
+            signed_inclusion_list,
+            is_timely,
+        } = verified_inclusion_list;
         let inclusion_list = &signed_inclusion_list.message;
         let slot = inclusion_list.slot;
         let dependent_root = inclusion_list.dependent_root;
@@ -309,6 +310,7 @@ impl<E: EthSpec> InclusionListStore<E> {
 #[cfg(test)]
 mod tests {
     use super::{DependentRoot, InclusionListStore, InsertOutcome};
+    use crate::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
     use bls::Signature;
     use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
     use types::{
@@ -350,15 +352,28 @@ mod tests {
         }
     }
 
+    fn verified(
+        signed_inclusion_list: SignedInclusionList,
+        is_timely: bool,
+    ) -> GossipVerifiedInclusionList {
+        GossipVerifiedInclusionList {
+            signed_inclusion_list,
+            is_timely,
+        }
+    }
+
     #[test]
     fn new_then_duplicate_is_seen() {
         let mut store = new_store();
         let il = signed_il(10, 1, root(1), &[0xaa]);
         assert_eq!(
-            store.process_inclusion_list(il.clone(), true),
+            store.process_inclusion_list(verified(il.clone(), true)),
             InsertOutcome::New
         );
-        assert_eq!(store.process_inclusion_list(il, true), InsertOutcome::Seen);
+        assert_eq!(
+            store.process_inclusion_list(verified(il, true)),
+            InsertOutcome::Seen
+        );
         // A duplicate is not a second valid message.
         assert!(!store.seen_twice(Slot::new(10), root(1), 1));
     }
@@ -367,15 +382,15 @@ mod tests {
     fn differing_list_flags_equivocation() {
         let mut store = new_store();
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xaa]), true)),
             InsertOutcome::New
         );
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xbb]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xbb]), true)),
             InsertOutcome::Equivocating
         );
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xcc]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xcc]), true)),
             InsertOutcome::SubsequentEquivocation
         );
     }
@@ -385,7 +400,7 @@ mod tests {
         let mut store = new_store();
         store.prune(Slot::new(20));
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xaa]), true)),
             InsertOutcome::Old
         );
     }
@@ -394,10 +409,10 @@ mod tests {
     fn seen_twice_counts_valid_arrivals() {
         let mut store = new_store();
         assert!(!store.seen_twice(Slot::new(10), root(1), 1));
-        store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true);
+        store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xaa]), true));
         assert!(!store.seen_twice(Slot::new(10), root(1), 1));
         // A differing (equivocating) message still counts as a valid arrival.
-        store.process_inclusion_list(signed_il(10, 1, root(1), &[0xbb]), true);
+        store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xbb]), true));
         assert!(store.seen_twice(Slot::new(10), root(1), 1));
     }
 
@@ -405,8 +420,8 @@ mod tests {
     fn transactions_are_deduplicated_and_timely_filtered() {
         let mut store = new_store();
         let dr = root(1);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xaa, 0xbb]), true);
-        store.process_inclusion_list(signed_il(10, 2, dr, &[0xbb, 0xcc]), false);
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xaa, 0xbb]), true));
+        store.process_inclusion_list(verified(signed_il(10, 2, dr, &[0xbb, 0xcc]), false));
 
         let all = store.get_inclusion_list_transactions(Slot::new(10), dr, false);
         assert_eq!(all.len(), 3);
@@ -419,8 +434,8 @@ mod tests {
     fn equivocators_excluded_from_reads() {
         let mut store = new_store();
         let dr = root(1);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xaa]), true);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xbb]), true);
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xaa]), true));
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xbb]), true));
         assert!(
             store
                 .get_inclusion_list_transactions(Slot::new(10), dr, false)
@@ -435,8 +450,8 @@ mod tests {
             FixedVector::new((100..116).collect()).unwrap();
         let dr = root(1);
 
-        store.process_inclusion_list(signed_il(10, il_committee[3], dr, &[0xaa]), true);
-        store.process_inclusion_list(signed_il(10, il_committee[7], dr, &[0xbb]), true);
+        store.process_inclusion_list(verified(signed_il(10, il_committee[3], dr, &[0xaa]), true));
+        store.process_inclusion_list(verified(signed_il(10, il_committee[7], dr, &[0xbb]), true));
 
         let bits = store
             .get_inclusion_list_bits(Slot::new(10), dr, &il_committee, false)
@@ -465,11 +480,11 @@ mod tests {
     fn differing_dependent_roots_are_not_equivocation() {
         let mut store = new_store();
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xaa]), true)),
             InsertOutcome::New
         );
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(2), &[0xbb]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(2), &[0xbb]), true)),
             InsertOutcome::New
         );
 
@@ -491,9 +506,9 @@ mod tests {
     fn get_signed_inclusion_lists_skips_equivocators_and_missing() {
         let mut store = new_store();
         let dr = root(1);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xaa]), true);
-        store.process_inclusion_list(signed_il(10, 2, dr, &[0xbb]), true);
-        store.process_inclusion_list(signed_il(10, 2, dr, &[0xcc]), true);
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xaa]), true));
+        store.process_inclusion_list(verified(signed_il(10, 2, dr, &[0xbb]), true));
+        store.process_inclusion_list(verified(signed_il(10, 2, dr, &[0xcc]), true));
 
         let result = store.get_signed_inclusion_lists(Slot::new(10), dr, &[1, 2, 3]);
         assert_eq!(result.len(), 1);
@@ -504,8 +519,8 @@ mod tests {
     fn prune_drops_old_slots() {
         let mut store = new_store();
         let dr = root(1);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xaa]), true);
-        store.process_inclusion_list(signed_il(12, 1, dr, &[0xbb]), true);
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xaa]), true));
+        store.process_inclusion_list(verified(signed_il(12, 1, dr, &[0xbb]), true));
 
         store.prune(Slot::new(12));
         assert!(
@@ -529,7 +544,7 @@ mod tests {
         spec.min_slots_for_inclusion_lists_requests = 4;
         let mut store = InclusionListStore::<E>::new(&spec);
         let dr = root(1);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xaa]), true);
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xaa]), true));
 
         store.prune(Slot::new(15));
         assert!(
@@ -555,14 +570,17 @@ mod tests {
         let dr = root(1);
 
         assert_eq!(
-            store.process_inclusion_list(
+            store.process_inclusion_list(verified(
                 signed_il(first_heze_slot.as_u64() - 1, 1, dr, &[0xaa]),
                 true
-            ),
+            )),
             InsertOutcome::Old
         );
         assert_eq!(
-            store.process_inclusion_list(signed_il(first_heze_slot.as_u64(), 1, dr, &[0xaa]), true),
+            store.process_inclusion_list(verified(
+                signed_il(first_heze_slot.as_u64(), 1, dr, &[0xaa]),
+                true
+            )),
             InsertOutcome::New
         );
     }
@@ -575,7 +593,7 @@ mod tests {
         let mut store = InclusionListStore::<E>::new(&spec);
 
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xaa]), true)),
             InsertOutcome::New
         );
     }

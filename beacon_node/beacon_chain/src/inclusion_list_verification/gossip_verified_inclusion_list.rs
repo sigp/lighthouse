@@ -26,6 +26,8 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub genesis_validators_root: Hash256,
 }
 
+/// A `SignedInclusionList` that has been verified for propagation on the gossip network.
+#[derive(Debug)]
 pub struct GossipVerifiedInclusionList {
     pub signed_inclusion_list: SignedInclusionList,
     pub is_timely: bool,
@@ -105,7 +107,7 @@ impl GossipVerifiedInclusionList {
 
         drop(fork_choice_read);
 
-        // `dependent_root` is now known to be the shuffling decision block for `epoch`.
+        // The checks above confirm `dependent_root` is the shuffling decision block for `epoch`.
         let committee = with_cached_shuffling(
             ctx.canonical_head,
             ctx.shuffling_cache,
@@ -166,6 +168,10 @@ impl GossipVerifiedInclusionList {
     }
 }
 
+/// Verify that the `slot` is within the acceptable gossip propagation range, with reference
+/// to the current slot of the clock.
+///
+/// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
 fn verify_propagation_slot_range<S: SlotClock>(
     slot_clock: &S,
     message_slot: Slot,
@@ -232,7 +238,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             Err(e) => {
                 debug!(
-                    error = ?e,
+                    error = e.to_string(),
                     %slot,
                     %validator_index,
                     "Rejected gossip inclusion list"
@@ -246,9 +252,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         verified_inclusion_list: GossipVerifiedInclusionList,
     ) -> InsertOutcome {
-        self.inclusion_list_store.write().process_inclusion_list(
-            verified_inclusion_list.signed_inclusion_list,
-            verified_inclusion_list.is_timely,
-        )
+        self.inclusion_list_store
+            .write()
+            .process_inclusion_list(verified_inclusion_list)
     }
 }

@@ -1,9 +1,23 @@
+//! Gossip verification for inclusion lists.
+//!
+//! A `SignedInclusionList` is verified and wrapped as a `GossipVerifiedInclusionList`, which can
+//! then be imported into the `InclusionListStore`.
+//!
+//! ```ignore
+//!    SignedInclusionList
+//!              |
+//!              ▼
+//!    GossipVerifiedInclusionList
+//! ```
 use crate::BeaconChainError;
 use std::sync::Arc;
 use strum::AsRefStr;
 use types::{BeaconStateError, ChainSpec, Hash256, ProgressiveTransactions, Slot};
 
 pub mod gossip_verified_inclusion_list;
+
+#[cfg(test)]
+mod tests;
 
 /// EIP-2718 transaction type of blob transaction
 const BLOB_TX_TYPE_ID: u8 = 0x03;
@@ -50,11 +64,11 @@ pub enum InclusionListVerificationError {
     UnknownValidatorIndex(u64),
     /// The signature is invalid.
     InvalidSignature,
-    /// The slot clock cannot read.
+    /// The slot clock cannot be read.
     UnableToReadSlot,
-    /// Beacon Chain error
+    /// Some Beacon Chain Error
     BeaconChainError(Arc<BeaconChainError>),
-    /// Beacon State error
+    /// Some Beacon State error
     BeaconStateError(BeaconStateError),
 }
 
@@ -119,100 +133,4 @@ pub fn verify_no_blob_transactions(
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ssz_types::ProgressiveVariableList;
-    use types::{EthSpec, MinimalEthSpec};
-
-    type E = MinimalEthSpec;
-
-    /// A transaction of `len` non-zero bytes.
-    fn tx(len: usize) -> ProgressiveVariableList<u8> {
-        ProgressiveVariableList::new(vec![0xaa; len]).unwrap()
-    }
-
-    fn transactions(txs: Vec<ProgressiveVariableList<u8>>) -> ProgressiveTransactions {
-        ProgressiveVariableList::new(txs).unwrap()
-    }
-
-    #[test]
-    fn empty_inclusion_list_is_accepted() {
-        assert_eq!(
-            verify_inclusion_list_transactions_bounds(&transactions(vec![]), &E::default_spec()),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn inclusion_list_over_the_size_limit_is_rejected() {
-        let spec = E::default_spec();
-        let max = spec.max_transactions_bytes_per_inclusion_list;
-        let size = max + 1;
-
-        assert_eq!(
-            verify_inclusion_list_transactions_bounds(
-                &transactions(vec![tx(size as usize)]),
-                &spec
-            ),
-            Err(InclusionListTransactionsError::ListExceedsSizeLimit { size, max })
-        );
-    }
-
-    #[test]
-    fn inclusion_list_at_the_size_limit_is_accepted() {
-        let spec = E::default_spec();
-
-        assert_eq!(
-            verify_inclusion_list_transactions_bounds(
-                &transactions(vec![tx(
-                    spec.max_transactions_bytes_per_inclusion_list as usize
-                )]),
-                &spec
-            ),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn inclusion_list_with_empty_transaction_is_rejected() {
-        let txs = vec![tx(1), ProgressiveVariableList::empty(), tx(1)];
-        let spec = E::default_spec();
-
-        assert_eq!(
-            verify_inclusion_list_transactions_bounds(&transactions(txs), &spec),
-            Err(InclusionListTransactionsError::EmptyTransaction { index: 1 })
-        );
-    }
-
-    #[test]
-    fn valid_inclusion_list_passes_verification() {
-        let txs = vec![tx(10); 10];
-        let spec = E::default_spec();
-
-        assert_eq!(
-            verify_inclusion_list_transactions_bounds(&transactions(txs), &spec),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn inclusion_list_with_blob_transaction_is_rejected() {
-        let blob_tx = ProgressiveVariableList::new(vec![BLOB_TX_TYPE_ID, 0xaa]).unwrap();
-        let txs = vec![tx(10), blob_tx, tx(10)];
-
-        assert_eq!(
-            verify_no_blob_transactions(&transactions(txs)),
-            Err(InclusionListTransactionsError::BlobTransaction { index: 1 })
-        );
-    }
-
-    #[test]
-    fn inclusion_list_without_blob_transactions_is_accepted() {
-        let txs = vec![tx(10); 3];
-
-        assert_eq!(verify_no_blob_transactions(&transactions(txs)), Ok(()));
-    }
 }
