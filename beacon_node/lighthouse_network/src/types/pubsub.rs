@@ -9,19 +9,16 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
-    CellBitmap, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName,
-    ForkVersionDecode, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnGroupId,
+    CellBitmap, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkVersionDecode,
+    Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
+    PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnGroupId,
     PartialDataColumnHeader, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas,
     PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedAggregateAndProofGloas,
-    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBeaconBlockHeze,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedInclusionList, SignedProposerPreferences,
-    SignedVoluntaryExit, SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
-    execution::SignedExecutionProof,
+    SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedInclusionList,
+    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId, execution::SignedExecutionProof,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -265,42 +262,10 @@ impl<E: EthSpec> PubsubMessage<E> {
                         let beacon_block = match fork_context
                             .get_fork_from_context_bytes(gossip_topic.fork_digest)
                         {
-                            Some(ForkName::Base) => SignedBeaconBlock::<E>::Base(
-                                SignedBeaconBlockBase::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
-                            Some(ForkName::Altair) => SignedBeaconBlock::<E>::Altair(
-                                SignedBeaconBlockAltair::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
-                            Some(ForkName::Bellatrix) => SignedBeaconBlock::<E>::Bellatrix(
-                                SignedBeaconBlockBellatrix::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
-                            Some(ForkName::Capella) => SignedBeaconBlock::<E>::Capella(
-                                SignedBeaconBlockCapella::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
-                            Some(ForkName::Deneb) => SignedBeaconBlock::<E>::Deneb(
-                                SignedBeaconBlockDeneb::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
-                            Some(ForkName::Electra) => SignedBeaconBlock::<E>::Electra(
-                                SignedBeaconBlockElectra::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
-                            Some(ForkName::Fulu) => SignedBeaconBlock::<E>::Fulu(
-                                SignedBeaconBlockFulu::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
-                            Some(ForkName::Gloas) => SignedBeaconBlock::<E>::Gloas(
-                                SignedBeaconBlockGloas::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
-                            Some(ForkName::Heze) => SignedBeaconBlock::<E>::Heze(
-                                SignedBeaconBlockHeze::from_ssz_bytes(data)
-                                    .map_err(|e| format!("{:?}", e))?,
-                            ),
+                            Some(&fork_name) => {
+                                SignedBeaconBlock::<E>::from_ssz_bytes_by_fork(data, fork_name)
+                                    .map_err(|e| format!("{:?}", e))?
+                            }
                             None => {
                                 return Err(format!(
                                     "Unknown gossipsub fork digest: {:?}",
@@ -730,11 +695,37 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
 mod tests {
     use super::*;
     use crate::types::OutgoingPartialColumnGloas;
+    use bls::Signature;
     use libp2p::gossipsub::partial_messages::Partial;
     use types::data::{CellBitmap, PartialDataColumnSidecarGloas};
-    use types::{ChainSpec, Epoch, EthSpec, MainnetEthSpec, Slot, data::DataColumnSubnetId};
+    use types::{
+        BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, MainnetEthSpec, Slot,
+        data::DataColumnSubnetId,
+    };
 
     type E = MainnetEthSpec;
+
+    #[test]
+    fn beacon_blocks_decode_all_forks() {
+        for fork in ForkName::list_all() {
+            let spec = fork.make_genesis_spec(E::default_spec());
+            let fork_context = ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec);
+            let topic = GossipTopic::new(
+                GossipKind::BeaconBlock,
+                GossipEncoding::default(),
+                fork_context.current_fork_digest(),
+            );
+            let topic_hash = TopicHash::from_raw(String::from(topic));
+            let block =
+                SignedBeaconBlock::<E>::from_block(BeaconBlock::empty(&spec), Signature::empty());
+
+            assert_eq!(
+                PubsubMessage::decode(&topic_hash, &block.as_ssz_bytes(), &fork_context),
+                Ok(PubsubMessage::BeaconBlock(Arc::new(block))),
+                "gossip must preserve the {fork} block variant"
+            );
+        }
+    }
 
     /// A spec with every fork up to Fulu scheduled at genesis.
     fn pre_gloas_spec() -> ChainSpec {
