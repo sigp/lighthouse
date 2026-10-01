@@ -4069,6 +4069,151 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     }
 }
 
+/// Range sync cannot import the payload envelope of an unaligned checkpoint anchor, because
+/// checkpoint sync only stores the anchor state advanced to the epoch boundary.
+#[tokio::test]
+async fn checkpoint_sync_unaligned_anchor_envelope_import_fails() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
+        return;
+    }
+
+    let num_initial_slots = E::slots_per_epoch() * 11;
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
+    let slots = (1..num_initial_slots)
+        .map(Slot::new)
+        .filter(|&slot| slot <= checkpoint_slot - 3 || slot > checkpoint_slot)
+        .collect::<Vec<_>>();
+
+    let temp1 = tempdir().unwrap();
+    let full_store = get_store_generic(&temp1, StoreConfig::default(), spec.clone());
+    let harness = get_harness_import_all_data_columns(full_store.clone(), LOW_VALIDATOR_COUNT);
+    let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+    let genesis_state = harness.get_current_state();
+    harness
+        .add_attested_blocks_at_slots(genesis_state.clone(), &slots, &all_validators)
+        .await;
+
+    let wss_block_root = harness
+        .chain
+        .block_root_at_slot(checkpoint_slot, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let wss_block = harness
+        .chain
+        .store
+        .get_full_block(&wss_block_root)
+        .unwrap()
+        .unwrap();
+    let wss_state_root = harness
+        .chain
+        .state_root_at_slot(checkpoint_slot)
+        .unwrap()
+        .unwrap();
+    let wss_state = full_store
+        .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
+        .unwrap()
+        .unwrap();
+    assert!(wss_block.slot() < checkpoint_slot);
+
+    let child_block_root = harness
+        .chain
+        .block_root_at_slot(checkpoint_slot + 1, WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    let child_block = harness
+        .chain
+        .store
+        .get_full_block(&child_block_root)
+        .unwrap()
+        .unwrap();
+    let wss_bid_block_hash = wss_block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap()
+        .message
+        .block_hash;
+    assert!(child_block.is_parent_block_full(wss_bid_block_hash));
+
+    let temp2 = tempdir().unwrap();
+    let store = get_store_generic(&temp2, StoreConfig::default(), spec.clone());
+    let slot_clock = TestingSlotClock::new(
+        Slot::new(0),
+        Duration::from_secs(harness.chain.genesis_time),
+        spec.get_slot_duration(),
+    );
+    slot_clock.set_slot(harness.get_current_slot().as_u64());
+    let (shutdown_tx, _shutdown_rx) = futures::channel::mpsc::channel(1);
+    let mock = mock_execution_layer_from_parts(
+        harness.spec.clone(),
+        harness.runtime.task_executor.clone(),
+    );
+    let all_custody_columns = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+
+    let beacon_chain =
+        BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, get_kzg(&spec))
+            .chain_config(ChainConfig {
+                verify_envelope_payload_hash_in_backfill: false,
+                ..ChainConfig::default()
+            })
+            .store(store)
+            .custom_spec(spec.clone().into())
+            .task_executor(harness.chain.task_executor.clone())
+            .weak_subjectivity_state(wss_state, wss_block.clone(), None, genesis_state)
+            .unwrap()
+            .store_migrator_config(MigratorConfig::default().blocking())
+            .slot_clock(slot_clock)
+            .shutdown_sender(shutdown_tx)
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
+            .execution_layer(Some(mock.el))
+            .ordered_custody_column_indices(all_custody_columns)
+            .rng(Box::new(StdRng::seed_from_u64(42)))
+            .build()
+            .expect("should build");
+    let beacon_chain = Arc::new(beacon_chain);
+
+    let finalized_slot = beacon_chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(E::slots_per_epoch());
+    assert!(wss_block.slot() < finalized_slot);
+    assert_eq!(
+        beacon_chain.store.get_split_info().block_root,
+        wss_block_root
+    );
+    assert!(
+        !beacon_chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&wss_block_root)
+    );
+
+    let segment = vec![
+        harness.build_range_sync_block_from_store_blobs(Some(wss_block_root), Arc::new(wss_block)),
+        harness
+            .build_range_sync_block_from_store_blobs(Some(child_block_root), Arc::new(child_block)),
+    ];
+    let result = beacon_chain
+        .process_chain_segment(segment, NotifyExecutionLayer::Yes)
+        .await;
+
+    // TODO(gloas): import the anchor envelope and assert that the FULL child imports, see
+    // https://github.com/eserilev/lighthouse/pull/88
+    let beacon_chain::ChainSegmentResult::Failed { error, .. } = result else {
+        panic!("expected the anchor envelope import to fail");
+    };
+    assert!(
+        format!("{error:?}").contains("Missing state for envelope block"),
+        "unexpected error: {error:?}"
+    );
+    let fork_choice = beacon_chain.canonical_head.fork_choice_read_lock();
+    assert!(!fork_choice.is_payload_received(&wss_block_root));
+    assert!(!fork_choice.contains_block(&child_block_root));
+}
+
 /// Fetch the anchor (checkpoint) block and append it to a backfill batch, so the batch
 /// exercises the anchor re-import path.
 ///
