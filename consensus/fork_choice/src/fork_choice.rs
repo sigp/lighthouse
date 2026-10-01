@@ -433,7 +433,8 @@ where
 
         let (execution_status, execution_payload_parent_hash, execution_payload_block_hash) =
             if let Ok(signed_bid) = anchor_block.message().body().signed_execution_payload_bid() {
-                // Gloas: checkpoint sync fetches the anchor's payload later.
+                // Gloas: the payload is marked received by `weak_subjectivity_envelope` in the
+                // beacon chain builder, or later by range sync.
                 (
                     ExecutionStatus::NotYetRevealed(signed_bid.message.block_hash),
                     Some(signed_bid.message.parent_block_hash),

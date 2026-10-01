@@ -488,12 +488,21 @@ where
                     .is_ok()
                 {
                     debug!("Downloading finalized payload envelope");
-                    remote
+                    let envelope = remote
                         .get_beacon_execution_payload_envelopes_ssz::<E>(BlockId::Root(block_root))
                         .await
                         .map_err(|e| {
                             format!("Error fetching finalized payload envelope from remote: {e:?}")
-                        })?
+                        })?;
+                    if envelope.is_none() && block.slot() < state.slot() {
+                        warn!(
+                            block_root = %block_root,
+                            hint = "use a different URL or ask the provider to update",
+                            impact = "blocks building on the checkpoint block's payload will not import",
+                            "Checkpoint server is missing the payload envelope"
+                        );
+                    }
+                    envelope
                 } else {
                     None
                 };

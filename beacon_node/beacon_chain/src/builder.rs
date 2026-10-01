@@ -54,6 +54,7 @@ use types::data::CustodyIndex;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecarList, EthSpec, Hash256,
     SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -640,6 +641,7 @@ where
     /// Range sync and lookups cannot import it: both reject blocks prior to finalization, and the
     /// anchor block's post-state is not stored when the checkpoint state was advanced to an epoch
     /// boundary. The anchor block is trusted, so the envelope is checked against its bid only.
+    /// The envelope's data columns are not imported here; backfill imports them.
     ///
     /// Must be called after `weak_subjectivity_state`.
     pub fn weak_subjectivity_envelope(
@@ -680,6 +682,26 @@ where
         if self.chain_config.verify_envelope_payload_hash_in_backfill {
             verify_envelope_payload_hash(&envelope, &block)
                 .map_err(|e| format!("Invalid checkpoint envelope payload hash: {e:?}"))?;
+        }
+        if envelope.message.builder_index == BUILDER_INDEX_SELF_BUILD {
+            let state = store
+                .get_hot_state(&store.get_split_info().state_root, false)
+                .map_err(|e| format!("Error loading checkpoint state: {e:?}"))?
+                .ok_or("Checkpoint state missing from store")?;
+            let pubkey = state
+                .get_validator(block.message().proposer_index() as usize)
+                .map_err(|e| format!("Unknown checkpoint block proposer: {e:?}"))?
+                .pubkey
+                .decompress()
+                .map_err(|e| format!("Invalid checkpoint block proposer pubkey: {e:?}"))?;
+            if !envelope.verify_signature(
+                &pubkey,
+                &self.spec.fork_at_epoch(envelope.epoch()),
+                state.genesis_validators_root(),
+                &self.spec,
+            ) {
+                return Err("Invalid checkpoint envelope signature".to_string());
+            }
         }
 
         store

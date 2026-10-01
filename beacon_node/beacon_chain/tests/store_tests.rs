@@ -4438,7 +4438,7 @@ async fn weak_subjectivity_sync_test(
     // For Gloas, blobs aren't a standalone shape — the WSS data is the column sidecar set, which
     // `get_or_reconstruct_blobs` returns `None` for. Copy the WSS block's columns straight from
     // the source store so that the destination has them after checkpoint sync, matching what
-    // network-driven WSS would produce in production.
+    // backfill produces once it re-imports the anchor block.
     if wss_block.fork_name_unchecked().gloas_enabled()
         && let Ok(Some(source_columns)) = harness
             .chain
