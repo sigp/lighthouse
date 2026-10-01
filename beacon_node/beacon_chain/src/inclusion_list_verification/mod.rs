@@ -12,6 +12,8 @@ const BLOB_TX_TYPE_ID: u8 = 0x03;
 pub enum InclusionListVerificationError {
     /// Two valid inclusion lists were already seen from this validator for this slot.
     AlreadySeenTwice { validator_index: u64, slot: Slot },
+    /// The inclusion list transactions have a total size of zero.
+    EmptyTransactions,
     /// The slot clock cannot read.
     UnableToReadSlot,
     /// Beacon Chain error

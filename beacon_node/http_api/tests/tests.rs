@@ -9518,26 +9518,31 @@ impl ApiTester {
     }
 
     fn make_signed_inclusion_list(&self, slot: Slot) -> SignedInclusionList {
-        let epoch = self.chain.epoch().unwrap();
+        self.make_signed_inclusion_list_with_transaction(slot, 0xaa)
+    }
+
+    /// An inclusion list for `slot` from the first committee member, holding a single
+    /// one-byte transaction.
+    fn make_signed_inclusion_list_with_transaction(
+        &self,
+        slot: Slot,
+        transaction_byte: u8,
+    ) -> SignedInclusionList {
         let genesis_validators_root = self.chain.genesis_validators_root;
         let head_state = self.chain.head_beacon_state_cloned();
-        let dependent_root = self
+        let (committee, dependent_root) = self
             .chain
-            .block_root_at_slot(
-                (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
-                WhenSlotSkipped::Prev,
-            )
-            .unwrap()
-            .unwrap_or(self.chain.head_beacon_block_root());
-        // TODO(heze): use get_inclusion_list_committee from the beacon state when available
-        let beacon_committees = head_state.get_beacon_committees_at_slot(slot).unwrap();
-        let validator_index = beacon_committees[0].committee[0] as u64;
+            .inclusion_list_committee(self.chain.head_beacon_block_root(), slot)
+            .unwrap();
+        let validator_index = committee[0];
         let sk: &SecretKey = &self.validator_keypairs()[validator_index as usize].sk;
         let inclusion_list = InclusionList {
             slot,
             validator_index,
             dependent_root,
-            transactions: ProgressiveTransactions::new(Vec::new()).unwrap(),
+            transactions: vec![vec![transaction_byte].try_into().unwrap()]
+                .try_into()
+                .unwrap(),
         };
 
         self.sign_inclusion_list(
@@ -9741,6 +9746,69 @@ impl ApiTester {
             self.network_rx.network_recv.recv().await.is_some(),
             "valid inclusion list should be sent to network"
         );
+        let stored = self
+            .chain
+            .inclusion_list_store
+            .read()
+            .get_signed_inclusion_lists(
+                slot,
+                signed_il.message.dependent_root,
+                &[signed_il.message.validator_index],
+            );
+        assert_eq!(
+            stored,
+            vec![signed_il],
+            "published inclusion list should be added to the store"
+        );
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_known_is_not_republished(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+        let first = self.make_signed_inclusion_list_with_transaction(slot, 0xaa);
+        let equivocating = self.make_signed_inclusion_list_with_transaction(slot, 0xbb);
+        let third = self.make_signed_inclusion_list_with_transaction(slot, 0xcc);
+
+        for (signed_il, published, expected_stored) in [
+            // The first list from the validator is stored and published
+            (&first, true, vec![first.clone()]),
+            // The same list again is already known, so it is not published again
+            (&first, false, vec![first.clone()]),
+            // A second, different list flags the validator as an equivocator. It is published so
+            // peers learn about it, and the validator's lists are no longer served.
+            (&equivocating, true, vec![]),
+            // A third list is neither stored nor published.
+            (&third, false, vec![]),
+        ] {
+            self.client
+                .post_validator_inclusion_list(signed_il, fork_name)
+                .await
+                .expect("publishing inclusion list should be successful");
+
+            assert_eq!(
+                self.network_rx.network_recv.recv().now_or_never().is_some(),
+                published,
+                "unexpected publish result"
+            );
+            let stored = self
+                .chain
+                .inclusion_list_store
+                .read()
+                .get_signed_inclusion_lists(
+                    slot,
+                    first.message.dependent_root,
+                    &[first.message.validator_index],
+                );
+            assert_eq!(stored, expected_stored);
+        }
 
         self.chain.slot_clock.set_slot(slot.as_u64() + 1);
 
@@ -11721,5 +11789,7 @@ async fn inclusion_list_api() {
         .test_inclusion_list_post_valid()
         .await
         .test_inclusion_list_post_ssz_valid()
+        .await
+        .test_inclusion_list_post_known_is_not_republished()
         .await;
 }
