@@ -397,7 +397,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let signed_envelope = available_envelope.envelope().clone();
 
         let split = self.store.get_split_info();
-        if block_root == split.block_root && block.state_root() != split.state_root {
+        if block_root == split.block_root && block.slot() < split.slot {
             // The anchor's post-state isn't stored, so verify against the split state at its slot.
             let mut state = self
                 .store
