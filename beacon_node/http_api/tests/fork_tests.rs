@@ -183,6 +183,7 @@ async fn ptc_duties_across_fork() {
 
     assert_eq!(harness.get_current_slot(), 0);
 
+    // TODO(gloas): expect empty duties for pre-fork epochs once fixed: https://github.com/eserilev/lighthouse/pull/90
     for epoch in [Epoch::new(0), fork_epoch - 1] {
         assert_incorrect_state_variant(
             client
@@ -207,6 +208,7 @@ async fn ptc_duties_across_fork() {
     );
     assert!(!expected_duties.is_empty());
 
+    // TODO(gloas): expect empty duties for `fork_epoch - 1` and `expected_duties` for `fork_epoch` once fixed: https://github.com/eserilev/lighthouse/pull/90
     for epoch in [fork_epoch - 1, fork_epoch] {
         assert_incorrect_state_variant(
             client
@@ -218,6 +220,7 @@ async fn ptc_duties_across_fork() {
     harness.advance_slot();
     assert_eq!(harness.get_current_slot(), fork_slot);
 
+    // TODO(gloas): expect `expected_duties` at a skipped fork slot once fixed: https://github.com/eserilev/lighthouse/pull/90
     assert_incorrect_state_variant(
         client
             .post_validator_duties_ptc(fork_epoch, &all_validators_u64)
