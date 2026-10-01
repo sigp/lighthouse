@@ -4069,9 +4069,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
     }
 }
 
-/// Checkpoint sync only stores the state advanced past an unaligned anchor block. Range sync
-/// still starts from the anchor's epoch and imports its payload envelope, so the anchor's FULL
-/// child imports.
+/// Range sync imports the payload envelope of an unaligned checkpoint anchor.
 #[tokio::test]
 async fn checkpoint_sync_unaligned_anchor_full_child_imports() {
     let spec = test_spec::<E>();

@@ -6636,11 +6636,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .contains_block(root)
     }
 
-    /// Returns the epoch range sync starts from.
-    ///
-    /// This is the finalized epoch, unless the finalized block is an unaligned Gloas block whose
-    /// payload is not yet received. Range sync must then also download that block's epoch, so
-    /// it can import the payload envelope that the block's children build on.
+    /// Returns the finalized epoch, or the unaligned anchor's epoch until its payload arrives.
     pub fn range_sync_start_epoch(&self) -> Epoch {
         let fork_choice = self.canonical_head.fork_choice_read_lock();
         let finalized_checkpoint = fork_choice.finalized_checkpoint();
