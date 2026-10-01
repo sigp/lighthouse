@@ -42,7 +42,10 @@ use safe_arith::SafeArith;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
 use ssz_types::{ProgressiveVariableList, VariableList};
-use state_processing::{BlockReplayer, state_advance::complete_state_advance};
+use state_processing::{
+    BlockReplayer, VerifySignatures, envelope_processing::verify_execution_payload_envelope,
+    state_advance::complete_state_advance,
+};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -4114,6 +4117,60 @@ async fn checkpoint_sync_unaligned_anchor_full_child_imports() {
         .unwrap()
         .unwrap();
     assert!(wss_block.slot() < checkpoint_slot);
+
+    let anchor_state = harness
+        .chain
+        .get_state(&wss_block.state_root(), Some(wss_block.slot()), false)
+        .unwrap()
+        .unwrap();
+    let mut split_state = wss_state.clone();
+    *split_state.slot_mut() = wss_block.slot();
+    let mut anchor_header = anchor_state.latest_block_header().clone();
+    anchor_header.state_root = wss_block.state_root();
+    assert_eq!(&anchor_header, split_state.latest_block_header());
+    assert_eq!(
+        anchor_state.latest_execution_payload_bid().unwrap(),
+        split_state.latest_execution_payload_bid().unwrap()
+    );
+    assert_eq!(
+        anchor_state.payload_expected_withdrawals().unwrap(),
+        split_state.payload_expected_withdrawals().unwrap()
+    );
+    assert_eq!(
+        anchor_state.latest_block_hash().unwrap(),
+        split_state.latest_block_hash().unwrap()
+    );
+    assert_eq!(
+        anchor_state.builders().unwrap(),
+        split_state.builders().unwrap()
+    );
+    assert_eq!(anchor_state.genesis_time(), split_state.genesis_time());
+    assert_eq!(
+        anchor_state.genesis_validators_root(),
+        split_state.genesis_validators_root()
+    );
+    let wss_envelope = harness
+        .chain
+        .store
+        .get_signed_payload_envelope(&wss_block_root)
+        .unwrap()
+        .unwrap();
+    verify_execution_payload_envelope(
+        &anchor_state,
+        &wss_envelope,
+        VerifySignatures::True,
+        wss_block.state_root(),
+        &spec,
+    )
+    .unwrap();
+    verify_execution_payload_envelope(
+        &split_state,
+        &wss_envelope,
+        VerifySignatures::False,
+        wss_block.state_root(),
+        &spec,
+    )
+    .unwrap();
 
     let child_block_root = harness
         .chain
