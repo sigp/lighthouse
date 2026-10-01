@@ -1,11 +1,11 @@
 use beacon_chain::AvailabilityProcessingStatus::{Imported, MissingComponents};
-use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof;
 use beacon_chain::execution_proof_verification::REQUIRED_EXECUTION_PROOFS;
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
+use beacon_chain::{NotifyExecutionLayer, OverrideForkchoiceUpdate};
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
 use execution_layer::test_utils::Block;
@@ -819,6 +819,55 @@ async fn a_proven_payload_validates_its_optimistic_ancestors() {
     assert!(
         is_valid_and_post_bellatrix(execution_status(&harness, ancestor_root)),
         "one proof must validate every payload below it",
+    );
+}
+
+/// A pre-Gloas payload is the execution layer's to judge, proof engine or not: its verdict still
+/// promotes one out of optimistic status.
+#[tokio::test]
+async fn a_proof_engine_leaves_pre_gloas_payloads_to_the_execution_layer() {
+    if fork_name_from_env() != Some(ForkName::Fulu) {
+        return;
+    }
+
+    let mut spec = test_spec::<E>();
+    spec.gloas_fork_epoch = Some(Epoch::new(1));
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .proof_engine()
+        .build();
+
+    let mock = harness
+        .mock_execution_layer
+        .as_ref()
+        .expect("mock execution layer");
+
+    // The execution layer is syncing, so the pre-Gloas block imports optimistically.
+    mock.server.all_payloads_syncing(true);
+    harness.extend_to_slot(Slot::new(1)).await;
+    let block_root = harness.chain.head_beacon_block_root();
+    assert!(is_optimistic(execution_status(&harness, block_root)));
+
+    // It catches up, and its verdict is the whole of a pre-Gloas payload's validity.
+    mock.server.all_payloads_valid();
+    let cached_head = harness.chain.canonical_head.cached_head();
+    harness
+        .chain
+        .update_execution_engine_forkchoice(
+            Slot::new(1),
+            cached_head.forkchoice_update_parameters(),
+            cached_head.head_payload_status(),
+            OverrideForkchoiceUpdate::Yes,
+        )
+        .await
+        .expect("fork choice update should succeed");
+
+    assert!(
+        is_valid_and_post_bellatrix(execution_status(&harness, block_root)),
+        "a proof engine must not hold back a payload it cannot prove",
     );
 }
 
