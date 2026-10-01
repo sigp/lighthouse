@@ -337,9 +337,8 @@ mod tests {
     // 2. `get_inclusion_list_transactions` is the deduplicated union (by tree hash) of the
     //    transactions in the stored lists of non-equivocating validators.
     //
-    // 3. The `InsertOutcome` returned by `process_inclusion_list` reports the change it
-    //    made to the inclusion list store. `New` stores a list, `Old` changes nothing,
-    //    and every other outcome leaves the store untouched.
+    // 3. `process_inclusion_list` returns the outcome and makes the exact change that a
+    //    reference model derives from the store contents before the insert.
     //
     // 4. After `prune(current_slot)`, every slot below `current_slot - slots_retained` is
     //    dropped, every slot at or above is retained, and `lowest_permissible_slot` is set
@@ -349,6 +348,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     const PROP_VALIDATORS: [u64; 3] = [1, 2, 3];
+    const PROP_UNKNOWN_VALIDATOR: u64 = 99;
     const PROP_SLOTS: [u64; 2] = [10, 11];
 
     fn prop_roots() -> [DependentRoot; 2] {
@@ -357,9 +357,9 @@ mod tests {
 
     /// The committee used by the property tests.
     fn prop_committee() -> FixedVector<u64, <E as EthSpec>::InclusionListCommitteeSize> {
-        let mut members = PROP_VALIDATORS.to_vec();
-        let padding = <E as EthSpec>::InclusionListCommitteeSize::to_usize() - members.len();
-        members.extend((0..padding).map(|i| 1_000 + i as u64));
+        let members = (0..<E as EthSpec>::InclusionListCommitteeSize::to_usize())
+            .map(|i| PROP_VALIDATORS[i % PROP_VALIDATORS.len()])
+            .collect();
         FixedVector::new(members).expect("committee is the right length")
     }
 
@@ -431,17 +431,31 @@ mod tests {
         }
 
         // `get_signed_inclusion_lists` ignores timeliness, so it is compared against the
-        // unfiltered expectation.
-        let served: HashSet<u64> = store
-            .get_signed_inclusion_lists(slot, dependent_root, &PROP_VALIDATORS)
-            .iter()
-            .map(|il| il.message.validator_index)
-            .collect();
-        assert_eq!(
-            served,
-            expected_submitters(store, slot, dependent_root, false),
-            "served inclusion lists do not match the surviving lists"
-        );
+        // unfiltered expectation, for every subset of validators plus one never stored.
+        let unfiltered = expected_submitters(store, slot, dependent_root, false);
+        for mask in 0..(1usize << PROP_VALIDATORS.len()) {
+            let requested: Vec<u64> = PROP_VALIDATORS
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| mask & (1 << i) != 0)
+                .map(|(_, validator)| *validator)
+                .chain([PROP_UNKNOWN_VALIDATOR])
+                .collect();
+            let served: HashSet<u64> = store
+                .get_signed_inclusion_lists(slot, dependent_root, &requested)
+                .iter()
+                .map(|il| il.message.validator_index)
+                .collect();
+            let expected: HashSet<u64> = unfiltered
+                .iter()
+                .copied()
+                .filter(|validator| requested.contains(validator))
+                .collect();
+            assert_eq!(
+                served, expected,
+                "served inclusion lists do not match the surviving lists for {requested:?}"
+            );
+        }
     }
 
     /// Invariant 2.
@@ -502,7 +516,7 @@ mod tests {
                 for (validator, (il, is_timely)) in by_validator.iter() {
                     snapshot.stored.insert(
                         (slot.as_u64(), *dependent_root, *validator),
-                        (il.tree_hash_root(), *is_timely),
+                        (il.message.tree_hash_root(), *is_timely),
                     );
                 }
             }
@@ -520,50 +534,41 @@ mod tests {
     }
 
     /// Invariant 3.
-    fn assert_outcome_matches_transition(
+    fn expected_insert(
         before: &Snapshot,
-        after: &Snapshot,
-        outcome: InsertOutcome,
+        floor: Slot,
         key: (u64, Hash256, u64),
-    ) {
-        // The stored lists, ignoring the one this insert was for.
-        let others = |snapshot: &Snapshot| {
-            snapshot
-                .stored
-                .iter()
-                .filter(|(entry_key, _)| **entry_key != key)
-                .map(|(entry_key, value)| (*entry_key, *value))
-                .collect::<BTreeMap<_, _>>()
-        };
-
-        match outcome {
-            InsertOutcome::New => {
-                assert!(
-                    !before.stored.contains_key(&key),
-                    "`New` but a list was already stored for {key:?}"
-                );
-                assert!(
-                    after.stored.contains_key(&key),
-                    "`New` but no list was stored for {key:?}"
-                );
-                assert_eq!(
-                    others(after),
-                    others(before),
-                    "`New` modified a list it should not have"
-                );
-            }
-            InsertOutcome::Seen
-            | InsertOutcome::Equivocating
-            | InsertOutcome::SubsequentEquivocation => {
-                assert_eq!(
-                    after.stored, before.stored,
-                    "`{outcome:?}` must not change any stored list"
-                );
-            }
-            InsertOutcome::Old => {
-                assert_eq!(after, before, "`Old` must not change any state");
-            }
+        il_root: Hash256,
+        is_timely: bool,
+    ) -> (InsertOutcome, Snapshot) {
+        let (slot, dependent_root, validator) = key;
+        let mut expected = before.clone();
+        if slot < floor.as_u64() {
+            return (InsertOutcome::Old, expected);
         }
+
+        let outcome = match before.stored.get(&key) {
+            None => {
+                expected.stored.insert(key, (il_root, is_timely));
+                *expected.counts.entry((slot, validator)).or_default() += 1;
+                InsertOutcome::New
+            }
+            Some((stored_root, _)) if *stored_root == il_root => InsertOutcome::Seen,
+            Some(_) => {
+                let newly_flagged = expected
+                    .equivocators
+                    .entry((slot, dependent_root))
+                    .or_default()
+                    .insert(validator);
+                if newly_flagged {
+                    *expected.counts.entry((slot, validator)).or_default() += 1;
+                    InsertOutcome::Equivocating
+                } else {
+                    InsertOutcome::SubsequentEquivocation
+                }
+            }
+        };
+        (outcome, expected)
     }
 
     /// Invariant 4.
@@ -683,20 +688,25 @@ mod tests {
                     } => {
                         let il = signed_il(slot, validator, dependent_root, &[0xa0 + payload]);
 
-                        let before = snapshot(&store);
-                        let outcome = store.process_inclusion_list(il, is_timely);
-                        let after = snapshot(&store);
-
-                        assert_outcome_matches_transition(
-                            &before,
-                            &after,
-                            outcome,
+                        let expected = expected_insert(
+                            &snapshot(&store),
+                            store.lowest_permissible_slot,
                             (slot, dependent_root, validator),
+                            il.message.tree_hash_root(),
+                            is_timely,
+                        );
+                        let outcome = store.process_inclusion_list(il, is_timely);
+
+                        assert_eq!(
+                            (outcome, snapshot(&store)),
+                            expected,
+                            "insert at {slot} by {validator} did not match the model"
                         );
                     }
                     Op::Prune { current_slot } => {
                         let current_slot = Slot::new(current_slot);
-                        let slots_retained = store.slots_retained;
+                        let slots_retained =
+                            E::default_spec().min_slots_for_inclusion_lists_requests + 1;
 
                         let before = snapshot(&store);
                         let floor_before = store.lowest_permissible_slot;
