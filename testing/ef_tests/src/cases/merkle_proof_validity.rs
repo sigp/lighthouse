@@ -99,15 +99,20 @@ impl<E: EthSpec> Case for BeaconStateMerkleProofValidity<E> {
 
         let proof = match self.merkle_proof.leaf_index {
             light_client::consts::CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA
-            | light_client::consts::CURRENT_SYNC_COMMITTEE_INDEX => {
+            | light_client::consts::CURRENT_SYNC_COMMITTEE_INDEX
+            | light_client::consts::CURRENT_SYNC_COMMITTEE_INDEX_GLOAS => {
                 state.compute_current_sync_committee_proof()
             }
             light_client::consts::NEXT_SYNC_COMMITTEE_INDEX_ELECTRA
-            | light_client::consts::NEXT_SYNC_COMMITTEE_INDEX => {
+            | light_client::consts::NEXT_SYNC_COMMITTEE_INDEX
+            | light_client::consts::NEXT_SYNC_COMMITTEE_INDEX_GLOAS => {
                 state.compute_next_sync_committee_proof()
             }
             light_client::consts::FINALIZED_ROOT_INDEX_ELECTRA
-            | light_client::consts::FINALIZED_ROOT_INDEX => state.compute_finalized_root_proof(),
+            | light_client::consts::FINALIZED_ROOT_INDEX
+            | light_client::consts::FINALIZED_ROOT_INDEX_GLOAS => {
+                state.compute_finalized_root_proof()
+            }
             _ => {
                 return Err(Error::FailedToParseTest(
                     "Could not retrieve merkle proof, invalid index".to_string(),

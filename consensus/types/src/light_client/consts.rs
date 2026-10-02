@@ -19,3 +19,14 @@ pub const NEXT_SYNC_COMMITTEE_INDEX_ELECTRA: usize = 87;
 // Max light client updates by range request limits
 // spec: https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/p2p-interface.md#configuration
 pub const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;
+
+pub const FINALIZED_ROOT_INDEX_GLOAS: usize = 735;
+pub const CURRENT_SYNC_COMMITTEE_INDEX_GLOAS: usize = 2_945;
+pub const NEXT_SYNC_COMMITTEE_INDEX_GLOAS: usize = 2_946;
+
+pub const FINALIZED_ROOT_PROOF_LEN_GLOAS: usize = 9;
+pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN_GLOAS: usize = 11;
+pub const NEXT_SYNC_COMMITTEE_PROOF_LEN_GLOAS: usize = 11;
+
+pub const EXECUTION_BLOCK_HASH_INDEX_GLOAS: usize = 2_856;
+pub const EXECUTION_BLOCK_HASH_PROOF_LEN_GLOAS: usize = 11;
