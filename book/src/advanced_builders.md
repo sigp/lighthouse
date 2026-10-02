@@ -215,6 +215,9 @@ show up as blocks whose payloads never land, not as missed slots, and the circui
   to the offending block, so it only affects proposals whose chain contains that block; re-orging away from the block
   lifts it. No ban is recorded if the payload timeliness committee saw the payload, which means the builder revealed
   and only this node missed it. Bans are kept in memory and do not survive a restart.
+* A builder whose revealed payload the execution engine rejects as invalid is banned on the same terms. No
+  attestation threshold applies: the envelope is signed by the builder and bound to its bid, so an invalid payload is
+  attributable to the builder alone. Transient engine failures (unreachable, syncing) never cause a ban.
 * `--builder-fallback-disable-checks` disables the skip rules and the bans.
 
 ## Checking your builder config

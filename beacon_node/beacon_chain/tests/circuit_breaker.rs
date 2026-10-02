@@ -2,11 +2,15 @@
 //! external bids during block production, and the bans recorded for builders that fail to reveal.
 
 use beacon_chain::circuit_breaker::BanEntry;
+use beacon_chain::payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
     PayloadAttestationVote, fork_name_from_env, test_spec,
 };
-use beacon_chain::{BlockProductionError, ChainConfig};
+use beacon_chain::{
+    AvailabilityProcessingStatus, BlockError, BlockProductionError, ChainConfig,
+    NotifyExecutionLayer,
+};
 use bls::PublicKeyBytes;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use fork_choice::PayloadVerificationStatus;
@@ -15,8 +19,8 @@ use state_processing::state_advance::complete_state_advance;
 use std::sync::Arc;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
-    BeaconState, BuilderIndex, EthSpec, ExecutionBlockHash, Hash256, MinimalEthSpec,
-    SignedBeaconBlock, Slot,
+    BeaconState, BlockImportSource, BuilderIndex, EthSpec, ExecutionBlockHash, Hash256,
+    MinimalEthSpec, SignedBeaconBlock, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -132,6 +136,7 @@ fn empty_parent_block_hash(state: &BeaconState<E>) -> ExecutionBlockHash {
 struct BuilderBlock {
     root: Hash256,
     slot: Slot,
+    block: Arc<SignedBeaconBlock<E>>,
     post_state: BeaconState<E>,
     pre_state: BeaconState<E>,
 }
@@ -152,6 +157,7 @@ async fn import_builder_block(harness: &Harness, attest: bool) -> BuilderBlock {
     .await;
     let root = block_contents.0.canonical_root();
     let state_root = block_contents.0.state_root();
+    let block = block_contents.0.clone();
     harness
         .process_block(slot, root, block_contents)
         .await
@@ -169,9 +175,33 @@ async fn import_builder_block(harness: &Harness, attest: bool) -> BuilderBlock {
     BuilderBlock {
         root,
         slot,
+        block,
         post_state,
         pre_state,
     }
+}
+
+/// Build the builder's signed envelope answering `block`'s bid and run it through the full
+/// envelope pipeline: consensus verification, then the mock EL's `newPayload` verdict.
+async fn process_builder_envelope(
+    harness: &Harness,
+    block: &BuilderBlock,
+) -> Result<AvailabilityProcessingStatus, BlockError> {
+    let envelope = harness.make_builder_envelope_for_block(&block.block, &block.post_state);
+    harness
+        .chain
+        .process_execution_payload_envelope(
+            block.root,
+            GossipVerifiedEnvelope {
+                signed_envelope: Arc::new(envelope),
+                block: block.block.clone(),
+                snapshot: None,
+            },
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Gossip,
+            || Ok(()),
+        )
+        .await
 }
 
 /// Build `count` self-built blocks in consecutive slots and never process their envelopes, so
@@ -363,6 +393,91 @@ async fn missed_reveal_with_checks_disabled_is_not_banned() {
 
     harness.advance_slot();
     harness.chain.per_slot_task().await;
+    assert_eq!(harness.chain.circuit_breaker.num_ban_entries(), 0);
+}
+
+#[tokio::test]
+async fn el_invalid_payload_bans_builder() {
+    let Some(harness) = gloas_harness(ChainConfig::default()) else {
+        return;
+    };
+    Box::pin(finalize(&harness)).await;
+    // No attestations: unlike a missed reveal, an invalid payload needs no payment quorum.
+    let block = Box::pin(import_builder_block(&harness, false)).await;
+    let pubkey = builder_pubkey(&block.post_state, BUILDER_A);
+
+    // The EL rejects the revealed payload as INVALID. The latest valid hash is the payload's
+    // parent, so the invalidation pass has nothing to invalidate.
+    let parent_hash = *block.post_state.latest_block_hash().unwrap();
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .expect("harness should have a mock EL")
+        .server
+        .all_payloads_invalid_on_new_payload(parent_hash);
+
+    let result = Box::pin(process_builder_envelope(&harness, &block)).await;
+    assert!(result.is_err(), "invalid envelope should be rejected");
+
+    let breaker = &harness.chain.circuit_breaker;
+    assert_eq!(breaker.num_ban_entries(), 1);
+    assert!(breaker.is_banned_with(&pubkey, block.slot, always_canonical));
+    assert!(!breaker.is_banned_with(
+        &builder_pubkey(&block.post_state, BUILDER_B),
+        block.slot,
+        always_canonical
+    ));
+
+    // Re-processing the same envelope does not record a second entry.
+    let result = Box::pin(process_builder_envelope(&harness, &block)).await;
+    assert!(result.is_err());
+    assert_eq!(breaker.num_ban_entries(), 1);
+}
+
+#[tokio::test]
+async fn el_invalid_block_hash_bans_builder() {
+    let Some(harness) = gloas_harness(ChainConfig::default()) else {
+        return;
+    };
+    Box::pin(finalize(&harness)).await;
+    let block = Box::pin(import_builder_block(&harness, false)).await;
+    let pubkey = builder_pubkey(&block.post_state, BUILDER_A);
+
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .expect("harness should have a mock EL")
+        .server
+        .all_payloads_invalid_block_hash_on_new_payload();
+
+    let result = Box::pin(process_builder_envelope(&harness, &block)).await;
+    assert!(result.is_err(), "invalid envelope should be rejected");
+
+    let breaker = &harness.chain.circuit_breaker;
+    assert_eq!(breaker.num_ban_entries(), 1);
+    assert!(breaker.is_banned_with(&pubkey, block.slot, always_canonical));
+}
+
+#[tokio::test]
+async fn el_invalid_payload_with_checks_disabled_is_not_banned() {
+    let Some(harness) = gloas_harness(ChainConfig {
+        builder_fallback_disable_checks: true,
+        ..ChainConfig::default()
+    }) else {
+        return;
+    };
+    Box::pin(finalize(&harness)).await;
+    let block = Box::pin(import_builder_block(&harness, false)).await;
+
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .expect("harness should have a mock EL")
+        .server
+        .all_payloads_invalid_block_hash_on_new_payload();
+
+    let result = Box::pin(process_builder_envelope(&harness, &block)).await;
+    assert!(result.is_err(), "invalid envelope should be rejected");
     assert_eq!(harness.chain.circuit_breaker.num_ban_entries(), 0);
 }
 

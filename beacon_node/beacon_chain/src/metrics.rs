@@ -33,10 +33,12 @@ pub static BUILDER_CIRCUIT_BREAKER_TRIPS: LazyLock<Result<IntCounterVec>> = Lazy
         &["condition"],
     )
 });
-pub static BUILDER_CIRCUIT_BREAKER_BANS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
-    try_create_int_counter(
+pub static BUILDER_CIRCUIT_BREAKER_BANS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
         "beacon_builder_circuit_breaker_bans_total",
-        "Count of builder bans recorded for missed payload reveals (post-Gloas)",
+        "Count of builder bans recorded, by reason: a missed payload reveal or an \
+         execution-invalid payload (post-Gloas)",
+        &["reason"],
     )
 });
 pub static BUILDER_CIRCUIT_BREAKER_BAN_ENTRIES: LazyLock<Result<IntGauge>> = LazyLock::new(|| {

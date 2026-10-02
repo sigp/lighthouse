@@ -7889,13 +7889,64 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ban_slots = self.circuit_breaker.config().ban_slots,
                 "Banning builder that failed to reveal its payload"
             );
-            metrics::inc_counter(&metrics::BUILDER_CIRCUIT_BREAKER_BANS);
+            metrics::inc_counter_vec(&metrics::BUILDER_CIRCUIT_BREAKER_BANS, &["missed_reveal"]);
             metrics::set_gauge(
                 &metrics::BUILDER_CIRCUIT_BREAKER_BAN_ENTRIES,
                 self.circuit_breaker.num_ban_entries() as i64,
             );
         }
         Ok(())
+    }
+
+    /// Post-Gloas: record a ban for an external builder whose revealed envelope was rejected by
+    /// the execution engine as definitively invalid (`Invalid` / `InvalidBlockHash`).
+    ///
+    /// Unlike a missed reveal, no attestation-weight or PTC gating applies: the envelope's
+    /// signature was verified at gossip and its payload is hash-bound to the committed bid, so an
+    /// EL-invalid verdict is attributable to the builder alone.
+    pub(crate) fn record_builder_ban_for_invalid_payload(
+        &self,
+        builder_index: u64,
+        block_root: Hash256,
+        block_slot: Slot,
+    ) {
+        if self.circuit_breaker.disable_checks() || builder_index == BUILDER_INDEX_SELF_BUILD {
+            return;
+        }
+        // The builder registry is append-only, so the head state resolves any index committed by
+        // the envelope's (valid, imported) block. A miss is an internal inconsistency; skip.
+        let head = self.canonical_head.cached_head();
+        let Ok(builder) = head.snapshot.beacon_state.get_builder(builder_index) else {
+            debug!(
+                builder_index,
+                ?block_root,
+                "Builder unknown to the head state; skipping invalid-payload ban"
+            );
+            return;
+        };
+        let pubkey = builder.pubkey;
+        let Ok(current_slot) = self.slot() else {
+            return;
+        };
+        if self
+            .circuit_breaker
+            .ban_builder(pubkey, block_root, block_slot, current_slot)
+            == BanOutcome::New
+        {
+            warn!(
+                builder_index,
+                %pubkey,
+                %block_slot,
+                ?block_root,
+                ban_slots = self.circuit_breaker.config().ban_slots,
+                "Banning builder that revealed an execution-invalid payload"
+            );
+            metrics::inc_counter_vec(&metrics::BUILDER_CIRCUIT_BREAKER_BANS, &["invalid_payload"]);
+            metrics::set_gauge(
+                &metrics::BUILDER_CIRCUIT_BREAKER_BAN_ENTRIES,
+                self.circuit_breaker.num_ban_entries() as i64,
+            );
+        }
     }
 
     pub fn dump_as_dot<W: Write>(&self, output: &mut W) {

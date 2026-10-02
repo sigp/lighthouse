@@ -1319,7 +1319,8 @@ where
             value,
             execution_payment: 0,
             blob_kzg_commitments: Default::default(),
-            execution_requests_root: Hash256::zero(),
+            // Commit to empty execution requests so an envelope answering this bid can exist.
+            execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
         };
 
         let builder_pubkey = state
@@ -1341,6 +1342,72 @@ where
         let signature = keypair.sk.sign(bid.signing_root(domain));
         SignedExecutionPayloadBid {
             message: bid,
+            signature,
+        }
+    }
+
+    /// Build the builder-signed envelope answering the bid committed by `block`, consistent with
+    /// `post_state` (the block's post-state) so it passes `verify_execution_payload_envelope`.
+    /// The payload's execution contents are empty; only the fields the bid and state commit to
+    /// are populated, which is all a mock EL looks at.
+    pub fn make_builder_envelope_for_block(
+        &self,
+        block: &SignedBeaconBlock<E>,
+        post_state: &BeaconState<E>,
+    ) -> SignedExecutionPayloadEnvelope<E> {
+        let bid = post_state
+            .latest_execution_payload_bid()
+            .expect("envelopes require a Gloas state")
+            .clone();
+        let withdrawals = ProgressiveVariableList::new(
+            post_state
+                .payload_expected_withdrawals()
+                .expect("Gloas state should have expected withdrawals")
+                .to_vec(),
+        )
+        .expect("expected withdrawals should fit the payload limit");
+        let timestamp = compute_timestamp_at_slot(post_state, post_state.slot(), &self.spec)
+            .expect("should compute timestamp");
+
+        let payload = ExecutionPayloadGloas {
+            parent_hash: *post_state
+                .latest_block_hash()
+                .expect("Gloas state should have a latest block hash"),
+            prev_randao: bid.prev_randao,
+            gas_limit: bid.gas_limit,
+            timestamp,
+            withdrawals,
+            block_hash: bid.block_hash,
+            slot_number: post_state.slot(),
+            ..Default::default()
+        };
+        let envelope = ExecutionPayloadEnvelope {
+            payload,
+            execution_requests: ExecutionRequestsGloas::default(),
+            builder_index: bid.builder_index,
+            beacon_block_root: block.canonical_root(),
+            parent_beacon_block_root: post_state.latest_block_header().parent_root,
+        };
+
+        let builder_pubkey = post_state
+            .get_builder(bid.builder_index)
+            .expect("builder should be registered")
+            .pubkey;
+        let keypair = self
+            .validator_keypairs
+            .iter()
+            .find(|keypair| PublicKeyBytes::from(&keypair.pk) == builder_pubkey)
+            .expect("builder keypair should belong to a harness validator");
+        let epoch = post_state.slot().epoch(E::slots_per_epoch());
+        let domain = self.spec.get_domain(
+            epoch,
+            Domain::BeaconBuilder,
+            &self.spec.fork_at_epoch(epoch),
+            post_state.genesis_validators_root(),
+        );
+        let signature = keypair.sk.sign(envelope.signing_root(domain));
+        SignedExecutionPayloadEnvelope {
+            message: envelope,
             signature,
         }
     }
