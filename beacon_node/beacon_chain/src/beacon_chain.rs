@@ -4252,11 +4252,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn process_execution_proof(
         self: &Arc<Self>,
         verified_proof: &GossipVerifiedExecutionProof,
-    ) -> Result<(), Error> {
+    ) -> Result<(), BlockError> {
         let block_root = verified_proof.proof.beacon_block_root();
         if !self.execution_proofs_satisfied(&block_root) {
             return Ok(());
         }
+
+        // The bid commits the payload's execution block hash, which is how fork choice names it.
+        let payload_block_hash = self
+            .get_or_load_gloas_payload_bid(block_root)
+            .await?
+            .message
+            .block_hash;
 
         debug!(?block_root, "Execution proofs complete, validating payload");
         let chain = self.clone();
@@ -4265,32 +4272,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 chain
                     .canonical_head
                     .fork_choice_write_lock()
-                    .on_valid_execution_payload_for_block(block_root)
-                    .map_err(Error::from)
+                    .on_valid_execution_payload(payload_block_hash)
+                    .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))
             },
             "validate_proven_payload",
         )
         .await?
-    }
-
-    /// The execution layer called the payload `payload_block_hash` valid, which promotes a
-    /// pre-Gloas payload only: a Gloas payload's validity is its proofs.
-    fn on_execution_layer_validated_payload(
-        &self,
-        payload_block_hash: ExecutionBlockHash,
-    ) -> Result<(), Error> {
-        let mut fork_choice = self.canonical_head.fork_choice_write_lock();
-
-        if self.execution_proofs_enabled() && fork_choice.is_gloas_payload(payload_block_hash) {
-            debug!(
-                ?payload_block_hash,
-                "Execution layer validated a payload its proofs decide"
-            );
-        } else {
-            fork_choice.on_valid_execution_payload(payload_block_hash)?;
-        }
-
-        Ok(())
     }
 
     /// Load a persisted Gloas bid without blocking the async runtime.
@@ -7047,22 +7034,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match forkchoice_updated_response {
             Ok(status) => match status {
                 PayloadStatus::Valid => {
-                    // Ensure that fork choice knows that the payload is no longer optimistic. The
-                    // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
-                    // ancestor's payload, not the head block's.
-                    let chain = self.clone();
-                    let fork_choice_update_result = self
-                        .spawn_blocking_handle(
-                            move || chain.on_execution_layer_validated_payload(head_hash),
-                            "update_execution_engine_valid_payload",
-                        )
-                        .await?;
-                    if let Err(e) = fork_choice_update_result {
-                        error!(
-                            error= ?e,
-                            "Failed to validate payload"
-                        )
-                    };
+                    // EIP-8025: with execution proofs deciding payload validity, this verdict is not
+                    // what promotes a payload.
+                    if !self.execution_proofs_enabled() {
+                        // Ensure that fork choice knows that the payload is no longer optimistic. The
+                        // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
+                        // ancestor's payload, not the head block's.
+                        let chain = self.clone();
+                        let fork_choice_update_result = self
+                            .spawn_blocking_handle(
+                                move || {
+                                    chain
+                                        .canonical_head
+                                        .fork_choice_write_lock()
+                                        .on_valid_execution_payload(head_hash)
+                                },
+                                "update_execution_engine_valid_payload",
+                            )
+                            .await?;
+                        if let Err(e) = fork_choice_update_result {
+                            error!(
+                                error= ?e,
+                                "Failed to validate payload"
+                            )
+                        };
+                    }
                     Ok(())
                 }
                 // There's nothing to be done for a syncing response. If the block is already

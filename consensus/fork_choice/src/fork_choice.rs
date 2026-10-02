@@ -762,25 +762,6 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
-    /// Mark the payload of the block `block_root` valid, as judged by its EIP-8025 execution proofs.
-    pub fn on_valid_execution_payload_for_block(
-        &mut self,
-        block_root: Hash256,
-    ) -> Result<(), Error<T::Error>> {
-        let Some(block) = self.get_block(&block_root) else {
-            return Ok(());
-        };
-
-        match block.execution_status {
-            ExecutionStatus::Optimistic(block_hash) => self.on_valid_execution_payload(block_hash),
-            // Settled either way, pre-merge, or not revealed yet, which the import validates.
-            ExecutionStatus::Valid(_)
-            | ExecutionStatus::Invalid(_)
-            | ExecutionStatus::Irrelevant(_)
-            | ExecutionStatus::NotYetRevealed(_) => Ok(()),
-        }
-    }
-
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
@@ -1688,13 +1669,6 @@ where
         } else {
             ParentImportStatus::UnknownBlock
         }
-    }
-
-    /// See `ProtoArray::is_gloas_payload` for documentation.
-    pub fn is_gloas_payload(&self, block_hash: ExecutionBlockHash) -> bool {
-        self.proto_array
-            .core_proto_array()
-            .is_gloas_payload(&block_hash)
     }
 
     /// Returns `true` if fork choice has marked the execution payload `block_hash` invalid.

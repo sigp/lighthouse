@@ -2256,17 +2256,6 @@ impl ProtoArray {
             .collect()
     }
 
-    /// Returns `true` if a Gloas block commits to the execution payload `block_hash`.
-    pub fn is_gloas_payload(&self, block_hash: &ExecutionBlockHash) -> bool {
-        self.execution_block_hash_to_node_indices(block_hash)
-            .into_iter()
-            .filter_map(|index| self.nodes.get(index))
-            .any(|node| match node {
-                ProtoNode::V17(_) => false,
-                ProtoNode::V29(_) => true,
-            })
-    }
-
     /// Returns `true` if fork choice has marked the execution payload `block_hash` invalid.
     pub fn is_payload_invalid(&self, block_hash: &ExecutionBlockHash) -> bool {
         self.execution_block_hash_to_node_indices(block_hash)
