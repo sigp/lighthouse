@@ -529,6 +529,7 @@ async fn fcr_restarts_after_finalization_without_head_change() {
             .as_ref()
             .unwrap()
             .lock()
+            .fcr
             .confirmed_root,
         new_head.finalized_checkpoint().root
     );
@@ -5347,7 +5348,7 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
         )
         .await;
 
-    let min_version = SchemaVersion(30);
+    let min_version = SchemaVersion(28);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
