@@ -31,7 +31,7 @@ DEBUG FCR restored a root confirmed before the restart  root: 0xcdfb8947cf88870b
 
 At the first epoch boundary after the restart, the following logs are usually seen:
 
-``` 
+```text
 DEBUG FCR fell back to finalized                    prev_confirmed: 0x1f92a52bf914720564776a1a392a7e10ed7cd998141fbcbd708622ba8ff5cc0d, finalized: 0xb8dfdf0b53d01b5197c058bf6b23891a826a5d3f606da195b4b71d4ad78891e1, slot: 4052704, reason: "epoch_too_old"
 DEBUG FCR restarted from observed justified         prev_confirmed: 0xb8dfdf0b53d01b5197c058bf6b23891a826a5d3f606da195b4b71d4ad78891e1, justified: 0xd5b68e49a23eced36dc5693374660aaf63d707a88efb0d52363c4d10795034a4, justified_epoch: 126646
 ```
