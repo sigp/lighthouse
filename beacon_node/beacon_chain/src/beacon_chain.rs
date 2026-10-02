@@ -6636,6 +6636,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .contains_block(root)
     }
 
+    /// Returns the finalized epoch, or the unaligned anchor's epoch until its payload arrives.
+    pub fn range_sync_start_epoch(&self) -> Epoch {
+        let fork_choice = self.canonical_head.fork_choice_read_lock();
+        let finalized_checkpoint = fork_choice.finalized_checkpoint();
+        match fork_choice.get_block(&finalized_checkpoint.root) {
+            Some(block)
+                if block.execution_payload_block_hash.is_some()
+                    && block.slot.epoch(T::EthSpec::slots_per_epoch())
+                        < finalized_checkpoint.epoch
+                    && !fork_choice.is_payload_received(&finalized_checkpoint.root) =>
+            {
+                block.slot.epoch(T::EthSpec::slots_per_epoch())
+            }
+            _ => finalized_checkpoint.epoch,
+        }
+    }
+
     pub fn envelope_is_known_to_fork_choice(&self, root: &Hash256) -> bool {
         self.canonical_head
             .fork_choice_read_lock()
