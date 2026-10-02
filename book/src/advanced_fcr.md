@@ -23,7 +23,7 @@ DEBUG FCR advanced                                  confirmed: 0xd97ec7d7bfdf842
 
 where `confirmed` is the block root of the most recent confirmed slot and `prev` is the block root of the previously confirmed slot. If there is a skipped slot, the next block will take a longer time to confirm. The above log will not be observed if the beacon node is syncing or the execution engine is syncing or offline, indicating that no new block has been confirmed.
 
-After a restart of Lighthouse, the following logs will usually be seen:
+After a restart of Lighthouse, the following log is usually seen:
 
 ```text
 DEBUG FCR restored a root confirmed before the restart  root: 0xcdfb8947cf88870b6e4721f27f7470f07478644419d6347fa01f871b00b25ca2
