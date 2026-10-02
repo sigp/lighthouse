@@ -256,8 +256,7 @@ mod tests {
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
     use bls::Keypair;
     use eth2::types::GraffitiPolicy;
-    use execution_layer::EngineCapabilities;
-    use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
+    use execution_layer::test_utils::DEFAULT_CLIENT_VERSION;
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::time::Duration;
@@ -293,12 +292,7 @@ mod tests {
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
         // modify execution engine so it doesn't support engine_getClientVersionV1 method
         let mock_execution_layer = harness.mock_execution_layer.as_ref().unwrap();
-        mock_execution_layer
-            .server
-            .set_engine_capabilities(EngineCapabilities {
-                get_client_version_v1: false,
-                ..DEFAULT_ENGINE_CAPABILITIES
-            });
+        mock_execution_layer.server.disable_client_version();
         // refresh capabilities cache
         harness
             .chain

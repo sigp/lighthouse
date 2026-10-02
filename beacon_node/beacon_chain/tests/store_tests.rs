@@ -4149,6 +4149,7 @@ fn assert_anchor_data_restored(
     );
 }
 
+#[allow(clippy::large_stack_frames)]
 async fn weak_subjectivity_sync_test(
     slots: Vec<Slot>,
     checkpoint_slot: Slot,

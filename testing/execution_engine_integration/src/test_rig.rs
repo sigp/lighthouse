@@ -340,6 +340,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 Hash256::zero(),
                 head_payload_status,
                 &[],
+                TEST_FORK,
             )
             .await
             .unwrap();
@@ -423,6 +424,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 head_block_root,
                 head_payload_status,
                 &[],
+                TEST_FORK,
             )
             .await
             .unwrap();
@@ -466,6 +468,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 head_block_root,
                 head_payload_status,
                 &[],
+                TEST_FORK,
             )
             .await
             .unwrap();
@@ -624,6 +627,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 head_block_root,
                 head_payload_status,
                 &[],
+                TEST_FORK,
             )
             .await
             .unwrap();
@@ -663,6 +667,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 head_block_root,
                 head_payload_status,
                 &[],
+                TEST_FORK,
             )
             .await
             .unwrap();
@@ -718,6 +723,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 head_block_root,
                 head_payload_status,
                 &[],
+                TEST_FORK,
             )
             .await
             .unwrap();
@@ -740,14 +746,14 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
         .unwrap();
 
     assert!(
-        // if the engine doesn't have this capability, we need to update the client in our tests
-        capabilities.get_payload_bodies_by_hash_v1,
+        // if the engine doesn't have these capabilities, we need to update the client in our tests
+        capabilities.get_payload_bodies_by_hash_v1(TEST_FORK),
         "Testing engine does not support payload bodies by hash"
     );
 
     let mut bodies = ee
         .execution_layer
-        .get_payload_bodies_by_hash(vec![payload.block_hash()])
+        .get_payload_bodies_by_hash_v1(TEST_FORK, vec![payload.block_hash()])
         .await
         .unwrap();
     assert_eq!(bodies.len(), 1);

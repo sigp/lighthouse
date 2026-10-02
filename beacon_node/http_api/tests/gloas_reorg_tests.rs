@@ -514,8 +514,6 @@ pub async fn proposer_boost_re_org_test(
         .lock()
         .set_forkchoice_updated_hook(Box::new(move |state, payload_attributes| {
             let received_at = chain_inner.slot_clock.now_duration().unwrap();
-            let state = ForkchoiceState::from(state);
-            let payload_attributes = payload_attributes.map(Into::into);
             let update = ForkChoiceUpdateMetadata {
                 received_at,
                 state,
