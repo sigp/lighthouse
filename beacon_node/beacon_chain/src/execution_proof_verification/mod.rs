@@ -2,7 +2,7 @@
 
 use crate::BeaconChainError;
 use proof_engine::ProofEngineError;
-use types::{Hash256, Slot};
+use types::{ExecutionBlockHash, Hash256, Slot};
 
 pub mod gossip_verified_execution_proof;
 pub mod observed_execution_proofs;
@@ -44,6 +44,10 @@ pub enum Error {
     },
     /// `proof_data` is empty (REJECT).
     EmptyProofData,
+    /// The proof's public input is not the payload the block committed to (REJECT).
+    PayloadMismatch {
+        proof_block_hash: ExecutionBlockHash,
+    },
     /// The validator index does not exist (REJECT).
     UnknownValidatorIndex(u64),
     /// The validator is not active at the referenced block's epoch (REJECT).

@@ -860,7 +860,8 @@ where
                 proof_data: ProofData::new(vec![1]).expect("proof data"),
                 proof_type,
                 public_input: PublicInput {
-                    new_payload_request_root: Hash256::random(),
+                    block_hash: ExecutionBlockHash::zero(),
+                    parent_hash: ExecutionBlockHash::zero(),
                 },
                 beacon_block_root: block_root,
             },
