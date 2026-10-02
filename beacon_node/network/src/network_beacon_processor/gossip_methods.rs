@@ -3164,21 +3164,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 /*
                  * The attestation references a head block that is too far behind the attestation slot.
                  *
-                 * The message is not necessarily invalid, but we choose to ignore it.
+                 * This exceeds our local `--max-skip-slots` limit. The peer is not necessarily faulty.
                  */
                 debug!(
                     %head_block_slot,
                     %attestation_slot,
-                    "Rejected long skip slot attestation"
+                    "Ignored long skip slot attestation"
                 );
-                // In this case we wish to penalize gossipsub peers that do this to avoid future
-                // attestations that have too many skip slots.
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::MidToleranceError,
-                    "attn_too_many_skipped_slots",
-                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             AttnError::HeadBlockFinalized { beacon_block_root } => {
                 debug!(
