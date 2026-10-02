@@ -32,6 +32,7 @@ use peerdb::score::{PeerAction, ReportSource};
 pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::net::IpAddr;
+use std::str::FromStr;
 use strum::IntoEnumIterator;
 use types::data::{CustodyIndex, compute_subnets_from_custody_group, get_custody_groups};
 
@@ -504,6 +505,12 @@ impl<E: EthSpec> PeerManager<E> {
             let previous_listening_addresses =
                 peer_info.set_listening_addresses(info.listen_addrs.clone());
             peer_info.set_client(peerdb::client::Client::from_identify_info(info));
+            peer_info.set_supported_protocols(
+                info.protocols
+                    .iter()
+                    .filter_map(|protocol| rpc_protocol_from_id(protocol.as_ref()))
+                    .collect(),
+            );
 
             if previous_kind != peer_info.client().kind
                 || *peer_info.listening_addresses() != previous_listening_addresses
@@ -1565,6 +1572,7 @@ impl<E: EthSpec> PeerManager<E> {
     // Update peer count related metrics.
     fn update_peer_count_metrics(&self) {
         let mut peers_connected = 0;
+        let mut peers_supporting_blocks_by_head: i64 = 0;
         let mut clients_per_peer = HashMap::new();
         let mut inbound_ipv4_peers_connected: usize = 0;
         let mut inbound_ipv6_peers_connected: usize = 0;
@@ -1573,6 +1581,10 @@ impl<E: EthSpec> PeerManager<E> {
 
         for (_, peer_info) in self.network_globals.peers.read().connected_peers() {
             peers_connected += 1;
+
+            if peer_info.supports_protocol(Protocol::BlocksByHead) {
+                peers_supporting_blocks_by_head += 1;
+            }
 
             *clients_per_peer
                 .entry(peer_info.client().kind.to_string())
@@ -1633,6 +1645,12 @@ impl<E: EthSpec> PeerManager<E> {
 
         // PEERS_CONNECTED
         metrics::set_gauge(&metrics::PEERS_CONNECTED, peers_connected);
+
+        // PEERS_SUPPORTING_BLOCKS_BY_HEAD
+        metrics::set_gauge(
+            &metrics::PEERS_SUPPORTING_BLOCKS_BY_HEAD,
+            peers_supporting_blocks_by_head,
+        );
 
         // CUSTODY_GROUP_COUNT
         for (custody_group_count, peer_count) in peers_per_custody_group_count.into_iter() {
@@ -1723,12 +1741,32 @@ enum ConnectingType {
     },
 }
 
+/// Parses a libp2p protocol id of the form `/eth2/beacon_chain/req/<name>/<version>/<encoding>`
+/// into the corresponding ReqResp [`Protocol`], returning `None` for non-ReqResp protocols.
+fn rpc_protocol_from_id(protocol_id: &str) -> Option<Protocol> {
+    protocol_id
+        .strip_prefix("/eth2/beacon_chain/req/")
+        .and_then(|rest| rest.split('/').next())
+        .and_then(|name| Protocol::from_str(name).ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::NetworkConfig;
     use crate::rpc::MetaDataV3;
     use types::{ChainSpec, ForkName, MainnetEthSpec as E};
+
+    #[test]
+    fn rpc_protocol_from_id_parses_reqresp_protocols() {
+        // A known ReqResp protocol is parsed from its name segment.
+        assert_eq!(
+            rpc_protocol_from_id("/eth2/beacon_chain/req/beacon_blocks_by_head/1/ssz_snappy"),
+            Some(Protocol::BlocksByHead)
+        );
+        // Non-ReqResp protocols are ignored.
+        assert_eq!(rpc_protocol_from_id("/meshsub/1.1.0"), None);
+    }
 
     async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
         build_peer_manager_with_trusted_peers(vec![], target_peer_count).await
