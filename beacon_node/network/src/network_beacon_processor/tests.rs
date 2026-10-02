@@ -1969,6 +1969,77 @@ async fn rpc_columns_notify_after_deferred_block_import() {
     );
 }
 
+/// Before Gloas, column reconstruction completes a block import and should notify the
+/// reprocessing queue with `BlockImported`.
+#[tokio::test]
+async fn reconstructed_columns_notify_after_deferred_block_import() {
+    use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
+    use types::BlockImportSource;
+
+    let spec = test_spec::<E>();
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
+        return;
+    }
+
+    let rig = TestRig::new_supernode(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+    let slot = rig.next_block.slot();
+
+    let block_result = rig
+        .chain
+        .process_block(
+            block_root,
+            LookupBlock::new(rig.next_block.clone()),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await;
+    assert_matches!(
+        block_result,
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, pending_root))
+            if pending_root == block_root
+    );
+
+    let mut partial_columns = rig
+        .next_data_columns
+        .clone()
+        .expect("the next block should have data columns pre-Gloas");
+    partial_columns.truncate(E::number_of_columns() / 2);
+    let partial_result = rig
+        .chain
+        .process_rpc_custody_columns(partial_columns)
+        .await;
+    assert_matches!(
+        partial_result,
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, pending_root))
+            if pending_root == block_root
+    );
+
+    let (processor, mut beacon_processor_rx) = rig.processor_with_reprocess_receiver();
+    processor
+        .attempt_data_column_reconstruction(slot, block_root)
+        .await;
+
+    assert!(
+        rig.chain.is_block_data_imported(block_root, slot),
+        "reconstruction should import the block"
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Ok(WorkEvent {
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
+                block_root: notified_root
+            }),
+            ..
+        }) if notified_root == block_root
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    );
+}
+
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
 #[tokio::test]
