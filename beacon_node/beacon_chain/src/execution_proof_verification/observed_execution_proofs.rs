@@ -2,9 +2,6 @@
 //! that we have already seen over the gossip network.
 //! Only proofs that have completed signature verification can be added to this cache to reduce
 //! DoS risks.
-//!
-//! The proof types it records as valid are also what makes a Gloas payload valid, by way of
-//! `BeaconChain::execution_proofs_satisfied`.
 
 use std::collections::{HashMap, HashSet};
 use types::execution::ProofType;
@@ -105,9 +102,8 @@ impl ObservedExecutionProofs {
 
     /// Record that a proof for `(block_root, proof_type)` was verified by the proof engine.
     ///
-    /// `observe_signature_verified_proof` created the entry before the proof reached the engine, so
-    /// it is missing only if finalization pruned it while the engine was answering, after which the
-    /// block takes no further proofs anyway.
+    /// The entry always exists: a proof only reaches the proof engine after
+    /// `observe_signature_verified_proof`.
     pub fn observe_valid_proof(&mut self, block_root: Hash256, proof_type: ProofType) {
         if let Some(entry) = self.items.get_mut(&block_root) {
             entry.valid_proof_types.insert(proof_type);

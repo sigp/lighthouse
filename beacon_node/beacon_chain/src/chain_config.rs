@@ -112,9 +112,8 @@ pub struct ChainConfig {
     /// Disable proposer re-org
     pub disable_proposer_reorg: bool,
     /// Verify the recomputed execution block hash of Gloas payload envelopes wherever the EL is not
-    /// consulted: historical backfill, and every envelope on a node with a proof engine. Nothing
-    /// else ties a payload's body to its claimed block hash there, so this is the only such check.
-    /// Disabled in test harnesses whose mock EL produces synthetic block hashes.
+    /// consulted: historical backfill, and every envelope on a node with a proof engine. Disabled in
+    /// test harnesses whose mock EL produces synthetic block hashes.
     pub verify_envelope_payload_hash_in_backfill: bool,
 }
 

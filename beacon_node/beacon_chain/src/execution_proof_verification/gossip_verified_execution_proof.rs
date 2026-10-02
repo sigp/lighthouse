@@ -60,8 +60,7 @@ impl GossipVerifiedExecutionProof {
             })?;
         let block_slot = proto_block.slot;
 
-        // [REJECT] The referenced block is a Gloas block. Only a Gloas payload is proven, so a
-        // proof naming a pre-Gloas block proves nothing and must not be counted for one.
+        // [REJECT] The block is a Gloas one. Only a Gloas payload is proven.
         if !ctx
             .spec
             .fork_name_at_slot::<T::EthSpec>(block_slot)

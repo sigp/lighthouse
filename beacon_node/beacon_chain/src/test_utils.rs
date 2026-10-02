@@ -613,9 +613,8 @@ where
         self
     }
 
-    /// Run with an EIP-8025 proof engine, which makes the proofs a Gloas payload's validity: the
-    /// payload is never sent to the execution layer and waits on its proofs. The engine is never
-    /// contacted; `observe_execution_proof` stands in for gossip verification.
+    /// Run with an EIP-8025 proof engine, which makes the proofs a payload's validity. The engine
+    /// is never contacted; `observe_execution_proof` stands in for gossip verification.
     pub fn proof_engine(mut self) -> Self {
         let url = SensitiveUrl::parse("http://127.0.0.1:0").expect("valid proof engine url");
         self.proof_engine = Some(Arc::new(
@@ -848,8 +847,8 @@ where
         Builder::new(eth_spec_instance)
     }
 
-    /// Record a valid EIP-8025 execution proof for `block_root` and hand it to the chain, standing
-    /// in for gossip verification, which a test cannot run without a reachable proof engine.
+    /// Record a valid execution proof for `block_root` and hand it to the chain, as gossip
+    /// verification would.
     pub async fn observe_execution_proof(
         &self,
         block_root: Hash256,

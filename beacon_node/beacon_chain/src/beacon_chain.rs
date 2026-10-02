@@ -4232,21 +4232,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Whether EIP-8025 execution proofs decide payload validity on this node, which needs a proof
-    /// engine to verify them. With one, a Gloas payload is never sent to the execution layer.
+    /// Whether EIP-8025 proofs decide payload validity here, which takes a proof engine.
     pub(crate) fn execution_proofs_enabled(&self) -> bool {
         self.proof_engine.is_some()
     }
 
-    /// Whether `block_root`'s payload has valid proofs from as many distinct proof systems as we
-    /// require, which is what makes it valid.
+    /// Whether `block_root`'s payload has proofs from as many proof systems as we require.
     ///
-    /// Proofs are recursive, so a payload's own proofs are all we ask for, never its ancestors'.
-    ///
-    /// TODO(9658): a proof names the block whose payload it claims to prove, and nothing here checks
-    /// that its `new_payload_request_root` is the one that block's envelope asks the execution layer
-    /// for. Until something does, a proof of another payload carrying this block's root counts.
-    /// https://github.com/sigp/lighthouse/issues/9658
+    /// TODO(9658): nothing checks that a proof's public input is this payload, so a proof of another
+    /// payload carrying this block's root counts. https://github.com/sigp/lighthouse/issues/9658
     pub(crate) fn execution_proofs_satisfied(&self, block_root: &Hash256) -> bool {
         self.observed_execution_proofs
             .read()
@@ -4254,10 +4248,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             >= REQUIRED_EXECUTION_PROOFS
     }
 
-    /// Record a gossip-verified execution proof, validating its payload if the proof was the last
-    /// one its requirement needed.
-    ///
-    /// Gossip verification has already counted the proof, so this only acts on what it completed.
+    /// Act on a gossip-verified execution proof, which verification has already counted.
     pub async fn process_execution_proof(
         self: &Arc<Self>,
         verified_proof: &GossipVerifiedExecutionProof,
@@ -4282,10 +4273,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         .await?
     }
 
-    /// The execution layer called the payload `payload_block_hash` valid.
-    ///
-    /// A Gloas payload's validity is its EIP-8025 proofs, so this verdict does not promote one. It
-    /// still promotes a pre-Gloas payload, whose execution the execution layer alone judges.
+    /// The execution layer called the payload `payload_block_hash` valid, which promotes a
+    /// pre-Gloas payload only: a Gloas payload's validity is its proofs.
     fn on_execution_layer_validated_payload(
         &self,
         payload_block_hash: ExecutionBlockHash,
@@ -7062,9 +7051,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // Ensure that fork choice knows that the payload is no longer optimistic. The
                     // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
                     // ancestor's payload, not the head block's.
-                    //
-                    // A Gloas payload's validity is its execution proofs, so this verdict does not
-                    // promote one. `on_execution_layer_validated_payload` holds it back.
                     let chain = self.clone();
                     let fork_choice_update_result = self
                         .spawn_blocking_handle(

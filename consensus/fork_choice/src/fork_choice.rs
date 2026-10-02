@@ -763,13 +763,8 @@ where
     }
 
     /// Mark the payload of the block `block_root` valid, promoting it and every payload its branch
-    /// executed below it.
-    ///
-    /// Unlike `on_valid_execution_payload`, another block committing to the same payload is left as
-    /// it is. EIP-8025 execution proofs commit to a beacon block root, so a block whose own proofs
-    /// are not in stays optimistic.
-    ///
-    /// Does nothing if the block is unknown, or if its payload needs no promotion.
+    /// executed below it. Unlike `on_valid_execution_payload`, another block committing to the same
+    /// payload is left as it is, since EIP-8025 proofs commit to a beacon block root.
     pub fn on_valid_execution_payload_for_block(
         &mut self,
         block_root: Hash256,
@@ -779,13 +774,11 @@ where
         };
 
         match block.execution_status {
-            // The payload is in fork choice and unpromoted, the only case with work to do.
             ExecutionStatus::Optimistic(_) => self
                 .proto_array
                 .process_execution_payload_validation_for_block(block_root)
                 .map_err(Error::FailedToProcessValidExecutionPayload),
-            // Nothing to promote: the payload is settled either way, is pre-merge, or its envelope
-            // has not arrived, in which case its import is what validates it.
+            // Settled either way, pre-merge, or not revealed yet, which the import validates.
             ExecutionStatus::Valid(_)
             | ExecutionStatus::Invalid(_)
             | ExecutionStatus::Irrelevant(_)
@@ -1702,7 +1695,7 @@ where
         }
     }
 
-    /// Returns `true` if a Gloas block commits to the execution payload `block_hash`.
+    /// See `ProtoArray::is_gloas_payload` for documentation.
     pub fn is_gloas_payload(&self, block_hash: ExecutionBlockHash) -> bool {
         self.proto_array
             .core_proto_array()

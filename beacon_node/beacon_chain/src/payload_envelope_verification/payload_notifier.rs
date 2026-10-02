@@ -12,8 +12,7 @@ use crate::{
     payload_envelope_verification::{EnvelopeError, verify_envelope_payload_hash},
 };
 
-/// Used to await the result of executing payload with a remote EE, or, on a node whose execution
-/// proofs decide validity, to skip it.
+/// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
@@ -28,13 +27,9 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, EnvelopeError> {
-        // EIP-8025: the execution proofs are this payload's validity, so it is never sent to the
-        // execution layer. It is received optimistically and the proof that completes its
-        // requirement promotes it.
+        // EIP-8025: the proofs are this payload's validity, so the execution layer is not asked.
         if chain.execution_proofs_enabled() {
-            // Nothing else recomputes the payload's block hash once the execution layer is out of
-            // the picture, so do it here. The flag is off for a mock execution layer, whose
-            // synthetic hashes cannot survive the recompute.
+            // Nothing else recomputes the block hash with the execution layer out of the picture.
             if chain.config.verify_envelope_payload_hash_in_backfill {
                 verify_envelope_payload_hash(&envelope, &block)?;
             }

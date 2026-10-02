@@ -639,9 +639,8 @@ async fn import_envelope(
     slot: Slot,
     signed_envelope: SignedExecutionPayloadEnvelope<E>,
 ) {
-    // A node with a proof engine never sends a payload to its execution layer, so the harness does
-    // it here: without it the mock cannot build on this payload and the next slot has no bid to
-    // propose. A real such node cannot propose for exactly this reason.
+    // A proof engine node never sends its payloads to the execution layer, which is why it cannot
+    // propose. The harness does, or it could not build the next block.
     if harness.chain.proof_engine.is_some() {
         harness
             .execution_block_generator()
@@ -764,8 +763,7 @@ async fn a_later_valid_payload_promotes_its_optimistic_ancestors() {
     );
 }
 
-/// EIP-8025: a payload the node cannot prove yet is held as optimistic. The proof that completes the
-/// requirement promotes it to valid.
+/// A payload the node cannot prove yet is optimistic until the proof that completes its requirement.
 #[tokio::test]
 async fn execution_proofs_validate_an_optimistic_payload() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
@@ -803,8 +801,7 @@ async fn execution_proofs_validate_an_optimistic_payload() {
     );
 }
 
-/// Proofs are recursive, so one proven payload validates every payload below it. An optimistic
-/// ancestor does not need proofs of its own, and the node never fetches old proofs.
+/// Proofs are recursive, so one proven payload validates every payload below it.
 #[tokio::test]
 async fn a_proven_payload_validates_its_optimistic_ancestors() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {

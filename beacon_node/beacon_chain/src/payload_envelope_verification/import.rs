@@ -248,11 +248,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // avoiding taking other locks whilst holding this lock.
         let mut fork_choice = fork_choice_reader.upgrade();
 
-        // EIP-8025: the execution proofs are this payload's validity, and the execution layer was
-        // never asked. An unproven payload is received optimistically and its last proof promotes it.
-        //
-        // Read under the fork choice lock so that a proof completing right now either sees the
-        // payload in fork choice and promotes it, or is read here.
+        // EIP-8025: the proofs are this payload's validity, so an unproven one is received
+        // optimistically. Read under the fork choice lock, or a proof completing now is missed by
+        // both this and `process_execution_proof`.
         let payload_verification_status = if self.execution_proofs_enabled() {
             if self.execution_proofs_satisfied(&block_root) {
                 PayloadVerificationStatus::Verified

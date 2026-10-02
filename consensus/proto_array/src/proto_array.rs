@@ -920,9 +920,6 @@ impl ProtoArray {
 
     /// The payload of the block `block_root` is valid. Promotes it and every payload its branch
     /// executed, leaving any other block that commits to the same payload alone.
-    ///
-    /// Returns an error if the block is unknown, or if any of the to-be-validated payloads are
-    /// already invalid.
     pub fn propagate_execution_payload_validation_for_block(
         &mut self,
         block_root: Hash256,
@@ -2282,8 +2279,7 @@ impl ProtoArray {
             .collect()
     }
 
-    /// Returns `true` if a Gloas block commits to the execution payload `block_hash`, meaning the
-    /// payload is one that EIP-8025 execution proofs can prove.
+    /// Returns `true` if a Gloas block commits to the execution payload `block_hash`.
     pub fn is_gloas_payload(&self, block_hash: &ExecutionBlockHash) -> bool {
         self.execution_block_hash_to_node_indices(block_hash)
             .into_iter()
