@@ -1251,7 +1251,7 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
 
     let response =
         post_validator_duties_attester(duties_service, epoch, initial_indices_to_request).await?;
-    let dependent_root = response.dependent_root;
+    let probe_dependent_root = response.dependent_root;
 
     // Find any validators which have conflicting (epoch, dependent_root) values or missing duties for the epoch.
     let validators_to_update: Vec<_> = {
@@ -1263,7 +1263,7 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
                 attesters.get(pubkey).is_none_or(|duties| {
                     duties
                         .get(&epoch)
-                        .is_none_or(|(prior, _)| *prior != dependent_root)
+                        .is_none_or(|(prior, _)| *prior != probe_dependent_root)
                 })
             })
             .collect::<Vec<_>>()
@@ -1274,29 +1274,51 @@ async fn poll_beacon_attesters_for_epoch<S: ValidatorStore + 'static, T: SlotClo
         return Ok(());
     }
 
-    // Make a request for all indices that require updating which we have not already made a request
-    // for.
-    let indices_to_request = validators_to_update
+    let indices_needing_refresh: Vec<_> = validators_to_update
         .iter()
         .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
-        .filter(|validator_index| !initial_indices_to_request.contains(validator_index))
-        .collect::<Vec<_>>();
+        .collect();
+
+    // If the probe did not cover every validator that needs updating, fetch them all in one
+    // request. Do not merge with the probe response: the two requests may observe different
+    // dependent roots (fallback BN or re-org between calls).
+    let needs_coherent_refresh = indices_needing_refresh
+        .iter()
+        .any(|index| !initial_indices_to_request.contains(index));
 
     // Filter the initial duties by their relevance so that we don't hit the warning below about
     // overwriting duties. There was previously a bug here.
-    let new_initial_duties = response
+    let probe_duties = response
         .data
         .into_iter()
-        .filter(|duty| validators_to_update.contains(&&duty.pubkey));
+        .filter(|duty| validators_to_update.contains(&&duty.pubkey))
+        .collect::<Vec<_>>();
 
-    let mut new_duties = if !indices_to_request.is_empty() {
-        post_validator_duties_attester(duties_service, epoch, indices_to_request.as_slice())
-            .await?
+    let bulk = if needs_coherent_refresh {
+        let bulk_response = post_validator_duties_attester(
+            duties_service,
+            epoch,
+            indices_needing_refresh.as_slice(),
+        )
+        .await?;
+        if bulk_response.dependent_root != probe_dependent_root {
+            debug!(
+                probe_dependent_root = %probe_dependent_root,
+                bulk_dependent_root = %bulk_response.dependent_root,
+                "Attester duty dependent_root mismatch"
+            );
+        }
+        let bulk_duties = bulk_response
             .data
+            .into_iter()
+            .filter(|duty| validators_to_update.contains(&&duty.pubkey))
+            .collect::<Vec<_>>();
+        Some((bulk_response.dependent_root, bulk_duties))
     } else {
-        vec![]
+        None
     };
-    new_duties.extend(new_initial_duties);
+
+    let (dependent_root, new_duties) = duties_to_commit(probe_dependent_root, probe_duties, bulk);
 
     drop(fetch_timer);
 
@@ -1973,39 +1995,55 @@ where
         &local_indices[0..min(INITIAL_DUTIES_QUERY_SIZE, local_indices.len())];
 
     let response = fetch_duties(epoch, initial_indices_to_request.to_vec()).await?;
-    let dependent_root = response.dependent_root;
+    let probe_dependent_root = response.dependent_root;
 
     // Check if we need to update duties for this epoch.
     // We update if we have no epoch data OR if the dependent_root changed.
     let needs_update = duties_map.read().get(&epoch).is_none_or(|(prior_root, _)| {
         // Update if dependent_root changed
-        *prior_root != dependent_root
+        *prior_root != probe_dependent_root
     });
 
     if !needs_update {
         // No validators have conflicting (epoch, dependent_root) values for this epoch.
         return Ok(());
     }
-    // Make a request for all indices that require updating which we have not already made a request for.
-    let indices_to_request = local_indices
-        .iter()
-        .filter(|validator_index| !initial_indices_to_request.contains(validator_index))
-        .copied()
-        .collect::<Vec<_>>();
 
-    // Filter the initial duties by their relevance so that we don't hit warnings about
-    // overwriting duties.
-    let new_initial_duties = response
+    // If the probe did not cover every local validator, fetch them all in one request.
+    // Do not merge with the probe response: the two requests may observe different
+    // dependent roots (fallback BN or re-org between calls).
+    let indices_needing_refresh = local_indices.to_vec();
+    let needs_coherent_refresh = indices_needing_refresh
+        .iter()
+        .any(|index| !initial_indices_to_request.contains(index));
+
+    let probe_duties = response
         .data
         .into_iter()
-        .filter(|duty| local_pubkeys.contains(&duty.pubkey()));
+        .filter(|duty| local_pubkeys.contains(&duty.pubkey()))
+        .collect::<Vec<_>>();
 
-    let mut new_duties = if !indices_to_request.is_empty() {
-        fetch_duties(epoch, indices_to_request).await?.data
+    let bulk = if needs_coherent_refresh {
+        let bulk_response = fetch_duties(epoch, indices_needing_refresh).await?;
+        if bulk_response.dependent_root != probe_dependent_root {
+            debug!(
+                duty = D::NAME,
+                probe_dependent_root = %probe_dependent_root,
+                bulk_dependent_root = %bulk_response.dependent_root,
+                "Duty dependent_root mismatch"
+            );
+        }
+        let bulk_duties = bulk_response
+            .data
+            .into_iter()
+            .filter(|duty| local_pubkeys.contains(&duty.pubkey()))
+            .collect::<Vec<_>>();
+        Some((bulk_response.dependent_root, bulk_duties))
     } else {
-        vec![]
+        None
     };
-    new_duties.extend(new_initial_duties);
+
+    let (dependent_root, new_duties) = duties_to_commit(probe_dependent_root, probe_duties, bulk);
 
     drop(fetch_timer);
 
@@ -2042,6 +2080,21 @@ where
     }
 
     Ok(())
+}
+
+/// Select which duties response to store after the probe.
+///
+/// If `bulk` is `Some`, use it alone. Never merge with `probe_duties`: the two requests may
+/// observe different dependent roots.
+fn duties_to_commit<T>(
+    probe_root: Hash256,
+    probe_duties: Vec<T>,
+    bulk: Option<(Hash256, Vec<T>)>,
+) -> (Hash256, Vec<T>) {
+    match bulk {
+        None => (probe_root, probe_duties),
+        Some((bulk_root, bulk_duties)) => (bulk_root, bulk_duties),
+    }
 }
 
 /// Download the lookahead duties for the current and next epoch, store them in `duties_map`,
@@ -2249,6 +2302,60 @@ mod test {
         assert!(subscription_slots.should_send_subscription_at(current_slot + 1),);
     }
 
+    #[test]
+    fn duties_to_commit_uses_probe_when_no_bulk() {
+        let probe_root = Hash256::repeat_byte(1);
+        let probe_duties = vec![1u64, 2];
+
+        let (root, duties) = duties_to_commit(probe_root, probe_duties.clone(), None);
+
+        assert_eq!(root, probe_root);
+        assert_eq!(duties, probe_duties);
+    }
+
+    #[test]
+    fn duties_to_commit_uses_bulk_only_when_roots_match() {
+        let probe_root = Hash256::repeat_byte(1);
+        let bulk_root = probe_root;
+        let probe_duties = vec![1u64];
+        let bulk_duties = vec![2u64, 3];
+
+        let (root, duties) = duties_to_commit(
+            probe_root,
+            probe_duties,
+            Some((bulk_root, bulk_duties.clone())),
+        );
+
+        assert_eq!(root, bulk_root);
+        assert_eq!(duties, bulk_duties);
+        assert!(
+            !duties.contains(&1),
+            "probe duties must not be merged into bulk"
+        );
+    }
+
+    #[test]
+    fn duties_to_commit_uses_bulk_root_when_roots_differ() {
+        let probe_root = Hash256::repeat_byte(1);
+        let bulk_root = Hash256::repeat_byte(2);
+        let probe_duties = vec![1u64];
+        let bulk_duties = vec![2u64, 3];
+
+        let (root, duties) = duties_to_commit(
+            probe_root,
+            probe_duties,
+            Some((bulk_root, bulk_duties.clone())),
+        );
+
+        assert_eq!(root, bulk_root);
+        assert_ne!(root, probe_root);
+        assert_eq!(duties, bulk_duties);
+        assert!(
+            !duties.contains(&1),
+            "probe duties must not be merged into bulk"
+        );
+    }
+
     /// Generate `n` local validators' details, containing their indices and their pubkeys.
     fn local_validators(n: usize) -> (Vec<u64>, Vec<PublicKeyBytes>) {
         let indices = (0..n as u64).collect();
@@ -2348,8 +2455,8 @@ mod test {
         let map = duties_map.read();
         let (dependent_root, duties) = map.get(&epoch).expect("should have duties for epoch");
         assert_eq!(*dependent_root, expected_dependent_root);
-        // the duties map stores probe + the full-fetch results concatenated,
-        // so we need to sort the stored duties before comparing
+        // Probe duties are dropped when a bulk fetch is required, so the stored
+        // duties are exactly the full local set for the bulk response's root.
         assert_eq!(sorted(duties), expected_duties);
     }
 
