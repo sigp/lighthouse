@@ -13,7 +13,7 @@ use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use bls::PublicKeyBytes;
 use eth2::types::{
     AttesterData, BeaconCommitteeSelection, BeaconCommitteeSubscription, DutiesResponse,
-    ProposerData, PtcDuty, StateId, ValidatorId,
+    InclusionListDuty, ProposerData, PtcDuty, StateId, ValidatorId,
 };
 use futures::{
     StreamExt,
@@ -21,6 +21,7 @@ use futures::{
 };
 use parking_lot::{RwLock, RwLockWriteGuard};
 use safe_arith::{ArithError, SafeArith};
+use serde::{Serialize, de::DeserializeOwned};
 use slot_clock::SlotClock;
 use std::cmp::min;
 use std::collections::{BTreeMap, HashMap, HashSet, hash_map};
@@ -46,7 +47,6 @@ const VALIDATOR_METRICS_MIN_COUNT: usize = 64;
 /// The initial request is used to determine if further requests are required, so that it
 /// reduces the amount of data that needs to be transferred.
 const INITIAL_DUTIES_QUERY_SIZE: usize = 1;
-const INITIAL_PTC_DUTIES_QUERY_SIZE: usize = 1;
 
 /// Offsets from the attestation duty slot at which a subscription should be sent.
 const ATTESTATION_SUBSCRIPTION_OFFSETS: [u64; 8] = [3, 4, 5, 6, 7, 8, 16, 32];
@@ -85,6 +85,7 @@ pub enum Error<T> {
     UnableToReadSlotClock,
     FailedToDownloadAttesters(#[allow(dead_code)] String),
     FailedToDownloadPtc(#[allow(dead_code)] String),
+    FailedToDownloadInclusionListDuties(#[allow(dead_code)] String),
     FailedToProduceSelectionProof(#[allow(dead_code)] ValidatorStoreError<T>),
     InvalidModulo(#[allow(dead_code)] ArithError),
     Arith(#[allow(dead_code)] ArithError),
@@ -280,12 +281,51 @@ impl SubscriptionSlots {
     }
 }
 
+/// A duty that is known one epoch in advance and keyed by dependent root, so it can be polled
+/// for the current and next epoch with the same logic.
+trait LookaheadDuty: Serialize + DeserializeOwned {
+    /// Used in log messages.
+    const NAME: &'static str;
+    /// Task labels for the duties service timing metrics.
+    const FETCH_METRIC: &'static str;
+    const STORE_METRIC: &'static str;
+    const CURRENT_EPOCH_METRIC: &'static str;
+    const NEXT_EPOCH_METRIC: &'static str;
+
+    fn pubkey(&self) -> PublicKeyBytes;
+}
+
+impl LookaheadDuty for PtcDuty {
+    const NAME: &'static str = "PTC";
+    const FETCH_METRIC: &'static str = validator_metrics::UPDATE_PTC_FETCH;
+    const STORE_METRIC: &'static str = validator_metrics::UPDATE_PTC_STORE;
+    const CURRENT_EPOCH_METRIC: &'static str = validator_metrics::UPDATE_PTC_CURRENT_EPOCH;
+    const NEXT_EPOCH_METRIC: &'static str = validator_metrics::UPDATE_PTC_NEXT_EPOCH;
+
+    fn pubkey(&self) -> PublicKeyBytes {
+        self.pubkey
+    }
+}
+
+impl LookaheadDuty for InclusionListDuty {
+    const NAME: &'static str = "Inclusion List";
+    const FETCH_METRIC: &'static str = validator_metrics::UPDATE_IL_DUTIES_FETCH;
+    const STORE_METRIC: &'static str = validator_metrics::UPDATE_IL_DUTIES_STORE;
+    const CURRENT_EPOCH_METRIC: &'static str = validator_metrics::UPDATE_IL_DUTIES_CURRENT_EPOCH;
+    const NEXT_EPOCH_METRIC: &'static str = validator_metrics::UPDATE_IL_DUTIES_NEXT_EPOCH;
+
+    fn pubkey(&self) -> PublicKeyBytes {
+        self.pubkey
+    }
+}
+
 /// To assist with readability, the dependent root for attester/proposer duties.
 type DependentRoot = Hash256;
 
 type AttesterMap = HashMap<PublicKeyBytes, HashMap<Epoch, (DependentRoot, DutyAndProof)>>;
 type ProposerMap = HashMap<Epoch, (DependentRoot, Vec<ProposerData>)>;
 type PtcMap = HashMap<Epoch, (DependentRoot, Vec<PtcDuty>)>;
+type IlMap = HashMap<Epoch, (DependentRoot, Vec<InclusionListDuty>)>;
 
 pub struct DutiesServiceBuilder<S, T> {
     /// Provides the canonical list of locally-managed validators.
@@ -395,6 +435,7 @@ impl<S, T> DutiesServiceBuilder<S, T> {
             proposers: Default::default(),
             sync_duties: SyncDutiesMap::new(self.sync_selection_proof_config),
             ptc_duties: Default::default(),
+            il_duties: Default::default(),
             validator_store: self
                 .validator_store
                 .ok_or("Cannot build DutiesService without validator_store")?,
@@ -428,6 +469,8 @@ pub struct DutiesService<S, T> {
     pub sync_duties: SyncDutiesMap,
     /// Maps an epoch to PTC duties for locally-managed validators.
     pub ptc_duties: RwLock<PtcMap>,
+    /// Maps an epoch to the IL committee duties for locally-managed validators.
+    pub il_duties: RwLock<IlMap>,
     /// Provides the canonical list of locally-managed validators.
     pub validator_store: Arc<S>,
     /// Maps unknown validator pubkeys to the next slot time when a poll should be conducted again.
@@ -494,6 +537,15 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
     /// Returns the total number of validators that have PTC duties in the given epoch.
     pub fn ptc_count(&self, epoch: Epoch) -> usize {
         self.ptc_duties
+            .read()
+            .get(&epoch)
+            .map(|(_, duties)| duties.len())
+            .unwrap_or(0)
+    }
+
+    /// Returns the total number of validators that have IL duties in the given epoch.
+    pub fn il_duties_count(&self, epoch: Epoch) -> usize {
+        self.il_duties
             .read()
             .get(&epoch)
             .map(|(_, duties)| duties.len())
@@ -580,6 +632,32 @@ impl<S: ValidatorStore, T: SlotClock + 'static> DutiesService<S, T> {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Get IL committee duties for a specific slot.
+    ///
+    /// Returns the epoch's dependent root alongside the duties for local validators who have
+    /// IL committee assignments at the given slot, or `None` if the duties for the slot's epoch
+    /// have not been downloaded yet.
+    pub fn get_il_duties_for_slot(
+        &self,
+        slot: Slot,
+    ) -> Option<(DependentRoot, Vec<InclusionListDuty>)> {
+        let epoch = slot.epoch(S::E::slots_per_epoch());
+
+        self.il_duties
+            .read()
+            .get(&epoch)
+            .map(|(dependent_root, il_duties)| {
+                (
+                    *dependent_root,
+                    il_duties
+                        .iter()
+                        .filter(|il_duty| il_duty.slot == slot)
+                        .cloned()
+                        .collect(),
+                )
+            })
     }
 }
 
@@ -740,10 +818,17 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                         continue;
                     }
 
-                    if let Err(e) = poll_beacon_ptc_attesters(&duties_service).await {
+                    let service = &duties_service;
+                    let fetch_ptc_duties = |epoch: Epoch, indices: Vec<u64>| async move {
+                        post_validator_duties_ptc(service, epoch, &indices).await
+                    };
+                    if let Err(e) =
+                        poll_beacon_lookahead_duties(service, &service.ptc_duties, fetch_ptc_duties)
+                            .await
+                    {
                         error!(
                             error = ?e,
-                           "Failed to poll PTC duties"
+                            "Failed to poll PTC duties"
                         );
                     }
 
@@ -763,6 +848,61 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
             },
             "duties_service_ptc",
         );
+    }
+
+    // Spawn the task which keeps track of the inclusion list committee duties.
+    // Only track IL committee duties if the heze fork is scheduled
+    if core_duties_service.spec.is_heze_scheduled() {
+        let duties_service = core_duties_service.clone();
+        core_duties_service.executor.spawn(
+            async move {
+                loop {
+                    let Some(current_slot) = duties_service.slot_clock.now() else {
+                        // Sleep for one slot if we are unable to read from the system clock
+                        sleep(duties_service.slot_clock.slot_duration()).await;
+                        continue;
+                    };
+
+                    let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
+                    let Some(heze_fork_epoch) = duties_service.spec.heze_fork_epoch else {
+                        // Heze fork epoch not configured, should not reach here
+                        break;
+                    };
+
+                    if current_epoch + 1 < heze_fork_epoch {
+                        // Wait until the next slot and check again if the Heze fork epoch is close
+                        if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
+                            sleep(duration).await;
+                        } else {
+                            sleep(duties_service.slot_clock.slot_duration()).await;
+                        }
+                        continue;
+                    }
+
+                    let service = &duties_service;
+                    let fetch_il_duties = |epoch: Epoch, indices: Vec<u64>| async move {
+                        post_validator_il_duties(service, epoch, &indices).await
+                    };
+                    if let Err(e) =
+                        poll_beacon_lookahead_duties(service, &service.il_duties, fetch_il_duties)
+                            .await
+                    {
+                        error!(
+                            error = ?e,
+                            "Failed to poll IL committee duties"
+                        )
+                    }
+
+                    if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
+                        sleep(duration).await;
+                    } else {
+                        // Sleep for one slot if we are unable to read from the system clock
+                        sleep(duties_service.slot_clock.slot_duration()).await;
+                    }
+                }
+            },
+            "duties_service_il_committee",
+        )
     }
 }
 
@@ -1404,6 +1544,26 @@ async fn post_validator_duties_ptc<S: ValidatorStore, T: SlotClock + 'static>(
         .map_err(|e| Error::FailedToDownloadPtc(e.to_string()))
 }
 
+async fn post_validator_il_duties<S: ValidatorStore, T: SlotClock + 'static>(
+    duties_service: &Arc<DutiesService<S, T>>,
+    epoch: Epoch,
+    validator_indices: &[u64],
+) -> Result<DutiesResponse<Vec<InclusionListDuty>>, Error<S::Error>> {
+    duties_service
+        .beacon_nodes
+        .first_success(|beacon_node| async move {
+            let _timer = validator_metrics::start_timer_vec(
+                &validator_metrics::DUTIES_SERVICE_TIMES,
+                &[validator_metrics::IL_DUTIES_HTTP_POST],
+            );
+            beacon_node
+                .post_validator_duties_inclusion_list(epoch, validator_indices)
+                .await
+        })
+        .await
+        .map_err(|e| Error::FailedToDownloadInclusionListDuties(e.to_string()))
+}
+
 /// Compute the attestation selection proofs for the `duties` and add them to the `attesters` map.
 ///
 /// Duties are computed in batches each slot. If a re-org is detected then the process will
@@ -1781,149 +1941,56 @@ async fn fetch_and_store_proposer_duties<S: ValidatorStore, T: SlotClock + 'stat
     }
 }
 
-/// Query the beacon node for ptc duties for any known validators.
-async fn poll_beacon_ptc_attesters<S: ValidatorStore + 'static, T: SlotClock + 'static>(
-    duties_service: &Arc<DutiesService<S, T>>,
-) -> Result<(), Error<S::Error>> {
-    let current_epoch_timer = validator_metrics::start_timer_vec(
-        &validator_metrics::DUTIES_SERVICE_TIMES,
-        &[validator_metrics::UPDATE_PTC_CURRENT_EPOCH],
-    );
-
-    let current_slot = duties_service
-        .slot_clock
-        .now()
-        .ok_or(Error::UnableToReadSlotClock)?;
-    let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
-
-    // Collect *all* pubkeys, even those undergoing doppelganger protection.
-    let local_pubkeys: HashSet<_> = duties_service
-        .validator_store
-        .voting_pubkeys(DoppelgangerStatus::ignored);
-
-    let local_indices = {
-        let mut local_indices = Vec::with_capacity(local_pubkeys.len());
-
-        for &pubkey in &local_pubkeys {
-            if let Some(validator_index) = duties_service.validator_store.validator_index(&pubkey) {
-                local_indices.push(validator_index)
-            }
-        }
-        local_indices
-    };
-
-    // Poll for current epoch
-    if let Err(e) = poll_beacon_ptc_attesters_for_epoch(
-        duties_service,
-        current_epoch,
-        &local_indices,
-        &local_pubkeys,
-    )
-    .await
-    {
-        error!(
-            %current_epoch,
-            request_epoch = %current_epoch,
-            err = ?e,
-            "Failed to download PTC duties"
-        );
-    }
-    drop(current_epoch_timer);
-    let next_epoch_timer = validator_metrics::start_timer_vec(
-        &validator_metrics::DUTIES_SERVICE_TIMES,
-        &[validator_metrics::UPDATE_PTC_NEXT_EPOCH],
-    );
-
-    // Poll for next epoch
-    let next_epoch = current_epoch + 1;
-    if let Err(e) = poll_beacon_ptc_attesters_for_epoch(
-        duties_service,
-        next_epoch,
-        &local_indices,
-        &local_pubkeys,
-    )
-    .await
-    {
-        error!(
-            %current_epoch,
-            request_epoch = %next_epoch,
-            err = ?e,
-            "Failed to download PTC duties"
-        );
-    }
-    drop(next_epoch_timer);
-
-    // Prune old duties.
-    duties_service
-        .ptc_duties
-        .write()
-        .retain(|&epoch, _| epoch + HISTORICAL_DUTIES_EPOCHS >= current_epoch);
-
-    Ok(())
-}
-
-/// For the given `local_indices` and `local_pubkeys`, download the PTC duties for the given `epoch` and
-/// store them in `duties_service.ptc_duties` using bandwidth optimization.
-async fn poll_beacon_ptc_attesters_for_epoch<
-    S: ValidatorStore + 'static,
-    T: SlotClock + 'static,
->(
-    duties_service: &Arc<DutiesService<S, T>>,
+async fn poll_lookahead_duties_for_epoch<D, F, Fut, E>(
     epoch: Epoch,
     local_indices: &[u64],
     local_pubkeys: &HashSet<PublicKeyBytes>,
-) -> Result<(), Error<S::Error>> {
-    // No need to bother the BN if we don't have any validators.
+    duties_map: &RwLock<HashMap<Epoch, (DependentRoot, Vec<D>)>>,
+    fetch_duties: F,
+) -> Result<(), E>
+where
+    D: LookaheadDuty,
+    F: Fn(Epoch, Vec<u64>) -> Fut,
+    Fut: Future<Output = Result<DutiesResponse<Vec<D>>, E>>,
+{
     if local_indices.is_empty() {
         debug!(
             %epoch,
-            "No validators, not downloading PTC duties"
+            duty = D::NAME,
+            "No validators, not downloading duties"
         );
         return Ok(());
     }
 
     let fetch_timer = validator_metrics::start_timer_vec(
         &validator_metrics::DUTIES_SERVICE_TIMES,
-        &[validator_metrics::UPDATE_PTC_FETCH],
+        &[D::FETCH_METRIC],
     );
 
-    // TODO(gloas) Unlike attester duties which use `get_uninitialized_validators` to detect
-    // newly-added validators, PTC duties only check dependent_root changes. Validators added
-    // mid-epoch won't get PTC duties until the next epoch boundary. We should probably fix this.
+    // TODO(gloas) limitation: only `dependent_root` changes are detected here, so validators
+    // added mid-epoch won't get duties until the next epoch boundary.
     let initial_indices_to_request =
-        &local_indices[0..min(INITIAL_PTC_DUTIES_QUERY_SIZE, local_indices.len())];
+        &local_indices[0..min(INITIAL_DUTIES_QUERY_SIZE, local_indices.len())];
 
-    let response =
-        post_validator_duties_ptc(duties_service, epoch, initial_indices_to_request).await?;
+    let response = fetch_duties(epoch, initial_indices_to_request.to_vec()).await?;
     let dependent_root = response.dependent_root;
 
-    // Check if we need to update duties for this epoch and collect validators to update.
+    // Check if we need to update duties for this epoch.
     // We update if we have no epoch data OR if the dependent_root changed.
-    let validators_to_update = {
-        // Avoid holding the read-lock for any longer than required.
-        let ptc_duties = duties_service.ptc_duties.read();
-        let needs_update = ptc_duties.get(&epoch).is_none_or(|(prior_root, _duties)| {
-            // Update if dependent_root changed
-            *prior_root != dependent_root
-        });
+    let needs_update = duties_map.read().get(&epoch).is_none_or(|(prior_root, _)| {
+        // Update if dependent_root changed
+        *prior_root != dependent_root
+    });
 
-        if needs_update {
-            local_pubkeys.iter().collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        }
-    };
-
-    if validators_to_update.is_empty() {
+    if !needs_update {
         // No validators have conflicting (epoch, dependent_root) values for this epoch.
         return Ok(());
     }
-
     // Make a request for all indices that require updating which we have not already made a request for.
-    let indices_to_request = validators_to_update
+    let indices_to_request = local_indices
         .iter()
-        .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
         .filter(|validator_index| !initial_indices_to_request.contains(validator_index))
+        .copied()
         .collect::<Vec<_>>();
 
     // Filter the initial duties by their relevance so that we don't hit warnings about
@@ -1931,12 +1998,10 @@ async fn poll_beacon_ptc_attesters_for_epoch<
     let new_initial_duties = response
         .data
         .into_iter()
-        .filter(|duty| validators_to_update.contains(&&duty.pubkey));
+        .filter(|duty| local_pubkeys.contains(&duty.pubkey()));
 
     let mut new_duties = if !indices_to_request.is_empty() {
-        post_validator_duties_ptc(duties_service, epoch, indices_to_request.as_slice())
-            .await?
-            .data
+        fetch_duties(epoch, indices_to_request).await?.data
     } else {
         vec![]
     };
@@ -1946,31 +2011,26 @@ async fn poll_beacon_ptc_attesters_for_epoch<
 
     let _store_timer = validator_metrics::start_timer_vec(
         &validator_metrics::DUTIES_SERVICE_TIMES,
-        &[validator_metrics::UPDATE_PTC_STORE],
+        &[D::STORE_METRIC],
     );
 
     debug!(
         %dependent_root,
+        duty = D::NAME,
         num_new_duties = new_duties.len(),
-        "Downloaded PTC duties"
+        "Downloaded duties"
     );
 
     // Update duties - we only reach here if dependent_root changed or epoch is missing
-    let mut ptc_duties = duties_service.ptc_duties.write();
-
-    match ptc_duties.entry(epoch) {
+    match duties_map.write().entry(epoch) {
         hash_map::Entry::Occupied(mut entry) => {
             // Dependent root must have changed, so we do complete replacement.
-            // We cannot support partial updates for the same dependent_root.
-            // The beacon node may return incomplete duty lists and we cannot distinguish between "no duties" and
-            // "duties not included in this response". We could query all local validators in each
-            // `post_validator_duties_ptc` call regardless of dependent_root changes, but the bandwidth
-            // cost is likely not justified since PTC assignments are sparse.
             let (existing_root, _existing_duties) = entry.get();
             debug!(
                 old_root = %existing_root,
                 new_root = %dependent_root,
-                "PTC dependent root changed, replacing all duties"
+                duty = D::NAME,
+                "Dependent root changed, replacing all duties"
             );
 
             *entry.get_mut() = (dependent_root, new_duties);
@@ -1984,7 +2044,94 @@ async fn poll_beacon_ptc_attesters_for_epoch<
     Ok(())
 }
 
-/// Notify the block service if it should produce a block.
+/// Download the lookahead duties for the current and next epoch, store them in `duties_map`,
+/// then prune duties older than `HISTORICAL_DUTIES_EPOCHS`.
+async fn poll_beacon_lookahead_duties<D, S, T, F, Fut>(
+    duties_service: &Arc<DutiesService<S, T>>,
+    duties_map: &RwLock<HashMap<Epoch, (DependentRoot, Vec<D>)>>,
+    fetch_duties: F,
+) -> Result<(), Error<S::Error>>
+where
+    D: LookaheadDuty,
+    S: ValidatorStore + 'static,
+    T: SlotClock + 'static,
+    F: Fn(Epoch, Vec<u64>) -> Fut,
+    Fut: Future<Output = Result<DutiesResponse<Vec<D>>, Error<S::Error>>>,
+{
+    let current_epoch_timer = validator_metrics::start_timer_vec(
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[D::CURRENT_EPOCH_METRIC],
+    );
+
+    let current_slot = duties_service
+        .slot_clock
+        .now()
+        .ok_or(Error::UnableToReadSlotClock)?;
+    let current_epoch = current_slot.epoch(S::E::slots_per_epoch());
+
+    // Collect *all* pubkeys, even those undergoing doppelganger protection.
+    let local_pubkeys: HashSet<PublicKeyBytes> = duties_service
+        .validator_store
+        .voting_pubkeys(DoppelgangerStatus::ignored);
+    let local_indices = local_pubkeys
+        .iter()
+        .filter_map(|pubkey| duties_service.validator_store.validator_index(pubkey))
+        .collect::<Vec<_>>();
+
+    // Poll for current epoch
+    if let Err(e) = poll_lookahead_duties_for_epoch(
+        current_epoch,
+        &local_indices,
+        &local_pubkeys,
+        duties_map,
+        &fetch_duties,
+    )
+    .await
+    {
+        error!(
+            %current_epoch,
+            request_epoch = %current_epoch,
+            duty = D::NAME,
+            error = ?e,
+            "Failed to download duties"
+        );
+    }
+    drop(current_epoch_timer);
+
+    let next_epoch_timer = validator_metrics::start_timer_vec(
+        &validator_metrics::DUTIES_SERVICE_TIMES,
+        &[D::NEXT_EPOCH_METRIC],
+    );
+
+    // Poll for next epoch
+    let next_epoch = current_epoch + 1;
+    if let Err(e) = poll_lookahead_duties_for_epoch(
+        next_epoch,
+        &local_indices,
+        &local_pubkeys,
+        duties_map,
+        &fetch_duties,
+    )
+    .await
+    {
+        error!(
+            %current_epoch,
+            request_epoch = %next_epoch,
+            duty = D::NAME,
+            error = ?e,
+            "Failed to download duties"
+        );
+    }
+    drop(next_epoch_timer);
+
+    // Prune old duties
+    duties_map
+        .write()
+        .retain(|&epoch, _| epoch + HISTORICAL_DUTIES_EPOCHS >= current_epoch);
+
+    Ok(())
+}
+
 async fn notify_block_production_service<S: ValidatorStore>(
     current_slot: Slot,
     block_proposers: &HashSet<PublicKeyBytes>,
@@ -2016,6 +2163,11 @@ async fn notify_block_production_service<S: ValidatorStore>(
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::future::{Ready, ready};
+    use types::test_utils::generate_deterministic_keypair;
+
+    type InclusionListDutiesMap = RwLock<HashMap<Epoch, (DependentRoot, Vec<InclusionListDuty>)>>;
+    type FetchDutiesResult = Result<DutiesResponse<Vec<InclusionListDuty>>, ()>;
 
     #[test]
     fn subscription_slots_exact() {
@@ -2095,5 +2247,260 @@ mod test {
         let subscription_slots = SubscriptionSlots::new(duty_slot + 1, current_slot);
         assert_eq!(subscription_slots.slots.len(), 1);
         assert!(subscription_slots.should_send_subscription_at(current_slot + 1),);
+    }
+
+    /// Generate `n` local validators' details, containing their indices and their pubkeys.
+    fn local_validators(n: usize) -> (Vec<u64>, Vec<PublicKeyBytes>) {
+        let indices = (0..n as u64).collect();
+        let pubkeys = (0..n)
+            .map(|i| generate_deterministic_keypair(i).pk.compress())
+            .collect();
+        (indices, pubkeys)
+    }
+
+    /// One inclusion list duty per pubkey, with `validator_index` equal to its position.
+    fn inclusion_list_duties(pubkeys: &[PublicKeyBytes]) -> Vec<InclusionListDuty> {
+        pubkeys
+            .iter()
+            .enumerate()
+            .map(|(i, pubkey)| InclusionListDuty {
+                pubkey: *pubkey,
+                validator_index: i as u64,
+                slot: Slot::new(0),
+            })
+            .collect()
+    }
+
+    /// Returns a `fetch_duties` function that answers like the endpoint does:
+    /// retrieve only the duties of the requested validator indices, under `dependent_root`.
+    fn mock_fetch_duties(
+        dependent_root: DependentRoot,
+        duties: Vec<InclusionListDuty>,
+    ) -> impl Fn(Epoch, Vec<u64>) -> Ready<FetchDutiesResult> {
+        move |_epoch, validator_indices| {
+            let data = duties
+                .iter()
+                .filter(|duty| validator_indices.contains(&duty.validator_index))
+                .cloned()
+                .collect();
+            ready(Ok(DutiesResponse {
+                dependent_root,
+                execution_optimistic: Some(false),
+                data,
+            }))
+        }
+    }
+
+    fn sorted(duties: &[InclusionListDuty]) -> Vec<InclusionListDuty> {
+        let mut duties = duties.to_vec();
+        duties.sort_by_key(|duty| duty.validator_index);
+        duties
+    }
+
+    #[tokio::test]
+    async fn poll_duties_for_epoch_with_no_indices_is_noop() {
+        let epoch = Epoch::new(1);
+        let (_, pubkeys) = local_validators(10);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let duties_map = InclusionListDutiesMap::default();
+
+        let dependent_root = Hash256::repeat_byte(1);
+        let duties = inclusion_list_duties(&pubkeys);
+        let fetch_duties = async |_epoch: Epoch, _validator_indices: Vec<u64>| {
+            // the function should not be executed if local_indices is an empty array
+            Ok::<_, ()>(DutiesResponse {
+                dependent_root,
+                execution_optimistic: Some(false),
+                data: duties.clone(),
+            })
+        };
+
+        // polling with an empty local_indices list should trigger an early return
+        poll_lookahead_duties_for_epoch(epoch, &[], &local_pubkeys, &duties_map, fetch_duties)
+            .await
+            .unwrap();
+
+        // nothing was stored in the duties map
+        assert!(duties_map.read().is_empty());
+    }
+
+    #[tokio::test]
+    async fn poll_duties_for_epoch_populates_empty_duties_map() {
+        let epoch = Epoch::new(1);
+        let (local_indices, pubkeys) = local_validators(10);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let duties_map = InclusionListDutiesMap::default();
+
+        let expected_dependent_root = Hash256::repeat_byte(1);
+        let expected_duties = inclusion_list_duties(&pubkeys);
+        let fetch_duties = mock_fetch_duties(expected_dependent_root, expected_duties.clone());
+
+        poll_lookahead_duties_for_epoch(
+            epoch,
+            &local_indices,
+            &local_pubkeys,
+            &duties_map,
+            fetch_duties,
+        )
+        .await
+        .unwrap();
+
+        let map = duties_map.read();
+        let (dependent_root, duties) = map.get(&epoch).expect("should have duties for epoch");
+        assert_eq!(*dependent_root, expected_dependent_root);
+        // the duties map stores probe + the full-fetch results concatenated,
+        // so we need to sort the stored duties before comparing
+        assert_eq!(sorted(duties), expected_duties);
+    }
+
+    #[tokio::test]
+    async fn poll_duties_for_epoch_same_root_keeps_stored_duties() {
+        let epoch = Epoch::new(1);
+        let validators_count = 10;
+        let (local_indices, pubkeys) = local_validators(validators_count);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let dependent_root = Hash256::repeat_byte(1);
+
+        // The map already holds duties for the epoch and `dependent_root`
+        let stored_duties = inclusion_list_duties(&pubkeys);
+        let duties_map = InclusionListDutiesMap::default();
+        duties_map
+            .write()
+            .insert(epoch, (dependent_root, stored_duties.clone()));
+
+        let newer_duties: Vec<InclusionListDuty> = stored_duties
+            .iter()
+            .map(|duty| InclusionListDuty {
+                slot: Slot::new(1),
+                validator_index: duty.validator_index,
+                pubkey: duty.pubkey,
+            })
+            .collect();
+        let fetch_duties = mock_fetch_duties(dependent_root, newer_duties);
+
+        poll_lookahead_duties_for_epoch(
+            epoch,
+            &local_indices,
+            &local_pubkeys,
+            &duties_map,
+            fetch_duties,
+        )
+        .await
+        .unwrap();
+
+        // The duties corresponding to the epoch and the `dependent_root` should be unchanged
+        let map = duties_map.read();
+        let (root, duties) = map.get(&epoch).expect("should have duties for epoch");
+        assert_eq!(*root, dependent_root);
+        assert_eq!(sorted(duties), stored_duties);
+    }
+
+    #[tokio::test]
+    async fn poll_duties_for_epoch_changed_dependent_root_updates_duties() {
+        let epoch = Epoch::new(1);
+        let validators_count = 10;
+        let (local_indices, pubkeys) = local_validators(validators_count);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let first_dependent_root = Hash256::repeat_byte(1);
+        let second_dependent_root = Hash256::repeat_byte(2);
+
+        // The map already holds duties for the epoch and `first_dependent_root`
+        let stored_duties = inclusion_list_duties(&pubkeys);
+        let duties_map = InclusionListDutiesMap::default();
+        duties_map
+            .write()
+            .insert(epoch, (first_dependent_root, stored_duties.clone()));
+
+        let new_duties: Vec<InclusionListDuty> = stored_duties
+            .iter()
+            .map(|duty| InclusionListDuty {
+                slot: Slot::new(1),
+                validator_index: duty.validator_index,
+                pubkey: duty.pubkey,
+            })
+            .collect();
+
+        let fetch_duties = mock_fetch_duties(second_dependent_root, new_duties.clone());
+
+        poll_lookahead_duties_for_epoch(
+            epoch,
+            &local_indices,
+            &local_pubkeys,
+            &duties_map,
+            fetch_duties,
+        )
+        .await
+        .unwrap();
+
+        // The duties corresponding to the epoch should now be changed to the ones corresponding
+        // to the `second_dependent_root`
+        let map = duties_map.read();
+        let (root, duties) = map.get(&epoch).expect("should have duties for epoch");
+        assert_eq!(*root, second_dependent_root);
+        assert_eq!(sorted(duties), new_duties);
+    }
+
+    #[tokio::test]
+    async fn poll_duties_for_epoch_only_stores_local_validators_duties() {
+        let epoch = Epoch::new(1);
+        let (local_indices, pubkeys) = local_validators(10);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let external_pubkeys: HashSet<PublicKeyBytes> = (10..15)
+            .map(|i| generate_deterministic_keypair(i).pk.compress())
+            .collect();
+        let all_pubkeys: HashSet<PublicKeyBytes> =
+            local_pubkeys.union(&external_pubkeys).copied().collect();
+        let duties_map = InclusionListDutiesMap::default();
+
+        let expected_dependent_root = Hash256::repeat_byte(1);
+        let expected_duties = inclusion_list_duties(&pubkeys);
+        let fetch_duties = mock_fetch_duties(expected_dependent_root, expected_duties.clone());
+
+        poll_lookahead_duties_for_epoch(
+            epoch,
+            &local_indices,
+            &all_pubkeys,
+            &duties_map,
+            fetch_duties,
+        )
+        .await
+        .unwrap();
+
+        let map = duties_map.read();
+        let (dependent_root, duties) = map.get(&epoch).expect("should have duties for epoch");
+        assert_eq!(*dependent_root, expected_dependent_root);
+        assert_eq!(sorted(duties), expected_duties);
+    }
+    #[tokio::test]
+    async fn poll_duties_for_epoch_fetch_error_leaves_map_unchanged() {
+        let epoch = Epoch::new(1);
+        let (local_indices, pubkeys) = local_validators(10);
+        let local_pubkeys: HashSet<PublicKeyBytes> = pubkeys.iter().copied().collect();
+        let dependent_root = Hash256::repeat_byte(1);
+
+        let stored_duties = inclusion_list_duties(&pubkeys);
+        let duties_map = InclusionListDutiesMap::default();
+        duties_map
+            .write()
+            .insert(epoch, (dependent_root, stored_duties.clone()));
+
+        let fetch_duties = async |_epoch: Epoch, _validator_indices: Vec<u64>| {
+            Err::<DutiesResponse<Vec<InclusionListDuty>>, ()>(())
+        };
+
+        let result = poll_lookahead_duties_for_epoch(
+            epoch,
+            &local_indices,
+            &local_pubkeys,
+            &duties_map,
+            fetch_duties,
+        )
+        .await;
+        assert!(result.is_err());
+
+        let map = duties_map.read();
+        let (root, duties) = map.get(&epoch).expect("should have duties for epoch");
+        assert_eq!(*root, dependent_root);
+        assert_eq!(sorted(duties), stored_duties);
     }
 }
