@@ -616,10 +616,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 ));
             }
             BlockProcessingResult::Error { penalty, .. } => {
-                let peers = state.on_processing_failure()?;
-                if let Some((action, whom, msg)) = penalty {
-                    whom.apply(action, &peers, msg, cx);
+                // Report the final failed attempt before the retry limit can end the lookup.
+                if let Some((action, whom, msg)) = penalty
+                    && let State::Processing(data) = &state.state
+                {
+                    whom.apply(action, &data.peer_group, msg, cx);
+                    state.failed_peers.extend(data.peer_group.all().copied());
                 }
+                state.on_processing_failure()?;
             }
         }
         self.continue_requests(cx)
