@@ -57,6 +57,8 @@ can be found in beaconcha.in's docs:
 - <https://kb.beaconcha.in/beaconcha.in-explorer/mobile-app-less-than-greater-than-beacon-node>
 
 The Lighthouse flag for setting the monitoring URL is `--monitoring-endpoint`.
+The reported total and free disk capacity describe the filesystem containing the configured
+beacon node or validator client data directory.
 
 When sending metrics to a remote server you should be conscious of security:
 
