@@ -60,15 +60,6 @@ impl GossipVerifiedExecutionProof {
             })?;
         let block_slot = proto_block.slot;
 
-        // [REJECT] The block is a Gloas one. Only a Gloas payload is proven.
-        if !ctx
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(block_slot)
-            .gloas_enabled()
-        {
-            return Err(Error::BlockPriorToGloas { slot: block_slot });
-        }
-
         // [IGNORE] Deduplication rules, checked before any expensive work.
         match ctx
             .observed_execution_proofs

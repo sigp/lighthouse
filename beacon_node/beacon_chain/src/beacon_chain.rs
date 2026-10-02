@@ -4286,10 +4286,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ?payload_block_hash,
                 "Execution layer validated a payload its proofs decide"
             );
-            return Ok(());
+        } else {
+            fork_choice.on_valid_execution_payload(payload_block_hash)?;
         }
-
-        fork_choice.on_valid_execution_payload(payload_block_hash)?;
 
         Ok(())
     }

@@ -913,42 +913,19 @@ impl ProtoArray {
         block_hash: ExecutionBlockHash,
     ) -> Result<(), Error> {
         for index in self.execution_block_hash_to_node_indices(&block_hash) {
-            self.propagate_execution_payload_validation_for_node(index)?;
+            // The block's own payload is the validated one: a pre-Gloas block carries it inside
+            // itself, a Gloas block runs it on its `FULL` node.
+            let start_status = match self
+                .nodes
+                .get(index)
+                .ok_or(Error::InvalidNodeIndex(index))?
+            {
+                ProtoNode::V17(_) => ParentPayloadStatus::PreGloas,
+                ProtoNode::V29(_) => ParentPayloadStatus::Full,
+            };
+            self.propagate_execution_payload_validation_from(index, start_status)?;
         }
         Ok(())
-    }
-
-    /// The payload of the block `block_root` is valid. Promotes it and every payload its branch
-    /// executed, leaving any other block that commits to the same payload alone.
-    pub fn propagate_execution_payload_validation_for_block(
-        &mut self,
-        block_root: Hash256,
-    ) -> Result<(), Error> {
-        let index = *self
-            .indices
-            .get(&block_root)
-            .ok_or(Error::NodeUnknown(block_root))?;
-
-        self.propagate_execution_payload_validation_for_node(index)
-    }
-
-    /// Promotes the payload of the node at `index`, and every payload its branch executed.
-    fn propagate_execution_payload_validation_for_node(
-        &mut self,
-        index: usize,
-    ) -> Result<(), Error> {
-        // The block's own payload is the validated one: a pre-Gloas block carries it inside
-        // itself, a Gloas block runs it on its `FULL` node.
-        let start_status = match self
-            .nodes
-            .get(index)
-            .ok_or(Error::InvalidNodeIndex(index))?
-        {
-            ProtoNode::V17(_) => ParentPayloadStatus::PreGloas,
-            ProtoNode::V29(_) => ParentPayloadStatus::Full,
-        };
-
-        self.propagate_execution_payload_validation_from(index, start_status)
     }
 
     /// Promotes `start_index` and every payload that its branch executed to `Valid`.

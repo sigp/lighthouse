@@ -42,10 +42,6 @@ pub enum Error {
         slot: Slot,
         finalized_slot: Slot,
     },
-    /// The referenced beacon block predates Gloas, so its payload has no proofs (REJECT).
-    BlockPriorToGloas {
-        slot: Slot,
-    },
     /// `proof_data` is empty (REJECT).
     EmptyProofData,
     /// The validator index does not exist (REJECT).

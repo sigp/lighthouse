@@ -762,9 +762,7 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
-    /// Mark the payload of the block `block_root` valid, promoting it and every payload its branch
-    /// executed below it. Unlike `on_valid_execution_payload`, another block committing to the same
-    /// payload is left as it is, since EIP-8025 proofs commit to a beacon block root.
+    /// Mark the payload of the block `block_root` valid, as judged by its EIP-8025 execution proofs.
     pub fn on_valid_execution_payload_for_block(
         &mut self,
         block_root: Hash256,
@@ -774,10 +772,7 @@ where
         };
 
         match block.execution_status {
-            ExecutionStatus::Optimistic(_) => self
-                .proto_array
-                .process_execution_payload_validation_for_block(block_root)
-                .map_err(Error::FailedToProcessValidExecutionPayload),
+            ExecutionStatus::Optimistic(block_hash) => self.on_valid_execution_payload(block_hash),
             // Settled either way, pre-merge, or not revealed yet, which the import validates.
             ExecutionStatus::Valid(_)
             | ExecutionStatus::Invalid(_)

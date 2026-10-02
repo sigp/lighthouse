@@ -4193,12 +4193,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | ExecutionProofError::PastFinalizedSlot { .. } => {
                         (MessageAcceptance::Ignore, None)
                     }
-                    // REJECT: the proof is invalid, or proves a block that cannot have proofs.
+                    // REJECT: the proof is invalid.
                     ExecutionProofError::EmptyProofData
                     | ExecutionProofError::UnknownValidatorIndex(_)
                     | ExecutionProofError::ValidatorNotActive { .. }
                     | ExecutionProofError::InvalidSignature
-                    | ExecutionProofError::BlockPriorToGloas { .. }
                     | ExecutionProofError::InvalidProof => (
                         MessageAcceptance::Reject,
                         Some(PeerAction::LowToleranceError),
