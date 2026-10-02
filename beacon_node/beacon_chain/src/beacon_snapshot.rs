@@ -1,19 +1,28 @@
 use serde::Serialize;
 use std::sync::Arc;
 use types::{
-    AbstractExecPayload, BeaconState, EthSpec, FullPayload, Hash256, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, SignedExecutionPayloadEnvelope,
+    AbstractExecPayload, BeaconState, BlindedPayload, EthSpec, FullPayload, Hash256,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeSummary,
 };
 
 /// Represents some block and its associated state. Generally, this will be used for tracking the
 /// head, justified head and finalized head.
 #[derive(Clone, Serialize, PartialEq, Debug)]
-pub struct BeaconSnapshot<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
+pub struct BeaconSnapshot<
+    E: EthSpec,
+    Payload: AbstractExecPayload<E> = FullPayload<E>,
+    Envelope = SignedExecutionPayloadEnvelopeSummary<E>,
+> {
     pub beacon_block: Arc<SignedBeaconBlock<E, Payload>>,
-    pub execution_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    pub execution_envelope: Option<Arc<Envelope>>,
     pub beacon_block_root: Hash256,
     pub beacon_state: BeaconState<E>,
 }
+
+/// A snapshot from `BeaconChain::chain_dump`, which carries full payload envelopes.
+pub type ChainDumpSnapshot<E> =
+    BeaconSnapshot<E, BlindedPayload<E>, SignedExecutionPayloadEnvelope<E>>;
 
 /// This snapshot is to be used for verifying a child of `self.beacon_block`.
 #[derive(Debug)]
@@ -28,11 +37,11 @@ pub struct PreProcessingSnapshot<T: EthSpec> {
     pub beacon_block_root: Hash256,
 }
 
-impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconSnapshot<E, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>, Envelope> BeaconSnapshot<E, Payload, Envelope> {
     /// Create a new checkpoint.
     pub fn new(
         beacon_block: Arc<SignedBeaconBlock<E, Payload>>,
-        execution_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        execution_envelope: Option<Arc<Envelope>>,
         beacon_block_root: Hash256,
         beacon_state: BeaconState<E>,
     ) -> Self {
@@ -57,7 +66,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconSnapshot<E, Payload> {
     pub fn update(
         &mut self,
         beacon_block: Arc<SignedBeaconBlock<E, Payload>>,
-        execution_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        execution_envelope: Option<Arc<Envelope>>,
         beacon_block_root: Hash256,
         beacon_state: BeaconState<E>,
     ) {
