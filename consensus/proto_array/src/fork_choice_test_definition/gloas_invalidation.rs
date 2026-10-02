@@ -84,6 +84,10 @@ pub fn get_gloas_invalid_payload_weights_test_definition() -> ForkChoiceTestDefi
             block_root: get_root(1),
             block_hash: get_hash(1),
         },
+        Operation::AssertPayloadReceived {
+            block_root: get_root(1),
+            expected: true,
+        },
         // Validator 0 votes `FULL` on 1 and validator 1 votes `EMPTY` on 1. Validator 2 votes for
         // the `FULL` child 2 and validator 3 for the `EMPTY` child 3.
         Operation::ProcessGloasAttestation {
@@ -247,6 +251,38 @@ pub fn get_gloas_failed_envelope_not_received_test_definition() -> ForkChoiceTes
     ])
 }
 
+/// An envelope for a block whose payload is already invalid sets `payload_received` and keeps
+/// the `Invalid` status.
+pub fn get_gloas_envelope_on_invalid_payload_test_definition() -> ForkChoiceTestDefinition {
+    gloas_definition(vec![
+        Operation::ProcessBlock {
+            slot: Slot::new(1),
+            root: get_root(1),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(42)),
+            execution_payload_block_hash: Some(get_hash(1)),
+        },
+        Operation::SetExecutionStatus {
+            block_root: get_root(1),
+            execution_status: ExecutionStatus::Invalid(get_hash(1)),
+        },
+        Operation::ProcessOptimisticExecutionPayloadEnvelope {
+            block_root: get_root(1),
+            block_hash: get_hash(1),
+        },
+        Operation::AssertPayloadReceived {
+            block_root: get_root(1),
+            expected: true,
+        },
+        Operation::AssertExecutionStatus {
+            block_root: get_root(1),
+            expected: ExecutionStatus::Invalid(get_hash(1)),
+        },
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,5 +295,10 @@ mod tests {
     #[test]
     fn failed_envelope_not_received() {
         get_gloas_failed_envelope_not_received_test_definition().run();
+    }
+
+    #[test]
+    fn envelope_on_invalid_payload() {
+        get_gloas_envelope_on_invalid_payload_test_definition().run();
     }
 }
