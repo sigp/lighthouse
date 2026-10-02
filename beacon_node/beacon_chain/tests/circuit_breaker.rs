@@ -381,6 +381,38 @@ async fn ptc_timely_vote_prevents_ban() {
 }
 
 #[tokio::test]
+async fn ptc_timely_vote_with_unavailable_data_still_bans() {
+    let Some(harness) = gloas_harness(ChainConfig::default()) else {
+        return;
+    };
+    Box::pin(finalize(&harness)).await;
+    let block = Box::pin(import_builder_block(&harness, true)).await;
+    let pubkey = builder_pubkey(&block.post_state, BUILDER_A);
+
+    // The PTC saw a timely reveal but voted the blob data unavailable: the slot still goes
+    // empty and the builder is still charged, so the timely reveal is no excuse.
+    let (messages, _) = harness.make_payload_attestation_messages(
+        &block.post_state,
+        block.root,
+        block.slot,
+        vec![PayloadAttestationVote {
+            validator_count: E::payload_timely_threshold() + 1,
+            payload_present: true,
+            blob_data_available: false,
+        }],
+    );
+    harness
+        .import_payload_attestation_messages(messages)
+        .expect("PTC messages should import");
+
+    harness.advance_slot();
+    harness.chain.per_slot_task().await;
+    let breaker = &harness.chain.circuit_breaker;
+    assert_eq!(breaker.num_ban_entries(), 1);
+    assert!(breaker.is_banned_with(&pubkey, block.slot + 1, always_canonical));
+}
+
+#[tokio::test]
 async fn missed_reveal_with_checks_disabled_is_not_banned() {
     let Some(harness) = gloas_harness(ChainConfig {
         builder_fallback_disable_checks: true,

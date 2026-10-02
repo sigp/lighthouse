@@ -213,8 +213,9 @@ show up as blocks whose payloads never land, not as missed slots, and the circui
 * A builder that fails to reveal its payload for a block that received enough attestations to charge it is banned:
   its bids are ignored for `--builder-fallback-ban-slots` slots (default and minimum `SLOTS_PER_EPOCH`). A ban is tied
   to the offending block, so it only affects proposals whose chain contains that block; re-orging away from the block
-  lifts it. No ban is recorded if the payload timeliness committee saw the payload, which means the builder revealed
-  and only this node missed it. Bans are kept in memory and do not survive a restart.
+  lifts it. No ban is recorded if the payload timeliness committee saw the payload *and* voted its blob data
+  available, which means the builder delivered and only this node missed it; a timely reveal with withheld blob data
+  still bans. Bans are kept in memory and do not survive a restart.
 * A builder whose revealed payload the execution engine rejects as invalid is banned on the same terms. No
   attestation threshold applies: the envelope is signed by the builder and bound to its bid, so an invalid payload is
   attributable to the builder alone. Transient engine failures (unreachable, syncing) never cause a ban.

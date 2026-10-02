@@ -329,18 +329,24 @@ pub fn builder_payment_quorum<E: EthSpec>(
 /// Decide whether a builder should be banned for the block whose bid it won.
 ///
 /// A ban requires an external builder, no payload received locally, no PTC majority saying the
-/// payload was timely (which would mean it was revealed and only we missed it), and enough
-/// attestation weight on the block that the builder is charged for it.
+/// payload was healthy, and enough attestation weight on the block that the builder is charged
+/// for it.
+///
+/// The PTC excuse requires *both* a timely-reveal majority and a data-available majority — the
+/// same conjunction fork choice's `should_extend_payload` uses. A payload revealed on time whose
+/// blob data was withheld (timely but not available) is still a builder offence: the slot goes
+/// empty and the builder is charged, exactly as if the envelope had never been revealed.
 pub fn should_ban_for_missed_reveal(
     builder_index: BuilderIndex,
     payload_received: bool,
     ptc_votes_timely: bool,
+    ptc_votes_data_available: bool,
     block_weight: Option<u64>,
     quorum: u64,
 ) -> bool {
     builder_index != BUILDER_INDEX_SELF_BUILD
         && !payload_received
-        && !ptc_votes_timely
+        && !(ptc_votes_timely && ptc_votes_data_available)
         && block_weight.is_some_and(|weight| weight >= quorum)
 }
 
@@ -760,11 +766,13 @@ mod tests {
             7,
             false,
             false,
+            false,
             Some(100),
             quorum
         ));
         assert!(should_ban_for_missed_reveal(
             7,
+            false,
             false,
             false,
             Some(150),
@@ -775,21 +783,44 @@ mod tests {
             7,
             false,
             false,
+            false,
             Some(99),
             quorum
         ));
-        assert!(!should_ban_for_missed_reveal(7, false, false, None, quorum));
+        assert!(!should_ban_for_missed_reveal(
+            7, false, false, false, None, quorum
+        ));
         // Payload was received.
         assert!(!should_ban_for_missed_reveal(
             7,
             true,
             false,
+            false,
             Some(150),
             quorum
         ));
-        // PTC saw it even though we did not.
+        // PTC saw a timely payload with available data even though we did not.
         assert!(!should_ban_for_missed_reveal(
             7,
+            false,
+            true,
+            true,
+            Some(150),
+            quorum
+        ));
+        // A timely reveal does not excuse withheld blob data.
+        assert!(should_ban_for_missed_reveal(
+            7,
+            false,
+            true,
+            false,
+            Some(150),
+            quorum
+        ));
+        // Available data does not excuse a late reveal.
+        assert!(should_ban_for_missed_reveal(
+            7,
+            false,
             false,
             true,
             Some(150),
@@ -798,6 +829,7 @@ mod tests {
         // Self-build is never a builder offence.
         assert!(!should_ban_for_missed_reveal(
             BUILDER_INDEX_SELF_BUILD,
+            false,
             false,
             false,
             Some(150),

@@ -7819,7 +7819,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Post-Gloas: if the head block (proposed in the previous slot) carried an external
     /// builder's bid, received enough attestations for that builder to be charged, and its payload
-    /// was never received (nor seen by the PTC), record a ban for the builder.
+    /// was never received (nor seen as timely *with available data* by the PTC), record a ban for
+    /// the builder.
     ///
     /// Must run after fork choice has been recomputed for `current_slot`, so that the previous
     /// slot's attestations are reflected in the head block's weight.
@@ -7844,11 +7845,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_root = head.head_block_root();
         let block_slot = head.head_slot();
 
-        let (payload_received, ptc_votes_timely, block_weight, total_effective_balance) = {
+        let (payload_received, ptc_votes_timely, ptc_votes_data_available, block_weight, total_effective_balance) = {
             let fork_choice = self.canonical_head.fork_choice_read_lock();
             (
                 fork_choice.is_payload_received(&block_root),
                 fork_choice.ptc_votes_payload_timely(&block_root),
+                fork_choice.ptc_votes_data_available(&block_root),
                 fork_choice.get_block_weight(&block_root),
                 fork_choice
                     .fc_store()
@@ -7867,6 +7869,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             bid.builder_index,
             payload_received,
             ptc_votes_timely,
+            ptc_votes_data_available,
             block_weight,
             quorum,
         ) {

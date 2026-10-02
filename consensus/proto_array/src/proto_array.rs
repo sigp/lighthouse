@@ -304,6 +304,22 @@ impl ProtoNode {
             return Ok(!available);
         }
 
+        self.ptc_votes_data_availability::<E>(available)
+    }
+
+    /// The PTC's verdict on blob data availability, from votes alone.
+    ///
+    /// Unlike [`Self::payload_data_availability`] this does NOT consult local payload
+    /// availability, so it can answer "did the PTC see the data?" even when this node never
+    /// received the payload. Returns whether more than `DATA_AVAILABILITY_TIMELY_THRESHOLD`
+    /// PTC members voted `available`.
+    pub fn ptc_votes_data_availability<E: EthSpec>(&self, available: bool) -> Result<bool, Error> {
+        let Ok(node) = self.as_v29() else {
+            return Err(Error::InvalidNodeVariant {
+                block_root: self.root(),
+            });
+        };
+
         let matching_votes = if available {
             node.payload_data_availability_votes.num_set_bits()
         } else {
