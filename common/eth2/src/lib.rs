@@ -82,6 +82,7 @@ const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_AGGREGATOR_TIMEOUT_QUOTIENT: u32 = 24; // For DVT involving middleware only
 // TODO(EIP-7732): Determine what this quotient should be
 const HTTP_PTC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_INCLUSION_LIST_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
@@ -104,6 +105,7 @@ pub struct Timeouts {
     pub sync_duties: Duration,
     pub sync_aggregators: Duration,
     pub ptc_duties: Duration,
+    pub inclusion_list_duties: Duration,
     pub get_beacon_blocks_ssz: Duration,
     pub get_debug_beacon_states: Duration,
     pub get_deposit_snapshot: Duration,
@@ -126,6 +128,7 @@ impl Timeouts {
             sync_duties: timeout,
             sync_aggregators: timeout,
             ptc_duties: timeout,
+            inclusion_list_duties: timeout,
             get_beacon_blocks_ssz: timeout,
             get_debug_beacon_states: timeout,
             get_deposit_snapshot: timeout,
@@ -150,6 +153,7 @@ impl Timeouts {
             sync_duties: base_timeout / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
             sync_aggregators: base_timeout / HTTP_SYNC_AGGREGATOR_TIMEOUT_QUOTIENT,
             ptc_duties: base_timeout / HTTP_PTC_DUTIES_TIMEOUT_QUOTIENT,
+            inclusion_list_duties: base_timeout / HTTP_INCLUSION_LIST_DUTIES_TIMEOUT_QUOTIENT,
             get_beacon_blocks_ssz: base_timeout / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
             get_debug_beacon_states: base_timeout / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
             get_deposit_snapshot: base_timeout / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
@@ -3539,8 +3543,8 @@ impl BeaconNodeHttpClient {
         AttestationData::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
     }
 
-    /// `GET validator/payload_attestation_data/{slot}`
-    /// Returns `None` if no block has been received for the requested slot (404).
+    /// `GET validator/payload_attestation_data?slot`
+    /// Returns `None` if no block has been received for the requested slot (204).
     pub async fn get_validator_payload_attestation_data(
         &self,
         slot: Slot,
@@ -3550,22 +3554,24 @@ impl BeaconNodeHttpClient {
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
-            .push("payload_attestation_data")
-            .push(&slot.to_string());
+            .push("payload_attestation_data");
 
-        let opt_response = self
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string());
+
+        let response = self
             .get_response(path, |b| b.timeout(self.timeouts.payload_attestation))
-            .await
-            .optional()?;
+            .await?;
 
-        match opt_response {
-            Some(response) => Ok(Some(BeaconResponse::ForkVersioned(response.json().await?))),
-            None => Ok(None),
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
         }
+
+        Ok(Some(BeaconResponse::ForkVersioned(response.json().await?)))
     }
 
-    /// `GET validator/payload_attestation_data/{slot}` in SSZ format
-    /// Returns `None` if no block has been received for the requested slot (404).
+    /// `GET validator/payload_attestation_data?slot` in SSZ format
+    /// Returns `None` if no block has been received for the requested slot (204).
     pub async fn get_validator_payload_attestation_data_ssz(
         &self,
         slot: Slot,
@@ -3575,16 +3581,27 @@ impl BeaconNodeHttpClient {
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
-            .push("payload_attestation_data")
-            .push(&slot.to_string());
+            .push("payload_attestation_data");
 
-        let opt_response = self
-            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.payload_attestation)
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string());
+
+        let response = self
+            .get_response(path, |b| {
+                b.accept(Accept::Ssz)
+                    .timeout(self.timeouts.payload_attestation)
+            })
             .await?;
 
-        opt_response
-            .map(|bytes| PayloadAttestationData::from_ssz_bytes(&bytes).map_err(Error::InvalidSsz))
-            .transpose()
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+
+        let bytes = response.bytes().await?;
+
+        PayloadAttestationData::from_ssz_bytes(&bytes)
+            .map(Some)
+            .map_err(Error::InvalidSsz)
     }
 
     /// `GET v1/validator/aggregate_attestation?slot,attestation_data_root`
@@ -4001,6 +4018,29 @@ impl BeaconNodeHttpClient {
             path,
             &ValidatorIndexDataRef(indices),
             self.timeouts.ptc_duties,
+        )
+        .await
+    }
+
+    /// `POST validator/duties/inclusion_list/{epoch}`
+    pub async fn post_validator_duties_inclusion_list(
+        &self,
+        epoch: Epoch,
+        indices: &[u64],
+    ) -> Result<DutiesResponse<Vec<InclusionListDuty>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("duties")
+            .push("inclusion_list")
+            .push(&epoch.to_string());
+
+        self.post_with_timeout_and_response(
+            path,
+            &ValidatorIndexDataRef(indices),
+            self.timeouts.inclusion_list_duties,
         )
         .await
     }

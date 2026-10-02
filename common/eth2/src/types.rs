@@ -863,6 +863,14 @@ pub struct PtcDuty {
     pub slot: Slot,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InclusionListDuty {
+    pub pubkey: PublicKeyBytes,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    pub slot: Slot,
+}
+
 #[derive(Clone, Deserialize)]
 pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
@@ -900,6 +908,11 @@ impl TryFrom<Option<String>> for SkipRandaoVerification {
 pub struct ValidatorAttestationDataQuery {
     pub slot: Slot,
     pub committee_index: CommitteeIndex,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ValidatorPayloadAttestationDataQuery {
+    pub slot: Slot,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

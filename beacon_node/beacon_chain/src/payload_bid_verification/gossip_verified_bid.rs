@@ -12,7 +12,7 @@ use crate::{
 };
 use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
-use proto_array::Block as ProtoBlock;
+use proto_array::{Block as ProtoBlock, PayloadBlockHash};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
     execution_payload_bid_signature_set, get_builder_pubkey_from_state,
@@ -170,10 +170,11 @@ pub(crate) fn parent_payload_exits_builder<T: BeaconChainTypes>(
     }
 
     let builder = head_state.get_builder(bid.builder_index)?;
-    let parent_envelope = store
-        .get_payload_envelope(&bid.parent_block_root)
+    // Only the execution requests are needed, and the summary survives payload body pruning.
+    let parent_summary = store
+        .get_payload_envelope_summary(&bid.parent_block_root)
         .map_err(|e| {
-            PayloadBidError::InternalError(format!("failed to load parent payload envelope: {e:?}"))
+            PayloadBidError::InternalError(format!("failed to load parent payload summary: {e:?}"))
         })?
         .ok_or(PayloadBidError::ParentExecutionPayloadUnknown {
             parent_block_hash: bid.parent_block_hash,
@@ -181,7 +182,7 @@ pub(crate) fn parent_payload_exits_builder<T: BeaconChainTypes>(
 
     Ok(builder_exit_requested(
         builder,
-        &parent_envelope.message.execution_requests,
+        &parent_summary.execution_requests,
     ))
 }
 
@@ -216,24 +217,17 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
         .fork_name_at_slot::<T::EthSpec>(head_block.slot)
         .gloas_enabled();
 
-    let (head_bid_parent_block_hash, head_bid_block_hash) = if head_is_pre_gloas {
-        let parent_payload_hash = head_block
+    let builds_on_parent_block = Some(bid.parent_block_root) == head_block.parent_root;
+    let builds_on_parent_payload = if head_is_pre_gloas {
+        head_block
             .parent_root
             .and_then(|parent_root| fork_choice_read.get_block(&parent_root))
-            .and_then(|parent| parent.execution_status.block_hash());
-        (
-            parent_payload_hash,
-            head_block.execution_status.block_hash(),
-        )
+            .is_some_and(|parent| {
+                parent.block_hash() == PayloadBlockHash::Hash(bid.parent_block_hash)
+            })
     } else {
-        (
-            head_block.execution_payload_parent_hash,
-            head_block.execution_payload_block_hash,
-        )
+        head_block.execution_payload_parent_hash == Some(bid.parent_block_hash)
     };
-
-    let builds_on_parent_block = Some(bid.parent_block_root) == head_block.parent_root;
-    let builds_on_parent_payload = Some(bid.parent_block_hash) == head_bid_parent_block_hash;
 
     if builds_on_parent_block && builds_on_parent_payload {
         return Ok(true);
@@ -243,7 +237,8 @@ pub(crate) fn is_bid_compatible_with_head<T: BeaconChainTypes>(
         return Ok(false);
     }
 
-    let builds_on_head_payload = Some(bid.parent_block_hash) == head_bid_block_hash;
+    let builds_on_head_payload =
+        head_block.block_hash() == PayloadBlockHash::Hash(bid.parent_block_hash);
 
     if head_is_pre_gloas {
         return Ok(builds_on_head_payload);

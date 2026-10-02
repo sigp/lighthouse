@@ -6,6 +6,7 @@ mod bls_to_execution_change;
 mod dumb_macros;
 mod execution_payload_bid;
 mod execution_payload_envelope;
+#[macro_use]
 mod execution_payload_header;
 mod execution_proof;
 mod execution_requests;
@@ -51,5 +52,8 @@ pub use payload::{
 };
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use signed_execution_payload_bid::SignedExecutionPayloadBid;
-pub use signed_execution_payload_envelope::SignedExecutionPayloadEnvelope;
+pub use signed_execution_payload_envelope::{
+    ExecutionPayloadBody, ExecutionPayloadHeaderGloas, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeSummary,
+};
 pub use signed_inclusion_list::SignedInclusionList;

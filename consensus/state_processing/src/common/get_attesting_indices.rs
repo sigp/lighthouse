@@ -182,10 +182,10 @@ pub mod attesting_indices_gloas {
         )?;
 
         Ok(IndexedAttestation::Gloas(IndexedAttestationGloas {
-            attesting_indices: ProgressiveVariableList::new(attesting_indices),
+            attesting_indices: ProgressiveVariableList::new(attesting_indices)
+                .map_err(BeaconStateError::SszTypesError)?,
             data: attestation.data.clone(),
             signature: attestation.signature.clone(),
-            _phantom: std::marker::PhantomData,
         }))
     }
 
