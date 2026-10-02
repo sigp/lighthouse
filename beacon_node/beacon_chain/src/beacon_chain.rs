@@ -35,7 +35,9 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
-use crate::execution_proof_verification::{GossipVerifiedExecutionProof, ObservedExecutionProofs};
+use crate::execution_proof_verification::{
+    GossipVerifiedExecutionProof, ObservedExecutionProofs, REQUIRED_EXECUTION_PROOFS,
+};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::inclusion_list_store::{DependentRoot, InclusionListStore};
@@ -4230,21 +4232,52 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Caches an execution proof, importing the payload envelope if that was the last piece.
-    pub async fn check_execution_proof_availability_and_import(
+    /// Whether EIP-8025 proofs decide payload validity here, which takes a proof engine.
+    pub(crate) fn execution_proofs_enabled(&self) -> bool {
+        self.proof_engine.is_some()
+    }
+
+    /// Whether `block_root`'s payload has proofs from as many proof systems as we require.
+    ///
+    /// TODO(9658): nothing checks that a proof's public input is this payload, so a proof of another
+    /// payload carrying this block's root counts. https://github.com/sigp/lighthouse/issues/9658
+    pub(crate) fn execution_proofs_satisfied(&self, block_root: &Hash256) -> bool {
+        self.observed_execution_proofs
+            .read()
+            .valid_proof_count(block_root)
+            >= REQUIRED_EXECUTION_PROOFS
+    }
+
+    /// Act on a gossip-verified execution proof, which verification has already counted.
+    pub async fn process_execution_proof(
         self: &Arc<Self>,
-        verified_proof: GossipVerifiedExecutionProof,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        let GossipVerifiedExecutionProof { proof, block_slot } = verified_proof;
-        let bid = self
-            .get_or_load_gloas_payload_bid(proof.beacon_block_root())
-            .await?;
-        let availability = self
-            .pending_payload_cache
-            .put_execution_proof(proof, &bid)
-            .map_err(BlockError::from)?;
-        self.process_payload_envelope_availability(block_slot, availability, || Ok(()))
-            .await
+        verified_proof: &GossipVerifiedExecutionProof,
+    ) -> Result<(), BlockError> {
+        let block_root = verified_proof.proof.beacon_block_root();
+        if !self.execution_proofs_satisfied(&block_root) {
+            return Ok(());
+        }
+
+        // The bid commits the payload's execution block hash, which is how fork choice names it.
+        let payload_block_hash = self
+            .get_or_load_gloas_payload_bid(block_root)
+            .await?
+            .message
+            .block_hash;
+
+        debug!(?block_root, "Execution proofs complete, validating payload");
+        let chain = self.clone();
+        self.spawn_blocking_handle(
+            move || {
+                chain
+                    .canonical_head
+                    .fork_choice_write_lock()
+                    .on_valid_execution_payload(payload_block_hash)
+                    .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))
+            },
+            "validate_proven_payload",
+        )
+        .await?
     }
 
     /// Load a persisted Gloas bid without blocking the async runtime.
@@ -6997,6 +7030,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The head has been read and the execution layer has been updated. It is now valid to send
         // another fork choice update.
         drop(forkchoice_lock);
+
+        // EIP-8025: with execution proofs deciding payload validity, the execution layer has no say.
+        if self.execution_proofs_enabled() {
+            return Ok(());
+        }
 
         match forkchoice_updated_response {
             Ok(status) => match status {

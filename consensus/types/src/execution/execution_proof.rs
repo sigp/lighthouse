@@ -1,4 +1,4 @@
-use crate::{ForkName, Hash256, SignedRoot};
+use crate::{ExecutionBlockHash, ForkName, Hash256, SignedRoot};
 use bls::Signature;
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
@@ -26,14 +26,11 @@ pub type ProofType = u8;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
 pub struct PublicInput {
-    pub new_payload_request_root: Hash256,
+    pub block_hash: ExecutionBlockHash,
+    pub parent_hash: ExecutionBlockHash,
 }
 
 /// An execution proof attesting to the validity of an execution payload (EIP-8025).
-///
-/// Deviation from the spec: `beacon_block_root` binds the proof to the beacon block whose
-/// envelope committed the payload, allowing the proof to be resolved without an index from
-/// `new_payload_request_root` to block root.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]

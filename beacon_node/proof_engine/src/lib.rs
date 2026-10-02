@@ -67,9 +67,10 @@ impl ProofEngine {
             .client
             .post(url)
             .query(&[
+                ("block_hash", format!("{:?}", proof.public_input.block_hash)),
                 (
-                    "new_payload_request_root",
-                    format!("{:?}", proof.public_input.new_payload_request_root),
+                    "parent_hash",
+                    format!("{:?}", proof.public_input.parent_hash),
                 ),
                 ("proof_type", proof.proof_type.to_string()),
                 (

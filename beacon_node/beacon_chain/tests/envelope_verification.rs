@@ -1,18 +1,21 @@
 use beacon_chain::AvailabilityProcessingStatus::{Imported, MissingComponents};
 use beacon_chain::NotifyExecutionLayer;
-use beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof;
+use beacon_chain::execution_proof_verification::{
+    Error as ExecutionProofError, REQUIRED_EXECUTION_PROOFS,
+};
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
+use execution_layer::test_utils::Block;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
-use types::execution::{ExecutionProof, ProofData, PublicInput, SignedExecutionProof};
+use types::execution::{ExecutionProof, ProofData, ProofType, PublicInput, SignedExecutionProof};
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, MinimalEthSpec, Slot,
-    WithdrawalRequest,
+    Address, BlockImportSource, Epoch, ExecPayload, ExecutionBlockHash, ExecutionPayload, ForkName,
+    Hash256, MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot, WithdrawalRequest,
 };
 
 type E = MinimalEthSpec;
@@ -162,30 +165,6 @@ async fn lookup_imports_gloas_payload_after_restart() {
         cache.get_bid(&block_root).is_none(),
         "the pending bid cache should start empty after restart"
     );
-    let proof_status = chain
-        .check_execution_proof_availability_and_import(GossipVerifiedExecutionProof {
-            proof: Arc::new(SignedExecutionProof {
-                message: ExecutionProof {
-                    proof_data: ProofData::new(vec![1]).expect("proof data"),
-                    proof_type: 0,
-                    public_input: PublicInput {
-                        new_payload_request_root: Hash256::random(),
-                    },
-                    beacon_block_root: block_root,
-                },
-                validator_index: 0,
-                signature: bls::Signature::infinity().expect("infinity signature"),
-            }),
-            block_slot: target_slot,
-        })
-        .await
-        .expect("execution proof should be accepted after restart");
-    assert!(matches!(proof_status, MissingComponents(..)));
-    assert!(cache.get_bid(&block_root).is_some());
-
-    // Evict the recovered bid so columns must also handle a cache miss.
-    cache.do_maintenance(Epoch::new(1)).unwrap();
-    assert!(cache.get_bid(&block_root).is_none());
     let column_status = chain
         .process_rpc_custody_columns(custody_columns.clone())
         .await
@@ -624,6 +603,17 @@ async fn import_block_and_envelope(
     harness: &BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>>,
     slot: Slot,
 ) -> Hash256 {
+    let (block_root, signed_envelope) = import_block(harness, slot).await;
+    import_envelope(harness, block_root, slot, signed_envelope).await;
+
+    block_root
+}
+
+/// Helper: produce the block for `slot` and import it, returning its root and its envelope.
+async fn import_block(
+    harness: &BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>>,
+    slot: Slot,
+) -> (Hash256, SignedExecutionPayloadEnvelope<E>) {
     let state = harness.get_current_state();
     harness.advance_slot();
     let (block_contents, opt_envelope, _) = harness.make_block_with_envelope(state, slot).await;
@@ -638,7 +628,30 @@ async fn import_block_and_envelope(
     // Without its custody columns the envelope never reaches fork choice.
     harness.process_gossip_columns(&block, None).await;
 
-    let signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
+    (
+        block_root,
+        opt_envelope.expect("Gloas block should produce an envelope"),
+    )
+}
+
+/// Helper: import an envelope produced by `import_block`.
+async fn import_envelope(
+    harness: &BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>>,
+    block_root: Hash256,
+    slot: Slot,
+    signed_envelope: SignedExecutionPayloadEnvelope<E>,
+) {
+    // A proof engine node never sends its payloads to the execution layer, which is why it cannot
+    // propose. The harness does, or it could not build the next block.
+    if harness.chain.proof_engine.is_some() {
+        harness
+            .execution_block_generator()
+            .insert_block(Block::PoS(ExecutionPayload::Gloas(
+                signed_envelope.message.payload.clone(),
+            )))
+            .expect("mock execution layer should accept the payload");
+    }
+
     let gossip_verified = harness
         .chain
         .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
@@ -668,8 +681,6 @@ async fn import_block_and_envelope(
     // The next block builds on the payload status of the head. If the head does not catch up
     // here, every block extends the `EMPTY` variant of its parent.
     harness.chain.recompute_head_at_current_slot().await;
-
-    block_root
 }
 
 /// Helper: the execution status that fork choice holds for the payload of a block.
@@ -752,6 +763,126 @@ async fn a_later_valid_payload_promotes_its_optimistic_ancestors() {
         is_valid_and_post_bellatrix(execution_status(&harness, first_root)),
         "promotion must walk the whole ancestry, not just one step",
     );
+}
+
+/// A payload is optimistic until the proof that completes its requirement, which validates every
+/// payload below it too: proofs are recursive, so an ancestor needs none of its own.
+#[tokio::test]
+async fn execution_proofs_validate_a_payload_and_its_ancestors() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = gloas_harness_with_proof_engine();
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    // Both payloads import without proofs, and the execution layer is never asked about them.
+    let ancestor_root = import_block_and_envelope(&harness, Slot::new(2)).await;
+    let slot = Slot::new(3);
+    let block_root = import_block_and_envelope(&harness, slot).await;
+    assert!(is_optimistic(execution_status(&harness, ancestor_root)));
+    assert!(
+        is_optimistic(execution_status(&harness, block_root)),
+        "a payload without its execution proofs must be held as optimistic",
+    );
+
+    // Proofs from distinct provers, all but the last of which leave it optimistic.
+    for proof_type in 0..REQUIRED_EXECUTION_PROOFS - 1 {
+        harness
+            .observe_execution_proof(block_root, proof_type as ProofType, slot)
+            .await;
+        assert!(
+            is_optimistic(execution_status(&harness, block_root)),
+            "a payload short of a prover must stay optimistic",
+        );
+    }
+
+    harness
+        .observe_execution_proof(block_root, REQUIRED_EXECUTION_PROOFS as ProofType - 1, slot)
+        .await;
+    assert!(
+        is_valid_and_post_bellatrix(execution_status(&harness, block_root)),
+        "the proof that completes the requirement must validate the payload",
+    );
+    assert!(
+        is_valid_and_post_bellatrix(execution_status(&harness, ancestor_root)),
+        "and every payload below it, which never had a proof of its own",
+    );
+}
+
+/// A proof whose public input is not the block's payload is rejected, engine or no engine.
+#[tokio::test]
+async fn gossip_rejects_a_proof_for_another_payload() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = gloas_harness_with_proof_engine();
+    harness.extend_to_slot(Slot::new(1)).await;
+    let (block_root, _) = import_block(&harness, Slot::new(2)).await;
+
+    let proof = SignedExecutionProof {
+        message: ExecutionProof {
+            proof_data: ProofData::new(vec![1]).expect("proof data"),
+            proof_type: 0,
+            public_input: PublicInput {
+                block_hash: ExecutionBlockHash::repeat_byte(9),
+                parent_hash: ExecutionBlockHash::zero(),
+            },
+            beacon_block_root: block_root,
+        },
+        validator_index: 0,
+        signature: bls::Signature::infinity().expect("infinity signature"),
+    };
+
+    match harness
+        .chain
+        .verify_execution_proof_for_gossip(Arc::new(proof))
+        .await
+    {
+        Err(ExecutionProofError::PayloadMismatch { .. }) => {}
+        Err(other) => panic!("expected PayloadMismatch, got {other:?}"),
+        Ok(_) => panic!("a proof for another payload must be rejected"),
+    }
+}
+
+/// Proofs that arrive before the envelope are not lost: the payload is valid the moment it is
+/// imported, with nothing left to promote.
+#[tokio::test]
+async fn execution_proofs_before_the_envelope_validate_it_at_import() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = gloas_harness_with_proof_engine();
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let slot = Slot::new(2);
+    let (block_root, signed_envelope) = import_block(&harness, slot).await;
+    for proof_type in 0..REQUIRED_EXECUTION_PROOFS {
+        harness
+            .observe_execution_proof(block_root, proof_type as ProofType, slot)
+            .await;
+    }
+
+    import_envelope(&harness, block_root, slot, signed_envelope).await;
+    assert!(
+        is_valid_and_post_bellatrix(execution_status(&harness, block_root)),
+        "a payload whose proofs are already in must import as valid",
+    );
+}
+
+/// Helper: a Gloas harness that requires EIP-8025 execution proofs. Such a node runs no execution
+/// layer; the harness keeps a mock one because it needs one to build blocks.
+fn gloas_harness_with_proof_engine()
+-> BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>> {
+    BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .proof_engine()
+        .build()
 }
 
 fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {

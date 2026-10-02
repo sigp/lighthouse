@@ -9,6 +9,7 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{BeaconChain, BeaconChainTypes};
 use parking_lot::RwLock;
 use proof_engine::{ProofEngine, ProofVerificationOutcome};
+use proto_array::ExecutionStatus;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use std::sync::Arc;
 use tree_hash::TreeHash;
@@ -59,6 +60,24 @@ impl GossipVerifiedExecutionProof {
                 beacon_block_root: block_root,
             })?;
         let block_slot = proto_block.slot;
+
+        // [REJECT] The proof proves the payload this block committed to.
+        let committed_block_hash = match proto_block.execution_status {
+            ExecutionStatus::NotYetRevealed(block_hash)
+            | ExecutionStatus::Optimistic(block_hash)
+            | ExecutionStatus::Valid(block_hash)
+            | ExecutionStatus::Invalid(block_hash) => block_hash,
+            ExecutionStatus::Irrelevant(_) => {
+                return Err(Error::PayloadMismatch {
+                    proof_block_hash: proof.message.public_input.block_hash,
+                });
+            }
+        };
+        if proof.message.public_input.block_hash != committed_block_hash {
+            return Err(Error::PayloadMismatch {
+                proof_block_hash: proof.message.public_input.block_hash,
+            });
+        }
 
         // [IGNORE] Deduplication rules, checked before any expensive work.
         match ctx
