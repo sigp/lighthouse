@@ -11,6 +11,9 @@ normal = ["malloc_utils"]
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
+# Use mimalloc as the memory allocator rather than jemalloc. Present so that the benchmarks
+# suggested on #8840 (`lcli transition-blocks`) can be run against either allocator.
+mimalloc = ["malloc_utils/mimalloc"]
 
 [dependencies]
 account_utils = { workspace = true }

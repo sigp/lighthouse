@@ -4,9 +4,15 @@
 //!
 //! This crate can be compiled with different feature flags to support different allocators:
 //!
+//! - Mimalloc, via the `mimalloc` feature.
 //! - Jemalloc, via the `jemalloc` feature.
 //! - GNU malloc, if no features are set and the system supports it.
 //! - The system allocator, if no features are set and the allocator is not GNU malloc.
+//!
+//! Only one allocator can be installed, so the features are resolved by precedence rather than
+//! rejected as a conflict: `sysmalloc` disables everything, otherwise `mimalloc` wins over
+//! `jemalloc`. Precedence (not a compile error) is required because the `jemalloc` feature is
+//! enabled unconditionally by the `lighthouse` and `lcli` crates on every non-Windows target.
 //!
 //! It is assumed that if Jemalloc is not in use, and the following two statements are correct then
 //! we should expect to configure `glibc`:
@@ -25,20 +31,46 @@
 //! functions, then try to compile with the `not_glibc_interface` module.
 
 #[cfg(all(
+    any(feature = "sysmalloc", not(feature = "mimalloc")),
     any(feature = "sysmalloc", not(feature = "jemalloc")),
     target_os = "linux",
     not(target_env = "musl")
 ))]
 pub mod glibc;
 
-#[cfg(all(unix, not(feature = "sysmalloc"), feature = "jemalloc"))]
+#[cfg(all(
+    unix,
+    not(feature = "sysmalloc"),
+    not(feature = "mimalloc"),
+    feature = "jemalloc"
+))]
 pub mod jemalloc;
 
+#[cfg(all(feature = "mimalloc", not(feature = "sysmalloc")))]
+pub mod mimalloc_alloc;
+
 pub use interface::*;
+
+// Mimalloc is used on every platform when the mimalloc feature is enabled, unless sysmalloc
+// overrides it.
+#[cfg(all(feature = "mimalloc", not(feature = "sysmalloc")))]
+mod interface {
+    #[allow(dead_code, clippy::unnecessary_wraps)]
+    pub fn configure_memory_allocator() -> Result<(), String> {
+        Ok(())
+    }
+
+    pub use crate::mimalloc_alloc::scrape_mimalloc_metrics as scrape_allocator_metrics;
+
+    pub fn allocator_name() -> String {
+        "mimalloc".to_string()
+    }
+}
 
 // Glibc malloc is the default on non-musl Linux if the sysmalloc feature is enabled, or jemalloc
 // is disabled.
 #[cfg(all(
+    any(feature = "sysmalloc", not(feature = "mimalloc")),
     any(feature = "sysmalloc", not(feature = "jemalloc")),
     target_os = "linux",
     not(target_env = "musl")
@@ -53,7 +85,12 @@ mod interface {
 }
 
 // Jemalloc is the default on UNIX (including musl) unless the sysmalloc feature is enabled.
-#[cfg(all(unix, not(feature = "sysmalloc"), feature = "jemalloc"))]
+#[cfg(all(
+    unix,
+    not(feature = "sysmalloc"),
+    not(feature = "mimalloc"),
+    feature = "jemalloc"
+))]
 mod interface {
     #[allow(dead_code)]
     pub fn configure_memory_allocator() -> Result<(), String> {
@@ -70,11 +107,14 @@ mod interface {
     }
 }
 
-#[cfg(any(
-    not(unix),
-    all(
-        any(feature = "sysmalloc", not(feature = "jemalloc")),
-        any(not(target_os = "linux"), target_env = "musl")
+#[cfg(all(
+    any(feature = "sysmalloc", not(feature = "mimalloc")),
+    any(
+        not(unix),
+        all(
+            any(feature = "sysmalloc", not(feature = "jemalloc")),
+            any(not(target_os = "linux"), target_env = "musl")
+        )
     )
 ))]
 mod interface {
