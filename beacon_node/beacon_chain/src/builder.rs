@@ -4,6 +4,7 @@ use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, CanonicalHead, LightClientProducerEvent, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
@@ -1013,6 +1014,9 @@ where
             0
         };
 
+        let circuit_breaker =
+            CircuitBreaker::new::<E>(CircuitBreakerConfig::from_chain_config(&self.chain_config));
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -1116,6 +1120,7 @@ where
                 .map(Arc::new),
             rng: Arc::new(Mutex::new(rng)),
             gossip_verified_payload_bid_cache: <_>::default(),
+            circuit_breaker,
             gossip_verified_proposer_preferences_cache: <_>::default(),
             observed_payload_envelopes: <_>::default(),
         };

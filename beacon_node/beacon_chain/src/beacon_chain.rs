@@ -17,6 +17,9 @@ use crate::block_verification_types::{
 pub use crate::canonical_head::CanonicalHead;
 use crate::canonical_head::ForkChoiceWriteGuard;
 use crate::chain_config::ChainConfig;
+use crate::circuit_breaker::{
+    BanOutcome, CircuitBreaker, builder_payment_quorum, should_ban_for_missed_reveal,
+};
 use crate::custody_context::{CustodyContext, CustodyContextSsz};
 use crate::data_availability_checker::{
     Availability as BlockAvailability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
@@ -107,8 +110,9 @@ use execution_layer::{
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
-    AttestationFromBlock, ExecutionVerdict, ForkChoice, ForkChoiceNode, ForkchoiceUpdateParameters,
-    InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
+    AttestationFromBlock, ExecutionVerdict, ForkChoice, ForkChoiceNode, ForkChoiceStore,
+    ForkchoiceUpdateParameters, InvalidationOperation, PayloadVerificationStatus,
+    ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
 use itertools::Itertools;
@@ -160,6 +164,7 @@ use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tracing::{debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
+use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::data::{ColumnIndex, FixedBlobSidecarList};
 use types::execution::BlockProductionVersion;
 use types::*;
@@ -510,6 +515,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub pre_finalization_block_cache: PreFinalizationBlockCache,
     /// A cache used to store gossip verified payload bids.
     pub gossip_verified_payload_bid_cache: GossipVerifiedPayloadBidCache<T::EthSpec>,
+    /// The post-Gloas builder circuit breaker: skip rules over missed payloads plus builder bans.
+    pub circuit_breaker: CircuitBreaker,
     /// A cache used to store gossip verified proposer preferences.
     pub gossip_verified_proposer_preferences_cache: GossipVerifiedProposerPreferenceCache,
     /// A cache used to track the already seen verified payload envelopes.
@@ -5840,7 +5847,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             pubkey,
             slot: state.slot(),
             chain_health: self
-                .is_healthy(&parent_root)
+                .is_healthy_pre_gloas(&parent_root)
                 .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?,
         };
 
@@ -7244,6 +7251,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.gossip_verified_proposer_preferences_cache.prune(slot);
             self.pending_payload_envelopes.write().prune(slot);
             self.inclusion_list_store.write().prune(slot);
+            self.circuit_breaker.prune(slot);
+            metrics::set_gauge(
+                &metrics::BUILDER_CIRCUIT_BREAKER_BAN_ENTRIES,
+                self.circuit_breaker.num_ban_entries() as i64,
+            );
 
             // Don't run heavy-weight tasks during sync.
             if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot {
@@ -7252,6 +7264,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Run fork choice and signal to any waiting task that it has completed.
             self.recompute_head_at_current_slot().await;
+
+            // With the previous slot's attestations applied, decide whether the builder behind
+            // the head block failed to reveal its payload.
+            if let Err(e) = self.record_builder_ban_for_missed_reveal(slot) {
+                warn!(error = ?e, %slot, "Failed to record builder ban for missed payload reveal");
+            }
 
             // Send the notification regardless of fork choice success, this is a "best effort"
             // notification and we don't want block production to hit the timeout in case of error.
@@ -7723,7 +7741,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Since we are likely calling this during the slot we are going to propose in, don't take into
     /// account the current slot when accounting for skips.
-    pub fn is_healthy(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
+    ///
+    /// This is the **pre-Gloas** circuit breaker and counts missed *slots*. After Gloas, block
+    /// production uses [`CircuitBreaker`](crate::circuit_breaker::CircuitBreaker) instead, which
+    /// counts missed *payloads* and bans builders that fail to reveal.
+    pub fn is_healthy_pre_gloas(&self, parent_root: &Hash256) -> Result<ChainHealth, Error> {
         let cached_head = self.canonical_head.cached_head();
         if let Some(head_hash) = cached_head.forkchoice_update_parameters().head_hash {
             if ExecutionBlockHash::zero() == head_hash {
@@ -7775,16 +7797,160 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         let epoch_skips_check = epoch_skips <= self.config.builder_fallback_skips_per_epoch;
 
-        if !head_skips_check {
-            Ok(ChainHealth::Unhealthy(FailedCondition::Skips))
+        let failed_condition = if !head_skips_check {
+            Some(FailedCondition::Skips)
         } else if !finalization_check {
-            Ok(ChainHealth::Unhealthy(
-                FailedCondition::EpochsSinceFinalization,
-            ))
+            Some(FailedCondition::EpochsSinceFinalization)
         } else if !epoch_skips_check {
-            Ok(ChainHealth::Unhealthy(FailedCondition::SkipsPerEpoch))
+            Some(FailedCondition::SkipsPerEpoch)
         } else {
-            Ok(ChainHealth::Healthy)
+            None
+        };
+
+        Ok(match failed_condition {
+            Some(condition) => {
+                metrics::inc_counter_vec(
+                    &metrics::BUILDER_CIRCUIT_BREAKER_TRIPS,
+                    &[condition.as_str()],
+                );
+                ChainHealth::Unhealthy(condition)
+            }
+            None => ChainHealth::Healthy,
+        })
+    }
+
+    /// Post-Gloas: if the head block (proposed in the previous slot) carried an external
+    /// builder's bid, received enough attestations for that builder to be charged, and its payload
+    /// was never received (nor seen as timely *with available data* by the PTC), record a ban for
+    /// the builder.
+    ///
+    /// Must run after fork choice has been recomputed for `current_slot`, so that the previous
+    /// slot's attestations are reflected in the head block's weight.
+    fn record_builder_ban_for_missed_reveal(&self, current_slot: Slot) -> Result<(), Error> {
+        if self.circuit_breaker.disable_checks() {
+            return Ok(());
+        }
+
+        // A clone: no lock is held while we read it.
+        let head = self.canonical_head.cached_head();
+        if head.head_slot().saturating_add(1u64) != current_slot {
+            return Ok(());
+        }
+        let state = &head.snapshot.beacon_state;
+        if !state.fork_name_unchecked().gloas_enabled() {
+            return Ok(());
+        }
+        let bid = state.latest_execution_payload_bid()?;
+        if bid.builder_index == BUILDER_INDEX_SELF_BUILD {
+            return Ok(());
+        }
+        let block_root = head.head_block_root();
+        let block_slot = head.head_slot();
+
+        let (payload_received, ptc_votes_timely, ptc_votes_data_available, block_weight, total_effective_balance) = {
+            let fork_choice = self.canonical_head.fork_choice_read_lock();
+            (
+                fork_choice.is_payload_received(&block_root),
+                fork_choice.ptc_votes_payload_timely(&block_root),
+                fork_choice.ptc_votes_data_available(&block_root),
+                fork_choice.get_block_weight(&block_root),
+                fork_choice
+                    .fc_store()
+                    .justified_balances()
+                    .total_effective_balance,
+            )
+        };
+
+        // Justified balances are what fork choice weighs votes in, so they are the right units to
+        // compare the block's weight against. They differ from `get_total_active_balance` of the
+        // head state only by the justification lag, which is immaterial for local policy.
+        let quorum = builder_payment_quorum::<T::EthSpec>(total_effective_balance, &self.spec)
+            .ok_or(Error::ArithError(safe_arith::ArithError::Overflow))?;
+
+        if !should_ban_for_missed_reveal(
+            bid.builder_index,
+            payload_received,
+            ptc_votes_timely,
+            ptc_votes_data_available,
+            block_weight,
+            quorum,
+        ) {
+            return Ok(());
+        }
+
+        let pubkey = state.get_builder(bid.builder_index)?.pubkey;
+        if self
+            .circuit_breaker
+            .ban_builder(pubkey, block_root, block_slot, current_slot)
+            == BanOutcome::New
+        {
+            warn!(
+                builder_index = bid.builder_index,
+                %pubkey,
+                %block_slot,
+                ?block_root,
+                block_weight,
+                quorum,
+                ban_slots = self.circuit_breaker.config().ban_slots,
+                "Banning builder that failed to reveal its payload"
+            );
+            metrics::inc_counter_vec(&metrics::BUILDER_CIRCUIT_BREAKER_BANS, &["missed_reveal"]);
+            metrics::set_gauge(
+                &metrics::BUILDER_CIRCUIT_BREAKER_BAN_ENTRIES,
+                self.circuit_breaker.num_ban_entries() as i64,
+            );
+        }
+        Ok(())
+    }
+
+    /// Post-Gloas: record a ban for an external builder whose revealed envelope was rejected by
+    /// the execution engine as definitively invalid (`Invalid` / `InvalidBlockHash`).
+    ///
+    /// Unlike a missed reveal, no attestation-weight or PTC gating applies: the envelope's
+    /// signature was verified at gossip and its payload is hash-bound to the committed bid, so an
+    /// EL-invalid verdict is attributable to the builder alone.
+    pub(crate) fn record_builder_ban_for_invalid_payload(
+        &self,
+        builder_index: u64,
+        block_root: Hash256,
+        block_slot: Slot,
+    ) {
+        if self.circuit_breaker.disable_checks() || builder_index == BUILDER_INDEX_SELF_BUILD {
+            return;
+        }
+        // The builder registry is append-only, so the head state resolves any index committed by
+        // the envelope's (valid, imported) block. A miss is an internal inconsistency; skip.
+        let head = self.canonical_head.cached_head();
+        let Ok(builder) = head.snapshot.beacon_state.get_builder(builder_index) else {
+            debug!(
+                builder_index,
+                ?block_root,
+                "Builder unknown to the head state; skipping invalid-payload ban"
+            );
+            return;
+        };
+        let pubkey = builder.pubkey;
+        let Ok(current_slot) = self.slot() else {
+            return;
+        };
+        if self
+            .circuit_breaker
+            .ban_builder(pubkey, block_root, block_slot, current_slot)
+            == BanOutcome::New
+        {
+            warn!(
+                builder_index,
+                %pubkey,
+                %block_slot,
+                ?block_root,
+                ban_slots = self.circuit_breaker.config().ban_slots,
+                "Banning builder that revealed an execution-invalid payload"
+            );
+            metrics::inc_counter_vec(&metrics::BUILDER_CIRCUIT_BREAKER_BANS, &["invalid_payload"]);
+            metrics::set_gauge(
+                &metrics::BUILDER_CIRCUIT_BREAKER_BAN_ENTRIES,
+                self.circuit_breaker.num_ban_entries() as i64,
+            );
         }
     }
 

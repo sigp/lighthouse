@@ -3,6 +3,7 @@ mod attestation_verification;
 mod blob_verification;
 mod block_production;
 mod block_verification;
+mod circuit_breaker;
 mod column_verification;
 mod envelope_verification;
 mod events;

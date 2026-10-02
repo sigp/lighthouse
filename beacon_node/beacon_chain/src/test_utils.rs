@@ -4,12 +4,13 @@ use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::graffiti_calculator::GraffitiSettings;
 use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::observed_operations::ObservationOutcome;
+use crate::payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid;
 use crate::payload_envelope_verification::AvailableEnvelope;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::{BeaconBlockResponseWrapper, CustodyContext, get_block_root};
 use crate::{
-    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
-    StateSkipConfig,
+    BeaconChain, BeaconChainTypes, BlockError, BlockProductionError, ChainConfig,
+    ServerSentEventHandler, StateSkipConfig,
     builder::{BeaconChainBuilder, Witness},
 };
 pub use crate::{
@@ -52,6 +53,7 @@ use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
+use ssz::Encode;
 use ssz_types::{ProgressiveVariableList, RuntimeVariableList, VariableList};
 use state_processing::ConsensusContext;
 use state_processing::per_block_processing::compute_timestamp_at_slot;
@@ -75,6 +77,7 @@ use tracing::debug;
 use tree_hash::TreeHash;
 use typenum::U4294967296;
 use types::attestation::IndexedAttestationBase;
+use types::consts::gloas::PAYLOAD_BUILDER_VERSION;
 use types::data::CustodyIndex;
 use types::execution::BlockProductionVersion;
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -82,6 +85,16 @@ use types::*;
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
+
+/// Builder withdrawal credentials derived from `pubkey`, in the same way as the interop genesis
+/// derives execution addresses.
+pub fn builder_withdrawal_credentials(pubkey: &bls::PublicKey, spec: &ChainSpec) -> Hash256 {
+    let fake_execution_address = &ethereum_hashing::hash(&pubkey.as_ssz_bytes())[0..20];
+    let mut credentials = [0u8; 32];
+    credentials[0] = spec.builder_withdrawal_prefix_byte;
+    credentials[12..].copy_from_slice(fake_execution_address);
+    Hash256::from_slice(&credentials)
+}
 // Environment variable to read if `fork_from_env` feature is enabled.
 pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 
@@ -269,6 +282,9 @@ pub struct Builder<T: BeaconChainTypes> {
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
+    /// Validators whose keypairs are also registered as payload builders at genesis, with the
+    /// balance (gwei) to give each builder. Only meaningful for a Gloas genesis.
+    genesis_builders: Vec<(usize, u64)>,
     node_custody_type: NodeCustodyType,
     runtime: TestRuntime,
 }
@@ -289,11 +305,12 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
             // Set alternating withdrawal credentials if no builder is specified.
             InteropGenesisBuilder::default().set_alternating_eth1_withdrawal_credentials()
         });
+        let genesis_builders = std::mem::take(&mut self.genesis_builders);
 
         let mutator = move |builder: BeaconChainBuilder<_>| {
             let spec = builder.get_spec();
             let header = generate_genesis_header::<E>(spec);
-            let genesis_state = genesis_state_builder
+            let mut genesis_state = genesis_state_builder
                 .set_opt_execution_payload_header(header.clone())
                 .build_genesis_state(
                     &validator_keypairs,
@@ -302,6 +319,19 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
                     spec,
                 )
                 .expect("should generate interop state");
+            for (validator_index, balance) in genesis_builders {
+                let keypair = &validator_keypairs[validator_index];
+                genesis_state
+                    .add_builder_to_registry(
+                        PublicKeyBytes::from(&keypair.pk),
+                        PAYLOAD_BUILDER_VERSION,
+                        builder_withdrawal_credentials(&keypair.pk, spec),
+                        balance,
+                        Slot::new(0),
+                        spec,
+                    )
+                    .expect("genesis builders require a Gloas genesis state");
+            }
             // For post-Bellatrix forks, verify the merge is complete at genesis
             if header.is_some() {
                 assert!(
@@ -446,9 +476,22 @@ where
             testing_slot_clock: None,
             validator_monitor_config: None,
             genesis_state_builder: None,
+            genesis_builders: vec![],
             node_custody_type: NodeCustodyType::Fullnode,
             runtime,
         }
+    }
+
+    /// Register the keypairs of `validator_indices` as payload builders in the genesis state,
+    /// each with `balance` gwei. Builders become active once the chain finalizes.
+    ///
+    /// Must be called before `fresh_ephemeral_store` and requires a Gloas genesis.
+    pub fn genesis_builders(mut self, validator_indices: Vec<usize>, balance: u64) -> Self {
+        self.genesis_builders = validator_indices
+            .into_iter()
+            .map(|index| (index, balance))
+            .collect();
+        self
     }
 
     pub fn deterministic_keypairs(self, num_keypairs: usize) -> Self {
@@ -782,6 +825,12 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
 pub type CommitteeSingleAttestations = Vec<(SingleAttestation, SubnetId)>;
 pub type CommitteeAttestations<E> = Vec<(Attestation<E>, SubnetId)>;
+/// A produced Gloas block, its (locally built) payload envelope if any, and the post-block state.
+pub type GloasBlockAndEnvelope<E> = (
+    SignedBlockContentsTuple<E>,
+    Option<SignedExecutionPayloadEnvelope<E>>,
+    BeaconState<E>,
+);
 pub type HarnessAttestations<E> =
     Vec<(CommitteeAttestations<E>, Option<SignedAggregateAndProof<E>>)>;
 
@@ -1223,6 +1272,186 @@ where
         (block_contents, block_response.state)
     }
 
+    /// Build and sign a gossip-style bid from the builder at `builder_index` (whose keypair must be
+    /// one of the harness validators, see `Builder::genesis_builders`) for a block at `slot` that
+    /// extends the chain described by `state` with the given parent payload status.
+    pub fn make_signed_gossip_bid(
+        &self,
+        state: &BeaconState<E>,
+        slot: Slot,
+        parent_payload_status: PayloadStatus,
+        builder_index: BuilderIndex,
+        value: u64,
+    ) -> SignedExecutionPayloadBid<E> {
+        let mut state = state.clone();
+        complete_state_advance(&mut state, None, slot, None, &self.spec)
+            .expect("should be able to advance state to slot");
+
+        // The payload-chain parent: the parent's own payload when building on FULL, otherwise the
+        // payload the parent built on. Mirrors `executed_ancestor_hash` in block production.
+        let parent_bid = state
+            .latest_execution_payload_bid()
+            .expect("gossip bids require a Gloas state");
+        let parent_block_hash = if parent_payload_status == PayloadStatus::Full {
+            parent_bid.block_hash
+        } else {
+            parent_bid.parent_block_hash
+        };
+        let parent_block_root = *state
+            .get_block_root(slot - 1)
+            .expect("should get parent block root");
+        let prev_randao = *state
+            .get_randao_mix(state.current_epoch())
+            .expect("should get randao mix");
+        let block_hash = ExecutionBlockHash::from_root(Hash256::from_slice(
+            &self.rng.lock().random::<[u8; 32]>(),
+        ));
+
+        let bid = ExecutionPayloadBid {
+            parent_block_hash,
+            parent_block_root,
+            block_hash,
+            prev_randao,
+            fee_recipient: Address::zero(),
+            gas_limit: 30_000_000,
+            builder_index,
+            slot,
+            value,
+            execution_payment: 0,
+            blob_kzg_commitments: Default::default(),
+            // Commit to empty execution requests so an envelope answering this bid can exist.
+            execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
+        };
+
+        let builder_pubkey = state
+            .get_builder(builder_index)
+            .expect("builder should be registered")
+            .pubkey;
+        let keypair = self
+            .validator_keypairs
+            .iter()
+            .find(|keypair| PublicKeyBytes::from(&keypair.pk) == builder_pubkey)
+            .expect("builder keypair should belong to a harness validator");
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let domain = self.spec.get_domain(
+            epoch,
+            Domain::BeaconBuilder,
+            &self.spec.fork_at_epoch(epoch),
+            state.genesis_validators_root(),
+        );
+        let signature = keypair.sk.sign(bid.signing_root(domain));
+        SignedExecutionPayloadBid {
+            message: bid,
+            signature,
+        }
+    }
+
+    /// Build the builder-signed envelope answering the bid committed by `block`, consistent with
+    /// `post_state` (the block's post-state) so it passes `verify_execution_payload_envelope`.
+    /// The payload's execution contents are empty; only the fields the bid and state commit to
+    /// are populated, which is all a mock EL looks at.
+    pub fn make_builder_envelope_for_block(
+        &self,
+        block: &SignedBeaconBlock<E>,
+        post_state: &BeaconState<E>,
+    ) -> SignedExecutionPayloadEnvelope<E> {
+        let bid = post_state
+            .latest_execution_payload_bid()
+            .expect("envelopes require a Gloas state")
+            .clone();
+        let withdrawals = ProgressiveVariableList::new(
+            post_state
+                .payload_expected_withdrawals()
+                .expect("Gloas state should have expected withdrawals")
+                .to_vec(),
+        )
+        .expect("expected withdrawals should fit the payload limit");
+        let timestamp = compute_timestamp_at_slot(post_state, post_state.slot(), &self.spec)
+            .expect("should compute timestamp");
+
+        let payload = ExecutionPayloadGloas {
+            parent_hash: *post_state
+                .latest_block_hash()
+                .expect("Gloas state should have a latest block hash"),
+            prev_randao: bid.prev_randao,
+            gas_limit: bid.gas_limit,
+            timestamp,
+            withdrawals,
+            block_hash: bid.block_hash,
+            slot_number: post_state.slot(),
+            ..Default::default()
+        };
+        let envelope = ExecutionPayloadEnvelope {
+            payload,
+            execution_requests: ExecutionRequestsGloas::default(),
+            builder_index: bid.builder_index,
+            beacon_block_root: block.canonical_root(),
+            parent_beacon_block_root: post_state.latest_block_header().parent_root,
+        };
+
+        let builder_pubkey = post_state
+            .get_builder(bid.builder_index)
+            .expect("builder should be registered")
+            .pubkey;
+        let keypair = self
+            .validator_keypairs
+            .iter()
+            .find(|keypair| PublicKeyBytes::from(&keypair.pk) == builder_pubkey)
+            .expect("builder keypair should belong to a harness validator");
+        let epoch = post_state.slot().epoch(E::slots_per_epoch());
+        let domain = self.spec.get_domain(
+            epoch,
+            Domain::BeaconBuilder,
+            &self.spec.fork_at_epoch(epoch),
+            post_state.genesis_validators_root(),
+        );
+        let signature = keypair.sk.sign(envelope.signing_root(domain));
+        SignedExecutionPayloadEnvelope {
+            message: envelope,
+            signature,
+        }
+    }
+
+    /// Insert a gossip bid from `builder_index` into the chain's bid cache and produce a block
+    /// at `slot` through the real Gloas production path. Returns the block and the post-block
+    /// state; the winning bid is asserted to be the external one, so there is no envelope.
+    pub async fn make_block_with_gossip_bid(
+        &self,
+        state: BeaconState<E>,
+        slot: Slot,
+        parent_payload_status: PayloadStatus,
+        builder_index: BuilderIndex,
+        value: u64,
+    ) -> (SignedBlockContentsTuple<E>, BeaconState<E>) {
+        let signed_bid =
+            self.make_signed_gossip_bid(&state, slot, parent_payload_status, builder_index, value);
+        assert!(
+            self.chain
+                .gossip_verified_payload_bid_cache
+                .observe_bid(GossipVerifiedPayloadBid {
+                    signed_bid: Arc::new(signed_bid),
+                }),
+            "gossip bid should be cached"
+        );
+        // Boxed: the production future is large and can overflow the stack in debug builds.
+        let (block_contents, envelope, post_state) =
+            Box::pin(self.make_block_with_envelope_on(state, slot, parent_payload_status)).await;
+        assert_eq!(
+            block_contents
+                .0
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .expect("Gloas block should carry a bid")
+                .message
+                .builder_index,
+            builder_index,
+            "the external bid should have won block production"
+        );
+        assert!(envelope.is_none(), "an external bid has no local envelope");
+        (block_contents, post_state)
+    }
+
     /// Returns a newly created block, signed by the proposer for the given slot,
     /// along with the execution payload envelope (for Gloas) and the post-block state.
     ///
@@ -1252,7 +1481,7 @@ where
     /// For pre-Gloas forks, the envelope is `None` and this behaves like `make_block`.
     pub async fn make_block_with_envelope_on(
         &self,
-        mut state: BeaconState<E>,
+        state: BeaconState<E>,
         slot: Slot,
         parent_payload_status: PayloadStatus,
     ) -> (
@@ -1266,89 +1495,105 @@ where
         if state.fork_name_unchecked().gloas_enabled()
             || self.spec.fork_name_at_slot::<E>(slot).gloas_enabled()
         {
-            complete_state_advance(&mut state, None, slot, None, &self.spec)
-                .expect("should be able to advance state to slot");
-            state.build_caches(&self.spec).expect("should build caches");
-
-            let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
-
-            let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
-            let graffiti_settings =
-                GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
-            let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
-
-            let parent_root = *state
-                .get_block_root(state.slot() - 1)
-                .expect("should get parent block root");
-            let parent_envelope = if parent_payload_status == PayloadStatus::Full {
-                self.chain
-                    .store
-                    .get_signed_payload_envelope(&parent_root)
-                    .expect("should load parent payload envelope")
-                    .map(Arc::new)
-            } else {
-                None
-            };
-
-            let (
-                block,
-                post_block_state,
-                _consensus_block_value,
-                _execution_payload_value,
-                _payload_contents,
-                _builder_url,
-            ) = self
-                .chain
-                .produce_block_on_state_gloas(
-                    state,
-                    None,
-                    parent_root,
-                    parent_payload_status,
-                    parent_envelope,
-                    slot,
-                    randao_reveal,
-                    graffiti_settings,
-                    ProduceBlockVerification::VerifyRandao,
-                    eth2::types::BuilderConfig::empty(),
-                )
+            // Boxed: the production future is large and can overflow the stack in debug builds.
+            Box::pin(self.try_make_gloas_block_with_envelope_on(state, slot, parent_payload_status))
                 .await
-                .unwrap();
-
-            let signed_block = Arc::new(block.sign(
-                &self.validator_keypairs[proposer_index].sk,
-                &post_block_state.fork(),
-                post_block_state.genesis_validators_root(),
-                &self.spec,
-            ));
-
-            // Retrieve the cached envelope produced during block production and sign it.
-            let signed_envelope = self
-                .chain
-                .pending_payload_envelopes
-                .write()
-                .remove(signed_block.canonical_root())
-                .map(|envelope| {
-                    let epoch = slot.epoch(E::slots_per_epoch());
-                    let domain = self.spec.get_domain(
-                        epoch,
-                        Domain::BeaconBuilder,
-                        &post_block_state.fork(),
-                        post_block_state.genesis_validators_root(),
-                    );
-                    let message = envelope.signing_root(domain);
-                    let signature = self.validator_keypairs[proposer_index].sk.sign(message);
-                    SignedExecutionPayloadEnvelope {
-                        message: Arc::unwrap_or_clone(envelope),
-                        signature,
-                    }
-                });
-
-            let block_contents: SignedBlockContentsTuple<E> = (signed_block, None);
-            (block_contents, signed_envelope, post_block_state)
+                .expect("Gloas block production should succeed")
         } else {
             let (block_contents, state) = self.make_block(state, slot).await;
             (block_contents, None, state)
         }
+    }
+
+    /// Fallible, Gloas-only variant of [`Self::make_block_with_envelope_on`]: returns the block
+    /// production error instead of panicking, for tests that expect production to fail.
+    pub async fn try_make_gloas_block_with_envelope_on(
+        &self,
+        mut state: BeaconState<E>,
+        slot: Slot,
+        parent_payload_status: PayloadStatus,
+    ) -> Result<GloasBlockAndEnvelope<E>, BlockProductionError> {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        complete_state_advance(&mut state, None, slot, None, &self.spec)
+            .expect("should be able to advance state to slot");
+        state.build_caches(&self.spec).expect("should build caches");
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+        let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
+        let graffiti_settings =
+            GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
+        let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
+
+        let parent_root = *state
+            .get_block_root(state.slot() - 1)
+            .expect("should get parent block root");
+        let parent_envelope = if parent_payload_status == PayloadStatus::Full {
+            self.chain
+                .store
+                .get_signed_payload_envelope(&parent_root)
+                .expect("should load parent payload envelope")
+                .map(Arc::new)
+        } else {
+            None
+        };
+
+        let (
+            block,
+            post_block_state,
+            _consensus_block_value,
+            _execution_payload_value,
+            _payload_contents,
+            _builder_url,
+        ) = self
+            .chain
+            .produce_block_on_state_gloas(
+                state,
+                None,
+                parent_root,
+                parent_payload_status,
+                parent_envelope,
+                slot,
+                randao_reveal,
+                graffiti_settings,
+                ProduceBlockVerification::VerifyRandao,
+                eth2::types::BuilderConfig::empty(),
+            )
+            .await?;
+
+        let signed_block = Arc::new(block.sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &post_block_state.fork(),
+            post_block_state.genesis_validators_root(),
+            &self.spec,
+        ));
+
+        // Retrieve the cached envelope produced during block production and sign it.
+        let signed_envelope = self
+            .chain
+            .pending_payload_envelopes
+            .write()
+            .remove(signed_block.canonical_root())
+            .map(|envelope| {
+                let epoch = slot.epoch(E::slots_per_epoch());
+                let domain = self.spec.get_domain(
+                    epoch,
+                    Domain::BeaconBuilder,
+                    &post_block_state.fork(),
+                    post_block_state.genesis_validators_root(),
+                );
+                let message = envelope.signing_root(domain);
+                let signature = self.validator_keypairs[proposer_index].sk.sign(message);
+                SignedExecutionPayloadEnvelope {
+                    message: Arc::unwrap_or_clone(envelope),
+                    signature,
+                }
+            });
+
+        let block_contents: SignedBlockContentsTuple<E> = (signed_block, None);
+        Ok((block_contents, signed_envelope, post_block_state))
     }
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after

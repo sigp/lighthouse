@@ -1215,6 +1215,26 @@ impl ProtoArrayForkChoice {
             .unwrap_or(false)
     }
 
+    /// Returns `true` if more than `PAYLOAD_TIMELY_THRESHOLD` PTC members voted that the payload
+    /// for `block_root` was timely. Ignores whether this node received the payload itself.
+    ///
+    /// Returns `false` for unknown or pre-Gloas blocks.
+    pub fn ptc_votes_payload_timely<E: EthSpec>(&self, block_root: &Hash256) -> bool {
+        self.get_proto_node(block_root)
+            .and_then(|node| node.ptc_votes_timeliness::<E>(true).ok())
+            .unwrap_or(false)
+    }
+
+    /// Returns `true` if more than `DATA_AVAILABILITY_TIMELY_THRESHOLD` PTC members voted that
+    /// the blob data for `block_root` was available. Ignores this node's own availability view.
+    ///
+    /// Returns `false` for unknown or pre-Gloas blocks.
+    pub fn ptc_votes_data_available<E: EthSpec>(&self, block_root: &Hash256) -> bool {
+        self.get_proto_node(block_root)
+            .and_then(|node| node.ptc_votes_data_availability::<E>(true).ok())
+            .unwrap_or(false)
+    }
+
     /// Returns the canonical payload status of a block, matching the decision
     /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
     pub fn get_canonical_payload_status<E: EthSpec>(
