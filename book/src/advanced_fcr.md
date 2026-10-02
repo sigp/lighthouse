@@ -23,15 +23,20 @@ DEBUG FCR advanced                                  confirmed: 0xd97ec7d7bfdf842
 
 where `confirmed` is the block root of the most recent confirmed slot and `prev` is the block root of the previously confirmed slot. If there is a skipped slot, the next block will take a longer time to confirm. The above log will not be observed if the beacon node is syncing or the execution engine is syncing or offline, indicating that no new block has been confirmed.
 
-After a restart of Lighthouse, the following logs will usually be seen across a new epoch:
+After a restart of Lighthouse, the following logs will usually be seen:
 
 ```text
-DEBUG FCR fell back to finalized                    prev_confirmed: 0x6bdf8b63e1f530ca02a6b97428fc876e1a50c3f4cd52447a54fd3e8cea891acf, finalized: 0x197ecc03b8f297ef308fbe6ff8dc1407a0e46c94039dfc8c9397acd10799a32c, slot: 4045664, reason: "epoch_too_old"
-DEBUG FCR restarted from observed justified         prev_confirmed: 0x197ecc03b8f297ef308fbe6ff8dc1407a0e46c94039dfc8c9397acd10799a32c, justified: 0x0938fa402f4af908bed00fb695a447c1150ea07dd9741a4100eeff2db16ab69c, justified_epoch: 126426
-
+DEBUG FCR restored a root confirmed before the restart  root: 0xcdfb8947cf88870b6e4721f27f7470f07478644419d6347fa01f871b00b25ca2
 ```
 
-The above two logs are harmless and expected after a restart.
+At the first epoch boundary after the restart, the following logs are usually seen:
+
+``` 
+DEBUG FCR fell back to finalized                    prev_confirmed: 0x1f92a52bf914720564776a1a392a7e10ed7cd998141fbcbd708622ba8ff5cc0d, finalized: 0xb8dfdf0b53d01b5197c058bf6b23891a826a5d3f606da195b4b71d4ad78891e1, slot: 4052704, reason: "epoch_too_old"
+DEBUG FCR restarted from observed justified         prev_confirmed: 0xb8dfdf0b53d01b5197c058bf6b23891a826a5d3f606da195b4b71d4ad78891e1, justified: 0xd5b68e49a23eced36dc5693374660aaf63d707a88efb0d52363c4d10795034a4, justified_epoch: 126646
+```
+
+The above logs are harmless and expected after a restart.
 
 If the beacon node has been offline for some time (e.g. one hour), when it is back online, you may see the following error log:
 
