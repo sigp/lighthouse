@@ -447,6 +447,28 @@ pub static ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_TIMES: LazyLock<Result<H
             "Time spent on the signature verification of batch unaggregate attestation processing",
         )
     });
+// How foldable the unaggregated attestation batches are: signature sets vs. distinct messages
+// (signing roots). After folding, the batch costs one pairing per distinct message, so
+// `signature_sets / distinct_messages` is the fold ratio and `signature_sets_sum -
+// distinct_messages_sum` is the pairings saved.
+pub static ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_SETS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "beacon_attestation_processing_batch_unagg_signature_sets",
+            "Number of signature sets (one per attestation) submitted to each unaggregated batch \
+             signature verification",
+            exponential_buckets(1.0, 2.0, 11),
+        )
+    });
+pub static ATTESTATION_PROCESSING_BATCH_UNAGG_DISTINCT_MESSAGES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "beacon_attestation_processing_batch_unagg_distinct_messages",
+            "Number of distinct messages (signing roots) in each unaggregated batch; equals the \
+             number of pairings after super-batch grouping",
+            exponential_buckets(1.0, 2.0, 11),
+        )
+    });
 
 /*
  * Shuffling cache

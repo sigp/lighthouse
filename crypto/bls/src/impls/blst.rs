@@ -9,10 +9,13 @@ use crate::{
     generic_signature::{SIGNATURE_BYTES_LEN, SIGNATURE_UNCOMPRESSED_BYTES_LEN, TSignature},
 };
 pub use blst::min_pk as blst_core;
-use blst::{BLST_ERROR, blst_scalar};
+use blst::{BLST_ERROR, MultiPoint, blst_scalar};
 use rand::Rng;
+use std::collections::HashMap;
 pub const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 pub const RAND_BITS: usize = 64;
+/// Bytes per scalar in the flat buffer that `blst`'s multi-scalar multiplication expects.
+const RAND_BYTES: usize = RAND_BITS / 8;
 
 /// Provides the externally-facing, core BLS types.
 pub mod types {
@@ -33,6 +36,16 @@ pub type SignatureSet<'a> = crate::generic_signature_set::GenericSignatureSet<
     BlstAggregateSignature,
 >;
 
+/// Batch-verify a collection of signature sets. Returns `true` only if every set is valid; one bad
+/// set fails the whole batch (callers then re-check sets one by one to find it).
+///
+/// Optimization: Sets that sign the same `message` are folded into a single pairing
+/// instead of one each. This helps most on the attestation subnets, where many unaggregated
+/// attestations vote for the same `AttestationData`.
+///
+/// To stay sound, each signature and its public key are scaled by a fresh, secret, non-zero random
+/// scalar before being summed. This is the same operation the standard batch verification already uses across
+/// messages. Without it an attacker could craft bad signatures that cancel out.
 pub fn verify_signature_sets<'a>(
     signature_sets: impl ExactSizeIterator<Item = &'a SignatureSet<'a>>,
 ) -> bool {
@@ -44,18 +57,71 @@ pub fn verify_signature_sets<'a>(
 
     let rng = &mut rand::rng();
 
-    let mut rands: Vec<blst_scalar> = Vec::with_capacity(sets.len());
-    let mut msgs_refs = Vec::with_capacity(sets.len());
-    let mut sigs = Vec::with_capacity(sets.len());
-    let mut pks = Vec::with_capacity(sets.len());
+    // Reduce each set to one `(public_key, signature)` pair and bucket the pairs by message.
+    let mut group_index: HashMap<Hash256, usize> = HashMap::with_capacity(sets.len());
+    let mut groups: Vec<(
+        Hash256,
+        Vec<blst_core::PublicKey>,
+        Vec<blst_core::Signature>,
+    )> = Vec::with_capacity(sets.len());
 
     for set in &sets {
-        // Generate random scalars.
-        let mut vals = [0u64; 4];
-        while vals[0] == 0 {
-            // Do not use zero
-            vals[0] = rng.random();
+        let Some((public_key, signature)) = reduce_signature_set(set) else {
+            // A malformed set (bad/empty signature, no signing keys) fails the whole batch.
+            return false;
+        };
+
+        match group_index.get(&set.message) {
+            Some(&i) => {
+                groups[i].1.push(public_key);
+                groups[i].2.push(signature);
+            }
+            None => {
+                group_index.insert(set.message, groups.len());
+                groups.push((set.message, vec![public_key], vec![signature]));
+            }
         }
+    }
+
+    // Collapse each group into one `(message, public_key, signature)` entry, then hand them to
+    // `blst`'s batch verifier. One entry per distinct message means one pairing per distinct message.
+    let mut msgs: Vec<Hash256> = Vec::with_capacity(groups.len());
+    let mut pks: Vec<blst_core::PublicKey> = Vec::with_capacity(groups.len());
+    let mut sigs: Vec<blst_core::Signature> = Vec::with_capacity(groups.len());
+
+    for (message, mut group_pks, mut group_sigs) in groups {
+        msgs.push(message);
+
+        if group_pks.len() == 1 {
+            // Nothing to fold. Forward the set as-is, so batches where every message is distinct
+            // (e.g. block verification) behave exactly as before.
+            pks.append(&mut group_pks);
+            sigs.append(&mut group_sigs);
+        } else {
+            // Fold the group: scale each `(public_key, signature)` by a fresh secret scalar and sum. Since
+            // the message is shared, the per-signature pairings combine into one.
+            let scalars = random_scalar_bytes(rng, group_pks.len());
+
+            pks.push(
+                group_pks
+                    .as_slice()
+                    .mult(&scalars, RAND_BITS)
+                    .to_public_key(),
+            );
+            sigs.push(
+                group_sigs
+                    .as_slice()
+                    .mult(&scalars, RAND_BITS)
+                    .to_signature(),
+            );
+        }
+    }
+
+    // One random coefficient per collapsed entry for the final batch verification.
+    let mut rands: Vec<blst_scalar> = Vec::with_capacity(msgs.len());
+    for _ in 0..msgs.len() {
+        // Only the low 64 bits (`RAND_BITS`) are used.
+        let vals = [nonzero_u64(rng), 0, 0, 0];
         let mut rand_i = std::mem::MaybeUninit::<blst_scalar>::uninit();
 
         // TODO: remove this `unsafe` code-block once we get a safe option from `blst`.
@@ -65,56 +131,68 @@ pub fn verify_signature_sets<'a>(
             blst::blst_scalar_from_uint64(rand_i.as_mut_ptr(), vals.as_ptr());
             rands.push(rand_i.assume_init());
         }
-
-        // Grab a slice of the message, to satisfy the blst API.
-        msgs_refs.push(set.message.as_slice());
-
-        if let Some(point) = set.signature.point() {
-            // Subgroup check the signature
-            if !point.0.subgroup_check() {
-                return false;
-            }
-            // Convert the aggregate signature into a signature.
-            sigs.push(point.0.to_signature())
-        } else {
-            // Any "empty" signature should cause a signature failure.
-            return false;
-        }
-
-        // Sanity check.
-        if set.signing_keys.is_empty() {
-            // A signature that has no signing keys is invalid.
-            return false;
-        }
-
-        // Collect all the public keys into a point, to satisfy the blst API.
-        //
-        // Note: we could potentially have the `SignatureSet` take a pubkey point instead of a
-        // `GenericPublicKey` and avoid this allocation.
-        let signing_keys = set
-            .signing_keys
-            .iter()
-            .map(|pk| pk.point())
-            .collect::<Vec<_>>();
-
-        // Aggregate all the public keys.
-        // Public keys have already been checked for subgroup and infinity
-        let Ok(agg_pk) = blst_core::AggregatePublicKey::aggregate(&signing_keys, false) else {
-            return false;
-        };
-        pks.push(agg_pk.to_public_key());
     }
 
-    let (sig_refs, pks_refs): (Vec<_>, Vec<_>) = sigs.iter().zip(pks.iter()).unzip();
+    let msgs_refs = msgs.iter().map(|msg| msg.as_slice()).collect::<Vec<_>>();
+    let pks_refs = pks.iter().collect::<Vec<_>>();
+    let sigs_refs = sigs.iter().collect::<Vec<_>>();
 
-    // Public keys have already been checked for subgroup and infinity
-    // Signatures have already been checked for subgroup
-    // Signature checks above could be done here for convienence as well
+    // Public keys have already been checked for subgroup and infinity.
+    // Signatures have already been checked for subgroup.
     let err = blst_core::Signature::verify_multiple_aggregate_signatures(
-        &msgs_refs, DST, &pks_refs, false, &sig_refs, false, &rands, RAND_BITS,
+        &msgs_refs, DST, &pks_refs, false, &sigs_refs, false, &rands, RAND_BITS,
     );
 
     err == blst::BLST_ERROR::BLST_SUCCESS
+}
+
+/// Reduce a `SignatureSet` to one `(public_key, signature)` pair, with the same checks as the
+/// non-folded path. Returns `None` (failing the batch) if the set is malformed: an empty or
+/// non-subgroup signature, no signing keys, or public keys that won't aggregate.
+fn reduce_signature_set(
+    set: &SignatureSet<'_>,
+) -> Option<(blst_core::PublicKey, blst_core::Signature)> {
+    // Subgroup-check the signature; an empty (`None`) signature fails.
+    let point = set.signature.point()?;
+    if !point.0.subgroup_check() {
+        return None;
+    }
+    let signature = point.0.to_signature();
+
+    // No signing keys means the set is invalid.
+    if set.signing_keys.is_empty() {
+        return None;
+    }
+
+    // Aggregate the signing keys into one public key (keys were validated at deserialization).
+    let signing_keys = set
+        .signing_keys
+        .iter()
+        .map(|pk| pk.point())
+        .collect::<Vec<_>>();
+    let agg_pk = blst_core::AggregatePublicKey::aggregate(&signing_keys, false).ok()?;
+
+    Some((agg_pk.to_public_key(), signature))
+}
+
+/// Pack `n` fresh non-zero random scalars into the flat little-endian buffer `blst`'s multi-scalar
+/// multiplication expects (`RAND_BYTES` bytes each).
+fn random_scalar_bytes(rng: &mut impl Rng, n: usize) -> Vec<u8> {
+    let mut scalars = Vec::with_capacity(n * RAND_BYTES);
+    for _ in 0..n {
+        scalars.extend_from_slice(&nonzero_u64(rng).to_le_bytes());
+    }
+    scalars
+}
+
+/// A fresh, non-zero random `u64` coefficient. Zero must never be used: it would drop a
+/// `(public_key, signature)` pair from the sum and could let an invalid signature through.
+fn nonzero_u64(rng: &mut impl Rng) -> u64 {
+    let mut r: u64 = 0;
+    while r == 0 {
+        r = rng.random();
+    }
+    r
 }
 
 impl TPublicKey for blst_core::PublicKey {
