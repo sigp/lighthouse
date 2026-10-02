@@ -311,19 +311,9 @@ pub fn get_config<E: EthSpec>(
     // Check if the JWT secret key is passed directly via cli flag and persist it to the default
     // file location.
     } else if let Some(jwt_secret_key) = cli_args.get_one::<String>("execution-jwt-secret-key") {
-        use std::fs::File;
-        use std::io::Write;
         secret_file = client_config.data_dir().join(DEFAULT_JWT_FILE);
-        let mut jwt_secret_key_file = File::create(secret_file.clone())
-            .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
-        jwt_secret_key_file
-            .write_all(jwt_secret_key.as_bytes())
-            .map_err(|e| {
-                format!(
-                    "Error occurred while writing to jwt_secret_key file: {:?}",
-                    e
-                )
-            })?;
+        filesystem::create_with_600_perms(&secret_file, jwt_secret_key.as_bytes())
+            .map_err(|e| format!("Error while writing jwt_secret_key file: {:?}", e))?;
     } else {
         return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
     }
