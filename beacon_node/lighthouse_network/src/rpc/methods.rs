@@ -16,9 +16,9 @@ use types::data::BlobIdentifier;
 use types::light_client::consts::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch,
-    EthSpec, ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, Slot,
+    EthSpec, ForkContext, Hash256, InclusionListBits, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelope, SignedInclusionList, Slot,
 };
 
 /// Maximum length of error message.
@@ -591,6 +591,22 @@ impl<E: EthSpec> DataColumnsByRootRequest<E> {
     }
 }
 
+/// Request inclusion lists from a peer.
+///
+/// The `indices` are committee positions, not validator indices.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct InclusionListsByIndicesRequest<E: EthSpec> {
+    pub slot: Slot,
+    pub dependent_root: Hash256,
+    pub indices: InclusionListBits<E>,
+}
+
+impl<E: EthSpec> InclusionListsByIndicesRequest<E> {
+    pub fn max_requested(&self) -> u64 {
+        self.indices.num_set_bits() as u64
+    }
+}
+
 /// Request a number of beacon data columns from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct LightClientUpdatesByRangeRequest {
@@ -668,6 +684,9 @@ pub enum RpcSuccessResponse<E: EthSpec> {
     /// A response to a get DATA_COLUMN_SIDECARS_BY_RANGE request.
     DataColumnsByRange(Arc<DataColumnSidecar<E>>),
 
+    /// A response to a get INCLUSION_LISTS_BY_INDICES request.
+    InclusionListsByIndices(Arc<SignedInclusionList>),
+
     /// A PONG response to a PING request.
     Pong(Ping),
 
@@ -705,6 +724,9 @@ pub enum ResponseTermination {
     /// Data column sidecars by range stream termination.
     DataColumnsByRange,
 
+    /// Inclusion lists by indices stream termination.
+    InclusionListsByIndices,
+
     /// Light client updates by range stream termination.
     LightClientUpdatesByRange,
 }
@@ -721,6 +743,7 @@ impl ResponseTermination {
             ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
             ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
             ResponseTermination::DataColumnsByRange => Protocol::DataColumnsByRange,
+            ResponseTermination::InclusionListsByIndices => Protocol::InclusionListsByIndices,
             ResponseTermination::LightClientUpdatesByRange => Protocol::LightClientUpdatesByRange,
         }
     }
@@ -819,6 +842,7 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             RpcSuccessResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
             RpcSuccessResponse::DataColumnsByRoot(_) => Protocol::DataColumnsByRoot,
             RpcSuccessResponse::DataColumnsByRange(_) => Protocol::DataColumnsByRange,
+            RpcSuccessResponse::InclusionListsByIndices(_) => Protocol::InclusionListsByIndices,
             RpcSuccessResponse::Pong(_) => Protocol::Ping,
             RpcSuccessResponse::MetaData(_) => Protocol::MetaData,
             RpcSuccessResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -838,6 +862,7 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             Self::PayloadEnvelopesByRoot(r) | Self::PayloadEnvelopesByRange(r) => Some(r.slot()),
             Self::BlobsByRange(r) | Self::BlobsByRoot(r) => Some(r.slot()),
             Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => Some(r.slot()),
+            Self::InclusionListsByIndices(r) => Some(r.message.slot),
             Self::LightClientBootstrap(r) => Some(r.get_slot()),
             Self::LightClientFinalityUpdate(r) => Some(r.get_attested_header_slot()),
             Self::LightClientOptimisticUpdate(r) => Some(r.get_slot()),
@@ -917,6 +942,13 @@ impl<E: EthSpec> std::fmt::Display for RpcSuccessResponse<E> {
                     f,
                     "DataColumnsByRange: Data column slot: {}",
                     sidecar.slot()
+                )
+            }
+            RpcSuccessResponse::InclusionListsByIndices(il) => {
+                write!(
+                    f,
+                    "InclusionListsByIndices: Inclusion list slot: {}",
+                    il.message.slot
                 )
             }
             RpcSuccessResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
@@ -1036,6 +1068,18 @@ impl<E: EthSpec> std::fmt::Display for DataColumnsByRootRequest<E> {
             f,
             "Request: DataColumnsByRoot: Number of Requested Data Column Ids: {}",
             self.data_column_ids.len()
+        )
+    }
+}
+
+impl<E: EthSpec> std::fmt::Display for InclusionListsByIndicesRequest<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Request: InclusionListsByIndices: Slot: {}, Dependent root: {}, Number of Requested Indices: {}",
+            self.slot,
+            self.dependent_root,
+            self.indices.num_set_bits()
         )
     }
 }
