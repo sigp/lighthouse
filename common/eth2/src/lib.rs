@@ -3490,6 +3490,48 @@ impl BeaconNodeHttpClient {
         AttestationData::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
     }
 
+    /// `POST validator/inclusion_list`
+    pub async fn post_validator_inclusion_list(
+        &self,
+        signed_inclusion_list: &SignedInclusionList,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("inclusion_list");
+
+        // The request body is wrapped in a `data` object, per the beacon-APIs specs
+        let body = serde_json::json!({ "data": signed_inclusion_list });
+        self.post_generic_with_consensus_version(path, &body, None, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/inclusion_list` (SSZ)
+    pub async fn post_validator_inclusion_list_ssz(
+        &self,
+        signed_inclusion_list: &SignedInclusionList,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("inclusion_list");
+
+        let ssz_body = signed_inclusion_list.as_ssz_bytes();
+
+        self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
     /// `GET validator/payload_attestation_data?slot`
     /// Returns `None` if no block has been received for the requested slot (204).
     pub async fn get_validator_payload_attestation_data(
