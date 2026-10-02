@@ -650,7 +650,7 @@ mod tests {
                 let block_slot = block.slot();
                 let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
                 validator_store
-                    .sign_block(pubkey, unsigned_block, block_slot)
+                    .sign_block(pubkey, unsigned_block, block_slot, None)
                     .await
                     .unwrap()
             }
@@ -724,7 +724,7 @@ mod tests {
                 let unsigned_block =
                     UnsignedBlock::Full(FullBlockContents::Block(altair_block.into()));
                 validator_store
-                    .sign_block(pubkey, unsigned_block, altair_fork_slot)
+                    .sign_block(pubkey, unsigned_block, altair_fork_slot, None)
                     .await
                     .unwrap()
             }
@@ -809,7 +809,7 @@ mod tests {
                 let unsigned_block =
                     UnsignedBlock::Full(FullBlockContents::Block(bellatrix_block.into()));
                 validator_store
-                    .sign_block(pubkey, unsigned_block, bellatrix_fork_slot)
+                    .sign_block(pubkey, unsigned_block, bellatrix_fork_slot, None)
                     .await
                     .unwrap()
             }
@@ -942,7 +942,7 @@ mod tests {
             let slot = block.slot();
             let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
             validator_store
-                .sign_block(pubkey, unsigned_block, slot)
+                .sign_block(pubkey, unsigned_block, slot, None)
                 .await
                 .unwrap()
         })
@@ -954,7 +954,7 @@ mod tests {
                 let slot = block.slot();
                 let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
                 validator_store
-                    .sign_block(pubkey, unsigned_block, slot)
+                    .sign_block(pubkey, unsigned_block, slot, None)
                     .await
                     .map(|_| ())
             },
