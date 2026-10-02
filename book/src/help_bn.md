@@ -316,10 +316,7 @@ Options:
       --proof-engine-endpoint <PROOF-ENGINE-ENDPOINT>
           Server endpoint for an EIP-8025 proof engine used to verify execution
           proofs. When present, the node subscribes to the execution_proof
-          gossip topic, and the proofs become the validity of a Gloas payload:
-          the payload is never sent to the execution layer, it is optimistic
-          until proven, and this node can neither propose nor attest to a
-          payload it cannot prove. Experimental.
+          gossip topic and propagates proofs that verify. Experimental.
       --proposer-reorg-cutoff <MILLISECONDS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-disallowed-offsets <N1,N2,...>

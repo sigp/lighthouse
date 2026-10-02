@@ -851,10 +851,7 @@ pub fn cli_app() -> Command {
                 .value_name("PROOF-ENGINE-ENDPOINT")
                 .help("Server endpoint for an EIP-8025 proof engine used to verify execution \
                        proofs. When present, the node subscribes to the execution_proof gossip \
-                       topic, and the proofs become the validity of a Gloas payload: the payload \
-                       is never sent to the execution layer, it is optimistic until proven, and \
-                       this node can neither propose nor attest to a payload it cannot prove. \
-                       Experimental.")
+                       topic and propagates proofs that verify. Experimental.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )

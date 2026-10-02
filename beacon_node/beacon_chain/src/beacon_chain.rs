@@ -7031,34 +7031,35 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // another fork choice update.
         drop(forkchoice_lock);
 
+        // EIP-8025: with execution proofs deciding payload validity, the execution layer has no say.
+        if self.execution_proofs_enabled() {
+            return Ok(());
+        }
+
         match forkchoice_updated_response {
             Ok(status) => match status {
                 PayloadStatus::Valid => {
-                    // EIP-8025: with execution proofs deciding payload validity, this verdict is not
-                    // what promotes a payload.
-                    if !self.execution_proofs_enabled() {
-                        // Ensure that fork choice knows that the payload is no longer optimistic. The
-                        // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
-                        // ancestor's payload, not the head block's.
-                        let chain = self.clone();
-                        let fork_choice_update_result = self
-                            .spawn_blocking_handle(
-                                move || {
-                                    chain
-                                        .canonical_head
-                                        .fork_choice_write_lock()
-                                        .on_valid_execution_payload(head_hash)
-                                },
-                                "update_execution_engine_valid_payload",
-                            )
-                            .await?;
-                        if let Err(e) = fork_choice_update_result {
-                            error!(
-                                error= ?e,
-                                "Failed to validate payload"
-                            )
-                        };
-                    }
+                    // Ensure that fork choice knows that the payload is no longer optimistic. The
+                    // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
+                    // ancestor's payload, not the head block's.
+                    let chain = self.clone();
+                    let fork_choice_update_result = self
+                        .spawn_blocking_handle(
+                            move || {
+                                chain
+                                    .canonical_head
+                                    .fork_choice_write_lock()
+                                    .on_valid_execution_payload(head_hash)
+                            },
+                            "update_execution_engine_valid_payload",
+                        )
+                        .await?;
+                    if let Err(e) = fork_choice_update_result {
+                        error!(
+                            error= ?e,
+                            "Failed to validate payload"
+                        )
+                    };
                     Ok(())
                 }
                 // There's nothing to be done for a syncing response. If the block is already

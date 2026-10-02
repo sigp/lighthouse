@@ -763,9 +763,10 @@ async fn a_later_valid_payload_promotes_its_optimistic_ancestors() {
     );
 }
 
-/// A payload the node cannot prove yet is optimistic until the proof that completes its requirement.
+/// A payload is optimistic until the proof that completes its requirement, which validates every
+/// payload below it too: proofs are recursive, so an ancestor needs none of its own.
 #[tokio::test]
-async fn execution_proofs_validate_an_optimistic_payload() {
+async fn execution_proofs_validate_a_payload_and_its_ancestors() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
     }
@@ -773,9 +774,11 @@ async fn execution_proofs_validate_an_optimistic_payload() {
     let harness = gloas_harness_with_proof_engine();
     harness.extend_to_slot(Slot::new(1)).await;
 
-    // The payload imports without any proofs, and the execution layer is never asked about it.
-    let slot = Slot::new(2);
+    // Both payloads import without proofs, and the execution layer is never asked about them.
+    let ancestor_root = import_block_and_envelope(&harness, Slot::new(2)).await;
+    let slot = Slot::new(3);
     let block_root = import_block_and_envelope(&harness, slot).await;
+    assert!(is_optimistic(execution_status(&harness, ancestor_root)));
     assert!(
         is_optimistic(execution_status(&harness, block_root)),
         "a payload without its execution proofs must be held as optimistic",
@@ -799,41 +802,9 @@ async fn execution_proofs_validate_an_optimistic_payload() {
         is_valid_and_post_bellatrix(execution_status(&harness, block_root)),
         "the proof that completes the requirement must validate the payload",
     );
-}
-
-/// Proofs are recursive, so one proven payload validates every payload below it.
-#[tokio::test]
-async fn a_proven_payload_validates_its_optimistic_ancestors() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-
-    let harness = gloas_harness_with_proof_engine();
-    harness.extend_to_slot(Slot::new(1)).await;
-
-    let ancestor_root = import_block_and_envelope(&harness, Slot::new(2)).await;
-    assert!(is_optimistic(execution_status(&harness, ancestor_root)));
-
-    let slot = Slot::new(3);
-    let block_root = import_block_and_envelope(&harness, slot).await;
-    assert!(
-        is_optimistic(execution_status(&harness, block_root)),
-        "a payload without its execution proofs must be held as optimistic",
-    );
-    assert!(is_optimistic(execution_status(&harness, ancestor_root)));
-
-    // Proving the newer payload validates the older one with it, which never had a proof of its own.
-    for proof_type in 0..REQUIRED_EXECUTION_PROOFS {
-        harness
-            .observe_execution_proof(block_root, proof_type as ProofType, slot)
-            .await;
-    }
-    assert!(is_valid_and_post_bellatrix(execution_status(
-        &harness, block_root
-    )));
     assert!(
         is_valid_and_post_bellatrix(execution_status(&harness, ancestor_root)),
-        "one proof must validate every payload below it",
+        "and every payload below it, which never had a proof of its own",
     );
 }
 
