@@ -32,8 +32,7 @@ use slot_clock::SlotClock;
 use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::future::Future;
-use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use strum::AsRefStr;
@@ -72,6 +71,12 @@ pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
+
+/// Write the EL JWT secret to disk so that only the owner can read it.
+fn write_jwt_secret_file(secret_file: &Path, bytes: &[u8]) -> Result<(), String> {
+    filesystem::create_with_600_perms(secret_file, bytes)
+        .map_err(|e| format!("Failed to write JWT secret file. Error: {:?}", e))
+}
 
 pub use types::DEFAULT_GAS_LIMIT;
 
@@ -555,18 +560,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
         } else {
             // Create a new file and write a randomly generated secret to it if file does not exist
             warn!(path = %secret_file.display(),"No JWT found on disk. Generating");
-            std::fs::File::options()
-                .write(true)
-                .create_new(true)
-                .open(&secret_file)
-                .map_err(|e| format!("Failed to open JWT secret file. Error: {:?}", e))
-                .and_then(|mut f| {
-                    let secret = auth::JwtKey::random();
-                    f.write_all(secret.hex_string().as_bytes())
-                        .map_err(|e| format!("Failed to write to JWT secret file: {:?}", e))?;
-                    Ok(secret)
-                })
-                .map_err(Error::InvalidJWTSecret)
+            let secret = auth::JwtKey::random();
+            write_jwt_secret_file(&secret_file, secret.hex_string().as_bytes())
+                .map_err(Error::InvalidJWTSecret)?;
+            Ok(secret)
         }?;
 
         let engine: Engine = {
@@ -2277,6 +2274,27 @@ mod test {
         assert_eq!(
             expected_gas_limit(30_058_619, 30_000_000, &spec),
             Some(30_029_266)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn generated_jwt_secret_is_owner_readable_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("should create temp dir");
+        let secret_file = dir.path().join(DEFAULT_JWT_FILE);
+
+        write_jwt_secret_file(&secret_file, b"secret").expect("should write JWT secret");
+
+        let mode = std::fs::metadata(&secret_file)
+            .expect("should read JWT secret metadata")
+            .permissions()
+            .mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "JWT secret must not be group/world readable"
         );
     }
 }
