@@ -431,25 +431,35 @@ fn encode_bodies_response<E: EthSpec>(
     payloads: Vec<Option<ExecutionPayload<E>>>,
     fork: ForkName,
 ) -> Result<Vec<u8>, String> {
-    let bodies: Vec<Option<ExecutionPayloadBodyV2>> = payloads
+    let bodies: Vec<Option<ExecutionPayloadBodyV2<E>>> = payloads
         .into_iter()
         .map(|maybe_payload| {
-            maybe_payload.map(|payload| ExecutionPayloadBodyV2 {
-                transactions: ProgressiveTransactions::new(
-                    payload
+            maybe_payload
+                .map(|payload| -> Result<ExecutionPayloadBodyV2<E>, String> {
+                    let transactions = payload
                         .transactions()
                         .iter()
                         .map(|transaction| ProgressiveVariableList::new(transaction.to_vec()))
-                        .collect(),
-                ),
-                withdrawals: payload
-                    .withdrawals()
-                    .ok()
-                    .map(|withdrawals| ProgressiveWithdrawals::new(withdrawals.to_vec())),
-                block_access_list: payload.block_access_list().ok().cloned(),
-            })
+                        .collect::<Result<Vec<_>, _>>()
+                        .and_then(ProgressiveTransactions::new)
+                        .map_err(|e| {
+                            format!("failed to build progressive transactions list: {e:?}")
+                        })?;
+                    let withdrawals = payload
+                        .withdrawals()
+                        .ok()
+                        .map(|withdrawals| ProgressiveWithdrawals::<E>::new(withdrawals.to_vec()))
+                        .transpose()
+                        .map_err(|e| format!("withdrawals exceed SSZ bound: {e:?}"))?;
+                    Ok(ExecutionPayloadBodyV2 {
+                        transactions,
+                        withdrawals,
+                        block_access_list: payload.block_access_list().ok().cloned(),
+                    })
+                })
+                .transpose()
         })
-        .collect();
+        .collect::<Result<Vec<_>, String>>()?;
 
     let bytes = match fork {
         ForkName::Bellatrix => {

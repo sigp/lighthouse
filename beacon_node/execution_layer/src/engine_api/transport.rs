@@ -173,7 +173,7 @@ impl EngineApi {
         &self,
         fork: ForkName,
         block_hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, EngineApiError> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2<E>>>, EngineApiError> {
         let start_time = Instant::now();
         let (transport, result) = match self.active_rest() {
             Some(rest) => (

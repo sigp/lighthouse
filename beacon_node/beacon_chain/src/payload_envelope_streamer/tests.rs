@@ -10,12 +10,14 @@ use task_executor::test_utils::TestRuntime;
 use types::{
     BlockAccessList, ExecutionBlockHash, ExecutionPayloadBody, ExecutionPayloadEnvelope,
     ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-    Hash256, MinimalEthSpec, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary,
-    Slot,
+    ForkName, Hash256, MinimalEthSpec, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeSummary, Slot,
 };
 
 type E = MinimalEthSpec;
 type T = EphemeralHarnessType<E>;
+
+const MAX_PAYLOAD_BODIES_PER_REQUEST: usize = 32;
 
 struct SlotEntry {
     block_root: Hash256,
@@ -165,6 +167,15 @@ fn mock_canonical_head(mock: &mut MockEnvelopeStreamerBeaconAdapter<T>, chain: &
         .collect();
     mock.expect_block_has_canonical_payload()
         .returning(move |root| Ok(!non_canonical.contains(root)));
+}
+
+/// Expectations for tests that trigger an EL payload-body fetch: the advertised batch limit and the
+/// per-slot fork lookup (all test envelopes are Gloas).
+fn mock_fetch_capabilities(mock: &mut MockEnvelopeStreamerBeaconAdapter<T>) {
+    mock.expect_max_payload_bodies_per_request()
+        .returning(|| Ok(MAX_PAYLOAD_BODIES_PER_REQUEST));
+    mock.expect_fork_name_at_slot()
+        .return_const(ForkName::Gloas);
 }
 
 fn unwrap_result(
@@ -338,9 +349,10 @@ async fn stream_reconstructs_pruned_envelopes() {
             (payload.block_hash, payload_body(&payload))
         })
         .collect();
+    mock_fetch_capabilities(&mut mock);
     mock.expect_get_payload_bodies_by_hash_v2()
         .times(1)
-        .returning(move |block_hashes| {
+        .returning(move |_fork, block_hashes| {
             Ok(block_hashes
                 .into_iter()
                 .map(|block_hash| payload_bodies.get(&block_hash).cloned())
@@ -371,9 +383,10 @@ async fn stream_batches_pruned_envelope_requests() {
             (payload.block_hash, payload_body(&payload))
         })
         .collect();
+    mock_fetch_capabilities(&mut mock);
     mock.expect_get_payload_bodies_by_hash_v2()
         .times(3)
-        .returning(move |block_hashes| {
+        .returning(move |_fork, block_hashes| {
             assert!(block_hashes.len() <= MAX_PAYLOAD_BODIES_PER_REQUEST);
             Ok(block_hashes
                 .into_iter()
@@ -395,9 +408,10 @@ async fn stream_rejects_invalid_payload_body_response_length() {
         .return_const((Slot::new(2), Hash256::ZERO));
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
     mock.expect_block_has_canonical_payload().times(0);
+    mock_fetch_capabilities(&mut mock);
     mock.expect_get_payload_bodies_by_hash_v2()
         .times(1)
-        .returning(|_| Ok(vec![]));
+        .returning(|_, _| Ok(vec![]));
 
     let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
     let mut stream = streamer.launch_stream(roots(&chain));
@@ -423,9 +437,10 @@ async fn stream_handles_payload_missing_from_execution_layer() {
         .return_const((Slot::new(2), Hash256::ZERO));
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
     mock.expect_block_has_canonical_payload().times(0);
+    mock_fetch_capabilities(&mut mock);
     mock.expect_get_payload_bodies_by_hash_v2()
         .times(1)
-        .returning(|block_hashes| Ok(vec![None; block_hashes.len()]));
+        .returning(|_, block_hashes| Ok(vec![None; block_hashes.len()]));
 
     let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
     let mut stream = streamer.launch_stream(roots(&chain));
@@ -452,9 +467,10 @@ async fn stream_rejects_payload_body_with_wrong_hash() {
     let mut wrong_body = payload_body(&chain[0].envelope.as_ref().unwrap().message.payload);
     wrong_body.block_access_list =
         Some(BlockAccessList::new(vec![1]).expect("valid block access list"));
+    mock_fetch_capabilities(&mut mock);
     mock.expect_get_payload_bodies_by_hash_v2()
         .times(1)
-        .return_once(move |_| Ok(vec![Some(wrong_body)]));
+        .return_once(move |_, _| Ok(vec![Some(wrong_body)]));
 
     let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
     let mut stream = streamer.launch_stream(roots(&chain));
@@ -480,9 +496,10 @@ async fn stream_rejects_payload_body_without_withdrawals() {
 
     let mut body = payload_body(&chain[0].envelope.as_ref().unwrap().message.payload);
     body.withdrawals = None;
+    mock_fetch_capabilities(&mut mock);
     mock.expect_get_payload_bodies_by_hash_v2()
         .times(1)
-        .return_once(move |_| Ok(vec![Some(body)]));
+        .return_once(move |_, _| Ok(vec![Some(body)]));
 
     let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
     let mut stream = streamer.launch_stream(roots(&chain));
@@ -508,9 +525,10 @@ async fn stream_rejects_payload_body_without_block_access_list() {
 
     let mut body = payload_body(&chain[0].envelope.as_ref().unwrap().message.payload);
     body.block_access_list = None;
+    mock_fetch_capabilities(&mut mock);
     mock.expect_get_payload_bodies_by_hash_v2()
         .times(1)
-        .return_once(move |_| Ok(vec![Some(body)]));
+        .return_once(move |_, _| Ok(vec![Some(body)]));
 
     let streamer = PayloadEnvelopeStreamer::new(mock, EnvelopeRequestSource::ByRange);
     let mut stream = streamer.launch_stream(roots(&chain));

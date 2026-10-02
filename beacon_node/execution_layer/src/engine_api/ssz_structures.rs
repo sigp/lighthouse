@@ -7,7 +7,7 @@ use super::*;
 use serde::Deserialize;
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{BitVector, VariableList};
+use ssz_types::{BitVector, ProgressiveVariableList, VariableList};
 use std::collections::HashSet;
 use superstruct::superstruct;
 use typenum::{U1, U32};
@@ -16,7 +16,7 @@ use types::execution::{
     BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
     ExecutionRequestsElectra, ExecutionRequestsGloas, RequestType, WithdrawalRequests,
 };
-use types::{EthSpec, KzgProof, Transactions};
+use types::{EthSpec, KzgProof, ProgressiveTransactions, Transactions};
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
@@ -87,24 +87,34 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV
 
 // SszExecutionPayloadBodyV1 <-> ExecutionPayloadBodyV2
 
-impl<E: EthSpec> From<SszExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV2 {
-    fn from(value: SszExecutionPayloadBodyV1<E>) -> Self {
-        Self {
-            transactions: value
-                .transactions
-                .into_iter()
-                .map(|transaction| transaction.into_iter().collect())
-                .collect(),
+/// Repackage the bounded SSZ wire transactions into the progressive (Gloas) container.
+fn progressive_transactions_from_wire<E: EthSpec>(
+    transactions: Transactions<E>,
+) -> Result<ProgressiveTransactions, String> {
+    transactions
+        .into_iter()
+        .map(|transaction| ProgressiveVariableList::new(transaction.to_vec()))
+        .collect::<Result<Vec<_>, _>>()
+        .and_then(ProgressiveVariableList::new)
+        .map_err(|e| format!("failed to build progressive transactions list: {e:?}"))
+}
+
+impl<E: EthSpec> TryFrom<SszExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV2<E> {
+    type Error = String;
+
+    fn try_from(value: SszExecutionPayloadBodyV1<E>) -> Result<Self, String> {
+        Ok(Self {
+            transactions: progressive_transactions_from_wire::<E>(value.transactions)?,
             withdrawals: None,
             block_access_list: None,
-        }
+        })
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2> for SszExecutionPayloadBodyV1<E> {
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for SszExecutionPayloadBodyV1<E> {
     type Error = String;
 
-    fn try_from(value: ExecutionPayloadBodyV2) -> Result<Self, String> {
+    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, String> {
         if value.withdrawals.is_some() || value.block_access_list.is_some() {
             return Err(
                 "cannot encode a body with withdrawals or a block access list as a Paris (V1) body"
@@ -126,24 +136,24 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2> for SszExecutionPayloadBodyV1<E
 
 // SszExecutionPayloadBodyV2 <-> ExecutionPayloadBodyV2
 
-impl<E: EthSpec> From<SszExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV2 {
-    fn from(value: SszExecutionPayloadBodyV2<E>) -> Self {
-        Self {
-            transactions: value
-                .transactions
-                .into_iter()
-                .map(|transaction| transaction.into_iter().collect())
-                .collect(),
-            withdrawals: Some(value.withdrawals.into_iter().collect()),
+impl<E: EthSpec> TryFrom<SszExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV2<E> {
+    type Error = String;
+
+    fn try_from(value: SszExecutionPayloadBodyV2<E>) -> Result<Self, String> {
+        let withdrawals = ProgressiveVariableList::new(value.withdrawals.to_vec())
+            .map_err(|e| format!("withdrawals exceed SSZ bound: {e:?}"))?;
+        Ok(Self {
+            transactions: progressive_transactions_from_wire::<E>(value.transactions)?,
+            withdrawals: Some(withdrawals),
             block_access_list: None,
-        }
+        })
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2> for SszExecutionPayloadBodyV2<E> {
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for SszExecutionPayloadBodyV2<E> {
     type Error = String;
 
-    fn try_from(value: ExecutionPayloadBodyV2) -> Result<Self, String> {
+    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, String> {
         if value.block_access_list.is_some() {
             return Err(
                 "cannot encode a body with a block access list as a Shanghai (V2) body".to_string(),
@@ -172,24 +182,26 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2> for SszExecutionPayloadBodyV2<E
 
 // SszExecutionPayloadBodyV3 <-> ExecutionPayloadBodyV2
 
-impl<E: EthSpec> From<SszExecutionPayloadBodyV3<E>> for ExecutionPayloadBodyV2 {
-    fn from(value: SszExecutionPayloadBodyV3<E>) -> Self {
-        Self {
-            transactions: value
-                .transactions
-                .into_iter()
-                .map(|transaction| transaction.into_iter().collect())
-                .collect(),
-            withdrawals: Some(value.withdrawals.into_iter().collect()),
-            block_access_list: Some(value.block_access_list.into_iter().collect()),
-        }
+impl<E: EthSpec> TryFrom<SszExecutionPayloadBodyV3<E>> for ExecutionPayloadBodyV2<E> {
+    type Error = String;
+
+    fn try_from(value: SszExecutionPayloadBodyV3<E>) -> Result<Self, String> {
+        let withdrawals = ProgressiveVariableList::new(value.withdrawals.to_vec())
+            .map_err(|e| format!("withdrawals exceed SSZ bound: {e:?}"))?;
+        let block_access_list = ProgressiveVariableList::new(value.block_access_list.to_vec())
+            .map_err(|e| format!("failed to build progressive block access list: {e:?}"))?;
+        Ok(Self {
+            transactions: progressive_transactions_from_wire::<E>(value.transactions)?,
+            withdrawals: Some(withdrawals),
+            block_access_list: Some(block_access_list),
+        })
     }
 }
 
-impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2> for SszExecutionPayloadBodyV3<E> {
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for SszExecutionPayloadBodyV3<E> {
     type Error = String;
 
-    fn try_from(value: ExecutionPayloadBodyV2) -> Result<Self, String> {
+    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, String> {
         let withdrawals = value
             .withdrawals
             .ok_or_else(|| "execution payload body is missing withdrawals".to_string())?;
@@ -496,13 +508,21 @@ where
 {
     let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
         parse_execution_requests_ssz::<E>(ssz_requests)?;
+    // Gloas requests use progressive lists (deposits are unlimited; the rest carry a length bound).
+    let to_progressive = |name: &str, e: ssz_types::Error| {
+        RequestsError::DecodeError(format!("{name} exceed SSZ bound: {e:?}"))
+    };
     Ok(ExecutionRequestsGloas {
-        deposits: deposits.iter().cloned().collect(),
-        withdrawals: withdrawals.iter().cloned().collect(),
-        consolidations: consolidations.iter().cloned().collect(),
-        builder_deposits: builder_deposits.iter().cloned().collect(),
-        builder_exits: builder_exits.iter().cloned().collect(),
-        _phantom: std::marker::PhantomData,
+        deposits: ProgressiveVariableList::new(deposits.to_vec())
+            .map_err(|e| to_progressive("deposits", e))?,
+        withdrawals: ProgressiveVariableList::new(withdrawals.to_vec())
+            .map_err(|e| to_progressive("withdrawals", e))?,
+        consolidations: ProgressiveVariableList::new(consolidations.to_vec())
+            .map_err(|e| to_progressive("consolidations", e))?,
+        builder_deposits: ProgressiveVariableList::new(builder_deposits.to_vec())
+            .map_err(|e| to_progressive("builder_deposits", e))?,
+        builder_exits: ProgressiveVariableList::new(builder_exits.to_vec())
+            .map_err(|e| to_progressive("builder_exits", e))?,
     })
 }
 
@@ -1212,35 +1232,38 @@ impl<E: EthSpec> SszBodiesResponse<E> {
         }
     }
 
-    pub fn into_bodies_v2(self) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, String> {
+    pub fn into_bodies_v2(self) -> Result<Vec<Option<ExecutionPayloadBodyV2<E>>>, String> {
         match self {
-            Self::V1(resp) => Ok(resp
+            Self::V1(resp) => resp
                 .entries
                 .into_iter()
                 .map(|entry| {
                     entry
                         .available
-                        .then(|| ExecutionPayloadBodyV2::from(entry.body))
+                        .then(|| ExecutionPayloadBodyV2::try_from(entry.body))
+                        .transpose()
                 })
-                .collect()),
-            Self::V2(resp) => Ok(resp
+                .collect(),
+            Self::V2(resp) => resp
                 .entries
                 .into_iter()
                 .map(|entry| {
                     entry
                         .available
-                        .then(|| ExecutionPayloadBodyV2::from(entry.body))
+                        .then(|| ExecutionPayloadBodyV2::try_from(entry.body))
+                        .transpose()
                 })
-                .collect()),
-            Self::V3(resp) => Ok(resp
+                .collect(),
+            Self::V3(resp) => resp
                 .entries
                 .into_iter()
                 .map(|entry| {
                     entry
                         .available
-                        .then(|| ExecutionPayloadBodyV2::from(entry.body))
+                        .then(|| ExecutionPayloadBodyV2::try_from(entry.body))
+                        .transpose()
                 })
-                .collect()),
+                .collect(),
         }
     }
 }
@@ -1473,20 +1496,21 @@ mod test {
     fn gloas_new_payload_envelope_folds_builder_requests() {
         let payload = ExecutionPayloadGloas::<E>::default();
         let requests = ExecutionRequestsGloas {
-            deposits: ProgressiveVariableList::new(vec![deposit_request()]),
-            withdrawals: ProgressiveVariableList::new(vec![withdrawal_request()]),
-            consolidations: ProgressiveVariableList::new(vec![consolidation_request()]),
+            deposits: ProgressiveVariableList::new(vec![deposit_request()]).unwrap(),
+            withdrawals: ProgressiveVariableList::new(vec![withdrawal_request()]).unwrap(),
+            consolidations: ProgressiveVariableList::new(vec![consolidation_request()]).unwrap(),
             builder_deposits: ProgressiveVariableList::new(vec![BuilderDepositRequest {
                 pubkey: PublicKeyBytes::empty(),
                 withdrawal_credentials: Hash256::repeat_byte(4),
                 amount: 34,
                 signature: SignatureBytes::empty(),
-            }]),
+            }])
+            .unwrap(),
             builder_exits: ProgressiveVariableList::new(vec![BuilderExitRequest {
                 source_address: Address::repeat_byte(5),
                 pubkey: PublicKeyBytes::empty(),
-            }]),
-            _phantom: std::marker::PhantomData,
+            }])
+            .unwrap(),
         };
         let parent_beacon_block_root = Hash256::repeat_byte(9);
 

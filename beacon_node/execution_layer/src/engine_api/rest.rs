@@ -587,7 +587,7 @@ impl HttpRestSsz {
         &self,
         fork: ForkName,
         block_hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2<E>>>, Error> {
         let block_hashes = block_hashes
             .into_iter()
             .map(|hash| hash.into_root())
