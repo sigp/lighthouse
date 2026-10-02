@@ -17,7 +17,7 @@ use crate::{
     },
     test_utils::{
         BeaconChainHarness, EphemeralHarnessType, MakePayloadAttestationOptions,
-        PayloadAttestationVote, fork_name_from_env, test_spec,
+        PayloadAttestationVote, fork_name_from_env, pack_payload_attestations_for_block, test_spec,
     },
 };
 
@@ -363,16 +363,12 @@ async fn harness_builds_and_imports_payload_attestation_messages() {
     );
 
     let packed_bits = || -> usize {
-        ctx.harness
-            .chain
-            .op_pool
-            .get_payload_attestations(
-                |data| data.slot == slot && data.beacon_block_root == beacon_block_root,
-                true,
-            )
-            .iter()
-            .map(|attestation| attestation.aggregation_bits.num_set_bits())
-            .sum()
+        pack_payload_attestations_for_block(ctx.harness.chain.op_pool.get_payload_attestations(
+            |data| data.slot == slot && data.beacon_block_root == beacon_block_root,
+        ))
+        .iter()
+        .map(|attestation| attestation.aggregation_bits.num_set_bits())
+        .sum()
     };
 
     let bits_before = packed_bits();

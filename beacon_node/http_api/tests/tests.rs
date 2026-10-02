@@ -3285,7 +3285,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        assert_eq!(first_only.version(), Some(ForkName::Gloas));
+        assert_eq!(first_only.version(), Some(fork_name));
         assert_eq!(first_only.data().len(), 1);
         assert_eq!(first_only.data()[0].data, first.data);
 
@@ -3311,7 +3311,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        assert_eq!(all.version(), Some(ForkName::Gloas));
+        assert_eq!(all.version(), Some(fork_name));
         assert_eq!(all.data().len(), pool_count_before + 2);
         assert!(all.data().iter().any(|a| a.data == first.data));
         assert!(all.data().iter().any(|a| a.data == second.data));
@@ -3333,7 +3333,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        assert_eq!(empty.version(), Some(ForkName::Gloas));
+        assert_eq!(empty.version(), Some(fork_name));
         assert!(empty.data().is_empty());
 
         self

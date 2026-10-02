@@ -237,37 +237,16 @@ impl<E: EthSpec> OperationPool<E> {
 
     /// Returns all known `PayloadAttestation` objects that pass `filter`, one per distinct
     /// `PayloadAttestationData`.
-    ///
-    /// With `for_block_inclusion`, the most-participated aggregates are kept and the rest discarded,
-    /// capped at `MaxPayloadAttestations`, since a block exceeding that limit is invalid. Otherwise
-    /// every match is returned, uncapped and in arbitrary order.
-    pub fn get_payload_attestations<F>(
-        &self,
-        filter: F,
-        for_block_inclusion: bool,
-    ) -> Vec<PayloadAttestation<E>>
+    pub fn get_payload_attestations<F>(&self, filter: F) -> Vec<PayloadAttestation<E>>
     where
         F: Fn(&PayloadAttestationData) -> bool,
     {
-        let mut result: Vec<_> = self
-            .payload_attestations
+        self.payload_attestations
             .read()
             .values()
             .filter(|attestation| filter(&attestation.data))
             .cloned()
-            .collect();
-
-        if for_block_inclusion {
-            // Prefer most participation and cap by `max_payload_attestations`
-            result.sort_by(|a, b| {
-                b.aggregation_bits
-                    .num_set_bits()
-                    .cmp(&a.aggregation_bits.num_set_bits())
-            });
-            result.truncate(E::max_payload_attestations());
-        }
-
-        result
+            .collect()
     }
 
     /// Remove payload attestations that are too old for block inclusion.
@@ -888,7 +867,7 @@ mod release_tests {
     use super::*;
     use beacon_chain::test_utils::{
         BeaconChainHarness, EphemeralHarnessType, MakeAttestationOptions, RelativeSyncCommittee,
-        test_spec,
+        pack_payload_attestations_for_block, test_spec,
     };
     use bls::Keypair;
     use maplit::hashset;
@@ -2354,10 +2333,9 @@ mod release_tests {
 
         assert_eq!(op_pool.num_payload_attestations(), 1);
 
-        let payload_attestations = op_pool.get_payload_attestations(
-            |data| data.slot == target_slot && data.beacon_block_root == parent_root,
-            true,
-        );
+        let payload_attestations = op_pool.get_payload_attestations(|data| {
+            data.slot == target_slot && data.beacon_block_root == parent_root
+        });
         assert_eq!(payload_attestations.len(), 1);
         assert_eq!(
             payload_attestations[0].aggregation_bits.num_set_bits(),
@@ -2390,12 +2368,10 @@ mod release_tests {
 
         assert_eq!(op_pool.num_payload_attestations(), 0);
         assert!(
-            op_pool
-                .get_payload_attestations(
-                    |data| data.slot == target_slot && data.beacon_block_root == parent_root,
-                    true,
-                )
-                .is_empty()
+            pack_payload_attestations_for_block(op_pool.get_payload_attestations(|data| data.slot
+                == target_slot
+                && data.beacon_block_root == parent_root,))
+            .is_empty()
         );
     }
 
@@ -2471,10 +2447,8 @@ mod release_tests {
 
         // The predicate the pool endpoint uses: an omitted slot passes everything through.
         let payload_attestations_by_slot = |target_slot: Option<Slot>| {
-            op_pool.get_payload_attestations(
-                |data| target_slot.is_none_or(|slot| data.slot == slot),
-                false,
-            )
+            op_pool
+                .get_payload_attestations(|data| target_slot.is_none_or(|slot| data.slot == slot))
         };
 
         let all = payload_attestations_by_slot(None);
@@ -2498,12 +2472,10 @@ mod release_tests {
 
         // Block production keeps the root filter.
         assert_eq!(
-            op_pool
-                .get_payload_attestations(
-                    |data| data.slot == target_slot && data.beacon_block_root == parent_root,
-                    true,
-                )
-                .len(),
+            pack_payload_attestations_for_block(op_pool.get_payload_attestations(|data| data.slot
+                == target_slot
+                && data.beacon_block_root == parent_root,))
+            .len(),
             4
         );
     }
@@ -2543,10 +2515,10 @@ mod release_tests {
         op_pool.insert_payload_attestation(&msg0, &ptc).unwrap();
         op_pool.insert_payload_attestation(&msg1, &ptc).unwrap();
 
-        let payload_attestations = op_pool.get_payload_attestations(
-            |data| data.slot == target_slot && data.beacon_block_root == parent_root,
-            true,
-        );
+        let payload_attestations =
+            pack_payload_attestations_for_block(op_pool.get_payload_attestations(|data| {
+                data.slot == target_slot && data.beacon_block_root == parent_root
+            }));
 
         let expected_positions: Vec<usize> = ptc
             .0
@@ -2621,10 +2593,10 @@ mod release_tests {
             &spec,
         )
         .unwrap();
-        let payload_attestations = op_pool.get_payload_attestations(
-            |data| data.slot == target_slot && data.beacon_block_root == parent_root,
-            true,
-        );
+        let payload_attestations =
+            pack_payload_attestations_for_block(op_pool.get_payload_attestations(|data| {
+                data.slot == target_slot && data.beacon_block_root == parent_root
+            }));
 
         assert_eq!(payload_attestations.len(), 1);
         assert_eq!(
@@ -2695,10 +2667,10 @@ mod release_tests {
         }
 
         // When: we pack payload attestations for block production at slot 2.
-        let payload_attestations = op_pool.get_payload_attestations(
-            |data| data.slot == target_slot && data.beacon_block_root == parent_root,
-            true,
-        );
+        let payload_attestations =
+            pack_payload_attestations_for_block(op_pool.get_payload_attestations(|data| {
+                data.slot == target_slot && data.beacon_block_root == parent_root
+            }));
 
         // Then: one payload attestation per combo, sorted by participation (most first).
         assert_eq!(payload_attestations.len(), 4);

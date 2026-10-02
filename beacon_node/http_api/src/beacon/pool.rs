@@ -582,22 +582,18 @@ pub fn get_beacon_pool_payload_attestations<T: BeaconChainTypes>(
              query: PayloadAttestationPoolQuery,
              accept_header: Option<Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
-                    let slot = if let Some(query_slot) = query.slot {
-                        query_slot
-                    } else {
+                    let payload_attestations = chain.op_pool.get_payload_attestations(|data| {
+                        query.slot.is_none_or(|slot| data.slot == slot)
+                    });
+
+                    let current_slot =
                         chain
                             .slot_clock
                             .now()
                             .ok_or(warp_utils::reject::custom_server_error(
                                 "unable to read slot clock".to_string(),
-                            ))?
-                    };
-
-                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
-                    let payload_attestations = chain.op_pool.get_payload_attestations(
-                        |data| query.slot.is_none_or(|slot| data.slot == slot),
-                        false,
-                    );
+                            ))?;
+                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(current_slot);
 
                     match accept_header {
                         Some(Accept::Ssz) => Builder::new()
