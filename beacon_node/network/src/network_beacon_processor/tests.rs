@@ -2006,10 +2006,7 @@ async fn reconstructed_columns_notify_after_deferred_block_import() {
         .clone()
         .expect("the next block should have data columns pre-Gloas");
     partial_columns.truncate(E::number_of_columns() / 2);
-    let partial_result = rig
-        .chain
-        .process_rpc_custody_columns(partial_columns)
-        .await;
+    let partial_result = rig.chain.process_rpc_custody_columns(partial_columns).await;
     assert_matches!(
         partial_result,
         Ok(AvailabilityProcessingStatus::MissingComponents(_, pending_root))
@@ -2127,10 +2124,7 @@ async fn reconstructed_columns_notify_after_deferred_envelope_import() {
     )
     .expect("build Gloas columns");
     partial_columns.truncate(E::number_of_columns() / 2);
-    let partial_result = rig
-        .chain
-        .process_rpc_custody_columns(partial_columns)
-        .await;
+    let partial_result = rig.chain.process_rpc_custody_columns(partial_columns).await;
     assert_matches!(
         partial_result,
         Ok(AvailabilityProcessingStatus::MissingComponents(_, pending_root))
