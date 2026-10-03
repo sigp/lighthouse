@@ -2040,6 +2040,137 @@ async fn reconstructed_columns_notify_after_deferred_block_import() {
     );
 }
 
+/// Under Gloas, column reconstruction completes an envelope import and should notify the
+/// reprocessing queue with `PayloadEnvelopeImported`.
+#[tokio::test]
+async fn reconstructed_columns_notify_after_deferred_envelope_import() {
+    use beacon_chain::{AvailabilityProcessingStatus, NotifyExecutionLayer};
+    use types::BlockImportSource;
+
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let rig = TestRig::new_supernode(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+    let slot = rig.next_block.slot();
+
+    let block_result = rig
+        .chain
+        .process_block(
+            block_root,
+            LookupBlock::new(rig.next_block.clone()),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await;
+    assert_matches!(block_result, Ok(AvailabilityProcessingStatus::Imported(..)));
+
+    let (processor, mut beacon_processor_rx) = rig.processor_with_reprocess_receiver();
+    processor
+        .clone()
+        .process_lookup_envelope(
+            block_root,
+            rig.next_block_envelope
+                .clone()
+                .expect("the next block should have an envelope post-Gloas"),
+            BlockProcessType::SinglePayloadEnvelope(1),
+        )
+        .await;
+    assert!(
+        rig.chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .is_none(),
+        "envelope should await custody columns"
+    );
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_some(),
+        "executed envelope should remain pending on custody columns"
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    );
+
+    let bid = rig
+        .next_block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .expect("Gloas payload bid");
+    let blobs = {
+        let generator = rig._harness.execution_block_generator();
+        generator
+            .blobs_bundles
+            .values()
+            .find(|bundle| {
+                bundle
+                    .commitments
+                    .iter()
+                    .eq(bid.message.blob_kzg_commitments.iter())
+            })
+            .expect("blobs for next block")
+            .blobs
+            .clone()
+    };
+    let mut partial_columns = blobs_to_data_column_sidecars_gloas(
+        &blobs.iter().collect::<Vec<_>>(),
+        block_root,
+        slot,
+        &rig.chain.kzg,
+        &rig.chain.spec,
+    )
+    .expect("build Gloas columns");
+    partial_columns.truncate(E::number_of_columns() / 2);
+    let partial_result = rig
+        .chain
+        .process_rpc_custody_columns(partial_columns)
+        .await;
+    assert_matches!(
+        partial_result,
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, pending_root))
+            if pending_root == block_root
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    );
+
+    processor
+        .attempt_data_column_reconstruction(slot, block_root)
+        .await;
+
+    assert!(
+        rig.chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .is_some(),
+        "reconstruction should import the envelope"
+    );
+    assert!(
+        rig.chain.is_block_data_imported(block_root, slot),
+        "reconstruction should import the envelope"
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Ok(WorkEvent {
+            work: Work::Reprocess(ReprocessQueueMessage::PayloadEnvelopeImported {
+                block_root: notified_root
+            }),
+            ..
+        }) if notified_root == block_root
+    );
+    assert_matches!(
+        beacon_processor_rx.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    );
+}
+
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
 #[tokio::test]

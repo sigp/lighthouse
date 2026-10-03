@@ -1166,7 +1166,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     AvailabilityProcessingStatus::Imported(imported_slot, imported_root) => {
                         debug!(
                             result = "imported block and custody columns",
-                            block_hash = %imported_root,
+                            block_root = %imported_root,
                             "Block components available via reconstruction"
                         );
                         self.chain.recompute_head_at_current_slot().await;
