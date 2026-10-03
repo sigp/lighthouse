@@ -4,6 +4,9 @@ mod light_client_finality_update;
 mod light_client_header;
 mod light_client_optimistic_update;
 mod light_client_update;
+mod light_client_epoch_data;
+mod light_client_block_data;
+mod light_client_bootstrap_data;
 
 pub mod consts;
 
@@ -32,4 +35,15 @@ pub use light_client_update::{
     LightClientUpdateAltair, LightClientUpdateCapella, LightClientUpdateDeneb,
     LightClientUpdateElectra, LightClientUpdateFulu, NextSyncCommitteeProofLen,
     NextSyncCommitteeProofLenElectra,
+};
+pub use light_client_block_data::{
+    LightClientBlockData, SyncAggregateBranch, SyncAggregateProofLen
+};
+pub use light_client_bootstrap_data::{
+    CurrentSyncCommitteeBranch, CurrentSyncCommitteeBranchElectra, ExecutionBranch,
+    LightClientBootstrapData, LightClientBootstrapDataAltair, LightClientBootstrapDataElectra,
+};
+pub use light_client_epoch_data::{
+    FinalizedCheckpointBranch, FinalizedCheckpointBranchElectra, LightClientEpochData,
+    LightClientEpochDataAltair, LightClientEpochDataElectra,
 };
