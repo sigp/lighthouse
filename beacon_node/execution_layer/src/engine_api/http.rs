@@ -81,6 +81,8 @@ pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-prote
 /// This code is returned by all clients when a method is not supported
 /// (verified geth, nethermind, erigon, besu)
 pub const METHOD_NOT_FOUND_CODE: i64 = -32601;
+/// Besu returns this code when a method is not enabled on the configured network.
+pub const METHOD_NOT_ENABLED_CODE: i64 = -32604;
 
 pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V1,
@@ -1635,23 +1637,47 @@ impl HttpJsonRpc {
                     }
                 }
             }
-        } else if engine_capabilities.forkchoice_updated_v5 {
-            self.forkchoice_updated_v5(forkchoice_state, maybe_payload_attributes, custody_columns)
-                .await
-        } else if engine_capabilities.forkchoice_updated_v4 {
-            self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes, custody_columns)
-                .await
-        } else if engine_capabilities.forkchoice_updated_v3 {
-            self.forkchoice_updated_v3(forkchoice_state, maybe_payload_attributes)
-                .await
-        } else if engine_capabilities.forkchoice_updated_v2 {
-            self.forkchoice_updated_v2(forkchoice_state, maybe_payload_attributes)
-                .await
-        } else if engine_capabilities.forkchoice_updated_v1 {
-            self.forkchoice_updated_v1(forkchoice_state, maybe_payload_attributes)
-                .await
         } else {
-            Err(Error::RequiredMethodUnsupported("engine_forkchoiceUpdated"))
+            // Without payload attributes, older versions can still deliver the fork choice state.
+            // Some ELs advertise methods that are not enabled on the current network, so try the
+            // remaining advertised versions only when a method itself is unavailable.
+            let mut last_error = Error::RequiredMethodUnsupported("engine_forkchoiceUpdated");
+            macro_rules! try_version {
+                ($supported:expr, $request:expr) => {
+                    if $supported {
+                        match $request.await {
+                            Err(
+                                error @ Error::ServerMessage {
+                                    code: METHOD_NOT_FOUND_CODE | METHOD_NOT_ENABLED_CODE,
+                                    ..
+                                },
+                            ) => last_error = error,
+                            result => return result,
+                        }
+                    }
+                };
+            }
+            try_version!(
+                engine_capabilities.forkchoice_updated_v5,
+                self.forkchoice_updated_v5(forkchoice_state, None, custody_columns)
+            );
+            try_version!(
+                engine_capabilities.forkchoice_updated_v4,
+                self.forkchoice_updated_v4(forkchoice_state, None, custody_columns)
+            );
+            try_version!(
+                engine_capabilities.forkchoice_updated_v3,
+                self.forkchoice_updated_v3(forkchoice_state, None)
+            );
+            try_version!(
+                engine_capabilities.forkchoice_updated_v2,
+                self.forkchoice_updated_v2(forkchoice_state, None)
+            );
+            try_version!(
+                engine_capabilities.forkchoice_updated_v1,
+                self.forkchoice_updated_v1(forkchoice_state, None)
+            );
+            Err(last_error)
         }
     }
 }
@@ -1660,7 +1686,7 @@ impl HttpJsonRpc {
 mod test {
     use super::auth::JwtKey;
     use super::*;
-    use crate::test_utils::{DEFAULT_JWT_SECRET, MockServer};
+    use crate::test_utils::{DEFAULT_ENGINE_CAPABILITIES, DEFAULT_JWT_SECRET, MockServer};
     use fixed_bytes::FixedBytesExtended;
     use ssz_types::{ProgressiveVariableList, VariableList};
     use std::future::Future;
@@ -1758,6 +1784,43 @@ mod test {
             request_func(self.rpc_client.clone()).await;
             self
         }
+
+        async fn with_forkchoice_versions(self, versions: &[u8]) -> Self {
+            self.server.set_engine_capabilities(EngineCapabilities {
+                forkchoice_updated_v1: versions.contains(&1),
+                forkchoice_updated_v2: versions.contains(&2),
+                forkchoice_updated_v3: versions.contains(&3),
+                forkchoice_updated_v4: versions.contains(&4),
+                forkchoice_updated_v5: versions.contains(&5),
+                ..DEFAULT_ENGINE_CAPABILITIES
+            });
+            self.rpc_client.get_engine_capabilities(None).await.unwrap();
+            self.server.take_previous_request();
+            self.server
+                .set_forkchoice_updated_response(PayloadStatusV1 {
+                    status: PayloadStatusV1Status::Syncing,
+                    latest_valid_hash: None,
+                    validation_error: None,
+                    inclusion_list_satisfied: None,
+                });
+            self
+        }
+    }
+
+    fn forkchoice_state() -> ForkchoiceState {
+        ForkchoiceState {
+            head_block_hash: ExecutionBlockHash::repeat_byte(1),
+            safe_block_hash: ExecutionBlockHash::repeat_byte(2),
+            finalized_block_hash: ExecutionBlockHash::repeat_byte(3),
+        }
+    }
+
+    fn rpc_error_response(code: i64, message: &str) -> serde_json::Value {
+        json!({
+            "id": STATIC_ID,
+            "jsonrpc": JSONRPC_VERSION,
+            "error": {"code": code, "message": message}
+        })
     }
 
     const HASH_00: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -1982,6 +2045,141 @@ mod test {
         Tester::new(false)
             .assert_auth_failure(|client| async move { client.get_inclusion_list_v1().await })
             .await;
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_without_attributes_falls_back() {
+        for code in [METHOD_NOT_FOUND_CODE, -32604] {
+            for (versions, rejected_versions, expected_method) in [
+                (&[5, 4, 3][..], 2, ENGINE_FORKCHOICE_UPDATED_V3),
+                (&[5, 3][..], 1, ENGINE_FORKCHOICE_UPDATED_V3),
+                (&[4, 3][..], 1, ENGINE_FORKCHOICE_UPDATED_V3),
+                (&[3, 2][..], 1, ENGINE_FORKCHOICE_UPDATED_V2),
+                (&[2, 1][..], 1, ENGINE_FORKCHOICE_UPDATED_V1),
+            ] {
+                let tester = Tester::new(true).with_forkchoice_versions(versions).await;
+                for _ in 0..rejected_versions {
+                    tester
+                        .server
+                        .push_preloaded_response(rpc_error_response(code, "Method not enabled"));
+                }
+
+                let state = forkchoice_state();
+                let response = tester
+                    .rpc_client
+                    .forkchoice_updated(state, None, None)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    response.payload_status.status,
+                    PayloadStatusV1Status::Syncing
+                );
+                let request = tester.server.take_previous_request().unwrap();
+                assert_eq!(request["method"], expected_method);
+                assert_eq!(
+                    request["params"][0],
+                    serde_json::to_value(JsonForkchoiceStateV1::from(state)).unwrap()
+                );
+                assert!(request["params"][1].is_null());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_without_attributes_preserves_other_errors() {
+        for code in [-32602, -38002, -38003, -38005, -32000] {
+            let tester = Tester::new(true).with_forkchoice_versions(&[4, 3]).await;
+            tester
+                .server
+                .push_preloaded_response(rpc_error_response(code, "Request rejected"));
+            let result = tester
+                .rpc_client
+                .forkchoice_updated(forkchoice_state(), None, None)
+                .await;
+            assert!(
+                matches!(result, Err(Error::ServerMessage { code: returned_code, .. }) if returned_code == code)
+            );
+            assert!(
+                tester.server.take_previous_request().is_none(),
+                "no lower version should be called"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_without_attributes_preserves_payload_status() {
+        for status in [
+            PayloadStatusV1Status::Valid,
+            PayloadStatusV1Status::Invalid,
+            PayloadStatusV1Status::Syncing,
+        ] {
+            let tester = Tester::new(true).with_forkchoice_versions(&[4, 3]).await;
+            tester
+                .server
+                .set_forkchoice_updated_response(PayloadStatusV1 {
+                    status,
+                    latest_valid_hash: None,
+                    validation_error: None,
+                    inclusion_list_satisfied: None,
+                });
+            let response = tester
+                .rpc_client
+                .forkchoice_updated(forkchoice_state(), None, Some(&[0, 7, 8, 127]))
+                .await
+                .unwrap();
+            assert_eq!(response.payload_status.status, status);
+            let request = tester.server.take_previous_request().unwrap();
+            assert_eq!(request["method"], ENGINE_FORKCHOICE_UPDATED_V4);
+            assert_eq!(request["params"][2], "0x81010000000000000000000000000080");
+        }
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_with_attributes_does_not_fall_back() {
+        for code in [METHOD_NOT_FOUND_CODE, -32604] {
+            let tester = Tester::new(true).with_forkchoice_versions(&[4, 3]).await;
+            tester
+                .server
+                .push_preloaded_response(rpc_error_response(code, "Method not enabled"));
+            let attributes = PayloadAttributes::V4(PayloadAttributesV4 {
+                timestamp: 5,
+                prev_randao: Hash256::zero(),
+                suggested_fee_recipient: Address::zero(),
+                withdrawals: vec![],
+                parent_beacon_block_root: Hash256::zero(),
+                slot_number: 7,
+                target_gas_limit: 30_000_000,
+            });
+            let result = tester
+                .rpc_client
+                .forkchoice_updated(forkchoice_state(), Some(attributes), None)
+                .await;
+            assert!(
+                matches!(result, Err(Error::ServerMessage { code: returned_code, .. }) if returned_code == code)
+            );
+            assert!(
+                tester.server.take_previous_request().is_none(),
+                "payload attributes require their matching version"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn forkchoice_updated_without_attributes_returns_last_method_error() {
+        let tester = Tester::new(true).with_forkchoice_versions(&[4, 3]).await;
+        tester
+            .server
+            .push_preloaded_response(rpc_error_response(-32604, "V4 not enabled"));
+        tester
+            .server
+            .push_preloaded_response(rpc_error_response(METHOD_NOT_FOUND_CODE, "V3 not found"));
+        let result = tester
+            .rpc_client
+            .forkchoice_updated(forkchoice_state(), None, None)
+            .await;
+        assert!(
+            matches!(result, Err(Error::ServerMessage { code: METHOD_NOT_FOUND_CODE, message }) if message == "V3 not found")
+        );
     }
 
     #[tokio::test]
