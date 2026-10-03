@@ -13,15 +13,10 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    ListRef, SignedExecutionPayloadBid,
-    attestation::{
+    ListRef, SignedExecutionPayloadBid, attestation::{
         AttestationBase, AttestationElectra, AttestationGloas, AttestationRef, AttestationRefMut,
         PayloadAttestation,
-    },
-    complete_kzg_commitment_merkle_proof,
-    core::{EthSpec, Graffiti, Hash256},
-    deposit::Deposit,
-    execution::{
+    }, complete_kzg_commitment_merkle_proof, core::{EthSpec, Graffiti, Hash256}, deposit::Deposit, execution::{
         AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
         BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, Eth1Data, ExecutionPayload,
         ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -29,17 +24,10 @@ use crate::{
         ExecutionRequestsElectra, ExecutionRequestsGloas, FullPayload, FullPayloadBellatrix,
         FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu,
         SignedBlsToExecutionChange,
-    },
-    exit::SignedVoluntaryExit,
-    fork::{ForkName, map_fork_name},
-    kzg_ext::KzgCommitments,
-    light_client::consts::{EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_PROOF_LEN},
-    slashing::{
+    }, exit::SignedVoluntaryExit, fork::{ForkName, map_fork_name}, kzg_ext::KzgCommitments, light_client::consts::{EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_PROOF_LEN, SYNC_AGGREGATE_INDEX, SYNC_AGGREGATE_PROOF_LEN}, slashing::{
         AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas, AttesterSlashingRef,
         ProposerSlashing,
-    },
-    state::BeaconStateError,
-    sync_committee::SyncAggregate,
+    }, state::BeaconStateError, sync_committee::SyncAggregate,
 };
 
 /// The number of leaves (including padding) on the `BeaconBlockBody` Merkle tree.
@@ -386,17 +374,26 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         if self.fork_name().gloas_enabled() {
             return Err(BeaconStateError::ProgressiveMerkleProofNotSupported);
         }
-        let field_index = match generalized_index {
+        let (field_index, depth) = match generalized_index {
             EXECUTION_PAYLOAD_INDEX => {
                 // Execution payload is a top-level field, subtract off the generalized indices
                 // for the internal nodes. Result should be 9, the field offset of the execution
                 // payload in the `BeaconBlockBody`:
                 // https://github.com/ethereum/consensus-specs/blob/dev/specs/deneb/beacon-chain.md#beaconblockbody
-                generalized_index
+                let field_index = generalized_index
                     .checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
                     .ok_or(BeaconStateError::GeneralizedIndexNotSupported(
                         generalized_index,
-                    ))?
+                    ))?;
+                (field_index, EXECUTION_PAYLOAD_PROOF_LEN)
+            }
+            SYNC_AGGREGATE_INDEX => {
+                let field_index = generalized_index
+                    .checked_sub(NUM_BEACON_BLOCK_BODY_HASH_TREE_ROOT_LEAVES)
+                    .ok_or(BeaconStateError::GeneralizedIndexNotSupported(
+                        generalized_index,
+                    ))?;
+                (field_index, SYNC_AGGREGATE_PROOF_LEN)
             }
             _ => {
                 return Err(BeaconStateError::GeneralizedIndexNotSupported(
@@ -406,7 +403,6 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         };
 
         let leaves = self.body_merkle_leaves();
-        let depth = EXECUTION_PAYLOAD_PROOF_LEN;
         let tree = merkle_proof::MerkleTree::create(&leaves, depth);
         let (_, proof) = tree.generate_proof(field_index, depth)?;
 
