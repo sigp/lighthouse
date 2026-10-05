@@ -16,15 +16,10 @@ use crate::{
 pub type FinalizedCheckpointBranch = FixedVector<Hash256, FinalizedRootProofLen>;
 pub type FinalizedCheckpointBranchElectra = FixedVector<Hash256, FinalizedRootProofLenElectra>;
 
-/// Mirrors nimbus-eth2 `LightClientEpochData`: everything needed to advance a
+/// `LightClientEpochData` is data needed to advance a
 /// `LightClientStore` by one epoch while verifying every field.
-///
-/// Only two variants exist because the sole fork-dependent field is
-/// `finalized_checkpoint_branch` (depth 6 pre-Electra, 7 from Electra, mirroring
-/// `finality_branch` in `LightClientUpdate`); `Altair` covers
+/// Only two variants exist; `Altair` covers
 /// Altair/Bellatrix/Capella/Deneb and `Electra` covers Electra/Fulu.
-///
-/// Can be produced down through `ALTAIR_FORK_EPOCH`.
 #[superstruct(
     variants(Altair, Electra),
     variant_attributes(
