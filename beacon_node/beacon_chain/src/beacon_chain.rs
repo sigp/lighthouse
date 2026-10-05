@@ -7631,6 +7631,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             })
     }
 
+    /// Provides the timely inclusion list transactions for a payload built on `parent_root`
+    /// at `slot + 1`
+    /// The return value falls back to an empty list if fetching the inclusion list transactions fails
+    pub fn payload_inclusion_list_transactions(
+        &self,
+        parent_root: Hash256,
+        slot: Slot,
+    ) -> ProgressiveTransactions {
+        self.get_inclusion_list_transactions(parent_root, slot, true)
+            .and_then(|transactions| ProgressiveTransactions::new(transactions).map_err(Into::into))
+            .unwrap_or_else(|e| {
+                warn!(
+                    ?parent_root,
+                    %slot,
+                    error = ?e,
+                    "Failed to read inclusion lists, verifying payload without them"
+                );
+                ProgressiveTransactions::empty()
+            })
+    }
+
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
     ///
     /// This could be a very expensive operation and should only be done in testing/analysis

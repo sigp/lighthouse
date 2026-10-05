@@ -29,7 +29,7 @@ use bls::{
 use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
-    ExecutionLayer, NewPayloadRequest, NewPayloadRequestGloas,
+    ExecutionLayer, NewPayloadRequest, NewPayloadRequestGloas, NewPayloadRequestHeze,
     auth::JwtKey,
     test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
@@ -3119,12 +3119,29 @@ where
             .map(kzg_commitment_to_versioned_hash)
             .collect();
 
-        let request = NewPayloadRequest::Gloas(NewPayloadRequestGloas {
-            execution_payload: &signed_envelope.message.payload,
-            versioned_hashes,
-            parent_beacon_block_root: block.message().parent_root(),
-            execution_requests: &signed_envelope.message.execution_requests,
-        });
+        let request = if self
+            .spec
+            .fork_name_at_slot::<E>(block.slot())
+            .heze_enabled()
+        {
+            NewPayloadRequest::Heze(NewPayloadRequestHeze {
+                execution_payload: &signed_envelope.message.payload,
+                versioned_hashes,
+                parent_beacon_block_root: block.message().parent_root(),
+                execution_requests: &signed_envelope.message.execution_requests,
+                inclusion_list_transactions: self.chain.payload_inclusion_list_transactions(
+                    block.parent_root(),
+                    block.slot().saturating_sub(1_u64),
+                ),
+            })
+        } else {
+            NewPayloadRequest::Gloas(NewPayloadRequestGloas {
+                execution_payload: &signed_envelope.message.payload,
+                versioned_hashes,
+                parent_beacon_block_root: block.message().parent_root(),
+                execution_requests: &signed_envelope.message.execution_requests,
+            })
+        };
 
         self.chain
             .execution_layer
