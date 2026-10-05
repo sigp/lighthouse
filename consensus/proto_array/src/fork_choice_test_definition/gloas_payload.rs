@@ -1309,7 +1309,7 @@ mod tests {
             expected_payload_status: None,
         });
 
-        // Invalidate block 1 (V17). filter_block_tree excludes the entire branch.
+        // Invalidate block 1 (V17). filter_node_tree excludes the entire branch.
         ops.push(Operation::InvalidatePayload {
             head_hash: get_hash(1),
             latest_valid_ancestor: Some(get_hash(0)),
