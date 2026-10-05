@@ -46,6 +46,7 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
+use types::execution::SignedExecutionProof;
 use types::{
     PayloadAttestationData, PayloadAttestationMessage, SignedExecutionPayloadBid,
     SignedProposerPreferences,
@@ -2045,6 +2046,34 @@ impl BeaconNodeHttpClient {
 
         self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
             .await?;
+
+        Ok(())
+    }
+
+    /// `POST beacon/pool/execution_proofs` (SSZ)
+    ///
+    /// Takes the proofs by value because each can be megabytes.
+    pub async fn post_beacon_pool_execution_proofs(
+        &self,
+        proofs: Vec<SignedExecutionProof>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("execution_proofs");
+
+        let response = self
+            .client
+            .post(path)
+            .timeout(self.timeouts.default)
+            .header("Content-Type", "application/octet-stream")
+            .body(proofs.as_ssz_bytes())
+            .send()
+            .await?;
+        success_or_error(response).await?;
 
         Ok(())
     }
