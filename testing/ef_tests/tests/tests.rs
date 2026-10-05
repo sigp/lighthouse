@@ -1191,6 +1191,12 @@ fn fork_choice_should_apply_proposer_boost() {
 }
 
 #[test]
+fn fork_choice_filter_node_tree_variants() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("filter_node_tree_variants").run();
+    // There is no mainnet variant for this test.
+}
+
+#[test]
 fn fork_choice_compliance_attester_slashing_test() {
     ForkChoiceComplianceHandler::<MinimalEthSpec>::new("attester_slashing_test").run();
 }
