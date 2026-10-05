@@ -597,8 +597,8 @@ pub fn process_parent_execution_payload<E: EthSpec, Payload: AbstractExecPayload
 /// Apply the parent execution payload's deferred effects to the state.
 ///
 /// This implements the spec's `apply_parent_execution_payload` function:
-/// 1. Processes deposits, withdrawals, and consolidations from execution requests
-/// 2. Queues the builder pending payment from the parent's committed bid
+/// 1. Queues the builder pending payment from the parent's committed bid
+/// 2. Processes deposits, withdrawals, and consolidations from execution requests
 /// 3. Updates `execution_payload_availability` and `latest_block_hash`
 pub fn apply_parent_execution_payload<E: EthSpec>(
     state: &mut BeaconState<E>,
@@ -611,14 +611,8 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
 
     verify_execution_request_list_lengths(requests)?;
 
-    // Process execution requests from the parent's payload
-    process_operations::process_deposit_requests(state, &requests.deposits, spec)?;
-    process_operations::process_withdrawal_requests(state, &requests.withdrawals, spec)?;
-    process_operations::process_consolidation_requests(state, &requests.consolidations, spec)?;
-    process_operations::process_builder_deposit_requests(state, &requests.builder_deposits, spec)?;
-    process_operations::process_builder_exit_requests(state, &requests.builder_exits, spec)?;
-
-    // Queue the builder payment
+    // Settle the builder payment before the requests so a builder exit is rejected while the
+    // payment is pending
     if parent_epoch == state.current_epoch() {
         let payment_index = E::slots_per_epoch()
             .safe_add(parent_slot.as_u64().safe_rem(E::slots_per_epoch())?)?
@@ -640,6 +634,13 @@ pub fn apply_parent_execution_payload<E: EthSpec>(
             })
             .map_err(|e| BlockProcessingError::BeaconStateError(e.into()))?;
     }
+
+    // Process execution requests from the parent's payload
+    process_operations::process_deposit_requests(state, &requests.deposits, spec)?;
+    process_operations::process_withdrawal_requests(state, &requests.withdrawals, spec)?;
+    process_operations::process_consolidation_requests(state, &requests.consolidations, spec)?;
+    process_operations::process_builder_deposit_requests(state, &requests.builder_deposits, spec)?;
+    process_operations::process_builder_exit_requests(state, &requests.builder_exits, spec)?;
 
     // Update execution payload availability for the parent slot
     let availability_index = parent_slot
