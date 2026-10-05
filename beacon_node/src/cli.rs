@@ -1456,9 +1456,10 @@ pub fn cli_app() -> Command {
                 .help("If this node is proposing a block and has seen this number of skip slots \
                         on the canonical chain in a row, it will NOT query any connected builders, \
                         and will use the local execution engine for payload construction. After \
-                        the Gloas fork a skip is a slot whose beacon block landed but whose \
-                        execution payload did not; slots with no beacon block are not counted. \
-                        After the Gloas fork a bid already received over gossip is still used if \
+                        the Gloas fork a skip is a slot whose beacon block landed and received \
+                        enough attestations to charge the builder, but whose execution payload \
+                        did not; slots with no beacon block are not counted. After the Gloas \
+                        fork builders are still queried, but any external bid is used only if \
                         the local build fails.")
                 .default_value("3")
                 .action(ArgAction::Set)
@@ -1471,9 +1472,10 @@ pub fn cli_app() -> Command {
                         on the canonical chain in the past `SLOTS_PER_EPOCH`, it will NOT query \
                         any connected builders, and will use the local execution engine for \
                         payload construction. After the Gloas fork a skip is a slot whose beacon \
-                        block landed but whose execution payload did not; slots with no beacon \
-                        block are not counted. After the Gloas fork a bid already received over \
-                        gossip is still used if the local build fails.")
+                        block landed and received enough attestations to charge the builder, but \
+                        whose execution payload did not; slots with no beacon block are not \
+                        counted. After the Gloas fork builders are still queried, but any \
+                        external bid is used only if the local build fails.")
                 .default_value("8")
                 .action(ArgAction::Set)
                 .display_order(0)

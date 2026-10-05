@@ -1047,9 +1047,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         parent_execution_requests: &ExecutionRequestsGloas<T::EthSpec>,
     ) -> Vec<BidCandidate<T::EthSpec>> {
         // Post-Gloas circuit breaker: if too many recent payloads never landed on this chain,
-        // prefer the local build. The cached gossip bid still competes, demoted below the local
-        // build, so a failed local build can fall back to it instead of missing the slot. Direct
-        // builders are not contacted while tripped.
+        // prefer the local build. External bids are still collected but compete demoted below the
+        // local build, so a failed local build can fall back to one instead of missing the slot.
         //
         // The parent's attestations are not on chain yet, so fork choice says whether it reached
         // the builder payment quorum. The breaker only applies this to a parent in the previous
@@ -1089,9 +1088,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut externals = Vec::new();
 
-        // Direct bids: only when the circuit breaker has not tripped, there are builders to contact,
-        // and the proposer submitted preferences to validate against.
-        if !breaker_tripped && !builder_config.builders.is_empty() {
+        // Direct bids: only when there are builders to contact and the proposer submitted
+        // preferences to validate against.
+        if !builder_config.builders.is_empty() {
             if let Some(proposer_preferences) = proposer_preferences {
                 externals.extend(
                     self.acquire_direct_bid_candidates(
@@ -1178,9 +1177,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             !exit_requested && !banned
         });
 
-        // A tripped circuit breaker demotes what survives (at most the cached gossip bid) below the
-        // local build. Builders banned on this chain were already dropped above, so they can never
-        // be the fallback.
+        // A tripped circuit breaker demotes what survives below the local build. Builders banned on
+        // this chain were already dropped above, so they can never be the fallback.
         if breaker_tripped {
             for candidate in &mut externals {
                 candidate.demote_for_circuit_breaker();
