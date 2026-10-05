@@ -7817,6 +7817,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Post-Gloas: whether fork choice's attestation weight for `block_root` reaches the builder
+    /// payment quorum. `false` if the block is unknown to fork choice.
+    ///
+    /// Only matches the on-chain payment weight for a block proposed in the previous slot, once
+    /// fork choice has been recomputed for the current slot: an older block's weight also includes
+    /// votes cast in later slots.
+    pub(crate) fn fork_choice_weight_reaches_builder_payment_quorum(
+        &self,
+        block_root: &Hash256,
+    ) -> bool {
+        let (block_weight, total_effective_balance) = {
+            let fork_choice = self.canonical_head.fork_choice_read_lock();
+            (
+                fork_choice.get_block_weight(block_root),
+                fork_choice
+                    .fc_store()
+                    .justified_balances()
+                    .total_effective_balance,
+            )
+        };
+        builder_payment_quorum::<T::EthSpec>(total_effective_balance, &self.spec)
+            .zip(block_weight)
+            .is_some_and(|(quorum, weight)| weight >= quorum)
+    }
+
     /// Post-Gloas: if the head block (proposed in the previous slot) carried an external
     /// builder's bid, received enough attestations for that builder to be charged, and its payload
     /// was never received (nor seen as timely *with available data* by the PTC), record a ban for
@@ -7845,7 +7870,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_root = head.head_block_root();
         let block_slot = head.head_slot();
 
-        let (payload_received, ptc_votes_timely, ptc_votes_data_available, block_weight, total_effective_balance) = {
+        let (
+            payload_received,
+            ptc_votes_timely,
+            ptc_votes_data_available,
+            block_weight,
+            total_effective_balance,
+        ) = {
             let fork_choice = self.canonical_head.fork_choice_read_lock();
             (
                 fork_choice.is_payload_received(&block_root),

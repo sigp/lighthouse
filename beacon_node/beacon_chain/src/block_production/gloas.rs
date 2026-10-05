@@ -1050,10 +1050,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // prefer the local build. The cached gossip bid still competes, demoted below the local
         // build, so a failed local build can fall back to it instead of missing the slot. Direct
         // builders are not contacted while tripped.
-        let breaker_tripped = match self
-            .circuit_breaker
-            .evaluate_skips_for_state(state, ctx.slot)
-        {
+        //
+        // The parent's attestations are not on chain yet, so fork choice says whether it reached
+        // the builder payment quorum. The breaker only applies this to a parent in the previous
+        // slot.
+        let parent_reached_quorum = !self.circuit_breaker.disable_checks()
+            && self.fork_choice_weight_reaches_builder_payment_quorum(&ctx.parent_root);
+        let breaker_tripped = match self.circuit_breaker.evaluate_skips_for_state(
+            state,
+            ctx.slot,
+            parent_reached_quorum,
+            &self.spec,
+        ) {
             Ok(Some(condition)) => {
                 metrics::inc_counter_vec(
                     &metrics::BUILDER_CIRCUIT_BREAKER_TRIPS,

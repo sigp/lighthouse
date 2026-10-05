@@ -6,9 +6,11 @@
 //! external bids should be ignored in favour of the local build:
 //!
 //! - **Skip rules**: too many missed payloads in a row, or too many in the last `SLOTS_PER_EPOCH`
-//!   slots, on the chain being extended. A "missed payload" is a slot that has a beacon block but
-//!   whose execution payload was never applied. Slots with no beacon block at all are a validator
-//!   or network failure and are not counted.
+//!   slots, on the chain being extended. A "missed payload" is a slot that has a beacon block
+//!   whose execution payload was never applied, even though the block reached the builder payment
+//!   quorum for a bid of non-zero value. Below the quorum the builder is not charged and may
+//!   honestly withhold (e.g. after a late block), and self-builds bid zero, so neither is counted.
+//!   Slots with no beacon block at all are a validator or network failure and are not counted.
 //! - **Builder bans**: a builder that fails to reveal the payload for a block that received enough
 //!   attestations to charge it is banned for at least an epoch. A ban is tied to the offending
 //!   block, so it only applies to proposals whose chain contains that block.
@@ -23,6 +25,7 @@ use std::collections::HashMap;
 use bls::PublicKeyBytes;
 use execution_layer::FailedCondition;
 use parking_lot::RwLock;
+use safe_arith::ArithError;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{BeaconState, BeaconStateError, BuilderIndex, ChainSpec, EthSpec, Hash256, Slot};
 
@@ -135,11 +138,17 @@ impl CircuitBreaker {
     ///
     /// `state` must be the Gloas production state, advanced to `produce_at_slot` on the parent
     /// being extended, with the parent's payload availability bit already set if building on
-    /// FULL. Returns `None` without touching the state when checks are disabled.
+    /// FULL, and with its total active balance cache built. Returns `None` without touching the
+    /// state when checks are disabled.
+    ///
+    /// `previous_slot_reached_quorum` is fork choice's verdict on whether the block proposed at
+    /// `produce_at_slot - 1` (if any) reached the builder payment quorum. See [`MissCriteria`].
     pub fn evaluate_skips_for_state<E: EthSpec>(
         &self,
         state: &BeaconState<E>,
         produce_at_slot: Slot,
+        previous_slot_reached_quorum: bool,
+        spec: &ChainSpec,
     ) -> Result<Option<FailedCondition>, BeaconStateError> {
         if self.config.disable_checks {
             return Ok(None);
@@ -147,9 +156,16 @@ impl CircuitBreaker {
         if state.slot() != produce_at_slot {
             return Err(BeaconStateError::SlotOutOfBounds);
         }
+        let quorum = builder_payment_quorum::<E>(state.get_total_active_balance()?, spec)
+            .ok_or(BeaconStateError::ArithError(ArithError::Overflow))?;
+        let criteria = MissCriteria {
+            produce_at_slot,
+            quorum,
+            previous_slot_reached_quorum,
+        };
         let consecutive_missed =
-            count_consecutive_missed_payloads(state, produce_at_slot, self.config.skips)?;
-        let window_missed = count_missed_payloads_in_window(state, produce_at_slot)?;
+            count_consecutive_missed_payloads(state, &criteria, self.config.skips)?;
+        let window_missed = count_missed_payloads_in_window(state, &criteria)?;
         Ok(self.evaluate_skips(consecutive_missed, window_missed))
     }
 
@@ -269,43 +285,99 @@ pub fn slot_status<E: EthSpec>(
     })
 }
 
-/// Count how many blocks in a row, walking back from `produce_at_slot - 1`, had a missed payload.
+/// What makes a [`SlotStatus::PayloadMissing`] slot count towards the skip rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissCriteria {
+    /// The slot being proposed in, which the state is advanced to.
+    pub produce_at_slot: Slot,
+    /// The builder payment quorum, see [`builder_payment_quorum`].
+    pub quorum: u64,
+    /// Fork choice's verdict on the block proposed at `produce_at_slot - 1`. No later block has
+    /// included that slot's attestations, so its on-chain payment weight is still zero.
+    ///
+    /// Only meaningful for that one slot: fork choice's weight for an older block also includes
+    /// votes cast in later slots, which the payment weight does not.
+    pub previous_slot_reached_quorum: bool,
+}
+
+/// Whether the builder of the block at `slot` is charged for it, which obliges it to reveal: the
+/// bid has a non-zero value and the block reached the builder payment quorum.
 ///
-/// Slots with no block are skipped over; the walk stops at the first block whose payload landed,
-/// once the count exceeds `limit`, or when the state's block-root history runs out.
+/// Read from `state.builder_pending_payments`, where a payment stays until its payload lands or
+/// its epoch is settled. Always `false` for a self-build (zero value), for a block whose proposer
+/// was slashed for it, and for slots before the previous epoch, whose payments are gone.
+///
+/// The weight only includes attestations that later blocks have included, so it can under-report
+/// a block that is followed by empty slots.
+fn builder_is_charged<E: EthSpec>(
+    state: &BeaconState<E>,
+    slot: Slot,
+    criteria: &MissCriteria,
+) -> Result<bool, BeaconStateError> {
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+    let slot_in_epoch = slot.as_usize() % slots_per_epoch;
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let payment_index = if epoch == state.current_epoch() {
+        slots_per_epoch.saturating_add(slot_in_epoch)
+    } else if epoch.saturating_add(1u64) == state.current_epoch() {
+        slot_in_epoch
+    } else {
+        return Ok(false);
+    };
+    let payment = state.builder_pending_payments()?.get(payment_index).ok_or(
+        BeaconStateError::InvalidBuilderPendingPaymentsIndex(payment_index),
+    )?;
+
+    let reached_quorum = payment.weight >= criteria.quorum
+        || (criteria.previous_slot_reached_quorum
+            && slot.saturating_add(1u64) == criteria.produce_at_slot);
+    Ok(payment.withdrawal.amount > 0 && reached_quorum)
+}
+
+/// Count how many blocks in a row, walking back from `produce_at_slot - 1`, had a missed payload
+/// that its builder is charged for.
+///
+/// Slots with no block, and missed payloads the builder is not charged for, are skipped over: they
+/// are neither a failure nor a success. The walk stops at the first block whose payload landed,
+/// once the count exceeds `limit`, or at the start of the previous epoch, before which the state
+/// holds no builder payments.
 pub fn count_consecutive_missed_payloads<E: EthSpec>(
     state: &BeaconState<E>,
-    produce_at_slot: Slot,
+    criteria: &MissCriteria,
     limit: usize,
 ) -> Result<usize, BeaconStateError> {
+    let earliest_slot = state.previous_epoch().start_slot(E::slots_per_epoch());
     let mut count = 0;
-    for slot in (0..produce_at_slot.as_u64()).rev() {
-        match slot_status(state, Slot::new(slot)) {
-            Ok(SlotStatus::NoBlock) => continue,
-            Ok(SlotStatus::PayloadMissing) => {
+    for slot in (earliest_slot.as_u64()..criteria.produce_at_slot.as_u64()).rev() {
+        let slot = Slot::new(slot);
+        match slot_status(state, slot)? {
+            SlotStatus::PayloadPresent => break,
+            SlotStatus::PayloadMissing if builder_is_charged(state, slot, criteria)? => {
                 count += 1;
                 if count > limit {
                     break;
                 }
             }
-            Ok(SlotStatus::PayloadPresent) => break,
-            // The state's `block_roots` history is exhausted.
-            Err(BeaconStateError::SlotOutOfBounds) => break,
-            Err(e) => return Err(e),
+            SlotStatus::NoBlock | SlotStatus::PayloadMissing => continue,
         }
     }
     Ok(count)
 }
 
-/// Count missed payloads in the `SLOTS_PER_EPOCH` slots before `produce_at_slot`.
+/// Count missed payloads that their builder is charged for in the `SLOTS_PER_EPOCH` slots before
+/// `produce_at_slot`.
 pub fn count_missed_payloads_in_window<E: EthSpec>(
     state: &BeaconState<E>,
-    produce_at_slot: Slot,
+    criteria: &MissCriteria,
 ) -> Result<usize, BeaconStateError> {
+    let produce_at_slot = criteria.produce_at_slot;
     let window_start = produce_at_slot.saturating_sub(E::slots_per_epoch());
     let mut count = 0;
     for slot in window_start.as_u64()..produce_at_slot.as_u64() {
-        if slot_status(state, Slot::new(slot))? == SlotStatus::PayloadMissing {
+        let slot = Slot::new(slot);
+        if slot_status(state, slot)? == SlotStatus::PayloadMissing
+            && builder_is_charged(state, slot, criteria)?
+        {
             count += 1;
         }
     }

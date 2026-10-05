@@ -203,8 +203,11 @@ to a builder's *bid* and the builder is expected to reveal the payload later in 
 show up as blocks whose payloads never land, not as missed slots, and the circuit breaker changes accordingly:
 
 * A "skip" for `--builder-fallback-skips` and `--builder-fallback-skips-per-epoch` is a slot whose beacon block
-  landed but whose execution payload did not. Slots with no beacon block at all are not counted. Both rules are
-  evaluated on the chain the proposal extends, so a re-org never leaves stale counts behind.
+  landed but whose execution payload did not, even though the block received enough attestations to charge the
+  builder for a bid of non-zero value. A builder that withholds its payload from a block that fell short of that
+  threshold (for example a late block) is behaving honestly, and a missed self-built payload is not a builder
+  failure, so neither is counted. Slots with no beacon block at all are not counted. Both rules are evaluated on the
+  chain the proposal extends, so a re-org never leaves stale counts behind.
 * When either rule trips, the builders configured with `--payload-builders` are not queried and the local execution
   engine's payload is preferred. A bid already received over gossip is used only if the local build fails, so a
   failing execution engine does not also cost the slot. It is never used if its builder is banned on the chain being
