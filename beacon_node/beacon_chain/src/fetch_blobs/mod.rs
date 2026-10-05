@@ -369,15 +369,11 @@ async fn import_custody_partial_columns<T: BeaconChainTypes>(
                     KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(column).into_gloas()
                 })
                 .collect();
-            // Ensure the bid is present in the cache.
-            chain_adapter
-                .pending_payload_cache()
-                .insert_bid(block_root, bid.clone());
             // Merge partials into the pending payload cache and return any full columns for
             // publishing.
             let (availability, merge_result) = chain_adapter
                 .pending_payload_cache()
-                .merge_partial_data_columns(block_root, &custody_columns_to_import)
+                .merge_partial_data_columns(block_root, &custody_columns_to_import, bid)
                 .map_err(|e| {
                     FetchEngineBlobError::InternalError(format!(
                         "Failed to merge partials into pending payload cache: {e:?}"
@@ -605,8 +601,12 @@ async fn build_partial_columns_from_v4_response<T: BeaconChainTypes>(
                 })
             }
             PartialHeaderOrBid::Bid(_) => {
-                let column = ProgressiveVariableList::new(cells);
-                let kzg_proofs = ProgressiveVariableList::new(proofs);
+                let column = ProgressiveVariableList::new(cells).map_err(|e| {
+                    FetchEngineBlobError::InternalError(format!("invalid cells list: {e:?}"))
+                })?;
+                let kzg_proofs = ProgressiveVariableList::new(proofs).map_err(|e| {
+                    FetchEngineBlobError::InternalError(format!("invalid proofs list: {e:?}"))
+                })?;
 
                 PartialDataColumn::Gloas(PartialDataColumnGloas {
                     block_root,

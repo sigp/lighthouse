@@ -3,7 +3,6 @@ use bls::PublicKeyBytes;
 use milhouse::{ProgressiveList, Vector};
 use safe_arith::SafeArith;
 use ssz_types::{BitVector, FixedVector};
-use std::marker::PhantomData;
 use std::{
     collections::{HashMap, HashSet},
     mem,
@@ -132,9 +131,8 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
             slot: pre.latest_block_header.slot,
             value: 0,
             execution_payment: 0,
-            blob_kzg_commitments: ProgressiveKzgCommitments::default(),
+            blob_kzg_commitments: ProgressiveKzgCommitments::<E>::default(),
             execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
-            _phantom: PhantomData,
         },
         // Capella
         next_withdrawal_index: pre.next_withdrawal_index,
@@ -333,7 +331,9 @@ mod tests {
 
     type E = MinimalEthSpec;
 
-    const VALIDATOR_COUNT: usize = 8;
+    fn validator_count() -> usize {
+        E::slots_per_epoch() as usize
+    }
 
     fn builder_credentials(spec: &ChainSpec) -> types::Hash256 {
         let mut credentials = [0u8; 32];
@@ -398,7 +398,7 @@ mod tests {
 
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
-            .deterministic_keypairs(VALIDATOR_COUNT)
+            .deterministic_keypairs(validator_count())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .build();
@@ -406,8 +406,8 @@ mod tests {
         let mut pre_state = harness.get_current_state();
 
         // Fresh keypairs, distinct from the interop validator set.
-        let keypairs = generate_deterministic_keypairs(VALIDATOR_COUNT + 6);
-        let new_keys = &keypairs[VALIDATOR_COUNT..];
+        let keypairs = generate_deterministic_keypairs(validator_count() + 6);
+        let new_keys = &keypairs[validator_count()..];
 
         let existing_validator_pubkey = harness.validator_keypairs[0].pk.compress();
         let existing_validator_deposit = PendingDeposit {

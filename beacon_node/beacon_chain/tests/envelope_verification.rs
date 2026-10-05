@@ -1,10 +1,19 @@
-use beacon_chain::payload_envelope_verification::EnvelopeError;
-use beacon_chain::payload_envelope_verification::EnvelopeSource;
-use beacon_chain::test_utils::{BeaconChainHarness, fork_name_from_env, test_spec};
+use beacon_chain::AvailabilityProcessingStatus::{Imported, MissingComponents};
+use beacon_chain::NotifyExecutionLayer;
+use beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof;
+use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
+use beacon_chain::test_utils::{
+    BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
+};
 use bls::PublicKeyBytes;
 use eth2::types::EventKind;
+use proto_array::ExecutionStatus;
 use std::sync::Arc;
-use types::{Address, Epoch, ExecPayload, ForkName, MinimalEthSpec, Slot, WithdrawalRequest};
+use types::execution::{ExecutionProof, ProofData, PublicInput, SignedExecutionProof};
+use types::{
+    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, MinimalEthSpec, Slot,
+    WithdrawalRequest,
+};
 
 type E = MinimalEthSpec;
 
@@ -96,6 +105,120 @@ async fn startup_seeds_gloas_genesis_parent_payload() {
     );
 }
 
+#[tokio::test]
+async fn lookup_imports_gloas_payload_after_restart() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+
+    let spec = Arc::new(test_spec::<E>());
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    harness.execution_block_generator().set_min_blob_count(1);
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let state = harness.get_current_state();
+    let target_slot = Slot::new(2);
+    harness.advance_slot();
+    let (block_contents, envelope, _) = harness.make_block_with_envelope(state, target_slot).await;
+    let block_root = block_contents.0.canonical_root();
+    let custody_columns =
+        generate_data_column_sidecars_from_block(&block_contents.0, &harness.chain.spec);
+    assert!(
+        !custody_columns.is_empty(),
+        "test block should contain blobs"
+    );
+
+    harness
+        .process_block(target_slot, block_root, block_contents)
+        .await
+        .expect("block should be processed");
+    harness
+        .chain
+        .persist_fork_choice()
+        .expect("fork choice should persist");
+
+    let store = harness.chain.store.clone();
+    let slot_clock = harness.chain.slot_clock.clone();
+    drop(harness);
+    let resumed = BeaconChainHarness::builder(E::default())
+        .spec(spec)
+        .deterministic_keypairs(64)
+        .resumed_ephemeral_store(store)
+        .mock_execution_layer()
+        .mock_execution_layer_all_payloads_valid()
+        .testing_slot_clock(slot_clock)
+        .build();
+    let chain = &resumed.chain;
+    let cache = &chain.pending_payload_cache;
+    let envelope = Arc::new(envelope.expect("Gloas block should produce an envelope"));
+
+    assert!(
+        cache.get_bid(&block_root).is_none(),
+        "the pending bid cache should start empty after restart"
+    );
+    let proof_status = chain
+        .check_execution_proof_availability_and_import(GossipVerifiedExecutionProof {
+            proof: Arc::new(SignedExecutionProof {
+                message: ExecutionProof {
+                    proof_data: ProofData::new(vec![1]).expect("proof data"),
+                    proof_type: 0,
+                    public_input: PublicInput {
+                        new_payload_request_root: Hash256::random(),
+                    },
+                    beacon_block_root: block_root,
+                },
+                validator_index: 0,
+                signature: bls::Signature::infinity().expect("infinity signature"),
+            }),
+            block_slot: target_slot,
+        })
+        .await
+        .expect("execution proof should be accepted after restart");
+    assert!(matches!(proof_status, MissingComponents(..)));
+    assert!(cache.get_bid(&block_root).is_some());
+
+    // Evict the recovered bid so columns must also handle a cache miss.
+    cache.do_maintenance(Epoch::new(1)).unwrap();
+    assert!(cache.get_bid(&block_root).is_none());
+    let column_status = chain
+        .process_rpc_custody_columns(custody_columns.clone())
+        .await
+        .expect("custody columns should be accepted with an empty cache");
+    assert!(matches!(column_status, MissingComponents(..)));
+    assert!(cache.get_bid(&block_root).is_some());
+
+    // Evict the columns too, so the envelope arrives first.
+    cache.do_maintenance(Epoch::new(1)).unwrap();
+    assert!(cache.get_bid(&block_root).is_none());
+    let verified_envelope = chain
+        .verify_envelope_for_gossip(envelope, EnvelopeSource::Rpc)
+        .await
+        .expect("envelope should verify");
+    let envelope_status = chain
+        .process_execution_payload_envelope(
+            block_root,
+            verified_envelope,
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await
+        .expect("envelope should be accepted after restart");
+    assert!(matches!(envelope_status, MissingComponents(..)));
+    assert!(cache.get_bid(&block_root).is_some());
+    let import_status = chain
+        .process_rpc_custody_columns(custody_columns)
+        .await
+        .expect("custody columns should complete the payload import");
+    assert!(matches!(import_status, Imported(..)));
+}
+
 /// An envelope whose `execution_requests` don't hash to the bid's committed
 /// `execution_requests_root` must be rejected by the full gossip verification path.
 #[tokio::test]
@@ -135,7 +258,8 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
             source_address: Address::repeat_byte(0),
             validator_pubkey: PublicKeyBytes::empty(),
             amount: 0,
-        });
+        })
+        .unwrap();
 
     let result = harness
         .chain
@@ -483,4 +607,157 @@ async fn gossip_seen_envelope_can_be_reverified_via_non_gossip() {
         gossip_receiver.try_recv().is_err(),
         "an envelope re-verified over HTTP must not re-emit execution_payload_gossip"
     );
+}
+
+/// Helper: build a Gloas harness with a mock execution layer.
+fn gloas_harness() -> BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>> {
+    BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build()
+}
+
+/// Helper: produce the block and envelope for `slot`, import both, and return the block root.
+async fn import_block_and_envelope(
+    harness: &BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>>,
+    slot: Slot,
+) -> Hash256 {
+    let state = harness.get_current_state();
+    harness.advance_slot();
+    let (block_contents, opt_envelope, _) = harness.make_block_with_envelope(state, slot).await;
+    let block_root = block_contents.0.canonical_root();
+
+    let block = block_contents.0.clone();
+    harness
+        .process_block(slot, block_root, block_contents)
+        .await
+        .expect("block should be processed");
+
+    // Without its custody columns the envelope never reaches fork choice.
+    harness.process_gossip_columns(&block, None).await;
+
+    let signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
+    let gossip_verified = harness
+        .chain
+        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
+        .await
+        .expect("envelope gossip verification should succeed");
+
+    let status = harness
+        .chain
+        .process_execution_payload_envelope(
+            block_root,
+            gossip_verified,
+            beacon_chain::NotifyExecutionLayer::Yes,
+            types::BlockImportSource::Gossip,
+            #[allow(clippy::result_large_err)]
+            || Ok(()),
+        )
+        .await
+        .expect("envelope import should succeed even when the execution layer is syncing");
+
+    match status {
+        beacon_chain::AvailabilityProcessingStatus::Imported(..) => {}
+        beacon_chain::AvailabilityProcessingStatus::MissingComponents(..) => {
+            panic!("envelope for slot {slot} should import, got {status:?}")
+        }
+    }
+
+    // The next block builds on the payload status of the head. If the head does not catch up
+    // here, every block extends the `EMPTY` variant of its parent.
+    harness.chain.recompute_head_at_current_slot().await;
+
+    block_root
+}
+
+/// Helper: the execution status that fork choice holds for the payload of a block.
+fn execution_status(
+    harness: &BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>>,
+    block_root: Hash256,
+) -> ExecutionStatus {
+    harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&block_root)
+        .expect("block should be in fork choice")
+        .execution_status
+}
+
+/// An execution layer that answers `SYNCING` must not stop the import of an envelope. The
+/// node holds the payload as `Optimistic` rather than refusing it.
+#[tokio::test]
+async fn syncing_execution_layer_imports_payload_optimistically() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = gloas_harness();
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .expect("mock execution layer")
+        .server
+        .all_payloads_syncing(true);
+
+    let block_root = import_block_and_envelope(&harness, Slot::new(2)).await;
+
+    assert!(
+        is_optimistic(execution_status(&harness, block_root)),
+        "a payload the execution layer could not validate must be held as optimistic",
+    );
+}
+
+/// A later valid payload promotes every optimistic payload below it. The node does not fetch
+/// an old payload again.
+#[tokio::test]
+async fn a_later_valid_payload_promotes_its_optimistic_ancestors() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = gloas_harness();
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let mock = harness
+        .mock_execution_layer
+        .as_ref()
+        .expect("mock execution layer");
+
+    // The node imports two slots while the execution layer answers `SYNCING`.
+    mock.server.all_payloads_syncing(true);
+    let first_root = import_block_and_envelope(&harness, Slot::new(2)).await;
+    let second_root = import_block_and_envelope(&harness, Slot::new(3)).await;
+
+    assert!(is_optimistic(execution_status(&harness, first_root)));
+    assert!(is_optimistic(execution_status(&harness, second_root)));
+
+    // The execution layer catches up and validates the next payload.
+    mock.server.all_payloads_valid();
+    let third_root = import_block_and_envelope(&harness, Slot::new(4)).await;
+
+    assert!(
+        is_valid_and_post_bellatrix(execution_status(&harness, third_root)),
+        "the payload the execution layer validated must be valid",
+    );
+    assert!(
+        is_valid_and_post_bellatrix(execution_status(&harness, second_root)),
+        "its parent's payload is vouched for by the valid descendant",
+    );
+    assert!(
+        is_valid_and_post_bellatrix(execution_status(&harness, first_root)),
+        "promotion must walk the whole ancestry, not just one step",
+    );
+}
+
+fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
+    matches!(status, ExecutionStatus::Valid(_))
+}
+
+fn is_optimistic(status: ExecutionStatus) -> bool {
+    matches!(status, ExecutionStatus::Optimistic(_))
 }

@@ -1,3 +1,8 @@
+// Temporary workaround for `NetworkBehaviour` generating unreachable calls now that
+// Rust 1.100 aliases `Infallible` to `!`. Module scope covers the generated implementation.
+// See https://github.com/libp2p/rust-libp2p/issues/6600.
+#![allow(unreachable_code)]
+
 use self::gossip_cache::GossipCache;
 use crate::Eth2Enr;
 use crate::config::{GossipsubConfigParams, NetworkLoad, gossipsub_config};

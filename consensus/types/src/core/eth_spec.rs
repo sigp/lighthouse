@@ -457,14 +457,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Returns the `MAX_ATTESTER_SLASHING_SIZE` constant for this specification.
     fn max_attester_slashing_size() -> usize;
 
-    /// Returns the `MAX_DATA_COLUMN_SIDECAR_SIZE` constant for this specification.
-    fn max_data_column_sidecar_size() -> usize;
-
-    /// Returns the `MAX_PARTIAL_DATA_COLUMN_SIDECAR_SIZE` constant for this specification.
-    fn max_partial_data_column_sidecar_size() -> usize;
-
     /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE` constant for this specification.
     fn max_signed_execution_payload_bid_size() -> usize;
+
+    /// Returns the `MAX_SIGNED_INCLUSION_LIST_SIZE` constant for this specification.
+    fn max_signed_inclusion_list_size() -> usize;
 
     /// Returns the `PAYLOAD_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
     fn payload_timely_threshold() -> usize {
@@ -574,16 +571,12 @@ impl EthSpec for MainnetEthSpec {
         2097616
     }
 
-    fn max_data_column_sidecar_size() -> usize {
-        8585272
-    }
-
-    fn max_partial_data_column_sidecar_size() -> usize {
-        8585741
-    }
-
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
+    }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
     }
 }
 
@@ -674,16 +667,12 @@ impl EthSpec for MinimalEthSpec {
         131536
     }
 
-    fn max_data_column_sidecar_size() -> usize {
-        8585272
-    }
-
-    fn max_partial_data_column_sidecar_size() -> usize {
-        8585741
-    }
-
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
+    }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
     }
 }
 
@@ -771,16 +760,12 @@ impl EthSpec for GnosisEthSpec {
         2097616
     }
 
-    fn max_data_column_sidecar_size() -> usize {
-        8585272
-    }
-
-    fn max_partial_data_column_sidecar_size() -> usize {
-        8585741
-    }
-
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
+    }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
     }
 }
 

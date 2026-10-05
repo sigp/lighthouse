@@ -49,14 +49,12 @@ use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
 use types::kzg_ext::{KzgCommitments, ProgressiveKzgCommitments};
 use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests,
-    ExecutionRequestsElectra, ExecutionRequestsGloas, KzgProofs, ProgressiveTransactions,
-    SignedBlindedBeaconBlock,
+    AbstractExecPayload, BlobsList, ExecutionRequests, ExecutionRequestsElectra,
+    ExecutionRequestsGloas, KzgProofs, ProgressiveTransactions, SignedBlindedBeaconBlock,
 };
 use types::{
-    BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
-    FullPayload, ProposerPreparationData, Slot,
+    BeaconStateError, BlindedPayload, ChainSpec, ColumnIndex, Epoch, ExecPayload,
+    ExecutionPayloadGloas, FullPayload, ProposerPreparationData, Slot,
 };
 
 mod block_hash;
@@ -75,7 +73,7 @@ pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
 
-pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
+pub use types::DEFAULT_GAS_LIMIT;
 
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.
@@ -209,28 +207,30 @@ pub enum BlockProposalContentsType<E: EthSpec> {
 pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub payload: ExecutionPayloadGloas<E>,
     pub payload_value: Uint256,
-    pub blob_kzg_commitments: ProgressiveKzgCommitments,
+    pub blob_kzg_commitments: ProgressiveKzgCommitments<E>,
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
     pub execution_requests: ExecutionRequestsGloas<E>,
     pub should_override_builder: bool,
 }
 
-impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
-    fn from(response: GetPayloadResponseGloas<E>) -> Self {
-        Self {
+impl<E: EthSpec> TryFrom<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(response: GetPayloadResponseGloas<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
             payload: response.execution_payload,
             payload_value: response.block_value,
             // Convert the EL blob commitments to the progressive list type used from Gloas
             // onwards (EIP-7688).
-            blob_kzg_commitments: response.blobs_bundle.commitments.into_iter().collect(),
+            blob_kzg_commitments: ProgressiveKzgCommitments::<E>::new(
+                response.blobs_bundle.commitments.into(),
+            )?,
             blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
             execution_requests: response.requests,
             should_override_builder: response.should_override_builder,
-        }
+        })
     }
 }
-
-// TODO(heze): add a `BlockProposalContentsHeze` here once Heze block production is wired up.
 
 pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
     Payload {
@@ -954,10 +954,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
             &[metrics::LOCAL],
         );
 
-        Ok(payload_response.into())
+        Ok(payload_response.try_into()?)
     }
-
-    // TODO(heze): add a `get_payload_heze` here once Heze block production is wired up.
 
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///
@@ -1366,6 +1364,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         .notify_forkchoice_updated(
                             fork_choice_state,
                             Some(payload_attributes.clone()),
+                            None,
                         )
                         .await?;
 
@@ -1545,6 +1544,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
+    #[allow(clippy::too_many_arguments)]
     pub async fn notify_forkchoice_updated(
         &self,
         head_block_hash: ExecutionBlockHash,
@@ -1553,6 +1553,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         current_slot: Slot,
         head_block_root: Hash256,
         head_payload_status: fork_choice::PayloadStatus,
+        custody_columns: &[ColumnIndex],
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
@@ -1602,7 +1603,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .engine()
             .request(|engine| async move {
                 engine
-                    .notify_forkchoice_updated(forkchoice_state, payload_attributes)
+                    .notify_forkchoice_updated(
+                        forkchoice_state,
+                        payload_attributes,
+                        Some(custody_columns),
+                    )
                     .await
             })
             .await;
@@ -1681,7 +1686,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_payload_bodies_by_hash_v2(
         &self,
         hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
         if !capabilities.get_payload_bodies_by_hash_v2 {
             return Err(Error::PayloadBodiesByHashV2NotSupported);
@@ -1706,22 +1711,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<Option<ExecutionPayload<E>>, Error> {
         // Handle default payload body.
         if header.block_hash() == ExecutionBlockHash::zero() {
-            let payload = match fork {
-                ForkName::Bellatrix => ExecutionPayloadBellatrix::default().into(),
-                ForkName::Capella => ExecutionPayloadCapella::default().into(),
-                ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
-                ForkName::Electra => ExecutionPayloadElectra::default().into(),
-                ForkName::Fulu => ExecutionPayloadFulu::default().into(),
-                ForkName::Base | ForkName::Altair => {
-                    return Err(Error::InvalidForkForPayload);
-                }
-                ForkName::Gloas => {
-                    return Err(Error::InvalidForkForPayload);
-                }
-                ForkName::Heze => {
-                    return Err(Error::InvalidForkForPayload);
-                }
-            };
+            let payload = FullPayload::<E>::default_at_fork(fork)
+                .map_err(|_| Error::InvalidForkForPayload)?
+                .execution_payload();
             return Ok(Some(payload));
         }
 
@@ -2227,15 +2219,17 @@ mod test {
             block_hash,
             block_number,
             transactions: ProgressiveTransactions::new(vec![
-                ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]),
-            ]),
-            withdrawals: types::ProgressiveWithdrawals::new(vec![Withdrawal {
+                ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]).unwrap(),
+            ])
+            .unwrap(),
+            withdrawals: types::ProgressiveWithdrawals::<MainnetEthSpec>::new(vec![Withdrawal {
                 index: 1,
                 validator_index: 2,
                 address: Address::from([0x33; 20]),
                 amount: 3,
-            }]),
-            block_access_list: BlockAccessList::new(vec![0x04, 0x05, 0x06]),
+            }])
+            .unwrap(),
+            block_access_list: BlockAccessList::new(vec![0x04, 0x05, 0x06]).unwrap(),
             ..Default::default()
         };
         let expected_body = ExecutionPayloadBodyV2 {
@@ -2267,7 +2261,7 @@ mod test {
 
     #[tokio::test]
     async fn test_expected_gas_limit() {
-        let spec = ChainSpec::mainnet();
+        let spec = MainnetEthSpec::default_spec();
         assert_eq!(
             expected_gas_limit(30_000_000, 30_000_000, &spec),
             Some(30_000_000)

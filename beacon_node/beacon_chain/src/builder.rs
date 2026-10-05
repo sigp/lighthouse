@@ -8,6 +8,7 @@ use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
+use crate::inclusion_list_store::InclusionListStore;
 use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
@@ -777,9 +778,10 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let (initial_head_block_root, head_payload_status) = fork_choice
+        let head_node = fork_choice
             .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
+        let (initial_head_block_root, head_payload_status) = head_node.as_pair();
 
         let head_block_root = initial_head_block_root;
         let head_block = store
@@ -797,7 +799,7 @@ where
         // Load the execution envelope from the store if the head has a Full payload.
         let execution_envelope = if head_payload_status == PayloadStatus::Full {
             store
-                .get_payload_envelope(&head_block_root)
+                .get_signed_payload_envelope(&head_block_root)
                 .map_err(|e| format!("Error loading head execution envelope: {:?}", e))?
                 .map(Arc::new)
         } else {
@@ -934,7 +936,7 @@ where
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(head_snapshot),
-            head_payload_status,
+            head_node,
             self.chain_config.fast_confirmation,
             &store,
             &self.spec,
@@ -1047,6 +1049,7 @@ where
             observed_execution_proofs: <_>::default(),
             observed_execution_payloads: <_>::default(),
             pending_payload_envelopes: <_>::default(),
+            inclusion_list_store: RwLock::new(InclusionListStore::new(&self.spec)),
             observed_voluntary_exits: <_>::default(),
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
@@ -1597,8 +1600,11 @@ mod test {
         let validator_count = 1;
         let genesis_time = 13_371_337;
 
-        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> =
-            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
+        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> = HotColdDB::open_ephemeral(
+            StoreConfig::default(),
+            MinimalEthSpec::default_spec().into(),
+        )
+        .unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(
