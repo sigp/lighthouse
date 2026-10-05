@@ -4493,159 +4493,168 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Only performing this check on recent blocks avoids slowing down sync with lots of calls
         // to fork choice `get_head`.
         //
+        // The validator monitor ignores blocks older than this, and `get_head` is expensive, so
+        // only compute the head for blocks it will actually look at.
+        let in_monitor_window = block.slot()
+            + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64 * T::EthSpec::slots_per_epoch()
+            >= current_slot;
+
+        let head_node = if in_monitor_window {
+            let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE);
+            let head_node = match fork_choice.get_head(current_slot, &self.spec) {
+                Ok(head_node) => Some(head_node),
+                Err(e) => {
+                    error!(
+                        error = ?e,
+                        "Failed to compute head during block import"
+                    );
+                    None
+                }
+            };
+            drop(fork_choice_timer);
+            head_node
+        } else {
+            None
+        };
+
+        // A block is canonical if it is the head, or an ancestor of it. Missed block detection must
+        // only see canonical block roots (issue #8080).
+        let block_is_canonical =
+            head_node.is_some_and(|head| fork_choice.is_descendant(block_root, head.root()));
+
         // Optimistically imported blocks are not added to the cache since the cache is only useful
         // for a small window of time and the complexity of keeping track of the optimistic status
         // is not worth it.
-        if !payload_verification_status.is_optimistic()
+        if let Some(head_node) = head_node
+            && !payload_verification_status.is_optimistic()
             && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
+            && head_node.root() == block_root
         {
-            let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE);
-            match fork_choice.get_head(current_slot, &self.spec) {
-                // This block became the head, add it to the early attester cache.
-                Ok(head_node) if head_node.root() == block_root => {
-                    if let Some(proto_block) = fork_choice.get_block(&block_root) {
-                        // The head is always a finalized descendant, so `None` is unreachable here;
-                        // `is_some_and` maps it to `false`.
-                        let new_head_is_optimistic = fork_choice
-                            .get_node_execution_status(head_node)
-                            .map_err(|e| {
-                                BlockError::BeaconChainError(Box::new(
-                                    BeaconChainError::ForkChoiceError(e),
-                                ))
-                            })?
-                            .is_some_and(|status| status.is_optimistic_or_invalid());
+            // This block became the head, add it to the early attester cache.
+            if let Some(proto_block) = fork_choice.get_block(&block_root) {
+                // The head is always a finalized descendant, so `None` is unreachable here;
+                // `is_some_and` maps it to `false`.
+                let new_head_is_optimistic = fork_choice
+                    .get_node_execution_status(head_node)
+                    .map_err(|e| {
+                        BlockError::BeaconChainError(Box::new(BeaconChainError::ForkChoiceError(e)))
+                    })?
+                    .is_some_and(|status| status.is_optimistic_or_invalid());
 
-                        if let Err(e) = self.early_attester_cache.add_head_block(
-                            block_root,
-                            &signed_block,
-                            proto_block,
-                            &state,
-                        ) {
+                if let Err(e) = self.early_attester_cache.add_head_block(
+                    block_root,
+                    &signed_block,
+                    proto_block,
+                    &state,
+                ) {
+                    warn!(
+                        error = ?e,
+                        "Early attester cache insert failed"
+                    );
+                } else {
+                    let attestable_timestamp = self.slot_clock.now_duration().unwrap_or_default();
+                    self.block_times_cache.write().set_time_attestable(
+                        block_root,
+                        signed_block.slot(),
+                        attestable_timestamp,
+                    )
+                }
+
+                // Register a server-sent-event for a new head.
+                if let Some(event_handler) = self
+                    .event_handler
+                    .as_ref()
+                    .filter(|handler| handler.has_head_subscribers())
+                {
+                    let head_slot = state.slot();
+                    let state_root = block.state_root();
+                    let is_epoch_transition =
+                        state.current_epoch() > old_head_slot.epoch(T::EthSpec::slots_per_epoch());
+
+                    let dependent_root = state.attester_shuffling_decision_root(
+                        self.genesis_block_root,
+                        RelativeEpoch::Next,
+                    );
+                    let prev_dependent_root = state.attester_shuffling_decision_root(
+                        self.genesis_block_root,
+                        RelativeEpoch::Current,
+                    );
+
+                    match (dependent_root, prev_dependent_root) {
+                        (Ok(current_duty_dependent_root), Ok(previous_duty_dependent_root)) => {
+                            event_handler.register(EventKind::Head(SseHead {
+                                slot: head_slot,
+                                block: block_root,
+                                state: state_root,
+                                current_duty_dependent_root,
+                                previous_duty_dependent_root,
+                                epoch_transition: is_epoch_transition,
+                                execution_optimistic: new_head_is_optimistic,
+                            }));
+                        }
+                        (Err(e), _) | (_, Err(e)) => {
                             warn!(
                                 error = ?e,
-                                "Early attester cache insert failed"
+                                "Unable to find dependent roots, cannot register head event"
                             );
-                        } else {
-                            let attestable_timestamp =
-                                self.slot_clock.now_duration().unwrap_or_default();
-                            self.block_times_cache.write().set_time_attestable(
-                                block_root,
-                                signed_block.slot(),
-                                attestable_timestamp,
-                            )
                         }
-
-                        // Register a server-sent-event for a new head.
-                        if let Some(event_handler) = self
-                            .event_handler
-                            .as_ref()
-                            .filter(|handler| handler.has_head_subscribers())
-                        {
-                            let head_slot = state.slot();
-                            let state_root = block.state_root();
-                            let is_epoch_transition = state.current_epoch()
-                                > old_head_slot.epoch(T::EthSpec::slots_per_epoch());
-
-                            let dependent_root = state.attester_shuffling_decision_root(
-                                self.genesis_block_root,
-                                RelativeEpoch::Next,
-                            );
-                            let prev_dependent_root = state.attester_shuffling_decision_root(
-                                self.genesis_block_root,
-                                RelativeEpoch::Current,
-                            );
-
-                            match (dependent_root, prev_dependent_root) {
-                                (
-                                    Ok(current_duty_dependent_root),
-                                    Ok(previous_duty_dependent_root),
-                                ) => {
-                                    event_handler.register(EventKind::Head(SseHead {
-                                        slot: head_slot,
-                                        block: block_root,
-                                        state: state_root,
-                                        current_duty_dependent_root,
-                                        previous_duty_dependent_root,
-                                        epoch_transition: is_epoch_transition,
-                                        execution_optimistic: new_head_is_optimistic,
-                                    }));
-                                }
-                                (Err(e), _) | (_, Err(e)) => {
-                                    warn!(
-                                        error = ?e,
-                                        "Unable to find dependent roots, cannot register head event"
-                                    );
-                                }
-                            }
-                        }
-
-                        // Register a server-sent-event for a new head_v2
-                        if let Some(event_handler) = self
-                            .event_handler
-                            .as_ref()
-                            .filter(|handler| handler.has_head_v2_subscribers())
-                        {
-                            let head_slot = state.slot();
-                            let state_root = block.state_root();
-                            let is_epoch_transition = state.current_epoch()
-                                > old_head_slot.epoch(T::EthSpec::slots_per_epoch());
-
-                            let current_epoch_dependent_root = state
-                                .attester_shuffling_decision_root(
-                                    self.genesis_block_root,
-                                    RelativeEpoch::Current,
-                                );
-                            let next_epoch_dependent_root = state.attester_shuffling_decision_root(
-                                self.genesis_block_root,
-                                RelativeEpoch::Next,
-                            );
-
-                            match (current_epoch_dependent_root, next_epoch_dependent_root) {
-                                (
-                                    Ok(current_epoch_dependent_root),
-                                    Ok(next_epoch_dependent_root),
-                                ) => {
-                                    let head_v2 = SseHeadV2 {
-                                        slot: head_slot,
-                                        block: block_root,
-                                        state: state_root,
-                                        // In the first emission of a new head_v2, the PayloadStatus is always Empty
-                                        payload_status: fork_choice::PayloadStatus::Empty,
-                                        epoch_transition: is_epoch_transition,
-                                        current_epoch_dependent_root,
-                                        next_epoch_dependent_root,
-                                        execution_optimistic: new_head_is_optimistic,
-                                    };
-                                    event_handler.register(EventKind::HeadV2(Box::new(
-                                        ForkVersionedResponse {
-                                            version: self
-                                                .spec
-                                                .fork_name_at_slot::<T::EthSpec>(head_v2.slot),
-                                            metadata: Default::default(),
-                                            data: head_v2,
-                                        },
-                                    )))
-                                }
-                                (Err(e), _) | (_, Err(e)) => {
-                                    warn!(
-                                        error = ?e,
-                                        "Unable to find dependent roots, cannot register head_v2 event"
-                                    );
-                                }
-                            }
-                        }
-                    } else {
-                        warn!(?block_root, "Early attester block missing");
                     }
                 }
-                // This block did not become the head, nothing to do.
-                Ok(_) => (),
-                Err(e) => error!(
-                    error = ?e,
-                    "Failed to compute head during block import"
-                ),
+
+                // Register a server-sent-event for a new head_v2
+                if let Some(event_handler) = self
+                    .event_handler
+                    .as_ref()
+                    .filter(|handler| handler.has_head_v2_subscribers())
+                {
+                    let head_slot = state.slot();
+                    let state_root = block.state_root();
+                    let is_epoch_transition =
+                        state.current_epoch() > old_head_slot.epoch(T::EthSpec::slots_per_epoch());
+
+                    let current_epoch_dependent_root = state.attester_shuffling_decision_root(
+                        self.genesis_block_root,
+                        RelativeEpoch::Current,
+                    );
+                    let next_epoch_dependent_root = state.attester_shuffling_decision_root(
+                        self.genesis_block_root,
+                        RelativeEpoch::Next,
+                    );
+
+                    match (current_epoch_dependent_root, next_epoch_dependent_root) {
+                        (Ok(current_epoch_dependent_root), Ok(next_epoch_dependent_root)) => {
+                            let head_v2 = SseHeadV2 {
+                                slot: head_slot,
+                                block: block_root,
+                                state: state_root,
+                                // In the first emission of a new head_v2, the PayloadStatus is always Empty
+                                payload_status: fork_choice::PayloadStatus::Empty,
+                                epoch_transition: is_epoch_transition,
+                                current_epoch_dependent_root,
+                                next_epoch_dependent_root,
+                                execution_optimistic: new_head_is_optimistic,
+                            };
+                            event_handler.register(EventKind::HeadV2(Box::new(
+                                ForkVersionedResponse {
+                                    version: self
+                                        .spec
+                                        .fork_name_at_slot::<T::EthSpec>(head_v2.slot),
+                                    metadata: Default::default(),
+                                    data: head_v2,
+                                },
+                            )))
+                        }
+                        (Err(e), _) | (_, Err(e)) => {
+                            warn!(
+                                error = ?e,
+                                "Unable to find dependent roots, cannot register head_v2 event"
+                            );
+                        }
+                    }
+                }
+            } else {
+                warn!(?block_root, "Early attester block missing");
             }
-            drop(fork_choice_timer);
         }
         drop(post_exec_timer);
 
@@ -4671,6 +4680,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut consensus_context,
             current_slot,
             parent_block.slot(),
+            block_is_canonical,
         );
         self.import_block_update_slasher(block, &state, &mut consensus_context);
 
@@ -4874,6 +4884,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ctxt: &mut ConsensusContext<T::EthSpec>,
         current_slot: Slot,
         parent_block_slot: Slot,
+        block_is_canonical: bool,
     ) {
         // Only register blocks with the validator monitor when the block is sufficiently close to
         // the current slot.
@@ -4889,6 +4900,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             current_slot.epoch(T::EthSpec::slots_per_epoch()),
             state,
             &self.spec,
+            block_is_canonical,
         );
 
         let validator_monitor = self.validator_monitor.read();

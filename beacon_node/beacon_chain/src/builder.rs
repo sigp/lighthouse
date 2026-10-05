@@ -893,6 +893,8 @@ where
                 slot.epoch(E::slots_per_epoch()),
                 &head_snapshot.beacon_state,
                 &self.spec,
+                // The head snapshot is always canonical.
+                true,
             );
         }
 
