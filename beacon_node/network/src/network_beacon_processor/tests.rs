@@ -11,6 +11,7 @@ use crate::{
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
 use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas};
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
@@ -3108,10 +3109,15 @@ async fn test_inclusion_lists_by_indices_serves_only_requested_positions() {
     {
         let mut store = rig.chain.inclusion_list_store.write();
         for validator_index in committee.iter().collect::<HashSet<_>>() {
-            store.process_inclusion_list(
-                signed_inclusion_list(slot, *validator_index, dependent_root, 0xaa),
-                true,
-            );
+            store.process_inclusion_list(GossipVerifiedInclusionList {
+                signed_inclusion_list: signed_inclusion_list(
+                    slot,
+                    *validator_index,
+                    dependent_root,
+                    0xaa,
+                ),
+                is_timely: true,
+            });
         }
     }
 
@@ -3140,10 +3146,10 @@ async fn test_inclusion_lists_by_indices_ignores_unknown_dependent_root() {
     rig.chain
         .inclusion_list_store
         .write()
-        .process_inclusion_list(
-            signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
-            true,
-        );
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
+            is_timely: true,
+        });
 
     enqueue_inclusion_lists_by_indices_request(&rig, slot, Hash256::repeat_byte(0xff), &[0]);
 
@@ -3167,5 +3173,52 @@ async fn test_inclusion_lists_by_indices_rejects_slots_outside_the_window() {
             );
         }
         other => panic!("expected SendErrorResponse, got {:?}", other),
+    }
+}
+
+// A verified list that the store has already seen is ignored rather than propagated.
+#[tokio::test]
+async fn test_gossip_inclusion_list_propagation_follows_the_store_outcome() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let slot = rig.chain.slot().unwrap();
+    let (committee, dependent_root) = rig
+        .chain
+        .inclusion_list_committee(rig.chain.head_beacon_block_root(), slot)
+        .unwrap();
+    let validator_index = committee[0];
+
+    let message = signed_inclusion_list(slot, validator_index, dependent_root, 0xaa).message;
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let domain = rig.chain.spec.get_domain(
+        epoch,
+        Domain::InclusionListCommittee,
+        &rig.chain.spec.fork_at_epoch(epoch),
+        rig.chain.genesis_validators_root,
+    );
+    let signature = rig._harness.validator_keypairs[validator_index as usize]
+        .sk
+        .sign(message.signing_root(domain));
+    let inclusion_list = SignedInclusionList { message, signature };
+
+    for expected in [MessageAcceptance::Accept, MessageAcceptance::Ignore] {
+        rig.network_beacon_processor
+            .send_gossip_inclusion_list(
+                junk_message_id(),
+                junk_peer_id(),
+                Box::new(inclusion_list.clone()),
+            )
+            .unwrap();
+
+        let network_message = rig
+            .receive_network_messages_with_timeout(Duration::from_secs(1), Some(1))
+            .await
+            .and_then(|mut messages| messages.pop())
+            .expect("should receive a validation result");
+        match network_message {
+            NetworkMessage::ValidationResult {
+                validation_result, ..
+            } => assert_eq!(validation_result, expected),
+            other => panic!("expected ValidationResult, got {:?}", other),
+        }
     }
 }

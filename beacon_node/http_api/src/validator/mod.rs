@@ -1762,8 +1762,6 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
                 "internal error verifying inclusion list: {e}"
             )))
         }
-        // TODO(heze): remove once the IL gossip verification errors are added to InclusionListVerificationError
-        #[allow(unreachable_patterns)]
         Err(e) => {
             warn!(
                 %slot,

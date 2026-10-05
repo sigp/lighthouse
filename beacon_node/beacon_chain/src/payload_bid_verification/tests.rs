@@ -23,6 +23,7 @@ use types::{
 };
 
 use crate::inclusion_list_store::InclusionListStore;
+use crate::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
 use crate::{
     beacon_fork_choice_store::BeaconForkChoiceStore,
     beacon_snapshot::BeaconSnapshot,
@@ -490,7 +491,10 @@ fn seed_inclusion_list(ctx: &TestContext, slot: Slot, validator_indices: &[u64],
         };
         ctx.inclusion_list_store
             .write()
-            .process_inclusion_list(signed_inclusion_list, is_timely);
+            .process_inclusion_list(GossipVerifiedInclusionList {
+                signed_inclusion_list,
+                is_timely,
+            });
     }
 }
 
