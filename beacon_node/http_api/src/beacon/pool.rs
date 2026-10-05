@@ -707,8 +707,7 @@ fn publish_payload_attestation_messages<T: BeaconChainTypes>(
 
 /// POST beacon/pool/execution_proofs (SSZ)
 ///
-/// Where EIP-8025 proofs enter the network. A proving service signs a proof and submits it here on
-/// its own schedule; this node verifies and gossips it.
+/// Where EIP-8025 proofs enter the network: a prover signs and submits on its own schedule.
 pub fn post_beacon_pool_execution_proofs<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
     task_spawner_filter: TaskSpawnerFilter<T>,
@@ -781,11 +780,8 @@ async fn publish_execution_proofs<T: BeaconChainTypes>(
                     }
                 }
             }
-            // A relay retrying the same bytes has nothing to do differently, so this is not a
-            // failure for it. The proof root is recorded before the engine's verdict, so a retry
-            // of a proof the engine rejected is reported as known too. `DuplicateFromValidator`
-            // stays a failure: there the bytes differ, so the submitter does have something to act
-            // on.
+            // Not a failure: a relay retrying the same bytes has nothing to do differently. The
+            // record predates the engine's verdict, so a retry of a rejected proof lands here too.
             Err(
                 ExecutionProofError::ProofAlreadySeen | ExecutionProofError::ValidProofAlreadyKnown,
             ) => num_already_known += 1,
