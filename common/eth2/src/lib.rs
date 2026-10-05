@@ -2513,9 +2513,21 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET v1/debug/fork_choice`
-    pub async fn get_debug_fork_choice(&self) -> Result<ForkChoice, Error> {
+    /// `GET v1/debug/fork_choice`(DEPRECATED POST-GLOAS)
+    pub async fn get_debug_fork_choice_v1(&self) -> Result<ForkChoice, Error> {
         let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("debug")
+            .push("fork_choice");
+
+        self.get(path).await
+    }
+
+    /// `GET v2/debug/fork_choice`
+    pub async fn get_debug_fork_choice(&self) -> Result<GenericResponse<ForkChoiceV2>, Error> {
+        let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
