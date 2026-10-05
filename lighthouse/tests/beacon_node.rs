@@ -667,6 +667,36 @@ fn builder_fallback_flags() {
             assert!(config.chain.builder_fallback_disable_checks);
         },
     );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(config.chain.builder_fallback_ban_slots, 32);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-ban-slots"),
+        Some("64"),
+        |config| {
+            assert_eq!(config.chain.builder_fallback_ban_slots, 64);
+        },
+    );
+}
+
+#[test]
+#[should_panic]
+fn builder_fallback_ban_slots_below_slots_per_epoch_is_rejected() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-ban-slots"),
+        Some("31"),
+        |_| {},
+    );
 }
 
 #[test]

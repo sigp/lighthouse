@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eth2::types::{EventKind, SseExecutionPayload, SseExecutionPayloadAvailable};
+use execution_layer::PayloadStatus;
 use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
@@ -18,7 +19,7 @@ use super::{
 };
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
-    NotifyExecutionLayer,
+    ExecutionPayloadError, NotifyExecutionLayer,
     block_verification_types::AvailableBlockData,
     metrics,
     payload_envelope_verification::{
@@ -63,6 +64,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .signed_execution_payload_bid()?
                 .clone(),
         );
+        let builder_index = bid.message.builder_index;
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
@@ -139,6 +141,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(status)
             }
             Err(err) => {
+                // A definitive EL rejection is attributable to the builder: the envelope's
+                // signature was verified at gossip and its payload is hash-bound to the committed
+                // bid, so no peer could have forged it and no other payload satisfies the bid.
+                // Transient failures (EL unreachable, syncing) never take this error path.
+                if let BlockError::EnvelopeError(envelope_error) = &err
+                    && let EnvelopeError::ExecutionPayloadError(
+                        ExecutionPayloadError::RejectedByExecutionEngine {
+                            status:
+                                PayloadStatus::Invalid { .. } | PayloadStatus::InvalidBlockHash { .. },
+                        },
+                    ) = envelope_error.as_ref()
+                {
+                    self.record_builder_ban_for_invalid_payload(
+                        builder_index,
+                        block_root,
+                        block_slot,
+                    );
+                }
                 warn!(
                     reason = err.to_string(),
                     "Execution payload envelope rejected"

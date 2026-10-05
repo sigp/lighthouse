@@ -83,6 +83,10 @@ pub struct BidCandidate<E: EthSpec> {
     /// build: the floor is a policy on builder payments, and the proposer's own block has none,
     /// so it always ranks in the meets-floor tier.
     min_bid: u64,
+    /// Set when the circuit breaker has tripped. A demoted candidate only wins when no undemoted
+    /// candidate exists, which in practice means the local build failed. Never set on the local
+    /// build.
+    demoted: bool,
     pub source: BidSource<E>,
 }
 
@@ -99,6 +103,7 @@ impl<E: EthSpec> BidCandidate<E> {
             signed_bid: Arc::new(signed_bid),
             builder_boost_factor: NEUTRAL_BOOST_FACTOR,
             min_bid: 0,
+            demoted: false,
             source: BidSource::Local {
                 payload_data: Box::new(payload_data),
                 should_override_builder,
@@ -117,6 +122,7 @@ impl<E: EthSpec> BidCandidate<E> {
             signed_bid,
             builder_boost_factor,
             min_bid,
+            demoted: false,
             source: BidSource::Gossip,
         }
     }
@@ -140,11 +146,18 @@ impl<E: EthSpec> BidCandidate<E> {
             signed_bid,
             builder_boost_factor,
             min_bid,
+            demoted: false,
             source: BidSource::Direct {
                 builder_url,
                 max_execution_payment,
             },
         }
+    }
+
+    /// Rank this candidate below every undemoted one. Used for external bids when the circuit
+    /// breaker trips, so the local build is preferred but an external bid can still save the slot.
+    pub fn demote_for_circuit_breaker(&mut self) {
+        self.demoted = true;
     }
 
     /// The trusted value ranking is based on, in **wei**: the local EL block value, or a bid's
@@ -166,8 +179,8 @@ impl<E: EthSpec> BidCandidate<E> {
         }
     }
 
-    /// Lexicographic selection key (greater = better): `shouldOverrideBuilder`, then whether the bid
-    /// clears its `min_bid` floor, then the boosted value (`trusted_value × builder_boost_factor`, in
+    /// Lexicographic selection key (greater = better): whether the candidate is undemoted by the
+    /// circuit breaker, then `shouldOverrideBuilder`, then whether the bid clears its `min_bid` floor, then the boosted value (`trusted_value × builder_boost_factor`, in
     /// wei — `u64::MAX` multiplies through rather than acting as an absolute override, so a
     /// zero-value bid ranks 0 and loses to any non-zero local build), then the local build wins ties
     /// over externals.
@@ -176,8 +189,13 @@ impl<E: EthSpec> BidCandidate<E> {
     /// viable option — the local build failed and every bid is under the floor — instead of missing
     /// the slot. Whenever *any* candidate clears the floor (the local build always does), the
     /// below-floor ones lose regardless of value, exactly as a hard filter would.
-    fn rank_key(&self) -> (bool, bool, Uint256, bool) {
+    ///
+    /// Circuit-breaker demotion is ranked rather than filtered for the same reason: when the breaker
+    /// trips the local build always wins if it exists, but a demoted external bid still beats
+    /// missing the slot when the local build fails.
+    fn rank_key(&self) -> (bool, bool, bool, Uint256, bool) {
         (
+            !self.demoted,
             self.overrides_builder(),
             self.meets_min_bid(),
             self.trusted_value()
@@ -563,5 +581,31 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(outcome(win), (DIRECT_BUILDER, false, gwei(1), "direct"));
+    }
+
+    #[test]
+    fn demoted_external_loses_to_cheaper_local() {
+        let mut bid = gossip(1_000, NEUTRAL_BOOST);
+        bid.demote_for_circuit_breaker();
+        let winner = select_payload_bid(vec![bid, local(1, false)]).unwrap();
+        assert!(winner.is_local());
+    }
+
+    #[test]
+    fn demoted_external_wins_when_local_build_failed() {
+        let mut bid = gossip(1_000, NEUTRAL_BOOST);
+        bid.demote_for_circuit_breaker();
+        let winner = select_payload_bid(vec![bid]).unwrap();
+        assert!(!winner.is_local());
+    }
+
+    #[test]
+    fn demoted_externals_still_rank_by_value_among_themselves() {
+        let mut low = gossip(10, NEUTRAL_BOOST);
+        let mut high = gossip(1_000, NEUTRAL_BOOST);
+        low.demote_for_circuit_breaker();
+        high.demote_for_circuit_breaker();
+        let winner = select_payload_bid(vec![low, high]).unwrap();
+        assert_eq!(winner.signed_bid.message.value, 1_000);
     }
 }
