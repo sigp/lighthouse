@@ -206,6 +206,11 @@ impl ProtoNode {
         self.get_parent_payload_status() == ParentPayloadStatus::Full
     }
 
+    /// The `FULL` node only exists if the payload has been received and not found invalid.
+    pub fn has_full_node(&self) -> bool {
+        self.payload_received().is_ok_and(|received| received) && !self.is_invalid()
+    }
+
     pub fn attestation_score(&self, payload_status: PayloadStatus) -> u64 {
         match payload_status {
             PayloadStatus::Pending => self.weight(),
@@ -1376,10 +1381,8 @@ impl ProtoArray {
                 }
             };
 
-            let has_full_node =
-                node.payload_received().is_ok_and(|received| received) && !node.is_invalid();
             let empty_viable = is_viable(&empty_children);
-            let full_viable = has_full_node && is_viable(&full_children);
+            let full_viable = node.has_full_node() && is_viable(&full_children);
 
             if empty_viable {
                 viable.insert((node_index, PayloadStatus::Empty));
@@ -1845,11 +1848,7 @@ impl ProtoArray {
                 .get(node.proto_node_index)
                 .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
             let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
-            // The FULL virtual child only exists if the payload has been received and not found
-            // invalid.
-            if proto_node.payload_received().is_ok_and(|received| received)
-                && !proto_node.is_invalid()
-            {
+            if proto_node.has_full_node() {
                 children.push((node.with_status(PayloadStatus::Full), proto_node.clone()));
             }
             Ok(children)
@@ -2082,9 +2081,9 @@ impl ProtoArray {
         Ok(())
     }
 
-    /// This is the equivalent to the `filter_block_tree` function in the eth2 spec:
+    /// This is the leaf check in the `filter_node_tree` function in the spec:
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.10.0/specs/phase0/fork-choice.md#filter_block_tree
+    /// https://github.com/ethereum/consensus-specs/blob/v1.7.0-beta.3/specs/phase0/fork-choice.md#filter_node_tree
     ///
     /// Any node that has a different finalized or justified epoch should not be viable for the
     /// head.
