@@ -1421,7 +1421,8 @@ impl ProtoArray {
             best_finalized_checkpoint,
         )?;
 
-        if viable_nodes.is_empty() {
+        // `viable_nodes` also holds nodes outside the justified subtree.
+        if !viable_nodes.contains(&(start_index, PayloadStatus::Pending)) {
             return Ok(head.with_status(PayloadStatus::Empty));
         }
 
