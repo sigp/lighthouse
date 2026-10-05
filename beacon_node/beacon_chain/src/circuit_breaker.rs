@@ -427,12 +427,14 @@ mod tests {
     use super::*;
     use genesis::{generate_deterministic_keypairs, interop_genesis_state};
     use types::{
-        ExecutionBlockHash, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName,
-        MinimalEthSpec,
+        BuilderPendingPayment, BuilderPendingWithdrawal, Epoch, ExecutionBlockHash,
+        ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName, MinimalEthSpec,
     };
 
     type E = MinimalEthSpec;
     const SPE: u64 = 8; // MinimalEthSpec::slots_per_epoch()
+    /// A payment weight above any quorum a 64-validator state can produce.
+    const CHARGED: u64 = u64::MAX;
 
     fn config(skips: usize, skips_per_epoch: usize) -> CircuitBreakerConfig {
         CircuitBreakerConfig {
@@ -457,8 +459,12 @@ mod tests {
         Hash256::repeat_byte(byte)
     }
 
+    fn gloas_spec() -> ChainSpec {
+        ForkName::Gloas.make_genesis_spec(E::default_spec())
+    }
+
     fn gloas_genesis_state() -> (BeaconState<E>, ChainSpec) {
-        let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        let spec = gloas_spec();
         let keypairs = generate_deterministic_keypairs(64);
         let header = ExecutionPayloadHeader::Fulu(ExecutionPayloadHeaderFulu {
             block_hash: ExecutionBlockHash::repeat_byte(0x42),
@@ -478,8 +484,11 @@ mod tests {
 
     /// Build a state at `slot` whose history is described by `history`: one `Option<bool>` per
     /// slot `1..slot`, `None` for no block, `Some(payload_present)` for a block.
+    ///
+    /// Every block carries a non-zero bid whose payment weight is [`CHARGED`], so its builder is
+    /// charged for it; use [`set_payment`] to change that for individual slots.
     fn state_with_history(history: &[Option<bool>]) -> BeaconState<E> {
-        let (mut state, _spec) = gloas_genesis_state();
+        let (mut state, spec) = gloas_genesis_state();
         let slot = Slot::new(history.len() as u64 + 1);
         *state.slot_mut() = slot;
 
@@ -498,10 +507,48 @@ mod tests {
                         *payload_present,
                     )
                     .unwrap();
+                set_payment(&mut state, s, 1, CHARGED);
             }
             state.set_block_root(s, latest_root).unwrap();
         }
+        state.build_total_active_balance_cache(&spec).unwrap();
         state
+    }
+
+    /// Set the pending payment for the block at `slot`, if the state still holds its epoch.
+    fn set_payment(state: &mut BeaconState<E>, slot: Slot, amount: u64, weight: u64) {
+        let epoch = slot.epoch(SPE);
+        let slot_in_epoch = (slot.as_u64() % SPE) as usize;
+        let index = if epoch == state.current_epoch() {
+            SPE as usize + slot_in_epoch
+        } else if epoch + 1 == state.current_epoch() {
+            slot_in_epoch
+        } else {
+            return;
+        };
+        *state
+            .builder_pending_payments_mut()
+            .unwrap()
+            .get_mut(index)
+            .unwrap() = BuilderPendingPayment {
+            weight,
+            withdrawal: BuilderPendingWithdrawal {
+                fee_recipient: Default::default(),
+                amount,
+                builder_index: 1,
+            },
+            proposer_index: 0,
+        };
+    }
+
+    /// Criteria for a proposal at the state's slot: any non-zero weight reaches the quorum and
+    /// fork choice has no verdict on the previous slot.
+    fn criteria(state: &BeaconState<E>) -> MissCriteria {
+        MissCriteria {
+            produce_at_slot: state.slot(),
+            quorum: 1,
+            previous_slot_reached_quorum: false,
+        }
     }
 
     // --- skip rules -------------------------------------------------------------------------
@@ -586,14 +633,14 @@ mod tests {
             None,
             Some(false),
         ]);
-        let produce_at = state.slot();
+        let criteria = criteria(&state);
         assert_eq!(
-            count_consecutive_missed_payloads(&state, produce_at, 100).unwrap(),
+            count_consecutive_missed_payloads(&state, &criteria, 100).unwrap(),
             3
         );
         // Stops early once the limit is exceeded.
         assert_eq!(
-            count_consecutive_missed_payloads(&state, produce_at, 1).unwrap(),
+            count_consecutive_missed_payloads(&state, &criteria, 1).unwrap(),
             2
         );
     }
@@ -602,7 +649,7 @@ mod tests {
     fn consecutive_missed_is_zero_when_latest_payload_present() {
         let state = state_with_history(&[Some(false), Some(false), None, Some(true)]);
         assert_eq!(
-            count_consecutive_missed_payloads(&state, state.slot(), 100).unwrap(),
+            count_consecutive_missed_payloads(&state, &criteria(&state), 100).unwrap(),
             0
         );
     }
@@ -612,7 +659,7 @@ mod tests {
         // Only empty slots after the last present payload: not a builder failure.
         let state = state_with_history(&[Some(true), None, None, None, None]);
         assert_eq!(
-            count_consecutive_missed_payloads(&state, state.slot(), 100).unwrap(),
+            count_consecutive_missed_payloads(&state, &criteria(&state), 100).unwrap(),
             0
         );
     }
@@ -622,7 +669,7 @@ mod tests {
         // Every block since genesis missed its payload; genesis itself counts as present.
         let state = state_with_history(&[Some(false), Some(false)]);
         assert_eq!(
-            count_consecutive_missed_payloads(&state, state.slot(), 100).unwrap(),
+            count_consecutive_missed_payloads(&state, &criteria(&state), 100).unwrap(),
             2
         );
     }
@@ -646,10 +693,9 @@ mod tests {
             Some(false),
             Some(true),
         ]);
-        let produce_at = state.slot();
-        assert_eq!(produce_at, Slot::new(13));
+        assert_eq!(state.slot(), Slot::new(13));
         assert_eq!(
-            count_missed_payloads_in_window(&state, produce_at).unwrap(),
+            count_missed_payloads_in_window(&state, &criteria(&state)).unwrap(),
             3
         );
     }
@@ -658,8 +704,89 @@ mod tests {
     fn window_saturates_at_genesis() {
         let state = state_with_history(&[Some(false), Some(false)]);
         assert_eq!(
-            count_missed_payloads_in_window(&state, state.slot()).unwrap(),
+            count_missed_payloads_in_window(&state, &criteria(&state)).unwrap(),
             2
+        );
+    }
+
+    #[test]
+    fn uncharged_misses_are_neutral() {
+        // slots 1..=5: present, missing, missing, missing, missing; slot 3 is below the quorum.
+        let mut state = state_with_history(&[
+            Some(true),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(false),
+        ]);
+        set_payment(&mut state, Slot::new(3), 1, 0);
+        let criteria = criteria(&state);
+        // Skipped over like an empty slot: it neither counts nor ends the run.
+        assert_eq!(
+            count_consecutive_missed_payloads(&state, &criteria, 100).unwrap(),
+            3
+        );
+        assert_eq!(
+            count_missed_payloads_in_window(&state, &criteria).unwrap(),
+            3
+        );
+    }
+
+    #[test]
+    fn zero_value_misses_are_not_counted() {
+        // A self-build (or any zero-value bid) never reaches the quorum, whatever its weight.
+        let mut state = state_with_history(&[Some(true), Some(false), Some(false)]);
+        set_payment(&mut state, Slot::new(2), 0, CHARGED);
+        let criteria = criteria(&state);
+        assert_eq!(
+            count_consecutive_missed_payloads(&state, &criteria, 100).unwrap(),
+            1
+        );
+        assert_eq!(
+            count_missed_payloads_in_window(&state, &criteria).unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn previous_slot_takes_fork_choice_verdict() {
+        // Neither block has any attestation weight on chain yet.
+        let mut state = state_with_history(&[Some(true), Some(false), Some(false)]);
+        set_payment(&mut state, Slot::new(2), 1, 0);
+        set_payment(&mut state, Slot::new(3), 1, 0);
+        let mut criteria = criteria(&state);
+        assert_eq!(
+            count_missed_payloads_in_window(&state, &criteria).unwrap(),
+            0
+        );
+        // The verdict only ever applies to the slot before the proposal.
+        criteria.previous_slot_reached_quorum = true;
+        assert_eq!(
+            count_consecutive_missed_payloads(&state, &criteria, 100).unwrap(),
+            1
+        );
+        assert_eq!(
+            count_missed_payloads_in_window(&state, &criteria).unwrap(),
+            1
+        );
+        // A zero-value bid in the previous slot is still not counted.
+        set_payment(&mut state, Slot::new(3), 0, 0);
+        assert_eq!(
+            count_missed_payloads_in_window(&state, &criteria).unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn consecutive_missed_stops_at_previous_epoch() {
+        // Every block in slots 1..=17 missed its payload. The state is at slot 18 (epoch 2) and
+        // holds payments for epochs 1 and 2 only, so the walk stops at slot 8.
+        let history = vec![Some(false); 17];
+        let state = state_with_history(&history);
+        assert_eq!(state.current_epoch(), Epoch::new(2));
+        assert_eq!(
+            count_consecutive_missed_payloads(&state, &criteria(&state), 100).unwrap(),
+            10
         );
     }
 
@@ -667,29 +794,30 @@ mod tests {
     fn evaluate_skips_for_state_end_to_end() {
         let state = state_with_history(&[Some(true), Some(false), None, Some(false), Some(false)]);
         let slot = state.slot();
+        let spec = gloas_spec();
         // 3 in a row, 4 in the window.
         assert_eq!(
             breaker(3, 8)
-                .evaluate_skips_for_state(&state, slot)
+                .evaluate_skips_for_state(&state, slot, false, &spec)
                 .unwrap(),
             None
         );
         assert_eq!(
             breaker(2, 8)
-                .evaluate_skips_for_state(&state, slot)
+                .evaluate_skips_for_state(&state, slot, false, &spec)
                 .unwrap(),
             Some(FailedCondition::Skips)
         );
         assert_eq!(
             breaker(3, 2)
-                .evaluate_skips_for_state(&state, slot)
+                .evaluate_skips_for_state(&state, slot, false, &spec)
                 .unwrap(),
             Some(FailedCondition::SkipsPerEpoch)
         );
         // Wrong slot is rejected.
         assert!(
             breaker(3, 8)
-                .evaluate_skips_for_state(&state, slot + 1)
+                .evaluate_skips_for_state(&state, slot + 1, false, &spec)
                 .is_err()
         );
         // Disabled checks never read the state.
@@ -698,7 +826,9 @@ mod tests {
             ..config(0, 0)
         });
         assert_eq!(
-            disabled.evaluate_skips_for_state(&state, slot + 1).unwrap(),
+            disabled
+                .evaluate_skips_for_state(&state, slot + 1, false, &spec)
+                .unwrap(),
             None
         );
     }

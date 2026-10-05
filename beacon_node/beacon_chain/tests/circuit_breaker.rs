@@ -106,17 +106,36 @@ fn fail_local_builds_on(harness: &Harness, parent_block_hash: ExecutionBlockHash
         );
 }
 
+/// Recompute the head at the current slot, as the per-slot task would before a proposal, so the
+/// previous slot's attestations are reflected in fork choice's block weights. Unlike the per-slot
+/// task this never records a ban, which keeps the skip rules under test on their own.
+async fn recompute_head(harness: &Harness) {
+    harness.chain.recompute_head_at_current_slot().await;
+}
+
 /// Assert the circuit breaker's skip rules have tripped for a proposal at `slot` extending
 /// `state` on an EMPTY parent, as block production would evaluate them.
-fn assert_breaker_tripped(harness: &Harness, state: &BeaconState<E>, slot: Slot) {
+async fn assert_breaker_tripped(harness: &Harness, state: &BeaconState<E>, slot: Slot) {
+    recompute_head(harness).await;
     let mut production_state = state.clone();
     complete_state_advance(&mut production_state, None, slot, None, &harness.spec)
         .expect("should advance state to the proposal slot");
+    let parent_root = *production_state
+        .get_block_root(slot - 1)
+        .expect("should have a block root for the previous slot");
+    let previous_slot_reached_quorum = harness
+        .chain
+        .fork_choice_weight_reaches_builder_payment_quorum(&parent_root);
     assert!(
         harness
             .chain
             .circuit_breaker
-            .evaluate_skips_for_state(&production_state, slot)
+            .evaluate_skips_for_state(
+                &production_state,
+                slot,
+                previous_slot_reached_quorum,
+                &harness.spec
+            )
             .expect("should evaluate skip rules")
             .is_some(),
         "circuit breaker should have tripped"
@@ -141,16 +160,24 @@ struct BuilderBlock {
     pre_state: BeaconState<E>,
 }
 
-/// Import a block carrying builder A's bid at the next slot. With `attest`, every validator in
-/// that slot's committees attests to it, which is well above the builder payment quorum.
+/// Import a block carrying builder A's bid at the next slot, extending the head on its current
+/// payload status. With `attest`, every validator in that slot's committees attests to it, which
+/// is well above the builder payment quorum. The attestations reach fork choice at once and the
+/// chain via the next block.
 async fn import_builder_block(harness: &Harness, attest: bool) -> BuilderBlock {
     harness.advance_slot();
+    recompute_head(harness).await;
     let slot = harness.get_current_slot();
     let pre_state = harness.get_current_state();
+    let parent_payload_status = harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .head_payload_status();
     let (block_contents, post_state) = Box::pin(harness.make_block_with_gossip_bid(
         pre_state.clone(),
         slot,
-        PayloadStatus::Full,
+        parent_payload_status,
         BUILDER_A,
         BID_VALUE,
     ))
@@ -204,9 +231,22 @@ async fn process_builder_envelope(
         .await
 }
 
-/// Build `count` self-built blocks in consecutive slots and never process their envelopes, so
-/// each one's payload goes missing. Returns the state after the last block.
+/// Build `count` fully-attested blocks carrying builder A's bid in consecutive slots and never
+/// process their envelopes, so each one's payload goes missing with the builder charged for it.
+/// Returns the state after the last block.
 async fn withhold_payloads(harness: &Harness, count: usize) -> BeaconState<E> {
+    let mut state = harness.get_current_state();
+    for _ in 0..count {
+        state = Box::pin(import_builder_block(harness, true))
+            .await
+            .post_state;
+    }
+    state
+}
+
+/// Build `count` self-built blocks in consecutive slots and never process their envelopes. Each
+/// payload goes missing, but no builder is charged for it.
+async fn withhold_self_built_payloads(harness: &Harness, count: usize) -> BeaconState<E> {
     let mut state = harness.get_current_state();
     let mut parent_payload_status = harness
         .chain
@@ -264,7 +304,8 @@ fn observe_gossip_bid(
 }
 
 /// Produce a block at the current slot on `state` with a gossip bid from `builder_index` in the
-/// cache, and return the builder index that won.
+/// cache, and return the builder index that won. The head is recomputed first, as it would be
+/// before a real proposal.
 async fn produce_with_gossip_bid(
     harness: &Harness,
     state: BeaconState<E>,
@@ -272,6 +313,7 @@ async fn produce_with_gossip_bid(
     builder_index: BuilderIndex,
     value: u64,
 ) -> BuilderIndex {
+    recompute_head(harness).await;
     let slot = harness.get_current_slot();
     observe_gossip_bid(harness, &state, parent_payload_status, builder_index, value);
     let (block_contents, _envelope, _post_state) =
@@ -637,6 +679,47 @@ async fn consecutive_missed_payloads_trip_breaker() {
 }
 
 #[tokio::test]
+async fn missed_self_built_payloads_do_not_trip_breaker() {
+    let Some(harness) = gloas_harness(ChainConfig::default()) else {
+        return;
+    };
+    Box::pin(finalize(&harness)).await;
+    let skips = harness.chain.config.builder_fallback_skips;
+
+    // Self-builds bid zero, so no builder is ever charged for them: not a builder failure.
+    let state = Box::pin(withhold_self_built_payloads(&harness, skips + 1)).await;
+    harness.advance_slot();
+    let winner =
+        produce_with_gossip_bid(&harness, state, PayloadStatus::Empty, BUILDER_A, BID_VALUE).await;
+    assert_eq!(winner, BUILDER_A);
+}
+
+#[tokio::test]
+async fn missed_payloads_below_quorum_do_not_trip_breaker() {
+    let Some(harness) = gloas_harness(ChainConfig {
+        // A single charged missed payload would trip the consecutive rule.
+        builder_fallback_skips: 0,
+        ..ChainConfig::default()
+    }) else {
+        return;
+    };
+    Box::pin(finalize(&harness)).await;
+
+    // Nobody attested to the block, so the builder is not charged and may honestly withhold.
+    let block = Box::pin(import_builder_block(&harness, false)).await;
+    harness.advance_slot();
+    let winner = produce_with_gossip_bid(
+        &harness,
+        block.post_state,
+        PayloadStatus::Empty,
+        BUILDER_A,
+        BID_VALUE,
+    )
+    .await;
+    assert_eq!(winner, BUILDER_A);
+}
+
+#[tokio::test]
 async fn consecutive_missed_payloads_ignored_with_checks_disabled() {
     let Some(harness) = gloas_harness(ChainConfig {
         builder_fallback_disable_checks: true,
@@ -725,7 +808,7 @@ async fn tripped_breaker_falls_back_to_gossip_bid_when_local_build_fails() {
 
     // The breaker has tripped, so the bid is demoted below the local build. With the local build
     // failing it still wins rather than the slot being missed.
-    assert_breaker_tripped(&harness, &state, slot);
+    assert_breaker_tripped(&harness, &state, slot).await;
     fail_local_builds_on(&harness, empty_parent_block_hash(&state));
     let (block_contents, _post_state) = Box::pin(harness.make_block_with_gossip_bid(
         state,
@@ -758,7 +841,7 @@ async fn tripped_breaker_never_falls_back_to_banned_builder() {
     let slot = harness.get_current_slot();
 
     // With the local build failing, builder A's bid is still refused, so production fails.
-    assert_breaker_tripped(&harness, &block.post_state, slot);
+    assert_breaker_tripped(&harness, &block.post_state, slot).await;
     fail_local_builds_on(&harness, empty_parent_block_hash(&block.post_state));
     observe_gossip_bid(
         &harness,

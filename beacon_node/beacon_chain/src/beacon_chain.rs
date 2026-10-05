@@ -7823,10 +7823,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Only matches the on-chain payment weight for a block proposed in the previous slot, once
     /// fork choice has been recomputed for the current slot: an older block's weight also includes
     /// votes cast in later slots.
-    pub(crate) fn fork_choice_weight_reaches_builder_payment_quorum(
-        &self,
-        block_root: &Hash256,
-    ) -> bool {
+    pub fn fork_choice_weight_reaches_builder_payment_quorum(&self, block_root: &Hash256) -> bool {
         let (block_weight, total_effective_balance) = {
             let fork_choice = self.canonical_head.fork_choice_read_lock();
             (
