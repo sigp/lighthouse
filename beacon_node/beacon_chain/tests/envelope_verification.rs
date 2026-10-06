@@ -1,6 +1,7 @@
 use beacon_chain::AvailabilityProcessingStatus::{Imported, MissingComponents};
 use beacon_chain::NotifyExecutionLayer;
 use beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof;
+use beacon_chain::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
@@ -802,8 +803,8 @@ async fn heze_payload_is_sent_with_the_timely_inclusion_lists() {
             .chain
             .inclusion_list_store
             .write()
-            .process_inclusion_list(
-                SignedInclusionList {
+            .process_inclusion_list(GossipVerifiedInclusionList {
+                signed_inclusion_list: SignedInclusionList {
                     message: InclusionList {
                         slot: inclusion_list_slot,
                         validator_index,
@@ -816,7 +817,7 @@ async fn heze_payload_is_sent_with_the_timely_inclusion_lists() {
                     signature: Signature::empty(),
                 },
                 is_timely,
-            );
+            });
     }
 
     let new_payload_calls = Arc::new(Mutex::new(vec![]));
