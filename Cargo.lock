@@ -3016,6 +3016,7 @@ dependencies = [
  "ssz_types",
  "state_processing",
  "swap_or_not_shuffle",
+ "tempfile",
  "tokio",
  "tree_hash",
  "tree_hash_derive",
