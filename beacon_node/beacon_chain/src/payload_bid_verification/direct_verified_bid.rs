@@ -1,6 +1,6 @@
 use crate::payload_bid_verification::{
     PayloadBidError,
-    gossip_verified_bid::{is_gas_limit_target_compatible, verify_bid_consistency},
+    gossip_verified_bid::{is_gas_limit_target_compatible, verify_direct_bid_consistency},
 };
 use eth2::types::BuilderPubkeys;
 use state_processing::signature_sets::{
@@ -14,7 +14,8 @@ use types::{
 /// Fully validate a bid fetched directly from a builder, for inclusion in a block being produced.
 ///
 /// This performs all validation a direct builder bid must pass before it can be selected:
-/// - the consensus-consistency checks shared with the gossip verifier via [`verify_bid_consistency`]
+/// - the consensus-consistency checks shared with the gossip verifier, bundled for this path in
+///   [`verify_direct_bid_consistency`]
 ///   (fee recipient, blob count, builder eligibility/version, and that the builder's collateral
 ///   covers the bid value),
 /// - that the bid matches the block being produced — the exact `proposal_slot`, the selected
@@ -81,7 +82,7 @@ pub fn verify_direct_bid<E: EthSpec>(
     }
 
     // Consensus-consistency checks shared with the gossip verifier.
-    verify_bid_consistency(bid, proposal_slot, proposer_preferences, state, spec)?;
+    verify_direct_bid_consistency(bid, proposal_slot, proposer_preferences, state, spec)?;
 
     // If the requesting `BuilderEntry` named builder pubkeys, the bid must come from one of them:
     // the builder at `bid.builder_index` must have one of those pubkeys (the `builder_pubkeys`
@@ -268,6 +269,38 @@ mod tests {
     }
 
     #[test]
+    fn rejects_block_hash_equal_to_parent_block_hash() {
+        let (state, spec) = state_and_spec();
+        // Passes every earlier check (slot, ancestor hash, parent root, RANDAO, gas limit), then
+        // claims a `block_hash` equal to its `parent_block_hash` — the consensus assert from
+        // `process_execution_payload_bid` that must be front-run before selection.
+        let executed_ancestor = ExecutionBlockHash::repeat_byte(7);
+        let mut bid = signed_bid(
+            Slot::new(1),
+            executed_ancestor,
+            Hash256::ZERO,
+            Hash256::ZERO,
+        );
+        bid.message.block_hash = executed_ancestor;
+        bid.message.gas_limit = EXECUTED_ANCESTOR_GAS_LIMIT;
+        let result = verify_direct_bid(
+            &bid,
+            Slot::new(1),
+            executed_ancestor,
+            Hash256::ZERO,
+            EXECUTED_ANCESTOR_GAS_LIMIT,
+            &BuilderPubkeys::default(),
+            &preferences(),
+            &state,
+            &spec,
+        );
+        assert!(matches!(
+            result,
+            Err(PayloadBidError::BlockHashEqualsParentBlockHash { .. })
+        ));
+    }
+
+    #[test]
     fn rejects_gas_limit_incompatible_with_parent() {
         let (state, spec) = state_and_spec();
         // Passes the slot, parent and RANDAO checks (a fresh state's mix is zero), then asks for
@@ -305,6 +338,9 @@ mod tests {
             Hash256::ZERO,
         );
         bid.message.gas_limit = EXECUTED_ANCESTOR_GAS_LIMIT;
+        // A default (zero) `block_hash` would equal the zero parent hash and trip the
+        // block-hash-equals-parent rejection before the checks this test targets.
+        bid.message.block_hash = ExecutionBlockHash::repeat_byte(1);
         let result = verify_direct_bid(
             &bid,
             Slot::new(1),

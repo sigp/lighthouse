@@ -1,6 +1,7 @@
+use super::common::{load_config, testing_spec_with_config};
 use super::*;
 use crate::bls_setting::BlsSetting;
-use crate::case_result::compare_beacon_state_results_without_caches;
+use crate::case_result::{compare_beacon_state_results_without_caches, compare_result};
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use state_processing::{
@@ -16,19 +17,20 @@ pub struct Metadata {
     pub blocks_count: usize,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(bound = "E: EthSpec")]
+#[derive(Debug, Clone)]
 pub struct SanityBlocks<E: EthSpec> {
     pub case_name: String,
     pub metadata: Metadata,
+    pub config: Option<types::Config>,
     pub pre: BeaconState<E>,
-    pub blocks: Vec<SignedBeaconBlock<E>>,
+    pub blocks: Vec<Result<SignedBeaconBlock<E>, Error>>,
     pub post: Option<BeaconState<E>>,
 }
 
 impl<E: EthSpec> LoadCase for SanityBlocks<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let config = load_config(path)?;
+        let spec = &testing_spec_with_config::<E>(fork_name, config.as_ref())?;
         let metadata: Metadata = yaml_decode_file(&path.join("meta.yaml"))?;
         let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), spec)?;
         let blocks = (0..metadata.blocks_count)
@@ -38,7 +40,8 @@ impl<E: EthSpec> LoadCase for SanityBlocks<E> {
                     SignedBeaconBlock::from_ssz_bytes(bytes, spec)
                 })
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            // Read every fixture even if an earlier block fails to decode.
+            .collect();
         let post_file = path.join("post.ssz_snappy");
         let post = if post_file.is_file() {
             Some(ssz_decode_state(&post_file, spec)?)
@@ -53,6 +56,7 @@ impl<E: EthSpec> LoadCase for SanityBlocks<E> {
         Ok(Self {
             case_name,
             metadata,
+            config,
             pre,
             blocks,
             post,
@@ -66,32 +70,21 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        // TODO(gloas): Remove once the EF test vectors include the fix from
-        // https://github.com/ethereum/consensus-specs/pull/5594.
-        const IGNORED_STALE_GLOAS_CASES: &[&str] = &[
-            "epoch_boundary_full_parent_all_requests_gap_5_epochs",
-            "epoch_boundary_full_parent_gap_1_epoch",
-            "epoch_boundary_full_parent_gap_2_epochs",
-            "epoch_boundary_full_parent_gap_5_epochs",
-            "many_partial_withdrawals_in_epoch_transition",
-            "missed_payload_recovery_resumes_with_remaining_withdrawals",
-            "missed_payload_recovery_resumes_without_remaining_withdrawals",
-            "partial_withdrawal_in_epoch_transition",
-            "switch_to_compounding_across_epoch_boundary",
-            "withdrawal_success_two_blocks",
-        ];
-
-        if fork_name == ForkName::Gloas
-            && IGNORED_STALE_GLOAS_CASES.contains(&self.case_name.as_str())
-        {
-            return Err(Error::SkippedKnownFailure);
-        }
-
         self.metadata.bls_setting.unwrap_or_default().check()?;
+
+        let blocks = match self
+            .blocks
+            .iter()
+            .map(Result::as_ref)
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(blocks) => blocks,
+            Err(error) => return compare_result::<BeaconState<E>, _>(&Err(error), &self.post),
+        };
 
         let mut bulk_state = self.pre.clone();
         let mut expected = self.post.clone();
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec_with_config::<E>(fork_name, self.config.as_ref())?;
 
         // Processing requires the epoch cache.
         bulk_state.build_caches(spec).unwrap();
@@ -100,9 +93,8 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
         // See https://github.com/sigp/lighthouse/issues/742.
         let mut indiv_state = bulk_state.clone();
 
-        let result = self
-            .blocks
-            .iter()
+        let result = blocks
+            .into_iter()
             .try_for_each(|signed_block| {
                 let block = signed_block.message();
                 while bulk_state.slot() < block.slot() {

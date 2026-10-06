@@ -12,13 +12,13 @@ use eth2::types::{
     BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
     PublishBlockRequest, SignedBlockContents,
 };
-use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::{PubsubMessage, PubsubPartialMessage};
 use logging::crit;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
 use reqwest::StatusCode;
+use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -73,6 +73,62 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
     }
 }
 
+/// If a direct builder won this block's payload bid, forward the signed block to that builder via
+/// `submitSignedBeaconBlock` so it reveals the execution payload envelope.
+///
+/// The builder's URL is the `Eth-Builder-Url` request header the VC echoed on publish (beacon-APIs
+/// #630), so this works even on a beacon node that did not produce the block. `None` (self-built or
+/// p2p-won), no configured builders, or a malformed URL are all no-ops.
+///
+/// Fire-and-forget: the submission runs in a detached task; a failure is logged at high severity
+/// (the validator has already signed the commitment) but never blocks the publish response. Runs
+/// only once per block since it hangs off the single p2p-publish point.
+fn forward_signed_block_to_winning_builder<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    builder_url: Option<&str>,
+) {
+    // The VC echoes the winning builder's URL in the `Eth-Builder-Url` request header (beacon-APIs
+    // #630); absent for a self-built block or a p2p-won bid, in which case there's nothing to forward.
+    let Some(builder_url) = builder_url else {
+        return;
+    };
+    let Some(builders) = chain.builders.as_ref() else {
+        return;
+    };
+    let url = match SensitiveUrl::parse(builder_url) {
+        Ok(url) => url,
+        Err(e) => {
+            warn!(error = ?e, "Ignoring malformed Eth-Builder-Url header");
+            return;
+        }
+    };
+
+    let builders = builders.clone();
+    let slot = block.slot();
+    let block_root = block.canonical_root();
+
+    chain.task_executor.spawn(
+        async move {
+            match builders.forward_signed_block(&url, &block).await {
+                Ok(()) => info!(
+                    %slot,
+                    %block_root,
+                    "Forwarded signed block to winning builder"
+                ),
+                Err(e) => error!(
+                    %slot,
+                    %block_root,
+                    builder_url = ?url,
+                    error = ?e,
+                    "Failed to forward signed block to winning builder"
+                ),
+            }
+        },
+        "forward_signed_block_to_builder",
+    );
+}
+
 /// Handles a request from the HTTP API for full blocks.
 #[allow(clippy::too_many_arguments)]
 #[instrument(
@@ -88,6 +144,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
+    // The `Eth-Builder-Url` request header (beacon-APIs #630): when a direct builder won the block's
+    // payload bid, its URL, so the block is forwarded there for envelope reveal.
+    builder_url: Option<String>,
 ) -> Result<Response, Rejection> {
     let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
     let block_publishing_delay_for_testing = chain.config.block_publishing_delay;
@@ -140,6 +199,14 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             .map_err(|_| {
                 BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
             })?;
+
+        // If a direct builder won this block's payload bid, forward the signed block to it so it
+        // reveals the execution payload envelope.
+        forward_signed_block_to_winning_builder(
+            &publish_chain,
+            block.clone(),
+            builder_url.as_deref(),
+        );
 
         Ok(())
     };
@@ -550,8 +617,8 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
     }
 }
 
-/// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
-/// blocks before publishing.
+/// Handles a request from the HTTP API for blinded blocks. Locally built blocks are reconstructed
+/// and published here; builder blocks are submitted to the builder for publication.
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
     blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
@@ -570,21 +637,21 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
             network_tx,
             validation_level,
             duplicate_status_code,
+            // Blinded (mev-boost) publish predates the Gloas builder-URL round-trip.
+            None,
         )
         .await
     } else {
-        // From the fulu fork, builders are responsible for publishing and
-        // will no longer return the full payload and blobs.
+        // Builders publish the full block and blobs after accepting a blinded block.
         Ok(warp::reply().into_response())
     }
 }
 
-/// Deconstruct the given blinded block, and construct a full block. This attempts to use the
-/// execution layer's payload cache, and if that misses, attempts a blind block proposal to retrieve
-/// the full payload.
+/// Deconstruct the given blinded block and construct a full block from the execution layer's
+/// payload cache, or submit the blinded block to the builder for publication.
 ///
-/// From the Fulu fork, external builders no longer return the full payload and blobs, and this
-/// function will always return `Ok(None)` on successful submission of blinded block.
+/// External builders do not return the full payload and blobs, so this function returns
+/// `Ok(None)` after successfully submitting a blinded block to a builder.
 pub async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
@@ -602,7 +669,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
             if fork_name == ForkName::Bellatrix {
                 let payload: FullPayload<T::EthSpec> = FullPayloadBellatrix::default().into();
-                ProvenancedPayload::Local(FullPayloadContents::Payload(payload.into()))
+                FullPayloadContents::Payload(payload.into())
             } else {
                 Err(warp_utils::reject::custom_server_error(
                     "Failed to construct full payload - block hash must be non-zero after Bellatrix.".to_string()
@@ -613,7 +680,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
             info!(block_hash = ?cached_payload.block_hash(), "Reconstructing a full block using a local payload");
-            ProvenancedPayload::Local(cached_payload)
+            cached_payload
         // Otherwise, this means we are attempting a blind block proposal.
         } else {
             // Perform the logging for late blocks when we publish to the
@@ -629,24 +696,16 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 "builder",
             );
 
-            match el
-                .propose_blinded_beacon_block(block_root, &block, &chain.spec)
+            el.propose_blinded_beacon_block(block_root, &block)
                 .await
                 .map_err(|e| {
                     warp_utils::reject::custom_server_error(format!(
                         "Blind block proposal failed: {:?}",
                         e
                     ))
-                })? {
-                SubmitBlindedBlockResponse::V1(full_payload) => {
-                    info!(block_root = ?block_root, "Successfully published a block to the builder network");
-                    ProvenancedPayload::Builder(*full_payload)
-                }
-                SubmitBlindedBlockResponse::V2 => {
-                    info!(block_root = ?block_root, "Successfully published a block to the builder network");
-                    return Ok(None);
-                }
-            }
+                })?;
+            info!(block_root = ?block_root, "Successfully published a block to the builder network");
+            return Ok(None);
         };
 
         Some(full_payload_contents)
@@ -665,14 +724,8 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             .try_into_full_block(None)
             .ok_or("Failed to build full block with payload".to_string())
             .map(|full_block| ProvenancedBlock::local(Arc::new(full_block), None)),
-        Some(ProvenancedPayload::Local(full_payload_contents)) => {
-            into_full_block_and_blobs::<T>(block, full_payload_contents)
-                .map(|(block, blobs)| ProvenancedBlock::local(block, blobs))
-        }
-        Some(ProvenancedPayload::Builder(full_payload_contents)) => {
-            into_full_block_and_blobs::<T>(block, full_payload_contents)
-                .map(|(block, blobs)| ProvenancedBlock::builder(block, blobs))
-        }
+        Some(full_payload_contents) => into_full_block_and_blobs::<T>(block, full_payload_contents)
+            .map(|(block, blobs)| ProvenancedBlock::local(block, blobs)),
     }
     .map(Some)
     .map_err(|e| {

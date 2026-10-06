@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, Hash256, MinimalEthSpec,
+    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ForkName, Hash256, MinimalEthSpec,
     ProposerPreparationData, Slot,
 };
 
@@ -727,7 +727,15 @@ pub async fn proposer_boost_re_org_test(
     let (block_c, block_c_blobs) = {
         let (response, _) = tester
             .client
-            .get_validator_blocks_v4::<E>(slot_c, &randao_reveal, None, false, None, None)
+            .post_validator_blocks_v4::<E>(
+                slot_c,
+                &randao_reveal,
+                None,
+                false,
+                &eth2::types::BuilderConfig::empty(),
+                None,
+                ForkName::Gloas,
+            )
             .await
             .unwrap();
         (

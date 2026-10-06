@@ -30,9 +30,6 @@ TEST_FEATURES ?=
 # Cargo profile for regular builds.
 PROFILE ?= release
 
-# List of recent hard forks before Gloas. Used by tests that do not support Gloas yet.
-RECENT_FORKS_BEFORE_GLOAS=fulu
-
 # List of all recent hard forks. This list is used to set env variables for several tests.
 # Include phase0 to test the code paths in sync that are pre blobs
 RECENT_FORKS=fulu gloas
@@ -179,14 +176,20 @@ build-release-tarballs:
 test-release:
 	cargo nextest run --workspace --release --features "$(TEST_FEATURES)" \
 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
-		--exclude http_api
+		--exclude http_api --exclude fork_choice
 
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
 	cargo nextest run --workspace --features "$(TEST_FEATURES)" \
-		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api
+		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api \
+		--exclude fork_choice
+
+# Run the tests of crates converted to `Spec` under the minimal preset. Add each crate as it
+# is converted.
+test-spec-minimal:
+	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" -p types
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -210,6 +213,12 @@ test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
 test-beacon-chain-%:
 	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast
 
+# Run the tests in the `fork_choice` crate for all known forks.
+test-fork-choice: $(patsubst %,test-fork-choice-%,$(RECENT_FORKS))
+
+test-fork-choice-%:
+	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env,$(TEST_FEATURES)" -p fork_choice --no-fail-fast
+
 # Run the tests in the `http_api` crate for recent forks.
 test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
 
@@ -218,7 +227,7 @@ test-http-api-%:
 
 
 # Run the tests in the `operation_pool` crate for all known forks.
-test-op-pool: $(patsubst %,test-op-pool-%,$(RECENT_FORKS_BEFORE_GLOAS))
+test-op-pool: $(patsubst %,test-op-pool-%,$(RECENT_FORKS))
 
 test-op-pool-%:
 	env FORK_NAME=$* cargo nextest run --release \
@@ -302,6 +311,10 @@ lint-fix:
 # Also run the lints on the optimized-only tests
 lint-full:
 	TEST_FEATURES="beacon-node-leveldb,beacon-node-redb,${TEST_FEATURES}"  RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
+
+# Lint the code when compiled using the minimal preset.
+lint-spec-minimal:
+	TEST_FEATURES="spec-minimal,$(TEST_FEATURES)" $(MAKE) lint-full
 
 # Runs the makefile in the `ef_tests` repo.
 #

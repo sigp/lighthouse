@@ -195,6 +195,23 @@ jobs:
           bins: cargo-nextest
     - name: Run operation_pool tests for all known forks
       run: make test-op-pool
+  fork-choice-tests:
+    name: fork-choice-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run fork_choice tests for all known forks
+      run: make test-fork-choice
   network-tests:
     name: network-tests
     needs: [check-labels]
@@ -241,6 +258,23 @@ jobs:
           bins: cargo-nextest
     - name: Run slasher tests for all supported backends
       run: make test-slasher
+  spec-minimal-tests:
+    name: spec-minimal-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run tests using the minimal preset
+      run: make test-spec-minimal
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     needs: [check-labels]
@@ -379,6 +413,8 @@ jobs:
       run: make insecure-deps
     - name: Lint code for quality and style with Clippy
       run: make lint-full
+    - name: Lint code using the minimal preset
+      run: make lint-spec-minimal
     - name: Certify Cargo.lock freshness
       run: git diff --exit-code Cargo.lock
     - name: Typecheck benchmark code without running it
@@ -471,7 +507,11 @@ jobs:
         channel: stable
     - uses: taiki-e/install-action@cargo-hack
     - name: Check types feature powerset
-      run: cargo hack check -p types --feature-powerset --no-dev-deps --exclude-features arbitrary-fuzz,portable
+      run: cargo hack check -p types --feature-powerset --no-dev-deps --exclude-features arbitrary-fuzz,portable,spec-gnosis,spec-minimal
+    - name: Check types with the minimal preset
+      run: cargo check -p types --features spec-minimal
+    - name: Check types with the gnosis preset
+      run: cargo check -p types --features spec-gnosis
     - name: Check eth2 feature powerset
       run: cargo hack check -p eth2 --feature-powerset --no-dev-deps
   cargo-sort:
@@ -502,8 +542,10 @@ jobs:
       'release-tests-ubuntu',
       'beacon-chain-tests',
       'op-pool-tests',
+      'fork-choice-tests',
       'network-tests',
       'slasher-tests',
+      'spec-minimal-tests',
       'http-api-tests',
       'debug-tests-ubuntu',
       'state-transition-vectors-ubuntu',

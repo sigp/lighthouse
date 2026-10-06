@@ -270,7 +270,7 @@ where
             builder
         };
 
-        let chain_exists = builder.store_contains_beacon_chain().unwrap_or(false);
+        let chain_exists = builder.store_contains_beacon_chain()?;
 
         // If the client is expect to resume but there's no beacon chain in the database,
         // use the `DepositContract` method. This scenario is quite common when the client

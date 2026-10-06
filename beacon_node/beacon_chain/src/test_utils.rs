@@ -34,6 +34,7 @@ use execution_layer::{
     test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
 use fixed_bytes::FixedBytesExtended;
+use fork_choice::PayloadVerificationStatus;
 use futures::channel::mpsc::Receiver;
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
@@ -874,7 +875,6 @@ where
         beacon_url: SensitiveUrl,
         strict_registrations: bool,
         apply_operations: bool,
-        broadcast_to_bn: bool,
     ) -> impl futures::Future<Output = ()> + use<E, Hot, Cold> {
         let mock_el = self
             .mock_execution_layer
@@ -889,7 +889,6 @@ where
             beacon_url,
             strict_registrations,
             apply_operations,
-            broadcast_to_bn,
             self.spec.clone(),
             self.runtime.task_executor.clone(),
         );
@@ -1276,18 +1275,14 @@ where
                 GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
             let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
+            let parent_root = *state
+                .get_block_root(state.slot() - 1)
+                .expect("should get parent block root");
             let parent_envelope = if parent_payload_status == PayloadStatus::Full {
-                let parent_root = if state.slot() > 0 {
-                    *state
-                        .get_block_root(state.slot() - 1)
-                        .expect("should get parent block root")
-                } else {
-                    state.latest_block_header().canonical_root()
-                };
                 self.chain
                     .store
-                    .get_payload_envelope(&parent_root)
-                    .expect("should load parent payload envelope")
+                    .get_payload_envelope_summary(&parent_root)
+                    .expect("should load parent payload envelope summary")
                     .map(Arc::new)
             } else {
                 None
@@ -1305,6 +1300,7 @@ where
                 .produce_block_on_state_gloas(
                     state,
                     None,
+                    parent_root,
                     parent_payload_status,
                     parent_envelope,
                     slot,
@@ -2546,10 +2542,9 @@ where
         };
         let mut attestation_1 = if fork_name.gloas_enabled() {
             IndexedAttestation::Gloas(IndexedAttestationGloas {
-                attesting_indices: ProgressiveVariableList::new(validator_indices),
+                attesting_indices: ProgressiveVariableList::new(validator_indices).unwrap(),
                 data,
                 signature: AggregateSignature::infinity(),
-                _phantom: std::marker::PhantomData,
             })
         } else if fork_name.electra_enabled() {
             IndexedAttestation::Electra(IndexedAttestationElectra {
@@ -2626,17 +2621,15 @@ where
 
         let (mut attestation_1, mut attestation_2) = if fork_name.gloas_enabled() {
             let attestation_1 = IndexedAttestationGloas {
-                attesting_indices: ProgressiveVariableList::new(validator_indices_1),
+                attesting_indices: ProgressiveVariableList::new(validator_indices_1).unwrap(),
                 data: data.clone(),
                 signature: AggregateSignature::infinity(),
-                _phantom: std::marker::PhantomData,
             };
 
             let attestation_2 = IndexedAttestationGloas {
-                attesting_indices: ProgressiveVariableList::new(validator_indices_2),
+                attesting_indices: ProgressiveVariableList::new(validator_indices_2).unwrap(),
                 data,
                 signature: AggregateSignature::infinity(),
-                _phantom: std::marker::PhantomData,
             };
 
             (
@@ -3092,6 +3085,7 @@ where
             slot = %signed_envelope.slot(),
             "Processing execution payload envelope"
         );
+        let payload_block_hash = signed_envelope.message.payload.block_hash;
 
         state_processing::envelope_processing::verify_execution_payload_envelope(
             state,
@@ -3179,7 +3173,11 @@ where
         self.chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_valid_payload_envelope_received(block_root)
+            .on_payload_envelope_received(
+                block_root,
+                PayloadVerificationStatus::Verified,
+                payload_block_hash,
+            )
             .expect("should update fork choice with envelope");
 
         // Run fork choice because the envelope could become the head.
@@ -4164,8 +4162,8 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 .body
                 .signed_execution_payload_bid
                 .message
-                .blob_kzg_commitments =
-                ProgressiveVariableList::from_iter(bundle.commitments.iter().cloned());
+                .blob_kzg_commitments = ProgressiveVariableList::new(bundle.commitments.to_vec())
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?;
             return Ok((block, blob_sidecars));
         }
         _ => return Ok((block, blob_sidecars)),

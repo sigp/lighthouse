@@ -55,11 +55,11 @@ pub fn get_gloas_chain_following_test_definition() -> ForkChoiceTestDefinition {
         },
         Operation::AssertParentPayloadStatus {
             block_root: get_root(1),
-            expected_status: PayloadStatus::Full,
+            expected_status: ParentPayloadStatus::Full,
         },
         Operation::AssertParentPayloadStatus {
             block_root: get_root(2),
-            expected_status: PayloadStatus::Empty,
+            expected_status: ParentPayloadStatus::Empty,
         },
         // With equal full/empty parent weights, tiebreak decides which chain to follow.
         Operation::SetPayloadTiebreak {
@@ -510,7 +510,7 @@ pub fn get_gloas_parent_empty_when_child_points_to_grandparent_test_definition()
         },
         Operation::AssertParentPayloadStatus {
             block_root: get_root(3),
-            expected_status: PayloadStatus::Empty,
+            expected_status: ParentPayloadStatus::Empty,
         },
     ];
 
@@ -704,15 +704,15 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
         // Verify parent_payload_status is set correctly.
         Operation::AssertParentPayloadStatus {
             block_root: get_root(1),
-            expected_status: PayloadStatus::Empty,
+            expected_status: ParentPayloadStatus::Empty,
         },
         Operation::AssertParentPayloadStatus {
             block_root: get_root(2),
-            expected_status: PayloadStatus::Full,
+            expected_status: ParentPayloadStatus::Full,
         },
         Operation::AssertParentPayloadStatus {
             block_root: get_root(3),
-            expected_status: PayloadStatus::Empty,
+            expected_status: ParentPayloadStatus::Empty,
         },
         // Genesis does NOT have payload_received (no payload at genesis).
         Operation::AssertPayloadReceived {
@@ -1003,6 +1003,61 @@ pub fn get_gloas_should_build_on_full_test_definition() -> ForkChoiceTestDefinit
     }
 }
 
+/// When the justified checkpoint has no viable descendants, `get_head` must still
+/// resolve the PENDING seed to EMPTY or FULL.
+pub fn get_pending_head_resolves_when_justified_subtree_non_viable_test_definition()
+-> ForkChoiceTestDefinition {
+    let ops = vec![
+        // Justified block at slot 32.
+        Operation::ProcessBlock {
+            slot: Slot::new(32),
+            root: get_root(2),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(0)),
+            execution_payload_block_hash: Some(get_hash(2)),
+        },
+        // Child with stale voting source (below viability horizon).
+        Operation::ProcessBlock {
+            slot: Slot::new(64),
+            root: get_root(3),
+            parent_root: get_root(2),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(99)),
+            execution_payload_block_hash: Some(get_hash(3)),
+        },
+        Operation::FindHead {
+            justified_checkpoint: Checkpoint {
+                epoch: Epoch::new(1),
+                root: get_root(2),
+            },
+            finalized_checkpoint: get_checkpoint(0),
+            justified_state_balances: vec![1],
+            expected_head: get_root(2),
+            current_slot: Slot::new(128),
+            expected_payload_status: Some(PayloadStatus::Empty),
+        },
+        Operation::AssertShouldBuildOnFull {
+            block_root: get_root(2),
+            parent_payload_status: PayloadStatus::Empty,
+            proposal_slot: Slot::new(129),
+            expected: false,
+        },
+    ];
+
+    ForkChoiceTestDefinition {
+        finalized_block_slot: Slot::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        operations: ops,
+        execution_payload_parent_hash: Some(get_hash(42)),
+        execution_payload_block_hash: Some(get_hash(0)),
+        spec: Some(gloas_spec()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1034,7 +1089,7 @@ mod tests {
         // The test harness sets execution_status = Optimistic(ExecutionBlockHash::from_root(root)),
         // so this V17 node's EL block hash = ExecutionBlockHash::from_root(get_root(1)).
         ops.push(Operation::ProcessBlock {
-            slot: Slot::new(31),
+            slot: Slot::new(MainnetEthSpec::slots_per_epoch() - 1),
             root: get_root(1),
             parent_root: get_root(0),
             justified_checkpoint: get_checkpoint(0),
@@ -1044,7 +1099,11 @@ mod tests {
         });
 
         // First Gloas block (V29 node).
-        let gloas_slot = if skip_first_gloas_slot { 33 } else { 32 };
+        let gloas_slot = if skip_first_gloas_slot {
+            MainnetEthSpec::slots_per_epoch() + 1
+        } else {
+            MainnetEthSpec::slots_per_epoch()
+        };
 
         // The first Gloas block should always have the pre-Gloas block as its execution parent,
         // although this is currently not checked anywhere (the spec doesn't mention this).
@@ -1058,11 +1117,10 @@ mod tests {
             execution_payload_block_hash: Some(get_hash(2)),
         });
 
-        // Parent payload status of fork boundary block should always be Empty.
-        let expected_parent_status = PayloadStatus::Empty;
+        // Parent payload status of the fork boundary block: its parent is pre-Gloas.
         ops.push(Operation::AssertParentPayloadStatus {
             block_root: get_root(2),
-            expected_status: expected_parent_status,
+            expected_status: ParentPayloadStatus::PreGloas,
         });
 
         // Mark root 2's execution payload as received so the Full virtual child exists.
@@ -1100,9 +1158,9 @@ mod tests {
         ops.push(Operation::AssertParentPayloadStatus {
             block_root: get_root(3),
             expected_status: if first_gloas_block_full {
-                PayloadStatus::Full
+                ParentPayloadStatus::Full
             } else {
-                PayloadStatus::Empty
+                ParentPayloadStatus::Empty
             },
         });
 
@@ -1111,7 +1169,7 @@ mod tests {
             justified_checkpoint: get_checkpoint(0),
             finalized_checkpoint: get_checkpoint(0),
             operations: ops,
-            // Genesis is V17 (slot 0 < Gloas fork slot 32), these are unused for V17.
+            // Genesis is V17 (slot 0 < Gloas fork slot), these are unused for V17.
             execution_payload_parent_hash: None,
             execution_payload_block_hash: None,
             spec: Some(gloas_fork_boundary_spec()),
@@ -1198,6 +1256,11 @@ mod tests {
         test.run();
     }
 
+    #[test]
+    fn pending_head_resolves_when_justified_subtree_non_viable() {
+        get_pending_head_resolves_when_justified_subtree_non_viable_test_definition().run();
+    }
+
     /// Test that execution payload invalidation propagates across the V17→V29 fork
     /// boundary: after invalidating a V17 parent, head must not select any descendant.
     ///
@@ -1209,7 +1272,7 @@ mod tests {
 
         // V17 block at slot 31 (pre-Gloas).
         ops.push(Operation::ProcessBlock {
-            slot: Slot::new(31),
+            slot: Slot::new(MainnetEthSpec::slots_per_epoch() - 1),
             root: get_root(1),
             parent_root: get_root(0),
             justified_checkpoint: get_checkpoint(0),
@@ -1220,7 +1283,7 @@ mod tests {
 
         // V29 block at slot 32 (first Gloas slot), child of block 1.
         ops.push(Operation::ProcessBlock {
-            slot: Slot::new(32),
+            slot: Slot::new(MainnetEthSpec::slots_per_epoch()),
             root: get_root(2),
             parent_root: get_root(1),
             justified_checkpoint: get_checkpoint(0),
@@ -1233,7 +1296,7 @@ mod tests {
         ops.push(Operation::ProcessAttestation {
             validator_index: 0,
             block_root: get_root(2),
-            attestation_slot: Slot::new(32),
+            attestation_slot: Slot::new(MainnetEthSpec::slots_per_epoch()),
         });
 
         // FindHead triggers apply_score_changes which materializes the vote.
@@ -1242,14 +1305,14 @@ mod tests {
             finalized_checkpoint: get_checkpoint(0),
             justified_state_balances: balances.clone(),
             expected_head: get_root(2),
-            current_slot: Slot::new(32),
+            current_slot: Slot::new(MainnetEthSpec::slots_per_epoch()),
             expected_payload_status: None,
         });
 
         // Invalidate block 1 (V17). filter_block_tree excludes the entire branch.
         ops.push(Operation::InvalidatePayload {
-            head_block_root: get_root(1),
-            latest_valid_ancestor_root: Some(get_hash(0)),
+            head_hash: get_hash(1),
+            latest_valid_ancestor: Some(get_hash(0)),
         });
 
         // Head falls back to genesis — the invalid branch is no longer selectable.
@@ -1258,7 +1321,7 @@ mod tests {
             finalized_checkpoint: get_checkpoint(0),
             justified_state_balances: balances.clone(),
             expected_head: get_root(0),
-            current_slot: Slot::new(32),
+            current_slot: Slot::new(MainnetEthSpec::slots_per_epoch()),
             expected_payload_status: None,
         });
 

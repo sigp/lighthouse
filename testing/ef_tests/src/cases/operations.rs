@@ -1,6 +1,7 @@
+use super::common::{load_config, testing_spec_with_config};
 use super::*;
 use crate::bls_setting::BlsSetting;
-use crate::case_result::compare_beacon_state_results_without_caches;
+use crate::case_result::{compare_beacon_state_results_without_caches, compare_result};
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use ssz::Decode;
@@ -77,9 +78,10 @@ pub struct ParentExecutionPayloadBlock<E: EthSpec> {
 #[derive(Debug, Clone)]
 pub struct Operations<E: EthSpec, O: Operation<E>> {
     metadata: Metadata,
+    config: Option<types::Config>,
     execution_metadata: Option<ExecutionMetadata>,
     pub pre: BeaconState<E>,
-    pub operation: Option<O>,
+    pub operation: Option<Result<O, Error>>,
     pub post: Option<BeaconState<E>>,
 }
 
@@ -831,7 +833,8 @@ impl<E: EthSpec> Operation<E> for PayloadAttestation<E> {
 
 impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let config = load_config(path)?;
+        let spec = &testing_spec_with_config::<E>(fork_name, config.as_ref())?;
         let metadata_path = path.join("meta.yaml");
         let metadata: Metadata = if metadata_path.is_file() {
             yaml_decode_file(&metadata_path)?
@@ -852,20 +855,14 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
         // Check BLS setting here before SSZ deserialization, as most types require signatures
         // to be valid.
         let operation_path = path.join(O::filename());
-        let (operation, bls_error) = if metadata.bls_setting.unwrap_or_default().check().is_ok() {
-            match O::decode(&operation_path, fork_name, spec) {
-                Ok(op) => (Some(op), None),
-                Err(Error::InvalidBLSInput(error)) => (None, Some(error)),
-                Err(e) => return Err(e),
-            }
+        let operation = if metadata.bls_setting.unwrap_or_default().check().is_ok() {
+            // Invalid operations may be rejected during decoding, before state processing.
+            Some(O::decode(&operation_path, fork_name, spec))
         } else {
-            (None, None)
+            None
         };
         let post_filename = path.join("post.ssz_snappy");
         let post = if post_filename.is_file() {
-            if let Some(bls_error) = bls_error {
-                panic!("input is unexpectedly invalid: {}", bls_error);
-            }
             Some(ssz_decode_state(&post_filename, spec)?)
         } else {
             None
@@ -873,6 +870,7 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
 
         Ok(Self {
             metadata,
+            config,
             execution_metadata,
             pre,
             operation,
@@ -891,7 +889,11 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let operation = match self.operation.as_ref().ok_or(Error::SkippedBls)? {
+            Ok(operation) => operation,
+            Err(error) => return compare_result::<BeaconState<E>, _>(&Err(error), &self.post),
+        };
+        let spec = &testing_spec_with_config::<E>(fork_name, self.config.as_ref())?;
 
         let mut pre_state = self.pre.clone();
         // Processing requires the committee caches.
@@ -910,12 +912,7 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
             post_state.build_all_committee_caches(spec).unwrap();
         }
 
-        let mut result = self
-            .operation
-            .as_ref()
-            .ok_or(Error::SkippedBls)?
-            .apply_to(&mut state, spec, self)
-            .map(|()| state);
+        let mut result = operation.apply_to(&mut state, spec, self).map(|()| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }

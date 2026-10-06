@@ -2,6 +2,7 @@ use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
+use crate::inclusion_list_store::Error as InclusionListStoreError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
@@ -11,10 +12,11 @@ use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
 use crate::payload_envelope_streamer::Error as EnvelopeStreamerError;
 use bls::PublicKeyBytes;
 use execution_layer::PayloadStatus;
-use fork_choice::ExecutionStatus;
+use fork_choice::ExecutionVerdict;
 use futures::channel::mpsc::TrySendError;
 use milhouse::Error as MilhouseError;
 use operation_pool::OpPoolError;
+use proto_array::PayloadBlockHash;
 use safe_arith::ArithError;
 use ssz::BitfieldError;
 use ssz_types::Error as SszTypesError;
@@ -104,6 +106,7 @@ pub enum BeaconChainError {
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
     ObservedDataSidecarsError(ObservedDataSidecarsError),
+    InclusionListStoreError(InclusionListStoreError),
     EarlyAttesterCacheError,
     PruningError(PruningError),
     ArithError(ArithError),
@@ -178,12 +181,12 @@ pub enum BeaconChainError {
     HeadBlockMissingFromForkChoice(Hash256),
     InvalidFinalizedPayload {
         finalized_root: Hash256,
-        execution_block_hash: ExecutionBlockHash,
+        execution_block_hash: PayloadBlockHash,
     },
     InvalidFinalizedPayloadShutdownError(TrySendError<ShutdownReason>),
     JustifiedPayloadInvalid {
         justified_root: Hash256,
-        execution_block_hash: Option<ExecutionBlockHash>,
+        execution_block_hash: PayloadBlockHash,
     },
     ForkchoiceUpdate(execution_layer::Error),
     InvalidCheckpoint {
@@ -193,7 +196,7 @@ pub enum BeaconChainError {
     InvalidSlot(Slot),
     HeadBlockNotFullyVerified {
         beacon_block_root: Hash256,
-        execution_status: ExecutionStatus,
+        execution_status: ExecutionVerdict,
     },
     CannotAttestToFinalizedBlock {
         beacon_block_root: Hash256,
@@ -211,10 +214,11 @@ pub enum BeaconChainError {
     ForkchoiceUpdateParamsMissing,
     HeadHasInvalidPayload {
         block_root: Hash256,
-        execution_status: ExecutionStatus,
+        execution_status: ExecutionVerdict,
     },
     AttestationHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,
+    ForkChoicePoisoned,
     CommitteePromiseFailed(oneshot_broadcast::Error),
     MaxCommitteePromises(usize),
     BlsToExecutionPriorToCapella,
@@ -278,6 +282,7 @@ easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
 easy_from_to!(ObservedDataSidecarsError, BeaconChainError);
+easy_from_to!(InclusionListStoreError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);

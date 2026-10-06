@@ -209,6 +209,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         header_or_bid,
                         block_root,
                         publish_blobs,
+                        EnvelopeSource::Rpc,
                     )
                     .await;
                 } else {
@@ -270,13 +271,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(availability) => match availability {
-                AvailabilityProcessingStatus::Imported(_, hash) => {
+                AvailabilityProcessingStatus::Imported(slot, hash) => {
                     debug!(
                         result = "imported block and custody columns",
                         block_hash = %hash,
                         "Block components retrieved"
                     );
                     self.chain.recompute_head_at_current_slot().await;
+                    self.notify_import_after_column(*slot, *hash, EnvelopeSource::Rpc);
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _) => {
                     debug!(
@@ -344,12 +346,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(e) => Err(e.into()),
         };
-
-        // TODO(gloas): structured penalty classification arrives with the envelope lookup state
-        // machine; for now, fold the EnvelopeError into BlockError::InternalError so it flows
-        // through the existing `BlockProcessingResult::Err` path.
-        let result: Result<AvailabilityProcessingStatus, BlockError> =
-            result.map_err(|e| BlockError::InternalError(format!("envelope: {e}")));
 
         // The payload envelope is imported; release any attestations awaiting this block's payload
         // so they can be re-processed (parity with the gossip import path).

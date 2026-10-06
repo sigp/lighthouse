@@ -51,14 +51,27 @@ pub struct PartialDataColumnSidecar<E: EthSpec> {
     pub column: VariableList<Cell<E>, E::MaxBlobCommitmentsPerBlock>,
     // [Modified in Gloas:EIP7688]
     #[superstruct(only(Gloas), partial_getter(rename = "column_gloas"))]
-    pub column: ProgressiveVariableList<Cell<E>>,
+    pub column: ProgressiveVariableList<Cell<E>, E::MaxBlobCommitmentsPerBlock>,
     #[superstruct(only(Fulu), partial_getter(rename = "kzg_proofs_fulu"))]
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     // [Modified in Gloas:EIP7688]
     #[superstruct(only(Gloas), partial_getter(rename = "kzg_proofs_gloas"))]
-    pub kzg_proofs: ProgressiveVariableList<KzgProof>,
+    pub kzg_proofs: ProgressiveVariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     #[superstruct(only(Fulu))]
     pub header: ListEncodedOption<PartialDataColumnHeader<E>>,
+}
+
+impl<E: EthSpec> PartialDataColumnSidecarGloas<E> {
+    pub fn max_size(max_blobs_per_block: usize) -> usize {
+        use ssz::Encode;
+
+        let cell_with_proof_size = <Cell<E> as Encode>::ssz_fixed_len()
+            .saturating_add(<KzgProof as Encode>::ssz_fixed_len());
+        let bitmap_size = (max_blobs_per_block / 8).saturating_add(1); // Include the length bit.
+        (3 * ssz::BYTES_PER_LENGTH_OFFSET)
+            .saturating_add(bitmap_size)
+            .saturating_add(max_blobs_per_block.saturating_mul(cell_with_proof_size))
+    }
 }
 
 /// Equivalent to `PartialDataColumnSidecar`, but containing references to the cells. This is done
@@ -335,8 +348,8 @@ impl<E: EthSpec> Display for PartialDataColumnPartsMetadata<E> {
 
 #[derive(Debug, Clone, Encode, Decode, PartialEq, Eq)]
 pub struct PartialDataColumnGroupId {
-    pub slot: Slot,
     pub beacon_block_root: Hash256,
+    pub slot: Slot,
 }
 
 #[superstruct(
@@ -416,13 +429,13 @@ impl<'a, E: EthSpec> PartialDataColumnRef<'a, E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MinimalEthSpec;
+    use crate::Spec;
     use bls::Signature;
     use fixed_bytes::FixedBytesExtended;
     use kzg::KzgCommitment;
     use ssz::Encode;
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_cell(marker: u8) -> Cell<E> {
         let mut cell = Cell::<E>::default();

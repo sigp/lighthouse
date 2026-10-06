@@ -9,6 +9,7 @@ use beacon_chain::fetch_blobs::{
     FetchEngineBlobError, PartialHeaderOrBid, fetch_and_process_engine_blobs,
 };
 use beacon_chain::partial_data_column_assembler::AssemblyColumn;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
@@ -545,6 +546,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some inclusion list
+    pub fn send_gossip_inclusion_list(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        inclusion_list: Box<SignedInclusionList>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn =
+            move || processor.process_gossip_inclusion_list(message_id, peer_id, inclusion_list);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipInclusionList(Box::new(process_fn)),
+        })
+    }
+
     /// Create a new `Work` event for some block, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
     pub fn send_lookup_beacon_block(
@@ -928,6 +946,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         header_or_bid: PartialHeaderOrBid<T::EthSpec>,
         block_root: Hash256,
         publish_blobs: bool,
+        source: EnvelopeSource,
     ) {
         if self.chain.config.disable_get_blobs {
             return;
@@ -954,13 +973,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         .await
         {
             Ok(Some(availability)) => match availability {
-                AvailabilityProcessingStatus::Imported(..) => {
+                AvailabilityProcessingStatus::Imported(slot, block_root) => {
                     debug!(
                         result = "imported block and custody columns",
                         %block_root,
                         "Block components retrieved from EL"
                     );
                     self.chain.recompute_head_at_current_slot().await;
+                    self.notify_import_after_column(slot, block_root, source);
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _) => {
                     debug!(

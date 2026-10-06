@@ -1,10 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
 use fork_choice::PayloadStatus;
-use proto_array::{ProposerHeadError, ReOrgThreshold};
+use proto_array::{ParentPayloadStatus, ProposerHeadError, ReOrgThreshold};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Epoch, EthSpec, Hash256, SignedExecutionPayloadEnvelope, Slot};
+use types::{BeaconState, Epoch, EthSpec, Hash256, SignedExecutionPayloadEnvelopeSummary, Slot};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -20,16 +20,18 @@ pub use gloas::PayloadEnvelopeContents;
 pub(crate) struct BlockProductionState<E: EthSpec> {
     pub state: BeaconState<E>,
     pub state_root: Option<Hash256>,
+    pub parent_root: Hash256,
     pub parent_payload_status: PayloadStatus,
-    pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelopeSummary<E>>>,
 }
 
 /// Inputs assembled for producing a block via a proposer re-org.
 struct ReOrgInputs<E: EthSpec> {
     state: BeaconState<E>,
     state_root: Hash256,
+    parent_root: Hash256,
     parent_payload_status: PayloadStatus,
-    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelopeSummary<E>>>,
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -73,6 +75,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BlockProductionState {
                     state: inputs.state,
                     state_root: Some(inputs.state_root),
+                    parent_root: inputs.parent_root,
                     parent_payload_status: inputs.parent_payload_status,
                     parent_envelope: inputs.parent_envelope,
                 }
@@ -90,6 +93,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 BlockProductionState {
                     state,
                     state_root: Some(state_root),
+                    parent_root: head_block_root,
                     parent_payload_status: head_payload_status,
                     parent_envelope: head_envelope,
                 }
@@ -100,13 +104,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 %slot,
                 "Producing block that conflicts with head"
             );
-            let state = self
+            let mut state = self
                 .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
                 .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
+            let state_root = state.update_tree_hash_cache()?;
+            // This historical state builds on an ancestor of the current head.
+            let parent_root = state.get_latest_block_root(state_root);
 
             BlockProductionState {
                 state,
-                state_root: None,
+                state_root: Some(state_root),
+                parent_root,
                 parent_payload_status: head_payload_status,
                 parent_envelope: head_envelope,
             }
@@ -250,7 +258,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The head uniquely determines the parent payload status for the re-org block, whichever
         // variant (full or empty) it builds on must have more weight, or else we would have already
         // re-orged away from this block naturally, and it would not be the head, by definition.
-        let parent_payload_status = proposer_head.head_node.get_parent_payload_status();
+        let parent_payload_status = match proposer_head.head_node.get_parent_payload_status() {
+            ParentPayloadStatus::Full => PayloadStatus::Full,
+            ParentPayloadStatus::Empty | ParentPayloadStatus::PreGloas => PayloadStatus::Empty,
+        };
 
         let (state_root, state) = self
             .store
@@ -263,7 +274,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_envelope = if parent_payload_status == PayloadStatus::Full {
             let envelope = self
                 .store
-                .get_payload_envelope(&re_org_parent_block)
+                .get_payload_envelope_summary(&re_org_parent_block)
                 .ok()
                 .flatten()
                 .map(Arc::new)
@@ -290,6 +301,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Some(ReOrgInputs {
             state,
             state_root,
+            parent_root: re_org_parent_block,
             parent_payload_status,
             parent_envelope,
         })
