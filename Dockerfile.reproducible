@@ -1,5 +1,5 @@
-# Define the Rust image as an argument with a default to x86_64 Rust 1.88 image based on Debian Bookworm
-ARG RUST_IMAGE="rust:1.88-bookworm@sha256:4727898c104ecd2e22d780925832502faee9fe4e70581b8572af081370b315a0"
+# Define the Rust image as an argument with a default to x86_64 Rust 1.91 image based on Debian Bookworm
+ARG RUST_IMAGE="rust:1.91-bookworm@sha256:8322627e69ba7780b54f39e9f4d3758c006a3ae0123ea01d63b91f0626169891"
 FROM ${RUST_IMAGE} AS builder
 
 # Install specific version of the build dependencies

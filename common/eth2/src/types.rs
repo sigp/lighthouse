@@ -14,9 +14,9 @@ use context_deserialize::{ContextDeserialize, context_deserialize};
 #[cfg(feature = "network")]
 use enr::{CombinedKey, Enr};
 use fork_choice::PayloadStatus;
-use mediatype::{MediaType, MediaTypeList, names};
 #[cfg(feature = "network")]
-use multiaddr::Multiaddr;
+use libp2p::multiaddr::Multiaddr;
+use mediatype::{MediaType, MediaTypeList, names};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
