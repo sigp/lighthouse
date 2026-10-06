@@ -987,19 +987,23 @@ impl ApiTester {
 
     pub async fn test_beacon_states_validator_balances_ssz(self) -> Self {
         for state_id in self.interesting_state_ids() {
-            let all_state_opt = state_id.state(&self.chain).ok();
+            let state_opt = state_id.state(&self.chain).ok();
+            let validators: Vec<Validator> = match state_opt.as_ref() {
+                Some((state, _, _)) => state.validators().to_vec(),
+                None => vec![],
+            };
             let all_ssz_result = self
                 .client
                 .get_beacon_states_validator_balances_ssz(state_id.0, None)
                 .await
                 .unwrap();
 
-            if all_ssz_result.is_some() || all_state_opt.is_some() {
+            if all_ssz_result.is_some() || state_opt.is_some() {
                 let ssz_bytes = all_ssz_result.expect("response should exist");
                 let result = Vec::<ValidatorBalanceData>::from_ssz_bytes(&ssz_bytes)
                     .expect("should decode SSZ validator balances");
 
-                let (state, _, _) = all_state_opt.as_ref().expect("state should exist");
+                let (state, _, _) = state_opt.as_ref().expect("state should exist");
                 let expected: Vec<ValidatorBalanceData> = state
                     .balances()
                     .iter()
@@ -1014,13 +1018,6 @@ impl ApiTester {
             }
 
             for validator_indices in self.interesting_validator_indices() {
-                let state_opt = state_id.state(&self.chain).ok();
-
-                let validators: Vec<Validator> = match state_opt.as_ref() {
-                    Some((state, _, _)) => state.validators().to_vec(),
-                    None => vec![],
-                };
-
                 let validator_index_ids: Vec<ValidatorId> = validator_indices
                     .iter()
                     .cloned()
