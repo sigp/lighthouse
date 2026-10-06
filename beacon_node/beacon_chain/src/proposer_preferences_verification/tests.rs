@@ -250,6 +250,8 @@ fn proposal_slot_already_passed() {
         return;
     }
     let ctx = TestContext::new();
+    // Move beyond slot 0's gossip disparity window so the proposal slot has actually passed.
+    ctx.slot_clock.set_slot(1);
     let gossip = ctx.gossip_ctx();
 
     let prefs = make_signed_preferences(Slot::new(0), 0, Hash256::ZERO);
@@ -583,7 +585,8 @@ fn pre_gloas_proposal_epoch_ignored() {
 
     let current_slot = Slot::new(E::slots_per_epoch());
     let prefs = make_signed_preferences(current_slot + 1, 0, Hash256::ZERO);
-    let result = verify_preferences_consistency::<E>(&prefs.message, current_slot, &spec);
+    let result =
+        verify_preferences_consistency::<E>(&prefs.message, current_slot, current_slot, &spec);
     assert!(
         matches!(
             result,
@@ -603,6 +606,7 @@ fn gloas_proposal_epoch_passes_fork_check() {
 
     let current_slot = Slot::new(E::slots_per_epoch());
     let prefs = make_signed_preferences(current_slot + 1, 0, Hash256::ZERO);
-    let result = verify_preferences_consistency::<E>(&prefs.message, current_slot, &spec);
+    let result =
+        verify_preferences_consistency::<E>(&prefs.message, current_slot, current_slot, &spec);
     assert!(result.is_ok(), "got: {result:?}");
 }

@@ -1097,6 +1097,17 @@ impl<E> GossipValidationHandler<E> {
     pub fn latest_stable(handler_name: &'static str) -> Self {
         Self::for_forks(handler_name, vec![ForkName::latest_stable()])
     }
+
+    pub fn latest_stable_and_gloas(handler_name: &'static str) -> Self {
+        Self::for_forks(
+            handler_name,
+            vec![ForkName::latest_stable(), ForkName::Gloas],
+        )
+    }
+
+    pub fn gloas_only(handler_name: &'static str) -> Self {
+        Self::for_forks(handler_name, vec![ForkName::Gloas])
+    }
 }
 
 impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
@@ -1122,10 +1133,6 @@ impl<E: EthSpec + TypeName> Handler for GossipValidationHandler<E> {
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         let fork_name_str = fork_name.to_string();
         self.supported_forks.contains(&fork_name) && self.handler_path(&fork_name_str).exists()
-    }
-
-    fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![ForkName::Gloas]
     }
 }
 
