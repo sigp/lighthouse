@@ -4,6 +4,7 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::{LookupBlock, RangeSyncBlock};
 use beacon_chain::builder::BeaconChainBuilder;
+use beacon_chain::chain_config::FastConfirmationMode;
 use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
@@ -461,6 +462,137 @@ async fn full_participation_no_skips() {
     check_split_slot(&harness, store);
     check_chain_dump(&harness, num_blocks_produced + 1);
     check_iterators(&harness);
+    check_db_invariants(&harness);
+}
+
+#[tokio::test]
+async fn fcr_restarts_after_finalization_without_head_change() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let chain_config = ChainConfig {
+        archive: false,
+        fast_confirmation: FastConfirmationMode::Enabled,
+        ..ChainConfig::default()
+    };
+    let harness = get_harness_generic(
+        store.clone(),
+        LOW_VALIDATOR_COUNT,
+        chain_config.clone(),
+        NodeCustodyType::Fullnode,
+    );
+
+    // Stop before an epoch transition, with a skipped slot at the checkpoint we will finalize.
+    let slots_per_epoch = E::slots_per_epoch();
+    let checkpoint_slot = Slot::new(3 * slots_per_epoch);
+    let slots = (1..5 * slots_per_epoch)
+        .map(Slot::new)
+        .filter(|slot| *slot != checkpoint_slot)
+        .collect::<Vec<_>>();
+    harness
+        .add_attested_blocks_at_slots(
+            harness.get_current_state(),
+            &slots,
+            &harness.get_all_validators(),
+        )
+        .await;
+    let old_head = harness.chain.canonical_head.cached_head();
+    let old_split = store.get_split_slot();
+
+    // Realize finality without importing a block, so after_new_head does not persist fork choice.
+    harness.advance_slot();
+    harness.chain.recompute_head_at_current_slot().await;
+    let new_head = harness.chain.canonical_head.cached_head();
+    assert_eq!(new_head.head_block_root(), old_head.head_block_root());
+    assert!(store.get_split_slot() > old_split);
+    assert_eq!(store.get_split_slot(), checkpoint_slot);
+
+    // Suppress shutdown persistence, which would hide the regression (#10142), and reopen the DB
+    // with empty caches so FCR must load its checkpoint state from disk.
+    let slot_clock = harness.chain.slot_clock.clone();
+    harness.chain.canonical_head.poison_fork_choice();
+    drop(harness);
+    drop(store);
+
+    let resumed = TestHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
+        .resumed_disk_store(get_store(&db_path))
+        .testing_slot_clock(slot_clock)
+        .mock_execution_layer()
+        .chain_config(chain_config)
+        .build();
+    assert_eq!(
+        resumed
+            .chain
+            .canonical_head
+            .fast_confirmation
+            .as_ref()
+            .unwrap()
+            .lock()
+            .fcr
+            .confirmed_root,
+        new_head.finalized_checkpoint().root
+    );
+}
+
+#[tokio::test]
+async fn persisted_fork_choice_finalized_checkpoint_database_invariant() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness_generic(
+        store.clone(),
+        LOW_VALIDATOR_COUNT,
+        ChainConfig {
+            archive: true,
+            epochs_per_migration: 2,
+            ..ChainConfig::default()
+        },
+        NodeCustodyType::Fullnode,
+    );
+    let old_finalized_checkpoint = harness
+        .chain
+        .canonical_head
+        .cached_head()
+        .finalized_checkpoint();
+    let old_fork_choice = harness.chain.persist_fork_choice_in_batch().unwrap();
+    // Equality at genesis is valid, as is finality ahead of a deferred migration.
+    check_db_invariants(&harness);
+    harness
+        .extend_chain(
+            5 * E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    let split_slot = store.get_split_slot();
+    assert!(
+        harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch())
+            > split_slot
+    );
+    check_db_invariants(&harness);
+
+    // Only the persisted fork choice is stale; the live fork choice remains ahead of the split.
+    store.hot_db.do_atomically(vec![old_fork_choice]).unwrap();
+    let result = harness.chain.check_database_invariants().unwrap();
+    assert!(
+        matches!(
+            result.violations.as_slice(),
+            [InvariantViolation::ForkChoiceFinalizedCheckpointBehindSplit {
+                finalized_checkpoint,
+                split_slot: reported_split,
+            }] if *finalized_checkpoint == old_finalized_checkpoint && *reported_split == split_slot
+        ),
+        "unexpected invariant violations: {:?}",
+        result.violations
+    );
+
+    harness.chain.persist_fork_choice().unwrap();
     check_db_invariants(&harness);
 }
 
@@ -5216,7 +5348,7 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
         )
         .await;
 
-    let min_version = SchemaVersion(30);
+    let min_version = SchemaVersion(28);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
