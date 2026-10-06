@@ -9,9 +9,9 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
-    CellBitmap, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkVersionDecode,
-    Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
-    PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnGroupId,
+    CellBitmap, DataColumnSidecar, DataColumnSubnetId, Epoch, EthSpec, ForkContext,
+    ForkVersionDecode, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnGroupId,
     PartialDataColumnHeader, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas,
     PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedAggregateAndProofGloas,
@@ -156,6 +156,15 @@ impl<E: EthSpec> PubsubMessage<E> {
     /// gossipsub encoding and fork version.
     pub fn topics(&self, encoding: GossipEncoding, fork_version: [u8; 4]) -> Vec<GossipTopic> {
         vec![GossipTopic::new(self.kind(), encoding, fork_version)]
+    }
+
+    /// The epoch whose fork digest to publish under, or `None` to use the current one.
+    pub fn context_epoch(&self) -> Option<Epoch> {
+        match self {
+            // Bids can be for the next slot, so they could cross the fork boundary
+            PubsubMessage::ExecutionPayloadBid(bid) => Some(bid.epoch()),
+            _ => None,
+        }
     }
 
     /// Returns the kind of gossipsub topic associated with the message.
@@ -699,8 +708,8 @@ mod tests {
     use libp2p::gossipsub::partial_messages::Partial;
     use types::data::{CellBitmap, PartialDataColumnSidecarGloas};
     use types::{
-        BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, MainnetEthSpec, Slot,
-        data::DataColumnSubnetId,
+        BeaconBlock, ChainSpec, Epoch, EthSpec, ExecutionPayloadBidHeze, ForkName, MainnetEthSpec,
+        SignedExecutionPayloadBidHeze, Slot, data::DataColumnSubnetId,
     };
 
     type E = MainnetEthSpec;
@@ -804,6 +813,17 @@ mod tests {
         let topic_hash = TopicHash::from_raw(String::from(topic));
         let data = vec![0u8; size];
         PubsubMessage::decode(&topic_hash, &data, fork_context)
+    }
+
+    fn decode_from_topic(
+        fork_context: &ForkContext,
+        kind: GossipKind,
+        fork_digest: [u8; 4],
+        data: &[u8],
+    ) -> Result<PubsubMessage<E>, String> {
+        let topic = GossipTopic::new(kind, GossipEncoding::default(), fork_digest);
+        let topic_hash = TopicHash::from_raw(String::from(topic));
+        PubsubMessage::decode(&topic_hash, data, fork_context)
     }
 
     #[test]
@@ -938,5 +958,45 @@ mod tests {
         let err =
             decode_oversized(&gloas_fork_context(), GossipKind::InclusionList, max).unwrap_err();
         assert!(!err.contains("MAX_SIGNED_INCLUSION_LIST_SIZE"), "{err}");
+    }
+
+    #[test]
+    fn heze_bid_published_before_the_fork_uses_the_heze_topic() {
+        let mut spec = pre_gloas_spec();
+        spec.gloas_fork_epoch = Some(Epoch::new(0));
+        spec.heze_fork_epoch = Some(Epoch::new(1));
+        let first_heze_slot = Epoch::new(1).start_slot(E::slots_per_epoch());
+        // The node is still in the last Gloas slot
+        let fork_context = ForkContext::new::<E>(first_heze_slot - 1, Hash256::ZERO, &spec);
+
+        let bid = SignedExecutionPayloadBid::<E>::Heze(SignedExecutionPayloadBidHeze {
+            message: ExecutionPayloadBidHeze {
+                slot: first_heze_slot,
+                ..ExecutionPayloadBidHeze::default()
+            },
+            signature: Signature::empty(),
+        });
+        let message = PubsubMessage::ExecutionPayloadBid(Box::new(bid.clone()));
+        let data = bid.as_ssz_bytes();
+
+        let fork_digest = fork_context.context_bytes(message.context_epoch().unwrap());
+        assert_eq!(
+            decode_from_topic(
+                &fork_context,
+                GossipKind::ExecutionPayloadBid,
+                fork_digest,
+                &data
+            ),
+            Ok(message)
+        );
+        assert!(
+            decode_from_topic(
+                &fork_context,
+                GossipKind::ExecutionPayloadBid,
+                fork_context.current_fork_digest(),
+                &data
+            )
+            .is_err()
+        );
     }
 }
