@@ -402,7 +402,7 @@ impl From<SszError> for DataColumnSidecarError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{MainnetEthSpec, max_data_columns_by_root_request_common};
+    use crate::core::{Spec, max_data_columns_by_root_request_common};
     use fixed_bytes::FixedBytesExtended;
     use ssz_types::RuntimeVariableList;
 
@@ -431,8 +431,8 @@ mod tests {
     fn max_data_columns_by_root_request_matches_simplified() {
         for n in [0, 1, 2, 8, 16, 32, 64, 128, 256, 512, 1024] {
             assert_eq!(
-                max_data_columns_by_root_request_common::<MainnetEthSpec>(n),
-                max_data_columns_by_root_request_implementation::<MainnetEthSpec>(n),
+                max_data_columns_by_root_request_common::<Spec>(n),
+                max_data_columns_by_root_request_implementation::<Spec>(n),
                 "Mismatch at n={n}"
             );
         }

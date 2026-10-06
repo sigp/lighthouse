@@ -4,7 +4,7 @@ use fork_choice::PayloadStatus;
 use proto_array::{ParentPayloadStatus, ProposerHeadError, ReOrgThreshold};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Epoch, EthSpec, Hash256, SignedExecutionPayloadEnvelope, Slot};
+use types::{BeaconState, Epoch, EthSpec, Hash256, SignedExecutionPayloadEnvelopeSummary, Slot};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -22,7 +22,7 @@ pub(crate) struct BlockProductionState<E: EthSpec> {
     pub state_root: Option<Hash256>,
     pub parent_root: Hash256,
     pub parent_payload_status: PayloadStatus,
-    pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelopeSummary<E>>>,
 }
 
 /// Inputs assembled for producing a block via a proposer re-org.
@@ -31,7 +31,7 @@ struct ReOrgInputs<E: EthSpec> {
     state_root: Hash256,
     parent_root: Hash256,
     parent_payload_status: PayloadStatus,
-    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelopeSummary<E>>>,
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -276,7 +276,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_envelope = if parent_payload_status == PayloadStatus::Full {
             let envelope = self
                 .store
-                .get_signed_payload_envelope(&re_org_parent_block)
+                .get_payload_envelope_summary(&re_org_parent_block)
                 .ok()
                 .flatten()
                 .map(Arc::new)
