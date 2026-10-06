@@ -1041,8 +1041,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ));
             }
             BeaconState::Gloas(_) => {
-                // TODO(gloas) since we are defaulting to local building, execution payment is 0
-                // execution payment should only be set to > 0 for trusted building.
                 let bid = ExecutionPayloadBidGloas::<T::EthSpec> {
                     parent_block_hash: executed_ancestor_hash,
                     parent_block_root: parent_root,
