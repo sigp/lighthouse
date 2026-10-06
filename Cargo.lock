@@ -9666,6 +9666,7 @@ dependencies = [
  "milhouse",
  "parking_lot",
  "paste",
+ "proptest",
  "rand 0.9.2",
  "rand_xorshift 0.4.0",
  "rayon",
