@@ -286,6 +286,11 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
+        // Ensure the bid is the correct structure for the fork at `bid.slot()`.
+        signed_bid
+            .fork_name(ctx.spec)
+            .map_err(PayloadBidError::InconsistentFork)?;
+
         let bid_slot = signed_bid.message().slot();
         let bid_parent = BidParent::from_bid(signed_bid.message());
         let bid_parent_block_root = signed_bid.message().parent_block_root();

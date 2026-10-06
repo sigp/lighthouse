@@ -1,7 +1,7 @@
 use crate::kzg_ext::ProgressiveKzgCommitments;
 use crate::{
-    Address, BeaconStateError, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode, Hash256,
-    SignedRoot, Slot,
+    Address, BeaconStateError, ChainSpec, EthSpec, ExecutionBlockHash, ForkName, ForkVersionDecode,
+    Hash256, InconsistentFork, SignedRoot, Slot,
 };
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
@@ -141,6 +141,35 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadBid<
                 )));
             }
         })
+    }
+}
+
+impl<'a, E: EthSpec> ExecutionPayloadBidRef<'a, E> {
+    /// Returns the name of the fork pertaining to `self`.
+    ///
+    /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
+    /// dictated by `self.slot()`.
+    pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
+        let fork_at_slot = spec.fork_name_at_slot::<E>(self.slot());
+        let object_fork = self.fork_name_unchecked();
+
+        if fork_at_slot == object_fork {
+            Ok(object_fork)
+        } else {
+            Err(InconsistentFork {
+                fork_at_slot,
+                object_fork,
+            })
+        }
+    }
+
+    /// Returns the name of the fork pertaining to `self`.
+    /// Does not check that the fork is consistent with the slot.
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        match self {
+            ExecutionPayloadBidRef::Gloas(_) => ForkName::Gloas,
+            ExecutionPayloadBidRef::Heze(_) => ForkName::Heze,
+        }
     }
 }
 

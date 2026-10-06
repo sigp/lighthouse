@@ -13,11 +13,11 @@ use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig, StoreOp};
 use types::{
     Address, BuilderExitRequest, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBidGloas, ExecutionPayloadBidRef, ExecutionPayloadEnvelope,
-    ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, Hash256, MinimalEthSpec,
-    ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
-    SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedRoot, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
+    ExecutionPayloadEnvelope, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName,
+    Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedRoot, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
@@ -530,6 +530,28 @@ fn invalid_bid_slot() {
         result,
         Err(PayloadBidError::InvalidBidSlot { .. })
     ));
+}
+
+#[test]
+fn inconsistent_fork() {
+    // A Heze bid is only inconsistent with the slot's fork before Heze.
+    if fork_name_from_env() != Some(ForkName::Gloas) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let gossip = ctx.gossip_ctx();
+
+    let bid = Arc::new(SignedExecutionPayloadBid::Heze(
+        SignedExecutionPayloadBidHeze {
+            message: ExecutionPayloadBidHeze {
+                slot: Slot::new(1),
+                ..ExecutionPayloadBidHeze::default()
+            },
+            signature: Signature::empty(),
+        },
+    ));
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(matches!(result, Err(PayloadBidError::InconsistentFork(_))));
 }
 
 #[test]
