@@ -875,7 +875,6 @@ where
         beacon_url: SensitiveUrl,
         strict_registrations: bool,
         apply_operations: bool,
-        broadcast_to_bn: bool,
     ) -> impl futures::Future<Output = ()> + use<E, Hot, Cold> {
         let mock_el = self
             .mock_execution_layer
@@ -890,7 +889,6 @@ where
             beacon_url,
             strict_registrations,
             apply_operations,
-            broadcast_to_bn,
             self.spec.clone(),
             self.runtime.task_executor.clone(),
         );
