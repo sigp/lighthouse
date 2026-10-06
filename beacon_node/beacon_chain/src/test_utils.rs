@@ -1,7 +1,6 @@
 use crate::block_verification_types::{AsBlock, AvailableBlockData, LookupBlock, RangeSyncBlock};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
-use crate::execution_proof_verification::GossipVerifiedExecutionProof;
 use crate::graffiti_calculator::GraffitiSettings;
 use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sidecars_gloas};
 use crate::observed_operations::ObservationOutcome;
@@ -884,10 +883,7 @@ where
         }
 
         self.chain
-            .process_execution_proof(&GossipVerifiedExecutionProof {
-                proof: Arc::new(proof),
-                block_slot,
-            })
+            .promote_payload_if_proven(block_root)
             .await
             .expect("execution proof should be processed");
     }

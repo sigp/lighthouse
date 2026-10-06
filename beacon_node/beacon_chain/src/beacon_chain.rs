@@ -35,9 +35,7 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
-use crate::execution_proof_verification::{
-    GossipVerifiedExecutionProof, ObservedExecutionProofs, REQUIRED_EXECUTION_PROOFS,
-};
+use crate::execution_proof_verification::ObservedExecutionProofs;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::inclusion_list_store::{DependentRoot, InclusionListStore};
@@ -4230,51 +4228,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .process_availability(slot, availability, || Ok(()))
                 .await?)
         }
-    }
-
-    /// Whether EIP-8025 proofs decide payload validity here, which takes a proof engine.
-    pub(crate) fn execution_proofs_enabled(&self) -> bool {
-        self.proof_engine.is_some()
-    }
-
-    /// Whether `block_root`'s payload has proofs from as many proof systems as we require.
-    pub(crate) fn execution_proofs_satisfied(&self, block_root: &Hash256) -> bool {
-        self.observed_execution_proofs
-            .read()
-            .valid_proof_count(block_root)
-            >= REQUIRED_EXECUTION_PROOFS
-    }
-
-    /// Act on a gossip-verified execution proof, which verification has already counted.
-    pub async fn process_execution_proof(
-        self: &Arc<Self>,
-        verified_proof: &GossipVerifiedExecutionProof,
-    ) -> Result<(), BlockError> {
-        let block_root = verified_proof.proof.beacon_block_root();
-        if !self.execution_proofs_satisfied(&block_root) {
-            return Ok(());
-        }
-
-        // The bid commits the payload's execution block hash, which is how fork choice names it.
-        let payload_block_hash = self
-            .get_or_load_gloas_payload_bid(block_root)
-            .await?
-            .message
-            .block_hash;
-
-        debug!(?block_root, "Execution proofs complete, validating payload");
-        let chain = self.clone();
-        self.spawn_blocking_handle(
-            move || {
-                chain
-                    .canonical_head
-                    .fork_choice_write_lock()
-                    .on_valid_execution_payload(payload_block_hash)
-                    .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))
-            },
-            "validate_proven_payload",
-        )
-        .await?
     }
 
     /// Load a persisted Gloas bid without blocking the async runtime.
