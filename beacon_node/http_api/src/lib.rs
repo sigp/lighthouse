@@ -3347,6 +3347,9 @@ pub async fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::FastConfirmation => {
                                     event_handler.subscribe_fast_confirmation()
                                 }
+                                api_types::EventTopic::InclusionList => {
+                                    event_handler.subscribe_inclusion_list()
+                                }
                             };
 
                             receivers.push(
