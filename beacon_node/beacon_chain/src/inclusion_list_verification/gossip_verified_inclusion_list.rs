@@ -6,6 +6,7 @@ use crate::inclusion_list_verification::{
 use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore};
+use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
@@ -232,8 +233,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Successfully verified gossip inclusion list"
                 );
 
-                // TODO(heze): emit the inclusion_list SSE event
-
                 Ok(verified)
             }
             Err(e) => {
@@ -252,8 +251,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         verified_inclusion_list: GossipVerifiedInclusionList,
     ) -> InsertOutcome {
-        self.inclusion_list_store
+        // Only clone the inclusion list when an SSE subscriber wants it.
+        let event_handler = self
+            .event_handler
+            .as_ref()
+            .filter(|handler| handler.has_inclusion_list_subscribers());
+        let signed_inclusion_list = event_handler
+            .is_some()
+            .then(|| verified_inclusion_list.signed_inclusion_list.clone());
+
+        let outcome = self
+            .inclusion_list_store
             .write()
-            .process_inclusion_list(verified_inclusion_list)
+            .process_inclusion_list(verified_inclusion_list);
+
+        // Emit the event only for inclusion lists that the node forwards. Duplicates, old lists
+        // and later equivocations are ignored, so subscribers do not see them.
+        if let (Some(event_handler), Some(signed_inclusion_list)) =
+            (event_handler, signed_inclusion_list)
+            && matches!(outcome, InsertOutcome::New | InsertOutcome::Equivocating)
+        {
+            let slot = signed_inclusion_list.message.slot;
+            event_handler.register(EventKind::InclusionList(Box::new(ForkVersionedResponse {
+                version: self.spec.fork_name_at_slot::<T::EthSpec>(slot),
+                metadata: Default::default(),
+                data: signed_inclusion_list,
+            })));
+        }
+
+        outcome
     }
 }

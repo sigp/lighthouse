@@ -1274,6 +1274,7 @@ pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecut
 pub type VersionedSseProposerPreferences = ForkVersionedResponse<SignedProposerPreferences>;
 pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
 pub type VersionedSseHeadV2 = ForkVersionedResponse<SseHeadV2>;
+pub type VersionedSseInclusionList = ForkVersionedResponse<SignedInclusionList>;
 
 impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
@@ -1361,6 +1362,7 @@ pub enum EventKind<E: EthSpec> {
     ProposerPreferences(Box<VersionedSseProposerPreferences>),
     PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
     FastConfirmation(SseFastConfirmation),
+    InclusionList(Box<VersionedSseInclusionList>),
 }
 
 impl<E: EthSpec> EventKind<E> {
@@ -1391,6 +1393,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::ProposerPreferences(_) => "proposer_preferences",
             EventKind::PayloadAttestationMessage(_) => "payload_attestation_message",
             EventKind::FastConfirmation(_) => "fast_confirmation",
+            EventKind::InclusionList(_) => "inclusion_list",
         }
     }
 
@@ -1525,6 +1528,11 @@ impl<E: EthSpec> EventKind<E> {
                     ServerError::InvalidServerSentEvent(format!("Fast Confirmation: {:?}", e))
                 })?,
             )),
+            "inclusion_list" => Ok(EventKind::InclusionList(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Inclusion List: {:?}", e))
+                })?,
+            ))),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1567,6 +1575,7 @@ pub enum EventTopic {
     ProposerPreferences,
     PayloadAttestationMessage,
     FastConfirmation,
+    InclusionList,
 }
 
 impl FromStr for EventTopic {
@@ -1599,6 +1608,7 @@ impl FromStr for EventTopic {
             "proposer_preferences" => Ok(EventTopic::ProposerPreferences),
             "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessage),
             "fast_confirmation" => Ok(EventTopic::FastConfirmation),
+            "inclusion_list" => Ok(EventTopic::InclusionList),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1636,6 +1646,7 @@ impl fmt::Display for EventTopic {
                 write!(f, "payload_attestation_message")
             }
             EventTopic::FastConfirmation => write!(f, "fast_confirmation"),
+            EventTopic::InclusionList => write!(f, "inclusion_list"),
         }
     }
 }
