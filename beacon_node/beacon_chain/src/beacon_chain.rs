@@ -4238,9 +4238,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Whether `block_root`'s payload has proofs from as many proof systems as we require.
-    ///
-    /// TODO(9658): nothing checks that a proof's public input is this payload, so a proof of another
-    /// payload carrying this block's root counts. https://github.com/sigp/lighthouse/issues/9658
     pub(crate) fn execution_proofs_satisfied(&self, block_root: &Hash256) -> bool {
         self.observed_execution_proofs
             .read()
