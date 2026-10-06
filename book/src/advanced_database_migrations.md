@@ -17,6 +17,7 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
+| v8.3.0-rc.0        | Oct 2026     | v31            | yes before Gloas     |
 | v8.2.0             | Jun 2026     | v29            | yes before Gloas     |
 | v8.1.0             | Feb 2026     | v28            | no                   |
 | v8.0.0             | Nov 2025     | v28            | no                   |
@@ -207,6 +208,7 @@ Here are the steps to prune historic states:
 
 | Lighthouse version | Release date | Schema version | Downgrade available?                |
 |--------------------|--------------|----------------|-------------------------------------|
+| v8.3.0-rc.0        | Oct 2026     | v31            | yes before Gloas                    |
 | v8.2.0             | Jun 2026     | v29            | yes before Gloas                    |
 | v8.1.0             | Feb 2026     | v28            | yes before Fulu using <= v8.1.3     |
 | v8.0.0             | Nov 2025     | v28            | yes before Fulu using <= v8.1.3     |
