@@ -239,9 +239,11 @@ mod tests {
     }
 
     #[test]
-    fn base_reward_for_epoch_reads_the_current_and_previous_epoch() {
+    fn base_reward_for_epoch_across_a_slot_duration_change() {
         let mut spec = ChainSpec::minimal();
         spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.heze_fork_epoch = Some(Epoch::new(2));
+        spec.slot_duration_ms_eip8198 = 3000;
         let epoch_cache_at = |epoch: u64| {
             PreEpochCache {
                 epoch_key: EpochCacheKey {
@@ -264,6 +266,7 @@ mod tests {
             .unwrap();
         assert_eq!(current, epoch_cache.get_base_reward(0).unwrap());
         assert_eq!(previous, epoch_cache_at(1).get_base_reward(0).unwrap());
+        assert!(current < previous);
 
         for epoch in [0, 3] {
             assert!(matches!(
