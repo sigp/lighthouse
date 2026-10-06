@@ -11,6 +11,7 @@ mod execution_payload_header;
 mod execution_proof;
 mod execution_requests;
 mod inclusion_list;
+mod new_payload_request_ssz;
 mod payload;
 mod signed_bls_to_execution_change;
 mod signed_execution_payload_bid;
@@ -34,8 +35,8 @@ pub use execution_payload_header::{
     ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
 pub use execution_proof::{
-    ExecutionProof, MAX_PROOF_SIZE, MaxProofSize, ProofData, ProofType, PublicInput,
-    SignedExecutionProof,
+    ExecutionProof, ExecutionProofEnvelope, MAX_PROOF_SIZE, MaxProofSize, ProofData, ProofType,
+    PublicInput, STATELESS_INPUT_SCHEMA_ID, SUPPORTED_PROOF_TYPES, SignedExecutionProofEnvelope,
 };
 pub use execution_requests::{
     BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
@@ -43,6 +44,7 @@ pub use execution_requests::{
     RequestType, WithdrawalRequests,
 };
 pub use inclusion_list::{InclusionList, InclusionListCommittee};
+pub use new_payload_request_ssz::{NewPayloadRequestSsz, VersionedHashes};
 pub use payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
     BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadRef,

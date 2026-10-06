@@ -66,16 +66,20 @@ impl ProofEngine {
         let response: VerifyResponse = self
             .client
             .post(url)
+            // The four `PublicInput` fields the guest commits to, plus the proof type that says
+            // which guest to dispatch to.
             .query(&[
                 (
                     "new_payload_request_root",
                     format!("{:?}", proof.public_input.new_payload_request_root),
                 ),
-                ("proof_type", proof.proof_type.to_string()),
                 (
-                    "beacon_block_root",
-                    format!("{:?}", proof.beacon_block_root),
+                    "successful_validation",
+                    proof.public_input.successful_validation.to_string(),
                 ),
+                ("chain_id", proof.public_input.chain_id.to_string()),
+                ("schema_id", proof.public_input.schema_id.to_string()),
+                ("proof_type", proof.proof_type.to_string()),
             ])
             .header("content-type", "application/octet-stream")
             .body(proof.proof_data.to_vec())

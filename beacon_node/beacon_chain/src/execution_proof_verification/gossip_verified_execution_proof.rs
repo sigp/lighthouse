@@ -1,21 +1,27 @@
 use super::Error;
 use crate::beacon_chain::BeaconStore;
 use crate::canonical_head::CanonicalHead;
+use crate::data_column_verification::load_gloas_payload_bid;
 use crate::execution_proof_verification::observed_execution_proofs::{
     ObservedExecutionProofs, ProofObservation,
 };
 use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::{BeaconChain, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use parking_lot::RwLock;
 use proof_engine::{ProofEngine, ProofVerificationOutcome};
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
+use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
 use tree_hash::TreeHash;
-use types::execution::SignedExecutionProof;
+use types::execution::{
+    ExecutionProof, ExecutionProofEnvelope, NewPayloadRequestSsz, PublicInput,
+    STATELESS_INPUT_SCHEMA_ID, SignedExecutionProofEnvelope, VersionedHashes,
+};
 use types::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot};
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
+    pub chain: &'a BeaconChain<T>,
     pub canonical_head: &'a CanonicalHead<T>,
     pub observed_execution_proofs: &'a RwLock<ObservedExecutionProofs>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
@@ -27,15 +33,15 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub genesis_validators_root: Hash256,
 }
 
-/// A `SignedExecutionProof` that has been verified for propagation on the gossip network.
+/// A `SignedExecutionProofEnvelope` that has been verified for propagation on the gossip network.
 pub struct GossipVerifiedExecutionProof {
-    pub proof: Arc<SignedExecutionProof>,
+    pub proof: Arc<SignedExecutionProofEnvelope>,
     pub block_slot: Slot,
 }
 
 impl GossipVerifiedExecutionProof {
     pub async fn new<T: BeaconChainTypes>(
-        proof: Arc<SignedExecutionProof>,
+        proof: Arc<SignedExecutionProofEnvelope>,
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, Error> {
         // [REJECT] `proof.proof_data` is non-empty. The `MAX_PROOF_SIZE` upper bound is enforced
@@ -148,8 +154,9 @@ impl GossipVerifiedExecutionProof {
         // embedded in-process in the future), so awaiting it here does not hold up the processor
         // significantly.
         let proof_engine = ctx.proof_engine.as_ref().ok_or(Error::ProofEngineMissing)?;
+        let execution_proof = get_execution_proof(ctx.chain, &proof.message, block_root)?;
         match proof_engine
-            .verify_execution_proof(&proof.message)
+            .verify_execution_proof(&execution_proof)
             .await
             .map_err(Error::ProofEngine)?
         {
@@ -167,6 +174,7 @@ impl GossipVerifiedExecutionProof {
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn execution_proof_gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
         GossipVerificationContext {
+            chain: self,
             canonical_head: &self.canonical_head,
             observed_execution_proofs: &self.observed_execution_proofs,
             validator_pubkey_cache: &self.validator_pubkey_cache,
@@ -181,7 +189,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub async fn verify_execution_proof_for_gossip(
         &self,
-        proof: Arc<SignedExecutionProof>,
+        proof: Arc<SignedExecutionProofEnvelope>,
     ) -> Result<GossipVerifiedExecutionProof, Error> {
         GossipVerifiedExecutionProof::new(
             proof,
@@ -189,4 +197,57 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
         .await
     }
+}
+
+/// Build the `ExecutionProof` the proof engine verifies (EIP-8025 `get_execution_proof`).
+///
+/// TODO(EIP8025): add cache of result of the hash. The root is the same for every proof of a
+/// block, so it is recomputed on each gossip hop.
+fn get_execution_proof<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    proof_envelope: &ExecutionProofEnvelope,
+    block_root: Hash256,
+) -> Result<ExecutionProof, Error> {
+    let payload_envelope = chain
+        .store
+        .get_signed_payload_envelope(&block_root)
+        .map_err(|e| Error::BeaconChainError(Box::new(e.into())))?
+        .ok_or(Error::PayloadUnavailable {
+            beacon_block_root: block_root,
+        })?
+        .message;
+
+    // Commitments live on the bid, not the envelope.
+    let bid = load_gloas_payload_bid(block_root, chain)
+        .map_err(|e| Error::BeaconChainError(Box::new(e)))?
+        .ok_or(Error::UnknownBlockRoot {
+            beacon_block_root: block_root,
+        })?;
+
+    let versioned_hashes = VersionedHashes::<T::EthSpec>::new(
+        bid.message
+            .blob_kzg_commitments
+            .iter()
+            .map(kzg_commitment_to_versioned_hash)
+            .collect(),
+    )
+    .map_err(|e| Error::BeaconChainError(Box::new(BeaconChainError::SszTypesError(e))))?;
+
+    let new_payload_request = NewPayloadRequestSsz::<T::EthSpec> {
+        execution_payload: payload_envelope.payload,
+        versioned_hashes,
+        parent_beacon_block_root: payload_envelope.parent_beacon_block_root,
+        execution_requests: payload_envelope.execution_requests,
+    };
+
+    Ok(ExecutionProof {
+        proof_data: proof_envelope.proof_data.clone(),
+        proof_type: proof_envelope.proof_type,
+        public_input: PublicInput {
+            new_payload_request_root: new_payload_request.tree_hash_root(),
+            successful_validation: true,
+            chain_id: chain.spec.deposit_chain_id,
+            schema_id: STATELESS_INPUT_SCHEMA_ID,
+        },
+    })
 }
