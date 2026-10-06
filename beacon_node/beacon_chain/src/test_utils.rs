@@ -827,30 +827,12 @@ pub fn pooled_payload_attestation_bits<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     data: &PayloadAttestationData,
 ) -> usize {
-    pack_payload_attestations_for_block(
-        chain
-            .op_pool
-            .get_payload_attestations(|pooled| pooled == data),
-    )
-    .iter()
-    .map(|attestation| attestation.aggregation_bits.num_set_bits())
-    .sum()
-}
-
-/// Packs pooled payload attestations as block production does: most participation first, capped
-/// at `max_payload_attestations`.
-pub fn pack_payload_attestations_for_block<E: EthSpec>(
-    mut payload_attestations: Vec<PayloadAttestation<E>>,
-) -> Vec<PayloadAttestation<E>> {
-    // Prefer most participation and cap by `max_payload_attestations`
-    payload_attestations.sort_by(|a, b| {
-        b.aggregation_bits
-            .num_set_bits()
-            .cmp(&a.aggregation_bits.num_set_bits())
-    });
-    payload_attestations.truncate(E::max_payload_attestations());
-
-    payload_attestations
+    chain
+        .op_pool
+        .get_payload_attestations(|pooled| pooled == data)
+        .iter()
+        .map(|attestation| attestation.aggregation_bits.num_set_bits())
+        .sum()
 }
 
 /// Number of PTC positions held by `validator_index`, which is how many bits its message sets.

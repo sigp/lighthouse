@@ -600,7 +600,6 @@ pub fn get_beacon_pool_payload_attestations<T: BeaconChainTypes>(
                             .status(200)
                             .body(payload_attestations.as_ssz_bytes())
                             .map(add_ssz_content_type_header)
-                            .map(|res| add_consensus_version_header(res, fork_name))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -612,12 +611,10 @@ pub fn get_beacon_pool_payload_attestations<T: BeaconChainTypes>(
                                 ResponseIncludesVersion::Yes(fork_name),
                                 &payload_attestations,
                             );
-                            Ok(add_consensus_version_header(
-                                warp::reply::json(&res).into_response(),
-                                fork_name,
-                            ))
+                            Ok(warp::reply::json(&res).into_response())
                         }
                     }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },
         )

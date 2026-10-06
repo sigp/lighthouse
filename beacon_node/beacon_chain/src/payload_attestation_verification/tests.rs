@@ -17,7 +17,7 @@ use crate::{
     },
     test_utils::{
         BeaconChainHarness, EphemeralHarnessType, MakePayloadAttestationOptions,
-        PayloadAttestationVote, fork_name_from_env, pack_payload_attestations_for_block, test_spec,
+        PayloadAttestationVote, fork_name_from_env, test_spec,
     },
 };
 
@@ -362,22 +362,25 @@ async fn harness_builds_and_imports_payload_attestation_messages() {
         3
     );
 
-    let packed_bits = || -> usize {
-        pack_payload_attestations_for_block(ctx.harness.chain.op_pool.get_payload_attestations(
-            |data| data.slot == slot && data.beacon_block_root == beacon_block_root,
-        ))
-        .iter()
-        .map(|attestation| attestation.aggregation_bits.num_set_bits())
-        .sum()
+    let pooled_bits = || -> usize {
+        ctx.harness
+            .chain
+            .op_pool
+            .get_payload_attestations(|data| {
+                data.slot == slot && data.beacon_block_root == beacon_block_root
+            })
+            .iter()
+            .map(|attestation| attestation.aggregation_bits.num_set_bits())
+            .sum()
     };
 
-    let bits_before = packed_bits();
+    let bits_before = pooled_bits();
     ctx.harness
         .import_payload_attestation_messages(messages)
         .expect("payload attestation messages should import");
 
     let expected_bits: usize = attesters.iter().map(|v| ptc_weights[v]).sum();
-    assert_eq!(packed_bits(), bits_before + expected_bits);
+    assert_eq!(pooled_bits(), bits_before + expected_bits);
 }
 
 #[tokio::test]

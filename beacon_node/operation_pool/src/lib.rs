@@ -867,7 +867,7 @@ mod release_tests {
     use super::*;
     use beacon_chain::test_utils::{
         BeaconChainHarness, EphemeralHarnessType, MakeAttestationOptions, RelativeSyncCommittee,
-        pack_payload_attestations_for_block, test_spec,
+        test_spec,
     };
     use bls::Keypair;
     use maplit::hashset;
@@ -2368,10 +2368,11 @@ mod release_tests {
 
         assert_eq!(op_pool.num_payload_attestations(), 0);
         assert!(
-            pack_payload_attestations_for_block(op_pool.get_payload_attestations(|data| data.slot
-                == target_slot
-                && data.beacon_block_root == parent_root,))
-            .is_empty()
+            op_pool
+                .get_payload_attestations(
+                    |data| data.slot == target_slot && data.beacon_block_root == parent_root
+                )
+                .is_empty()
         );
     }
 
@@ -2472,10 +2473,11 @@ mod release_tests {
 
         // Block production keeps the root filter.
         assert_eq!(
-            pack_payload_attestations_for_block(op_pool.get_payload_attestations(|data| data.slot
-                == target_slot
-                && data.beacon_block_root == parent_root,))
-            .len(),
+            op_pool
+                .get_payload_attestations(
+                    |data| data.slot == target_slot && data.beacon_block_root == parent_root
+                )
+                .len(),
             4
         );
     }
@@ -2515,10 +2517,9 @@ mod release_tests {
         op_pool.insert_payload_attestation(&msg0, &ptc).unwrap();
         op_pool.insert_payload_attestation(&msg1, &ptc).unwrap();
 
-        let payload_attestations =
-            pack_payload_attestations_for_block(op_pool.get_payload_attestations(|data| {
-                data.slot == target_slot && data.beacon_block_root == parent_root
-            }));
+        let payload_attestations = op_pool.get_payload_attestations(|data| {
+            data.slot == target_slot && data.beacon_block_root == parent_root
+        });
 
         let expected_positions: Vec<usize> = ptc
             .0
@@ -2593,10 +2594,9 @@ mod release_tests {
             &spec,
         )
         .unwrap();
-        let payload_attestations =
-            pack_payload_attestations_for_block(op_pool.get_payload_attestations(|data| {
-                data.slot == target_slot && data.beacon_block_root == parent_root
-            }));
+        let payload_attestations = op_pool.get_payload_attestations(|data| {
+            data.slot == target_slot && data.beacon_block_root == parent_root
+        });
 
         assert_eq!(payload_attestations.len(), 1);
         assert_eq!(
@@ -2666,11 +2666,15 @@ mod release_tests {
             }
         }
 
-        // When: we pack payload attestations for block production at slot 2.
-        let payload_attestations =
-            pack_payload_attestations_for_block(op_pool.get_payload_attestations(|data| {
-                data.slot == target_slot && data.beacon_block_root == parent_root
-            }));
+        let mut payload_attestations = op_pool.get_payload_attestations(|data| {
+            data.slot == target_slot && data.beacon_block_root == parent_root
+        });
+        payload_attestations.sort_by(|a, b| {
+            b.aggregation_bits
+                .num_set_bits()
+                .cmp(&a.aggregation_bits.num_set_bits())
+        });
+        payload_attestations.truncate(MinimalEthSpec::max_payload_attestations());
 
         // Then: one payload attestation per combo, sorted by participation (most first).
         assert_eq!(payload_attestations.len(), 4);
