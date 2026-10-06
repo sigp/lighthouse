@@ -309,14 +309,9 @@ impl ApiTester {
         // is only used by mock-builder tests.
         let strict_registrations = true;
         let apply_operations = true;
-        let broadcast_to_bn = true;
 
-        let mock_builder_server = harness.set_mock_builder(
-            beacon_url.clone(),
-            strict_registrations,
-            apply_operations,
-            broadcast_to_bn,
-        );
+        let mock_builder_server =
+            harness.set_mock_builder(beacon_url.clone(), strict_registrations, apply_operations);
 
         // Start the mock builder service prior to building the chain out.
         harness

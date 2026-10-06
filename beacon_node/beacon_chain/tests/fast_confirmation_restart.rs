@@ -4,7 +4,8 @@ use beacon_chain::{
     BeaconChain, BeaconChainTypes, ChainConfig,
     chain_config::FastConfirmationMode,
     test_utils::{
-        AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+        fork_name_from_env, test_spec,
     },
 };
 use bls::Keypair;
@@ -81,6 +82,12 @@ fn node(store: Store, harness: &Harness, fresh: bool, fcr: bool, reset: bool) ->
         .execution_layer(harness.chain.execution_layer.clone())
         .chain_config(config(fcr, reset))
         .build()
+}
+
+/// A pre-Bellatrix block has no execution block hash, so `run_fcr` errors and the node always
+/// announces the finalized block. These tests have nothing to check there.
+fn pre_bellatrix() -> bool {
+    fork_name_from_env().is_some_and(|fork| !fork.bellatrix_enabled())
 }
 
 fn validators(n: usize) -> Vec<usize> {
@@ -385,6 +392,9 @@ impl Scenario {
     }
 
     async fn run(self) {
+        if pre_bellatrix() {
+            return;
+        }
         let all = validators(VALIDATOR_COUNT);
         let epoch = E::slots_per_epoch();
         let mut rig = Rig::new();
@@ -511,6 +521,9 @@ async fn crash_instead_of_graceful_shutdown() {
 /// that root, so only its age can reject it — and it must.
 #[tokio::test]
 async fn re_enabling_fcr_drops_a_stale_root() {
+    if pre_bellatrix() {
+        return;
+    }
     let all = validators(VALIDATOR_COUNT);
     let mut rig = Rig::new();
     rig.steps(WARMUP_SLOTS, &all).await;
@@ -557,6 +570,9 @@ async fn re_enabling_fcr_drops_a_stale_root() {
 /// survives the boot that turns it back on.
 #[tokio::test]
 async fn re_enabling_fcr_drops_roots_finality_passed() {
+    if pre_bellatrix() {
+        return;
+    }
     let all = validators(VALIDATOR_COUNT);
     let mut rig = Rig::new();
     rig.steps(WARMUP_SLOTS, &all).await;
@@ -603,6 +619,9 @@ async fn re_enabling_fcr_drops_roots_finality_passed() {
 /// block is not confirmed. The EL is the one that lost the statuses, so it may lack the block too.
 #[tokio::test]
 async fn a_payload_status_reset_drops_the_confirmed_root() {
+    if pre_bellatrix() {
+        return;
+    }
     let all = validators(VALIDATOR_COUNT);
     let mut rig = Rig::new();
     rig.steps(WARMUP_SLOTS, &all).await;
@@ -674,6 +693,9 @@ async fn restart_after(slots_of_downtime: u64) -> Restarted {
 /// either, even though the rule itself has gone back to the finalized block.
 #[tokio::test]
 async fn the_confirmed_root_reaches_the_execution_layer() {
+    if pre_bellatrix() {
+        return;
+    }
     let rig = restart_after(1).await;
 
     assert_eq!(
@@ -708,6 +730,9 @@ async fn the_confirmed_root_reaches_the_execution_layer() {
 /// root from before the restart has to be in there already or the EL's safe block hash regresses.
 #[tokio::test]
 async fn the_startup_update_sends_the_restored_root() {
+    if pre_bellatrix() {
+        return;
+    }
     let all = validators(VALIDATOR_COUNT);
     let mut rig = Rig::new();
     rig.steps(WARMUP_SLOTS, &all).await;
@@ -750,6 +775,9 @@ async fn the_startup_update_sends_the_restored_root() {
 /// A root off the head's chain is dropped: the EL rejects such a `forkchoiceUpdated`.
 #[tokio::test]
 async fn drops_a_root_that_was_reorged_out() {
+    if pre_bellatrix() {
+        return;
+    }
     let rig = restart_after(1).await;
 
     // A fork from the pre-restart root's parent, attested by all, takes the head off that branch.
@@ -791,6 +819,9 @@ async fn drops_a_root_that_was_reorged_out() {
 /// Three epochs down puts the root outside the window: the revert the oracle above has to forbid.
 #[tokio::test]
 async fn falls_back_to_finalized_after_a_long_downtime() {
+    if pre_bellatrix() {
+        return;
+    }
     let rig = restart_after(3 * E::slots_per_epoch()).await;
 
     assert_ne!(rig.confirmed_before, finalized(&rig.node.chain));

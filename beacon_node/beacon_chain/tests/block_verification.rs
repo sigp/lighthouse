@@ -54,18 +54,20 @@ enum DataSidecars<E: EthSpec> {
     DataColumns(Vec<CustodyDataColumn<E>>),
 }
 
-type ChainSegmentData = (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>);
+type SegmentSnapshot = BeaconSnapshot<E, FullPayload<E>, SignedExecutionPayloadEnvelope<E>>;
+
+type ChainSegmentData = (Vec<SegmentSnapshot>, Vec<Option<DataSidecars<E>>>);
 
 static CHAIN_SEGMENT: LazyLock<tokio::sync::OnceCell<ChainSegmentData>> =
     LazyLock::new(tokio::sync::OnceCell::new);
-static CHAIN_SEGMENT_NO_BLOBS: LazyLock<tokio::sync::OnceCell<Vec<BeaconSnapshot<E>>>> =
+static CHAIN_SEGMENT_NO_BLOBS: LazyLock<tokio::sync::OnceCell<Vec<SegmentSnapshot>>> =
     LazyLock::new(tokio::sync::OnceCell::new);
 
 async fn get_chain_segment() -> &'static ChainSegmentData {
     CHAIN_SEGMENT.get_or_init(build_chain_segment).await
 }
 
-async fn get_chain_segment_no_blobs() -> &'static Vec<BeaconSnapshot<E>> {
+async fn get_chain_segment_no_blobs() -> &'static Vec<SegmentSnapshot> {
     CHAIN_SEGMENT_NO_BLOBS
         .get_or_init(build_chain_segment_no_blobs)
         .await
@@ -81,7 +83,7 @@ async fn build_chain_segment() -> ChainSegmentData {
 
 /// Build a chain segment of blocks without blobs. Used for testing pre-fulu blocks, where
 /// gossip blob functionality has been deprecated.
-async fn build_chain_segment_no_blobs() -> Vec<BeaconSnapshot<E>> {
+async fn build_chain_segment_no_blobs() -> Vec<SegmentSnapshot> {
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
     harness
         .execution_block_generator()
@@ -95,7 +97,7 @@ fn is_fulu_enabled_at_slot(spec: &ChainSpec, slot: Slot) -> bool {
 
 async fn build_chain_segment_from_harness(
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
-) -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>) {
+) -> (Vec<SegmentSnapshot>, Vec<Option<DataSidecars<E>>>) {
     let mut segment = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
     let mut segment_sidecars = Vec::with_capacity(CHAIN_SEGMENT_LENGTH);
 
@@ -131,8 +133,19 @@ async fn build_chain_segment_from_harness(
                 .map(DataSidecars::Blobs)
         };
 
+        let execution_envelope = harness
+            .chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .map(Arc::new);
+
         segment_sidecars.push(data_sidecars);
-        segment.push(snapshot.as_ref().clone());
+        segment.push(BeaconSnapshot::new(
+            snapshot.beacon_block.clone(),
+            execution_envelope,
+            snapshot.beacon_block_root,
+            snapshot.beacon_state.clone(),
+        ));
     }
     (segment, segment_sidecars)
 }
@@ -159,7 +172,7 @@ fn get_harness(
 }
 
 fn chain_segment_blocks<T>(
-    chain_segment: &[BeaconSnapshot<E>],
+    chain_segment: &[SegmentSnapshot],
     chain_segment_sidecars: &[Option<DataSidecars<E>>],
     chain: Arc<BeaconChain<T>>,
 ) -> Vec<RangeSyncBlock<E>>
@@ -233,7 +246,7 @@ where
 // TODO(gloas): this is a bit of a hack that can be removed once `process_chain_segment` handles
 // payload envelopes
 fn store_envelopes_for_chain_segment(
-    chain_segment: &[BeaconSnapshot<E>],
+    chain_segment: &[SegmentSnapshot],
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
 ) {
     for snapshot in chain_segment {
@@ -251,7 +264,7 @@ fn store_envelopes_for_chain_segment(
 ///
 /// Must be called after the blocks have been imported into fork choice.
 fn update_fork_choice_with_envelopes(
-    chain_segment: &[BeaconSnapshot<E>],
+    chain_segment: &[SegmentSnapshot],
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
 ) {
     for snapshot in chain_segment {
@@ -283,7 +296,7 @@ fn junk_aggregate_signature() -> AggregateSignature {
 }
 
 fn update_proposal_signatures(
-    snapshots: &mut [BeaconSnapshot<E>],
+    snapshots: &mut [SegmentSnapshot],
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
 ) {
     for snapshot in snapshots {
@@ -308,7 +321,7 @@ fn update_proposal_signatures(
     }
 }
 
-fn update_envelope_block_root(snapshot: &mut BeaconSnapshot<E>) {
+fn update_envelope_block_root(snapshot: &mut SegmentSnapshot) {
     if let Some(envelope) = snapshot.execution_envelope.as_ref() {
         let mut envelope = envelope.as_ref().clone();
         envelope.message.beacon_block_root = snapshot.beacon_block.canonical_root();
@@ -317,7 +330,7 @@ fn update_envelope_block_root(snapshot: &mut BeaconSnapshot<E>) {
     }
 }
 
-fn update_parent_roots(snapshots: &mut [BeaconSnapshot<E>], blobs: &mut [Option<DataSidecars<E>>]) {
+fn update_parent_roots(snapshots: &mut [SegmentSnapshot], blobs: &mut [Option<DataSidecars<E>>]) {
     for i in 0..snapshots.len() {
         let root = snapshots[i].beacon_block.canonical_root();
         if let (Some(child), Some(child_blobs)) = (snapshots.get_mut(i + 1), blobs.get_mut(i + 1)) {
@@ -626,11 +639,11 @@ async fn chain_segment_non_linear_slots() {
 }
 
 async fn assert_invalid_signature(
-    chain_segment: &[BeaconSnapshot<E>],
+    chain_segment: &[SegmentSnapshot],
     chain_segment_blobs: &[Option<DataSidecars<E>>],
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     block_index: usize,
-    snapshots: &[BeaconSnapshot<E>],
+    snapshots: &[SegmentSnapshot],
     item: &str,
 ) {
     store_envelopes_for_chain_segment(chain_segment, harness);
@@ -735,7 +748,7 @@ async fn assert_invalid_signature(
 }
 
 async fn get_invalid_sigs_harness(
-    chain_segment: &[BeaconSnapshot<E>],
+    chain_segment: &[SegmentSnapshot],
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     store_envelopes_for_chain_segment(chain_segment, &harness);
@@ -1226,7 +1239,7 @@ async fn block_gossip_verification() {
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
     let test_block_slot = Slot::new(block_index as u64);
     let (chain_segment, chain_segment_blobs): (
-        &Vec<BeaconSnapshot<E>>,
+        &Vec<SegmentSnapshot>,
         Vec<Option<DataSidecars<E>>>,
     ) = if is_fulu_enabled_at_slot(&harness.spec, test_block_slot) {
         let (chain_segment, ref_blobs) = get_chain_segment().await;
