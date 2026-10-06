@@ -269,17 +269,13 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                     );
                     let mut chain = vec![];
                     let mut current = head_root;
-                    loop {
-                        if let Ok(Some(block)) = harness.chain.store.get_blinded_block(&current) {
-                            let parent = block.parent_root();
-                            chain.push(block);
-                            if current == harness.chain.genesis_block_root {
-                                break;
-                            }
-                            current = parent;
-                        } else {
+                    while let Ok(Some(block)) = harness.chain.store.get_blinded_block(&current) {
+                        let parent = block.parent_root();
+                        chain.push(block);
+                        if current == harness.chain.genesis_block_root {
                             break;
                         }
+                        current = parent;
                     }
                     chain.reverse(); // oldest first
                     for block in &chain {
