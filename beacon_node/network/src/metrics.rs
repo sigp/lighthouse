@@ -499,6 +499,14 @@ pub static SYNCING_CHAIN_BATCHES: LazyLock<Result<IntGaugeVec>> = LazyLock::new(
         &["sync_type", "state"],
     )
 });
+pub static SYNC_DATA_COLUMNS_BY_RANGE_REQUEST_COLUMNS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "sync_data_columns_by_range_request_columns",
+            "Number of columns requested from one peer in a single DataColumnsByRange request",
+            Ok(vec![1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]),
+        )
+    });
 pub static SYNCING_CHAIN_BATCH_DOWNLOADING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "sync_range_chain_batch_downloading_seconds",

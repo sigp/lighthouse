@@ -18,14 +18,6 @@ pub type MaxBuilderEntries = typenum::U64;
 /// [`MaxBuilderEntries`] as a `usize` (derived, so the two cannot drift), for runtime bounds checks.
 pub const MAX_BUILDER_ENTRIES: usize = <MaxBuilderEntries as typenum::Unsigned>::USIZE;
 
-// `to_default_auth_data` is infallible only while every possible URL fits within the auth `data`
-// bound; enforce that at compile time so growing `MaxBuilderUrlSize` past `MaxDataSize` cannot
-// silently turn the default into (wire-invalid) zero-length auth data.
-const _: () = assert!(
-    <MaxBuilderUrlSize as typenum::Unsigned>::USIZE
-        <= <crate::MaxDataSize as typenum::Unsigned>::USIZE
-);
-
 /// A builder URL as it travels on the beacon-API wire.
 ///
 /// Held as the UTF-8 bytes of the URL so it can serialize two ways, matching the `ByteList` /
@@ -46,7 +38,7 @@ pub struct BuilderUrl {
 pub enum BuilderUrlError {
     /// The URL exceeds `MaxBuilderUrlSize` bytes.
     TooLong,
-    /// The bytes are not a valid URL (invalid UTF-8 or unparseable).
+    /// The bytes cannot be parsed as a URL or used to derive an ASCII hostname.
     InvalidUrl,
 }
 
@@ -73,10 +65,32 @@ impl BuilderUrl {
 
     /// The default opaque auth `data` to sign for this builder when no custom auth data is provided.
     ///
-    /// Infallible: a `BuilderUrl` is at most `MaxBuilderUrlSize` (2048) bytes, well within
-    /// `MaxDataSize` (4096), so building the default from the URL cannot overflow.
-    pub fn to_default_auth_data(&self) -> RequestAuthData {
-        RequestAuthData::new(self.as_bytes().to_vec()).unwrap_or_default()
+    /// Uses the lowercase ASCII hostname, with IPv6 compressed inside brackets. Internationalized
+    /// hostnames must be supplied in punycode form, as required by builder-specs #168.
+    pub fn to_default_auth_data(&self) -> Result<RequestAuthData, BuilderUrlError> {
+        let parsed = self.to_sensitive_url()?;
+        // Match URL parsing without changing the stored routing URL or explicit auth data.
+        let url = self
+            .as_str()
+            .map_err(|_| BuilderUrlError::InvalidUrl)?
+            .replace(['\t', '\r', '\n'], "");
+        let (_, authority) = url.split_once("://").ok_or(BuilderUrlError::InvalidUrl)?;
+        let host_port = authority
+            .split(['/', '?', '#'])
+            .next()
+            .and_then(|authority| authority.rsplit('@').next())
+            .ok_or(BuilderUrlError::InvalidUrl)?;
+        let host = if host_port.starts_with('[') {
+            // URL serialization uses hexadecimal groups even for IPv4-mapped IPv6 addresses.
+            parsed.expose_full().host_str()
+        } else {
+            // Keep the advertised spelling: URL parsing also rewrites IPv4 and percent escapes.
+            host_port.split(':').next()
+        }
+        .filter(|host| !host.is_empty() && host.is_ascii())
+        .ok_or(BuilderUrlError::InvalidUrl)?;
+        RequestAuthData::new(host.to_ascii_lowercase().into_bytes())
+            .map_err(|_| BuilderUrlError::TooLong)
     }
 }
 
@@ -157,22 +171,74 @@ mod tests {
     }
 
     #[test]
-    fn default_auth_data_cannot_fail_even_at_max_url_size() {
+    fn default_auth_data_ignores_url_spelling() {
+        for url in [
+            "https://builder.example.com",
+            "https://builder.example.com/",
+            "HTTPS://Builder.Example.com:443/bids?x=1#fragment",
+            "https://user:pw@builder.example.com:8080/",
+            "https://Builder.Example.com\r\n",
+            "https:/\t/Buil\tder.Example.com/",
+        ] {
+            let url = BuilderUrl::from_str(url).unwrap();
+            assert_eq!(
+                &*url.to_default_auth_data().unwrap(),
+                b"builder.example.com"
+            );
+        }
+    }
+
+    #[test]
+    fn default_auth_data_hostnames() {
+        for (url, expected) in [
+            ("https://10.0.0.5:18550/eth/v1/builder", "10.0.0.5"),
+            ("https://[0:0:0:0:0:0:0:1]:8443/", "[::1]"),
+            ("https://[::ffff:192.0.2.1]/", "[::ffff:c000:201]"),
+            ("https://[2001:0DB8:0:0:1:0:0:1]/", "[2001:db8::1:0:0:1]"),
+            ("https://XN--BCHER-KVA.example/", "xn--bcher-kva.example"),
+            ("https://builder.example/路徑", "builder.example"),
+            ("http://127.1/", "127.1"),
+            ("http://0177.0.0.1/", "0177.0.0.1"),
+            ("https://%65XAMPLE.com/", "%65xample.com"),
+        ] {
+            let url = BuilderUrl::from_str(url).unwrap();
+            assert_eq!(&*url.to_default_auth_data().unwrap(), expected.as_bytes());
+        }
+    }
+
+    #[test]
+    fn default_auth_data_requires_ascii_hostname() {
+        for url in [
+            "",
+            "not a URL",
+            "mailto:builder@example.com",
+            "https://bücher.example/",
+        ] {
+            assert!(matches!(
+                BuilderUrl::from_str(url).unwrap().to_default_auth_data(),
+                Err(BuilderUrlError::InvalidUrl)
+            ));
+        }
+        let url = BuilderUrl {
+            bytes: VariableList::new(vec![0xff]).unwrap(),
+        };
+        assert!(matches!(
+            url.to_default_auth_data(),
+            Err(BuilderUrlError::InvalidUrl)
+        ));
+    }
+
+    #[test]
+    fn default_auth_data_at_max_url_size() {
         use ssz_types::typenum::Unsigned;
 
-        // The `MaxBuilderUrlSize <= MaxDataSize` invariant is asserted at compile time at module
-        // level; exercise the largest possible URL to confirm the default is the URL bytes and
-        // never the empty fallback.
-        let scheme = "https://";
+        let prefix = "https://builder.example/";
         let url_string = format!(
-            "{scheme}{}",
-            "a".repeat(MaxBuilderUrlSize::USIZE - scheme.len())
+            "{prefix}{}",
+            "a".repeat(MaxBuilderUrlSize::USIZE - prefix.len())
         );
         let url = BuilderUrl::from_str(&url_string).unwrap();
         assert_eq!(url.as_bytes().len(), MaxBuilderUrlSize::USIZE);
-
-        let data = url.to_default_auth_data();
-        assert!(!data.is_empty(), "default auth data fell back to empty");
-        assert_eq!(&*data, url.as_bytes());
+        assert_eq!(&*url.to_default_auth_data().unwrap(), b"builder.example");
     }
 }
