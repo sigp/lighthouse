@@ -163,7 +163,13 @@ where
             return None;
         }
 
-        sleep(duration_to_next_slot + inclusion_list_production_due).await;
+        let sleep_duration = match self.slot_clock.millis_from_current_slot_start() {
+            Some(elapsed) if elapsed < inclusion_list_production_due => {
+                inclusion_list_production_due - elapsed
+            }
+            _ => duration_to_next_slot + inclusion_list_production_due,
+        };
+        sleep(sleep_duration).await;
 
         let Some(current_slot) = self.slot_clock.now() else {
             error!("Failed to read slot clock after sleep");
@@ -456,7 +462,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn waits_until_production_due_in_next_slot() {
+    async fn waits_until_production_due_in_current_slot() {
         tokio::time::pause();
 
         let harness = TestHarness::new_with_validators(1).await;
@@ -467,9 +473,45 @@ mod tests {
         // Start the timer and registers the sleep timer with tokio
         assert!(service_wait.as_mut().now_or_never().is_none());
 
-        // 7s into the next slot: 1s before the inclusion list deadline
+        // 7s into the current slot: 1s before the inclusion list deadline
         let production_due = service.inclusion_list_production_due();
         assert_eq!(production_due, Duration::from_secs(7));
+        // Advance both slot_clock and tokio::time to 7s
+        advance_time(&harness.service.slot_clock, production_due).await;
+        assert!(
+            service_wait.as_mut().now_or_never().is_none(),
+            "Function should return None before the sleep duration has elapsed"
+        );
+
+        advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            Some(Slot::new(0))
+        );
+    }
+
+    #[tokio::test]
+    async fn waits_until_production_due_in_next_slot() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_validators(1).await;
+        let service = &harness.service;
+
+        // Move past the production due of the current slot
+        let production_due = service.inclusion_list_production_due();
+        advance_time(
+            &harness.service.slot_clock,
+            production_due + Duration::from_secs(1),
+        )
+        .await;
+
+        let service_wait = service.wait_for_inclusion_list_production_due();
+        tokio::pin!(service_wait);
+
+        // Start the timer and registers the sleep timer with tokio
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        // 7s into the next slot: 1s before the inclusion list deadline
         let duration_to_wait = service.slot_clock.duration_to_next_slot().unwrap() + production_due;
         // Advance both slot_clock and tokio::time to 19s
         advance_time(&harness.service.slot_clock, duration_to_wait).await;
