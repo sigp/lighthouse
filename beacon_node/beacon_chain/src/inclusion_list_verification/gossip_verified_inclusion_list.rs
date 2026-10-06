@@ -6,6 +6,7 @@ use crate::inclusion_list_verification::{
 use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore};
+use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
@@ -232,7 +233,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Successfully verified gossip inclusion list"
                 );
 
-                // TODO(heze): emit the inclusion_list SSE event
+                if let Some(event_handler) = self.event_handler.as_ref()
+                    && event_handler.has_inclusion_list_subscribers()
+                {
+                    event_handler.register(EventKind::InclusionList(Box::new(
+                        ForkVersionedResponse {
+                            version: self.spec.fork_name_at_slot::<T::EthSpec>(slot),
+                            metadata: Default::default(),
+                            data: verified.signed_inclusion_list.clone(),
+                        },
+                    )));
+                }
 
                 Ok(verified)
             }
