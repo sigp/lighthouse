@@ -13,7 +13,9 @@ use beacon_chain::{
 use bls::{Keypair, Signature};
 use eth2::types::{GraffitiPolicy, ProposerPreparationData};
 use execution_layer::http::{ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5};
-use execution_layer::json_structures::{JsonPayloadAttributesV4, JsonPayloadAttributesV5};
+use execution_layer::json_structures::{
+    JsonForkchoiceStateV1, JsonPayloadAttributesV4, JsonPayloadAttributesV5,
+};
 use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes};
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
@@ -222,6 +224,110 @@ async fn gloas_block_production_parent_root_with_unadvanced_state() {
         assert_eq!(envelope.parent_beacon_block_root, parent_root);
         assert_eq!(envelope.payload.parent_hash, parent_bid.parent_block_hash());
     }
+}
+
+// Regression test for #10226: proposer prep ignored PTC when choosing the
+// execution parent.
+#[tokio::test]
+async fn prepare_payload_on_full_parent_with_negative_ptc() {
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    harness
+        .execution_block_generator()
+        .set_generate_blobs(false);
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let parent_root = harness.head_block_root();
+    let parent_state = harness.get_current_state();
+    let parent_slot = parent_state.slot();
+    let prepare_slot = parent_slot + 1;
+    let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
+    assert_ne!(parent_bid.block_hash, parent_bid.parent_block_hash);
+
+    let (messages, _) = harness.make_payload_attestation_messages(
+        &parent_state,
+        parent_root,
+        parent_slot,
+        vec![PayloadAttestationVote {
+            validator_count: E::ptc_size(),
+            payload_present: false,
+            blob_data_available: false,
+        }],
+    );
+    harness
+        .import_payload_attestation_messages(messages)
+        .unwrap();
+
+    let current_slot = prepare_slot - 1;
+    harness.set_current_slot(current_slot);
+    harness.chain.recompute_head_at_current_slot().await;
+    let head = harness.chain.canonical_head.cached_head();
+    assert_eq!(head.head_block_root(), parent_root);
+    assert_eq!(head.head_payload_status(), PayloadStatus::Full);
+
+    let mut advanced_state = head.snapshot.beacon_state.clone();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, None, &spec).unwrap();
+    let proposer_index = advanced_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+    drop(head);
+
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    let suggested_fee_recipient = Address::repeat_byte(42);
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: suggested_fee_recipient,
+            },
+            &None,
+        )],
+    )
+    .await;
+
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .expect("prepare_beacon_proposer should succeed");
+
+    let request = harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .take_previous_request()
+        .expect("prepare should send forkchoiceUpdated");
+    let params = request.get("params").expect("no params");
+    let forkchoice_state: JsonForkchoiceStateV1 =
+        serde_json::from_value(params.get(0).expect("no forkchoice state param").clone()).unwrap();
+    assert_eq!(
+        forkchoice_state.head_block_hash, parent_bid.parent_block_hash,
+        "prep FCU must advertise the Empty parent when PTC votes against a Full payload"
+    );
+
+    let head_root = harness.head_block_root();
+    assert!(
+        el.payload_attributes(prepare_slot, head_root, PayloadStatus::Empty)
+            .await
+            .is_some(),
+        "prepare should cache attributes under Empty when PTC votes against a Full payload"
+    );
 }
 
 #[tokio::test]
