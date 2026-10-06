@@ -125,7 +125,7 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
 ///
 /// Together with the body returned by `engine_getPayloadBodiesByHashV2`, these fields can be used
 /// to reconstruct an `ExecutionPayloadGloas` without an additional execution-layer request.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
 pub struct ExecutionPayloadHeaderGloas<E: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
@@ -234,7 +234,7 @@ impl<E: EthSpec> ExecutionPayloadHeaderGloas<E> {
 ///
 /// The execution payload body is stored separately and can be pruned after finalization. The
 /// summary retains enough information to reconstruct the envelope from a body returned by the EL.
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct SignedExecutionPayloadEnvelopeSummary<E: EthSpec> {
     pub payload_header: ExecutionPayloadHeaderGloas<E>,
     pub execution_requests: ExecutionRequestsGloas<E>,
