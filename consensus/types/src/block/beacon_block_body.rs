@@ -1498,24 +1498,24 @@ impl<'de, E: EthSpec, Payload: AbstractExecPayload<E>> ContextDeserialize<'de, F
 mod tests {
     mod base {
         use super::super::*;
-        use crate::core::MainnetEthSpec;
-        ssz_and_tree_hash_tests!(BeaconBlockBodyBase<MainnetEthSpec>);
+        use crate::core::Spec;
+        ssz_and_tree_hash_tests!(BeaconBlockBodyBase<Spec>);
     }
     mod altair {
         use super::super::*;
-        use crate::core::MainnetEthSpec;
-        ssz_and_tree_hash_tests!(BeaconBlockBodyAltair<MainnetEthSpec>);
+        use crate::core::Spec;
+        ssz_and_tree_hash_tests!(BeaconBlockBodyAltair<Spec>);
     }
     mod gloas {
         use super::super::*;
         use crate::block::BeaconBlock;
-        use crate::core::{ChainSpec, MainnetEthSpec};
+        use crate::core::{ChainSpec, Spec};
 
         /// Check the derived Gloas body root against a manual computation from its 13 field
         /// roots, so an incorrect `active_fields` list would change the result (EIP-7688).
         #[test]
         fn gloas_body_progressive_container_root() {
-            type E = MainnetEthSpec;
+            type E = Spec;
             let spec: ChainSpec = ForkName::Gloas.make_genesis_spec(E::default_spec());
             let block: BeaconBlock<E> = BeaconBlock::empty(&spec);
             let BeaconBlock::Gloas(block) = block else {
