@@ -36,8 +36,8 @@ use types::{
     PayloadAttestation, ProgressiveTransactions, ProposerSlashing, RelativeEpoch,
     SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
     SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal,
-    Withdrawals,
+    SignedExecutionPayloadEnvelopeSummary, SignedProposerPreferences, SignedVoluntaryExit, Slot,
+    SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
 
 use builder_client::BidRequestContext;
@@ -175,7 +175,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state_root_opt: Option<Hash256>,
         parent_root: Hash256,
         parent_payload_status: PayloadStatus,
-        parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        parent_envelope: Option<Arc<SignedExecutionPayloadEnvelopeSummary<T::EthSpec>>>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         graffiti_settings: GraffitiSettings,
@@ -200,7 +200,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_execution_requests = if should_build_on_full {
             parent_envelope
                 .as_ref()
-                .map(|env| env.message.execution_requests.clone())
+                .map(|summary| summary.execution_requests.clone())
                 .ok_or(BlockProductionError::MissingParentExecutionPayload)?
         } else {
             ExecutionRequestsGloas::default()
@@ -955,7 +955,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn produce_execution_payload_bid(
         self: Arc<Self>,
         state: &BeaconState<T::EthSpec>,
-        parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        parent_envelope: Option<Arc<SignedExecutionPayloadEnvelopeSummary<T::EthSpec>>>,
         produce_at_slot: Slot,
         bid_value: u64,
         builder_index: BuilderIndex,
@@ -1322,7 +1322,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
     state: &BeaconState<T::EthSpec>,
     parent_beacon_block_root: Hash256,
     parent_block_hash: ExecutionBlockHash,
-    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelopeSummary<T::EthSpec>>>,
     proposer_index: u64,
     builder_params: BuilderParams,
     preferred_gas_limit: Option<u64>,
@@ -1345,7 +1345,7 @@ fn get_execution_payload_gloas<T: BeaconChainTypes>(
             let mut withdrawals_state = state.clone();
             apply_parent_execution_payload(
                 &mut withdrawals_state,
-                &envelope.message.execution_requests,
+                &envelope.execution_requests,
                 spec,
             )?;
             Withdrawals::<T::EthSpec>::from(get_expected_withdrawals(&withdrawals_state, spec)?)

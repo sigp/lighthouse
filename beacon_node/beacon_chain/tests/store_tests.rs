@@ -17,7 +17,7 @@ use beacon_chain::test_utils::{
     SyncCommitteeStrategy, fork_name_from_env, generate_data_column_indices_rand_order,
 };
 use beacon_chain::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ChainConfig, ChainDumpSnapshot,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
     beacon_proposer_cache::{
         compute_proposer_duties_from_head, ensure_state_can_determine_proposers_for_epoch,
@@ -2540,7 +2540,7 @@ async fn payload_attribute_withdrawals_use_head_summary_after_restart() {
             ..ChainConfig::default()
         })
         .build();
-    assert!(resumed.chain.head_snapshot().execution_envelope.is_none());
+    assert!(resumed.chain.head_snapshot().execution_envelope.is_some());
 
     let withdrawals = resumed
         .chain
@@ -7892,16 +7892,14 @@ async fn bellatrix_produce_and_store_payloads() {
 }
 
 fn get_finalized_epoch_boundary_blocks(
-    dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
+    dump: &[ChainDumpSnapshot<MinimalEthSpec>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
         .collect()
 }
 
-fn get_blocks(
-    dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
-) -> HashSet<SignedBeaconBlockHash> {
+fn get_blocks(dump: &[ChainDumpSnapshot<MinimalEthSpec>]) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()

@@ -168,15 +168,15 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedExecutionPaylo
 #[cfg(test)]
 mod gloas_tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
 
-    ssz_and_tree_hash_tests!(SignedExecutionPayloadBidGloas<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(SignedExecutionPayloadBidGloas<Spec>);
 }
 
 #[cfg(test)]
 mod heze_tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
 
-    ssz_and_tree_hash_tests!(SignedExecutionPayloadBidHeze<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(SignedExecutionPayloadBidHeze<Spec>);
 }

@@ -176,21 +176,21 @@ impl<'a, E: EthSpec> ExecutionPayloadBidRef<'a, E> {
 #[cfg(test)]
 mod gloas_tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
 
-    ssz_and_tree_hash_tests!(ExecutionPayloadBidGloas<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(ExecutionPayloadBidGloas<Spec>);
 }
 
 #[cfg(test)]
 mod heze_tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
 
-    ssz_and_tree_hash_tests!(ExecutionPayloadBidHeze<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(ExecutionPayloadBidHeze<Spec>);
 
     #[test]
     fn inclusion_list_bits_committed_to_signing_root() {
-        let bid = ExecutionPayloadBidHeze::<MainnetEthSpec>::default();
+        let bid = ExecutionPayloadBidHeze::<Spec>::default();
         let mut bid_with_bits = bid.clone();
         bid_with_bits
             .inclusion_list_bits
