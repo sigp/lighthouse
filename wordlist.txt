@@ -39,6 +39,7 @@ Ethereum
 EthStaker
 Exercism
 Extractable
+FCR
 FFG
 Fulu
 Fusaka

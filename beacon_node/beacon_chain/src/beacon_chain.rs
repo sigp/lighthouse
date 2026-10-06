@@ -92,7 +92,7 @@ use crate::validator_monitor::{
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot,
-    CachedHead, metrics,
+    CachedHead, ChainDumpSnapshot, metrics,
 };
 use bls::{PublicKey, PublicKeyBytes, Signature};
 use builder_client::Builders;
@@ -5388,14 +5388,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // For Gloas, when the head payload is Full, we need to apply the parent's
         // execution requests to the state to get the correct withdrawals.
         if parent_payload_status == Some(fork_choice::PayloadStatus::Full) {
-            // Only the execution requests are needed. A restarted head may have no cached
-            // envelope if its payload body was pruned, but its summary is still retained.
             let cached_execution_requests = if parent_block_root == head_block_root {
                 cached_head
                     .snapshot
                     .execution_envelope
                     .as_ref()
-                    .map(|envelope| envelope.message.execution_requests.clone())
+                    .map(|summary| summary.execution_requests.clone())
             } else {
                 None
             };
@@ -7478,9 +7476,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// iterator as it allows for MUCH better caching and rebasing. Memory usage of some tests went
     /// from 5GB per test to 90MB.
     #[allow(clippy::type_complexity)]
-    pub fn chain_dump(
-        &self,
-    ) -> Result<Vec<BeaconSnapshot<T::EthSpec, BlindedPayload<T::EthSpec>>>, Error> {
+    pub fn chain_dump(&self) -> Result<Vec<ChainDumpSnapshot<T::EthSpec>>, Error> {
         self.chain_dump_from_slot(Slot::new(0))
     }
 
@@ -7489,7 +7485,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn chain_dump_from_slot(
         &self,
         from_slot: Slot,
-    ) -> Result<Vec<BeaconSnapshot<T::EthSpec, BlindedPayload<T::EthSpec>>>, Error> {
+    ) -> Result<Vec<ChainDumpSnapshot<T::EthSpec>>, Error> {
         let mut dump = vec![];
 
         let mut prev_block_root = None;
