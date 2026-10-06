@@ -54,8 +54,8 @@ use types::{
     LightClientOptimisticUpdate, PartialDataColumn, PayloadAttestationMessage, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource, data::CellBitmap,
+    SignedInclusionList, SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot,
+    SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource, data::CellBitmap,
     execution::SignedExecutionProof,
 };
 
@@ -3951,7 +3951,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | EnvelopeError::BeaconStateError(_)
                     // The following variants are produced during envelope import, not gossip
                     // verification, so they cannot be reached here. Ignore them to be safe.
-                    | EnvelopeError::OptimisticSyncNotSupported { .. }
                     | EnvelopeError::BlockRootNotInForkChoice(_)
                     | EnvelopeError::InternalError(_) => {
                         self.propagate_validation_result(
@@ -4172,34 +4171,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Verified execution proof from gossip"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
-
-                // This may be the proof the block's envelope was waiting on.
-                match self
-                    .chain
-                    .check_execution_proof_availability_and_import(verified)
-                    .await
-                {
-                    Ok(AvailabilityProcessingStatus::Imported(slot, block_root)) => {
-                        info!(
-                            ?block_root,
-                            %slot,
-                            "Execution payload envelope imported after execution proof"
-                        );
-                        self.chain.recompute_head_at_current_slot().await;
-                        // The payload envelope is imported (`is_payload_received` is now true);
-                        // release any attestations awaiting this block's payload.
-                        self.notify_payload_envelope_imported(block_root, EnvelopeSource::Gossip);
-                    }
-                    Ok(AvailabilityProcessingStatus::MissingComponents(..)) => {}
-                    Err(error) => {
-                        debug!(
-                            %beacon_block_root,
-                            proof_type,
-                            ?error,
-                            "Could not cache execution proof"
-                        );
-                    }
-                }
             }
             Err(error) => {
                 debug!(%beacon_block_root, proof_type, ?error, "Could not verify execution proof");
@@ -4350,6 +4321,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
         }
+    }
+
+    #[instrument(
+        level = "trace",
+        skip_all,
+        fields(
+            peer_id = %peer_id,
+            slot = %inclusion_list.message.slot,
+            validator_index = inclusion_list.message.validator_index,
+        )
+    )]
+    pub fn process_gossip_inclusion_list(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        inclusion_list: Box<SignedInclusionList>,
+    ) {
+        // TODO(heze): ignore every inclusion list until gossip verification lands, so that
+        // unverified messages are never forwarded.
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
     }
 
     #[instrument(
@@ -4518,7 +4509,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            PayloadAttestationError::NotInPTC { .. } => {
+            PayloadAttestationError::PreGloasSlot { .. }
+            | PayloadAttestationError::NotInPTC { .. } => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
                     peer_id,

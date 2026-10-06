@@ -1,3 +1,4 @@
+use super::common::{load_config, testing_spec_with_config};
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::{
@@ -9,6 +10,7 @@ use beacon_chain::chain_config::FastConfirmationMode;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
+    PayloadVerificationStatus,
     attestation_verification::VerifiedAttestation,
     blob_verification::KzgVerifiedBlob,
     custody_context::NodeCustodyType,
@@ -18,7 +20,7 @@ use bls::AggregateSignature;
 use execution_layer::{
     PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
 };
-use proto_array::ReOrgThreshold;
+use proto_array::{PayloadBlockHash, ReOrgThreshold};
 use serde::Deserialize;
 use ssz_derive::Decode;
 use ssz_types::VariableList;
@@ -211,6 +213,7 @@ pub struct Meta {
 #[derive(Debug)]
 pub struct ForkChoiceTest<E: EthSpec> {
     pub description: String,
+    pub config: Option<types::Config>,
     /// True when the case comes from the `fast_confirmation` runner.
     pub fast_confirmation: bool,
     pub anchor_state: BeaconState<E>,
@@ -242,7 +245,8 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
         let fast_confirmation = path
             .iter()
             .any(|component| component == "fast_confirmation");
-        let spec = &testing_spec::<E>(fork_name);
+        let config = load_config(path)?;
+        let spec = &testing_spec_with_config::<E>(fork_name, config.as_ref())?;
 
         #[allow(clippy::type_complexity)]
         let steps: Vec<
@@ -417,6 +421,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
 
         Ok(Self {
             description,
+            config,
             fast_confirmation,
             anchor_state,
             anchor_block,
@@ -450,7 +455,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
             return Err(Error::SkippedKnownFailure);
         }
 
-        let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
+        let spec = testing_spec_with_config::<E>(fork_name, self.config.as_ref())?;
+        let tester = Tester::new(self, spec)?;
 
         for step in &self.steps {
             match step {
@@ -727,7 +733,7 @@ impl<E: EthSpec> Tester<E> {
         // not on every block/attestation import. We trigger confirmation
         // explicitly in `check_confirmed_root` instead.
         if let Some(ref fcr_mutex) = harness.chain.canonical_head.fast_confirmation {
-            fcr_mutex.lock().set_spec_test_mode(true);
+            fcr_mutex.lock().fcr.set_spec_test_mode(true);
         }
 
         Ok(Self {
@@ -1245,7 +1251,7 @@ impl<E: EthSpec> Tester<E> {
     ) -> Result<(), Error> {
         let mut fc = self.harness.chain.canonical_head.fork_choice_write_lock();
         let slot = self.harness.chain.slot().unwrap();
-        let (canonical_head, _) = fc.get_head(slot, &self.harness.spec).unwrap();
+        let canonical_head = fc.get_head(slot, &self.harness.spec).unwrap().root();
         let proposer_head_result = fc.get_proposer_head(
             slot,
             canonical_head,
@@ -1348,7 +1354,11 @@ impl<E: EthSpec> Tester<E> {
                 .chain
                 .canonical_head
                 .fork_choice_write_lock()
-                .on_valid_payload_envelope_received(block_root)
+                .on_payload_envelope_received(
+                    block_root,
+                    PayloadVerificationStatus::Verified,
+                    block_hash,
+                )
                 .map_err(|e| {
                     Error::InternalError(format!(
                         "on_execution_payload for block root {} failed: {:?}",
@@ -1499,7 +1509,7 @@ impl<E: EthSpec> Tester<E> {
                 Error::InternalError(format!("FCR is disabled, cannot check {field_name}"))
             })?;
         let guard = fcr_mutex.lock();
-        Ok(f(&guard))
+        Ok(f(&guard.fcr))
     }
 
     pub fn check_confirmed_root(&self, expected: Hash256) -> Result<(), Error> {
@@ -1524,8 +1534,9 @@ impl<E: EthSpec> Tester<E> {
         let equivocating_indices = fork_choice_lock.fc_store().equivocating_indices();
 
         if let Some(ref fcr_mutex) = self.harness.chain.canonical_head.fast_confirmation {
-            let mut fcr = fcr_mutex.lock();
-            fcr.confirmed_root = fcr
+            let mut guard = fcr_mutex.lock();
+            let confirmed_root = guard
+                .fcr
                 .get_latest_confirmed::<E>(
                     head_root,
                     &finalized_cp,
@@ -1538,6 +1549,7 @@ impl<E: EthSpec> Tester<E> {
                 .map_err(|e| {
                     Error::InternalError(format!("FCR get_latest_confirmed failed: {e:?}"))
                 })?;
+            guard.fcr.confirmed_root = confirmed_root;
         }
         drop(fork_choice_lock);
 
@@ -1557,11 +1569,10 @@ impl<E: EthSpec> Tester<E> {
                 "confirmed block {confirmed_root:?} not found in fork choice"
             ))
         })?;
-        let actual = block
-            .execution_status
-            .block_hash()
-            .or(block.execution_payload_parent_hash)
-            .unwrap_or_else(ExecutionBlockHash::zero);
+        let actual = match block.checkpoint_payload_block_hash() {
+            PayloadBlockHash::Hash(hash) => hash,
+            PayloadBlockHash::PreMerge => ExecutionBlockHash::zero(),
+        };
         check_equal("safe_execution_block_hash", actual, expected)
     }
 

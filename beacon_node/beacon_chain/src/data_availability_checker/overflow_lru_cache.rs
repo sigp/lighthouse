@@ -1160,7 +1160,7 @@ mod pending_components_tests {
             block: Arc::new(block),
             import_data: BlockImportData {
                 block_root: Default::default(),
-                state: BeaconState::new(0, Default::default(), &ChainSpec::minimal()),
+                state: BeaconState::new(0, Default::default(), &E::default_spec()),
                 parent_block: dummy_parent,
                 consensus_context: ConsensusContext::new(Slot::new(0)),
             },

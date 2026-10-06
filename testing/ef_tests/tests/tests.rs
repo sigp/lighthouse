@@ -1185,6 +1185,12 @@ fn fork_choice_payload_data_availability() {
 }
 
 #[test]
+fn fork_choice_should_apply_proposer_boost() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("should_apply_proposer_boost").run();
+    // There is no mainnet variant for this test.
+}
+
+#[test]
 fn fork_choice_compliance_attester_slashing_test() {
     ForkChoiceComplianceHandler::<MinimalEthSpec>::new("attester_slashing_test").run();
 }

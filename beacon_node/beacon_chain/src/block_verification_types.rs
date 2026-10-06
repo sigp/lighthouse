@@ -551,7 +551,7 @@ mod tests {
     use crate::custody_context::NodeCustodyType;
     use crate::test_utils::test_custody_context;
     use bls::Signature;
-    use types::{BeaconBlockGloas, ChainSpec, EmptyBlock, MainnetEthSpec};
+    use types::{BeaconBlockGloas, EmptyBlock, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -559,7 +559,7 @@ mod tests {
     /// is rejected, because gloas blocks need to use `RangeSyncBlock::new_gloas``.
     #[test]
     fn range_sync_block_new_rejects_gloas_block() {
-        let spec = Arc::new(ChainSpec::mainnet());
+        let spec = Arc::new(MainnetEthSpec::default_spec());
         let block = Arc::new(SignedBeaconBlock::from_block(
             BeaconBlockGloas::empty(&spec).into(),
             Signature::empty(),
