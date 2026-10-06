@@ -259,31 +259,31 @@ mod tests {
     // `ssz_tests!` can only be defined once per namespace
     #[cfg(test)]
     mod altair {
-        use crate::{LightClientOptimisticUpdateAltair, MainnetEthSpec};
-        ssz_tests!(LightClientOptimisticUpdateAltair<MainnetEthSpec>);
+        use crate::{LightClientOptimisticUpdateAltair, Spec};
+        ssz_tests!(LightClientOptimisticUpdateAltair<Spec>);
     }
 
     #[cfg(test)]
     mod capella {
-        use crate::{LightClientOptimisticUpdateCapella, MainnetEthSpec};
-        ssz_tests!(LightClientOptimisticUpdateCapella<MainnetEthSpec>);
+        use crate::{LightClientOptimisticUpdateCapella, Spec};
+        ssz_tests!(LightClientOptimisticUpdateCapella<Spec>);
     }
 
     #[cfg(test)]
     mod deneb {
-        use crate::{LightClientOptimisticUpdateDeneb, MainnetEthSpec};
-        ssz_tests!(LightClientOptimisticUpdateDeneb<MainnetEthSpec>);
+        use crate::{LightClientOptimisticUpdateDeneb, Spec};
+        ssz_tests!(LightClientOptimisticUpdateDeneb<Spec>);
     }
 
     #[cfg(test)]
     mod electra {
-        use crate::{LightClientOptimisticUpdateElectra, MainnetEthSpec};
-        ssz_tests!(LightClientOptimisticUpdateElectra<MainnetEthSpec>);
+        use crate::{LightClientOptimisticUpdateElectra, Spec};
+        ssz_tests!(LightClientOptimisticUpdateElectra<Spec>);
     }
 
     #[cfg(test)]
     mod fulu {
-        use crate::{LightClientOptimisticUpdateFulu, MainnetEthSpec};
-        ssz_tests!(LightClientOptimisticUpdateFulu<MainnetEthSpec>);
+        use crate::{LightClientOptimisticUpdateFulu, Spec};
+        ssz_tests!(LightClientOptimisticUpdateFulu<Spec>);
     }
 }

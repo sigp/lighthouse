@@ -186,6 +186,11 @@ test-debug:
 		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api \
 		--exclude fork_choice
 
+# Run the tests of crates converted to `Spec` under the minimal preset. Add each crate as it
+# is converted.
+test-spec-minimal:
+	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" -p types
+
 # Runs cargo-fmt (linter).
 cargo-fmt:
 	cargo fmt --all -- --check
@@ -306,6 +311,10 @@ lint-fix:
 # Also run the lints on the optimized-only tests
 lint-full:
 	TEST_FEATURES="beacon-node-leveldb,beacon-node-redb,${TEST_FEATURES}"  RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
+
+# Lint the code when compiled using the minimal preset.
+lint-spec-minimal:
+	TEST_FEATURES="spec-minimal,$(TEST_FEATURES)" $(MAKE) lint-full
 
 # Runs the makefile in the `ef_tests` repo.
 #

@@ -1,18 +1,16 @@
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::test_spec;
 use beacon_chain::{
-    GossipVerifiedBlock, IntoGossipVerifiedBlock, WhenSlotSkipped,
+    IntoGossipVerifiedBlock, WhenSlotSkipped,
     test_utils::{AttestationStrategy, BlockStrategy},
 };
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
-use http_api::{Config, ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block};
+use http_api::{Config, ProvenancedBlock, publish_block};
 use reqwest::{Response, StatusCode};
 use std::collections::HashSet;
-use std::sync::Arc;
 use types::{ColumnIndex, Epoch, EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};
-use warp::Rejection;
 use warp_utils::reject::CustomBadRequest;
 
 type E = MainnetEthSpec;
@@ -899,9 +897,8 @@ pub async fn blinded_gossip_invalid() {
 
 /// Process a blinded block that is invalid, but valid on gossip.
 ///
-/// Due to the checks conducted by the "relay" (mock-builder) when `broadcast_to_bn` is set (post
-/// Fulu), we can't always assert that we get a 202 status for this block -- post Fulu the relay
-/// detects it as invalid and the BN returns an error.
+/// Due to the checks conducted by the "relay" (mock-builder), we can't always assert that we get a
+/// 202 status for this block -- the relay detects it as invalid and the BN returns an error.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn blinded_gossip_partial_pass() {
     /* this test targets gossip-level validation */
@@ -940,7 +937,7 @@ pub async fn blinded_gossip_partial_pass() {
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         let error_response = response.unwrap_err();
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
@@ -1098,7 +1095,7 @@ pub async fn blinded_consensus_invalid() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1106,16 +1103,12 @@ pub async fn blinded_consensus_invalid() {
         );
     } else {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
-            || tester.harness.spec.is_fulu_scheduled()
-        {
+        assert_server_message_error(
+            error_response,
             format!(
                 "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
-            )
-        } else {
-            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
-        };
-        assert_server_message_error(error_response, expected_error_msg);
+            ),
+        );
     }
 }
 
@@ -1167,7 +1160,7 @@ pub async fn blinded_consensus_gossip() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1288,23 +1281,19 @@ pub async fn blinded_equivocation_invalid() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         assert_eq!(
             error_response.status(),
             Some(StatusCode::INTERNAL_SERVER_ERROR)
         );
     } else {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
-            || tester.harness.spec.is_fulu_scheduled()
-        {
+        assert_server_message_error(
+            error_response,
             format!(
                 "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
-            )
-        } else {
-            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
-        };
-        assert_server_message_error(error_response, expected_error_msg);
+            ),
+        );
     }
 }
 
@@ -1376,7 +1365,7 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
 
     let error_response: eth2::Error = response.err().unwrap();
 
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         assert_eq!(
             error_response.status(),
             Some(StatusCode::INTERNAL_SERVER_ERROR)
@@ -1434,7 +1423,7 @@ pub async fn blinded_equivocation_gossip() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1450,112 +1439,6 @@ pub async fn blinded_equivocation_gossip() {
                 Hash256::zero()
             ),
         );
-    }
-}
-
-/// This test checks that a block that is valid from both a gossip and
-/// consensus perspective but that equivocates **late** is rejected when using
-/// `broadcast_validation=consensus_and_equivocation`.
-///
-/// This test is unique in that we can't actually test the HTTP API directly,
-/// but instead have to hook into the `publish_blocks` code manually. This is
-/// in order to handle the late equivocation case.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn blinded_equivocation_consensus_late_equivocation() {
-    /* this test targets gossip-level validation */
-    let validation_level = BroadcastValidation::ConsensusAndEquivocation;
-
-    // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
-    // `validator_count // 32`.
-    let validator_count = 64;
-    let num_initial: u64 = 31;
-    let tester = InteractiveTester::<E>::new(None, validator_count).await;
-
-    // Create some chain depth.
-    tester.harness.advance_slot();
-    tester
-        .harness
-        .extend_chain(
-            num_initial as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-    tester.harness.advance_slot();
-
-    let slot_a = Slot::new(num_initial);
-    let slot_b = slot_a + 1;
-
-    let state_a = tester.harness.get_current_state();
-    let (block_a, mut state_after_a) = tester
-        .harness
-        .make_blinded_block(state_a.clone(), slot_b)
-        .await;
-    let (block_b, mut state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
-    let block_b = Arc::new(block_b);
-
-    /* check for `make_blinded_block` curios */
-    assert_eq!(
-        block_a.state_root(),
-        state_after_a.canonical_root().unwrap()
-    );
-    assert_eq!(
-        block_b.state_root(),
-        state_after_b.canonical_root().unwrap()
-    );
-    assert_ne!(block_a.state_root(), block_b.state_root());
-
-    // From fulu builders never send back a full payload, hence further checks in this test
-    // are not possible
-    if !tester.harness.spec.is_fulu_scheduled() {
-        let unblinded_block_a = reconstruct_block(
-            tester.harness.chain.clone(),
-            block_a.canonical_root(),
-            Arc::new(block_a),
-        )
-        .await
-        .expect("failed to reconstruct block")
-        .expect("block expected");
-
-        let unblinded_block_b = reconstruct_block(
-            tester.harness.chain.clone(),
-            block_b.canonical_root(),
-            block_b.clone(),
-        )
-        .await
-        .expect("failed to reconstruct block")
-        .expect("block expected");
-
-        let inner_block_a = match unblinded_block_a {
-            ProvenancedBlock::Local(a, _, _) => a,
-            ProvenancedBlock::Builder(a, _, _) => a,
-        };
-        let inner_block_b = match unblinded_block_b {
-            ProvenancedBlock::Local(b, _, _) => b,
-            ProvenancedBlock::Builder(b, _, _) => b,
-        };
-
-        let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain);
-        assert!(gossip_block_b.is_ok());
-        let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain);
-        assert!(gossip_block_a.is_err());
-
-        let channel = tokio::sync::mpsc::unbounded_channel();
-
-        let publication_result = publish_blinded_block(
-            block_b,
-            tester.harness.chain,
-            &channel.0,
-            validation_level,
-            StatusCode::ACCEPTED,
-        )
-        .await;
-
-        assert!(publication_result.is_err());
-
-        let publication_error: Rejection = publication_result.unwrap_err();
-
-        assert!(publication_error.find::<CustomBadRequest>().is_some());
     }
 }
 
