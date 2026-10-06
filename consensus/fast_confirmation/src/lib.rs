@@ -119,8 +119,13 @@ const COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR: u64 = 5;
 #[derive(Debug)]
 pub struct FastConfirmationRule {
     // === Output ===
-    /// Fed into `safe_block_hash` for the EL.
+    /// The raw output of `get_latest_confirmed`.
     pub confirmed_root: Hash256,
+
+    // === Restart resilience ===
+    /// Spec `get_root_confirmed_before_restart`: loaded from disk by the caller, then fixed for the
+    /// life of the process. `None` when nothing was persisted.
+    root_confirmed_before_restart: Option<Hash256>,
 
     // === Tracking state (spec's 6 new store fields) ===
     /// Spec `previous_epoch_observed_justified_checkpoint` with its `get_previous_balance_source`
@@ -176,11 +181,13 @@ impl FastConfirmationRule {
     /// `checkpoint_state` (spec: `store.checkpoint_states[finalized_checkpoint]`); the
     /// head-derived caches come from `head_state`, whose block root is `head_root`.
     /// `byzantine_threshold` is clamped to [0, 25].
+    #[allow(clippy::too_many_arguments)]
     pub fn new<E: EthSpec>(
         head_root: Hash256,
         head_state: &BeaconState<E>,
         finalized_checkpoint: Checkpoint,
         checkpoint_state: &BeaconState<E>,
+        root_confirmed_before_restart: Option<Hash256>,
         byzantine_threshold: u64,
         proposer_score_boost: u64,
         spec: &ChainSpec,
@@ -193,8 +200,12 @@ impl FastConfirmationRule {
         }
         let checkpoint_balance =
             BalanceSourceData::new(checkpoint_state, finalized_checkpoint.root)?;
+        if let Some(root) = root_confirmed_before_restart {
+            debug!(%root, "FCR restored a root confirmed before the restart");
+        }
         Ok(Self {
             confirmed_root: finalized_checkpoint.root,
+            root_confirmed_before_restart,
             previous_epoch_observed_justified: CheckpointAndBalance::new(
                 finalized_checkpoint,
                 checkpoint_balance.clone(),
@@ -503,6 +514,56 @@ impl FastConfirmationRule {
         }
 
         Ok(confirmed_root)
+    }
+
+    /// Spec: `get_restart_resilient_confirmed_root`. The root confirmed before the restart, until
+    /// the re-seeded rule catches up with it or it is old enough to have been finalized. Always a
+    /// block fork choice holds, so a caller may ask at any point in a run.
+    pub fn get_restart_resilient_confirmed_root<E: EthSpec>(
+        &self,
+        head_root: Hash256,
+        finalized_checkpoint: &Checkpoint,
+        current_slot: Slot,
+        proto_array: &ProtoArray,
+    ) -> Result<Hash256, Error> {
+        let confirmed_root = self.confirmed_root;
+        let confirmed_slot = get_block_slot(confirmed_root, proto_array)?;
+
+        let Some(root_before_restart) = self.root_confirmed_before_restart else {
+            return Ok(confirmed_root);
+        };
+
+        // Finality moved past it, or fork choice was rebuilt: the fresh root is all we have.
+        let Some(root_before_restart_slot) = proto_array
+            .get_block(root_before_restart)
+            .map(|node| node.slot())
+        else {
+            return Ok(confirmed_root);
+        };
+
+        // Recent confirmed block has advanced beyond the block that was confirmed before the
+        // node restart.
+        if root_before_restart_slot <= confirmed_slot {
+            return Ok(confirmed_root);
+        }
+
+        // Old enough to be finalized already, or finality is delayed and it cannot be trusted.
+        if block_should_be_finalized::<E>(root_before_restart_slot, current_slot)? {
+            return Ok(finalized_checkpoint.root);
+        }
+
+        // Not canonical.
+        if !is_ancestor(head_root, root_before_restart, proto_array)? {
+            return Ok(finalized_checkpoint.root);
+        }
+
+        // DIVERGENCE: the spec's confirmed root is always VALID. `--reset-payload-statuses` makes
+        // ours optimistic again, and `is_one_confirmed` refuses to confirm those.
+        if is_optimistic_or_invalid(root_before_restart, proto_array)? {
+            return Ok(confirmed_root);
+        }
+
+        Ok(root_before_restart)
     }
 
     /// Spec: find_latest_confirmed_descendant
@@ -1406,6 +1467,16 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
     epoch.start_slot(E::slots_per_epoch())
 }
 
+/// Spec: `block_should_be_finalized`.
+fn block_should_be_finalized<E: EthSpec>(
+    block_slot: Slot,
+    current_slot: Slot,
+) -> Result<bool, Error> {
+    let spe = E::slots_per_epoch();
+    let checkpoint_epoch = block_slot.safe_add(spe.safe_sub(1)?)?.epoch(spe);
+    Ok(checkpoint_epoch.safe_add(2)? <= current_slot.epoch(spe))
+}
+
 /// Spec: `is_full_validator_set_covered`.
 fn is_full_validator_set_covered<E: EthSpec>(
     start_slot: Slot,
@@ -1501,27 +1572,42 @@ mod tests {
 
     #[test]
     fn test_is_full_validator_set_covered() {
-        // 32 slots = full epoch
-        assert!(is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(31)).unwrap());
-        // 33 slots crossing boundary
-        assert!(is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(32)).unwrap());
+        let slots_per_epoch = E::slots_per_epoch();
+        // Full epoch
+        assert!(
+            is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(slots_per_epoch - 1))
+                .unwrap()
+        );
+        // Crossing an epoch boundary
+        assert!(
+            is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(slots_per_epoch)).unwrap()
+        );
         // Single slot — not full
         assert!(!is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(0)).unwrap());
-        // 31 slots — not full
-        assert!(!is_full_validator_set_covered::<E>(Slot::new(1), Slot::new(31)).unwrap());
+        // One slot short — not full
+        assert!(
+            !is_full_validator_set_covered::<E>(Slot::new(1), Slot::new(slots_per_epoch - 1))
+                .unwrap()
+        );
     }
 
     #[test]
     fn test_estimate_committee_weight_same_epoch() {
-        let total = 32_000_000_000u64; // 32B gwei
-        // 1 slot out of 32 => total/32 = 1B
+        let slots_per_epoch = E::slots_per_epoch();
+        // The total should divide evenly across the epoch. 32B gwei on Mainnet, 1B per slot.
+        let total = slots_per_epoch * 1_000_000_000;
+
         let w = estimate_committee_weight_between_slots::<E>(total, Slot::new(0), Slot::new(0))
             .unwrap();
-        assert_eq!(w, 1_000_000_000);
+        assert_eq!(w, total / slots_per_epoch);
 
         // Full epoch => total
-        let w = estimate_committee_weight_between_slots::<E>(total, Slot::new(0), Slot::new(31))
-            .unwrap();
+        let w = estimate_committee_weight_between_slots::<E>(
+            total,
+            Slot::new(0),
+            Slot::new(slots_per_epoch - 1),
+        )
+        .unwrap();
         assert_eq!(w, total);
     }
 
@@ -1613,9 +1699,17 @@ mod tests {
             root: Hash256::repeat_byte(1),
         };
         let head_root_a = Hash256::repeat_byte(2);
-        let mut fcr =
-            FastConfirmationRule::new::<E>(head_root_a, &state, checkpoint, &state, 25, 40, &spec)
-                .expect("fcr initialization");
+        let mut fcr = FastConfirmationRule::new::<E>(
+            head_root_a,
+            &state,
+            checkpoint,
+            &state,
+            None,
+            25,
+            40,
+            &spec,
+        )
+        .expect("fcr initialization");
 
         assert!(matches!(
             fcr.head_balance_source.key,

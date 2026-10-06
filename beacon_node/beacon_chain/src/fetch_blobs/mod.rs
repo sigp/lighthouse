@@ -601,8 +601,12 @@ async fn build_partial_columns_from_v4_response<T: BeaconChainTypes>(
                 })
             }
             PartialHeaderOrBid::Bid(_) => {
-                let column = ProgressiveVariableList::new(cells);
-                let kzg_proofs = ProgressiveVariableList::new(proofs);
+                let column = ProgressiveVariableList::new(cells).map_err(|e| {
+                    FetchEngineBlobError::InternalError(format!("invalid cells list: {e:?}"))
+                })?;
+                let kzg_proofs = ProgressiveVariableList::new(proofs).map_err(|e| {
+                    FetchEngineBlobError::InternalError(format!("invalid proofs list: {e:?}"))
+                })?;
 
                 PartialDataColumn::Gloas(PartialDataColumnGloas {
                     block_root,

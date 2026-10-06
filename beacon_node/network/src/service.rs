@@ -46,7 +46,7 @@ use tracing::{debug, error, info, trace, warn};
 use typenum::Unsigned;
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, PartialDataColumn, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
+    SignedExecutionPayloadEnvelope, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
 };
 
@@ -54,8 +54,9 @@ mod tests;
 
 /// The interval (in seconds) that various network metrics will update.
 const METRIC_UPDATE_INTERVAL: u64 = 5;
-/// Number of slots before the fork when we should subscribe to the new fork topics.
-const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
+/// Epochs before a fork digest change when we subscribe to its topics. Proposer preferences for
+/// the new digest arrive one epoch early.
+const SUBSCRIBE_DELAY_EPOCHS: u64 = 1;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 /// Size of the queue for validator subnet subscriptions. The number is chosen so that we may be
@@ -275,9 +276,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // keep track of when our fork_id needs to be updated
         let next_digest_update = Box::pin(next_digest_delay(&beacon_chain).into());
-        // topics change when the fork digest changes
-        let next_topic_subscriptions =
-            Box::pin(next_topic_subscriptions_delay(&beacon_chain).into());
+        // topics change when the fork digest changes. If we start inside the subscribe window,
+        // `SubscribeCoreTopics` handles it.
+        let next_topic_subscriptions = Box::pin(
+            duration_to_next_topic_subscriptions(&beacon_chain)
+                .filter(|duration| !duration.is_zero())
+                .map(tokio::time::sleep)
+                .into(),
+        );
         let next_unsubscribe = Box::pin(None.into());
 
         let current_slot = beacon_chain
@@ -434,8 +440,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let mut result = vec![fork_context.context_bytes(current_epoch)];
 
         if let Some(next_digest_epoch) = spec.next_digest_epoch(current_epoch)
-            && current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
-                >= next_digest_epoch.start_slot(T::EthSpec::slots_per_epoch())
+            && current_epoch + SUBSCRIBE_DELAY_EPOCHS >= next_digest_epoch
         {
             let next_digest = fork_context.context_bytes(next_digest_epoch);
             result.push(next_digest);
@@ -477,9 +482,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     Some(_) = &mut self.next_digest_update => self.update_next_fork_digest(),
 
                     Some(_) = &mut self.next_unsubscribe => {
-                        let new_enr_fork_id = self.beacon_chain.enr_fork_id();
-                        self.libp2p.unsubscribe_from_fork_topics_except(new_enr_fork_id.fork_digest);
-                        info!("Unsubscribed from old fork topics");
+                        self.unsubscribe_from_old_fork_topics();
                         self.next_unsubscribe = Box::pin(None.into());
                     }
 
@@ -716,17 +719,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                for topic_kind in core_topics_to_subscribe::<T::EthSpec>(
-                    self.fork_context.current_fork_name(),
-                    &self.network_globals.as_topic_config(),
-                    &self.fork_context.spec,
-                ) {
-                    for fork_digest in self.required_gossip_fork_digests() {
-                        let topic = GossipTopic::new(
-                            topic_kind.clone(),
-                            GossipEncoding::default(),
-                            fork_digest,
-                        );
+                for fork_digest in self.required_gossip_fork_digests() {
+                    let Some(&fork_name) =
+                        self.fork_context.get_fork_from_context_bytes(fork_digest)
+                    else {
+                        continue;
+                    };
+                    for topic_kind in core_topics_to_subscribe::<T::EthSpec>(
+                        fork_name,
+                        &self.network_globals.as_topic_config(),
+                        &self.fork_context.spec,
+                    ) {
+                        let topic =
+                            GossipTopic::new(topic_kind, GossipEncoding::default(), fork_digest);
                         if self.libp2p.subscribe(topic.clone()) {
                             subscribed_topics.push(topic);
                         } else {
@@ -902,8 +907,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             );
 
             // Update the `next_topic_subscriptions` timer if the next change in the fork digest is known.
-            self.next_topic_subscriptions =
-                Box::pin(next_topic_subscriptions_delay(&self.beacon_chain).into());
+            // A zero delay subscribes right away.
+            self.next_topic_subscriptions = Box::pin(
+                duration_to_next_topic_subscriptions(&self.beacon_chain)
+                    .map(tokio::time::sleep)
+                    .into(),
+            );
             self.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
             info!(
                 remaining_epochs = UNSUBSCRIBE_DELAY_EPOCHS,
@@ -918,6 +927,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         }
     }
 
+    /// Unsubscribe from topics outside `required_gossip_fork_digests`.
+    fn unsubscribe_from_old_fork_topics(&mut self) {
+        let required_digests = self.required_gossip_fork_digests();
+        self.libp2p
+            .unsubscribe_from_fork_topics_except(&required_digests);
+        info!("Unsubscribed from old fork topics");
+    }
+
     fn subscribed_core_topics(&self) -> bool {
         let core_topics = core_topics_to_subscribe::<T::EthSpec>(
             self.fork_context.current_fork_name(),
@@ -925,9 +942,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             &self.fork_context.spec,
         );
         let core_topics: HashSet<&GossipKind> = HashSet::from_iter(&core_topics);
+        let current_digest = self.fork_context.current_fork_digest();
         let subscriptions = self.network_globals.gossipsub_subscriptions.read();
-        let subscribed_topics: HashSet<&GossipKind> =
-            subscriptions.iter().map(|topic| topic.kind()).collect();
+        let subscribed_topics: HashSet<&GossipKind> = subscriptions
+            .iter()
+            .filter(|topic| topic.fork_digest == current_digest)
+            .map(|topic| topic.kind())
+            .collect();
 
         core_topics.is_subset(&subscribed_topics)
     }
@@ -1587,6 +1608,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         ),
                 )
             }
+            PubsubMessage::InclusionList(inclusion_list) => {
+                trace!(%peer_id, "Received a signed inclusion list");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_inclusion_list(
+                        message_id,
+                        peer_id,
+                        inclusion_list,
+                    ),
+                )
+            }
         }
     }
 
@@ -1618,20 +1649,15 @@ fn next_digest_delay<T: BeaconChainTypes>(
         .map(|(_, until_epoch)| tokio::time::sleep(until_epoch))
 }
 
-/// Returns a `Sleep` that triggers `SUBSCRIBE_DELAY_SLOTS` before the next fork digest changes.
-/// Returns `None` if there are no scheduled forks or we are already past `current_slot + SUBSCRIBE_DELAY_SLOTS > fork_slot`.
-fn next_topic_subscriptions_delay<T: BeaconChainTypes>(
+/// Time until we subscribe to the next fork digest topics. Zero if that time has passed. `None` if
+/// no fork digest change is scheduled.
+fn duration_to_next_topic_subscriptions<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
-) -> Option<tokio::time::Sleep> {
-    if let Some((_, duration_to_epoch)) = beacon_chain.duration_to_next_digest() {
-        let duration_to_subscription = duration_to_epoch.saturating_sub(Duration::from_secs(
-            beacon_chain.spec.get_slot_duration().as_secs() * SUBSCRIBE_DELAY_SLOTS,
-        ));
-        if !duration_to_subscription.is_zero() {
-            return Some(tokio::time::sleep(duration_to_subscription));
-        }
-    }
-    None
+) -> Option<Duration> {
+    let (_, duration_to_digest) = beacon_chain.duration_to_next_digest()?;
+    let subscribe_delay = beacon_chain.spec.get_slot_duration()
+        * (SUBSCRIBE_DELAY_EPOCHS * T::EthSpec::slots_per_epoch()) as u32;
+    Some(duration_to_digest.saturating_sub(subscribe_delay))
 }
 
 impl<T: BeaconChainTypes> Drop for NetworkService<T> {

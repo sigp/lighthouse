@@ -59,9 +59,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.observed_execution_payloads
                 .insert(bid.parent_block_hash, bid.gas_limit);
         } else if let Some(envelope) = head.snapshot.execution_envelope.as_ref() {
-            let payload = &envelope.message.payload;
+            let payload_header = &envelope.payload_header;
             self.observed_execution_payloads
-                .insert(payload.block_hash, payload.gas_limit);
+                .insert(payload_header.block_hash, payload_header.gas_limit);
         }
 
         Ok(())

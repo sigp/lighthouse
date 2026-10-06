@@ -10,6 +10,7 @@ use beacon_chain::chain_config::FastConfirmationMode;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
+    PayloadVerificationStatus,
     attestation_verification::VerifiedAttestation,
     blob_verification::KzgVerifiedBlob,
     custody_context::NodeCustodyType,
@@ -19,7 +20,7 @@ use bls::AggregateSignature;
 use execution_layer::{
     PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
 };
-use proto_array::ReOrgThreshold;
+use proto_array::{PayloadBlockHash, ReOrgThreshold};
 use serde::Deserialize;
 use ssz_derive::Decode;
 use ssz_types::VariableList;
@@ -732,7 +733,7 @@ impl<E: EthSpec> Tester<E> {
         // not on every block/attestation import. We trigger confirmation
         // explicitly in `check_confirmed_root` instead.
         if let Some(ref fcr_mutex) = harness.chain.canonical_head.fast_confirmation {
-            fcr_mutex.lock().set_spec_test_mode(true);
+            fcr_mutex.lock().fcr.set_spec_test_mode(true);
         }
 
         Ok(Self {
@@ -1353,7 +1354,11 @@ impl<E: EthSpec> Tester<E> {
                 .chain
                 .canonical_head
                 .fork_choice_write_lock()
-                .on_valid_payload_envelope_received(block_root)
+                .on_payload_envelope_received(
+                    block_root,
+                    PayloadVerificationStatus::Verified,
+                    block_hash,
+                )
                 .map_err(|e| {
                     Error::InternalError(format!(
                         "on_execution_payload for block root {} failed: {:?}",
@@ -1504,7 +1509,7 @@ impl<E: EthSpec> Tester<E> {
                 Error::InternalError(format!("FCR is disabled, cannot check {field_name}"))
             })?;
         let guard = fcr_mutex.lock();
-        Ok(f(&guard))
+        Ok(f(&guard.fcr))
     }
 
     pub fn check_confirmed_root(&self, expected: Hash256) -> Result<(), Error> {
@@ -1529,8 +1534,9 @@ impl<E: EthSpec> Tester<E> {
         let equivocating_indices = fork_choice_lock.fc_store().equivocating_indices();
 
         if let Some(ref fcr_mutex) = self.harness.chain.canonical_head.fast_confirmation {
-            let mut fcr = fcr_mutex.lock();
-            fcr.confirmed_root = fcr
+            let mut guard = fcr_mutex.lock();
+            let confirmed_root = guard
+                .fcr
                 .get_latest_confirmed::<E>(
                     head_root,
                     &finalized_cp,
@@ -1543,6 +1549,7 @@ impl<E: EthSpec> Tester<E> {
                 .map_err(|e| {
                     Error::InternalError(format!("FCR get_latest_confirmed failed: {e:?}"))
                 })?;
+            guard.fcr.confirmed_root = confirmed_root;
         }
         drop(fork_choice_lock);
 
@@ -1562,11 +1569,10 @@ impl<E: EthSpec> Tester<E> {
                 "confirmed block {confirmed_root:?} not found in fork choice"
             ))
         })?;
-        let actual = block
-            .execution_status
-            .block_hash()
-            .or(block.execution_payload_parent_hash)
-            .unwrap_or_else(ExecutionBlockHash::zero);
+        let actual = match block.checkpoint_payload_block_hash() {
+            PayloadBlockHash::Hash(hash) => hash,
+            PayloadBlockHash::PreMerge => ExecutionBlockHash::zero(),
+        };
         check_equal("safe_execution_block_hash", actual, expected)
     }
 

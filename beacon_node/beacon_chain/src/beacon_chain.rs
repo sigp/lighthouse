@@ -92,7 +92,7 @@ use crate::validator_monitor::{
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot,
-    CachedHead, metrics,
+    CachedHead, ChainDumpSnapshot, metrics,
 };
 use bls::{PublicKey, PublicKeyBytes, Signature};
 use builder_client::Builders;
@@ -102,8 +102,8 @@ use eth2::types::{
     SseExtendedPayloadAttributes, SseHead, SseHeadV2,
 };
 use execution_layer::{
-    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth,
-    DEFAULT_GAS_LIMIT, ExecutionLayer, FailedCondition, PayloadAttributes, PayloadStatus,
+    BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
+    FailedCondition, PayloadAttributes, PayloadStatus,
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::{
@@ -120,7 +120,7 @@ use operation_pool::{
 };
 use parking_lot::{Mutex, RwLock};
 use proof_engine::ProofEngine;
-use proto_array::{DoNotReOrg, ProposerHeadError, ReOrgThreshold};
+use proto_array::{DoNotReOrg, PayloadBlockHash, ProposerHeadError, ReOrgThreshold};
 use rand::RngCore;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
@@ -173,6 +173,8 @@ type HashBlockTuple<E> = (Hash256, RangeSyncBlock<E>);
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::ZERO;
 pub const OP_POOL_DB_KEY: Hash256 = Hash256::ZERO;
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::ZERO;
+/// The roots sent as the FCU safe block hash. Shares the `ForkChoice` column, so not zero.
+pub const FAST_CONFIRMATION_DB_KEY: Hash256 = Hash256::repeat_byte(1);
 
 /// Defines how old a block can be before it's no longer a candidate for the early attester cache.
 const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
@@ -1372,7 +1374,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedExecutionPayloadEnvelope<T::EthSpec>>, Error> {
-        Ok(self.store.get_payload_envelope(block_root)?)
+        Ok(self.store.get_signed_payload_envelope(block_root)?)
     }
 
     /// Return the status of a block as it progresses through the various caches of the beacon
@@ -5386,21 +5388,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // For Gloas, when the head payload is Full, we need to apply the parent's
         // execution requests to the state to get the correct withdrawals.
         if parent_payload_status == Some(fork_choice::PayloadStatus::Full) {
-            let envelope = if parent_block_root == head_block_root {
-                cached_head.snapshot.execution_envelope.clone()
+            let cached_execution_requests = if parent_block_root == head_block_root {
+                cached_head
+                    .snapshot
+                    .execution_envelope
+                    .as_ref()
+                    .map(|summary| summary.execution_requests.clone())
             } else {
-                self.store
-                    .get_payload_envelope(&parent_block_root)?
-                    .map(Arc::new)
-            }
-            .ok_or(Error::MissingExecutionPayloadEnvelope(parent_block_root))?;
+                None
+            };
+            let execution_requests = match cached_execution_requests {
+                Some(requests) => requests,
+                None => self
+                    .store
+                    .get_payload_envelope_summary(&parent_block_root)?
+                    .map(|summary| summary.execution_requests)
+                    .ok_or(Error::MissingExecutionPayloadEnvelope(parent_block_root))?,
+            };
 
-            apply_parent_execution_payload(
-                &mut advanced_state,
-                &envelope.message.execution_requests,
-                &self.spec,
-            )
-            .map_err(Error::PrepareProposerFailed)?;
+            apply_parent_execution_payload(&mut advanced_state, &execution_requests, &self.spec)
+                .map_err(Error::PrepareProposerFailed)?;
         }
 
         get_expected_withdrawals(&advanced_state, &self.spec)
@@ -5602,11 +5609,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // This only works pre-Gloas, but we don't run this code for Gloas anyway.
-        let parent_head_hash = info
-            .parent_node
-            .execution_status()
-            .ok()
-            .and_then(|execution_status| execution_status.block_hash());
+        let parent_head_hash = match info.parent_node.block_hash() {
+            PayloadBlockHash::Hash(hash) => Some(hash),
+            PayloadBlockHash::PreMerge => None,
+        };
         let forkchoice_update_params = ForkchoiceUpdateParameters {
             head_root: info.parent_node.root(),
             head_hash: parent_head_hash,
@@ -6563,7 +6569,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             crit!(
                 error = ?e,
                 latest_valid_ancestor = ?op.latest_valid_ancestor(),
-                block_root = ?op.block_root(),
+                head_hash = ?op.head_hash(),
                 "Failed to process invalid payload"
             );
         }
@@ -6577,19 +6583,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Use a blocking task since it interacts with the `canonical_head` lock. Lock contention
         // on the core executor is bad.
         let chain = self.clone();
-        let justified_block = self
+        let (justified_block, justified_block_is_invalid) = self
             .spawn_blocking_handle(
                 move || {
-                    chain
-                        .canonical_head
-                        .fork_choice_read_lock()
-                        .get_justified_block()
+                    let fork_choice = chain.canonical_head.fork_choice_read_lock();
+                    let justified_block = fork_choice.get_justified_block()?;
+                    // A Gloas justified block whose own payload is invalid is dead only on its
+                    // `FULL` node; the checkpoint is invalid only when the payload its branch
+                    // actually executed is. `inherited_execution_status` resolves that payload.
+                    let is_invalid = fork_choice
+                        .inherited_execution_status(&justified_block.root)?
+                        .is_some_and(|verdict| verdict.is_invalid());
+                    Ok::<_, ForkChoiceError>((justified_block, is_invalid))
                 },
                 "invalid_payload_fork_choice_get_justified",
             )
             .await??;
 
-        if justified_block.execution_status.is_invalid() {
+        if justified_block_is_invalid {
             crit!(
                 msg = "ensure you are not connected to a malicious network. This error is not \
                 recoverable, please reach out to the lighthouse developers for assistance.",
@@ -6610,7 +6621,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Return an error here to try and prevent progression by upstream functions.
             return Err(Error::JustifiedPayloadInvalid {
                 justified_root: justified_block.root,
-                execution_block_hash: justified_block.execution_status.block_hash(),
+                execution_block_hash: justified_block.block_hash(),
             });
         }
 
@@ -6701,19 +6712,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         fcu_params.head_root,
                         &cached_head,
                     )?;
+                    let proposer_shuffling_decision_root = cached_head
+                        .snapshot
+                        .beacon_state
+                        .proposer_shuffling_decision_root_at_epoch(
+                            prepare_slot.epoch(T::EthSpec::slots_per_epoch()),
+                            fcu_params.head_root,
+                            &chain.spec,
+                        )?;
                     let head_payload_status = cached_head.head_payload_status();
                     Ok::<_, Error>(Some((
                         fcu_params,
                         pre_payload_attributes,
                         head_payload_status,
+                        proposer_shuffling_decision_root,
                     )))
                 },
                 "prepare_beacon_proposer_head_read",
             )
             .await??;
 
-        let Some((forkchoice_update_params, Some(pre_payload_attributes), head_payload_status)) =
-            maybe_prep_data
+        let Some((
+            forkchoice_update_params,
+            Some(pre_payload_attributes),
+            head_payload_status,
+            proposer_shuffling_decision_root,
+        )) = maybe_prep_data
         else {
             // Appropriate log messages have already been logged above and in
             // `get_pre_payload_attributes`.
@@ -6773,14 +6797,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
 
             let target_gas_limit = if prepare_slot_fork.gloas_enabled() {
-                let proposer_gas_limit = execution_layer.get_proposer_gas_limit(proposer).await;
-                if proposer_gas_limit.is_none() {
-                    warn!(
+                let preferred_gas_limit = self
+                    .gossip_verified_proposer_preferences_cache
+                    .get_preferences(&prepare_slot, proposer_shuffling_decision_root)
+                    .map(|preferences| preferences.message.target_gas_limit);
+                if preferred_gas_limit.is_none() {
+                    debug!(
                         %proposer,
-                        "No proposer gas limit configured, falling back to parent gas limit"
+                        "No proposer preferences, using the default gas limit"
                     );
                 }
-                proposer_gas_limit.or(Some(DEFAULT_GAS_LIMIT))
+                Some(preferred_gas_limit.unwrap_or_else(|| {
+                    self.spec
+                        .default_gas_limit(prepare_slot.epoch(T::EthSpec::slots_per_epoch()))
+                }))
             } else {
                 None
             };
@@ -6969,7 +6999,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match forkchoice_updated_response {
             Ok(status) => match status {
                 PayloadStatus::Valid => {
-                    // Ensure that fork choice knows that the block is no longer optimistic.
+                    // Ensure that fork choice knows that the payload is no longer optimistic. The
+                    // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
+                    // ancestor's payload, not the head block's.
                     let chain = self.clone();
                     let fork_choice_update_result = self
                         .spawn_blocking_handle(
@@ -6977,7 +7009,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 chain
                                     .canonical_head
                                     .fork_choice_write_lock()
-                                    .on_valid_execution_payload(head_block_root)
+                                    .on_valid_execution_payload(head_hash)
                             },
                             "update_execution_engine_valid_payload",
                         )
@@ -7019,28 +7051,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Invalid execution payload"
                     );
 
+                    // The EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
+                    // ancestor's payload, not the head block's.
                     match latest_valid_hash {
                         // The `latest_valid_hash` is set to `None` when the EE
                         // "cannot determine the ancestor of the invalid
                         // payload". In such a scenario we should only
-                        // invalidate the head block and nothing else.
+                        // invalidate the head payload and nothing else.
                         None => {
                             self.process_invalid_execution_payload(
-                                &InvalidationOperation::InvalidateOne {
-                                    block_root: head_block_root,
-                                },
+                                &InvalidationOperation::InvalidateOne { head_hash },
                             )
                             .await?;
                         }
                         // An all-zeros execution block hash implies that
                         // the terminal block was invalid. We are being
-                        // explicit in invalidating only the head block in
+                        // explicit in invalidating only the head payload in
                         // this case.
                         Some(hash) if hash == ExecutionBlockHash::zero() => {
                             self.process_invalid_execution_payload(
-                                &InvalidationOperation::InvalidateOne {
-                                    block_root: head_block_root,
-                                },
+                                &InvalidationOperation::InvalidateOne { head_hash },
                             )
                             .await?;
                         }
@@ -7049,7 +7079,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         Some(latest_valid_hash) => {
                             self.process_invalid_execution_payload(
                                 &InvalidationOperation::InvalidateMany {
-                                    head_block_root,
+                                    head_hash,
                                     always_invalidate_head: true,
                                     latest_valid_ancestor: latest_valid_hash,
                                 },
@@ -7070,13 +7100,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         method = "fcU",
                         "Invalid execution payload block hash"
                     );
-                    // The execution engine has stated that the head block is invalid, however it
+                    // The execution engine has stated that the head payload is invalid, however it
                     // hasn't returned a latest valid ancestor.
                     //
-                    // Using a `None` latest valid ancestor will result in only the head block
+                    // Using a `None` latest valid ancestor will result in only the head payload
                     // being invalidated (no ancestors).
                     self.process_invalid_execution_payload(&InvalidationOperation::InvalidateOne {
-                        block_root: head_block_root,
+                        head_hash,
                     })
                     .await?;
 
@@ -7446,9 +7476,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// iterator as it allows for MUCH better caching and rebasing. Memory usage of some tests went
     /// from 5GB per test to 90MB.
     #[allow(clippy::type_complexity)]
-    pub fn chain_dump(
-        &self,
-    ) -> Result<Vec<BeaconSnapshot<T::EthSpec, BlindedPayload<T::EthSpec>>>, Error> {
+    pub fn chain_dump(&self) -> Result<Vec<ChainDumpSnapshot<T::EthSpec>>, Error> {
         self.chain_dump_from_slot(Slot::new(0))
     }
 
@@ -7457,7 +7485,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn chain_dump_from_slot(
         &self,
         from_slot: Slot,
-    ) -> Result<Vec<BeaconSnapshot<T::EthSpec, BlindedPayload<T::EthSpec>>>, Error> {
+    ) -> Result<Vec<ChainDumpSnapshot<T::EthSpec>>, Error> {
         let mut dump = vec![];
 
         let mut prev_block_root = None;
@@ -7488,33 +7516,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // (the parent block was full).
         for (i, (block_root, block)) in blocks.iter().enumerate() {
             let opt_envelope = if block.fork_name_unchecked().gloas_enabled() {
-                let opt_envelope = self.store.get_payload_envelope(block_root)?.map(Arc::new);
-
-                if let Some((_, next_block)) = blocks.get(i + 1) {
+                let opt_envelope = self
+                    .store
+                    .get_signed_payload_envelope(block_root)?
+                    .map(Arc::new);
+                let payload_is_canonical = if let Some((_, next_block)) = blocks.get(i + 1) {
                     let block_hash = block.payload_bid_block_hash()?;
-                    if next_block.is_parent_block_full(block_hash) {
-                        let envelope = opt_envelope.ok_or_else(|| {
-                            Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
-                        })?;
-                        Some(envelope)
-                    } else {
-                        None
-                    }
+                    next_block.is_parent_block_full(block_hash)
                 } else {
                     // Last block in the sequence: use canonical head to determine
                     // whether the payload is canonical.
                     let head = self.canonical_head.cached_head();
                     assert_eq!(head.head_block_root(), *block_root);
-                    let payload_received =
-                        head.head_payload_status() == fork_choice::PayloadStatus::Full;
-                    if payload_received {
-                        let envelope = opt_envelope.ok_or_else(|| {
-                            Error::DBInconsistent(format!("Missing envelope {block_root:?}"))
-                        })?;
-                        Some(envelope)
-                    } else {
-                        None
+                    head.head_payload_status() == fork_choice::PayloadStatus::Full
+                };
+
+                if !payload_is_canonical {
+                    None
+                } else if opt_envelope.is_none() {
+                    // A retained summary with no body is the expected representation of a pruned
+                    // finalized payload. A missing summary still indicates database corruption.
+                    if !self.store.payload_envelope_summary_exists(block_root)? {
+                        return Err(Error::DBInconsistent(format!(
+                            "Missing envelope summary {block_root:?}"
+                        )));
                     }
+                    if block.slot() > self.store.get_split_slot() {
+                        return Err(Error::DBInconsistent(format!(
+                            "Missing unfinalized payload body {block_root:?}"
+                        )));
+                    }
+                    None
+                } else {
+                    opt_envelope
                 }
             } else {
                 None
