@@ -3210,7 +3210,7 @@ impl ApiTester {
         }
     }
 
-    pub async fn test_post_beacon_pool_execution_proofs_unknown_block(self) -> Self {
+    pub async fn test_post_beacon_execution_proofs_unknown_block(self) -> Self {
         let proof = SignedExecutionProof {
             message: ExecutionProof {
                 proof_data: ProofData::new(vec![0; 32]).unwrap(),
@@ -3227,7 +3227,7 @@ impl ApiTester {
         // Nothing can verify a proof of a block this node does not have.
         let error = self
             .client
-            .post_beacon_pool_execution_proofs(vec![proof])
+            .post_beacon_execution_proofs(vec![proof])
             .await
             .unwrap_err();
 
@@ -10485,10 +10485,10 @@ async fn payload_attestation_unavailable_without_envelope() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn post_beacon_pool_execution_proofs_unknown_block() {
+async fn post_beacon_execution_proofs_unknown_block() {
     ApiTester::new()
         .await
-        .test_post_beacon_pool_execution_proofs_unknown_block()
+        .test_post_beacon_execution_proofs_unknown_block()
         .await;
 }
 

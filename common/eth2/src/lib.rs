@@ -2050,34 +2050,6 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// `POST beacon/pool/execution_proofs` (SSZ)
-    ///
-    /// Takes the proofs by value because each can be megabytes.
-    pub async fn post_beacon_pool_execution_proofs(
-        &self,
-        proofs: Vec<SignedExecutionProof>,
-    ) -> Result<(), Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("pool")
-            .push("execution_proofs");
-
-        let response = self
-            .client
-            .post(path)
-            .timeout(self.timeouts.default)
-            .header("Content-Type", "application/octet-stream")
-            .body(proofs.as_ssz_bytes())
-            .send()
-            .await?;
-        success_or_error(response).await?;
-
-        Ok(())
-    }
-
     /// `POST beacon/pool/bls_to_execution_changes`
     pub async fn post_beacon_pool_bls_to_execution_changes(
         &self,
@@ -3284,6 +3256,33 @@ impl BeaconNodeHttpClient {
             fork_name,
         )
         .await?;
+
+        Ok(())
+    }
+
+    /// `POST beacon/execution_proofs` (SSZ)
+    ///
+    /// Takes the proofs by value because each can be megabytes.
+    pub async fn post_beacon_execution_proofs(
+        &self,
+        proofs: Vec<SignedExecutionProof>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_proofs");
+
+        let response = self
+            .client
+            .post(path)
+            .timeout(self.timeouts.default)
+            .header("Content-Type", "application/octet-stream")
+            .body(proofs.as_ssz_bytes())
+            .send()
+            .await?;
+        success_or_error(response).await?;
 
         Ok(())
     }
