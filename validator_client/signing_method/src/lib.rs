@@ -256,7 +256,7 @@ impl SigningMethod {
 
                 // Determine the Web3Signer message type.
                 let message_type = object.message_type();
-                // Omit fork_info: genesis fork version and zero genesis_validators_root.
+                // VALIDATOR_REGISTRATION and BUILDER_REQUEST_AUTH must omit fork_info.
                 if matches!(
                     message_type,
                     MessageType::ValidatorRegistration | MessageType::BuilderRequestAuth

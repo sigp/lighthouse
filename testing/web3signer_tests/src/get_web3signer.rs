@@ -30,9 +30,17 @@ pub async fn download_binary(dest_dir: PathBuf) {
     let zip_url = format!(
         "https://github.com/Consensys-Incorporated/web3signer/releases/download/{version}/web3signer-{version}.zip"
     );
-    let zip_response = client
+    let mut request = client
         .get(&zip_url)
-        .header("User-Agent", "lighthouse-web3signer-tests")
+        .header("User-Agent", "lighthouse-web3signer-tests");
+    if let Some(token) = env::var("LIGHTHOUSE_GITHUB_TOKEN")
+        .ok()
+        .or_else(|| env::var("GITHUB_TOKEN").ok())
+        .filter(|token| !token.is_empty())
+    {
+        request = request.header("Authorization", format!("Bearer {token}"));
+    }
+    let zip_response = request
         .send()
         .await
         .unwrap()
