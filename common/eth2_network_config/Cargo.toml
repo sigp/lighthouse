@@ -6,6 +6,9 @@ edition = { workspace = true }
 
 build = "build.rs"
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 bytes = { workspace = true }
 discv5 = { workspace = true }
