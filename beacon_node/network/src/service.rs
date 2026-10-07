@@ -201,7 +201,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     network_recv: mpsc::UnboundedReceiver<NetworkMessage<T::EthSpec>>,
     /// The receiver channel for lighthouse to send validator subscription requests.
     validator_subscription_recv: mpsc::Receiver<ValidatorSubscriptionMessage>,
-    /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
+    /// A non-blocking processor for applying messages to the beacon chain.
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     /// A channel to the syncing thread.
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
@@ -512,7 +512,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     ) {
         match ev {
             NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                self.send_status(peer_id);
+                self.send_status(&[peer_id]);
             }
             NetworkEvent::PeerConnectedIncoming(_) => {
                 // No action required for this event.
@@ -545,7 +545,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.on_rpc_error(peer_id, app_request_id, error);
             }
             NetworkEvent::StatusPeer(peer_id) => {
-                self.send_status(peer_id);
+                self.send_status(&[peer_id]);
             }
             NetworkEvent::PubsubMessage {
                 id,
@@ -787,9 +787,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     .connected_peer_ids()
                     .cloned()
                     .collect::<Vec<_>>();
-                for peer_id in connected_peers {
-                    self.send_status(peer_id);
-                }
+                self.send_status(&connected_peers);
             }
         }
     }
@@ -954,15 +952,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     }
 
     /// Sends a `Status` request to a peer.
-    fn send_status(&mut self, peer_id: PeerId) {
-        let status_message = status_message(&self.beacon_chain);
-        debug!(%peer_id, ?status_message, "Sending Status Request");
-        if let Err((app_request_id, error)) = self.libp2p.send_request(
-            peer_id,
-            AppRequestId::Status,
-            RequestType::Status(status_message),
-        ) {
-            self.on_rpc_error(peer_id, app_request_id, error);
+    fn send_status(&mut self, peer_ids: &[PeerId]) {
+        let status = status_message(&self.beacon_chain);
+        for peer_id in peer_ids {
+            debug!(%peer_id, ?status, "Sending Status Request");
+            if let Err((app_request_id, error)) = self.libp2p.send_request(
+                *peer_id,
+                AppRequestId::Status,
+                RequestType::Status(status.clone()),
+            ) {
+                self.on_rpc_error(*peer_id, app_request_id, error);
+            }
         }
     }
 
