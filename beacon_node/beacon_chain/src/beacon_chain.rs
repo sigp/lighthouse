@@ -6752,14 +6752,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // if no matching entry is found. This saves recomputing the withdrawals which can take
         // considerable time to compute if a state load is required.
         let head_root = forkchoice_update_params.head_root;
+        let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
         let payload_attributes = if let Some(payload_attributes) = execution_layer
             .payload_attributes(prepare_slot, head_root, head_payload_status)
             .await
         {
             payload_attributes
         } else {
-            let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
-
             let withdrawals = if prepare_slot_fork.capella_enabled() {
                 let chain = self.clone();
                 self.spawn_blocking_handle(
@@ -6855,6 +6854,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = &self.event_handler
             && event_handler.has_payload_attributes_subscribers()
         {
+            let (safe_block_hash, finalized_block_hash) = if prepare_slot_fork.gloas_enabled() {
+                (
+                    Some(
+                        forkchoice_update_params
+                            .justified_hash
+                            .unwrap_or_else(ExecutionBlockHash::zero),
+                    ),
+                    Some(
+                        forkchoice_update_params
+                            .finalized_hash
+                            .unwrap_or_else(ExecutionBlockHash::zero),
+                    ),
+                )
+            } else {
+                (None, None)
+            };
+
             event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
                 data: SseExtendedPayloadAttributes {
                     proposal_slot: prepare_slot,
@@ -6864,6 +6880,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .parent_block_number
                         .map(|value| Quoted { value }),
                     parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
+                    safe_block_hash,
+                    finalized_block_hash,
                     payload_attributes: payload_attributes.into(),
                 },
                 metadata: Default::default(),
