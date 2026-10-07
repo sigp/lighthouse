@@ -525,7 +525,7 @@ mod get_blobs_v4 {
                 .body()
                 .signed_execution_payload_bid()
                 .expect("gloas block has a bid")
-                .clone(),
+                .clone_as_signed_execution_payload_bid(),
         );
 
         // Real pending payload cache: the Gloas path inserts the bid and merges partial columns into
