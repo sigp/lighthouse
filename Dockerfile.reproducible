@@ -3,7 +3,7 @@ ARG RUST_IMAGE="rust:1.91-bookworm@sha256:8322627e69ba7780b54f39e9f4d3758c006a3a
 FROM ${RUST_IMAGE} AS builder
 
 # Install specific version of the build dependencies
-RUN apt-get update && apt-get install -y libclang-dev=1:14.0-55.7~deb12u1 cmake=3.25.1-1 libjemalloc-dev=5.3.0-1
+RUN apt-get update && apt-get install -y libclang-dev=1:14.0-55.7~deb12u1 clang=1:14.0-55.7~deb12u1 cmake=3.25.1-1 libjemalloc-dev=5.3.0-1
 
 ARG RUST_TARGET="x86_64-unknown-linux-gnu"
 
