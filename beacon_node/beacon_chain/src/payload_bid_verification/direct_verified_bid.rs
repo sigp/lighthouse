@@ -47,6 +47,11 @@ pub fn verify_direct_bid<E: EthSpec>(
 ) -> Result<(), PayloadBidError> {
     let bid = signed_bid.message();
 
+    // Ensure the bid is the correct structure for the fork at `bid.slot()`.
+    signed_bid
+        .fork_name(spec)
+        .map_err(PayloadBidError::InconsistentFork)?;
+
     // The bid must be for exactly the slot being produced.
     if bid.slot() != proposal_slot {
         return Err(PayloadBidError::InvalidBidSlot {
@@ -124,7 +129,7 @@ mod tests {
     use super::*;
     use bls::Signature;
     use types::{
-        Address, ExecutionPayloadBidGloas, MinimalEthSpec, ProposerPreferences,
+        Address, ExecutionPayloadBidGloas, ForkName, MinimalEthSpec, ProposerPreferences,
         SignedExecutionPayloadBidGloas,
     };
 
@@ -134,7 +139,7 @@ mod tests {
     const EXECUTED_ANCESTOR_GAS_LIMIT: u64 = 30_000_000;
 
     fn state_and_spec() -> (BeaconState<E>, ChainSpec) {
-        let spec = E::default_spec();
+        let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
         let state = BeaconState::new(0, <_>::default(), &spec);
         (state, spec)
     }
