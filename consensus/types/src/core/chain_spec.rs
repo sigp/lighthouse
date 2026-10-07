@@ -4798,3 +4798,93 @@ mod yaml_tests {
         config_test::<MinimalEthSpec>(&spec, "minimal");
     }
 }
+
+#[cfg(test)]
+mod epoch_schedule_properties {
+    use super::*;
+    use proptest::prelude::*;
+    use proptest::test_runner::TestCaseError;
+    use serde::de::DeserializeOwned;
+    use std::fmt::Debug;
+
+    fn check_schedule<T>(
+        entries: Vec<(u64, u64)>,
+        make: impl Fn(Epoch, u64) -> T,
+        query: u64,
+    ) -> Result<(), TestCaseError>
+    where
+        T: ScheduleEntry + Serialize + DeserializeOwned + Clone + PartialEq + Debug,
+    {
+        let schedule = EpochSchedule::new(
+            entries
+                .iter()
+                .map(|&(epoch, value)| make(Epoch::new(epoch), value))
+                .collect(),
+        );
+
+        let epochs: Vec<Epoch> = schedule.as_vec().iter().map(|e| e.epoch()).collect();
+        prop_assert!(epochs.windows(2).all(|w| w[0] >= w[1]));
+
+        let expected = entries
+            .iter()
+            .map(|&(epoch, _)| epoch)
+            .filter(|&epoch| epoch <= query)
+            .max();
+        prop_assert_eq!(
+            schedule
+                .entry_for_epoch(Epoch::new(query))
+                .map(|e| e.epoch().as_u64()),
+            expected
+        );
+
+        let json = serde_json::to_string(&schedule).unwrap();
+        let serialized: Vec<T> = serde_json::from_str(&json).unwrap();
+        prop_assert!(serialized.windows(2).all(|w| w[0].epoch() <= w[1].epoch()));
+        let decoded: EpochSchedule<T> = serde_json::from_str(&json).unwrap();
+        // Round trip reverses the order of entries with equal epochs.
+        if epochs.windows(2).all(|w| w[0] != w[1]) {
+            prop_assert_eq!(decoded, schedule);
+        } else {
+            let decoded_epochs: Vec<Epoch> = decoded.as_vec().iter().map(|e| e.epoch()).collect();
+            prop_assert_eq!(decoded_epochs, epochs);
+        }
+        Ok(())
+    }
+
+    macro_rules! schedule_proptest {
+        ($name:ident, $make:expr) => {
+            proptest! {
+                #[test]
+                fn $name(
+                    entries in proptest::collection::vec((0u64..1000, any::<u64>()), 0..8),
+                    query in 0u64..1200,
+                ) {
+                    check_schedule(entries, $make, query)?;
+                }
+            }
+        };
+    }
+
+    schedule_proptest!(blob_schedule, |epoch, max_blobs_per_block| BlobParameters {
+        epoch,
+        max_blobs_per_block,
+    });
+    schedule_proptest!(gas_limit_schedule, |epoch, gas_limit| {
+        GasLimitScheduleEntry { epoch, gas_limit }
+    });
+
+    #[test]
+    fn duplicate_epoch_first_entry_wins() {
+        let schedule = GasLimitSchedule::new(vec![
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(5),
+                gas_limit: 1,
+            },
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(5),
+                gas_limit: 2,
+            },
+        ]);
+        assert_eq!(schedule.gas_limit_for_epoch(Epoch::new(5)), Some(1));
+    }
+}
