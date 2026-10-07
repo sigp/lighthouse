@@ -1807,6 +1807,67 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_beacon_states_ptc(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = self
+                .client
+                .get_beacon_states_ptc(state_id.0, None)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("result should be none");
+
+            // Without a `slot` query the committee for the state's own slot is returned.
+            let expected_ptc = state.get_ptc(state.slot(), &self.chain.spec).unwrap();
+            let result = result.unwrap();
+            assert_eq!(result.slot, state.slot(), "{}", state_id);
+            assert_eq!(
+                result
+                    .validators
+                    .into_iter()
+                    .map(|i| i as usize)
+                    .collect::<Vec<_>>(),
+                expected_ptc.0.to_vec(),
+                "{}",
+                state_id
+            );
+
+            // A slot in the next epoch is within the state's PTC window.
+            let next_epoch_slot = state.slot() + E::slots_per_epoch();
+            let result = self
+                .client
+                .get_beacon_states_ptc(state_id.0, Some(next_epoch_slot))
+                .await
+                .unwrap()
+                .unwrap()
+                .data;
+            let expected_ptc = state.get_ptc(next_epoch_slot, &self.chain.spec).unwrap();
+            assert_eq!(result.slot, next_epoch_slot, "{}", state_id);
+            assert_eq!(
+                result
+                    .validators
+                    .into_iter()
+                    .map(|i| i as usize)
+                    .collect::<Vec<_>>(),
+                expected_ptc.0.to_vec(),
+                "{}",
+                state_id
+            );
+        }
+
+        self
+    }
+
     pub async fn test_beacon_headers_all_slots(self) -> Self {
         for slot in 0..CHAIN_LENGTH {
             let slot = Slot::from(slot);
@@ -9838,6 +9899,22 @@ async fn beacon_get_state_info_fulu() {
         .test_beacon_states_proposer_lookahead()
         .await
         .test_beacon_states_proposer_lookahead_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_get_state_info_gloas() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    config.spec.gloas_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_states_ptc()
         .await;
 }
 

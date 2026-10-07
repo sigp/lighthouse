@@ -378,6 +378,64 @@ pub fn get_beacon_state_sync_committees<T: BeaconChainTypes>(
         .boxed()
 }
 
+// `GET /eth/v1/beacon/states/{state_id}/ptc`
+pub fn get_beacon_state_ptc<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("ptc"))
+        .and(warp::query::<eth2::types::PtcQuery>())
+        .and(warp::path::end())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             query: eth2::types::PtcQuery| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let slot = query.slot.unwrap_or(state.slot());
+                                let ptc =
+                                    state.get_ptc(slot, &chain.spec).map_err(|e| match e {
+                                        BeaconStateError::IncorrectStateVariant => {
+                                            warp_utils::reject::custom_bad_request(format!(
+                                                "state at slot {} is pre-Gloas",
+                                                state.slot()
+                                            ))
+                                        }
+                                        BeaconStateError::SlotOutOfBounds => {
+                                            warp_utils::reject::custom_bad_request(format!(
+                                                "slot {} is pre-Gloas or outside the PTC window \
+                                             of the state at epoch {}",
+                                                slot,
+                                                state.current_epoch()
+                                            ))
+                                        }
+                                        e => warp_utils::reject::beacon_state_error(e),
+                                    })?;
+
+                                Ok((
+                                    eth2::types::PtcData {
+                                        slot,
+                                        validators: ptc.0.iter().map(|&i| i as u64).collect(),
+                                    },
+                                    execution_optimistic,
+                                    finalized,
+                                ))
+                            },
+                        )?;
+
+                    Ok(eth2::types::GenericResponse::from(data)
+                        .add_execution_optimistic_finalized(execution_optimistic, finalized))
+                })
+            },
+        )
+        .boxed()
+}
+
 // GET beacon/states/{state_id}/committees?slot,index,epoch
 pub fn get_beacon_state_committees<T: BeaconChainTypes>(
     beacon_states_path: BeaconStatesPath<T>,

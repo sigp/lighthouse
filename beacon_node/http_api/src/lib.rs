@@ -668,6 +668,9 @@ pub async fn serve<T: BeaconChainTypes>(
     let get_beacon_state_proposer_lookahead =
         states::get_beacon_state_proposer_lookahead(beacon_states_path.clone());
 
+    // `GET /eth/v1/beacon/states/{state_id}/ptc`
+    let get_beacon_state_ptc = states::get_beacon_state_ptc(beacon_states_path.clone());
+
     // GET beacon/headers
     //
     // Note: this endpoint only returns information about blocks in the canonical chain. Given that
@@ -3426,6 +3429,7 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_state_pending_partial_withdrawals)
                 .uor(get_beacon_state_pending_consolidations)
                 .uor(get_beacon_state_proposer_lookahead)
+                .uor(get_beacon_state_ptc)
                 .uor(get_beacon_headers)
                 .uor(get_beacon_headers_block_id)
                 .uor(get_beacon_block)

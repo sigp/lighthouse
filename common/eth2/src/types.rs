@@ -545,6 +545,11 @@ pub struct SyncCommitteesQuery {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct PtcQuery {
+    pub slot: Option<Slot>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct RandaoQuery {
     pub epoch: Option<Epoch>,
 }
@@ -596,6 +601,13 @@ pub struct SyncCommitteeByValidatorIndices {
     #[serde(with = "serde_utils::quoted_u64_vec")]
     pub validators: Vec<u64>,
     pub validator_aggregates: Vec<SyncSubcommittee>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PtcData {
+    pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64_vec")]
+    pub validators: Vec<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
