@@ -18,6 +18,7 @@ pub use json_structures::{JsonWithdrawal, TransitionConfigurationV1};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
@@ -36,6 +37,7 @@ pub mod auth;
 pub mod http;
 pub mod json_structures;
 mod new_payload_request;
+pub mod ssz_structures;
 
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
@@ -160,11 +162,12 @@ impl ExecutionBlock {
 
 #[superstruct(
     variants(V1, V2, V3, V4, V5),
-    variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq),),
+    variant_attributes(derive(Clone, Debug, Eq, Encode, Decode, Hash, PartialEq),),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Encode, Decode, Hash, PartialEq)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct PayloadAttributes {
     #[superstruct(getter(copy))]
     pub timestamp: u64,
