@@ -18,7 +18,7 @@ use types::{
     SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
     SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedInclusionList,
     SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId, execution::SignedExecutionProof,
+    SyncCommitteeMessage, SyncSubnetId, execution::SignedExecutionProofEnvelope,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -52,7 +52,7 @@ pub enum PubsubMessage<E: EthSpec> {
     /// Gossipsub message providing notification of signed proposer preferences.
     ProposerPreferences(Arc<SignedProposerPreferences>),
     /// Gossipsub message providing notification of an EIP-8025 execution proof.
-    ExecutionProof(Arc<SignedExecutionProof>),
+    ExecutionProof(Arc<SignedExecutionProofEnvelope>),
     /// Gossipsub message providing notification of a signed inclusion list.
     InclusionList(Box<SignedInclusionList>),
     /// Gossipsub message providing notification of a light client finality update.
@@ -416,7 +416,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::ExecutionProof => {
-                        let execution_proof = SignedExecutionProof::from_ssz_bytes(data)
+                        let execution_proof = SignedExecutionProofEnvelope::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::ExecutionProof(Arc::new(execution_proof)))
                     }
