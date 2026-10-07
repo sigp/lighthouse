@@ -12,24 +12,16 @@ pub const MAX_PROOF_SIZE: usize = 4_194_304;
 /// SSZ bound for `proof_data`.
 pub type MaxProofSize = typenum::U4194304;
 
-/// Opaque proof bytes, the EIP-8025 `ProofData` (a `ByteList` limited to `MAX_PROOF_SIZE`).
+/// Spec type `ProofData`.
 pub type ProofData = VariableList<u8, MaxProofSize>;
 
-/// Identifier for the proof system, guest program and version (EIP-8025 `ProofType`).
+/// Spec type `ProofType`.
 pub type ProofType = u8;
 
-/// The proof types this node will dispatch to a proof engine (EIP-8025
-/// `get_supported_proof_types`).
-pub const SUPPORTED_PROOF_TYPES: [ProofType; 3] = [1, 2, 3];
-
-/// The Amsterdam protocol fork (`0x15`) and schema revision (`0x01`), pinning the input schema a
-/// guest was run against (EIP-8025 `STATELESS_INPUT_SCHEMA_ID`).
+/// Spec constant `STATELESS_INPUT_SCHEMA_ID`: Amsterdam fork (`0x15`), schema revision (`0x01`).
 pub const STATELESS_INPUT_SCHEMA_ID: u16 = 0x1501;
 
-/// What a proof claims, and the chain and schema it claims it against.
-///
-/// Never gossiped: a node builds this from the payload envelope it accepted, so a prover cannot
-/// assert its own public input.
+/// Spec type `PublicInput`.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
@@ -42,9 +34,7 @@ pub struct PublicInput {
     pub schema_id: u16,
 }
 
-/// An execution proof as the proof engine sees it (EIP-8025 `ExecutionProof`).
-///
-/// Built locally by `get_execution_proof`, never sent or received.
+/// Spec type `ExecutionProof`.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
@@ -54,8 +44,7 @@ pub struct ExecutionProof {
     pub public_input: PublicInput,
 }
 
-/// An execution proof as it travels the `execution_proof` topic (EIP-8025
-/// `ExecutionProofEnvelope`), keyed to the beacon block whose envelope committed the payload.
+/// Spec type `ExecutionProofEnvelope`.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]

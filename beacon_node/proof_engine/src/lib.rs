@@ -66,8 +66,8 @@ impl ProofEngine {
         let response: VerifyResponse = self
             .client
             .post(url)
-            // The four `PublicInput` fields the guest commits to, plus the proof type that says
-            // which guest to dispatch to.
+            // [DEVIATION] The spec public input is `hash_tree_root(public_input)`; the sidecar
+            // rebuilds it from the fields.
             .query(&[
                 (
                     "new_payload_request_root",

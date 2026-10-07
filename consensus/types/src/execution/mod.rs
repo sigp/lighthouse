@@ -36,7 +36,7 @@ pub use execution_payload_header::{
 };
 pub use execution_proof::{
     ExecutionProof, ExecutionProofEnvelope, MAX_PROOF_SIZE, MaxProofSize, ProofData, ProofType,
-    PublicInput, STATELESS_INPUT_SCHEMA_ID, SUPPORTED_PROOF_TYPES, SignedExecutionProofEnvelope,
+    PublicInput, STATELESS_INPUT_SCHEMA_ID, SignedExecutionProofEnvelope,
 };
 pub use execution_requests::{
     BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,

@@ -1,20 +1,19 @@
-//! The SSZ form of the Engine API `NewPayloadRequest`, whose root an EIP-8025 proof commits to.
-//!
-//! The `execution_layer` crate has a borrowed `NewPayloadRequest` for talking to an engine. This
-//! one is the spec container: owned, and merkleized, because `get_execution_proof` needs its
-//! `hash_tree_root` as the proof's public input.
+//! The spec `NewPayloadRequest`, owned and merkleized. The `execution_layer` one is borrowed.
 
-use crate::{EthSpec, ExecutionPayloadGloas, ExecutionRequestsGloas, ForkName, Hash256};
+use crate::{
+    EthSpec, ExecutionPayloadGloas, ExecutionRequestsGloas, ForkName, Hash256, VersionedHash,
+};
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use tree_hash_derive::TreeHash;
 
-/// Versioned hashes of the blobs an execution payload carries (Deneb `VersionedHashes`).
-pub type VersionedHashes<E> = VariableList<Hash256, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+/// Spec type `VersionedHashes`.
+pub type VersionedHashes<E> =
+    VariableList<VersionedHash, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
-/// Gloas `NewPayloadRequest`, as EIP-7688 made it a progressive container.
+/// Spec type `NewPayloadRequest`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
