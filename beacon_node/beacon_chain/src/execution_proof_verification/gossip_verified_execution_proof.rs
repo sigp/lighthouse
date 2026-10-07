@@ -241,8 +241,8 @@ fn get_execution_proof<T: BeaconChainTypes>(
         })?;
 
     let versioned_hashes = VersionedHashes::<T::EthSpec>::new(
-        bid.message
-            .blob_kzg_commitments
+        bid.message()
+            .blob_kzg_commitments()
             .iter()
             .map(kzg_commitment_to_versioned_hash)
             .collect(),

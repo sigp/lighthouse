@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 use types::{
-    BuilderIndex, EthSpec, ExecutionBlockHash, ExecutionPayloadBid, Hash256,
+    BuilderIndex, EthSpec, ExecutionBlockHash, ExecutionPayloadBidRef, Hash256,
     SignedExecutionPayloadBid, Slot,
 };
 
@@ -19,10 +19,10 @@ pub struct BidParent {
 }
 
 impl BidParent {
-    pub fn from_bid<E: EthSpec>(bid: &ExecutionPayloadBid<E>) -> Self {
+    pub fn from_bid<E: EthSpec>(bid: ExecutionPayloadBidRef<'_, E>) -> Self {
         Self {
-            parent_block_hash: bid.parent_block_hash,
-            parent_block_root: bid.parent_block_root,
+            parent_block_hash: bid.parent_block_hash(),
+            parent_block_root: bid.parent_block_root(),
         }
     }
 }
@@ -90,14 +90,14 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
     /// Returns `true` if the bid became the new highest bid for its parent, or `false` if an
     /// existing cached bid had an equal or greater value and was therefore retained.
     pub fn observe_bid(&self, bid: GossipVerifiedPayloadBid<E>) -> bool {
-        let slot = bid.signed_bid.message.slot;
-        let key = BidParent::from_bid(&bid.signed_bid.message);
+        let slot = bid.signed_bid.message().slot();
+        let key = BidParent::from_bid(bid.signed_bid.message());
         let mut inner = self.inner.write();
         inner
             .seen_builder_bids
             .entry(slot)
             .or_default()
-            .insert((key, bid.signed_bid.message.builder_index));
+            .insert((key, bid.signed_bid.message().builder_index()));
 
         match inner.highest_bid.entry(slot).or_default().entry(key) {
             hash_map::Entry::Vacant(entry) => {
@@ -105,7 +105,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
                 true
             }
             hash_map::Entry::Occupied(mut entry) => {
-                if entry.get().signed_bid.message.value >= bid.signed_bid.message.value {
+                if entry.get().signed_bid.message().value() >= bid.signed_bid.message().value() {
                     return false;
                 }
                 entry.insert(bid);
@@ -145,8 +145,8 @@ mod tests {
 
     use bls::Signature;
     use types::{
-        ExecutionBlockHash, ExecutionPayloadBid, Hash256, MinimalEthSpec,
-        SignedExecutionPayloadBid, Slot,
+        ExecutionBlockHash, ExecutionPayloadBidGloas, Hash256, MinimalEthSpec,
+        SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, Slot,
     };
 
     use super::{BidParent, GossipVerifiedPayloadBidCache};
@@ -162,17 +162,19 @@ mod tests {
         value: u64,
     ) -> GossipVerifiedPayloadBid<E> {
         GossipVerifiedPayloadBid {
-            signed_bid: Arc::new(SignedExecutionPayloadBid {
-                message: ExecutionPayloadBid {
-                    slot,
-                    builder_index,
-                    parent_block_hash,
-                    parent_block_root,
-                    value,
-                    ..ExecutionPayloadBid::default()
+            signed_bid: Arc::new(SignedExecutionPayloadBid::Gloas(
+                SignedExecutionPayloadBidGloas {
+                    message: ExecutionPayloadBidGloas {
+                        slot,
+                        builder_index,
+                        parent_block_hash,
+                        parent_block_root,
+                        value,
+                        ..ExecutionPayloadBidGloas::default()
+                    },
+                    signature: Signature::empty(),
                 },
-                signature: Signature::empty(),
-            }),
+            )),
         }
     }
 
@@ -227,11 +229,19 @@ mod tests {
 
         // Each parent tuple keeps its own highest bid.
         assert_eq!(
-            cache.get_highest_bid(slot, parent_a).unwrap().message.value,
+            cache
+                .get_highest_bid(slot, parent_a)
+                .unwrap()
+                .message()
+                .value(),
             100
         );
         assert_eq!(
-            cache.get_highest_bid(slot, parent_b).unwrap().message.value,
+            cache
+                .get_highest_bid(slot, parent_b)
+                .unwrap()
+                .message()
+                .value(),
             50
         );
 
@@ -239,19 +249,27 @@ mod tests {
         // not touch the other tuple.
         assert!(!cache.observe_bid(make_gossip_verified(slot, 2, hash_a, root_a, 60)));
         assert_eq!(
-            cache.get_highest_bid(slot, parent_a).unwrap().message.value,
+            cache
+                .get_highest_bid(slot, parent_a)
+                .unwrap()
+                .message()
+                .value(),
             100
         );
         assert_eq!(
-            cache.get_highest_bid(slot, parent_b).unwrap().message.value,
+            cache
+                .get_highest_bid(slot, parent_b)
+                .unwrap()
+                .message()
+                .value(),
             50
         );
 
         // A higher bid replaces the cached bid for its tuple.
         assert!(cache.observe_bid(make_gossip_verified(slot, 3, hash_b, root_b, 70)));
         let highest_b = cache.get_highest_bid(slot, parent_b).unwrap();
-        assert_eq!(highest_b.message.value, 70);
-        assert_eq!(highest_b.message.builder_index, 3);
+        assert_eq!(highest_b.message().value(), 70);
+        assert_eq!(highest_b.message().builder_index(), 3);
     }
 
     #[test]
