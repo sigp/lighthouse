@@ -132,17 +132,17 @@ impl GossipVerifiedExecutionProof {
         // [IGNORE] The payload this proof is about is available. Reads the store and merkleizes a
         // payload, so it runs on the blocking pool.
         let chain = ctx.chain.clone();
-        let proof_envelope = proof.message.clone();
+        let signed_proof = proof.clone();
         let execution_proof = ctx
             .chain
             .spawn_blocking_handle(
-                move || get_execution_proof(&chain, &proof_envelope, block_root),
+                move || get_execution_proof(&chain, &signed_proof.message, block_root),
                 "get_execution_proof",
             )
             .await
             .map_err(|e| Error::BeaconChainError(Box::new(e)))??;
 
-        // Must follow every `IGNORE`: a recorded proof is deduplicated away on every later hop.
+        // Must follow the signature check and every `IGNORE`: a recorded proof never comes back.
         if !ctx
             .observed_execution_proofs
             .write()
