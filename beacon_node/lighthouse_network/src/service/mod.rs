@@ -244,24 +244,30 @@ impl<E: EthSpec> Network<E> {
             message_domain_valid_snappy: ctx.chain_spec.message_domain_valid_snappy,
             gossipsub_max_transmit_size: ctx.chain_spec.max_message_size(),
         };
+        // These durations are fixed at startup, so take them from the current fork.
+        let slot_duration = Duration::from_millis(
+            ctx.chain_spec
+                .get_slot_duration_ms(ctx.fork_context.current_fork_epoch()),
+        );
         let gs_config = gossipsub_config(
             config.network_load,
             ctx.fork_context.clone(),
             gossipsub_config_params,
-            ctx.chain_spec.get_slot_duration(),
+            slot_duration,
             E::slots_per_epoch(),
             config.idontwant_message_size_threshold,
         );
 
-        let score_settings = PeerScoreSettings::new(&ctx.chain_spec, gs_config.mesh_n());
+        let score_settings =
+            PeerScoreSettings::new(&ctx.chain_spec, slot_duration, gs_config.mesh_n());
 
         let gossip_cache = {
             let half_epoch = std::time::Duration::from_millis(
-                (ctx.chain_spec.get_slot_duration().as_millis() as u64) * E::slots_per_epoch() / 2,
+                (slot_duration.as_millis() as u64) * E::slots_per_epoch() / 2,
             );
 
             GossipCache::builder()
-                .beacon_block_timeout(ctx.chain_spec.get_slot_duration())
+                .beacon_block_timeout(slot_duration)
                 .aggregates_timeout(half_epoch)
                 .attestation_timeout(half_epoch)
                 .voluntary_exit_timeout(half_epoch * 2)

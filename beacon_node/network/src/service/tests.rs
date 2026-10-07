@@ -313,7 +313,7 @@ fn run_fork_schedule(spec: ChainSpec, start_slot: Slot, sync_slot: Slot, port: u
             slot += 1;
             let slot_start = beacon_chain.slot_clock.start_of(slot).unwrap();
             beacon_chain.slot_clock.set_current_time(slot_start + lag);
-            tokio::time::advance(beacon_chain.spec.get_slot_duration() - lag).await;
+            tokio::time::advance(beacon_chain.spec.genesis_slot_duration() - lag).await;
             settle().await;
             tokio::time::advance(lag).await;
         }

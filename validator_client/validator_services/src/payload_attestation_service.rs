@@ -1220,7 +1220,7 @@ mod tests {
         let test_harness = TestHarness::new_with_validators(1, Some(payload_rx)).await;
 
         // Advance to slot 1
-        let slot_duration = test_harness.service.chain_spec.get_slot_duration();
+        let slot_duration = test_harness.service.chain_spec.genesis_slot_duration();
         test_harness.service.slot_clock.advance_time(slot_duration);
         let current_slot = test_harness.service.slot_clock.now().unwrap();
 
@@ -1326,7 +1326,7 @@ mod tests {
         let attestation_slot = Slot::new(1);
         test_harness.insert_ptc_duties(attestation_slot);
 
-        let slot_duration = test_harness.service.chain_spec.get_slot_duration();
+        let slot_duration = test_harness.service.chain_spec.genesis_slot_duration();
         let payload_attestation_due = test_harness
             .service
             .chain_spec

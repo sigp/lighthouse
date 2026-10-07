@@ -1041,8 +1041,10 @@ impl ChainSpec {
         )
     }
 
-    /// Get the duration of a slot
-    pub fn get_slot_duration(&self) -> Duration {
+    /// Returns the slot duration at genesis.
+    ///
+    /// Use `get_slot_duration_ms` for the slot duration at an epoch.
+    pub fn genesis_slot_duration(&self) -> Duration {
         Duration::from_millis(self.slot_duration_ms)
     }
 
@@ -1066,6 +1068,30 @@ impl ChainSpec {
             .map_or(self.slot_duration_ms, |(_, slot_duration_ms)| {
                 slot_duration_ms
             })
+    }
+
+    /// Spec: `compute_time_at_slot`. Returns the Unix time in seconds at the start of `slot`.
+    pub fn compute_time_at_slot<E: EthSpec>(
+        &self,
+        genesis_time: u64,
+        slot: Slot,
+    ) -> Result<u64, ArithError> {
+        self.slot_duration_schedule()
+            .compute_time_at_slot_ms(E::slots_per_epoch(), genesis_time.safe_mul(1000)?, slot)?
+            .safe_div(1000)
+    }
+
+    /// Spec: `compute_slot_at_time`. Returns the slot at Unix time `time` in seconds.
+    pub fn compute_slot_at_time<E: EthSpec>(
+        &self,
+        genesis_time: u64,
+        time: u64,
+    ) -> Result<Slot, ArithError> {
+        self.slot_duration_schedule().compute_slot_at_time_ms(
+            E::slots_per_epoch(),
+            genesis_time.safe_mul(1000)?,
+            time.safe_mul(1000)?,
+        )
     }
 
     pub fn slot_duration_schedule(&self) -> SlotDurationSchedule {
@@ -4435,7 +4461,7 @@ mod yaml_tests {
         assert_eq!(contribution_due, Duration::from_millis(8000)); // 12000 * 6667 / 10000
 
         // Test slot duration
-        let slot_duration = spec.get_slot_duration();
+        let slot_duration = spec.genesis_slot_duration();
         assert_eq!(slot_duration, Duration::from_millis(12000));
 
         // Test edge cases with custom spec
@@ -4828,6 +4854,16 @@ mod yaml_tests {
         );
         assert_eq!(spec.get_slot_duration_ms(Epoch::new(0)), 12000);
         assert_eq!(spec.get_slot_duration_ms(Epoch::new(1_000_000)), 12000);
+    }
+
+    #[test]
+    fn compute_time_at_slot_in_seconds() {
+        type E = MainnetEthSpec;
+        let spec = ChainSpec::mainnet();
+        assert_eq!(spec.compute_time_at_slot::<E>(100, Slot::new(3)), Ok(136));
+        assert_eq!(spec.compute_slot_at_time::<E>(100, 136), Ok(Slot::new(3)));
+        assert_eq!(spec.compute_slot_at_time::<E>(100, 147), Ok(Slot::new(3)));
+        assert!(spec.compute_slot_at_time::<E>(100, 99).is_err());
     }
 
     #[test]

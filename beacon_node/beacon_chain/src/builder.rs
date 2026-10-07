@@ -1207,19 +1207,16 @@ where
     TColdStore: ItemStore + 'static,
     E: EthSpec + 'static,
 {
-    /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
+    /// Sets the `BeaconChain` slot clock to a `TestingSlotClock` that follows the spec.
     ///
     /// Requires the state to be initialized.
-    pub fn testing_slot_clock(self, slot_duration: Duration) -> Result<Self, String> {
+    pub fn testing_slot_clock(self) -> Result<Self, String> {
         let genesis_time = self
             .genesis_time
             .ok_or("testing_slot_clock requires an initialized state")?;
 
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(genesis_time),
-            slot_duration,
-        );
+        let slot_clock =
+            TestingSlotClock::from_spec::<E>(Duration::from_secs(genesis_time), &self.spec);
 
         Ok(self.slot_clock(slot_clock))
     }
@@ -1600,7 +1597,7 @@ mod test {
             .task_executor(runtime.task_executor.clone())
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
-            .testing_slot_clock(Duration::from_secs(1))
+            .testing_slot_clock()
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .rng(Box::new(StdRng::seed_from_u64(42)))

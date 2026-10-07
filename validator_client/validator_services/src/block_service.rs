@@ -1251,7 +1251,7 @@ mod tests {
             // advance the time to Slot 1
             harness
                 .slot_clock
-                .advance_time(harness.spec.get_slot_duration());
+                .advance_time(harness.spec.genesis_slot_duration());
 
             let mut builder = BlockServiceBuilder::new()
                 .validator_store(Arc::new(RecordingValidatorStore::new(

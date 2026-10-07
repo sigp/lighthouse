@@ -838,7 +838,7 @@ mod tests {
         let gloas_fork_epoch = Epoch::new(1);
         spec.gloas_fork_epoch = Some(gloas_fork_epoch);
 
-        let slot_duration = spec.get_slot_duration();
+        let slot_duration = spec.genesis_slot_duration();
         let genesis_time = slot_duration;
         let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
         let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());

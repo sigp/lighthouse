@@ -289,7 +289,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let beacon_node_setup = |x: (usize, &SensitiveUrl)| {
             let i = x.0;
             let url = x.1;
-            let slot_duration = context.eth2_config.spec.get_slot_duration();
+            let slot_duration = context.eth2_config.spec.genesis_slot_duration();
 
             let mut beacon_node_http_client_builder = ClientBuilder::new();
 
