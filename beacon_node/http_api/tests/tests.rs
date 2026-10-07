@@ -3877,6 +3877,14 @@ impl ApiTester {
                     .unwrap_or_else(|| panic!("missing node {block_root:?} {payload_status:?}"));
 
                 assert_eq!(node.slot, proto_node.slot());
+                assert_eq!(
+                    node.justified_checkpoint,
+                    *proto_node.justified_checkpoint()
+                );
+                assert_eq!(
+                    node.finalized_checkpoint,
+                    *proto_node.finalized_checkpoint()
+                );
                 assert_eq!(node.weight, proto_node.attestation_score(payload_status));
                 assert_eq!(
                     node.extra_data.payload_received,

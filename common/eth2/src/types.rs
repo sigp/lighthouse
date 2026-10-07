@@ -1796,8 +1796,8 @@ pub struct ForkChoiceNodeV2 {
     pub payload_status: PayloadStatus,
     pub parent_root: Hash256,
     pub parent_payload_status: Option<PayloadStatus>,
-    pub justified_epoch: Epoch,
-    pub finalized_epoch: Epoch,
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
     #[serde(with = "serde_utils::quoted_u64")]
     pub weight: u64,
     pub validity: ExecutionVerdict,
