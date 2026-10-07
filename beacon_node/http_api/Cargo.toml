@@ -5,6 +5,9 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 autotests = false                               # using a single test binary compiles faster
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 axum = { workspace = true }
 axum_utils = { workspace = true }
