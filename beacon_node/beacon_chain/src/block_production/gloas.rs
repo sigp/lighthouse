@@ -1179,6 +1179,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        // Filter out any bid whose variant doesn't match the fork at its slot, making sure
+        // that we don't fail block production
+        externals.retain(|candidate| {
+            if let Err(error) = candidate.signed_bid.fork_name(&self.spec) {
+                warn!(
+                    ?error,
+                    "Skipping bid with a variant inconsistent with its fork"
+                );
+                return false;
+            }
+            true
+        });
+
         // The parent's exit requests apply to the state before this block's bid is processed, so a
         // bid from a builder the parent payload exits fails `process_execution_payload_bid`.
         externals.retain(|candidate| {
