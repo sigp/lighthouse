@@ -1,3 +1,8 @@
 # Custom Cargo config to be used for the udeps CI job
 [http]
 multiplexing = false
+
+# Keep GCC away from LevelDB's Clang-only -Wthread-safety flag; mirrors the
+# workaround in .cargo/config.toml (which this file replaces in CI).
+[env]
+CXX = "clang++"
