@@ -540,7 +540,7 @@ mod tests {
         let service_wait = service.wait_for_inclusion_list_production_due();
         tokio::pin!(service_wait);
 
-        // Start the timer and registers the sleep timer with tokio
+        // Start the wait, which registers the sleep timer with tokio
         assert!(service_wait.as_mut().now_or_never().is_none());
 
         // 7s into the next slot: 1s before the inclusion list deadline
@@ -712,7 +712,7 @@ mod tests {
             .await
             .unwrap();
 
-        // One POST per duty,and no JSON fallback
+        // One POST per duty, and no JSON fallback
         ssz_mock.expect(3).assert();
         json_mock.expect(0).assert();
 

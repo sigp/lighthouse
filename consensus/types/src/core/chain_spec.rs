@@ -1644,8 +1644,8 @@ impl ChainSpec {
             sync_message_due: Duration::from_millis(1999),
             sync_message_due_gloas: Duration::from_millis(1500),
             contribution_and_proof_due: Duration::from_millis(4000),
-            inclusion_list_due: Duration::from_millis(4000),
             contribution_and_proof_due_gloas: Duration::from_millis(3000),
+            inclusion_list_due: Duration::from_millis(4000),
 
             // Networking Fulu
             blob_schedule: BlobSchedule::default(),
@@ -1751,8 +1751,8 @@ impl ChainSpec {
             sync_message_due: Duration::from_millis(1666),
             sync_message_due_gloas: Duration::from_millis(1250),
             contribution_and_proof_due: Duration::from_millis(3333),
-            inclusion_list_due: Duration::from_millis(3333),
             contribution_and_proof_due_gloas: Duration::from_millis(2500),
+            inclusion_list_due: Duration::from_millis(3333),
 
             /*
              * Reward and penalty quotients

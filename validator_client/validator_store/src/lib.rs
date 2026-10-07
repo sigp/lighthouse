@@ -227,6 +227,12 @@ pub trait ValidatorStore: Send + Sync {
         request_auth_v1: RequestAuth,
     ) -> impl Future<Output = Result<SignedRequestAuth, Error<Self::Error>>> + Send;
 
+    fn sign_inclusion_list(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        inclusion_list: InclusionList,
+    ) -> impl Future<Output = Result<SignedInclusionList, Error<Self::Error>>> + Send;
+
     /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
     /// `get_gas_limit_defaulting`, and `get_builder_proposals_defaulting`.
@@ -235,11 +241,6 @@ pub trait ValidatorStore: Send + Sync {
     /// Like `proposal_data`, with the gas limit schedule evaluated at `epoch`.
     fn proposal_data_at_epoch(&self, pubkey: &PublicKeyBytes, epoch: Epoch)
     -> Option<ProposalData>;
-    fn sign_inclusion_list(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        inclusion_list: InclusionList,
-    ) -> impl Future<Output = Result<SignedInclusionList, Error<Self::Error>>> + Send;
 }
 
 #[derive(Debug)]
