@@ -955,6 +955,35 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         Ok(())
     }
 
+    pub fn get_light_client_epoch_data(
+        &self,
+        epoch: Epoch,
+    ) -> Result<Option<LightClientEpochData<E>>, Error> {
+        let res = self
+            .hot_db
+            .get_bytes(DBColumn::LightClientEpochData, &epoch.as_u64().to_be_bytes())?;
+    
+        let Some(bytes) = res else {
+            return Ok(None);
+        };
+    
+        let fork_name = self.spec.fork_name_at_epoch(epoch);
+        Ok(Some(LightClientEpochData::from_ssz_bytes(&bytes, fork_name)?))
+    }
+    
+    pub fn store_light_client_epoch_data(
+        &self,
+        epoch: Epoch,
+        epoch_data: &LightClientEpochData<E>,
+    ) -> Result<(), Error> {
+        self.hot_db.put_bytes(
+            DBColumn::LightClientEpochData,
+            &epoch.as_u64().to_be_bytes(),
+            &epoch_data.as_ssz_bytes(),
+        )?;
+        Ok(())
+    }
+    
     /// Check if the blobs for a block exists on disk.
     pub fn blobs_exist(&self, block_root: &Hash256) -> Result<bool, Error> {
         self.blobs_db

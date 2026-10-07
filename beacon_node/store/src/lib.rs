@@ -375,6 +375,9 @@ pub enum DBColumn {
     /// For persisting eagerly computed light client data
     #[strum(serialize = "lcu")]
     LightClientUpdate,
+    /// For persisting computed light client epoch data
+    #[strum(serialize = "lce")]
+    LightClientEpochData,
     /// For helping persist eagerly computed light client bootstrap data
     #[strum(serialize = "scb")]
     SyncCommitteeBranch,
@@ -442,6 +445,7 @@ impl DBColumn {
             | Self::SyncCommittee
             | Self::SyncCommitteeBranch
             | Self::LightClientUpdate
+            | Self::LightClientEpochData
             | Self::Dummy => 8,
             Self::BeaconDataColumn => DATA_COLUMN_DB_KEY_SIZE,
         }

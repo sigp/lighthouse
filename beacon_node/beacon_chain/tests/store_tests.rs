@@ -444,6 +444,69 @@ async fn get_light_client_updates_crosses_256_period_boundary() {
     );
 }
 
+fn make_light_client_epoch_data<E: EthSpec>(
+    fork_name: ForkName,
+    marker_epoch: Epoch,
+) -> LightClientEpochData<E> {
+    let bootstrap_data = match fork_name {
+        ForkName::Base => panic!("light client epoch data doesn't exist pre-Altair"),
+        ForkName::Altair | ForkName::Bellatrix => {
+            LightClientBootstrapData::Altair(test_arbitrary_instance())
+        }
+        ForkName::Capella => LightClientBootstrapData::Capella(test_arbitrary_instance()),
+        ForkName::Deneb => LightClientBootstrapData::Deneb(test_arbitrary_instance()),
+        ForkName::Electra => LightClientBootstrapData::Electra(test_arbitrary_instance()),
+        ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
+            LightClientBootstrapData::Fulu(test_arbitrary_instance())
+        }
+    };
+
+    match fork_name {
+        ForkName::Base => panic!("light client epoch data doesn't exist pre-Altair"),
+        ForkName::Altair | ForkName::Bellatrix | ForkName::Capella | ForkName::Deneb => {
+            let mut data = test_arbitrary_instance::<LightClientEpochDataAltair<E>>();
+            data.epoch = marker_epoch;
+            data.bootstrap_data = bootstrap_data;
+            LightClientEpochData::Altair(data)
+        }
+        ForkName::Electra | ForkName::Fulu | ForkName::Gloas | ForkName::Heze => {
+            let mut data = test_arbitrary_instance::<LightClientEpochDataElectra<E>>();
+            data.epoch = marker_epoch;
+            data.bootstrap_data = bootstrap_data;
+            LightClientEpochData::Electra(data)
+        }
+    }
+}
+
+#[tokio::test]
+async fn light_client_epoch_data_store_round_trip() {
+    let spec = test_spec::<E>();
+    if spec.altair_fork_epoch.is_none() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+
+    let epochs: Vec<Epoch> = [10u64, 20, 30].into_iter().map(Epoch::new).collect();
+
+    for &epoch in &epochs {
+        let fork_name = spec.fork_name_at_epoch(epoch);
+        let data = make_light_client_epoch_data::<E>(fork_name, epoch);
+        store.store_light_client_epoch_data(epoch, &data).unwrap();
+    }
+
+    for &epoch in &epochs {
+        let fetched = store
+            .get_light_client_epoch_data(epoch)
+            .unwrap()
+            .expect("epoch data was just stored");
+        assert_eq!(*fetched.epoch(), epoch);
+    }
+
+    assert!(store.get_light_client_epoch_data(Epoch::new(999)).unwrap().is_none());
+}
+
 #[tokio::test]
 async fn full_participation_no_skips() {
     let num_blocks_produced = E::slots_per_epoch() * 5;
