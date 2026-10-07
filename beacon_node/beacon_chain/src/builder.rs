@@ -13,7 +13,7 @@ use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sideca
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
-use crate::pending_payload_cache::{PendingPayloadCache, REQUIRED_EXECUTION_PROOFS};
+use crate::pending_payload_cache::PendingPayloadCache;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
@@ -778,9 +778,10 @@ where
             slot_clock.now().ok_or("Unable to read slot")?
         };
 
-        let (initial_head_block_root, head_payload_status) = fork_choice
+        let head_node = fork_choice
             .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
+        let (initial_head_block_root, head_payload_status) = head_node.as_pair();
 
         let head_block_root = initial_head_block_root;
         let head_block = store
@@ -798,7 +799,7 @@ where
         // Load the execution envelope from the store if the head has a Full payload.
         let execution_envelope = if head_payload_status == PayloadStatus::Full {
             store
-                .get_payload_envelope(&head_block_root)
+                .get_payload_envelope_summary(&head_block_root)
                 .map_err(|e| format!("Error loading head execution envelope: {:?}", e))?
                 .map(Arc::new)
         } else {
@@ -935,7 +936,7 @@ where
         let canonical_head = CanonicalHead::new(
             fork_choice,
             Arc::new(head_snapshot),
-            head_payload_status,
+            head_node,
             self.chain_config.fast_confirmation,
             &store,
             &self.spec,
@@ -1004,13 +1005,6 @@ where
         };
         debug!(?custody_context, "Loaded persisted custody context");
         let custody_context = Arc::new(custody_context);
-
-        // Without a proof engine we can't verify proofs, so we don't require them.
-        let required_execution_proofs = if self.proof_engine.is_some() {
-            REQUIRED_EXECUTION_PROOFS
-        } else {
-            0
-        };
 
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
@@ -1104,7 +1098,6 @@ where
                     self.kzg.clone(),
                     custody_context,
                     disable_get_blobs,
-                    required_execution_proofs,
                     self.spec.clone(),
                 )
                 .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
@@ -1600,8 +1593,11 @@ mod test {
         let validator_count = 1;
         let genesis_time = 13_371_337;
 
-        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> =
-            HotColdDB::open_ephemeral(StoreConfig::default(), ChainSpec::minimal().into()).unwrap();
+        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> = HotColdDB::open_ephemeral(
+            StoreConfig::default(),
+            MinimalEthSpec::default_spec().into(),
+        )
+        .unwrap();
         let spec = MinimalEthSpec::default_spec();
 
         let genesis_state = interop_genesis_state(

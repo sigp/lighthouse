@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "account_manager"
-version = "8.2.2"
+version = "8.3.0-rc.0"
 dependencies = [
  "account_utils",
  "bls",
@@ -1367,7 +1367,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "8.2.2"
+version = "8.3.0-rc.0"
 dependencies = [
  "account_utils",
  "axum_utils",
@@ -1631,7 +1631,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "8.2.2"
+version = "8.3.0-rc.0"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -3425,7 +3425,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz"
 version = "0.10.4"
-source = "git+https://github.com/sigp/ethereum_ssz?rev=2059c21ba52cd3a7e39a8ad537012b761812a393#2059c21ba52cd3a7e39a8ad537012b761812a393"
+source = "git+https://github.com/sigp/ethereum_ssz?rev=974f78f421fbf70cba4e8f84e0fa28c23ad54f34#974f78f421fbf70cba4e8f84e0fa28c23ad54f34"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
@@ -3441,7 +3441,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz_derive"
 version = "0.10.4"
-source = "git+https://github.com/sigp/ethereum_ssz?rev=2059c21ba52cd3a7e39a8ad537012b761812a393#2059c21ba52cd3a7e39a8ad537012b761812a393"
+source = "git+https://github.com/sigp/ethereum_ssz?rev=974f78f421fbf70cba4e8f84e0fa28c23ad54f34#974f78f421fbf70cba4e8f84e0fa28c23ad54f34"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -4497,6 +4497,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "rustls",
+ "rustls-native-certs",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls",
@@ -5077,7 +5078,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "8.2.2"
+version = "8.3.0-rc.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5575,7 +5576,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "8.2.2"
+version = "8.3.0-rc.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -5699,6 +5700,7 @@ dependencies = [
  "slashing_protection",
  "slot_clock",
  "task_executor",
+ "tempfile",
  "tokio",
  "tracing",
  "types",
@@ -5708,7 +5710,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse_version"
-version = "8.2.2"
+version = "8.3.0-rc.0"
 dependencies = [
  "regex",
 ]
@@ -5979,7 +5981,7 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.9.0"
-source = "git+https://github.com/sigp/milhouse?rev=c70f128976ac0d60ea65a978dabd117a921c36ee#c70f128976ac0d60ea65a978dabd117a921c36ee"
+source = "git+https://github.com/sigp/milhouse?rev=d67aabd2a7c405b3c16f4aaff159b137dc5b5e38#d67aabd2a7c405b3c16f4aaff159b137dc5b5e38"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
@@ -7350,9 +7352,9 @@ checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quinn"
-version = "0.11.11"
+version = "0.11.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c1a41e437b6bbd489372cd4971de128e85c855f56c57f283d20ff016cf7c0a8"
+checksum = "4051e23e9185c255a7e33ef59cdbca87a22d359052eecd22fc6b901fb37d9d11"
 dependencies = [
  "bytes",
  "cfg_aliases",
@@ -7371,9 +7373,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.17"
+version = "0.11.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04759210543be93709136e28212294a659ef5001836ff4eab4d663e4529bba83"
+checksum = "0e750cca55fe4f0439a15d0bb529da9651e79993e8e72c61a899a36d462befbe"
 dependencies = [
  "bytes",
  "fastbloom",
@@ -7394,9 +7396,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-udp"
-version = "0.5.14"
+version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "addec6a0dcad8a8d96a771f815f0eaf55f9d1805756410b39f5fa81332574cbd"
+checksum = "af66907df18639dcf4db56ca65490cabc4b27a97dbadd96f2926cca73298f016"
 dependencies = [
  "cfg_aliases",
  "libc",
@@ -7713,6 +7715,7 @@ dependencies = [
  "pin-project-lite",
  "quinn",
  "rustls",
+ "rustls-native-certs",
  "rustls-pki-types",
  "serde",
  "serde_json",
@@ -8472,6 +8475,7 @@ dependencies = [
  "parking_lot",
  "reqwest",
  "serde",
+ "serde_json",
  "task_executor",
  "tracing",
  "types",
@@ -8720,7 +8724,7 @@ dependencies = [
 [[package]]
 name = "ssz_types"
 version = "0.14.1"
-source = "git+https://github.com/sigp/ssz_types?rev=9203d56ad2d7bc5f12133d043e085843f81edcd6#9203d56ad2d7bc5f12133d043e085843f81edcd6"
+source = "git+https://github.com/sigp/ssz_types?rev=8955d22edc7633f26fe3b5ac933facb5121d717a#8955d22edc7633f26fe3b5ac933facb5121d717a"
 dependencies = [
  "arbitrary",
  "context_deserialize",
@@ -9582,7 +9586,7 @@ dependencies = [
 [[package]]
 name = "tree_hash"
 version = "0.12.1"
-source = "git+https://github.com/sigp/tree_hash?rev=03d9fa474586c125f306dd7a00cf46284575a01f#03d9fa474586c125f306dd7a00cf46284575a01f"
+source = "git+https://github.com/sigp/tree_hash?rev=e5ea1875edddf12438506c3751cbb313f9c52d08#e5ea1875edddf12438506c3751cbb313f9c52d08"
 dependencies = [
  "alloy-primitives",
  "ethereum_hashing",
@@ -9594,7 +9598,7 @@ dependencies = [
 [[package]]
 name = "tree_hash_derive"
 version = "0.12.1"
-source = "git+https://github.com/sigp/tree_hash?rev=03d9fa474586c125f306dd7a00cf46284575a01f#03d9fa474586c125f306dd7a00cf46284575a01f"
+source = "git+https://github.com/sigp/tree_hash?rev=e5ea1875edddf12438506c3751cbb313f9c52d08#e5ea1875edddf12438506c3751cbb313f9c52d08"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -9674,7 +9678,6 @@ dependencies = [
  "serde_json",
  "smallvec",
  "ssz_types",
- "state_processing",
  "superstruct",
  "swap_or_not_shuffle",
  "tempfile",
@@ -9828,7 +9831,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "8.2.2"
+version = "8.3.0-rc.0"
 dependencies = [
  "account_utils",
  "beacon_node_fallback",
@@ -10009,6 +10012,7 @@ dependencies = [
  "parking_lot",
  "reqwest",
  "safe_arith",
+ "serde",
  "slot_clock",
  "task_executor",
  "tokio",

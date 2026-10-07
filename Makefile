@@ -186,6 +186,11 @@ test-debug:
 		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api \
 		--exclude fork_choice
 
+# Run the tests of crates converted to `Spec` under the minimal preset. Add each crate as it
+# is converted.
+test-spec-minimal:
+	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" -p types
+
 # Runs cargo-fmt (linter).
 cargo-fmt:
 	cargo fmt --all -- --check
@@ -197,10 +202,22 @@ check-benches:
 
 # Runs EF test vectors
 run-ef-tests:
+	$(MAKE) run-ef-tests-mainnet
+	$(MAKE) run-ef-tests-minimal
+
+# Runs the mainnet EF test vectors
+run-ef-tests-mainnet:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
-	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
+	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests "tests/minimal/"
+
+# Runs the minimal EF test vectors
+run-ef-tests-minimal:
+	rm -rf $(EF_TESTS)/.accessed_file_log.txt
+	cargo nextest run --release -p ef_tests --features "ef_tests,spec-minimal,$(EF_TEST_FEATURES)"
+	cargo nextest run --release -p ef_tests --features "ef_tests,spec-minimal,$(EF_TEST_FEATURES),fake_crypto"
+	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests "tests/mainnet/"
 
 # Run the tests in the `beacon_chain` crate for all known forks.
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
@@ -254,6 +271,12 @@ run-state-transition-tests:
 # Downloads and runs the EF test vectors.
 test-ef: make-ef-tests run-ef-tests
 
+# Downloads and runs the mainnet EF test vectors.
+test-ef-mainnet: make-ef-tests run-ef-tests-mainnet
+
+# Downloads and runs the minimal EF test vectors.
+test-ef-minimal: make-ef-tests run-ef-tests-minimal
+
 # Downloads and runs the nightly EF test vectors.
 test-ef-nightly: make-ef-tests-nightly run-ef-tests
 
@@ -306,6 +329,10 @@ lint-fix:
 # Also run the lints on the optimized-only tests
 lint-full:
 	TEST_FEATURES="beacon-node-leveldb,beacon-node-redb,${TEST_FEATURES}"  RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
+
+# Lint the code when compiled using the minimal preset.
+lint-spec-minimal:
+	TEST_FEATURES="spec-minimal,$(TEST_FEATURES)" $(MAKE) lint-full
 
 # Runs the makefile in the `ef_tests` repo.
 #

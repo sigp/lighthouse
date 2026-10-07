@@ -20,11 +20,9 @@ pub struct ExpectedWithdrawals<E: EthSpec> {
 
 impl<E: EthSpec> From<ExpectedWithdrawals<E>> for Withdrawals<E> {
     fn from(expected_withdrawals: ExpectedWithdrawals<E>) -> Withdrawals<E> {
-        match expected_withdrawals {
-            ExpectedWithdrawals::Capella(ew) => ew.withdrawals,
-            ExpectedWithdrawals::Electra(ew) => ew.withdrawals,
-            ExpectedWithdrawals::Gloas(ew) => ew.withdrawals,
-            ExpectedWithdrawals::Heze(ew) => ew.withdrawals,
-        }
+        map_expected_withdrawals!(expected_withdrawals, |inner, cons| {
+            let _: fn(_) -> ExpectedWithdrawals<E> = cons;
+            inner.withdrawals
+        })
     }
 }

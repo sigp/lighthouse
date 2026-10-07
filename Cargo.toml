@@ -95,7 +95,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "8.2.2"
+version = "8.3.0-rc.0"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
@@ -214,7 +214,7 @@ rand = "0.9.0"
 rand_xorshift = "0.4.0"
 rayon = "1.7"
 regex = "1"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "stream", "rustls-tls", "rustls-tls-native-roots"] }
 ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.38", features = ["bundled"] }
@@ -289,12 +289,12 @@ debug = true
 
 [patch.crates-io]
 # FIXME(eip-7688): EIP-7688 development patches
-ssz_types = { git = "https://github.com/sigp/ssz_types", rev = "9203d56ad2d7bc5f12133d043e085843f81edcd6" }
-milhouse = { git = "https://github.com/sigp/milhouse", rev = "c70f128976ac0d60ea65a978dabd117a921c36ee" }
-ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", rev = "2059c21ba52cd3a7e39a8ad537012b761812a393" }
-ethereum_ssz_derive = { git = "https://github.com/sigp/ethereum_ssz", rev = "2059c21ba52cd3a7e39a8ad537012b761812a393" }
-tree_hash = { git = "https://github.com/sigp/tree_hash", rev = "03d9fa474586c125f306dd7a00cf46284575a01f" }
-tree_hash_derive = { git = "https://github.com/sigp/tree_hash", rev = "03d9fa474586c125f306dd7a00cf46284575a01f" }
+ssz_types = { git = "https://github.com/sigp/ssz_types", rev = "8955d22edc7633f26fe3b5ac933facb5121d717a" }
+milhouse = { git = "https://github.com/sigp/milhouse", rev = "d67aabd2a7c405b3c16f4aaff159b137dc5b5e38" }
+ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", rev = "974f78f421fbf70cba4e8f84e0fa28c23ad54f34" }
+ethereum_ssz_derive = { git = "https://github.com/sigp/ethereum_ssz", rev = "974f78f421fbf70cba4e8f84e0fa28c23ad54f34" }
+tree_hash = { git = "https://github.com/sigp/tree_hash", rev = "e5ea1875edddf12438506c3751cbb313f9c52d08" }
+tree_hash_derive = { git = "https://github.com/sigp/tree_hash", rev = "e5ea1875edddf12438506c3751cbb313f9c52d08" }
 # Temporary patch until the axum migration is complete
 warp = { git = "https://github.com/macladson/warp", rev = "6f5f21beab6a240e59470caaab56afd46d46b709" }
 

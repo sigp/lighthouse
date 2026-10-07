@@ -56,11 +56,11 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
     pub fn into_slashing(
         self,
         new_attestation: &IndexedAttestation<E>,
-    ) -> Option<AttesterSlashing<E>> {
+    ) -> Result<Option<AttesterSlashing<E>>, Error> {
         use AttesterSlashingStatus::*;
 
         // The surrounding attestation must be in `attestation_1` to be valid.
-        match self {
+        Ok(match self {
             NotSlashable => None,
             AlreadyDoubleVoted => None,
             DoubleVote(existing) | SurroundedByExisting(existing) => {
@@ -75,8 +75,8 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
                     // `AttesterSlashingGloas` type.
                     (IndexedAttestation::Gloas(_), _) | (_, IndexedAttestation::Gloas(_)) => {
                         Some(AttesterSlashing::Gloas(AttesterSlashingGloas {
-                            attestation_1: existing.clone().to_gloas(),
-                            attestation_2: new_attestation.clone().to_gloas(),
+                            attestation_1: existing.clone().to_gloas()?,
+                            attestation_2: new_attestation.clone().to_gloas()?,
                         }))
                     }
                     // A slashing involving an electra attestation type must return an `AttesterSlashingElectra` type
@@ -94,14 +94,14 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
                 // `AttesterSlashingGloas` type.
                 (IndexedAttestation::Gloas(_), _) | (_, IndexedAttestation::Gloas(_)) => {
                     Some(AttesterSlashing::Gloas(AttesterSlashingGloas {
-                        attestation_1: new_attestation.clone().to_gloas(),
-                        attestation_2: existing.clone().to_gloas(),
+                        attestation_1: new_attestation.clone().to_gloas()?,
+                        attestation_2: existing.clone().to_gloas()?,
                     }))
                 }
                 // A slashing involving an electra attestation type must return an `AttesterSlashingElectra` type
                 (_, _) => electra_slashing(new_attestation, &existing),
             },
-        }
+        })
     }
 }
 
