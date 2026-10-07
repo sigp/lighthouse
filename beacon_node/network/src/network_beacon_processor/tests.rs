@@ -1857,7 +1857,7 @@ async fn rpc_columns_notify_after_deferred_envelope_import() {
                 bundle
                     .commitments
                     .iter()
-                    .eq(bid.message.blob_kzg_commitments.iter())
+                    .eq(bid.message().blob_kzg_commitments().iter())
             })
             .expect("blobs for next block")
             .blobs
