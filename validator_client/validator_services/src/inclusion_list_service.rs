@@ -132,38 +132,37 @@ where
             .saturating_sub(INCLUSION_LIST_PRODUCTION_MARGIN)
     }
 
+    /// Waits until inclusion lists are due for production and returns the slot to produce them for.
     async fn wait_for_inclusion_list_production_due(&self) -> Option<Slot> {
         let slot_duration = self.chain_spec.get_slot_duration();
-        let inclusion_list_production_due = self.inclusion_list_production_due();
 
-        let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() else {
+        let Some(slot) = self.inclusion_list_production_slot() else {
             error!("Failed to read slot clock");
             sleep(slot_duration).await;
             return None;
         };
 
-        let Some(current_slot) = self.slot_clock.now() else {
-            error!("Failed to read slot clock after trigger");
-            return None;
-        };
-
-        // Ensure that the current slot is in the Heze fork
+        // Ensure that the slot is in the Heze fork
         if !self
             .chain_spec
-            .fork_name_at_slot::<S::E>(current_slot)
+            .fork_name_at_slot::<S::E>(slot)
             .heze_enabled()
         {
             let duration_to_next_epoch = self
                 .slot_clock
                 .duration_to_next_epoch(S::E::slots_per_epoch())
-                .unwrap_or_else(|| {
-                    self.chain_spec.get_slot_duration() * S::E::slots_per_epoch() as u32
-                });
+                .unwrap_or_else(|| slot_duration * S::E::slots_per_epoch() as u32);
             sleep(duration_to_next_epoch).await;
             return None;
         }
 
-        sleep(duration_to_next_slot + inclusion_list_production_due).await;
+        let Some(duration_to_production_due) = self.duration_to_inclusion_list_production_due(slot)
+        else {
+            error!("Failed to read slot clock");
+            sleep(slot_duration).await;
+            return None;
+        };
+        sleep(duration_to_production_due).await;
 
         let Some(current_slot) = self.slot_clock.now() else {
             error!("Failed to read slot clock after sleep");
@@ -171,6 +170,26 @@ where
         };
 
         Some(current_slot)
+    }
+
+    /// The slot to produce inclusion lists for next.
+    /// Returns the current slot if its production time has not passed yet, otherwise the next slot.
+    fn inclusion_list_production_slot(&self) -> Option<Slot> {
+        let current_slot = self.slot_clock.now()?;
+        let time_into_slot = self.slot_clock.millis_from_current_slot_start()?;
+
+        if time_into_slot < self.inclusion_list_production_due() {
+            Some(current_slot)
+        } else {
+            Some(current_slot + 1)
+        }
+    }
+
+    /// Duration until inclusion lists are due for production at `production_slot`.
+    fn duration_to_inclusion_list_production_due(&self, production_slot: Slot) -> Option<Duration> {
+        let production_due_at =
+            self.slot_clock.start_of(production_slot)? + self.inclusion_list_production_due();
+        Some(production_due_at.saturating_sub(self.slot_clock.now_duration()?))
     }
 
     /// Produce the inclusion list data for `slot`, returned alongside the duties to sign.
@@ -453,6 +472,55 @@ mod tests {
         // This call should yield no slot, so nothing should be produced, signed or published.
         advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
         assert_eq!(service_wait.as_mut().now_or_never(), Some(Ok(())));
+
+        // The next wait targets the first Heze slot, 1s into it
+        let first_heze_slot = Slot::new(E::slots_per_epoch());
+        let production_due = service.inclusion_list_production_due();
+        let service_wait = service.wait_for_inclusion_list_production_due();
+        tokio::pin!(service_wait);
+        assert!(service_wait.as_mut().now_or_never().is_none());
+        advance_time(
+            &harness.service.slot_clock,
+            production_due - Duration::from_secs(1),
+        )
+        .await;
+        assert!(service_wait.as_mut().now_or_never().is_none());
+        advance_time(&harness.service.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            Some(first_heze_slot)
+        );
+    }
+
+    #[tokio::test]
+    async fn targets_first_heze_slot_from_last_gloas_slot() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_heze_at(1, Epoch::new(1)).await;
+        let service = &harness.service;
+        let production_due = service.inclusion_list_production_due();
+        let first_heze_slot = Slot::new(E::slots_per_epoch());
+
+        // Last pre-Heze slot, past its production time
+        let last_pre_heze_slot = first_heze_slot - 1;
+        advance_time(
+            &service.slot_clock,
+            service.slot_clock.start_of(last_pre_heze_slot).unwrap() + production_due,
+        )
+        .await;
+        let service_wait = service.wait_for_inclusion_list_production_due();
+        tokio::pin!(service_wait);
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        // Advance to the first Heze slot's production time
+        let duration_to_wait = service.slot_clock.duration_to_next_slot().unwrap() + production_due;
+        advance_time(&service.slot_clock, duration_to_wait).await;
+        assert!(service_wait.as_mut().now_or_never().is_none());
+        advance_time(&service.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            Some(first_heze_slot)
+        );
     }
 
     #[tokio::test]
@@ -461,6 +529,11 @@ mod tests {
 
         let harness = TestHarness::new_with_validators(1).await;
         let service = &harness.service;
+        let production_due = service.inclusion_list_production_due();
+        assert_eq!(production_due, Duration::from_secs(7));
+
+        // Past the current slot's production time, so the next slot is targeted
+        advance_time(&service.slot_clock, production_due).await;
         let service_wait = service.wait_for_inclusion_list_production_due();
         tokio::pin!(service_wait);
 
@@ -468,8 +541,6 @@ mod tests {
         assert!(service_wait.as_mut().now_or_never().is_none());
 
         // 7s into the next slot: 1s before the inclusion list deadline
-        let production_due = service.inclusion_list_production_due();
-        assert_eq!(production_due, Duration::from_secs(7));
         let duration_to_wait = service.slot_clock.duration_to_next_slot().unwrap() + production_due;
         // Advance both slot_clock and tokio::time to 19s
         advance_time(&harness.service.slot_clock, duration_to_wait).await;
@@ -482,6 +553,33 @@ mod tests {
         assert_eq!(
             service_wait.as_mut().now_or_never().unwrap(),
             Some(Slot::new(1))
+        );
+    }
+
+    #[tokio::test]
+    async fn waits_until_production_due_in_current_slot() {
+        tokio::time::pause();
+
+        let harness = TestHarness::new_with_validators(1).await;
+        let service = &harness.service;
+        let production_due = service.inclusion_list_production_due();
+
+        // 2s into the current slot
+        advance_time(&service.slot_clock, Duration::from_secs(2)).await;
+        let service_wait = service.wait_for_inclusion_list_production_due();
+        tokio::pin!(service_wait);
+        assert!(service_wait.as_mut().now_or_never().is_none());
+
+        advance_time(&service.slot_clock, production_due - Duration::from_secs(2)).await;
+        assert!(
+            service_wait.as_mut().now_or_never().is_none(),
+            "Function should return None before the sleep duration has elapsed"
+        );
+
+        advance_time(&service.slot_clock, Duration::from_secs(1)).await;
+        assert_eq!(
+            service_wait.as_mut().now_or_never().unwrap(),
+            Some(Slot::new(0))
         );
     }
 
@@ -545,8 +643,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// First BN errors on the produce endpoint, second serves: `first_success` walks
-    /// past and transactions come from the second BN.
     #[tokio::test]
     async fn produce_falls_back_to_second_bn() {
         let mut harness = TestHarness::new_with_validators(3).await;
