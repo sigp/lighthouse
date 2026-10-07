@@ -11,7 +11,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    core::{Address, EthSpec, ExecutionBlockHash, Hash256, VersionedHash},
+    core::{Address, EthSpec, ExecutionBlockHash, Hash256},
     execution::{
         ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
         ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
@@ -1113,8 +1113,7 @@ pub enum BlockProductionVersion {
 }
 
 /// Spec type `VersionedHashes`.
-pub type VersionedHashes<E> =
-    VariableList<VersionedHash, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+pub type VersionedHashes<E> = VariableList<Hash256, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Spec type `NewPayloadRequest`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
