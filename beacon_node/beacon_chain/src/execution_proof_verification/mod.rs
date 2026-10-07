@@ -19,9 +19,6 @@ use observed_execution_proofs::Error as ObservationError;
 /// Distinct proof systems that must prove a payload before fork choice calls it valid. More than
 /// one means a soundness bug in a single prover isn't enough to fool us.
 ///
-/// Which systems count is the engine's call, we only see its `VALID`. The count is ours because
-/// we're the only ones who see the whole set.
-///
 /// TODO(9658): make configurable. https://github.com/sigp/lighthouse/issues/9658
 pub const REQUIRED_EXECUTION_PROOFS: usize = 2;
 
@@ -88,7 +85,7 @@ impl From<ObservationError> for Error {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Whether EIP-8025 proofs decide payload validity here, which takes a proof engine.
+    /// Whether EIP-8025 proofs decide payload validity here.
     pub(crate) fn execution_proofs_enabled(&self) -> bool {
         self.proof_engine.is_some()
     }
@@ -101,11 +98,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             >= REQUIRED_EXECUTION_PROOFS
     }
 
-    /// Tell fork choice `block_root`'s payload is valid, once its proofs are all in.
-    ///
-    /// Gossip verification has already counted the proof, so this only reads the count. The read
-    /// happens under the fork choice write lock, which `import.rs` relies on: were it read outside,
-    /// a proof completing concurrently with the import could be missed by both paths.
+    /// Tell fork choice `block_root`'s payload is valid.
     pub async fn promote_payload_if_proven(
         self: &Arc<Self>,
         block_root: Hash256,
