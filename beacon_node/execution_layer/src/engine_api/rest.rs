@@ -383,7 +383,7 @@ impl HttpRestSsz {
 
         let status =
             SszPayloadStatusV1::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
-        PayloadStatusV1::try_from(status).map_err(Error::BadResponse)
+        PayloadStatusV1::try_from(status)
     }
 
     pub async fn forkchoice_updated<E: EthSpec>(
@@ -422,8 +422,7 @@ impl HttpRestSsz {
 
         let ssz_response = SszForkchoiceUpdatedResponse::<E>::from_ssz_bytes(&response)
             .map_err(Error::SszDecode)?;
-        let response =
-            ForkchoiceUpdatedResponse::try_from(ssz_response).map_err(Error::BadResponse)?;
+        let response = ForkchoiceUpdatedResponse::try_from(ssz_response)?;
 
         // `/forkchoice` MUST NOT return ACCEPTED; treat a `3` as a non-conformant EL error.
         if matches!(
@@ -580,7 +579,6 @@ impl HttpRestSsz {
         SszBodiesResponse::<E>::from_ssz_bytes_by_fork(&response, fork)
             .map_err(Error::SszDecode)?
             .into_bodies()
-            .map_err(Error::BadResponse)
     }
 
     pub async fn get_payload_bodies_by_hash_v2<E: EthSpec>(
@@ -609,7 +607,7 @@ impl HttpRestSsz {
         SszBodiesResponse::<E>::from_ssz_bytes_by_fork(&response, fork)
             .map_err(Error::SszDecode)?
             .into_bodies_v2()
-            .map_err(Error::BadResponse)
+            .map_err(Error::SszError)
     }
 }
 

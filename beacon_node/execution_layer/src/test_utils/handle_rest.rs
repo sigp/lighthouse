@@ -469,7 +469,8 @@ fn encode_bodies_response<E: EthSpec>(
                     Ok(match body {
                         Some(body) => SszBodyEntryV1 {
                             available: true,
-                            body: SszExecutionPayloadBodyV1::try_from(body)?,
+                            body: SszExecutionPayloadBodyV1::try_from(body)
+                                .map_err(|e| format!("{e:?}"))?,
                         },
                         None => SszBodyEntryV1 {
                             available: false,
@@ -492,7 +493,8 @@ fn encode_bodies_response<E: EthSpec>(
                     Ok(match body {
                         Some(body) => SszBodyEntryV2 {
                             available: true,
-                            body: SszExecutionPayloadBodyV2::try_from(body)?,
+                            body: SszExecutionPayloadBodyV2::try_from(body)
+                                .map_err(|e| format!("{e:?}"))?,
                         },
                         None => SszBodyEntryV2 {
                             available: false,
@@ -516,7 +518,8 @@ fn encode_bodies_response<E: EthSpec>(
                     Ok(match body {
                         Some(body) => SszBodyEntryV3 {
                             available: true,
-                            body: SszExecutionPayloadBodyV3::try_from(body)?,
+                            body: SszExecutionPayloadBodyV3::try_from(body)
+                                .map_err(|e| format!("{e:?}"))?,
                         },
                         None => SszBodyEntryV3 {
                             available: false,

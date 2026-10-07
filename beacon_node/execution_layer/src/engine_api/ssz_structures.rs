@@ -70,17 +70,14 @@ impl<E: EthSpec> From<SszExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV1<E
 }
 
 impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV2<E> {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(value: ExecutionPayloadBodyV1<E>) -> Result<Self, String> {
-        let withdrawals = value.withdrawals.ok_or_else(|| {
-            "execution payload body is missing withdrawals; \
-             a body without withdrawals cannot be a Shanghai (or later) body"
-                .to_string()
-        })?;
+    fn try_from(value: ExecutionPayloadBodyV1<E>) -> Result<Self, Self::Error> {
         Ok(Self {
             transactions: value.transactions,
-            withdrawals,
+            withdrawals: value.withdrawals.ok_or_else(|| {
+                Error::UnsupportedForkVariant("no withdrawals for a Shanghai (V2) body".to_string())
+            })?,
         })
     }
 }
@@ -90,19 +87,28 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV
 /// Repackage the bounded SSZ wire transactions into the progressive (Gloas) container.
 fn progressive_transactions_from_wire<E: EthSpec>(
     transactions: Transactions<E>,
-) -> Result<ProgressiveTransactions, String> {
+) -> Result<ProgressiveTransactions, ssz_types::Error> {
     transactions
         .into_iter()
         .map(|transaction| ProgressiveVariableList::new(transaction.to_vec()))
         .collect::<Result<Vec<_>, _>>()
         .and_then(ProgressiveVariableList::new)
-        .map_err(|e| format!("failed to build progressive transactions list: {e:?}"))
+}
+
+fn wire_transactions_from_progressive<E: EthSpec>(
+    transactions: ProgressiveTransactions,
+) -> Result<Transactions<E>, ssz_types::Error> {
+    transactions
+        .into_iter()
+        .map(|transaction| VariableList::new(transaction.to_vec()))
+        .collect::<Result<Vec<_>, _>>()
+        .and_then(VariableList::new)
 }
 
 impl<E: EthSpec> TryFrom<SszExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV2<E> {
-    type Error = String;
+    type Error = ssz_types::Error;
 
-    fn try_from(value: SszExecutionPayloadBodyV1<E>) -> Result<Self, String> {
+    fn try_from(value: SszExecutionPayloadBodyV1<E>) -> Result<Self, Self::Error> {
         Ok(Self {
             transactions: progressive_transactions_from_wire::<E>(value.transactions)?,
             withdrawals: None,
@@ -112,36 +118,28 @@ impl<E: EthSpec> TryFrom<SszExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV
 }
 
 impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for SszExecutionPayloadBodyV1<E> {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, String> {
+    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
         if value.withdrawals.is_some() || value.block_access_list.is_some() {
-            return Err(
-                "cannot encode a body with withdrawals or a block access list as a Paris (V1) body"
-                    .to_string(),
-            );
+            return Err(Error::UnsupportedForkVariant(
+                "withdrawals or block access list in a Paris (V1) body".to_string(),
+            ));
         }
 
-        let transactions = value
-            .transactions
-            .into_iter()
-            .map(|transaction| VariableList::new(transaction.to_vec()))
-            .collect::<Result<Vec<_>, _>>()
-            .and_then(VariableList::new)
-            .map_err(|e| format!("transactions exceed SSZ bounds: {e:?}"))?;
-
-        Ok(Self { transactions })
+        Ok(Self {
+            transactions: wire_transactions_from_progressive::<E>(value.transactions)?,
+        })
     }
 }
 
 // SszExecutionPayloadBodyV2 <-> ExecutionPayloadBodyV2
 
 impl<E: EthSpec> TryFrom<SszExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV2<E> {
-    type Error = String;
+    type Error = ssz_types::Error;
 
-    fn try_from(value: SszExecutionPayloadBodyV2<E>) -> Result<Self, String> {
-        let withdrawals = ProgressiveVariableList::new(value.withdrawals.to_vec())
-            .map_err(|e| format!("withdrawals exceed SSZ bound: {e:?}"))?;
+    fn try_from(value: SszExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
+        let withdrawals = ProgressiveVariableList::new(value.withdrawals.to_vec())?;
         Ok(Self {
             transactions: progressive_transactions_from_wire::<E>(value.transactions)?,
             withdrawals: Some(withdrawals),
@@ -151,31 +149,21 @@ impl<E: EthSpec> TryFrom<SszExecutionPayloadBodyV2<E>> for ExecutionPayloadBodyV
 }
 
 impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for SszExecutionPayloadBodyV2<E> {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, String> {
+    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
         if value.block_access_list.is_some() {
-            return Err(
-                "cannot encode a body with a block access list as a Shanghai (V2) body".to_string(),
-            );
+            return Err(Error::UnsupportedForkVariant(
+                "block access list in a Shanghai (V2) body".to_string(),
+            ));
         }
-        let withdrawals = value
-            .withdrawals
-            .ok_or_else(|| "execution payload body is missing withdrawals".to_string())?;
-
-        let transactions = value
-            .transactions
-            .into_iter()
-            .map(|transaction| VariableList::new(transaction.to_vec()))
-            .collect::<Result<Vec<_>, _>>()
-            .and_then(VariableList::new)
-            .map_err(|e| format!("transactions exceed SSZ bounds: {e:?}"))?;
-        let withdrawals = VariableList::new(withdrawals.to_vec())
-            .map_err(|e| format!("withdrawals exceed SSZ bound: {e:?}"))?;
+        let withdrawals = value.withdrawals.ok_or_else(|| {
+            Error::UnsupportedForkVariant("no withdrawals for a Shanghai (V2) body".to_string())
+        })?;
 
         Ok(Self {
-            transactions,
-            withdrawals,
+            transactions: wire_transactions_from_progressive::<E>(value.transactions)?,
+            withdrawals: VariableList::new(withdrawals.to_vec())?,
         })
     }
 }
@@ -183,13 +171,11 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for SszExecutionPayloadBodyV
 // SszExecutionPayloadBodyV3 <-> ExecutionPayloadBodyV2
 
 impl<E: EthSpec> TryFrom<SszExecutionPayloadBodyV3<E>> for ExecutionPayloadBodyV2<E> {
-    type Error = String;
+    type Error = ssz_types::Error;
 
-    fn try_from(value: SszExecutionPayloadBodyV3<E>) -> Result<Self, String> {
-        let withdrawals = ProgressiveVariableList::new(value.withdrawals.to_vec())
-            .map_err(|e| format!("withdrawals exceed SSZ bound: {e:?}"))?;
-        let block_access_list = ProgressiveVariableList::new(value.block_access_list.to_vec())
-            .map_err(|e| format!("failed to build progressive block access list: {e:?}"))?;
+    fn try_from(value: SszExecutionPayloadBodyV3<E>) -> Result<Self, Self::Error> {
+        let withdrawals = ProgressiveVariableList::new(value.withdrawals.to_vec())?;
+        let block_access_list = ProgressiveVariableList::new(value.block_access_list.to_vec())?;
         Ok(Self {
             transactions: progressive_transactions_from_wire::<E>(value.transactions)?,
             withdrawals: Some(withdrawals),
@@ -199,34 +185,24 @@ impl<E: EthSpec> TryFrom<SszExecutionPayloadBodyV3<E>> for ExecutionPayloadBodyV
 }
 
 impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for SszExecutionPayloadBodyV3<E> {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, String> {
-        let withdrawals = value
-            .withdrawals
-            .ok_or_else(|| "execution payload body is missing withdrawals".to_string())?;
-        let block_access_list = value
-            .block_access_list
-            .ok_or_else(|| "execution payload body is missing block_access_list".to_string())?;
+    fn try_from(value: ExecutionPayloadBodyV2<E>) -> Result<Self, Self::Error> {
+        let withdrawals = value.withdrawals.ok_or_else(|| {
+            Error::UnsupportedForkVariant("no withdrawals for an Amsterdam (V3) body".to_string())
+        })?;
+        let block_access_list = value.block_access_list.ok_or_else(|| {
+            Error::UnsupportedForkVariant(
+                "no block access list for an Amsterdam (V3) body".to_string(),
+            )
+        })?;
 
         // Repackage the unbounded progressive containers into the bounded wire lists, surfacing
         // any element that overflows an SSZ length bound as an error.
-        let transactions = value
-            .transactions
-            .into_iter()
-            .map(|transaction| VariableList::new(transaction.to_vec()))
-            .collect::<Result<Vec<_>, _>>()
-            .and_then(VariableList::new)
-            .map_err(|e| format!("transactions exceed SSZ bounds: {e:?}"))?;
-        let withdrawals = VariableList::new(withdrawals.to_vec())
-            .map_err(|e| format!("withdrawals exceed SSZ bound: {e:?}"))?;
-        let block_access_list = VariableList::new(block_access_list.to_vec())
-            .map_err(|e| format!("block_access_list exceeds SSZ bound: {e:?}"))?;
-
         Ok(Self {
-            transactions,
-            withdrawals,
-            block_access_list,
+            transactions: wire_transactions_from_progressive::<E>(value.transactions)?,
+            withdrawals: VariableList::new(withdrawals.to_vec())?,
+            block_access_list: VariableList::new(block_access_list.to_vec())?,
         })
     }
 }
@@ -534,7 +510,7 @@ pub struct SszPayloadStatusV1<E: EthSpec> {
 }
 
 impl<E: EthSpec> TryFrom<SszPayloadStatusV1<E>> for PayloadStatusV1 {
-    type Error = String;
+    type Error = Error;
 
     fn try_from(value: SszPayloadStatusV1<E>) -> Result<Self, Self::Error> {
         let status = match value.payload_status {
@@ -542,7 +518,11 @@ impl<E: EthSpec> TryFrom<SszPayloadStatusV1<E>> for PayloadStatusV1 {
             1 => PayloadStatusV1Status::Invalid,
             2 => PayloadStatusV1Status::Syncing,
             3 => PayloadStatusV1Status::Accepted,
-            other => return Err(format!("invalid payload status {other} from EL")),
+            other => {
+                return Err(Error::BadResponse(format!(
+                    "invalid payload status {other} from EL"
+                )));
+            }
         };
 
         Ok(Self {
@@ -970,7 +950,7 @@ pub struct SszForkchoiceUpdatedResponse<E: EthSpec> {
 }
 
 impl<E: EthSpec> TryFrom<SszForkchoiceUpdatedResponse<E>> for ForkchoiceUpdatedResponse {
-    type Error = String;
+    type Error = Error;
 
     fn try_from(value: SszForkchoiceUpdatedResponse<E>) -> Result<Self, Self::Error> {
         Ok(Self {
@@ -1204,7 +1184,7 @@ impl<E: EthSpec> SszBodiesResponse<E> {
         }
     }
 
-    pub fn into_bodies(self) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, String> {
+    pub fn into_bodies(self) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
         match self {
             Self::V1(resp) => Ok(resp
                 .entries
@@ -1224,15 +1204,15 @@ impl<E: EthSpec> SszBodiesResponse<E> {
                         .then(|| ExecutionPayloadBodyV1::from(entry.body))
                 })
                 .collect()),
-            Self::V3(_) => Err(
-                "into_bodies returns ExecutionPayloadBodyV1 which cant be used by \
-                 SszBodiesResponseV3. Please use into_bodies_v2 to get the appropriate response"
-                    .to_string(),
-            ),
+            Self::V3(_) => Err(Error::UnsupportedForkVariant(
+                "V3 bodies have no ExecutionPayloadBodyV1 form, use into_bodies_v2".to_string(),
+            )),
         }
     }
 
-    pub fn into_bodies_v2(self) -> Result<Vec<Option<ExecutionPayloadBodyV2<E>>>, String> {
+    pub fn into_bodies_v2(
+        self,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2<E>>>, ssz_types::Error> {
         match self {
             Self::V1(resp) => resp
                 .entries
