@@ -265,6 +265,7 @@ fn update_fork_choice_with_envelopes(
                     snapshot.beacon_block_root,
                     PayloadVerificationStatus::Verified,
                     ExecutionBlockHash::zero(),
+                    true,
                 );
         }
     }
@@ -1288,6 +1289,7 @@ async fn block_gossip_verification() {
                     snapshot.beacon_block_root,
                     PayloadVerificationStatus::Verified,
                     ExecutionBlockHash::zero(),
+                    true,
                 )
                 .expect("should update fork choice with envelope");
         }
@@ -2647,6 +2649,7 @@ async fn process_chain_segment_ignores_duplicate_gloas_block_when_payload_receiv
             block_root,
             PayloadVerificationStatus::Verified,
             ExecutionBlockHash::zero(),
+            true,
         )
         .expect("payload should be marked received");
 

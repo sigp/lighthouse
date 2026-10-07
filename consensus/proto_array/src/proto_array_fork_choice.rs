@@ -653,9 +653,10 @@ impl ProtoArrayForkChoice {
         &mut self,
         block_root: Hash256,
         execution_status: ExecutionStatus,
+        inclusion_list_satisfied: bool,
     ) -> Result<(), String> {
         self.proto_array
-            .on_payload_envelope_received(block_root, execution_status)
+            .on_payload_envelope_received(block_root, execution_status, inclusion_list_satisfied)
             .map_err(|e| format!("Failed to process execution payload: {:?}", e))
     }
 
@@ -698,7 +699,7 @@ impl ProtoArrayForkChoice {
         Ok(())
     }
 
-    /// Process a PTC vote by setting the appropriate bits on the target block's V29 node.
+    /// Process a PTC vote by setting the appropriate bits on the target block's V32 node.
     ///
     /// `ptc_index` is the voter's position in the PTC committee (resolved by the caller).
     /// This writes directly to the node's bitfields, bypassing the delta pipeline.
@@ -720,19 +721,19 @@ impl ProtoArrayForkChoice {
         let node = self.proto_array.nodes.get_mut(node_index).ok_or_else(|| {
             format!("process_payload_attestation: invalid node index {node_index}")
         })?;
-        let v29 = node
-            .as_v29_mut()
-            .map_err(|_| format!("process_payload_attestation: node {block_root:?} is not V29"))?;
+        let v32 = node
+            .as_v32_mut()
+            .map_err(|_| format!("process_payload_attestation: node {block_root:?} is not V32"))?;
 
-        v29.payload_timeliness_votes
+        v32.payload_timeliness_votes
             .set(ptc_index, payload_present)
             .map_err(|e| format!("process_payload_attestation: timeliness set failed: {e:?}"))?;
-        v29.payload_data_availability_votes
+        v32.payload_data_availability_votes
             .set(ptc_index, blob_data_available)
             .map_err(|e| {
                 format!("process_payload_attestation: data availability set failed: {e:?}")
             })?;
-        v29.ptc_participation
+        v32.ptc_participation
             .set(ptc_index, true)
             .map_err(|e| format!("process_payload_attestation: participation set failed: {e:?}"))?;
 
@@ -1006,6 +1007,10 @@ impl ProtoArrayForkChoice {
             *node.weight_mut() = 0;
             match node {
                 ProtoNode::V29(node) => {
+                    node.full_payload_weight = 0;
+                    node.empty_payload_weight = 0;
+                }
+                ProtoNode::V32(node) => {
                     node.full_payload_weight = 0;
                     node.empty_payload_weight = 0;
                 }

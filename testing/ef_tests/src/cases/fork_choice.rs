@@ -1358,6 +1358,7 @@ impl<E: EthSpec> Tester<E> {
                     block_root,
                     PayloadVerificationStatus::Verified,
                     block_hash,
+                    true,
                 )
                 .map_err(|e| {
                     Error::InternalError(format!(
@@ -1727,12 +1728,12 @@ impl<E: EthSpec> Tester<E> {
             .nodes
             .get(*node_index)
             .ok_or_else(|| Error::InternalError(format!("Node index {} not found", node_index)))?;
-        let v29 = node
-            .as_v29()
-            .map_err(|_| Error::InternalError("Node is not V29".to_string()))?;
+        let v32 = node
+            .as_v32()
+            .map_err(|_| Error::InternalError("Node is not V32".to_string()))?;
 
-        let timeliness_votes = &v29.payload_timeliness_votes;
-        let participation = &v29.ptc_participation;
+        let timeliness_votes = &v32.payload_timeliness_votes;
+        let participation = &v32.ptc_participation;
 
         for (i, expected_vote) in expected.votes.iter().enumerate() {
             let actual = if !participation.get(i).unwrap() {
@@ -1771,12 +1772,12 @@ impl<E: EthSpec> Tester<E> {
             .nodes
             .get(*node_index)
             .ok_or_else(|| Error::InternalError(format!("Node index {} not found", node_index)))?;
-        let v29 = node
-            .as_v29()
-            .map_err(|_| Error::InternalError("Node is not V29".to_string()))?;
+        let v32 = node
+            .as_v32()
+            .map_err(|_| Error::InternalError("Node is not V32".to_string()))?;
 
-        let availability_votes = &v29.payload_data_availability_votes;
-        let participation = &v29.ptc_participation;
+        let availability_votes = &v32.payload_data_availability_votes;
+        let participation = &v32.ptc_participation;
 
         for (i, expected_vote) in expected.votes.iter().enumerate() {
             let actual = if !participation.get(i).unwrap() {
