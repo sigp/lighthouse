@@ -525,7 +525,7 @@ mod get_blobs_v4 {
                 .body()
                 .signed_execution_payload_bid()
                 .expect("gloas block has a bid")
-                .clone(),
+                .clone_as_signed_execution_payload_bid(),
         );
 
         // Real pending payload cache: the Gloas path inserts the bid and merges partial columns into
@@ -543,7 +543,7 @@ mod get_blobs_v4 {
             spec.clone(),
         ));
         let cache = Arc::new(
-            PendingPayloadCache::<T>::new(get_kzg(&spec), custody_context, false, 0, spec.clone())
+            PendingPayloadCache::<T>::new(get_kzg(&spec), custody_context, false, spec.clone())
                 .expect("create pending payload cache"),
         );
         mock_adapter

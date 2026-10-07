@@ -144,12 +144,12 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         envelope: Option<AvailableEnvelope<E>>,
     ) -> Result<Self, String> {
         if let Some(envelope) = envelope.as_ref() {
-            let execution_bid = &block
+            let execution_bid = block
                 .message()
                 .body()
                 .signed_execution_payload_bid()
                 .map_err(|e| format!("missing signed_execution_payload_bid: {e:?}"))?
-                .message;
+                .message();
             // Skip the finalized-slot check; range sync imports historical (finalized) blocks.
             let latest_finalized_slot = Slot::new(0);
             verify_envelope_consistency(
