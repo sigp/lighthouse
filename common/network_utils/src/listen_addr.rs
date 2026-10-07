@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use multiaddr::{Multiaddr, Protocol};
+use libp2p::multiaddr::{Multiaddr, Protocol};
 use serde::{Deserialize, Serialize};
 
 /// A listening address composed by an Ip, an UDP port and a TCP port.
