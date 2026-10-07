@@ -257,11 +257,10 @@ mod ssz_static {
     use types::state::HistoricalSummary;
     use types::{
         AttesterSlashingBase, AttesterSlashingElectra, Builder, BuilderPendingPayment,
-        BuilderPendingWithdrawal, ConsolidationRequest, DepositRequest, ExecutionPayloadBid,
-        ExecutionPayloadEnvelope, IndexedPayloadAttestation, LightClientBootstrapAltair,
-        PayloadAttestation, PayloadAttestationData, PayloadAttestationMessage, PendingDeposit,
-        PendingPartialWithdrawal, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-        WithdrawalRequest, *,
+        BuilderPendingWithdrawal, ConsolidationRequest, DepositRequest, ExecutionPayloadEnvelope,
+        IndexedPayloadAttestation, LightClientBootstrapAltair, PayloadAttestation,
+        PayloadAttestationData, PayloadAttestationMessage, PendingDeposit,
+        PendingPartialWithdrawal, SignedExecutionPayloadEnvelope, WithdrawalRequest, *,
     };
 
     ssz_static_test!(attestation_data, AttestationData);
@@ -470,12 +469,14 @@ mod ssz_static {
 
     #[test]
     fn execution_payload_bid() {
-        SszStaticHandler::<ExecutionPayloadBid<Spec>, Spec>::gloas_and_later().run();
+        SszStaticHandler::<ExecutionPayloadBidGloas<Spec>, Spec>::gloas_only().run();
+        SszStaticHandler::<ExecutionPayloadBidHeze<Spec>, Spec>::heze_only().run();
     }
 
     #[test]
     fn signed_execution_payload_bid() {
-        SszStaticHandler::<SignedExecutionPayloadBid<Spec>, Spec>::gloas_and_later().run();
+        SszStaticHandler::<SignedExecutionPayloadBidGloas<Spec>, Spec>::gloas_only().run();
+        SszStaticHandler::<SignedExecutionPayloadBidHeze<Spec>, Spec>::heze_only().run();
     }
 
     #[test]
