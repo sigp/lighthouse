@@ -448,12 +448,12 @@ mod tests {
             let clock = multi_era_clock();
 
             clock.set_slot(319);
-            assert_eq!(clock.slot_duration(), Duration::from_secs(12));
+            assert_eq!(clock.current_slot_duration(), Duration::from_secs(12));
             assert_eq!(clock.duration_to_next_slot(), Some(Duration::from_secs(12)));
 
             clock.advance_slot();
             assert_eq!(clock.now(), Some(Slot::new(320)));
-            assert_eq!(clock.slot_duration(), Duration::from_secs(10));
+            assert_eq!(clock.current_slot_duration(), Duration::from_secs(10));
             assert_eq!(
                 clock.slot_duration_at(Slot::new(319)),
                 Duration::from_secs(12)
@@ -477,7 +477,7 @@ mod tests {
             );
 
             clock.set_slot(640);
-            assert_eq!(clock.slot_duration(), Duration::from_secs(6));
+            assert_eq!(clock.current_slot_duration(), Duration::from_secs(6));
             clock.advance_time(Duration::from_secs(6));
             assert_eq!(clock.now(), Some(Slot::new(641)));
 

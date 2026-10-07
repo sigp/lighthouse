@@ -691,7 +691,8 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     overflow_cache: Arc<DataAvailabilityCheckerInner<T>>,
     partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
 ) {
-    let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
+    let epoch_duration =
+        chain.slot_clock.current_slot_duration() * T::EthSpec::slots_per_epoch() as u32;
     loop {
         match chain
             .slot_clock
@@ -748,7 +749,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
             None => {
                 error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
-                tokio::time::sleep(chain.slot_clock.slot_duration()).await;
+                tokio::time::sleep(chain.slot_clock.current_slot_duration()).await;
             }
         };
     }

@@ -78,7 +78,7 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     fn slot_of(&self, now: Duration) -> Option<Slot>;
 
     /// Returns the duration of the current slot, or of the genesis slot prior to genesis.
-    fn slot_duration(&self) -> Duration {
+    fn current_slot_duration(&self) -> Duration {
         self.slot_duration_at(self.now().unwrap_or(self.genesis_slot()))
     }
 

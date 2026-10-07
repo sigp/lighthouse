@@ -481,14 +481,16 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let attestation_selection_proof_config = if config.distributed {
             SelectionProofConfig {
                 lookahead_slot: SELECTION_PROOF_SLOT_LOOKAHEAD_DVT,
-                computation_offset: slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM,
+                computation_offset: slot_clock.current_slot_duration()
+                    / SELECTION_PROOF_SCHEDULE_DENOM,
                 selections_endpoint: true,
                 parallel_sign: true,
             }
         } else {
             SelectionProofConfig {
                 lookahead_slot: SELECTION_PROOF_SLOT_LOOKAHEAD,
-                computation_offset: slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM,
+                computation_offset: slot_clock.current_slot_duration()
+                    / SELECTION_PROOF_SCHEDULE_DENOM,
                 selections_endpoint: false,
                 parallel_sign: false,
             }

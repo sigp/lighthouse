@@ -1047,7 +1047,7 @@ async fn data_column_reconstruction_at_deadline() {
         .unwrap();
 
     // We push the slot clock to 3 seconds into the slot, this is the deadline to trigger reconstruction.
-    let slot_duration = rig.chain.slot_clock.slot_duration().as_millis() as u64;
+    let slot_duration = rig.chain.slot_clock.current_slot_duration().as_millis() as u64;
     let reconstruction_deadline_millis =
         (slot_duration * RECONSTRUCTION_DEADLINE.0) / RECONSTRUCTION_DEADLINE.1;
     rig.chain
@@ -2183,7 +2183,7 @@ async fn test_backfill_sync_processing() {
                 WORKER_FREED,
                 NOTHING_TO_DO,
             ],
-            rig.chain.slot_clock.slot_duration(),
+            rig.chain.slot_clock.current_slot_duration(),
             false,
             false,
         )

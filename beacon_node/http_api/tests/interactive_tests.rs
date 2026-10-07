@@ -550,7 +550,7 @@ pub async fn proposer_boost_re_org_test(
     let state_b_root = state_b.canonical_root().unwrap();
     let block_b_root = block_b.0.canonical_root();
 
-    let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.slot_duration() / 2;
+    let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.current_slot_duration() / 2;
     slot_clock.set_current_time(obs_time);
     harness.chain.block_times_cache.write().set_time_observed(
         block_b_root,

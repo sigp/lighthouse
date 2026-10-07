@@ -5072,7 +5072,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Do not write to the cache for blocks older than 2 epochs, this helps reduce writes to
         // the cache during sync.
-        if block_delay_total < self.slot_clock.slot_duration() * 64 {
+        if block_delay_total < self.slot_clock.current_slot_duration() * 64 {
             // Store the timestamp of the block being imported into the cache.
             self.block_times_cache.write().set_time_imported(
                 block_root,
@@ -5094,7 +5094,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Do not trigger light_client server update producer for old blocks, to extra work
         // during sync.
         if self.config.enable_light_client_server
-            && block_delay_total < self.slot_clock.slot_duration() * 32
+            && block_delay_total < self.slot_clock.current_slot_duration() * 32
             && let Some(mut light_client_server_tx) = self.light_client_server_tx.clone()
             && let Ok(sync_aggregate) = block.body().sync_aggregate()
             && let Err(e) = light_client_server_tx.try_send((
