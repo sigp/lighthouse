@@ -1167,7 +1167,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             Response::LightClientBootstrap(_)
             | Response::LightClientOptimisticUpdate(_)
             | Response::LightClientFinalityUpdate(_)
-            | Response::LightClientUpdatesByRange(_) => unreachable!(),
+            | Response::LightClientUpdatesByRange(_) => {
+                tracing::error!("Should not have reached this match bracket");
+            }
         }
     }
 
