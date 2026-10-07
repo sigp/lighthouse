@@ -296,13 +296,19 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         &self,
     ) -> Result<SignedExecutionPayloadBidRef<'a, E>, BeaconStateError> {
         match self {
+            Self::Base(_)
+            | Self::Altair(_)
+            | Self::Bellatrix(_)
+            | Self::Capella(_)
+            | Self::Deneb(_)
+            | Self::Electra(_)
+            | Self::Fulu(_) => Err(BeaconStateError::IncorrectStateVariant),
             Self::Gloas(body) => Ok(SignedExecutionPayloadBidRef::Gloas(
                 &body.signed_execution_payload_bid,
             )),
             Self::Heze(body) => Ok(SignedExecutionPayloadBidRef::Heze(
                 &body.signed_execution_payload_bid,
             )),
-            _ => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 

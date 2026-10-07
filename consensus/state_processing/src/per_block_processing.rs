@@ -888,7 +888,10 @@ pub fn process_execution_payload_bid<E: EthSpec>(
         (ExecutionPayloadBidRefMut::Heze(bid_mut), ExecutionPayloadBidRef::Heze(cached)) => {
             *bid_mut = cached.clone();
         }
-        _ => return Err(BlockProcessingError::IncorrectStateType),
+        (ExecutionPayloadBidRefMut::Gloas(_), ExecutionPayloadBidRef::Heze(_))
+        | (ExecutionPayloadBidRefMut::Heze(_), ExecutionPayloadBidRef::Gloas(_)) => {
+            return Err(BlockProcessingError::IncorrectStateType);
+        }
     }
 
     Ok(())

@@ -28,7 +28,7 @@ use tree_hash_derive::TreeHash;
         ),
         context_deserialize(ForkName),
         educe(PartialEq, Hash(bound(E: EthSpec))),
-        serde(bound = "E: EthSpec", deny_unknown_fields),
+        serde(bound = "E: EthSpec"),
         cfg_attr(
             feature = "arbitrary",
             derive(arbitrary::Arbitrary),
@@ -60,7 +60,7 @@ use tree_hash_derive::TreeHash;
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Educe)]
+#[derive(Debug, Clone, Serialize, Encode, TreeHash, Educe)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec", untagged)]
 #[ssz(enum_behaviour = "transparent")]
@@ -107,11 +107,17 @@ impl<'a, E: EthSpec> SignedRoot for ExecutionPayloadBidRef<'a, E> {}
 impl<E: EthSpec> ForkVersionDecode for ExecutionPayloadBid<E> {
     fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         match fork_name {
-            ForkName::Gloas => ExecutionPayloadBidGloas::from_ssz_bytes(bytes).map(Self::Gloas),
-            ForkName::Heze => ExecutionPayloadBidHeze::from_ssz_bytes(bytes).map(Self::Heze),
-            _ => Err(ssz::DecodeError::BytesInvalid(format!(
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra
+            | ForkName::Fulu => Err(ssz::DecodeError::BytesInvalid(format!(
                 "unsupported fork for ExecutionPayloadBid: {fork_name}"
             ))),
+            ForkName::Gloas => ExecutionPayloadBidGloas::from_ssz_bytes(bytes).map(Self::Gloas),
+            ForkName::Heze => ExecutionPayloadBidHeze::from_ssz_bytes(bytes).map(Self::Heze),
         }
     }
 }
@@ -128,17 +134,23 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadBid<
             ))
         };
         Ok(match context {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra
+            | ForkName::Fulu => {
+                return Err(serde::de::Error::custom(format!(
+                    "ExecutionPayloadBid failed to deserialize: unsupported fork '{}'",
+                    context
+                )));
+            }
             ForkName::Gloas => {
                 Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Heze => {
                 Self::Heze(Deserialize::deserialize(deserializer).map_err(convert_err)?)
-            }
-            _ => {
-                return Err(serde::de::Error::custom(format!(
-                    "ExecutionPayloadBid failed to deserialize: unsupported fork '{}'",
-                    context
-                )));
             }
         })
     }

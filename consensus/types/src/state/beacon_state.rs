@@ -1572,13 +1572,19 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
     ) -> Result<ExecutionPayloadBidRef<'_, E>, BeaconStateError> {
         match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_)
+            | BeaconState::Fulu(_) => Err(BeaconStateError::IncorrectStateVariant),
             BeaconState::Gloas(state) => Ok(ExecutionPayloadBidRef::Gloas(
                 &state.latest_execution_payload_bid,
             )),
             BeaconState::Heze(state) => Ok(ExecutionPayloadBidRef::Heze(
                 &state.latest_execution_payload_bid,
             )),
-            _ => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 
@@ -1586,13 +1592,19 @@ impl<E: EthSpec> BeaconState<E> {
         &mut self,
     ) -> Result<ExecutionPayloadBidRefMut<'_, E>, BeaconStateError> {
         match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_)
+            | BeaconState::Fulu(_) => Err(BeaconStateError::IncorrectStateVariant),
             BeaconState::Gloas(state) => Ok(ExecutionPayloadBidRefMut::Gloas(
                 &mut state.latest_execution_payload_bid,
             )),
             BeaconState::Heze(state) => Ok(ExecutionPayloadBidRefMut::Heze(
                 &mut state.latest_execution_payload_bid,
             )),
-            _ => Err(BeaconStateError::IncorrectStateVariant),
         }
     }
 

@@ -29,7 +29,7 @@ use tree_hash_derive::TreeHash;
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Educe)]
+#[derive(Debug, Clone, Serialize, Encode, TreeHash, Educe)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec", untagged)]
 #[ssz(enum_behaviour = "transparent")]
@@ -126,13 +126,19 @@ impl<'a, E: EthSpec> SignedExecutionPayloadBidRef<'a, E> {
 impl<E: EthSpec> ForkVersionDecode for SignedExecutionPayloadBid<E> {
     fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         match fork_name {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra
+            | ForkName::Fulu => Err(ssz::DecodeError::BytesInvalid(format!(
+                "unsupported fork for SignedExecutionPayloadBid: {fork_name}"
+            ))),
             ForkName::Gloas => {
                 SignedExecutionPayloadBidGloas::from_ssz_bytes(bytes).map(Self::Gloas)
             }
             ForkName::Heze => SignedExecutionPayloadBidHeze::from_ssz_bytes(bytes).map(Self::Heze),
-            _ => Err(ssz::DecodeError::BytesInvalid(format!(
-                "unsupported fork for SignedExecutionPayloadBid: {fork_name}"
-            ))),
         }
     }
 }
@@ -149,17 +155,23 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedExecutionPaylo
             ))
         };
         Ok(match context {
+            ForkName::Base
+            | ForkName::Altair
+            | ForkName::Bellatrix
+            | ForkName::Capella
+            | ForkName::Deneb
+            | ForkName::Electra
+            | ForkName::Fulu => {
+                return Err(serde::de::Error::custom(format!(
+                    "SignedExecutionPayloadBid failed to deserialize: unsupported fork '{}'",
+                    context
+                )));
+            }
             ForkName::Gloas => {
                 Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Heze => {
                 Self::Heze(Deserialize::deserialize(deserializer).map_err(convert_err)?)
-            }
-            _ => {
-                return Err(serde::de::Error::custom(format!(
-                    "SignedExecutionPayloadBid failed to deserialize: unsupported fork '{}'",
-                    context
-                )));
             }
         })
     }

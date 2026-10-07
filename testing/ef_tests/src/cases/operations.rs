@@ -64,7 +64,7 @@ pub struct VoluntaryExitChurn {
 }
 
 /// Newtype for testing execution payload bids.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ExecutionPayloadBidBlock<E: EthSpec> {
     signed_bid: SignedExecutionPayloadBid<E>,
 }
