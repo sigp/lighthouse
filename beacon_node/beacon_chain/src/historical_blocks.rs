@@ -264,7 +264,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // signatures are only batch-verified further below. Batches are only
                     // accepted from the network here, so a mismatch is attributable to the
                     // sending peer.
-                    if self.config.verify_envelope_payload_hash_in_backfill {
+                    if self.config.verify_envelope_payload_hash_on_cl {
                         verify_envelope_payload_hash(envelope.envelope(), &block).map_err(|e| {
                             HistoricalBlockError::InvalidEnvelope {
                                 block_root,
