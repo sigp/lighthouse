@@ -555,6 +555,30 @@ fn inconsistent_fork() {
 }
 
 #[test]
+fn inconsistent_fork_at_heze_boundary() {
+    // A Gloas bid for the first Heze slot,
+    // possible from a peer still on the Gloas topic.
+    if fork_name_from_env() != Some(ForkName::Gloas) {
+        return;
+    }
+    let mut ctx = TestContext::new();
+    let heze_fork_epoch = Epoch::new(1);
+    ctx.spec.heze_fork_epoch = Some(heze_fork_epoch);
+    let gossip = ctx.gossip_ctx();
+
+    let bid = ctx.make_signed_bid(
+        heze_fork_epoch.start_slot(E::slots_per_epoch()),
+        0,
+        Address::ZERO,
+        30_000_000,
+        100,
+        ctx.genesis_block_root,
+    );
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(matches!(result, Err(PayloadBidError::InconsistentFork(_))));
+}
+
+#[test]
 fn fee_recipient_mismatch() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
