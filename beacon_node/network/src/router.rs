@@ -291,6 +291,15 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.network_beacon_processor
                     .send_data_columns_by_range_request(peer_id, inbound_request_id, request),
             ),
+            RequestType::InclusionListsByIndices(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_inclusion_lists_by_indices_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
             RequestType::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
                 self.network_beacon_processor
                     .send_light_client_bootstrap_request(peer_id, inbound_request_id, request),
@@ -359,6 +368,9 @@ impl<T: BeaconChainTypes> Router<T> {
             // so receiving a response is unexpected. Drop it without crashing.
             Response::BlocksByHead(_) => {
                 debug!("BlocksByHead response received but not requested by lighthouse");
+            }
+            Response::InclusionListsByIndices(_) => {
+                debug!("InclusionListsByIndices response received but not requested by lighthouse");
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
