@@ -6,6 +6,7 @@ members = [
     "beacon_node/beacon_processor",
     "beacon_node/builder_client",
     "beacon_node/client",
+    "beacon_node/decentralized_checkpoint_sync",
     "beacon_node/execution_layer",
     "beacon_node/genesis",
     "beacon_node/http_api",
@@ -132,6 +133,7 @@ compare_fields = "0.1"
 console-subscriber = "0.4"
 context_deserialize = "0.2"
 criterion = "0.8"
+decentralized_checkpoint_sync = { path = "beacon_node/decentralized_checkpoint_sync" }
 delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
 directory = { path = "common/directory" }
