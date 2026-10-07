@@ -1345,11 +1345,7 @@ mod test {
     }
 
     fn new_da_checker(spec: Arc<ChainSpec>) -> DataAvailabilityChecker<T> {
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        );
+        let slot_clock = TestingSlotClock::from_spec::<E>(Duration::from_secs(0), &spec);
         let kzg = get_kzg(&spec);
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let complete_blob_backfill = false;
