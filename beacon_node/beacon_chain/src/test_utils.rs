@@ -44,7 +44,6 @@ use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::{Mutex, RwLockWriteGuard};
-use proof_engine::ProofEngine;
 use proto_array::PayloadStatus;
 use rand::Rng;
 use rand::SeedableRng;
@@ -267,7 +266,6 @@ pub struct Builder<T: BeaconChainTypes> {
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
-    proof_engine: Option<Arc<ProofEngine>>,
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
@@ -445,7 +443,6 @@ where
             store_mutator: None,
             execution_layer: None,
             mock_execution_layer: None,
-            proof_engine: None,
             testing_slot_clock: None,
             validator_monitor_config: None,
             genesis_state_builder: None,
@@ -612,16 +609,6 @@ where
         self
     }
 
-    /// Run with an EIP-8025 proof engine, which makes the proofs a payload's validity. The engine
-    /// is never contacted; `observe_execution_proof` stands in for gossip verification.
-    pub fn proof_engine(mut self) -> Self {
-        let url = SensitiveUrl::parse("http://127.0.0.1:0").expect("valid proof engine url");
-        self.proof_engine = Some(Arc::new(
-            ProofEngine::new(url).expect("build proof engine client"),
-        ));
-        self
-    }
-
     /// Instruct the mock execution engine to always return a "valid" response to any payload it is
     /// asked to execute.
     pub fn mock_execution_layer_all_payloads_valid(self) -> Self {
@@ -677,7 +664,6 @@ where
             )
             .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
-            .proof_engine(self.proof_engine)
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .node_custody_type(self.node_custody_type)
@@ -844,44 +830,6 @@ where
     pub fn builder(eth_spec_instance: E) -> Builder<BaseHarnessType<E, Hot, Cold>> {
         create_test_tracing_subscriber();
         Builder::new(eth_spec_instance)
-    }
-
-    /// Record a valid execution proof for `block_root` and hand it to the chain, as gossip
-    /// verification would.
-    pub async fn observe_execution_proof(
-        &self,
-        block_root: Hash256,
-        proof_type: ProofType,
-        block_slot: Slot,
-    ) {
-        let proof = SignedExecutionProofEnvelope {
-            message: ExecutionProofEnvelope {
-                proof_data: ProofData::new(vec![1]).expect("proof data"),
-                proof_type,
-                beacon_block_root: block_root,
-            },
-            validator_index: 0,
-            signature: Signature::infinity().expect("infinity signature"),
-        };
-
-        {
-            let mut observed_execution_proofs = self.chain.observed_execution_proofs.write();
-            observed_execution_proofs
-                .observe_signature_verified_proof(
-                    proof.message.tree_hash_root(),
-                    block_root,
-                    proof_type,
-                    proof.validator_index,
-                    block_slot,
-                )
-                .expect("proof should be observable");
-            observed_execution_proofs.observe_valid_proof(block_root, proof_type);
-        }
-
-        self.chain
-            .promote_payload_if_proven(block_root)
-            .await
-            .expect("execution proof should be processed");
     }
 
     pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<E>> {
