@@ -249,17 +249,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // avoiding taking other locks whilst holding this lock.
         let mut fork_choice = fork_choice_reader.upgrade();
 
-        // EIP-8025: Import initially as optimistic, once enough proofs are received the node is marked as VALID
-        let payload_verification_status = if self.execution_proofs_enabled() {
-            if self.execution_proofs_satisfied(&block_root) {
-                PayloadVerificationStatus::Verified
-            } else {
-                PayloadVerificationStatus::Optimistic
-            }
-        } else {
-            payload_verification_status
-        };
-
         // Update the block's payload to received in fork choice, which creates the `Full` virtual
         // node which can be eligible for head.
         fork_choice
