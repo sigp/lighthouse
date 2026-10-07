@@ -50,6 +50,11 @@ async fn publish_execution_proofs<T: BeaconChainTypes>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     body_bytes: Bytes,
 ) -> Result<warp::reply::Response, warp::Rejection> {
+    // Only enabled with a proof engine.
+    if chain.proof_engine.is_none() {
+        return Err(warp::reject::not_found());
+    }
+
     let proofs = Vec::<SignedExecutionProofEnvelope>::from_ssz_bytes(&body_bytes)
         .map_err(|e| warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}")))?;
 

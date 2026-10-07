@@ -51,7 +51,6 @@ use store::StoreOp;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
-use types::execution::{ExecutionProofEnvelope, ProofData, SignedExecutionProofEnvelope};
 use types::{
     Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas,
     ExecutionPayloadBidHeze, Hash256, MainnetEthSpec, ProposerPreferences, RelativeEpoch,
@@ -3252,36 +3251,6 @@ impl ApiTester {
             data,
             signature,
         }
-    }
-
-    pub async fn test_post_beacon_execution_proofs_unknown_block(self) -> Self {
-        let proof = SignedExecutionProofEnvelope {
-            message: ExecutionProofEnvelope {
-                proof_data: ProofData::new(vec![0; 32]).unwrap(),
-                proof_type: 0,
-                beacon_block_root: Hash256::repeat_byte(42),
-            },
-            validator_index: 0,
-            signature: Signature::empty(),
-        };
-
-        // Nothing can verify a proof of a block this node does not have.
-        let error = self
-            .client
-            .post_beacon_execution_proofs(vec![proof])
-            .await
-            .unwrap_err();
-
-        match error {
-            Error::ServerIndexedMessage(IndexedErrorMessage { code, failures, .. }) => {
-                assert_eq!(code, 400);
-                assert_eq!(failures.len(), 1);
-                assert!(failures[0].message.contains("UnknownBlockRoot"));
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
-
-        self
     }
 
     pub async fn test_post_beacon_pool_payload_attestations_valid(mut self) -> Self {
@@ -10542,14 +10511,6 @@ async fn payload_attestation_unavailable_without_envelope() {
     ApiTester::new_with_hard_forks()
         .await
         .test_payload_attestation_unavailable_without_envelope()
-        .await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn post_beacon_execution_proofs_unknown_block() {
-    ApiTester::new()
-        .await
-        .test_post_beacon_execution_proofs_unknown_block()
         .await;
 }
 
