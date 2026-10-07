@@ -1446,10 +1446,10 @@ impl BannedPeersCount {
         for address in ip_addresses {
             let normalized_ip = normalize_ip_for_banning(address);
             if let Entry::Occupied(mut entry) = self.banned_peers_per_ip.entry(normalized_ip) {
-                if *entry.get() <= 1 {
+                let count = entry.get_mut();
+                *count = count.saturating_sub(1);
+                if *count == 0 {
                     entry.remove();
-                } else {
-                    *entry.get_mut() -= 1;
                 }
             }
         }
