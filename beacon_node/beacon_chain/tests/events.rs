@@ -10,7 +10,8 @@ use types::data::FixedBlobSidecarList;
 use types::{
     Address, BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain,
     EthSpec, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerPreferences, SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
+    ProposerPreferences, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
+    SignedProposerPreferences, SignedRoot, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -50,12 +51,12 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
                 .sampling_columns_for_epoch(epoch)[0];
 
             // For gloas, the bid must be known, e.g. in the pending payload cache
-            let mut bid = SignedExecutionPayloadBid::<E>::empty();
+            let mut bid = SignedExecutionPayloadBidGloas::<E>::empty();
             bid.message.slot = Slot::new(10);
-            harness
-                .chain
-                .pending_payload_cache
-                .insert_bid(random_sidecar.beacon_block_root, Arc::new(bid));
+            harness.chain.pending_payload_cache.insert_bid(
+                random_sidecar.beacon_block_root,
+                Arc::new(SignedExecutionPayloadBid::Gloas(bid)),
+            );
 
             DataColumnSidecar::Gloas(random_sidecar)
         } else {

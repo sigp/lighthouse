@@ -1768,8 +1768,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
             .map_err(Error::IncorrectStateForAttestation)?;
 
-        let dependent_root =
-            state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?;
+        let dependent_root = if self.spec.gloas_fork_epoch == Some(epoch) {
+            let decision_slot = epoch
+                .start_slot(T::EthSpec::slots_per_epoch())
+                .saturating_sub(1_u64);
+            if state.slot() == decision_slot {
+                dependent_block_root
+            } else {
+                *state.get_block_root(decision_slot)?
+            }
+        } else {
+            state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?
+        };
 
         let pubkey_cache = self.validator_pubkey_cache.read();
 
@@ -3925,7 +3935,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .message()
                         .body()
                         .signed_execution_payload_bid()?
-                        .clone(),
+                        .clone_as_signed_execution_payload_bid(),
                 );
                 chain.pending_payload_cache.insert_bid(block_root, bid);
             }
