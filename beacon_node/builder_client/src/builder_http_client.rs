@@ -192,6 +192,13 @@ impl BuilderHttpClient {
             ContentType::Json => {
                 let versioned: ForkVersionedResponse<SignedExecutionPayloadBid<E>> =
                     serde_json::from_slice(&response_bytes).map_err(Error::InvalidJson)?;
+                let received = versioned.data.message().fork_name_unchecked();
+                if received != fork_name {
+                    return Err(Error::InvalidFork {
+                        expected: fork_name,
+                        received,
+                    });
+                }
                 Ok(Some(versioned.data))
             }
         }
@@ -522,5 +529,29 @@ mod tests {
             .with_status(204)
             .create();
         assert!(request_bid(&server).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_execution_payload_bid_rejects_invalid_fork() {
+        let mut server = Server::new_async().await;
+        mock_bid(&mut server, ContentType::Json);
+        let result = client_for()
+            .get_execution_payload_bid::<E>(
+                &builder_url(&server),
+                Slot::new(1),
+                ExecutionBlockHash::repeat_byte(1),
+                Hash256::repeat_byte(2),
+                &PublicKeyBytes::empty(),
+                &signed_request_auth(),
+                ForkName::Heze,
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(Error::InvalidFork {
+                expected: ForkName::Heze,
+                received: ForkName::Gloas,
+            })
+        ));
     }
 }
