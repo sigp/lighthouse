@@ -3996,11 +3996,8 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
 
     let store = get_store_generic(&temp2, store_config, spec.clone());
 
-    let slot_clock = TestingSlotClock::new(
-        Slot::new(0),
-        Duration::from_secs(harness.chain.genesis_time),
-        spec.get_slot_duration(),
-    );
+    let slot_clock =
+        TestingSlotClock::from_spec::<E>(Duration::from_secs(harness.chain.genesis_time), &spec);
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
     let chain_config = ChainConfig {
@@ -4235,11 +4232,8 @@ async fn weak_subjectivity_sync_test(
 
     // Initialise a new beacon chain from the finalized checkpoint.
     // The slot clock must be set to a time ahead of the checkpoint state.
-    let slot_clock = TestingSlotClock::new(
-        Slot::new(0),
-        Duration::from_secs(harness.chain.genesis_time),
-        spec.get_slot_duration(),
-    );
+    let slot_clock =
+        TestingSlotClock::from_spec::<E>(Duration::from_secs(harness.chain.genesis_time), &spec);
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
     let chain_config = ChainConfig {

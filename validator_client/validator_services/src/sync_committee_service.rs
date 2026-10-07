@@ -903,8 +903,7 @@ mod tests {
     #[test]
     fn delay_stays_attached_to_requested_slot() {
         let spec = E::default_spec();
-        let slot_clock =
-            ManualSlotClock::new(Slot::new(0), Duration::ZERO, spec.get_slot_duration());
+        let slot_clock = ManualSlotClock::from_spec::<E>(Duration::ZERO, &spec);
         let contribution_due = spec.get_contribution_message_due::<E>(Slot::new(0));
 
         slot_clock.set_current_time(Duration::from_secs(5));
