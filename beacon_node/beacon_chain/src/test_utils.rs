@@ -650,7 +650,7 @@ where
             // The mock EL produces synthetic execution block hashes, which cannot survive a real
             // RLP block hash recompute. Tests that want the recompute pass an explicit config.
             ChainConfig {
-                verify_envelope_payload_hash_in_backfill: false,
+                verify_envelope_payload_hash_on_cl: false,
                 ..ChainConfig::default()
             }
         });
