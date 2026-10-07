@@ -13,6 +13,7 @@ use eth2::types::{
     ValidatorIdentitiesRequestBody, ValidatorIndexData, ValidatorsRequestBody,
 };
 use ssz::Encode;
+use ssz_types::FixedVector;
 use std::sync::Arc;
 use types::{
     AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch,
@@ -387,12 +388,14 @@ pub fn get_beacon_state_ptc<T: BeaconChainTypes>(
         .and(warp::path("ptc"))
         .and(warp::query::<eth2::types::PtcQuery>())
         .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             query: eth2::types::PtcQuery| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+             query: eth2::types::PtcQuery,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
                     let (data, execution_optimistic, finalized) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
@@ -417,19 +420,43 @@ pub fn get_beacon_state_ptc<T: BeaconChainTypes>(
                                         e => warp_utils::reject::beacon_state_error(e),
                                     })?;
 
+                                let validators =
+                                    FixedVector::new(ptc.0.iter().map(|&i| i as u64).collect())
+                                        .map_err(|e| {
+                                            warp_utils::reject::custom_server_error(format!(
+                                                "invalid PTC size: {:?}",
+                                                e
+                                            ))
+                                        })?;
+
                                 Ok((
-                                    eth2::types::PtcData {
-                                        slot,
-                                        validators: ptc.0.iter().map(|&i| i as u64).collect(),
-                                    },
+                                    eth2::types::PtcData::<T::EthSpec> { slot, validators },
                                     execution_optimistic,
                                     finalized,
                                 ))
                             },
                         )?;
 
-                    Ok(eth2::types::GenericResponse::from(data)
-                        .add_execution_optimistic_finalized(execution_optimistic, finalized))
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(
+                            &eth2::types::GenericResponse::from(data)
+                                .add_execution_optimistic_finalized(
+                                    execution_optimistic,
+                                    finalized,
+                                ),
+                        )
+                        .into_response()),
+                    }
                 })
             },
         )

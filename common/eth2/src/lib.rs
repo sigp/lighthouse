@@ -951,11 +951,11 @@ impl BeaconNodeHttpClient {
     /// `GET /eth/v1/beacon/states/{state_id}/ptc`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn get_beacon_states_ptc(
+    pub async fn get_beacon_states_ptc<E: EthSpec>(
         &self,
         state_id: StateId,
         slot: Option<Slot>,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<PtcData>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<PtcData<E>>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -971,6 +971,32 @@ impl BeaconNodeHttpClient {
         }
 
         self.get_opt(path).await
+    }
+
+    /// `GET /eth/v1/beacon/states/{state_id}/ptc`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_ptc_ssz(
+        &self,
+        state_id: StateId,
+        slot: Option<Slot>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("ptc");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
     }
 
     /// `GET beacon/states/{state_id}/randao?epoch`

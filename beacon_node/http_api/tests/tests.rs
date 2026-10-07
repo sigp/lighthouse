@@ -1816,7 +1816,7 @@ impl ApiTester {
 
             let result = self
                 .client
-                .get_beacon_states_ptc(state_id.0, None)
+                .get_beacon_states_ptc::<E>(state_id.0, None)
                 .await
                 .unwrap()
                 .map(|res| res.data);
@@ -1834,8 +1834,8 @@ impl ApiTester {
             assert_eq!(
                 result
                     .validators
-                    .into_iter()
-                    .map(|i| i as usize)
+                    .iter()
+                    .map(|&i| i as usize)
                     .collect::<Vec<_>>(),
                 expected_ptc.0.to_vec(),
                 "{}",
@@ -1846,7 +1846,7 @@ impl ApiTester {
             let next_epoch_slot = state.slot() + E::slots_per_epoch();
             let result = self
                 .client
-                .get_beacon_states_ptc(state_id.0, Some(next_epoch_slot))
+                .get_beacon_states_ptc::<E>(state_id.0, Some(next_epoch_slot))
                 .await
                 .unwrap()
                 .unwrap()
@@ -1856,8 +1856,72 @@ impl ApiTester {
             assert_eq!(
                 result
                     .validators
-                    .into_iter()
-                    .map(|i| i as usize)
+                    .iter()
+                    .map(|&i| i as usize)
+                    .collect::<Vec<_>>(),
+                expected_ptc.0.to_vec(),
+                "{}",
+                state_id
+            );
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_ptc_ssz(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = match self
+                .client
+                .get_beacon_states_ptc_ssz(state_id.0, None)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("result should be none");
+
+            // Without a `slot` query the committee for the state's own slot is returned.
+            let expected_ptc = state.get_ptc(state.slot(), &self.chain.spec).unwrap();
+            let decoded =
+                PtcData::<E>::from_ssz_bytes(&result.unwrap()).expect("should decode SSZ PTC");
+            assert_eq!(decoded.slot, state.slot(), "{}", state_id);
+            assert_eq!(
+                decoded
+                    .validators
+                    .iter()
+                    .map(|&i| i as usize)
+                    .collect::<Vec<_>>(),
+                expected_ptc.0.to_vec(),
+                "{}",
+                state_id
+            );
+
+            // A slot in the next epoch is within the state's PTC window.
+            let next_epoch_slot = state.slot() + E::slots_per_epoch();
+            let ssz_bytes = self
+                .client
+                .get_beacon_states_ptc_ssz(state_id.0, Some(next_epoch_slot))
+                .await
+                .unwrap()
+                .expect("response should exist");
+            let decoded = PtcData::<E>::from_ssz_bytes(&ssz_bytes).expect("should decode SSZ PTC");
+            let expected_ptc = state.get_ptc(next_epoch_slot, &self.chain.spec).unwrap();
+            assert_eq!(decoded.slot, next_epoch_slot, "{}", state_id);
+            assert_eq!(
+                decoded
+                    .validators
+                    .iter()
+                    .map(|&i| i as usize)
                     .collect::<Vec<_>>(),
                 expected_ptc.0.to_vec(),
                 "{}",
@@ -9915,6 +9979,8 @@ async fn beacon_get_state_info_gloas() {
     ApiTester::new_from_config(config)
         .await
         .test_beacon_states_ptc()
+        .await
+        .test_beacon_states_ptc_ssz()
         .await;
 }
 
