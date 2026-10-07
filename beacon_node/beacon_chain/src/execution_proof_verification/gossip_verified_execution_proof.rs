@@ -21,7 +21,7 @@ use types::execution::{
 use types::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot};
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
-    pub chain: &'a BeaconChain<T>,
+    pub chain: &'a Arc<BeaconChain<T>>,
     pub canonical_head: &'a CanonicalHead<T>,
     pub observed_execution_proofs: &'a RwLock<ObservedExecutionProofs>,
     pub validator_pubkey_cache: &'a RwLock<ValidatorPubkeyCache<T>>,
@@ -44,19 +44,19 @@ impl GossipVerifiedExecutionProof {
         proof: Arc<SignedExecutionProofEnvelope>,
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, Error> {
-        // [REJECT] `proof.proof_data` is non-empty. The `MAX_PROOF_SIZE` upper bound is enforced
-        // structurally by the SSZ type at decode.
+        // [REJECT] `proof.proof_data` is non-empty. `MAX_PROOF_SIZE` is enforced by the SSZ type.
         if proof.message.proof_data.is_empty() {
             return Err(Error::EmptyProofData);
         }
+
+        // [DEVIATION] The sidecar decides which proof types are supported.
 
         let proof_root = proof.message.tree_hash_root();
         let block_root = proof.beacon_block_root();
         let proof_type = proof.proof_type();
         let validator_index = proof.validator_index;
 
-        // [IGNORE] The referenced beacon block is known. Its slot determines the fork for the
-        // signing domain.
+        // [IGNORE] The referenced beacon block is known. Its slot gives the signing domain's fork.
         let proto_block = ctx
             .canonical_head
             .fork_choice_read_lock()
@@ -87,9 +87,8 @@ impl GossipVerifiedExecutionProof {
             ProofObservation::New => {}
         }
 
-        // [REJECT] The validator is active at the epoch of the referenced block. The committee
-        // cache is keyed by the block's shuffling id, so proofs for blocks on non-canonical
-        // forks are judged against their own fork's active set without loading a state.
+        // [REJECT] The validator is active at the epoch of the referenced block. The shuffling-id
+        // key judges a non-canonical block against its own fork's active set, without a state load.
         let block_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
         let is_active = with_cached_shuffling(
             ctx.canonical_head,
@@ -130,8 +129,20 @@ impl GossipVerifiedExecutionProof {
             }
         }
 
-        // Only record the validator's attempt after the signature binds `validator_index`;
-        // recording earlier would let unauthenticated messages suppress honest provers.
+        // [IGNORE] The payload this proof is about is available. Reads the store and merkleizes a
+        // payload, so it runs on the blocking pool.
+        let chain = ctx.chain.clone();
+        let proof_envelope = proof.message.clone();
+        let execution_proof = ctx
+            .chain
+            .spawn_blocking_handle(
+                move || get_execution_proof(&chain, &proof_envelope, block_root),
+                "get_execution_proof",
+            )
+            .await
+            .map_err(|e| Error::BeaconChainError(Box::new(e)))??;
+
+        // Must follow every `IGNORE`: a recorded proof is deduplicated away on every later hop.
         if !ctx
             .observed_execution_proofs
             .write()
@@ -149,12 +160,7 @@ impl GossipVerifiedExecutionProof {
         }
 
         // [REJECT] The proof verifies via the proof engine.
-        //
-        // Proof verification is a fast crypto check against a localhost sidecar (and may be
-        // embedded in-process in the future), so awaiting it here does not hold up the processor
-        // significantly.
         let proof_engine = ctx.proof_engine.as_ref().ok_or(Error::ProofEngineMissing)?;
-        let execution_proof = get_execution_proof(ctx.chain, &proof.message, block_root)?;
         match proof_engine
             .verify_execution_proof(&execution_proof)
             .await
@@ -172,7 +178,9 @@ impl GossipVerifiedExecutionProof {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub fn execution_proof_gossip_verification_context(&self) -> GossipVerificationContext<'_, T> {
+    pub fn execution_proof_gossip_verification_context(
+        self: &Arc<Self>,
+    ) -> GossipVerificationContext<'_, T> {
         GossipVerificationContext {
             chain: self,
             canonical_head: &self.canonical_head,
@@ -188,7 +196,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     pub async fn verify_execution_proof_for_gossip(
-        &self,
+        self: &Arc<Self>,
         proof: Arc<SignedExecutionProofEnvelope>,
     ) -> Result<GossipVerifiedExecutionProof, Error> {
         GossipVerifiedExecutionProof::new(
@@ -199,10 +207,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 }
 
-/// Build the `ExecutionProof` the proof engine verifies (EIP-8025 `get_execution_proof`).
+/// Spec helper `get_execution_proof`.
 ///
-/// TODO(EIP8025): add cache of result of the hash. The root is the same for every proof of a
-/// block, so it is recomputed on each gossip hop.
+/// TODO(EIP8025): cache the root. It is the same for every proof of a block, so it is recomputed
+/// on each gossip hop.
 fn get_execution_proof<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     proof_envelope: &ExecutionProofEnvelope,
