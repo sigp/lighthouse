@@ -1101,6 +1101,23 @@ impl ChainSpec {
             .epoch(E::slots_per_epoch()))
     }
 
+    /// Returns the gossipsub `seen_ttl` at `epoch`: two epochs on the slot timeline, in seconds.
+    pub fn gossip_seen_ttl<E: EthSpec>(&self, epoch: Epoch) -> Duration {
+        let slots_per_epoch = E::slots_per_epoch();
+        let schedule = self.slot_duration_schedule();
+        let time_at = |epoch: Epoch| {
+            schedule.compute_time_at_slot_ms(slots_per_epoch, 0, epoch.start_slot(slots_per_epoch))
+        };
+        let seen_ttl_ms = match (time_at(epoch), time_at(epoch.saturating_add(2u64))) {
+            (Ok(start_ms), Ok(end_ms)) => end_ms.saturating_sub(start_ms),
+            _ => self
+                .get_slot_duration_ms(epoch)
+                .saturating_mul(slots_per_epoch)
+                .saturating_mul(2),
+        };
+        Duration::from_secs(seen_ttl_ms / 1000)
+    }
+
     /// Spec: `get_slot_duration_ms`.
     pub fn get_slot_duration_ms(&self, epoch: Epoch) -> u64 {
         self.get_slot_durations()
@@ -5146,6 +5163,19 @@ mod yaml_tests {
             spec.min_epoch_data_availability_boundary::<E>(Epoch::new(10096)),
             Some(Epoch::new(6000))
         );
+    }
+
+    #[test]
+    fn gossip_seen_ttl_follows_the_slot_duration() {
+        type E = MainnetEthSpec;
+        let mut spec = ChainSpec::mainnet();
+        let seen_ttl = |spec: &ChainSpec, epoch: u64| spec.gossip_seen_ttl::<E>(Epoch::new(epoch));
+        assert_eq!(seen_ttl(&spec, 0), Duration::from_secs(2 * 32 * 12));
+
+        spec.heze_fork_epoch = Some(Epoch::new(10));
+        assert_eq!(seen_ttl(&spec, 8), Duration::from_secs(2 * 32 * 12));
+        assert_eq!(seen_ttl(&spec, 9), Duration::from_secs(32 * 12 + 32 * 10));
+        assert_eq!(seen_ttl(&spec, 10), Duration::from_secs(2 * 32 * 10));
     }
 
     #[test]
