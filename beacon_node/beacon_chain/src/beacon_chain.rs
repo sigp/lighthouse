@@ -7141,7 +7141,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match forkchoice_updated_response {
             Ok(status) => match status {
-                PayloadStatus::Valid => {
+                PayloadStatus::Valid { .. } => {
                     // Ensure that fork choice knows that the payload is no longer optimistic. The
                     // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
                     // ancestor's payload, not the head block's.

@@ -4352,6 +4352,7 @@ async fn weak_subjectivity_sync_test(
                 wss_block_root,
                 PayloadVerificationStatus::Verified,
                 ExecutionBlockHash::zero(),
+                true,
             )
             .unwrap();
     }
@@ -4432,6 +4433,7 @@ async fn weak_subjectivity_sync_test(
                     block_root,
                     PayloadVerificationStatus::Verified,
                     ExecutionBlockHash::zero(),
+                    true,
                 )
                 .unwrap();
         }

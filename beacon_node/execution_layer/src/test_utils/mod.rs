@@ -167,6 +167,7 @@ impl<E: EthSpec> MockServer<E> {
             previous_request: <_>::default(),
             preloaded_responses,
             static_new_payload_response: <_>::default(),
+            new_payload_inclusion_list_satisfied: Arc::new(Mutex::new(true)),
             static_forkchoice_updated_response: <_>::default(),
             hook: <_>::default(),
             new_payload_statuses: <_>::default(),
@@ -264,6 +265,10 @@ impl<E: EthSpec> MockServer<E> {
 
     pub fn set_new_payload_response(&self, response: StaticNewPayloadResponse) {
         *self.ctx.static_new_payload_response.lock() = Some(response)
+    }
+
+    pub fn set_new_payload_inclusion_list_satisfied(&self, satisfied: bool) {
+        *self.ctx.new_payload_inclusion_list_satisfied.lock() = satisfied;
     }
 
     pub fn set_forkchoice_updated_response(&self, status: PayloadStatusV1) {
@@ -535,6 +540,8 @@ pub struct Context<E: EthSpec> {
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
+    /// `inclusionListSatisfied` for VALID `engine_newPayloadV6` responses that don't set it.
+    pub new_payload_inclusion_list_satisfied: Arc<Mutex<bool>>,
     pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
     pub hook: Arc<Mutex<Hook>>,
 

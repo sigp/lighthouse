@@ -3143,13 +3143,20 @@ where
             })
         };
 
-        self.chain
+        let payload_status = self
+            .chain
             .execution_layer
             .as_ref()
             .expect("harness should have execution layer")
             .notify_new_payload(request)
             .await
             .expect("newPayload should succeed");
+        let inclusion_list_satisfied = match payload_status {
+            execution_layer::PayloadStatus::Valid {
+                inclusion_list_satisfied,
+            } => inclusion_list_satisfied.unwrap_or(true),
+            _ => true,
+        };
 
         // Store the envelope and the data columns derived from the block.
         //
@@ -3196,6 +3203,7 @@ where
                 block_root,
                 PayloadVerificationStatus::Verified,
                 payload_block_hash,
+                inclusion_list_satisfied,
             )
             .expect("should update fork choice with envelope");
 

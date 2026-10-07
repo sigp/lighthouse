@@ -344,7 +344,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             .await
             .unwrap();
 
-        assert_eq!(prepare, PayloadStatus::Valid);
+        assert!(matches!(prepare, PayloadStatus::Valid { .. }));
 
         // Add a delay to give the EE sufficient time to pack the
         // submitted transactions into a payload.
@@ -441,7 +441,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             .notify_new_payload(valid_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatus::Valid);
+        assert!(matches!(status, PayloadStatus::Valid { .. }));
         check_payload_reconstruction(&self.ee_a, &valid_payload).await;
 
         /*
@@ -469,7 +469,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             )
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatus::Valid);
+        assert!(matches!(status, PayloadStatus::Valid { .. }));
 
         // Verify that all submitted txs were successful
         for pending_tx in pending_txs {
@@ -578,7 +578,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             .notify_new_payload(second_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatus::Valid);
+        assert!(matches!(status, PayloadStatus::Valid { .. }));
         check_payload_reconstruction(&self.ee_a, &second_payload).await;
 
         /*
@@ -627,7 +627,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             )
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatus::Valid);
+        assert!(matches!(status, PayloadStatus::Valid { .. }));
 
         /*
          * Execution Engine B:
@@ -681,7 +681,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             .notify_new_payload(valid_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatus::Valid);
+        assert!(matches!(status, PayloadStatus::Valid { .. }));
         check_payload_reconstruction(&self.ee_b, &valid_payload).await;
 
         /*
@@ -695,7 +695,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             .notify_new_payload(second_payload.to_ref().try_into().unwrap())
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatus::Valid);
+        assert!(matches!(status, PayloadStatus::Valid { .. }));
         check_payload_reconstruction(&self.ee_b, &second_payload).await;
 
         /*
@@ -721,7 +721,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             )
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatus::Valid);
+        assert!(matches!(status, PayloadStatus::Valid { .. }));
     }
 }
 

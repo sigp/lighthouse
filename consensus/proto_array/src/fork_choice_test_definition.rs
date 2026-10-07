@@ -580,6 +580,7 @@ impl ForkChoiceTestDefinition {
                         .on_payload_envelope_received(
                             block_root,
                             ExecutionStatus::Valid(ExecutionBlockHash::zero()),
+                            true,
                         )
                         .unwrap_or_else(|e| {
                             panic!(

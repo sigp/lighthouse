@@ -9,7 +9,7 @@
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
-    ExecutionPayloadError, PayloadVerificationError,
+    ExecutionPayloadError, PayloadVerificationError, PayloadVerificationOutcome,
 };
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, NewPayloadRequest, PayloadAttributes,
@@ -116,6 +116,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                 self.block.message().try_into()?,
             )
             .await
+            .map(|outcome| outcome.payload_verification_status)
         }
     }
 }
@@ -133,7 +134,7 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     slot: Slot,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
-) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
+) -> Result<PayloadVerificationOutcome, PayloadVerificationError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -141,16 +142,36 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
 
     let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
     let parent_block_hash = new_payload_request.execution_payload_ref().parent_hash();
+    let checks_inclusion_lists = matches!(new_payload_request, NewPayloadRequest::Heze(_));
     let new_payload_response = execution_layer
         .notify_new_payload(new_payload_request.clone())
         .await;
 
     match new_payload_response {
         Ok(status) => match status {
-            PayloadStatus::Valid => Ok(PayloadVerificationStatus::Verified),
-            PayloadStatus::Syncing | PayloadStatus::Accepted => {
-                Ok(PayloadVerificationStatus::Optimistic)
+            PayloadStatus::Valid {
+                inclusion_list_satisfied,
+            } => {
+                let inclusion_list_satisfied = inclusion_list_satisfied.unwrap_or_else(|| {
+                    if checks_inclusion_lists {
+                        warn!(
+                            ?execution_block_hash,
+                            %slot,
+                            "Execution engine did not report inclusion list satisfaction"
+                        );
+                    }
+                    true
+                });
+                Ok(PayloadVerificationOutcome {
+                    payload_verification_status: PayloadVerificationStatus::Verified,
+                    inclusion_list_satisfied,
+                })
             }
+            // An optimistic payload counts as satisfying the inclusion lists until it is validated.
+            PayloadStatus::Syncing | PayloadStatus::Accepted => Ok(PayloadVerificationOutcome {
+                payload_verification_status: PayloadVerificationStatus::Optimistic,
+                inclusion_list_satisfied: true,
+            }),
             PayloadStatus::Invalid {
                 latest_valid_hash,
                 ref validation_error,

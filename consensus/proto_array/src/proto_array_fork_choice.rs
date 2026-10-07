@@ -653,9 +653,10 @@ impl ProtoArrayForkChoice {
         &mut self,
         block_root: Hash256,
         execution_status: ExecutionStatus,
+        inclusion_list_satisfied: bool,
     ) -> Result<(), String> {
         self.proto_array
-            .on_payload_envelope_received(block_root, execution_status)
+            .on_payload_envelope_received(block_root, execution_status, inclusion_list_satisfied)
             .map_err(|e| format!("Failed to process execution payload: {:?}", e))
     }
 

@@ -169,6 +169,10 @@ pub struct ProtoNode {
     /// Maps to `root in store.payload_states` in the spec.
     #[superstruct(only(V29), partial_getter(copy))]
     pub payload_received: bool,
+    /// Whether the execution payload satisfies the inclusion list constraints. Maps to
+    /// `store.payload_inclusion_list_satisfaction[root]` in the spec.
+    #[superstruct(only(V29), partial_getter(copy))]
+    pub payload_inclusion_list_satisfied: bool,
     /// The proposer index for this block, used by `should_apply_proposer_boost`
     /// to detect equivocations at the parent's slot.
     #[superstruct(only(V29), partial_getter(copy))]
@@ -687,6 +691,7 @@ impl ProtoArray {
                 payload_data_availability_votes: BitVector::default(),
                 ptc_participation: BitVector::default(),
                 payload_received: false,
+                payload_inclusion_list_satisfied: true,
                 proposer_index,
                 // Spec: `record_block_timeliness` + `get_forkchoice_store`.
                 // Anchor gets [True, True]. Others computed from time_into_slot.
@@ -849,11 +854,13 @@ impl ProtoArray {
 
     /// Record the execution layer's verdict for a Gloas block's payload envelope.
     ///
-    /// Sets `payload_received` to true whatever the verdict.
+    /// Sets `payload_received` to true whatever the verdict, and records whether the payload
+    /// satisfies the inclusion list constraints.
     pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
         execution_status: ExecutionStatus,
+        inclusion_list_satisfied: bool,
     ) -> Result<(), Error> {
         let index = *self
             .indices
@@ -868,6 +875,7 @@ impl ProtoArray {
             .map_err(|_| Error::InvalidNodeVariant { block_root })?;
         // The envelope arrived: record it so sync stops fetching, whatever the verdict.
         v29.payload_received = true;
+        v29.payload_inclusion_list_satisfied = inclusion_list_satisfied;
 
         // A settled verdict is never revisited: a duplicate `Valid`, or an `Invalid` the
         // invalidation sweep already set from this payload's condemned ancestry.
@@ -1954,6 +1962,11 @@ impl ProtoArray {
             return Ok(false);
         }
 
+        // Spec: `is_payload_inclusion_list_satisfied`.
+        if !node.payload_inclusion_list_satisfied {
+            return Ok(false);
+        }
+
         // Per spec: `proposer_root == Root()` is one of the `or` conditions that
         // makes `should_extend_payload` return True.
         if proposer_boost_root.is_zero() {
@@ -1978,8 +1991,6 @@ impl ProtoArray {
             .ok_or(Error::InvalidNodeIndex(parent_index))?
             .root();
 
-        // TODO(heze): also require the payload to satisfy the inclusion lists, as per the spec's
-        // `is_payload_inclusion_list_satisfied`
         Ok((proto_node.payload_timeliness::<E>(true)?
             && proto_node.payload_data_availability::<E>(true)?)
             || proposer_boost_parent_root != fc_node.root

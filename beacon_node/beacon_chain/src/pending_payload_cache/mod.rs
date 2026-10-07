@@ -864,6 +864,7 @@ mod data_availability_checker_tests {
             block_root,
             payload_verification_outcome: PayloadVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,
+                inclusion_list_satisfied: true,
             },
         }
     }

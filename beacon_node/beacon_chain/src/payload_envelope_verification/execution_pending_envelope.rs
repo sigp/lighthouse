@@ -6,7 +6,6 @@ use types::{EthSpec, SignedExecutionPayloadEnvelope};
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
-    PayloadVerificationOutcome,
     block_verification::PayloadVerificationHandle,
     payload_envelope_verification::{
         EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
@@ -51,10 +50,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                     .set_time_started_execution(block_root, slot, started_execution);
             }
 
-            let payload_verification_status = payload_notifier.notify_new_payload().await?;
-            Ok(PayloadVerificationOutcome {
-                payload_verification_status,
-            })
+            payload_notifier.notify_new_payload().await
         };
         // Spawn the payload verification future as a new task, but don't wait for it to complete.
         // The `payload_verification_future` will be awaited later to ensure verification completed
