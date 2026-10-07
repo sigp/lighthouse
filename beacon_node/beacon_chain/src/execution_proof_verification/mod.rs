@@ -33,6 +33,10 @@ pub enum Error {
         slot: Slot,
         finalized_slot: Slot,
     },
+    /// The payload this proof is about has not been seen (IGNORE).
+    PayloadUnavailable {
+        beacon_block_root: Hash256,
+    },
     /// `proof_data` is empty (REJECT).
     EmptyProofData,
     /// The validator index does not exist (REJECT).
