@@ -2232,7 +2232,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // the envelopes_times_cache internally?
         // The payload is considered present only if it was observed before
         // the payload due deadline (PAYLOAD_DUE_BPS into the slot).
-        let payload_due = self.spec.get_payload_due();
+        let payload_due = self.spec.get_payload_due::<T::EthSpec>(request_slot);
         let payload_present = self
             .envelope_times_cache
             .read()
@@ -5486,8 +5486,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot_delay = now.saturating_sub(slot_start);
                     let re_org_cutoff_duration = self
                         .spec
-                        .compute_slot_component_duration(self.spec.proposer_reorg_cutoff_bps)
-                        .ok()?;
+                        .get_proposer_reorg_cutoff::<T::EthSpec>(re_org_block_slot);
 
                     Some(slot_delay <= re_org_cutoff_duration)
                 })

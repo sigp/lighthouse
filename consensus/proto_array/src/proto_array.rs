@@ -699,7 +699,8 @@ impl ProtoArray {
                     || (is_current_slot
                         && time_into_slot < spec.get_attestation_due::<E>(current_slot)),
                 block_timeliness_ptc_threshold: is_anchor
-                    || (is_current_slot && time_into_slot < spec.get_payload_attestation_due()),
+                    || (is_current_slot
+                        && time_into_slot < spec.get_payload_attestation_due::<E>(current_slot)),
                 equivocating_attestation_score: 0,
             })
         };
