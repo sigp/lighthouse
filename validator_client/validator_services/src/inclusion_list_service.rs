@@ -223,6 +223,10 @@ where
         let transactions = self
             .beacon_nodes
             .first_success(|beacon_node| async move {
+                let _timer = validator_metrics::start_timer_vec(
+                    &validator_metrics::INCLUSION_LIST_SERVICE_TIMES,
+                    &[validator_metrics::INCLUSION_LISTS_HTTP_GET],
+                );
                 beacon_node
                     .get_validator_inclusion_list(slot)
                     .await
@@ -256,6 +260,10 @@ where
         duties: Vec<InclusionListDuty>,
         inclusion_list_data: InclusionListData,
     ) -> Result<(), String> {
+        let _timer = validator_metrics::start_timer_vec(
+            &validator_metrics::INCLUSION_LIST_SERVICE_TIMES,
+            &[validator_metrics::INCLUSION_LISTS],
+        );
         let mut signed_ils = Vec::with_capacity(duties.len());
 
         for duty in duties {
@@ -328,6 +336,10 @@ where
             .first_success(|beacon_node| {
                 let inclusion_list = signed_il.clone();
                 async move {
+                    let _timer = validator_metrics::start_timer_vec(
+                        &validator_metrics::INCLUSION_LIST_SERVICE_TIMES,
+                        &[validator_metrics::INCLUSION_LISTS_HTTP_POST],
+                    );
                     beacon_node
                         .post_validator_inclusion_list_ssz(&inclusion_list, fork_name)
                         .await
@@ -344,6 +356,10 @@ where
                     .first_success(|beacon_node| {
                         let inclusion_list = signed_il.clone();
                         async move {
+                            let _timer = validator_metrics::start_timer_vec(
+                                &validator_metrics::INCLUSION_LIST_SERVICE_TIMES,
+                                &[validator_metrics::INCLUSION_LISTS_HTTP_POST],
+                            );
                             beacon_node
                                 .post_validator_inclusion_list(&inclusion_list, fork_name)
                                 .await
