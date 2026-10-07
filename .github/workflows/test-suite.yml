@@ -309,8 +309,8 @@ jobs:
           cache-target: release
     - name: Run state_transition_vectors in release.
       run: make run-state-transition-tests
-  ef-tests-ubuntu:
-    name: ef-tests-ubuntu
+  ef-tests-mainnet-ubuntu:
+    name: ef-tests-mainnet-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
@@ -329,8 +329,30 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
           cache-provider: warpbuild
-    - name: Run consensus-spec-tests with blst and fake_crypto
-      run: make test-ef
+    - name: Run mainnet consensus-spec-tests with blst and fake_crypto
+      run: make test-ef-mainnet
+  ef-tests-minimal-ubuntu:
+    name: ef-tests-minimal-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v5
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
+      with:
+          cache-provider: warpbuild
+    - name: Run minimal consensus-spec-tests with blst and fake_crypto
+      run: make test-ef-minimal
   basic-simulator-ubuntu:
     name: basic-simulator-ubuntu
     needs: [check-labels]
@@ -548,7 +570,8 @@ jobs:
       'http-api-tests',
       'debug-tests-ubuntu',
       'state-transition-vectors-ubuntu',
-      'ef-tests-ubuntu',
+      'ef-tests-mainnet-ubuntu',
+      'ef-tests-minimal-ubuntu',
       'basic-simulator-ubuntu',
       'fallback-simulator-ubuntu',
       'execution-engine-integration-ubuntu',
