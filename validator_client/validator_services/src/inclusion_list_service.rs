@@ -1,6 +1,6 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::BeaconNodeFallback;
-use eth2::types::{InclusionListDuty, InclusionListTransactions};
+use eth2::types::InclusionListDuty;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::ops::Deref;
@@ -9,7 +9,10 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
-use types::{ChainSpec, EthSpec, ForkName, Hash256, InclusionList, SignedInclusionList, Slot};
+use types::{
+    ChainSpec, EthSpec, ForkName, Hash256, InclusionList, ProgressiveTransactions,
+    SignedInclusionList, Slot,
+};
 use validator_store::ValidatorStore;
 
 type DependentRoot = Hash256;
@@ -21,7 +24,7 @@ const INCLUSION_LIST_PRODUCTION_MARGIN: Duration = Duration::from_secs(1);
 
 struct InclusionListData {
     dependent_root: DependentRoot,
-    transactions: InclusionListTransactions,
+    transactions: ProgressiveTransactions,
 }
 
 pub struct Inner<S, T> {
@@ -223,7 +226,7 @@ where
                 beacon_node
                     .get_validator_inclusion_list(slot)
                     .await
-                    .map(|resp| resp.data)
+                    .map(|resp| resp.data.transactions)
             })
             .await
             .map_err(|e| e.to_string())?;
@@ -231,9 +234,8 @@ where
         debug!(
             %slot,
             ?dependent_root,
-            tx_count = transactions.transactions.len(),
+            tx_count = transactions.len(),
             tx_bytes = transactions
-                .transactions
                 .iter()
                 .map(|tx| tx.len())
                 .sum::<usize>(),
@@ -261,7 +263,7 @@ where
                 slot,
                 validator_index: duty.validator_index,
                 dependent_root: inclusion_list_data.dependent_root,
-                transactions: inclusion_list_data.transactions.transactions.clone(),
+                transactions: inclusion_list_data.transactions.clone(),
             };
 
             match self
@@ -361,6 +363,7 @@ where
 mod tests {
     use super::*;
     use crate::duties_service::DutiesServiceBuilder;
+    use eth2::types::InclusionListTransactions;
     use futures::FutureExt;
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
@@ -670,7 +673,7 @@ mod tests {
             .unwrap();
         assert_eq!(duties.len(), 3);
         assert_eq!(data.dependent_root, dependent_root);
-        assert_eq!(data.transactions, transactions);
+        assert_eq!(data.transactions, transactions.transactions);
         bn2_mock.expect(1).assert();
     }
 
