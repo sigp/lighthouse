@@ -92,6 +92,9 @@ excluded_paths = [
     "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",
 ]
 
+# Extra arguments are ignored paths. Useful for skipping another preset's vectors.
+excluded_paths += sys.argv[3:]
+
 
 def normalize_path(path):
     return path.split("consensus-spec-tests/")[1]

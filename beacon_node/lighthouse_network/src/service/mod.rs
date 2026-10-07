@@ -761,12 +761,12 @@ impl<E: EthSpec> Network<E> {
         // Already registered all possible gossipsub topics for metrics
     }
 
-    /// Unsubscribe from all topics that doesn't have the given fork_digest
-    pub fn unsubscribe_from_fork_topics_except(&mut self, except: [u8; 4]) {
+    /// Unsubscribe from all topics whose fork digest is not in `except`.
+    pub fn unsubscribe_from_fork_topics_except(&mut self, except: &[[u8; 4]]) {
         let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
         for topic in subscriptions
             .iter()
-            .filter(|topic| topic.fork_digest != except)
+            .filter(|topic| !except.contains(&topic.fork_digest))
             .cloned()
         {
             self.unsubscribe(topic);
@@ -820,21 +820,17 @@ impl<E: EthSpec> Network<E> {
     ///
     /// Returns `true` if the subscription was successful and `false` otherwise.
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
-        // update the network globals
-        self.network_globals
-            .gossipsub_subscriptions
-            .write()
-            .insert(topic.clone());
-
-        let topic: Topic = topic.into();
-
-        match self.gossipsub_mut().subscribe(&topic) {
+        match self.gossipsub_mut().subscribe(&topic.clone().into()) {
             Err(e) => {
                 warn!(%topic, error = ?e, "Failed to subscribe to topic");
                 false
             }
             Ok(_) => {
                 debug!(%topic, "Subscribed to topic");
+                self.network_globals
+                    .gossipsub_subscriptions
+                    .write()
+                    .insert(topic);
                 true
             }
         }
@@ -858,7 +854,9 @@ impl<E: EthSpec> Network<E> {
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
     pub fn publish(&mut self, messages: Vec<PubsubMessage<E>>) {
         for message in messages {
-            for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
+            let fork_digest =
+                publish_fork_digest(&message, &self.fork_context, self.enr_fork_id.fork_digest);
+            for topic in message.topics(GossipEncoding::default(), fork_digest) {
                 let message_data = message.encode(GossipEncoding::default());
                 if let Err(e) = self
                     .gossipsub_mut()
@@ -2183,5 +2181,100 @@ impl<E: EthSpec> Network<E> {
                 None
             }
         }
+    }
+}
+
+/// Returns the fork digest to publish `message` on. Proposer preferences use the digest of their
+/// proposal epoch, and bids the digest of their epoch. All other messages use the current digest.
+fn publish_fork_digest<E: EthSpec>(
+    message: &PubsubMessage<E>,
+    fork_context: &ForkContext,
+    current_digest: [u8; 4],
+) -> [u8; 4] {
+    match message {
+        PubsubMessage::ProposerPreferences(preferences) => fork_context.context_bytes(
+            preferences
+                .message
+                .proposal_slot
+                .epoch(E::slots_per_epoch()),
+        ),
+        PubsubMessage::ExecutionPayloadBid(bid) => fork_context.context_bytes(bid.epoch()),
+        _ => current_digest,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bls::Signature;
+    use types::{
+        Epoch, ExecutionPayloadBidHeze, Hash256, MinimalEthSpec, ProposerPreferences,
+        SignedExecutionPayloadBid, SignedExecutionPayloadBidHeze, SignedProposerPreferences,
+        SignedVoluntaryExit, VoluntaryExit,
+    };
+
+    type E = MinimalEthSpec;
+
+    #[test]
+    fn publish_fork_digest_uses_proposal_epoch_for_proposer_preferences() {
+        let gloas_epoch = Epoch::new(2);
+        let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+        spec.gloas_fork_epoch = Some(gloas_epoch);
+        let fork_context = ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec);
+        let current_digest = fork_context.current_fork_digest();
+        let gloas_digest = fork_context.context_bytes(gloas_epoch);
+
+        let preferences =
+            PubsubMessage::<E>::ProposerPreferences(Arc::new(SignedProposerPreferences {
+                message: ProposerPreferences {
+                    dependent_root: Hash256::ZERO,
+                    proposal_slot: gloas_epoch.start_slot(E::slots_per_epoch()),
+                    validator_index: 0,
+                    fee_recipient: Default::default(),
+                    target_gas_limit: 0,
+                },
+                signature: Signature::empty(),
+            }));
+        let exit = PubsubMessage::<E>::VoluntaryExit(Box::new(SignedVoluntaryExit {
+            message: VoluntaryExit {
+                epoch: Epoch::new(0),
+                validator_index: 0,
+            },
+            signature: Signature::empty(),
+        }));
+
+        assert_eq!(
+            publish_fork_digest(&preferences, &fork_context, current_digest),
+            gloas_digest
+        );
+        assert_eq!(
+            publish_fork_digest(&exit, &fork_context, current_digest),
+            current_digest
+        );
+    }
+
+    #[test]
+    fn publish_fork_digest_uses_bid_epoch_for_bids() {
+        let heze_epoch = Epoch::new(2);
+        let mut spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        spec.heze_fork_epoch = Some(heze_epoch);
+        let fork_context = ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec);
+        let current_digest = fork_context.current_fork_digest();
+        let heze_digest = fork_context.context_bytes(heze_epoch);
+
+        let bid = PubsubMessage::<E>::ExecutionPayloadBid(Box::new(
+            SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
+                message: ExecutionPayloadBidHeze {
+                    slot: heze_epoch.start_slot(E::slots_per_epoch()),
+                    ..ExecutionPayloadBidHeze::default()
+                },
+                signature: Signature::empty(),
+            }),
+        ));
+
+        assert_eq!(
+            publish_fork_digest(&bid, &fork_context, current_digest),
+            heze_digest
+        );
     }
 }
