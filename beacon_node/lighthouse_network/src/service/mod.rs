@@ -2185,7 +2185,7 @@ impl<E: EthSpec> Network<E> {
 }
 
 /// Returns the fork digest to publish `message` on. Proposer preferences use the digest of their
-/// proposal epoch. All other messages use the current digest.
+/// proposal epoch, and bids the digest of their epoch. All other messages use the current digest.
 fn publish_fork_digest<E: EthSpec>(
     message: &PubsubMessage<E>,
     fork_context: &ForkContext,
@@ -2198,6 +2198,7 @@ fn publish_fork_digest<E: EthSpec>(
                 .proposal_slot
                 .epoch(E::slots_per_epoch()),
         ),
+        PubsubMessage::ExecutionPayloadBid(bid) => fork_context.context_bytes(bid.epoch()),
         _ => current_digest,
     }
 }
@@ -2207,7 +2208,8 @@ mod tests {
     use super::*;
     use bls::Signature;
     use types::{
-        Epoch, Hash256, MinimalEthSpec, ProposerPreferences, SignedProposerPreferences,
+        Epoch, ExecutionPayloadBidHeze, Hash256, MinimalEthSpec, ProposerPreferences,
+        SignedExecutionPayloadBid, SignedExecutionPayloadBidHeze, SignedProposerPreferences,
         SignedVoluntaryExit, VoluntaryExit,
     };
 
@@ -2248,6 +2250,31 @@ mod tests {
         assert_eq!(
             publish_fork_digest(&exit, &fork_context, current_digest),
             current_digest
+        );
+    }
+
+    #[test]
+    fn publish_fork_digest_uses_bid_epoch_for_bids() {
+        let heze_epoch = Epoch::new(2);
+        let mut spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        spec.heze_fork_epoch = Some(heze_epoch);
+        let fork_context = ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec);
+        let current_digest = fork_context.current_fork_digest();
+        let heze_digest = fork_context.context_bytes(heze_epoch);
+
+        let bid = PubsubMessage::<E>::ExecutionPayloadBid(Box::new(
+            SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
+                message: ExecutionPayloadBidHeze {
+                    slot: heze_epoch.start_slot(E::slots_per_epoch()),
+                    ..ExecutionPayloadBidHeze::default()
+                },
+                signature: Signature::empty(),
+            }),
+        ));
+
+        assert_eq!(
+            publish_fork_digest(&bid, &fork_context, current_digest),
+            heze_digest
         );
     }
 }

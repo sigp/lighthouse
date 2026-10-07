@@ -56,7 +56,7 @@ use types::{
     SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
     SignedInclusionList, SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot,
     SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource, data::CellBitmap,
-    execution::SignedExecutionProof,
+    execution::SignedExecutionProofEnvelope,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -4153,7 +4153,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        execution_proof: Arc<SignedExecutionProof>,
+        execution_proof: Arc<SignedExecutionProofEnvelope>,
     ) {
         let beacon_block_root = execution_proof.beacon_block_root();
         let proof_type = execution_proof.proof_type();
@@ -4171,34 +4171,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Verified execution proof from gossip"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
-
-                // This may be the proof the block's envelope was waiting on.
-                match self
-                    .chain
-                    .check_execution_proof_availability_and_import(verified)
-                    .await
-                {
-                    Ok(AvailabilityProcessingStatus::Imported(slot, block_root)) => {
-                        info!(
-                            ?block_root,
-                            %slot,
-                            "Execution payload envelope imported after execution proof"
-                        );
-                        self.chain.recompute_head_at_current_slot().await;
-                        // The payload envelope is imported (`is_payload_received` is now true);
-                        // release any attestations awaiting this block's payload.
-                        self.notify_payload_envelope_imported(block_root, EnvelopeSource::Gossip);
-                    }
-                    Ok(AvailabilityProcessingStatus::MissingComponents(..)) => {}
-                    Err(error) => {
-                        debug!(
-                            %beacon_block_root,
-                            proof_type,
-                            ?error,
-                            "Could not cache execution proof"
-                        );
-                    }
-                }
             }
             Err(error) => {
                 debug!(%beacon_block_root, proof_type, ?error, "Could not verify execution proof");
@@ -4208,7 +4180,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | ExecutionProofError::ValidProofAlreadyKnown
                     | ExecutionProofError::DuplicateFromValidator { .. }
                     | ExecutionProofError::UnknownBlockRoot { .. }
-                    | ExecutionProofError::PastFinalizedSlot { .. } => {
+                    | ExecutionProofError::PastFinalizedSlot { .. }
+                    | ExecutionProofError::PayloadUnavailable { .. } => {
                         (MessageAcceptance::Ignore, None)
                     }
                     // REJECT: the proof is invalid.
@@ -4239,7 +4212,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(parent_block_hash = ?bid.message.parent_block_hash, parent_block_root = ?bid.message.parent_block_root),
+        fields(parent_block_hash = ?bid.message().parent_block_hash(), parent_block_root = ?bid.message().parent_block_root()),
     )]
     pub fn process_gossip_execution_payload_bid(
         self: &Arc<Self>,
@@ -4261,7 +4234,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::BlockHashEqualsParentBlockHash { .. }
                 | PayloadBidError::InvalidBlobKzgCommitments { .. }
                 | PayloadBidError::BidNotDescendantOfParent { .. }
-                | PayloadBidError::InvalidPrevRandao { .. },
+                | PayloadBidError::InvalidPrevRandao { .. }
+                | PayloadBidError::InconsistentFork(_),
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(

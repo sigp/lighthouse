@@ -13,7 +13,8 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    ListRef, SignedExecutionPayloadBid,
+    ListRef, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+    SignedExecutionPayloadBidRef,
     attestation::{
         AttestationBase, AttestationElectra, AttestationGloas, AttestationRef, AttestationRefMut,
         PayloadAttestation,
@@ -215,8 +216,16 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(only(Electra, Fulu))]
     pub execution_requests: ExecutionRequestsElectra<E>,
-    #[superstruct(only(Gloas, Heze))]
-    pub signed_execution_payload_bid: SignedExecutionPayloadBid<E>,
+    #[superstruct(
+        only(Gloas),
+        partial_getter(rename = "signed_execution_payload_bid_gloas")
+    )]
+    pub signed_execution_payload_bid: SignedExecutionPayloadBidGloas<E>,
+    #[superstruct(
+        only(Heze),
+        partial_getter(rename = "signed_execution_payload_bid_heze")
+    )]
+    pub signed_execution_payload_bid: SignedExecutionPayloadBidHeze<E>,
     #[superstruct(only(Gloas, Heze))]
     pub payload_attestations:
         ProgressiveVariableList<PayloadAttestation<E>, E::MaxPayloadAttestations>,
@@ -261,6 +270,12 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBody<E, Payload> {
     pub fn fork_name(&self) -> ForkName {
         self.to_ref().fork_name()
     }
+
+    pub fn signed_execution_payload_bid(
+        &self,
+    ) -> Result<SignedExecutionPayloadBidRef<'_, E>, BeaconStateError> {
+        self.to_ref().signed_execution_payload_bid()
+    }
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, Payload> {
@@ -274,6 +289,26 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             Self::Fulu(body) => Ok(Payload::Ref::from(&body.execution_payload)),
             Self::Gloas(_) => Err(BeaconStateError::IncorrectStateVariant),
             Self::Heze(_) => Err(BeaconStateError::IncorrectStateVariant),
+        }
+    }
+
+    pub fn signed_execution_payload_bid(
+        &self,
+    ) -> Result<SignedExecutionPayloadBidRef<'a, E>, BeaconStateError> {
+        match self {
+            Self::Base(_)
+            | Self::Altair(_)
+            | Self::Bellatrix(_)
+            | Self::Capella(_)
+            | Self::Deneb(_)
+            | Self::Electra(_)
+            | Self::Fulu(_) => Err(BeaconStateError::IncorrectStateVariant),
+            Self::Gloas(body) => Ok(SignedExecutionPayloadBidRef::Gloas(
+                &body.signed_execution_payload_bid,
+            )),
+            Self::Heze(body) => Ok(SignedExecutionPayloadBidRef::Heze(
+                &body.signed_execution_payload_bid,
+            )),
         }
     }
 
@@ -1498,24 +1533,24 @@ impl<'de, E: EthSpec, Payload: AbstractExecPayload<E>> ContextDeserialize<'de, F
 mod tests {
     mod base {
         use super::super::*;
-        use crate::core::MainnetEthSpec;
-        ssz_and_tree_hash_tests!(BeaconBlockBodyBase<MainnetEthSpec>);
+        use crate::core::Spec;
+        ssz_and_tree_hash_tests!(BeaconBlockBodyBase<Spec>);
     }
     mod altair {
         use super::super::*;
-        use crate::core::MainnetEthSpec;
-        ssz_and_tree_hash_tests!(BeaconBlockBodyAltair<MainnetEthSpec>);
+        use crate::core::Spec;
+        ssz_and_tree_hash_tests!(BeaconBlockBodyAltair<Spec>);
     }
     mod gloas {
         use super::super::*;
         use crate::block::BeaconBlock;
-        use crate::core::{ChainSpec, MainnetEthSpec};
+        use crate::core::{ChainSpec, Spec};
 
         /// Check the derived Gloas body root against a manual computation from its 13 field
         /// roots, so an incorrect `active_fields` list would change the result (EIP-7688).
         #[test]
         fn gloas_body_progressive_container_root() {
-            type E = MainnetEthSpec;
+            type E = Spec;
             let spec: ChainSpec = ForkName::Gloas.make_genesis_spec(E::default_spec());
             let block: BeaconBlock<E> = BeaconBlock::empty(&spec);
             let BeaconBlock::Gloas(block) = block else {
