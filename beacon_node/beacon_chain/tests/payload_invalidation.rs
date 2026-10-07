@@ -2014,8 +2014,8 @@ async fn gloas_invalid_finalized_payload_on_empty_keeps_running_on_full_child_re
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .parent_block_hash,
+            .message()
+            .parent_block_hash(),
         rig.block_hash(finalized_root)
     );
     assert!(rig.execution_status(full_child_root).is_invalid());
@@ -2039,8 +2039,8 @@ async fn gloas_invalid_finalized_payload_on_empty_keeps_running_on_full_child_re
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .parent_block_hash,
+            .message()
+            .parent_block_hash(),
         finalized_parent_payload_hash
     );
 
@@ -2106,8 +2106,8 @@ async fn gloas_invalid_finalized_payload_on_empty_keeps_running_on_optimistic_sy
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .parent_block_hash,
+            .message()
+            .parent_block_hash(),
         finalized_parent_payload_hash
     );
 
@@ -2215,8 +2215,8 @@ async fn gloas_invalid_finalized_payload_on_empty_keeps_running_on_envelope_reje
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .parent_block_hash,
+            .message()
+            .parent_block_hash(),
         finalized_parent_payload_hash
     );
 
@@ -2290,8 +2290,8 @@ async fn gloas_invalid_finalized_payload_on_full_shuts_down_on_optimistic_sync()
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .parent_block_hash,
+            .message()
+            .parent_block_hash(),
         finalized_payload_hash
     );
 
