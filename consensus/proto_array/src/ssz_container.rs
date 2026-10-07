@@ -112,7 +112,7 @@ impl From<SszContainerV29> for SszContainerV28 {
                 .into_iter()
                 .filter_map(|node| match node {
                     ProtoNode::V17(v17) => Some(v17),
-                    ProtoNode::V29(_) => None,
+                    ProtoNode::V29(_) | ProtoNode::V32(_) => None,
                 })
                 .collect(),
             indices: v29.indices,
