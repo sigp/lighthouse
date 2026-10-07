@@ -1,8 +1,6 @@
 use beacon_chain::AvailabilityProcessingStatus::{Imported, MissingComponents};
 use beacon_chain::NotifyExecutionLayer;
-use beacon_chain::execution_proof_verification::{
-    Error as ExecutionProofError, REQUIRED_EXECUTION_PROOFS,
-};
+use beacon_chain::execution_proof_verification::REQUIRED_EXECUTION_PROOFS;
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
@@ -12,10 +10,10 @@ use eth2::types::EventKind;
 use execution_layer::test_utils::Block;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
-use types::execution::{ExecutionProof, ProofData, ProofType, PublicInput, SignedExecutionProof};
+use types::execution::ProofType;
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ExecutionBlockHash, ExecutionPayload, ForkName,
-    Hash256, MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot, WithdrawalRequest,
+    Address, BlockImportSource, Epoch, ExecPayload, ExecutionPayload, ForkName, Hash256,
+    MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot, WithdrawalRequest,
 };
 
 type E = MinimalEthSpec;
@@ -808,42 +806,6 @@ async fn execution_proofs_validate_a_payload_and_its_ancestors() {
         is_valid_and_post_bellatrix(execution_status(&harness, ancestor_root)),
         "and every payload below it, which never had a proof of its own",
     );
-}
-
-/// A proof whose public input is not the block's payload is rejected, engine or no engine.
-#[tokio::test]
-async fn gossip_rejects_a_proof_for_another_payload() {
-    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
-        return;
-    }
-
-    let harness = gloas_harness_with_proof_engine();
-    harness.extend_to_slot(Slot::new(1)).await;
-    let (block_root, _) = import_block(&harness, Slot::new(2)).await;
-
-    let proof = SignedExecutionProof {
-        message: ExecutionProof {
-            proof_data: ProofData::new(vec![1]).expect("proof data"),
-            proof_type: 0,
-            public_input: PublicInput {
-                block_hash: ExecutionBlockHash::repeat_byte(9),
-                parent_hash: ExecutionBlockHash::zero(),
-            },
-            beacon_block_root: block_root,
-        },
-        validator_index: 0,
-        signature: bls::Signature::infinity().expect("infinity signature"),
-    };
-
-    match harness
-        .chain
-        .verify_execution_proof_for_gossip(Arc::new(proof))
-        .await
-    {
-        Err(ExecutionProofError::PayloadMismatch { .. }) => {}
-        Err(other) => panic!("expected PayloadMismatch, got {other:?}"),
-        Ok(_) => panic!("a proof for another payload must be rejected"),
-    }
 }
 
 /// Proofs that arrive before the envelope are not lost: the payload is valid the moment it is

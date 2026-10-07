@@ -854,14 +854,10 @@ where
         proof_type: ProofType,
         block_slot: Slot,
     ) {
-        let proof = SignedExecutionProof {
-            message: ExecutionProof {
+        let proof = SignedExecutionProofEnvelope {
+            message: ExecutionProofEnvelope {
                 proof_data: ProofData::new(vec![1]).expect("proof data"),
                 proof_type,
-                public_input: PublicInput {
-                    block_hash: ExecutionBlockHash::zero(),
-                    parent_hash: ExecutionBlockHash::zero(),
-                },
                 beacon_block_root: block_root,
             },
             validator_index: 0,
@@ -931,7 +927,6 @@ where
         beacon_url: SensitiveUrl,
         strict_registrations: bool,
         apply_operations: bool,
-        broadcast_to_bn: bool,
     ) -> impl futures::Future<Output = ()> + use<E, Hot, Cold> {
         let mock_el = self
             .mock_execution_layer
@@ -946,7 +941,6 @@ where
             beacon_url,
             strict_registrations,
             apply_operations,
-            broadcast_to_bn,
             self.spec.clone(),
             self.runtime.task_executor.clone(),
         );
@@ -1339,8 +1333,8 @@ where
             let parent_envelope = if parent_payload_status == PayloadStatus::Full {
                 self.chain
                     .store
-                    .get_signed_payload_envelope(&parent_root)
-                    .expect("should load parent payload envelope")
+                    .get_payload_envelope_summary(&parent_root)
+                    .expect("should load parent payload envelope summary")
                     .map(Arc::new)
             } else {
                 None

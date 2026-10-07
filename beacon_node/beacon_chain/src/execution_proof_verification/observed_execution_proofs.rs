@@ -1,4 +1,4 @@
-//! Provides the `ObservedExecutionProofs` struct which allows for ignoring `SignedExecutionProof`s
+//! Provides the `ObservedExecutionProofs` struct which allows for ignoring `SignedExecutionProofEnvelope`s
 //! that we have already seen over the gossip network.
 //! Only proofs that have completed signature verification can be added to this cache to reduce
 //! DoS risks.

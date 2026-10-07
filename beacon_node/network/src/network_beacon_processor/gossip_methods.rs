@@ -56,7 +56,7 @@ use types::{
     SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
     SignedInclusionList, SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot,
     SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource, data::CellBitmap,
-    execution::SignedExecutionProof,
+    execution::SignedExecutionProofEnvelope,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -4153,7 +4153,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        execution_proof: Arc<SignedExecutionProof>,
+        execution_proof: Arc<SignedExecutionProofEnvelope>,
     ) {
         let beacon_block_root = execution_proof.beacon_block_root();
         let proof_type = execution_proof.proof_type();
@@ -4194,12 +4194,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | ExecutionProofError::ValidProofAlreadyKnown
                     | ExecutionProofError::DuplicateFromValidator { .. }
                     | ExecutionProofError::UnknownBlockRoot { .. }
-                    | ExecutionProofError::PastFinalizedSlot { .. } => {
+                    | ExecutionProofError::PastFinalizedSlot { .. }
+                    | ExecutionProofError::PayloadUnavailable { .. } => {
                         (MessageAcceptance::Ignore, None)
                     }
                     // REJECT: the proof is invalid.
                     ExecutionProofError::EmptyProofData
-                    | ExecutionProofError::PayloadMismatch { .. }
                     | ExecutionProofError::UnknownValidatorIndex(_)
                     | ExecutionProofError::ValidatorNotActive { .. }
                     | ExecutionProofError::InvalidSignature

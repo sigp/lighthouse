@@ -4,7 +4,7 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockError};
 use proof_engine::ProofEngineError;
 use std::sync::Arc;
 use tracing::debug;
-use types::{ExecutionBlockHash, Hash256, Slot};
+use types::{Hash256, Slot};
 
 pub mod gossip_verified_execution_proof;
 pub mod observed_execution_proofs;
@@ -44,12 +44,12 @@ pub enum Error {
         slot: Slot,
         finalized_slot: Slot,
     },
+    /// The payload this proof is about has not been seen (IGNORE).
+    PayloadUnavailable {
+        beacon_block_root: Hash256,
+    },
     /// `proof_data` is empty (REJECT).
     EmptyProofData,
-    /// The proof's public input is not the payload the block committed to (REJECT).
-    PayloadMismatch {
-        proof_block_hash: ExecutionBlockHash,
-    },
     /// The validator index does not exist (REJECT).
     UnknownValidatorIndex(u64),
     /// The validator is not active at the referenced block's epoch (REJECT).

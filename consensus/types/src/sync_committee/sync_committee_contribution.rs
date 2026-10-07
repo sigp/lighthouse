@@ -117,5 +117,5 @@ mod tests {
     use super::*;
     use crate::*;
 
-    ssz_and_tree_hash_tests!(SyncCommitteeContribution<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(SyncCommitteeContribution<Spec>);
 }

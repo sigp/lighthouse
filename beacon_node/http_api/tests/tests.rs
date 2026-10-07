@@ -309,14 +309,9 @@ impl ApiTester {
         // is only used by mock-builder tests.
         let strict_registrations = true;
         let apply_operations = true;
-        let broadcast_to_bn = true;
 
-        let mock_builder_server = harness.set_mock_builder(
-            beacon_url.clone(),
-            strict_registrations,
-            apply_operations,
-            broadcast_to_bn,
-        );
+        let mock_builder_server =
+            harness.set_mock_builder(beacon_url.clone(), strict_registrations, apply_operations);
 
         // Start the mock builder service prior to building the chain out.
         harness
@@ -2334,6 +2329,53 @@ impl ApiTester {
             result.len(),
             versioned_hashes.map_or(num_blobs, |versioned_hashes| versioned_hashes.len())
         );
+
+        self
+    }
+
+    pub async fn test_get_blobs_follow_commitment_order(self) -> Self {
+        let block_id = BlockId(CoreBlockId::Head);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+
+        let versioned_hashes: Vec<Hash256> = block
+            .message()
+            .blob_kzg_commitments()
+            .unwrap()
+            .iter()
+            .map(|commitment| commitment.calculate_versioned_hash())
+            .collect();
+        let num_blobs = versioned_hashes.len();
+        assert!(num_blobs >= 2, "test block must contain at least two blobs");
+
+        // The unfiltered response is in commitment order
+        let all_blobs = self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), None)
+            .await
+            .unwrap()
+            .unwrap()
+            .into_data();
+        assert_eq!(all_blobs.len(), num_blobs);
+
+        // Every hash in reverse order
+        let request: Vec<Hash256> = versioned_hashes.iter().rev().copied().collect();
+
+        let result = self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), Some(&request))
+            .await
+            .unwrap()
+            .unwrap()
+            .into_data();
+
+        assert_eq!(result.len(), num_blobs);
+        for (index, (returned, expected)) in result.iter().zip(&all_blobs).enumerate() {
+            assert_eq!(
+                returned.blob, expected.blob,
+                "blob at position {index} does not follow commitment order"
+            );
+        }
 
         self
     }
@@ -11008,6 +11050,8 @@ async fn get_blob_sidecars() {
         .test_get_blobs(false)
         .await
         .test_get_blobs(true)
+        .await
+        .test_get_blobs_follow_commitment_order()
         .await;
 }
 
@@ -11034,6 +11078,8 @@ async fn get_blobs_post_fulu_supernode() {
         .test_get_blobs(false)
         .await
         .test_get_blobs(true)
+        .await
+        .test_get_blobs_follow_commitment_order()
         .await;
 }
 
