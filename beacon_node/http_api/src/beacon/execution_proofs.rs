@@ -3,7 +3,7 @@ use crate::utils::{
     self, ChainFilter, EthV1Filter, NetworkTxFilter, ResponseFilter, TaskSpawnerFilter,
 };
 use beacon_chain::execution_proof_verification::Error as ExecutionProofError;
-use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
@@ -11,8 +11,8 @@ use network::NetworkMessage;
 use ssz::Decode;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{debug, info, warn};
-use types::execution::SignedExecutionProof;
+use tracing::{debug, warn};
+use types::execution::SignedExecutionProofEnvelope;
 use warp::{Filter, Reply};
 
 /// POST beacon/execution_proofs (SSZ)
@@ -50,43 +50,33 @@ async fn publish_execution_proofs<T: BeaconChainTypes>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     body_bytes: Bytes,
 ) -> Result<warp::reply::Response, warp::Rejection> {
-    let proofs = Vec::<SignedExecutionProof>::from_ssz_bytes(&body_bytes)
+    let proofs = Vec::<SignedExecutionProofEnvelope>::from_ssz_bytes(&body_bytes)
         .map_err(|e| warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}")))?;
 
     let mut failures = vec![];
     let mut num_already_known = 0;
     for (index, proof) in proofs.into_iter().enumerate() {
         let proof = Arc::new(proof);
+        let beacon_block_root = proof.beacon_block_root();
+        let proof_type = proof.proof_type();
         match chain.verify_execution_proof_for_gossip(proof.clone()).await {
-            Ok(verified) => {
+            Ok(_verified) => {
                 debug!(
-                    block_root = ?proof.beacon_block_root(),
-                    proof_type = proof.proof_type(),
+                    %beacon_block_root,
+                    proof_type,
                     "Publishing submitted execution proof"
                 );
                 utils::publish_pubsub_message(network_tx, PubsubMessage::ExecutionProof(proof))?;
 
-                // This may be the proof the block's envelope was waiting on.
-                match chain
-                    .check_execution_proof_availability_and_import(verified)
-                    .await
-                {
-                    Ok(AvailabilityProcessingStatus::Imported(slot, block_root)) => {
-                        info!(
-                            ?block_root,
-                            %slot,
-                            "Execution payload envelope imported after execution proof"
-                        );
-                        chain.recompute_head_at_current_slot().await;
-                    }
-                    Ok(AvailabilityProcessingStatus::MissingComponents(..)) => {}
-                    Err(e) => {
-                        warn!(
-                            error = ?e,
-                            request_index = index,
-                            "Could not act on submitted execution proof"
-                        );
-                    }
+                // This may be the proof the block's payload was waiting on.
+                if let Err(error) = chain.promote_payload_if_proven(beacon_block_root).await {
+                    warn!(
+                        %beacon_block_root,
+                        proof_type,
+                        ?error,
+                        request_index = index,
+                        "Could not validate payload after execution proof"
+                    );
                 }
             }
             // Not a failure: a relay retrying the same bytes has nothing to do differently. The

@@ -51,7 +51,7 @@ use store::StoreOp;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::ApplicationDomain;
-use types::execution::{ExecutionProof, ProofData, PublicInput, SignedExecutionProof};
+use types::execution::{ExecutionProofEnvelope, ProofData, SignedExecutionProofEnvelope};
 use types::{
     Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas,
     ExecutionPayloadBidHeze, Hash256, MainnetEthSpec, ProposerPreferences, RelativeEpoch,
@@ -3255,13 +3255,10 @@ impl ApiTester {
     }
 
     pub async fn test_post_beacon_execution_proofs_unknown_block(self) -> Self {
-        let proof = SignedExecutionProof {
-            message: ExecutionProof {
+        let proof = SignedExecutionProofEnvelope {
+            message: ExecutionProofEnvelope {
                 proof_data: ProofData::new(vec![0; 32]).unwrap(),
                 proof_type: 0,
-                public_input: PublicInput {
-                    new_payload_request_root: Hash256::repeat_byte(1),
-                },
                 beacon_block_root: Hash256::repeat_byte(42),
             },
             validator_index: 0,

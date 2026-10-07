@@ -46,7 +46,7 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
-use types::execution::SignedExecutionProof;
+use types::execution::SignedExecutionProofEnvelope;
 use types::{
     PayloadAttestationData, PayloadAttestationMessage, SignedExecutionPayloadBid,
     SignedProposerPreferences,
@@ -3265,7 +3265,7 @@ impl BeaconNodeHttpClient {
     /// Takes the proofs by value because each can be megabytes.
     pub async fn post_beacon_execution_proofs(
         &self,
-        proofs: Vec<SignedExecutionProof>,
+        proofs: Vec<SignedExecutionProofEnvelope>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
