@@ -240,7 +240,7 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
             None => {
                 error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
-                tokio::time::sleep(slot_clock.slot_duration()).await;
+                tokio::time::sleep(slot_clock.current_slot_duration()).await;
             }
         };
     }

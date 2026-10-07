@@ -115,7 +115,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     /// Establish the service based on the passed configuration.
     pub fn new(beacon_chain: Arc<BeaconChain<T>>, node_id: NodeId, config: &NetworkConfig) -> Self {
-        let slot_duration = beacon_chain.slot_clock.slot_duration();
+        let slot_duration = beacon_chain.slot_clock.current_slot_duration();
 
         if config.subscribe_all_subnets {
             info!("Subscribing to all subnets");
@@ -142,8 +142,8 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
         // Set up the sync committee subscriptions
         let spec = &beacon_chain.spec;
-        let epoch_duration_secs =
-            beacon_chain.slot_clock.slot_duration().as_secs() * T::EthSpec::slots_per_epoch();
+        let epoch_duration_secs = beacon_chain.slot_clock.current_slot_duration().as_secs()
+            * T::EthSpec::slots_per_epoch();
         let default_sync_committee_duration = Duration::from_secs(
             epoch_duration_secs.saturating_mul(spec.epochs_per_sync_committee_period.as_u64()),
         );
@@ -442,7 +442,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             return Ok(());
         }
 
-        let slot_duration = self.beacon_chain.slot_clock.slot_duration();
+        let slot_duration = self.beacon_chain.slot_clock.current_slot_duration();
 
         // The short time we schedule the subscription before it's actually required. This
         // ensures we are subscribed on time, and allows consecutive subscriptions to the same
