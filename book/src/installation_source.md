@@ -170,6 +170,8 @@ Commonly used features include:
 - `beacon-node-leveldb`: support for the leveldb backend. Enabled by default.
 - `sysmalloc`: use the system memory allocator rather than jemalloc. This is always enabled on
   Windows.
+- `mimalloc`: use the mimalloc memory allocator rather than jemalloc. Takes precedence over
+  jemalloc, but is itself overridden by `sysmalloc`.
 - `spec-minimal`: support for the minimal preset (useful for testing).
 
 Default features (e.g. `slasher-lmdb`, `beacon-node-leveldb`) may be opted out of using the `--no-default-features`
