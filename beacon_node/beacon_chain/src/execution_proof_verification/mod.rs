@@ -16,8 +16,7 @@ pub use observed_execution_proofs::ObservedExecutionProofs;
 
 use observed_execution_proofs::Error as ObservationError;
 
-/// Distinct proof systems that must prove a payload before fork choice calls it valid. More than
-/// one means a soundness bug in a single prover isn't enough to fool us.
+/// Distinct proof systems that must prove a payload before fork choice calls it valid.
 ///
 /// TODO(9658): make configurable. https://github.com/sigp/lighthouse/issues/9658
 pub const REQUIRED_EXECUTION_PROOFS: usize = 2;
@@ -107,13 +106,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        // The bid commits the payload's execution block hash, which is how fork choice names it.
-        let payload_block_hash = self
-            .get_or_load_gloas_payload_bid(block_root)
-            .await?
-            .message
-            .block_hash;
-
         debug!(?block_root, "Execution proofs complete, validating payload");
         let chain = self.clone();
         self.spawn_blocking_handle(
@@ -121,7 +113,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 chain
                     .canonical_head
                     .fork_choice_write_lock()
-                    .on_valid_execution_payload(payload_block_hash)
+                    .on_valid_execution_payload_by_block_root(block_root)
                     .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))
             },
             "validate_proven_payload",
