@@ -243,20 +243,24 @@ impl SigningMethod {
                     }
                     SignableMessage::VoluntaryExit(e) => Web3SignerObject::VoluntaryExit(e),
                     SignableMessage::ExecutionPayloadEnvelope(e) => {
-                        Web3SignerObject::ExecutionPayloadEnvelope(e)
+                        Web3SignerObject::execution_payload_envelope(e)
                     }
                     SignableMessage::PayloadAttestationData(d) => {
-                        Web3SignerObject::PayloadAttestationData(d)
+                        Web3SignerObject::payload_attestation_message(d)
                     }
                     SignableMessage::ProposerPreferences(p) => {
-                        Web3SignerObject::ProposerPreferences(p)
+                        Web3SignerObject::proposer_preferences(p)
                     }
-                    SignableMessage::RequestAuth(r) => Web3SignerObject::RequestAuth(r),
+                    SignableMessage::RequestAuth(r) => Web3SignerObject::builder_request_auth(r),
                 };
 
                 // Determine the Web3Signer message type.
                 let message_type = object.message_type();
-                if matches!(message_type, MessageType::ValidatorRegistration) && fork_info.is_some()
+                // VALIDATOR_REGISTRATION and BUILDER_REQUEST_AUTH must omit fork_info.
+                if matches!(
+                    message_type,
+                    MessageType::ValidatorRegistration | MessageType::BuilderRequestAuth
+                ) && fork_info.is_some()
                 {
                     return Err(Error::GenesisForkVersionRequired);
                 }
