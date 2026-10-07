@@ -808,7 +808,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                         break;
                     };
 
-                    if current_epoch + 1 < gloas_fork_epoch {
+                    if current_epoch < gloas_fork_epoch {
                         // Wait until the next slot and check again
                         if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
                             sleep(duration).await;
