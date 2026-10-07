@@ -15,7 +15,7 @@ use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_h
 use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::execution::{
-    ExecutionProof, ExecutionProofEnvelope, NewPayloadRequestSsz, PublicInput,
+    ExecutionProof, ExecutionProofEnvelope, NewPayloadRequest, PublicInput,
     STATELESS_INPUT_SCHEMA_ID, SignedExecutionProofEnvelope, VersionedHashes,
 };
 use types::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot};
@@ -241,7 +241,7 @@ fn get_execution_proof<T: BeaconChainTypes>(
     )
     .map_err(|e| Error::BeaconChainError(Box::new(BeaconChainError::SszTypesError(e))))?;
 
-    let new_payload_request = NewPayloadRequestSsz::<T::EthSpec> {
+    let new_payload_request = NewPayloadRequest::<T::EthSpec> {
         execution_payload: payload_envelope.payload,
         versioned_hashes,
         parent_beacon_block_root: payload_envelope.parent_beacon_block_root,

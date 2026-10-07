@@ -11,7 +11,6 @@ mod execution_payload_header;
 mod execution_proof;
 mod execution_requests;
 mod inclusion_list;
-mod new_payload_request_ssz;
 mod payload;
 mod signed_bls_to_execution_change;
 mod signed_execution_payload_bid;
@@ -44,13 +43,12 @@ pub use execution_requests::{
     RequestType, WithdrawalRequests,
 };
 pub use inclusion_list::{InclusionList, InclusionListCommittee};
-pub use new_payload_request_ssz::{NewPayloadRequestSsz, VersionedHashes};
 pub use payload::{
     AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
     BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadRef,
     BlockProductionVersion, BlockType, ExecPayload, FullPayload, FullPayloadBellatrix,
     FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu, FullPayloadRef,
-    OwnedExecPayload,
+    NewPayloadRequest, OwnedExecPayload, VersionedHashes,
 };
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use signed_execution_payload_bid::SignedExecutionPayloadBid;
