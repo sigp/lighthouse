@@ -8,8 +8,7 @@ use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 use crate::{
     BeaconChain, BeaconChainTypes, NotifyExecutionLayer, PayloadVerificationError,
-    execution_payload::notify_new_payload,
-    payload_envelope_verification::{EnvelopeError, verify_envelope_payload_hash},
+    execution_payload::notify_new_payload, payload_envelope_verification::EnvelopeError,
 };
 
 /// Used to await the result of executing payload with a remote EE.
@@ -27,21 +26,6 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, EnvelopeError> {
-        // EIP-8025: the proofs are this payload's validity, so the execution layer is not asked.
-        if chain.execution_proofs_enabled() {
-            // Nothing else recomputes the block hash with the execution layer out of the picture.
-            if chain.config.verify_envelope_payload_hash_in_backfill {
-                verify_envelope_payload_hash(&envelope, &block)?;
-            }
-
-            return Ok(Self {
-                chain,
-                envelope,
-                block,
-                payload_verification_status: Some(PayloadVerificationStatus::Optimistic),
-            });
-        }
-
         let payload_verification_status = {
             let payload_message = &envelope.message;
 
@@ -76,6 +60,11 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
     pub async fn notify_new_payload(
         self,
     ) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
+        // EIP-8025: the proofs are this payload's validity, so the execution layer is not asked.
+        if self.chain.execution_proofs_enabled() {
+            return Ok(PayloadVerificationStatus::Optimistic);
+        }
+
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {

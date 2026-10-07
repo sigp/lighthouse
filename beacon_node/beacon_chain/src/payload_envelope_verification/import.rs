@@ -24,6 +24,7 @@ use crate::{
     payload_envelope_verification::{
         AvailabilityPendingExecutedEnvelope, ExecutionPendingEnvelope,
         load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
+        verify_envelope_payload_hash,
     },
     validator_monitor::get_slot_delay_ms,
 };
@@ -248,9 +249,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // avoiding taking other locks whilst holding this lock.
         let mut fork_choice = fork_choice_reader.upgrade();
 
-        // EIP-8025: the proofs are this payload's validity, so an unproven one is received
-        // optimistically. Read under the fork choice lock, or a proof completing now is missed by
-        // both this and `process_execution_proof`.
+        // EIP-8025: Import initially as optimistic, once enough proofs are received the node is marked as VALID
         let payload_verification_status = if self.execution_proofs_enabled() {
             if self.execution_proofs_satisfied(&block_root) {
                 PayloadVerificationStatus::Verified
@@ -421,6 +420,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             snapshot.state_root,
             &self.spec,
         )?;
+
+        // EIP-8025: execution layer verifications must be done on the CL.
+        if self.execution_proofs_enabled() && self.config.verify_envelope_payload_hash_on_cl {
+            verify_envelope_payload_hash(&signed_envelope, &block)?;
+        }
 
         // Send to EL for verification
         let payload_notifier = PayloadNotifier::new(

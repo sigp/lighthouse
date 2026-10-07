@@ -4002,7 +4002,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
 
     let chain_config = ChainConfig {
         archive: true,
-        verify_envelope_payload_hash_in_backfill: false,
+        verify_envelope_payload_hash_on_cl: false,
         ..ChainConfig::default()
     };
 
@@ -4244,7 +4244,7 @@ async fn weak_subjectivity_sync_test(
         archive: checkpoint_slot == 0,
         // The mock EL produces synthetic execution block hashes which cannot survive a real
         // RLP block hash recompute.
-        verify_envelope_payload_hash_in_backfill: false,
+        verify_envelope_payload_hash_on_cl: false,
         ..ChainConfig::default()
     };
 
