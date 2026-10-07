@@ -8475,6 +8475,7 @@ dependencies = [
  "parking_lot",
  "reqwest",
  "serde",
+ "serde_json",
  "task_executor",
  "tracing",
  "types",
