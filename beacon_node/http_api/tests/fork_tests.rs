@@ -5,14 +5,15 @@ use beacon_chain::{
     test_utils::{DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME, RelativeSyncCommittee},
 };
 use bls::PublicKey;
-use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
+use eth2::types::{IndexedErrorMessage, PtcDuty, StateId, SyncSubcommittee};
 use execution_layer::test_utils::generate_genesis_header;
 use fixed_bytes::FixedBytesExtended;
 use genesis::{InteropGenesisBuilder, bls_withdrawal_credentials};
 use http_api::test_utils::*;
+use state_processing::state_advance::complete_state_advance;
 use std::collections::HashSet;
 use types::{
-    Address, ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot,
+    Address, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec, Slot,
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
 };
 
@@ -29,6 +30,12 @@ fn capella_spec(capella_fork_epoch: Epoch) -> ChainSpec {
     spec.altair_fork_epoch = Some(Epoch::new(0));
     spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     spec.capella_fork_epoch = Some(capella_fork_epoch);
+    spec
+}
+
+fn gloas_spec(gloas_fork_epoch: Epoch) -> ChainSpec {
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
     spec
 }
 
@@ -111,6 +118,120 @@ async fn sync_committee_duties_across_fork() {
             .unwrap(),
         400
     );
+}
+
+fn ptc_duty_slots(duties: &[PtcDuty]) -> Vec<(u64, Slot)> {
+    let mut slots = duties
+        .iter()
+        .map(|duty| (duty.validator_index, duty.slot))
+        .collect::<Vec<_>>();
+    slots.sort();
+    slots
+}
+
+fn expected_ptc_duty_slots(
+    mut state: BeaconState<E>,
+    epoch: Epoch,
+    validators: &[u64],
+    spec: &ChainSpec,
+) -> Vec<(u64, Slot)> {
+    complete_state_advance(
+        &mut state,
+        None,
+        epoch.start_slot(E::slots_per_epoch()),
+        None,
+        spec,
+    )
+    .unwrap();
+    let mut slots = validators
+        .iter()
+        .filter_map(|&validator_index| {
+            state
+                .get_ptc_assignment(validator_index as usize, epoch, spec)
+                .unwrap()
+                .map(|slot| (validator_index, slot))
+        })
+        .collect::<Vec<_>>();
+    slots.sort();
+    slots
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ptc_duties_across_fork() {
+    let validator_count = E::sync_committee_size();
+    let fork_epoch = Epoch::new(2);
+    let spec = gloas_spec(fork_epoch);
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let harness = &tester.harness;
+    let client = &tester.client;
+
+    let all_validators = harness.get_all_validators();
+    let all_validators_u64 = all_validators.iter().map(|x| *x as u64).collect::<Vec<_>>();
+
+    assert_eq!(harness.get_current_slot(), 0);
+
+    for epoch in [Epoch::new(0), fork_epoch - 1] {
+        assert_eq!(
+            client
+                .post_validator_duties_ptc(epoch, &all_validators_u64)
+                .await
+                .unwrap_err()
+                .status()
+                .unwrap(),
+            400
+        );
+    }
+
+    let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
+    let genesis_state = harness.get_current_state();
+    let (pre_fork_block_root, pre_fork_state) = harness
+        .add_attested_block_at_slot(fork_slot - 1, genesis_state, &all_validators)
+        .await
+        .unwrap();
+    let pre_fork_block_root = Hash256::from(pre_fork_block_root);
+    assert_eq!(harness.get_current_slot(), fork_slot - 1);
+
+    let expected_duties = expected_ptc_duty_slots(
+        pre_fork_state.clone(),
+        fork_epoch,
+        &all_validators_u64,
+        &spec,
+    );
+    assert!(!expected_duties.is_empty());
+
+    for epoch in [fork_epoch - 1, fork_epoch] {
+        assert_eq!(
+            client
+                .post_validator_duties_ptc(epoch, &all_validators_u64)
+                .await
+                .unwrap_err()
+                .status()
+                .unwrap(),
+            400
+        );
+    }
+
+    harness.advance_slot();
+    assert_eq!(harness.get_current_slot(), fork_slot);
+
+    let fork_slot_response = client
+        .post_validator_duties_ptc(fork_epoch, &all_validators_u64)
+        .await
+        .unwrap();
+    assert_eq!(fork_slot_response.dependent_root, pre_fork_block_root);
+    assert_eq!(ptc_duty_slots(&fork_slot_response.data), expected_duties);
+
+    harness
+        .add_attested_block_at_slot(fork_slot, pre_fork_state, &all_validators)
+        .await
+        .unwrap();
+
+    let post_fork_response = client
+        .post_validator_duties_ptc(fork_epoch, &all_validators_u64)
+        .await
+        .unwrap();
+    assert_eq!(post_fork_response.dependent_root, pre_fork_block_root);
+    assert_eq!(ptc_duty_slots(&post_fork_response.data), expected_duties);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
