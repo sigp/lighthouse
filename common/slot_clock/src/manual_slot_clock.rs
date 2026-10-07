@@ -379,31 +379,34 @@ mod tests {
 
         const GENESIS: Duration = Duration::from_secs(1_606_824_023);
 
-        fn spec_with_schedule(entries: &[(u64, u64)]) -> ChainSpec {
-            let schedule = SlotDurationSchedule::new(
-                entries
-                    .iter()
-                    .map(|&(epoch, slot_duration_ms)| SlotDurationScheduleEntry {
+        fn multi_era_schedule() -> SlotDurationSchedule {
+            SlotDurationSchedule::new(
+                [(0, 12000), (10, 10000), (20, 6000)]
+                    .into_iter()
+                    .map(|(epoch, slot_duration_ms)| SlotDurationScheduleEntry {
                         epoch: Epoch::new(epoch),
                         slot_duration_ms,
                     })
                     .collect(),
-            );
-            ChainSpec::mainnet().set_slot_duration_schedule::<MainnetEthSpec>(schedule)
+            )
         }
 
-        fn multi_era_spec() -> ChainSpec {
-            spec_with_schedule(&[(0, 12000), (10, 10000), (20, 6000)])
+        fn multi_era_clock() -> ManualSlotClock {
+            ManualSlotClock::from_schedule(
+                Slot::new(0),
+                GENESIS,
+                multi_era_schedule(),
+                MainnetEthSpec::slots_per_epoch(),
+            )
         }
 
         #[test]
         fn clock_matches_spec_time_functions() {
-            let spec = multi_era_spec();
-            let clock = ManualSlotClock::from_spec::<MainnetEthSpec>(GENESIS, &spec);
+            let schedule = multi_era_schedule();
+            let clock = multi_era_clock();
             let genesis_ms = GENESIS.as_millis() as u64;
             for slot in (0..1024).map(Slot::new) {
-                let spec_start_ms = spec
-                    .slot_duration_schedule()
+                let spec_start_ms = schedule
                     .compute_time_at_slot_ms(MainnetEthSpec::slots_per_epoch(), genesis_ms, slot)
                     .unwrap();
                 let start = clock.start_of(slot).unwrap();
@@ -418,7 +421,11 @@ mod tests {
                 assert_eq!(
                     clock.slot_duration_at(slot),
                     Duration::from_millis(
-                        spec.get_slot_duration_ms(slot.epoch(MainnetEthSpec::slots_per_epoch()))
+                        schedule
+                            .slot_duration_ms_for_epoch(
+                                slot.epoch(MainnetEthSpec::slots_per_epoch())
+                            )
+                            .unwrap()
                     ),
                     "slot {slot}"
                 );
@@ -438,7 +445,7 @@ mod tests {
 
         #[test]
         fn clock_follows_slot_duration_changes() {
-            let clock = ManualSlotClock::from_spec::<MainnetEthSpec>(GENESIS, &multi_era_spec());
+            let clock = multi_era_clock();
 
             clock.set_slot(319);
             assert_eq!(clock.slot_duration(), Duration::from_secs(12));
