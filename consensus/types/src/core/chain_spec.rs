@@ -5116,10 +5116,9 @@ mod yaml_tests {
     #[test]
     fn data_retention_window_keeps_its_length_in_ms_after_eip8198() {
         type E = MainnetEthSpec;
-        let mut spec = ForkName::Fulu
-            .make_genesis_spec(E::default_spec())
-            .set_slot_duration_schedule::<E>(slot_duration_schedule(&[(0, 12000), (10000, 6000)]));
+        let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
         spec.heze_fork_epoch = Some(Epoch::new(10000));
+        spec.slot_duration_ms_eip8198 = 6000;
 
         assert_eq!(
             spec.min_epoch_data_availability_boundary::<E>(Epoch::new(9999)),
