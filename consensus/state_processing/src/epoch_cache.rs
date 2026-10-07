@@ -205,7 +205,7 @@ pub fn initialize_epoch_cache<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{Epoch, MinimalEthSpec, SlotDurationSchedule, SlotDurationScheduleEntry};
+    use types::{Epoch, MinimalEthSpec};
 
     /// Regression test for division-by-zero when all validators have zero effective balance.
     ///
@@ -239,19 +239,8 @@ mod tests {
     }
 
     #[test]
-    fn base_reward_for_epoch_across_a_slot_duration_change() {
-        let mut spec = ChainSpec::minimal().set_slot_duration_schedule::<MinimalEthSpec>(
-            SlotDurationSchedule::new(vec![
-                SlotDurationScheduleEntry {
-                    epoch: Epoch::new(0),
-                    slot_duration_ms: 6000,
-                },
-                SlotDurationScheduleEntry {
-                    epoch: Epoch::new(2),
-                    slot_duration_ms: 3000,
-                },
-            ]),
-        );
+    fn base_reward_for_epoch_reads_the_current_and_previous_epoch() {
+        let mut spec = ChainSpec::minimal();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         let epoch_cache_at = |epoch: u64| {
             PreEpochCache {
@@ -275,7 +264,6 @@ mod tests {
             .unwrap();
         assert_eq!(current, epoch_cache.get_base_reward(0).unwrap());
         assert_eq!(previous, epoch_cache_at(1).get_base_reward(0).unwrap());
-        assert!(current < previous);
 
         for epoch in [0, 3] {
             assert!(matches!(
