@@ -396,9 +396,11 @@ impl<E: EthSpec> PubsubMessage<E> {
                                     gossip_topic.fork_digest
                                 )
                             })?;
-                        let max_size = fork_context
-                            .spec
-                            .max_signed_execution_payload_bid_size_for_fork(fork_name);
+                        let max_size = if fork_name.heze_enabled() {
+                            E::max_signed_execution_payload_bid_size_heze()
+                        } else {
+                            E::max_signed_execution_payload_bid_size()
+                        };
                         if data.len() > max_size {
                             return Err(format!(
                                 "SignedExecutionPayloadBid size {} exceeds MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE {}",
@@ -886,9 +888,7 @@ mod tests {
 
     #[test]
     fn gloas_execution_payload_bid_size_bound() {
-        let max = gloas_fork_context()
-            .spec
-            .max_signed_execution_payload_bid_size_for_fork(ForkName::Gloas);
+        let max = E::max_signed_execution_payload_bid_size();
         let err = decode_oversized(
             &gloas_fork_context(),
             GossipKind::ExecutionPayloadBid,
@@ -910,9 +910,8 @@ mod tests {
     #[test]
     fn heze_execution_payload_bid_size_bound() {
         let fork_context = heze_fork_context();
-        let spec = &fork_context.spec;
-        let gloas_max = spec.max_signed_execution_payload_bid_size_for_fork(ForkName::Gloas);
-        let heze_max = spec.max_signed_execution_payload_bid_size_for_fork(ForkName::Heze);
+        let gloas_max = E::max_signed_execution_payload_bid_size();
+        let heze_max = E::max_signed_execution_payload_bid_size_heze();
         assert!(heze_max > gloas_max);
 
         let err = decode_oversized(&fork_context, GossipKind::ExecutionPayloadBid, heze_max + 1)
