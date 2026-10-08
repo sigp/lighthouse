@@ -6,7 +6,7 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockError};
 use proof_engine::ProofEngineError;
 use slot_clock::timestamp_now;
 use std::sync::Arc;
-use strum::IntoStaticStr;
+use strum::{AsRefStr, IntoStaticStr};
 use tracing::debug;
 use types::{Hash256, Slot};
 
@@ -26,7 +26,7 @@ use observed_execution_proofs::Error as ObservationError;
 pub const REQUIRED_EXECUTION_PROOFS: usize = 2;
 
 /// How a proof reached us, which decides whether deduplication rejects it.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, AsRefStr)]
 pub enum ProofSource {
     Gossip,
     Http,

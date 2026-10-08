@@ -192,11 +192,11 @@ impl GossipVerifiedExecutionProof {
 
         metrics::inc_counter_vec(
             &metrics::EXECUTION_PROOF_VERIFIED,
-            &[&proof_type.to_string()],
+            &[&proof_type.to_string(), ctx.source.as_ref()],
         );
         metrics::observe_vec(
             &metrics::EXECUTION_PROOF_VERIFICATION_LAG,
-            &[&proof_type.to_string()],
+            &[&proof_type.to_string(), ctx.source.as_ref()],
             get_slot_delay_ms(timestamp_now(), block_slot, &ctx.chain.slot_clock).as_secs_f64(),
         );
 
