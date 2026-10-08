@@ -555,12 +555,36 @@ fn proof_engine_endpoint_without_execution_endpoint() {
             assert!(config.execution_layer.is_none());
             assert!(config.chain.disable_get_blobs);
             assert!(!config.store.prune_payloads);
+            assert_eq!(config.chain.execution_proofs_required, 2);
         });
 }
 #[test]
 #[should_panic]
 fn no_execution_endpoint_and_no_proof_engine_endpoint() {
     CommandLineTest::new_with_no_execution_endpoint().run_with_zero_port();
+}
+#[test]
+fn execution_proofs_required_flag() {
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("proof-engine-endpoint", Some("http://localhost:8552/"))
+        .flag("execution-proofs-required", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.execution_proofs_required, 3));
+}
+#[test]
+#[should_panic]
+fn execution_proofs_required_zero() {
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("proof-engine-endpoint", Some("http://localhost:8552/"))
+        .flag("execution-proofs-required", Some("0"))
+        .run_with_zero_port();
+}
+#[test]
+fn execution_proofs_required_without_proof_engine() {
+    CommandLineTest::new()
+        .flag("execution-proofs-required", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.execution_proofs_required, 2));
 }
 #[test]
 fn bellatrix_jwt_secrets_flag() {
