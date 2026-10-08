@@ -388,15 +388,29 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::ExecutionPayloadBid => {
-                        if data.len() > E::max_signed_execution_payload_bid_size() {
+                        let fork_name = *fork_context
+                            .get_fork_from_context_bytes(gossip_topic.fork_digest)
+                            .ok_or_else(|| {
+                                format!(
+                                    "Unknown gossipsub fork digest: {:?}",
+                                    gossip_topic.fork_digest
+                                )
+                            })?;
+                        let max_size = if fork_name.heze_enabled() {
+                            E::max_signed_execution_payload_bid_size_heze()
+                        } else {
+                            E::max_signed_execution_payload_bid_size()
+                        };
+                        if data.len() > max_size {
                             return Err(format!(
                                 "SignedExecutionPayloadBid size {} exceeds MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE {}",
                                 data.len(),
-                                E::max_signed_execution_payload_bid_size()
+                                max_size
                             ));
                         }
-                        let execution_payload_bid = SignedExecutionPayloadBid::from_ssz_bytes(data)
-                            .map_err(|e| format!("{:?}", e))?;
+                        let execution_payload_bid =
+                            SignedExecutionPayloadBid::from_ssz_bytes_by_fork(data, fork_name)
+                                .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::ExecutionPayloadBid(Box::new(
                             execution_payload_bid,
                         )))
@@ -644,7 +658,8 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 write!(
                     f,
                     "Execution payload bid: slot: {:?} value: {:?}",
-                    data.message.slot, data.message.value
+                    data.message().slot(),
+                    data.message().value()
                 )
             }
             PubsubMessage::ProposerPreferences(data) => {
@@ -686,7 +701,8 @@ mod tests {
     use libp2p::gossipsub::partial_messages::Partial;
     use types::data::{CellBitmap, PartialDataColumnSidecarGloas};
     use types::{
-        BeaconBlock, Epoch, EthSpec, ForkName, MainnetEthSpec, Slot, data::DataColumnSubnetId,
+        BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, MainnetEthSpec, Slot,
+        data::DataColumnSubnetId,
     };
 
     type E = MainnetEthSpec;
@@ -713,7 +729,8 @@ mod tests {
         }
     }
 
-    fn gloas_fork_context() -> ForkContext {
+    /// A spec with every fork up to Fulu scheduled at genesis.
+    fn pre_gloas_spec() -> ChainSpec {
         let mut spec = E::default_spec();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(0));
@@ -721,7 +738,19 @@ mod tests {
         spec.deneb_fork_epoch = Some(Epoch::new(0));
         spec.electra_fork_epoch = Some(Epoch::new(0));
         spec.fulu_fork_epoch = Some(Epoch::new(0));
+        spec
+    }
+
+    fn gloas_fork_context() -> ForkContext {
+        let mut spec = pre_gloas_spec();
         spec.gloas_fork_epoch = Some(Epoch::new(0));
+        ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec)
+    }
+
+    fn heze_fork_context() -> ForkContext {
+        let mut spec = pre_gloas_spec();
+        spec.gloas_fork_epoch = Some(Epoch::new(0));
+        spec.heze_fork_epoch = Some(Epoch::new(0));
         ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec)
     }
 
@@ -764,8 +793,11 @@ mod tests {
         assert_eq!(decoded.index, column.index);
     }
 
-    fn decode_oversized(kind: GossipKind, size: usize) -> Result<PubsubMessage<E>, String> {
-        let fork_context = gloas_fork_context();
+    fn decode_oversized(
+        fork_context: &ForkContext,
+        kind: GossipKind,
+        size: usize,
+    ) -> Result<PubsubMessage<E>, String> {
         let topic = GossipTopic::new(
             kind,
             GossipEncoding::default(),
@@ -773,15 +805,25 @@ mod tests {
         );
         let topic_hash = TopicHash::from_raw(String::from(topic));
         let data = vec![0u8; size];
-        PubsubMessage::decode(&topic_hash, &data, &fork_context)
+        PubsubMessage::decode(&topic_hash, &data, fork_context)
     }
 
     #[test]
     fn gloas_aggregate_and_proof_size_bound() {
         let max = E::max_signed_aggregate_and_proof_size();
-        let err = decode_oversized(GossipKind::BeaconAggregateAndProof, max + 1).unwrap_err();
+        let err = decode_oversized(
+            &gloas_fork_context(),
+            GossipKind::BeaconAggregateAndProof,
+            max + 1,
+        )
+        .unwrap_err();
         assert!(err.contains("MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE"), "{err}");
-        let err = decode_oversized(GossipKind::BeaconAggregateAndProof, max).unwrap_err();
+        let err = decode_oversized(
+            &gloas_fork_context(),
+            GossipKind::BeaconAggregateAndProof,
+            max,
+        )
+        .unwrap_err();
         assert!(
             !err.contains("MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE"),
             "{err}"
@@ -791,9 +833,11 @@ mod tests {
     #[test]
     fn gloas_attester_slashing_size_bound() {
         let max = E::max_attester_slashing_size();
-        let err = decode_oversized(GossipKind::AttesterSlashing, max + 1).unwrap_err();
+        let err = decode_oversized(&gloas_fork_context(), GossipKind::AttesterSlashing, max + 1)
+            .unwrap_err();
         assert!(err.contains("MAX_ATTESTER_SLASHING_SIZE"), "{err}");
-        let err = decode_oversized(GossipKind::AttesterSlashing, max).unwrap_err();
+        let err =
+            decode_oversized(&gloas_fork_context(), GossipKind::AttesterSlashing, max).unwrap_err();
         assert!(!err.contains("MAX_ATTESTER_SLASHING_SIZE"), "{err}");
     }
 
@@ -804,9 +848,9 @@ mod tests {
             .spec
             .compute_max_data_column_sidecar_size_gloas::<E>();
         let kind = GossipKind::DataColumnSidecar(DataColumnSubnetId::new(0));
-        let err = decode_oversized(kind.clone(), max + 1).unwrap_err();
+        let err = decode_oversized(&gloas_fork_context(), kind.clone(), max + 1).unwrap_err();
         assert!(err.contains("MAX_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
-        let err = decode_oversized(kind, max).unwrap_err();
+        let err = decode_oversized(&gloas_fork_context(), kind, max).unwrap_err();
         assert!(!err.contains("MAX_DATA_COLUMN_SIDECAR_SIZE"), "{err}");
     }
 
@@ -845,12 +889,39 @@ mod tests {
     #[test]
     fn gloas_execution_payload_bid_size_bound() {
         let max = E::max_signed_execution_payload_bid_size();
-        let err = decode_oversized(GossipKind::ExecutionPayloadBid, max + 1).unwrap_err();
+        let err = decode_oversized(
+            &gloas_fork_context(),
+            GossipKind::ExecutionPayloadBid,
+            max + 1,
+        )
+        .unwrap_err();
         assert!(
             err.contains("MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE"),
             "{err}"
         );
-        let err = decode_oversized(GossipKind::ExecutionPayloadBid, max).unwrap_err();
+        let err = decode_oversized(&gloas_fork_context(), GossipKind::ExecutionPayloadBid, max)
+            .unwrap_err();
+        assert!(
+            !err.contains("MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn heze_execution_payload_bid_size_bound() {
+        let fork_context = heze_fork_context();
+        let gloas_max = E::max_signed_execution_payload_bid_size();
+        let heze_max = E::max_signed_execution_payload_bid_size_heze();
+        assert!(heze_max > gloas_max);
+
+        let err = decode_oversized(&fork_context, GossipKind::ExecutionPayloadBid, heze_max + 1)
+            .unwrap_err();
+        assert!(
+            err.contains("MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE"),
+            "{err}"
+        );
+        let err =
+            decode_oversized(&fork_context, GossipKind::ExecutionPayloadBid, heze_max).unwrap_err();
         assert!(
             !err.contains("MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE"),
             "{err}"
@@ -860,9 +931,11 @@ mod tests {
     #[test]
     fn heze_inclusion_list_size_bound() {
         let max = E::max_signed_inclusion_list_size();
-        let err = decode_oversized(GossipKind::InclusionList, max + 1).unwrap_err();
+        let err = decode_oversized(&gloas_fork_context(), GossipKind::InclusionList, max + 1)
+            .unwrap_err();
         assert!(err.contains("MAX_SIGNED_INCLUSION_LIST_SIZE"), "{err}");
-        let err = decode_oversized(GossipKind::InclusionList, max).unwrap_err();
+        let err =
+            decode_oversized(&gloas_fork_context(), GossipKind::InclusionList, max).unwrap_err();
         assert!(!err.contains("MAX_SIGNED_INCLUSION_LIST_SIZE"), "{err}");
     }
 }

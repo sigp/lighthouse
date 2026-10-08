@@ -74,7 +74,7 @@ pub const CACHE_STATE_IN_TESTS: bool = true;
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(HIGH_VALIDATOR_COUNT));
 
-type E = MinimalEthSpec;
+type E = Spec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 /// Retrieve or reconstruct blobs for a given block root. This uses the block's epoch to determine
@@ -184,7 +184,7 @@ fn get_harness_generic(
     chain_config: ChainConfig,
     node_custody_type: NodeCustodyType,
 ) -> TestHarness {
-    let harness = TestHarness::builder(MinimalEthSpec)
+    let harness = TestHarness::builder(Spec::default())
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store)
@@ -513,7 +513,7 @@ async fn fcr_restarts_after_finalization_without_head_change() {
     drop(harness);
     drop(store);
 
-    let resumed = TestHarness::builder(MinimalEthSpec)
+    let resumed = TestHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
         .resumed_disk_store(get_store(&db_path))
@@ -988,7 +988,7 @@ async fn block_replayer_hooks() {
     let mut pre_block_slots = vec![];
     let mut post_block_slots = vec![];
 
-    let mut replay_state = BlockReplayer::<MinimalEthSpec>::new(state, &chain.spec)
+    let mut replay_state = BlockReplayer::<Spec>::new(state, &chain.spec)
         .pre_slot_hook(Box::new(|_, state| {
             pre_slots.push(state.slot());
             Ok(())
@@ -1170,7 +1170,7 @@ async fn multi_epoch_fork_valid_blocks_test(
     let store = get_store(&db_path);
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = TestHarness::builder(MinimalEthSpec)
+    let harness = TestHarness::builder(Spec::default())
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_disk_store(store)
@@ -1520,7 +1520,7 @@ async fn proposer_shuffling_root_consistency_test(
     let store = get_store_generic(&db_path, Default::default(), spec.clone());
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = TestHarness::builder(MinimalEthSpec)
+    let harness = TestHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(validators_keypairs)
         .fresh_disk_store(store)
@@ -1666,7 +1666,7 @@ async fn proposer_shuffling_changing_with_lookahead() {
     let store = get_store_generic(&db_path, Default::default(), spec.clone());
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = TestHarness::builder(MinimalEthSpec)
+    let harness = TestHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(validators_keypairs)
         .fresh_disk_store(store)
@@ -1840,7 +1840,7 @@ async fn proposer_duties_from_head_fulu() {
     let store = get_store_generic(&db_path, Default::default(), spec.clone());
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = TestHarness::builder(MinimalEthSpec)
+    let harness = TestHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(validators_keypairs)
         .fresh_disk_store(store)
@@ -2529,7 +2529,7 @@ async fn payload_attribute_withdrawals_use_head_summary_after_restart() {
     rig.chain.persist_fork_choice().unwrap();
     rig.chain.persist_op_pool().unwrap();
 
-    let resumed = TestHarness::builder(MinimalEthSpec)
+    let resumed = TestHarness::builder(Spec::default())
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
         .resumed_disk_store(store)
@@ -4002,7 +4002,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
 
     let chain_config = ChainConfig {
         archive: true,
-        verify_envelope_payload_hash_in_backfill: false,
+        verify_envelope_payload_hash_on_cl: false,
         ..ChainConfig::default()
     };
 
@@ -4016,26 +4016,27 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
 
     // Attempt to build the BeaconChain.
     // If the bug is present, this will panic with `MissingFullBlockExecutionPayloadPruned`.
-    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, trusted_setup)
-        .chain_config(chain_config)
-        .store(store.clone())
-        .custom_spec(spec.clone().into())
-        .task_executor(harness.chain.task_executor.clone())
-        .weak_subjectivity_state(
-            wss_state,
-            wss_block.clone(),
-            wss_blobs_opt.clone(),
-            genesis_state,
-        )
-        .unwrap()
-        .store_migrator_config(MigratorConfig::default().blocking())
-        .slot_clock(slot_clock)
-        .shutdown_sender(shutdown_tx)
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
-        .execution_layer(Some(mock.el))
-        .ordered_custody_column_indices(all_custody_columns)
-        .rng(Box::new(StdRng::seed_from_u64(42)))
-        .build();
+    let beacon_chain =
+        BeaconChainBuilder::<DiskHarnessType<E>>::new(Spec::default(), trusted_setup)
+            .chain_config(chain_config)
+            .store(store.clone())
+            .custom_spec(spec.clone().into())
+            .task_executor(harness.chain.task_executor.clone())
+            .weak_subjectivity_state(
+                wss_state,
+                wss_block.clone(),
+                wss_blobs_opt.clone(),
+                genesis_state,
+            )
+            .unwrap()
+            .store_migrator_config(MigratorConfig::default().blocking())
+            .slot_clock(slot_clock)
+            .shutdown_sender(shutdown_tx)
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
+            .execution_layer(Some(mock.el))
+            .ordered_custody_column_indices(all_custody_columns)
+            .rng(Box::new(StdRng::seed_from_u64(42)))
+            .build();
 
     assert!(
         beacon_chain.is_ok(),
@@ -4244,11 +4245,11 @@ async fn weak_subjectivity_sync_test(
         archive: checkpoint_slot == 0,
         // The mock EL produces synthetic execution block hashes which cannot survive a real
         // RLP block hash recompute.
-        verify_envelope_payload_hash_in_backfill: false,
+        verify_envelope_payload_hash_on_cl: false,
         ..ChainConfig::default()
     };
 
-    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
+    let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(Spec::default(), kzg)
         .chain_config(chain_config)
         .store(store.clone())
         .custom_spec(test_spec::<E>().into())
@@ -4377,19 +4378,15 @@ async fn weak_subjectivity_sync_test(
 
         info!(block_root = ?full_block_root, ?state_root, %slot, "Importing block from chain dump");
         beacon_chain.slot_clock.set_slot(slot.as_u64());
-        beacon_chain
-            .process_block(
-                full_block_root,
-                harness.build_range_sync_block_from_store_blobs(
-                    Some(block_root),
-                    Arc::new(full_block),
-                ),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            )
-            .await
-            .unwrap();
+        Box::pin(beacon_chain.process_block(
+            full_block_root,
+            harness.build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        ))
+        .await
+        .unwrap();
 
         // Store the envelope, its columns, and apply to fork choice.
         if let Some(envelope) = &snapshot.execution_envelope {
@@ -5219,13 +5216,13 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
 #[tokio::test]
 async fn finalizes_after_resuming_from_db() {
     let validator_count = 16;
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 8;
+    let num_blocks_produced = Spec::slots_per_epoch() * 8;
     let first_half = num_blocks_produced / 2;
 
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
 
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store.clone())
@@ -5266,7 +5263,7 @@ async fn finalizes_after_resuming_from_db() {
 
     let original_chain = harness.chain;
 
-    let resumed_harness = BeaconChainHarness::<DiskHarnessType<E>>::builder(MinimalEthSpec)
+    let resumed_harness = BeaconChainHarness::<DiskHarnessType<E>>::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .resumed_disk_store(store)
@@ -5300,7 +5297,7 @@ async fn finalizes_after_resuming_from_db() {
     );
     assert_eq!(
         state.current_epoch(),
-        num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
+        num_blocks_produced / Spec::slots_per_epoch(),
         "head should be at the expected epoch"
     );
     assert_eq!(
@@ -5374,7 +5371,7 @@ async fn schema_downgrade_to_min_version(store_config: StoreConfig, archive: boo
         .expect("schema upgrade from minimum version should work");
 
     // Recreate the harness.
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .chain_config(chain_config)
         .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
@@ -7439,7 +7436,7 @@ async fn test_gloas_block_replay_with_envelopes() {
     assert!(!blocks.is_empty(), "should have blocks for replay");
 
     // Replay blocks and verify against the expected state.
-    let mut replayed = BlockReplayer::<MinimalEthSpec>::new(genesis_state, store.get_chain_spec())
+    let mut replayed = BlockReplayer::<Spec>::new(genesis_state, store.get_chain_spec())
         .no_signature_verification()
         .minimal_block_root_verification()
         .apply_blocks(blocks, None)
@@ -7470,7 +7467,7 @@ async fn test_gloas_hot_state_hierarchy() {
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
-    // Build enough blocks to span multiple epochs. With MinimalEthSpec (8 slots/epoch),
+    // Build enough blocks to span multiple epochs. With the minimal preset (8 slots/epoch),
     // 40 slots covers 5 epochs.
     let num_blocks = E::slots_per_epoch() * 5;
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
@@ -7730,7 +7727,7 @@ async fn bellatrix_produce_and_store_payloads() {
         archive: true,
         ..ChainConfig::default()
     };
-    let harness = TestHarness::builder(MinimalEthSpec)
+    let harness = TestHarness::builder(Spec::default())
         .spec(store.get_chain_spec().clone())
         .keypairs(keypairs.clone())
         .fresh_disk_store(store.clone())
@@ -7896,14 +7893,14 @@ async fn bellatrix_produce_and_store_payloads() {
 }
 
 fn get_finalized_epoch_boundary_blocks(
-    dump: &[ChainDumpSnapshot<MinimalEthSpec>],
+    dump: &[ChainDumpSnapshot<Spec>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
         .collect()
 }
 
-fn get_blocks(dump: &[ChainDumpSnapshot<MinimalEthSpec>]) -> HashSet<SignedBeaconBlockHash> {
+fn get_blocks(dump: &[ChainDumpSnapshot<Spec>]) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()

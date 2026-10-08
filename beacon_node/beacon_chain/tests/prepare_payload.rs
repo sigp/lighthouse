@@ -39,7 +39,7 @@ pub const HIGH_VALIDATOR_COUNT: usize = 64;
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(HIGH_VALIDATOR_COUNT));
 
-type E = MinimalEthSpec;
+type E = Spec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 fn get_store(
@@ -97,7 +97,7 @@ fn get_harness_generic(
     chain_config: ChainConfig,
     node_custody_type: NodeCustodyType,
 ) -> TestHarness {
-    let harness = TestHarness::builder(MinimalEthSpec)
+    let harness = TestHarness::builder(Spec::default())
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store)
@@ -141,7 +141,7 @@ async fn gloas_block_production_parent_root_with_unadvanced_state() {
         let parent_slot = parent_state.slot();
         let slot = parent_slot + 1;
         let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
-        assert_ne!(parent_bid.block_hash, parent_bid.parent_block_hash);
+        assert_ne!(parent_bid.block_hash(), parent_bid.parent_block_hash());
 
         // The head's full branch has attestation weight, but negative PTC votes should make the
         // next proposer build on empty. Looking up the grandparent (as the buggy code did) instead
@@ -214,13 +214,13 @@ async fn gloas_block_production_parent_root_with_unadvanced_state() {
                 .body()
                 .signed_execution_payload_bid()
                 .unwrap()
-                .message
-                .parent_block_hash,
-            parent_bid.parent_block_hash,
+                .message()
+                .parent_block_hash(),
+            parent_bid.parent_block_hash(),
         );
         let (envelope, _, _) = payload_contents.unwrap();
         assert_eq!(envelope.parent_beacon_block_root, parent_root);
-        assert_eq!(envelope.payload.parent_hash, parent_bid.parent_block_hash);
+        assert_eq!(envelope.payload.parent_hash, parent_bid.parent_block_hash());
     }
 }
 
@@ -551,8 +551,8 @@ async fn prepare_payload_generic(
         .body()
         .signed_execution_payload_bid()
         .unwrap()
-        .message
-        .parent_block_hash;
+        .message()
+        .parent_block_hash();
     assert_eq!(
         produced_execution_parent_hash, expected_execution_parent_hash,
         "block production should independently select the {parent_payload_status:?} parent"

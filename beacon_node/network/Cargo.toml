@@ -22,6 +22,7 @@ beacon_chain = { workspace = true }
 beacon_processor = { workspace = true }
 delay_map = { workspace = true }
 educe = { workspace = true }
+enr = { workspace = true }
 ethereum_ssz = { workspace = true }
 execution_layer = { workspace = true }
 fixed_bytes = { workspace = true }
@@ -57,7 +58,6 @@ bls = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
 genesis = { workspace = true }
-k256 = "0.13.4"
 kzg = { workspace = true }
 libp2p = { workspace = true }
 matches = "0.1.8"

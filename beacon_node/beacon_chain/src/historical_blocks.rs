@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .body()
                     .signed_execution_payload_bid()
                     .ok()
-                    .map(|bid| bid.message.parent_block_hash)
+                    .map(|bid| bid.message().parent_block_hash())
             });
 
         let mut blob_batch = Vec::<KeyValueStoreOp>::new();
@@ -240,7 +240,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .body()
                 .signed_execution_payload_bid()
                 .ok()
-                .map(|bid| bid.message.block_hash)
+                .map(|bid| bid.message().block_hash())
                 .and_then(|bid_hash| {
                     child_bid_parent_hash.map(|child_parent_hash| bid_hash == child_parent_hash)
                 });
@@ -264,7 +264,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // signatures are only batch-verified further below. Batches are only
                     // accepted from the network here, so a mismatch is attributable to the
                     // sending peer.
-                    if self.config.verify_envelope_payload_hash_in_backfill {
+                    if self.config.verify_envelope_payload_hash_on_cl {
                         verify_envelope_payload_hash(envelope.envelope(), &block).map_err(|e| {
                             HistoricalBlockError::InvalidEnvelope {
                                 block_root,
@@ -334,7 +334,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .body()
                 .signed_execution_payload_bid()
                 .ok()
-                .map(|bid| bid.message.parent_block_hash);
+                .map(|bid| bid.message().parent_block_hash());
             signed_blocks.push(block);
 
             // If we've reached genesis, add the genesis block root to the batch for all slots
