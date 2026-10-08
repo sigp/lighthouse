@@ -80,6 +80,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             Self::Electra(request) => ExecutionPayloadRef::Electra(request.execution_payload),
             Self::Fulu(request) => ExecutionPayloadRef::Fulu(request.execution_payload),
             Self::Gloas(request) => ExecutionPayloadRef::Gloas(request.execution_payload),
+            // The envelope payload is an `ExecutionPayloadGloas` for both Gloas and Heze.
             Self::Heze(request) => ExecutionPayloadRef::Gloas(request.execution_payload),
         }
     }
