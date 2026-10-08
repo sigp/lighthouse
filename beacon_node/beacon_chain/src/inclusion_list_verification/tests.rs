@@ -30,8 +30,12 @@ struct TestContext {
 
 impl TestContext {
     fn new() -> Self {
+        Self::new_with_heze_fork_epoch(Epoch::new(0))
+    }
+
+    fn new_with_heze_fork_epoch(heze_fork_epoch: Epoch) -> Self {
         let mut spec = test_spec::<E>();
-        spec.heze_fork_epoch = Some(Epoch::new(0));
+        spec.heze_fork_epoch = Some(heze_fork_epoch);
         let spec = Arc::new(spec);
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
@@ -223,6 +227,62 @@ fn past_slot() {
 }
 
 #[test]
+fn slot_within_clock_disparity() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let slot = ctx.current_slot();
+    let slot_clock = &ctx.harness.chain.slot_clock;
+    let next_slot_start = slot_clock.start_of(slot + 1).unwrap();
+
+    slot_clock.set_current_time(next_slot_start - Duration::from_millis(5));
+    let signed = ctx.valid_inclusion_list(slot + 1, ctx.genesis_block_root, vec![vec![0xaa]]);
+    let verified = GossipVerifiedInclusionList::new(signed, &ctx.gossip_ctx())
+        .expect("should verify inclusion list for the next slot");
+    assert!(!verified.is_timely);
+
+    slot_clock.set_current_time(next_slot_start + Duration::from_millis(5));
+    let signed = ctx.valid_inclusion_list(slot, ctx.genesis_block_root, vec![vec![0xaa]]);
+    let verified = GossipVerifiedInclusionList::new(signed, &ctx.gossip_ctx())
+        .expect("should verify inclusion list for the previous slot");
+    assert!(!verified.is_timely);
+}
+
+#[test]
+fn rejected_inclusion_list_is_not_counted() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let slot = ctx.current_slot();
+
+    let validator_index = ctx.committee(slot)[0];
+    let other_signer = (validator_index + 1) % NUM_VALIDATORS as u64;
+    let signed = ctx.sign_inclusion_list(
+        make_inclusion_list(
+            slot,
+            validator_index,
+            ctx.genesis_block_root,
+            vec![vec![0xaa]],
+        ),
+        other_signer,
+    );
+    let result = GossipVerifiedInclusionList::new(signed, &ctx.gossip_ctx());
+    assert!(matches!(
+        result,
+        Err(InclusionListVerificationError::InvalidSignature)
+    ));
+
+    for tx in [0xaa, 0xbb] {
+        let signed = ctx.valid_inclusion_list(slot, ctx.genesis_block_root, vec![vec![tx]]);
+        let verified = GossipVerifiedInclusionList::new(signed, &ctx.gossip_ctx())
+            .expect("should verify inclusion list");
+        ctx.harness.chain.import_inclusion_list(verified);
+    }
+}
+
+#[test]
 fn empty_transactions() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
         return;
@@ -377,4 +437,123 @@ async fn dependent_root_must_be_the_shuffling_dependent_block() {
         result,
         Err(InclusionListVerificationError::InvalidDependentRoot { .. })
     ));
+}
+
+/// A list built on a side chain is checked against that chain's committee.
+#[tokio::test]
+async fn side_chain_inclusion_list_uses_side_chain_committee() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let harness = &ctx.harness;
+    let fork_slot = Slot::new(E::slots_per_epoch());
+    let slot = Slot::new(4 * E::slots_per_epoch());
+
+    harness.extend_to_slot(fork_slot).await;
+    let fork_state = harness.chain.head_snapshot().beacon_state.clone();
+
+    // The side chain skips a slot, so its RANDAO mixes and committees differ. Only the
+    // canonical chain is attested to, so it stays the head without finalizing past the fork.
+    let side_slots = ((fork_slot + 2).as_u64()..=slot.as_u64())
+        .map(Slot::new)
+        .collect();
+    let canonical_slots = ((fork_slot + 1).as_u64()..=slot.as_u64())
+        .map(Slot::new)
+        .collect();
+    let results = harness
+        .add_blocks_on_multiple_chains(vec![
+            (fork_state.clone(), side_slots, vec![]),
+            (
+                fork_state,
+                canonical_slots,
+                (0..NUM_VALIDATORS / 2).collect(),
+            ),
+        ])
+        .await;
+    let side_head_root: Hash256 = results[0].2.into();
+    let canonical_head_root: Hash256 = results[1].2.into();
+    assert_eq!(harness.head_block_root(), canonical_head_root);
+    harness.chain.slot_clock.set_slot(slot.as_u64());
+
+    let committee_and_dependent_root = |head_root| {
+        let (committee, dependent_root) = harness
+            .chain
+            .inclusion_list_committee(head_root, slot)
+            .expect("should compute committee");
+        (committee.to_vec(), dependent_root)
+    };
+    let (side_committee, side_dependent_root) = committee_and_dependent_root(side_head_root);
+    let (canonical_committee, _) = committee_and_dependent_root(canonical_head_root);
+    assert_ne!(side_committee, canonical_committee);
+
+    let side_member = *side_committee
+        .iter()
+        .find(|index| !canonical_committee.contains(index))
+        .expect("should find a member of the side chain committee only");
+    let signed = ctx.sign_inclusion_list(
+        make_inclusion_list(slot, side_member, side_dependent_root, vec![vec![0xaa]]),
+        side_member,
+    );
+    let result = GossipVerifiedInclusionList::new(signed, &ctx.gossip_ctx());
+    assert!(result.is_ok(), "expected Ok, got: {:?}", result);
+
+    let canonical_member = *canonical_committee
+        .iter()
+        .find(|index| !side_committee.contains(index))
+        .expect("should find a member of the canonical committee only");
+    let signed = ctx.sign_inclusion_list(
+        make_inclusion_list(
+            slot,
+            canonical_member,
+            side_dependent_root,
+            vec![vec![0xaa]],
+        ),
+        canonical_member,
+    );
+    let result = GossipVerifiedInclusionList::new(signed, &ctx.gossip_ctx());
+    assert!(matches!(
+        result,
+        Err(InclusionListVerificationError::NotInCommittee { .. })
+    ));
+}
+
+/// In the first Heze epoch the dependent block is a Gloas block, and the list is signed with the
+/// Heze fork version.
+#[tokio::test]
+async fn inclusion_list_in_first_heze_epoch() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let heze_fork_epoch = Epoch::new(2);
+    let ctx = TestContext::new_with_heze_fork_epoch(heze_fork_epoch);
+    let slot = heze_fork_epoch.start_slot(E::slots_per_epoch());
+    ctx.harness.extend_to_slot(slot).await;
+
+    let (committee, dependent_root) = ctx
+        .harness
+        .chain
+        .inclusion_list_committee(ctx.harness.head_block_root(), slot)
+        .expect("should compute committee");
+    let dependent_slot = ctx
+        .harness
+        .chain
+        .get_blinded_block(&dependent_root)
+        .unwrap()
+        .unwrap()
+        .slot();
+    assert!(
+        !ctx.harness
+            .spec
+            .fork_name_at_slot::<E>(dependent_slot)
+            .heze_enabled()
+    );
+
+    let validator_index = committee[0];
+    let signed = ctx.sign_inclusion_list(
+        make_inclusion_list(slot, validator_index, dependent_root, vec![vec![0xaa]]),
+        validator_index,
+    );
+    let result = GossipVerifiedInclusionList::new(signed, &ctx.gossip_ctx());
+    assert!(result.is_ok(), "expected Ok, got: {:?}", result);
 }
