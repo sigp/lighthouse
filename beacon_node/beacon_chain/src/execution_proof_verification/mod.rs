@@ -91,11 +91,6 @@ impl From<ObservationError> for Error {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Whether EIP-8025 proofs decide payload validity here.
-    pub fn execution_proofs_enabled(&self) -> bool {
-        self.proof_engine.is_some()
-    }
-
     /// Whether `block_root`'s payload has proofs from as many proof systems as we require.
     pub(crate) fn execution_proofs_satisfied(&self, block_root: &Hash256) -> bool {
         self.observed_execution_proofs
@@ -109,7 +104,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         block_root: Hash256,
     ) -> Result<(), BlockError> {
-        if !self.execution_proofs_satisfied(&block_root) {
+        // With an execution layer the proofs are relayed, not acted on.
+        if self.execution_layer.is_some() || !self.execution_proofs_satisfied(&block_root) {
             return Ok(());
         }
 

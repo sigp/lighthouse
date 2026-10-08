@@ -7010,11 +7010,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match forkchoice_updated_response {
             Ok(status) => match status {
                 PayloadStatus::Valid => {
-                    // EIP-8025: only the proofs promote a payload to valid.
-                    if self.execution_proofs_enabled() {
-                        return Ok(());
-                    }
-
                     // Ensure that fork choice knows that the payload is no longer optimistic. The
                     // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
                     // ancestor's payload, not the head block's.

@@ -357,12 +357,6 @@ impl From<AvailabilityCheckError> for BlockError {
 /// the execution payload.
 #[derive(Debug, IntoStaticStr)]
 pub enum ExecutionPayloadError {
-    /// There's no eth1 connection (mandatory after merge)
-    ///
-    /// ## Peer scoring
-    ///
-    /// As this is our fault, do not penalize the peer
-    NoExecutionConnection,
     /// Error occurred during engine_executePayload
     ///
     /// ## Peer scoring
@@ -406,8 +400,6 @@ impl ExecutionPayloadError {
         // always forced to consider here whether or not to penalize a peer when
         // we add a new error condition.
         match self {
-            // The peer has nothing to do with this error, do not penalize them.
-            ExecutionPayloadError::NoExecutionConnection => false,
             // The peer has nothing to do with this error, do not penalize them.
             ExecutionPayloadError::RequestFailed(_) => false,
             // An honest optimistic node may propagate blocks which are rejected by an EE, do not

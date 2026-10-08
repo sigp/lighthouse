@@ -875,7 +875,7 @@ where
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 
-        if chain.execution_layer.is_none() && chain.execution_proofs_enabled() {
+        if chain.execution_layer.is_none() {
             // Blocks at or below finality are never imported.
             let finalized_epoch = chain
                 .canonical_head
