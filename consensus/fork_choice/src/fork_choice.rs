@@ -386,7 +386,7 @@ pub struct ForkChoice<T, E> {
     /// spec does. Always `false` in production.
     spec_test_mode: bool,
     /// Whether an optimistic payload is eligible for head. Not persisted: it comes from the chain
-    /// config on every load.
+    /// config.
     optimistic_payloads: OptimisticPayloads,
     _phantom: PhantomData<E>,
 }

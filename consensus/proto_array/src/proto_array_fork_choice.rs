@@ -578,12 +578,11 @@ impl std::fmt::Display for DoNotReOrg {
 pub struct ReOrgThreshold(pub u64);
 
 /// Whether an optimistic payload gets a `FULL` node in the head walk.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OptimisticPayloads {
     /// Spec behaviour: an optimistic payload is eligible for head.
     Eligible,
-    /// EIP-8025: an unproven payload has no `FULL` node, so the head falls back to the `EMPTY`
-    /// side rather than resting on a payload the proofs have not validated.
+    /// EIP-8025: an unproven payload has no `FULL` node.
     Filtered,
 }
 
