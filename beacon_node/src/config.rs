@@ -436,6 +436,10 @@ pub fn get_config<E: EthSpec>(
     if let Some(prune_payloads) = clap_utils::parse_optional(cli_args, "prune-payloads")? {
         client_config.store.prune_payloads = prune_payloads;
     }
+    // No engine to reconstruct a pruned payload from.
+    if client_config.execution_layer.is_none() {
+        client_config.store.prune_payloads = false;
+    }
 
     if clap_utils::parse_optional::<u64>(cli_args, "slots-per-restore-point")?.is_some() {
         warn!("The slots-per-restore-point flag is deprecated");
