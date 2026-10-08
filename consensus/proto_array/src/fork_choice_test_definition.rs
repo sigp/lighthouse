@@ -7,7 +7,8 @@ mod votes;
 
 use crate::error::Error;
 use crate::proto_array_fork_choice::{
-    Block, ExecutionStatus, ExecutionVerdict, ForkChoiceNode, PayloadStatus, ProtoArrayForkChoice,
+    Block, ExecutionStatus, ExecutionVerdict, ForkChoiceNode, OptimisticPayloads, PayloadStatus,
+    ProtoArrayForkChoice,
 };
 use crate::{InvalidationOperation, JustifiedBalances, ParentPayloadStatus};
 use fixed_bytes::FixedBytesExtended;
@@ -194,6 +195,7 @@ impl ForkChoiceTestDefinition {
         .expect("should create fork choice struct");
         let equivocating_indices = BTreeSet::new();
         let mut last_current_slot = Slot::new(0);
+        let mut optimistic = OptimisticPayloads::Eligible;
 
         for (op_index, op) in self.operations.into_iter().enumerate() {
             match op.clone() {
@@ -216,6 +218,7 @@ impl ForkChoiceTestDefinition {
                             Hash256::zero(),
                             &equivocating_indices,
                             current_slot,
+                            optimistic,
                             &spec,
                         )
                         .unwrap_or_else(|e| {
@@ -240,6 +243,7 @@ impl ForkChoiceTestDefinition {
                         &head,
                         current_slot,
                         Hash256::zero(),
+                        optimistic,
                         &spec,
                         payload_status,
                         op_index,
@@ -266,6 +270,7 @@ impl ForkChoiceTestDefinition {
                             proposer_boost_root,
                             &equivocating_indices,
                             Slot::new(0),
+                            optimistic,
                             &spec,
                         )
                         .unwrap_or_else(|e| {
@@ -283,6 +288,7 @@ impl ForkChoiceTestDefinition {
                         &head,
                         Slot::new(0),
                         proposer_boost_root,
+                        optimistic,
                         &spec,
                         payload_status,
                         op_index,
@@ -304,6 +310,7 @@ impl ForkChoiceTestDefinition {
                         Hash256::zero(),
                         &equivocating_indices,
                         Slot::new(0),
+                        optimistic,
                         &spec,
                     );
 
@@ -639,7 +646,7 @@ impl ForkChoiceTestDefinition {
                     );
                 }
                 Operation::SetFilterOptimisticPayloads { enabled } => {
-                    fork_choice.set_filter_optimistic_payloads(enabled);
+                    optimistic = OptimisticPayloads::from_filter(enabled);
                 }
                 Operation::AssertPayloadReceived {
                     block_root,
@@ -663,6 +670,7 @@ impl ForkChoiceTestDefinition {
                             &block_root,
                             current_slot.unwrap_or(last_current_slot),
                             proposer_boost_root.unwrap_or_else(Hash256::zero),
+                            optimistic,
                             &spec,
                         )
                         .unwrap();
@@ -722,11 +730,13 @@ fn get_checkpoint(i: u64) -> Checkpoint {
 
 /// Checks that `get_canonical_payload_status` agrees with the `payload_status`
 /// returned by `find_head` for the head block.
+#[allow(clippy::too_many_arguments)]
 fn assert_canonical_payload_status_matches_find_head(
     fork_choice: &ProtoArrayForkChoice,
     head: &Hash256,
     current_slot: Slot,
     proposer_boost_root: Hash256,
+    optimistic: OptimisticPayloads,
     spec: &ChainSpec,
     expected: PayloadStatus,
     op_index: usize,
@@ -735,6 +745,7 @@ fn assert_canonical_payload_status_matches_find_head(
         head,
         current_slot,
         proposer_boost_root,
+        optimistic,
         spec,
     ) {
         Ok(actual) => assert_eq!(
@@ -753,10 +764,8 @@ fn assert_canonical_payload_status_matches_find_head(
 
 fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
     let bytes = original.as_bytes();
-    let mut decoded = ProtoArrayForkChoice::from_bytes(&bytes, original.balances.clone())
+    let decoded = ProtoArrayForkChoice::from_bytes(&bytes, original.balances.clone())
         .expect("fork choice should decode from bytes");
-    // Not persisted.
-    decoded.set_filter_optimistic_payloads(original.core_proto_array().filter_optimistic_payloads);
     assert!(
         *original == decoded,
         "fork choice should encode and decode without change"

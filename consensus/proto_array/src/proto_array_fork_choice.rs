@@ -577,6 +577,34 @@ impl std::fmt::Display for DoNotReOrg {
 #[serde(transparent)]
 pub struct ReOrgThreshold(pub u64);
 
+/// Whether an optimistic payload gets a `FULL` node in the head walk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OptimisticPayloads {
+    /// Spec behaviour: an optimistic payload is eligible for head.
+    Eligible,
+    /// EIP-8025: an unproven payload has no `FULL` node, so the head falls back to the `EMPTY`
+    /// side rather than resting on a payload the proofs have not validated.
+    Filtered,
+}
+
+impl OptimisticPayloads {
+    /// From the `filter_optimistic_payloads` chain config flag.
+    pub fn from_filter(filter_optimistic_payloads: bool) -> Self {
+        if filter_optimistic_payloads {
+            Self::Filtered
+        } else {
+            Self::Eligible
+        }
+    }
+
+    pub fn is_filtered(&self) -> bool {
+        match self {
+            Self::Filtered => true,
+            Self::Eligible => false,
+        }
+    }
+}
+
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
@@ -605,7 +633,6 @@ impl ProtoArrayForkChoice {
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
             children: Vec::with_capacity(1),
-            filter_optimistic_payloads: false,
         };
 
         let block = Block {
@@ -658,11 +685,6 @@ impl ProtoArrayForkChoice {
         self.proto_array
             .on_payload_envelope_received(block_root, execution_status)
             .map_err(|e| format!("Failed to process execution payload: {:?}", e))
-    }
-
-    /// See `ProtoArray::filter_optimistic_payloads`.
-    pub fn set_filter_optimistic_payloads(&mut self, filter_optimistic_payloads: bool) {
-        self.proto_array.filter_optimistic_payloads = filter_optimistic_payloads;
     }
 
     /// See `ProtoArray::propagate_execution_payload_validation` for documentation.
@@ -780,6 +802,7 @@ impl ProtoArrayForkChoice {
         proposer_boost_root: Hash256,
         equivocating_indices: &BTreeSet<u64>,
         current_slot: Slot,
+        optimistic: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<ForkChoiceNode, String> {
         let old_balances = &mut self.balances;
@@ -817,6 +840,7 @@ impl ProtoArrayForkChoice {
                 finalized_checkpoint,
                 proposer_boost_root,
                 new_balances,
+                optimistic,
                 spec,
             )
             .map(|(root, payload_status)| ForkChoiceNode::new(root, payload_status))
@@ -1238,6 +1262,7 @@ impl ProtoArrayForkChoice {
         block_root: &Hash256,
         current_slot: Slot,
         proposer_boost_root: Hash256,
+        optimistic: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<PayloadStatus, Error> {
         self.proto_array.get_canonical_payload_status::<E>(
@@ -1245,6 +1270,7 @@ impl ProtoArrayForkChoice {
             current_slot,
             proposer_boost_root,
             &self.balances,
+            optimistic,
             spec,
         )
     }
@@ -2518,6 +2544,7 @@ mod test_find_head {
                     Hash256::zero(),
                     &equivocating_indices,
                     Slot::new(1),
+                    OptimisticPayloads::Eligible,
                     &spec,
                 )
                 .unwrap();
@@ -2547,6 +2574,7 @@ mod test_find_head {
                     Hash256::zero(),
                     &equivocating_indices,
                     Slot::new(1),
+                    OptimisticPayloads::Eligible,
                     &spec,
                 )
                 .unwrap();
