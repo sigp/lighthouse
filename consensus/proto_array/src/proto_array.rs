@@ -420,6 +420,10 @@ pub struct ProtoArray {
     /// node `i`. Maintained incrementally by `on_block` and `maybe_prune`.
     #[serde(skip)]
     pub children: Vec<Vec<usize>>,
+    /// Treat an optimistic payload as not received, so no head rests on it. Departs from the
+    /// spec; set at construction, never persisted.
+    #[serde(skip)]
+    pub filter_optimistic_payloads: bool,
 }
 
 impl ProtoArray {
@@ -1831,9 +1835,11 @@ impl ProtoArray {
                 .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
             let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
             // The FULL virtual child only exists if the payload has been received and not found
-            // invalid.
+            // invalid. Under `filter_optimistic_payloads` an optimistic payload is not received.
             if proto_node.payload_received().is_ok_and(|received| received)
                 && !proto_node.is_invalid()
+                && !(self.filter_optimistic_payloads
+                    && proto_node.execution_status().is_optimistic())
             {
                 children.push((node.with_status(PayloadStatus::Full), proto_node.clone()));
             }
