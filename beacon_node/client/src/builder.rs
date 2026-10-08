@@ -887,12 +887,12 @@ where
                 .fork_name_at_epoch(finalized_epoch)
                 .gloas_enabled()
             {
-                return Err(format!(
+                return Err(
                     "Running with no execution layer needs finality at or after the Gloas fork, \
-                     where EIP-8025 proofs decide payload validity. Finality is at epoch \
-                     {finalized_epoch}. Set --execution-endpoint, or checkpoint sync past the \
-                     fork with --purge-db."
-                ));
+                     where EIP-8025 proofs decide payload validity. Set --execution-endpoint, \
+                     or checkpoint sync past the fork."
+                        .to_string(),
+                );
             }
 
             info!(
