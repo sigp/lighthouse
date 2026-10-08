@@ -203,7 +203,7 @@ pub fn get_gloas_invalid_payload_weights_test_definition() -> ForkChoiceTestDefi
     gloas_definition(ops)
 }
 
-/// A failed envelope import leaves `payload_received` false and changes no execution status.
+/// A failed envelope import leaves `payload_received` false.
 ///
 /// ```text
 ///   0
@@ -239,20 +239,17 @@ pub fn get_gloas_failed_envelope_not_received_test_definition() -> ForkChoiceTes
         },
         Operation::InvalidProcessExecutionPayloadEnvelope {
             block_root: get_root(2),
+            execution_status: ExecutionStatus::Valid(get_hash(2)),
         },
         Operation::AssertPayloadReceived {
             block_root: get_root(2),
             expected: false,
         },
-        Operation::AssertExecutionStatus {
-            block_root: get_root(2),
-            expected: ExecutionStatus::NotYetRevealed(get_hash(2)),
-        },
     ])
 }
 
-/// An envelope for a block whose payload is already invalid sets `payload_received` and keeps
-/// the `Invalid` status.
+/// An envelope for a block whose payload is invalidated after envelope verification returns an
+/// error, leaves `payload_received` false and keeps the `Invalid` status.
 pub fn get_gloas_envelope_on_invalid_payload_test_definition() -> ForkChoiceTestDefinition {
     gloas_definition(vec![
         Operation::ProcessBlock {
@@ -268,13 +265,13 @@ pub fn get_gloas_envelope_on_invalid_payload_test_definition() -> ForkChoiceTest
             block_root: get_root(1),
             execution_status: ExecutionStatus::Invalid(get_hash(1)),
         },
-        Operation::ProcessOptimisticExecutionPayloadEnvelope {
+        Operation::InvalidProcessExecutionPayloadEnvelope {
             block_root: get_root(1),
-            block_hash: get_hash(1),
+            execution_status: ExecutionStatus::Optimistic(get_hash(1)),
         },
         Operation::AssertPayloadReceived {
             block_root: get_root(1),
-            expected: true,
+            expected: false,
         },
         Operation::AssertExecutionStatus {
             block_root: get_root(1),

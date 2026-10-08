@@ -145,9 +145,11 @@ pub enum Operation {
         block_root: Hash256,
         block_hash: ExecutionBlockHash,
     },
-    /// Receive a `Valid` execution payload envelope for `block_root` and expect an error.
+    /// Receive the execution payload envelope for `block_root` with `execution_status` and expect
+    /// an error.
     InvalidProcessExecutionPayloadEnvelope {
         block_root: Hash256,
+        execution_status: ExecutionStatus,
     },
     /// Overwrite the execution status of `block_root`, without the invalidation sweep.
     SetExecutionStatus {
@@ -712,11 +714,12 @@ impl ForkChoiceTestDefinition {
                         });
                     check_bytes_round_trip(&fork_choice);
                 }
-                Operation::InvalidProcessExecutionPayloadEnvelope { block_root } => {
-                    let result = fork_choice.on_payload_envelope_received(
-                        block_root,
-                        ExecutionStatus::Valid(ExecutionBlockHash::zero()),
-                    );
+                Operation::InvalidProcessExecutionPayloadEnvelope {
+                    block_root,
+                    execution_status,
+                } => {
+                    let result =
+                        fork_choice.on_payload_envelope_received(block_root, execution_status);
                     assert!(
                         result.is_err(),
                         "on_payload_envelope_received op at index {} should return an error",

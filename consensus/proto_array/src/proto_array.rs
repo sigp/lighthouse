@@ -867,13 +867,16 @@ impl ProtoArray {
             .as_v29_mut()
             .map_err(|_| Error::InvalidNodeVariant { block_root })?;
 
-        // A settled verdict is never revisited: a duplicate `Valid`, or an `Invalid` the
-        // invalidation sweep already set from this payload's condemned ancestry.
         match v29.execution_status {
             ExecutionStatus::NotYetRevealed(_) | ExecutionStatus::Optimistic(_) => {}
-            ExecutionStatus::Valid(_) | ExecutionStatus::Invalid(_) => {
+            // A descendant's `Valid` verdict already validated this payload.
+            ExecutionStatus::Valid(_) => {
                 v29.payload_received = true;
                 return Ok(());
+            }
+            // The invalidation sweep condemned this payload after the envelope was verified.
+            ExecutionStatus::Invalid(_) => {
+                return Err(Error::EnvelopeForInvalidPayload { block_root });
             }
             ExecutionStatus::Irrelevant(_) => {
                 return Err(Error::Unexpected(format!(
@@ -942,7 +945,7 @@ impl ProtoArray {
     /// `start_status` is the node that the walk starts on. An `EMPTY` edge is a gap in the
     /// execution chain, not the end of it. The walk steps over that node and continues.
     ///
-    /// Returns an error, and changes no node, if:
+    /// Returns an error if:
     ///
     /// - The `start_index` is unknown.
     /// - Any of the to-be-validated payloads are already invalid.
@@ -951,13 +954,12 @@ impl ProtoArray {
         start_index: usize,
         start_status: ParentPayloadStatus,
     ) -> Result<(), Error> {
-        let mut to_validate = vec![];
         let mut index = start_index;
         let mut status = start_status;
         loop {
             let node = self
                 .nodes
-                .get(index)
+                .get_mut(index)
                 .ok_or(Error::InvalidNodeIndex(index))?;
 
             // Only a `FULL` node has a payload of its own in the execution ancestry of this
@@ -970,15 +972,15 @@ impl ProtoArray {
                 match node.execution_status() {
                     // We have reached a node that we already know is valid. No need to iterate further
                     // since we assume an ancestors have already been set to valid.
-                    ExecutionStatus::Valid(_) => break,
+                    ExecutionStatus::Valid(_) => return Ok(()),
                     // We have reached an irrelevant node, this node is prior to a terminal execution
                     // block. There's no need to iterate further, it's impossible for this block to have
                     // any relevant ancestors.
-                    ExecutionStatus::Irrelevant(_) => break,
+                    ExecutionStatus::Irrelevant(_) => return Ok(()),
                     // The block has an unknown status, set it to valid since any ancestor of a valid
                     // payload can be considered valid.
                     ExecutionStatus::Optimistic(hash) | ExecutionStatus::NotYetRevealed(hash) => {
-                        to_validate.push((index, hash));
+                        *node.execution_status_mut() = ExecutionStatus::Valid(hash);
                     }
                     // An ancestor of the valid payload was invalid. This is a serious error which
                     // indicates a consensus failure in the execution node. This is unrecoverable.
@@ -993,21 +995,12 @@ impl ProtoArray {
 
             let Some(parent_index) = node.parent() else {
                 // We have reached the root block, iteration complete.
-                break;
+                return Ok(());
             };
             // Which of the two nodes of the parent this block extends.
             status = node.get_parent_payload_status();
             index = parent_index;
         }
-
-        for (index, hash) in to_validate {
-            *self
-                .nodes
-                .get_mut(index)
-                .ok_or(Error::InvalidNodeIndex(index))?
-                .execution_status_mut() = ExecutionStatus::Valid(hash);
-        }
-        Ok(())
     }
 
     /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.

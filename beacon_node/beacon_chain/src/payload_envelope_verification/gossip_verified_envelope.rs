@@ -169,6 +169,12 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
         drop(fork_choice_read_lock);
 
+        if proto_block.execution_status.is_invalid() {
+            return Err(EnvelopeError::BlockPayloadInvalid {
+                block_root: beacon_block_root,
+            });
+        }
+
         let block_slot = proto_block.slot;
         if ctx.source == EnvelopeSource::Gossip
             && ctx.observed_payload_envelopes.envelope_has_been_observed(
