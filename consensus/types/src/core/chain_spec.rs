@@ -747,6 +747,29 @@ impl ChainSpec {
         epoch.safe_add(1)?.safe_add(self.max_seed_lookahead)
     }
 
+    /// Return the minimum epoch range over which a node must serve blocks at `current_epoch`.
+    ///
+    /// Spec: https://github.com/ethereum/consensus-specs/blob/v1.7.0-beta.3/specs/gloas/p2p-interface.md#modified-compute_min_epochs_for_block_requests
+    pub fn compute_min_epochs_for_block_requests(
+        &self,
+        current_epoch: Epoch,
+    ) -> Result<u64, ArithError> {
+        let churn_epochs = if self.fork_name_at_epoch(current_epoch).gloas_enabled() {
+            let numerator = 3u64
+                .safe_mul(self.churn_limit_quotient_gloas)?
+                .safe_mul(self.consolidation_churn_limit_quotient)?;
+            let denominator = 2u64
+                .safe_mul(self.consolidation_churn_limit_quotient)?
+                .safe_add(3u64.safe_mul(self.churn_limit_quotient_gloas)?)?;
+            numerator.safe_div(denominator)?
+        } else {
+            self.churn_limit_quotient
+        };
+        self.min_validator_withdrawability_delay
+            .as_u64()
+            .safe_add(churn_epochs.safe_div(2)?)
+    }
+
     pub fn maximum_gossip_clock_disparity(&self) -> Duration {
         Duration::from_millis(self.maximum_gossip_clock_disparity)
     }
@@ -3556,6 +3579,23 @@ mod tests {
                 "bpo {bpo_epoch:?}, gloas {gloas_epoch:?}"
             );
         }
+    }
+
+    #[test]
+    fn test_compute_min_epochs_for_block_requests() {
+        let gloas_fork_epoch = Epoch::new(100);
+        let spec = ChainSpec {
+            gloas_fork_epoch: Some(gloas_fork_epoch),
+            ..ChainSpec::mainnet()
+        };
+        assert_eq!(
+            spec.compute_min_epochs_for_block_requests(gloas_fork_epoch - 1),
+            Ok(spec.min_epochs_for_block_requests)
+        );
+        assert_eq!(
+            spec.compute_min_epochs_for_block_requests(gloas_fork_epoch),
+            Ok(14299)
+        );
     }
 
     #[test]
