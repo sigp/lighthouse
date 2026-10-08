@@ -86,7 +86,8 @@ fn verify_bid_blobs<E: EthSpec>(
 }
 
 /// Reject a bid whose `inclusion_list_bits` do not cover `local_inclusion_list_bits`, the node's
-/// own view of the inclusion lists for the slot before the bid's. Pre-Heze bids carry no bits and pass.
+/// own view of the inclusion lists for the slot before the bid's.
+/// Pre-Heze bids carry no bits and pass.
 ///
 /// Callers resolve `local_inclusion_list_bits` under their own timeliness rule.
 /// On gossip only timely inclusion lists count, while for the proposer's block production path
