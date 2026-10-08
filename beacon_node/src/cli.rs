@@ -840,8 +840,10 @@ pub fn cli_app() -> Command {
                 .alias("execution-endpoints")
                 .help("Server endpoint for an execution layer JWT-authenticated HTTP \
                        JSON-RPC connection. Uses the same endpoint to populate the \
-                       deposit cache.")
-                .required(true)
+                       deposit cache. Optional when --proof-engine-endpoint is set, in \
+                       which case EIP-8025 proofs are the only source of payload validity \
+                       and the node runs with no execution layer.")
+                .required_unless_present("proof-engine-endpoint")
                 .action(ArgAction::Set)
                 .display_order(0)
         )

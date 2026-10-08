@@ -5,7 +5,7 @@ The primary component which connects to the Ethereum 2.0 P2P network and
 downloads, verifies and stores blocks. Provides a HTTP API for querying the
 beacon chain and publishing messages to the network.
 
-Usage: lighthouse beacon_node [OPTIONS] --execution-endpoint <EXECUTION-ENDPOINT>
+Usage: lighthouse beacon_node [OPTIONS]
 
 Options:
       --auto-compact-db <auto-compact-db>
@@ -133,6 +133,9 @@ Options:
       --execution-endpoint <EXECUTION-ENDPOINT>
           Server endpoint for an execution layer JWT-authenticated HTTP JSON-RPC
           connection. Uses the same endpoint to populate the deposit cache.
+          Optional when --proof-engine-endpoint is set, in which case EIP-8025
+          proofs are the only source of payload validity and the node runs with
+          no execution layer.
       --execution-jwt <EXECUTION-JWT>
           File path which contains the hex-encoded JWT secret for the execution
           endpoint provided in the --execution-endpoint flag.

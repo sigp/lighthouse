@@ -85,7 +85,7 @@ impl From<ObservationError> for Error {
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Whether EIP-8025 proofs decide payload validity here.
-    pub(crate) fn execution_proofs_enabled(&self) -> bool {
+    pub fn execution_proofs_enabled(&self) -> bool {
         self.proof_engine.is_some()
     }
 

@@ -436,6 +436,10 @@ async fn post_bellatrix_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
 ) {
+    if beacon_chain.execution_layer.is_none() {
+        return;
+    }
+
     if let Some(fork) = find_next_fork_to_prepare(current_slot, beacon_chain) {
         let readiness = if let Some(el) = beacon_chain.execution_layer.as_ref() {
             match el
@@ -576,6 +580,11 @@ fn methods_required_for_fork(
 }
 
 async fn genesis_execution_payload_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
+    // The genesis payload header is read back from the engine, and there is no engine.
+    if beacon_chain.execution_layer.is_none() {
+        return;
+    }
+
     match beacon_chain
         .check_genesis_execution_payload_is_correct()
         .await

@@ -875,6 +875,24 @@ where
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 
+        if chain.execution_layer.is_none() && chain.execution_proofs_enabled() {
+            // Only the head matters: backfill never verifies a payload.
+            let head_slot = chain.best_slot();
+            if !chain.spec.fork_name_at_slot::<E>(head_slot).gloas_enabled() {
+                return Err(format!(
+                    "Running with no execution layer needs a head at or after the Gloas fork, \
+                     where EIP-8025 proofs decide payload validity. The head is at slot \
+                     {head_slot}. Set --execution-endpoint, or checkpoint sync past the fork \
+                     with --purge-db."
+                ));
+            }
+
+            info!(
+                info = "the node cannot verify pre-Gloas payloads or propose a locally built one",
+                "Running with no execution layer; EIP-8025 proofs decide payload validity"
+            );
+        }
+
         self.beacon_chain = Some(Arc::new(chain));
         self.beacon_chain_builder = None;
 

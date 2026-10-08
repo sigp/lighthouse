@@ -536,6 +536,32 @@ fn bellatrix_execution_endpoint_flag() {
     run_bellatrix_execution_endpoints_flag_test("execution-endpoint")
 }
 #[test]
+fn proof_engine_endpoint_without_execution_endpoint() {
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("proof-engine-endpoint", Some("http://localhost:8552/"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config
+                    .proof_engine_endpoint
+                    .as_ref()
+                    .unwrap()
+                    .expose_full()
+                    .to_string(),
+                "http://localhost:8552/"
+            );
+            assert!(config.network.enable_execution_proof);
+            // No endpoint means no execution layer at all, and so no JWT is needed either.
+            assert!(config.execution_layer.is_none());
+            assert!(config.chain.disable_get_blobs);
+        });
+}
+#[test]
+#[should_panic]
+fn no_execution_endpoint_and_no_proof_engine_endpoint() {
+    CommandLineTest::new_with_no_execution_endpoint().run_with_zero_port();
+}
+#[test]
 fn bellatrix_jwt_secrets_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
