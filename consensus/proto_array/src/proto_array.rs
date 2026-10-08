@@ -1637,9 +1637,6 @@ impl ProtoArray {
             .ok_or(Error::InvalidNodeIndex(proto_node_index))?;
 
         // As in `get_node_children`, an invalid payload has no FULL node.
-        proto_node
-            .payload_received()
-            .map_err(|_| Error::InvalidNodeVariant { block_root: root })?;
         if !self.has_full_node(proto_node) {
             return Ok(PayloadStatus::Empty);
         }
