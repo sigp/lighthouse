@@ -264,8 +264,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
     ) -> NetworkGlobals<E> {
         use network_utils::enr_ext::CombinedKeyExt;
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
-        let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
-        let enr = discv5::enr::Enr::builder().build(&enr_key).unwrap();
+        let enr_key: enr::CombinedKey = enr::CombinedKey::from_secp256k1(&keypair);
+        let enr = enr::Enr::builder().build(&enr_key).unwrap();
         NetworkGlobals::new(enr, metadata, trusted_peers, false, config, spec)
     }
 }

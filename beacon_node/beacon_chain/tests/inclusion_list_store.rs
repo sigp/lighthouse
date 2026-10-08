@@ -7,11 +7,9 @@ use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{BeaconChainError, WhenSlotSkipped};
 use bls::Signature;
 use ssz_types::ProgressiveVariableList;
-use types::{
-    EthSpec, Hash256, InclusionList, MinimalEthSpec, RelativeEpoch, SignedInclusionList, Slot,
-};
+use types::{EthSpec, Hash256, InclusionList, RelativeEpoch, SignedInclusionList, Slot, Spec};
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 /// 8 validators per slot on minimal, fewer than the committee size, so positions repeat.
 const VALIDATOR_COUNT: usize = 64;

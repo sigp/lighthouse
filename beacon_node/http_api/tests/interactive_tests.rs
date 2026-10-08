@@ -73,6 +73,7 @@ async fn state_by_root_pruned_from_fork_choice() {
         validator_count,
         Some(Box::new(move |builder| {
             builder
+                .mock_execution_layer()
                 .deterministic_keypairs(validator_count)
                 .fresh_ephemeral_store()
                 .chain_config(ChainConfig {
