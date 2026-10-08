@@ -1,10 +1,11 @@
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    NotifyExecutionLayer,
 };
 use beacon_chain::validator_monitor::{MISSED_BLOCK_LAG_SLOTS, ValidatorMonitorConfig};
 use bls::{Keypair, PublicKeyBytes};
 use std::sync::LazyLock;
-use types::{Epoch, EthSpec, Hash256, MainnetEthSpec, Slot};
+use types::{BlockImportSource, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
@@ -101,11 +102,21 @@ async fn missed_blocks_across_epochs() {
     let mut vm_write = validator_monitor.write();
 
     // Call `process_` once to update validator indices.
-    vm_write.process_valid_state(head_state.current_epoch(), &head_state, &harness.chain.spec);
+    vm_write.process_valid_state(
+        head_state.current_epoch(),
+        &head_state,
+        &harness.chain.spec,
+        true,
+    );
     // Start monitoring the innocent validator.
     vm_write.add_validator_pubkey(KEYPAIRS[innocent_proposer as usize].pk.compress());
     // Check for missed blocks.
-    vm_write.process_valid_state(head_state.current_epoch(), &head_state, &harness.chain.spec);
+    vm_write.process_valid_state(
+        head_state.current_epoch(),
+        &head_state,
+        &harness.chain.spec,
+        true,
+    );
 
     // My client is innocent, your honour!
     assert_eq!(
@@ -187,7 +198,12 @@ async fn missed_blocks_basic() {
         let mut validator_monitor = harness1.chain.validator_monitor.write();
 
         validator_monitor.add_validator_pubkey(KEYPAIRS[missed_block_proposer].pk.compress());
-        validator_monitor.process_valid_state(nb_epoch_to_simulate, _state, &harness1.chain.spec);
+        validator_monitor.process_valid_state(
+            nb_epoch_to_simulate,
+            _state,
+            &harness1.chain.spec,
+            true,
+        );
 
         // We should have one entry in the missed blocks map
         assert_eq!(
@@ -258,7 +274,7 @@ async fn missed_blocks_basic() {
         // adding the missed blocks to the validator monitor
         let mut validator_monitor2 = harness2.chain.validator_monitor.write();
         validator_monitor2.add_validator_pubkey(KEYPAIRS[missed_block_proposer].pk.compress());
-        validator_monitor2.process_valid_state(epoch, _state2, &harness2.chain.spec);
+        validator_monitor2.process_valid_state(epoch, _state2, &harness2.chain.spec, true);
         // We should have one entry in the missed blocks map
         assert_eq!(
             validator_monitor2
@@ -292,7 +308,7 @@ async fn missed_blocks_basic() {
 
         // Let's validate the state which will call the function responsible for
         // adding the missed blocks to the validator monitor
-        validator_monitor2.process_valid_state(epoch, _state2, &harness2.chain.spec);
+        validator_monitor2.process_valid_state(epoch, _state2, &harness2.chain.spec, true);
 
         // We shouldn't have any entry in the missed blocks map
         assert_eq!(
@@ -367,7 +383,7 @@ async fn missed_blocks_basic() {
         // adding the missed blocks to the validator monitor
         let mut validator_monitor3 = harness3.chain.validator_monitor.write();
         validator_monitor3.add_validator_pubkey(KEYPAIRS[missed_block_proposer].pk.compress());
-        validator_monitor3.process_valid_state(epoch, _state3, &harness3.chain.spec);
+        validator_monitor3.process_valid_state(epoch, _state3, &harness3.chain.spec, true);
 
         // We shouldn't have one entry in the missed blocks map
         assert_eq!(
@@ -376,4 +392,270 @@ async fn missed_blocks_basic() {
             0
         );
     }
+}
+
+// Regression test for false-positive missed block logging from side chains (issue #8080).
+#[tokio::test]
+async fn missed_blocks_ignore_non_canonical_states() {
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+    let all_validators = (0..VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let harness = get_harness(VALIDATOR_COUNT, vec![]);
+    let validator_monitor = &harness.chain.validator_monitor;
+    let genesis_state = harness.get_current_state();
+
+    // Build a canonical chain with a block in every slot. Keep the state at the last slot of epoch
+    // 0 around so that the side chain below can fork from it.
+    let fork_slot = Slot::new(slots_per_epoch as u64 - 1);
+    let tip_slot = Slot::new(slots_per_epoch as u64 + 8);
+    let slots = (1..=tip_slot.as_u64()).map(Slot::new).collect::<Vec<_>>();
+    let (_, state_roots_by_slot, _, head_state) = harness
+        .add_attested_blocks_at_slots(genesis_state, &slots, &all_validators)
+        .await;
+
+    // Watch the proposer of a slot in epoch 1 that the canonical chain proposed a block for, but
+    // which the side chain below will report as skipped.
+    let epoch = Epoch::new(1);
+    let victim_slot = Slot::new(slots_per_epoch as u64 + 2);
+    let victim_proposer = head_state
+        .get_beacon_proposer_indices(epoch, &harness.chain.spec)
+        .unwrap()[victim_slot.as_usize() % slots_per_epoch];
+
+    // The proposer shuffling cache is keyed by the block root at the end of the previous epoch.
+    // Both chains share that block, because they fork after it.
+    let decision_root = head_state
+        .proposer_shuffling_decision_root_at_epoch(
+            epoch,
+            harness.head_block_root(),
+            &harness.chain.spec,
+        )
+        .unwrap();
+    let proposers = head_state
+        .get_beacon_proposer_indices(epoch, &harness.chain.spec)
+        .unwrap();
+    harness
+        .chain
+        .beacon_proposer_cache
+        .lock()
+        .insert(epoch, decision_root, proposers, head_state.fork())
+        .unwrap();
+
+    {
+        let mut vm_write = validator_monitor.write();
+        // Ensure the monitor knows every validator's index, then start monitoring the victim.
+        vm_write.process_valid_state(
+            head_state.current_epoch(),
+            &head_state,
+            &harness.chain.spec,
+            true,
+        );
+        vm_write.add_validator_pubkey(KEYPAIRS[victim_proposer].pk.compress());
+    }
+
+    // Import a side chain block at the canonical tip, built on the state at the end of epoch 0.
+    // Slots `slots_per_epoch .. tip_slot` are skipped on this chain, but every one of them was
+    // proposed on the canonical chain.
+    let fork_state = harness
+        .get_hot_state(state_roots_by_slot[&fork_slot])
+        .unwrap();
+    harness
+        .add_block_at_slot(tip_slot, fork_state)
+        .await
+        .expect("side chain block should import");
+
+    assert_eq!(
+        validator_monitor
+            .read()
+            .get_monitored_validator_missed_block_count(victim_proposer as u64),
+        0,
+        "side chain import must not report a missed block for a slot proposed on the canonical chain"
+    );
+}
+
+// A canonical block more than `EARLY_ATTESTER_CACHE_HISTORIC_SLOTS` behind the wall clock must
+// still be used for missed block detection (issue #8080).
+#[tokio::test]
+async fn missed_blocks_detected_for_stale_canonical_blocks() {
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+    let all_validators = (0..VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let harness = get_harness(VALIDATOR_COUNT, vec![]);
+    let validator_monitor = &harness.chain.validator_monitor;
+    let genesis_state = harness.get_current_state();
+
+    // Build a canonical chain with a genuinely missed block at offset 2 of epoch 1.
+    let missed_slot = Slot::new(slots_per_epoch as u64 + 2);
+    let tip_slot = Slot::new(slots_per_epoch as u64 + 8);
+    let slots = (1..=tip_slot.as_u64())
+        .map(Slot::new)
+        .filter(|slot| *slot != missed_slot)
+        .collect::<Vec<_>>();
+    let (_, _, _, head_state) = harness
+        .add_attested_blocks_at_slots(genesis_state, &slots, &all_validators)
+        .await;
+
+    let epoch = missed_slot.epoch(E::slots_per_epoch());
+    let missed_proposer = head_state
+        .get_beacon_proposer_indices(epoch, &harness.chain.spec)
+        .unwrap()[missed_slot.as_usize() % slots_per_epoch];
+
+    // Prime the proposer cache so that missed block detection can resolve the proposer.
+    let decision_root = head_state
+        .proposer_shuffling_decision_root_at_epoch(
+            epoch,
+            harness.head_block_root(),
+            &harness.chain.spec,
+        )
+        .unwrap();
+    let proposers = head_state
+        .get_beacon_proposer_indices(epoch, &harness.chain.spec)
+        .unwrap();
+    harness
+        .chain
+        .beacon_proposer_cache
+        .lock()
+        .insert(epoch, decision_root, proposers, head_state.fork())
+        .unwrap();
+
+    // Only start monitoring now, so that building the chain above cannot have recorded the missed
+    // block already.
+    {
+        let mut vm_write = validator_monitor.write();
+        vm_write.process_valid_state(
+            head_state.current_epoch(),
+            &head_state,
+            &harness.chain.spec,
+            true,
+        );
+        vm_write.add_validator_pubkey(KEYPAIRS[missed_proposer].pk.compress());
+        assert_eq!(
+            vm_write.get_monitored_validator_missed_block_count(missed_proposer as u64),
+            0,
+            "the missed block must not have been recorded while building the chain"
+        );
+    }
+
+    // Build a canonical block on top of the tip, but import it with the wall clock advanced past
+    // it, so that it is stale by more than `EARLY_ATTESTER_CACHE_HISTORIC_SLOTS`.
+    let block_slot = tip_slot + 1u64;
+    let (block_contents, _, _) = harness
+        .make_block_with_envelope(head_state.clone(), block_slot)
+        .await;
+    let block_root = block_contents.0.canonical_root();
+    harness.set_current_slot(Slot::new(block_slot.as_u64() + 6));
+
+    let range_sync_block = harness
+        .build_range_sync_block_from_blobs(block_contents.0.clone(), block_contents.1.clone())
+        .unwrap();
+    harness
+        .chain
+        .process_block(
+            block_root,
+            range_sync_block,
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::RangeSync,
+            || Ok(()),
+        )
+        .await
+        .expect("stale canonical block should import");
+
+    // The stale block's state still covers the missed slot, so it must be reported.
+    assert_eq!(
+        validator_monitor
+            .read()
+            .get_monitored_validator_missed_block_count(missed_proposer as u64),
+        1,
+        "a stale canonical block must still report the missed block it exposes"
+    );
+}
+
+// A missed slot is not lost just because the first block that would have covered it was a side
+// chain: a later canonical block still covers it (issue #8080).
+#[tokio::test]
+async fn missed_blocks_reported_by_later_canonical_block() {
+    let slots_per_epoch = E::slots_per_epoch() as usize;
+    let all_validators = (0..VALIDATOR_COUNT).collect::<Vec<_>>();
+
+    let harness = get_harness(VALIDATOR_COUNT, vec![]);
+    let validator_monitor = &harness.chain.validator_monitor;
+    let genesis_state = harness.get_current_state();
+
+    // Canonical chain with slot 34 missed, and the state at the end of epoch 0 kept for forking.
+    let missed_slot = Slot::new(slots_per_epoch as u64 + 2);
+    let fork_slot = Slot::new(slots_per_epoch as u64 - 1);
+    let tip_slot = Slot::new(slots_per_epoch as u64 + 8);
+    let slots = (1..=tip_slot.as_u64())
+        .map(Slot::new)
+        .filter(|slot| *slot != missed_slot)
+        .collect::<Vec<_>>();
+    let (_, state_roots_by_slot, _, head_state) = harness
+        .add_attested_blocks_at_slots(genesis_state, &slots, &all_validators)
+        .await;
+
+    let epoch = missed_slot.epoch(E::slots_per_epoch());
+    let missed_proposer = head_state
+        .get_beacon_proposer_indices(epoch, &harness.chain.spec)
+        .unwrap()[missed_slot.as_usize() % slots_per_epoch];
+
+    // Prime the proposer cache so that missed block detection can resolve the proposer.
+    let decision_root = head_state
+        .proposer_shuffling_decision_root_at_epoch(
+            epoch,
+            harness.head_block_root(),
+            &harness.chain.spec,
+        )
+        .unwrap();
+    let proposers = head_state
+        .get_beacon_proposer_indices(epoch, &harness.chain.spec)
+        .unwrap();
+    harness
+        .chain
+        .beacon_proposer_cache
+        .lock()
+        .insert(epoch, decision_root, proposers, head_state.fork())
+        .unwrap();
+
+    // Only start monitoring now, so that building the chain above cannot have recorded the missed
+    // block already.
+    {
+        let mut vm_write = validator_monitor.write();
+        vm_write.process_valid_state(
+            head_state.current_epoch(),
+            &head_state,
+            &harness.chain.spec,
+            true,
+        );
+        vm_write.add_validator_pubkey(KEYPAIRS[missed_proposer].pk.compress());
+    }
+
+    let next_slot = tip_slot + 1u64;
+
+    // A side chain block at `next_slot` skips `missed_slot` as well, but must not report it.
+    let fork_state = harness
+        .get_hot_state(state_roots_by_slot[&fork_slot])
+        .unwrap();
+    harness
+        .add_block_at_slot(next_slot, fork_state)
+        .await
+        .expect("side chain block should import");
+    assert_eq!(
+        validator_monitor
+            .read()
+            .get_monitored_validator_missed_block_count(missed_proposer as u64),
+        0,
+        "the side chain block must not report the missed block"
+    );
+
+    // The canonical block at the same slot covers the missed slot, so it must report it.
+    harness
+        .add_block_at_slot(next_slot, head_state.clone())
+        .await
+        .expect("canonical block should import");
+    assert_eq!(
+        validator_monitor
+            .read()
+            .get_monitored_validator_missed_block_count(missed_proposer as u64),
+        1,
+        "a later canonical block must still report the missed block"
+    );
 }

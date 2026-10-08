@@ -478,11 +478,15 @@ impl<E: EthSpec> ValidatorMonitor<E> {
 
     /// Reads information from the given `state`. The `state` *must* be valid (i.e, able to be
     /// imported).
+    ///
+    /// `block_is_canonical` must be `true` if the block that produced `state` is on the canonical
+    /// chain. Only canonical states may be used for missed block detection (issue #8080).
     pub fn process_valid_state(
         &mut self,
         current_epoch: Epoch,
         state: &BeaconState<E>,
         spec: &ChainSpec,
+        block_is_canonical: bool,
     ) {
         // Start after known indices without walking the entire registry. A shorter fork can have
         // fewer validators than we have already indexed, in which case there is nothing to add.
@@ -497,8 +501,10 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             }
         }
 
-        // Add missed non-finalized blocks for the monitored validators
-        self.add_validators_missed_blocks(state, spec);
+        // Add missed non-finalized blocks for the monitored validators (canonical states only).
+        if block_is_canonical {
+            self.add_validators_missed_blocks(state, spec);
+        }
         self.process_unaggregated_attestations(state, spec);
 
         // Update metrics for individual validators.
@@ -2191,14 +2197,14 @@ mod tests {
             );
             assert!(!monitor.auto_register);
             assert_eq!(monitor.num_validators(), 0);
-            monitor.process_valid_state(Epoch::new(0), &state, &spec);
+            monitor.process_valid_state(Epoch::new(0), &state, &spec, true);
             assert!(monitor.indices.is_empty());
 
             for validator in &validators[..32] {
                 state.validators_mut().push(validator.clone()).unwrap();
             }
             state.validators_mut().apply_updates().unwrap();
-            monitor.process_valid_state(Epoch::new(0), &state, &spec);
+            monitor.process_valid_state(Epoch::new(0), &state, &spec, true);
             assert_eq!(monitor.indices.len(), 32);
             assert_eq!(monitor.num_validators(), 0);
 
@@ -2212,7 +2218,7 @@ mod tests {
             state.validators_mut().push(validators[31].clone()).unwrap();
             state.validators_mut().get_mut(32).unwrap().pubkey = validators[32].pubkey;
             assert!(state.validators().has_pending_updates());
-            monitor.process_valid_state(Epoch::new(0), &state, &spec);
+            monitor.process_valid_state(Epoch::new(0), &state, &spec, true);
             assert_eq!(monitor.validators[&validators[32].pubkey].index, Some(32));
             let expected_indices = validators
                 .iter()
@@ -2223,7 +2229,7 @@ mod tests {
 
             // A shorter registry must still update the monitored validators' balances.
             *shorter_state.balances_mut().get_mut(31).unwrap() = 123;
-            monitor.process_valid_state(Epoch::new(0), &shorter_state, &spec);
+            monitor.process_valid_state(Epoch::new(0), &shorter_state, &spec, true);
             assert_eq!(monitor.indices, expected_indices);
             assert_eq!(
                 monitor.validators[&validators[31].pubkey].get_total_balance(Epoch::new(0)),
@@ -2231,7 +2237,7 @@ mod tests {
             );
 
             state.validators_mut().apply_updates().unwrap();
-            monitor.process_valid_state(Epoch::new(0), &state, &spec);
+            monitor.process_valid_state(Epoch::new(0), &state, &spec, true);
             assert_eq!(monitor.indices, expected_indices);
             assert_eq!(
                 monitor.validators[&validators[31].pubkey].get_total_balance(Epoch::new(0)),
