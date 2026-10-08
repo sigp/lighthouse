@@ -437,24 +437,25 @@ async fn post_bellatrix_readiness_logging<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) {
     if let Some(fork) = find_next_fork_to_prepare(current_slot, beacon_chain) {
-        let Some(el) = beacon_chain.execution_layer.as_ref() else {
-            return;
-        };
-        let readiness = match el
-            .get_engine_capabilities(Some(Duration::from_secs(
-                ENGINE_CAPABILITIES_REFRESH_INTERVAL,
-            )))
-            .await
-        {
-            Err(e) => Err(format!("Exchange capabilities failed: {e:?}")),
-            Ok(capabilities) => {
-                let missing_methods = methods_required_for_fork(fork, capabilities);
-                if missing_methods.is_empty() {
-                    Ok(())
-                } else {
-                    Err(format!("Missing required methods: {missing_methods:?}"))
+        let readiness = if let Some(el) = beacon_chain.execution_layer.as_ref() {
+            match el
+                .get_engine_capabilities(Some(Duration::from_secs(
+                    ENGINE_CAPABILITIES_REFRESH_INTERVAL,
+                )))
+                .await
+            {
+                Err(e) => Err(format!("Exchange capabilities failed: {e:?}")),
+                Ok(capabilities) => {
+                    let missing_methods = methods_required_for_fork(fork, capabilities);
+                    if missing_methods.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(format!("Missing required methods: {missing_methods:?}"))
+                    }
                 }
             }
+        } else {
+            return;
         };
 
         if let Err(readiness) = readiness {
