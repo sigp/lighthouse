@@ -1,11 +1,14 @@
 mod execution_status;
 mod ffg_updates;
+mod filter_optimistic_payloads;
 mod gloas_payload;
 mod no_votes;
 mod votes;
 
 use crate::error::Error;
-use crate::proto_array_fork_choice::{Block, ExecutionStatus, PayloadStatus, ProtoArrayForkChoice};
+use crate::proto_array_fork_choice::{
+    Block, ExecutionStatus, ExecutionVerdict, ForkChoiceNode, PayloadStatus, ProtoArrayForkChoice,
+};
 use crate::{InvalidationOperation, JustifiedBalances, ParentPayloadStatus};
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
@@ -19,6 +22,7 @@ use types::{
 
 pub use execution_status::*;
 pub use ffg_updates::*;
+pub use filter_optimistic_payloads::*;
 pub use gloas_payload::*;
 pub use no_votes::*;
 pub use votes::*;
@@ -110,9 +114,21 @@ pub enum Operation {
     ProcessExecutionPayloadEnvelope {
         block_root: Hash256,
     },
+    /// Like `ProcessExecutionPayloadEnvelope`, but the payload is unverified.
+    ProcessOptimisticExecutionPayloadEnvelope {
+        block_root: Hash256,
+    },
     AssertPayloadReceived {
         block_root: Hash256,
         expected: bool,
+    },
+    AssertExecutionVerdict {
+        block_root: Hash256,
+        payload_status: PayloadStatus,
+        expected: ExecutionVerdict,
+    },
+    SetFilterOptimisticPayloads {
+        enabled: bool,
     },
     AssertPayloadStatusByWeight {
         block_root: Hash256,
@@ -589,6 +605,42 @@ impl ForkChoiceTestDefinition {
                         });
                     check_bytes_round_trip(&fork_choice);
                 }
+                Operation::ProcessOptimisticExecutionPayloadEnvelope { block_root } => {
+                    fork_choice
+                        .on_payload_envelope_received(
+                            block_root,
+                            ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
+                        )
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "on_execution_payload op at index {} returned error: {}",
+                                op_index, e
+                            )
+                        });
+                    check_bytes_round_trip(&fork_choice);
+                }
+                Operation::AssertExecutionVerdict {
+                    block_root,
+                    payload_status,
+                    expected,
+                } => {
+                    let verdict = fork_choice
+                        .get_node_execution_status(ForkChoiceNode::new(block_root, payload_status))
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "execution verdict at index {} returned error: {:?}",
+                                op_index, e
+                            )
+                        });
+                    assert_eq!(
+                        verdict, expected,
+                        "Operation at index {} failed. Operation: {:?}",
+                        op_index, op
+                    );
+                }
+                Operation::SetFilterOptimisticPayloads { enabled } => {
+                    fork_choice.set_filter_optimistic_payloads(enabled);
+                }
                 Operation::AssertPayloadReceived {
                     block_root,
                     expected,
@@ -701,8 +753,10 @@ fn assert_canonical_payload_status_matches_find_head(
 
 fn check_bytes_round_trip(original: &ProtoArrayForkChoice) {
     let bytes = original.as_bytes();
-    let decoded = ProtoArrayForkChoice::from_bytes(&bytes, original.balances.clone())
+    let mut decoded = ProtoArrayForkChoice::from_bytes(&bytes, original.balances.clone())
         .expect("fork choice should decode from bytes");
+    // Not persisted.
+    decoded.set_filter_optimistic_payloads(original.core_proto_array().filter_optimistic_payloads);
     assert!(
         *original == decoded,
         "fork choice should encode and decode without change"
