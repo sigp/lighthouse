@@ -29,7 +29,8 @@ use crate::{EngineCapabilities, ForkchoiceState, JsonRpcCapabilities, PayloadAtt
 pub use execution_block_generator::DEFAULT_GAS_LIMIT;
 pub use execution_block_generator::{
     Block, ExecutionBlockGenerator, generate_blobs, generate_genesis_block,
-    generate_genesis_header, generate_pow_block, mock_el_extra_data, static_valid_tx,
+    generate_genesis_header, generate_pow_block, load_test_blob_cells, mock_el_extra_data,
+    static_valid_tx,
 };
 pub use hook::Hook;
 pub use mock_builder::{MockBuilder, Operation, mock_builder_extra_data};

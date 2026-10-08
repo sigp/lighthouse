@@ -5,11 +5,12 @@ use execution_layer::json_structures::*;
 use execution_layer::ssz_structures::*;
 use execution_layer::test_utils::*;
 use execution_layer::*;
-use ssz_types::VariableList;
+use ssz_types::{ProgressiveVariableList, VariableList};
 use types::{
-    EthSpec, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionRequestsElectra, ForkName, Hash256,
-    MainnetEthSpec, Transactions, Uint256,
+    BlockAccessList, EthSpec, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
+    ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+    ExecutionRequestsElectra, ExecutionRequestsGloas, ForkName, Hash256, MainnetEthSpec,
+    ProgressiveTransactions, Transactions, Uint256,
 };
 
 /// EthSpec used across the benchmarks.
@@ -23,11 +24,36 @@ pub const TX_COUNT_SWEEP: [usize; 3] = [10, 150, 500];
 pub const DEFAULT_BUNDLE_BLOB_COUNT: usize = 6;
 /// Bodies per getPayloadBodies response.
 pub const DEFAULT_BODIES_COUNT: usize = 32;
+/// Block access list size (EIP-7928, Gloas+). The BAL is opaque bytes on both wires, so its size
+/// is ours to choose; tens of KB is the order a full mainnet block is expected to carry.
+pub const DEFAULT_BAL_BYTES: usize = 32 * 1024;
+/// BAL scaling sweep. The zero point is the useful one: it isolates the Gloas progressive-list
+/// framing from the BAL itself, the way the Capella -> Deneb step isolates blobs.
+pub const BAL_BYTE_SWEEP: [usize; 3] = [0, 32 * 1024, 128 * 1024];
+/// Cells per blob in a `/blobs/v4` response: the PeerDAS reconstruction threshold
+/// (`CellsPerExtBlob / 2`), i.e. the largest single fetch a reconstructing node would make.
+pub const DEFAULT_V4_CELL_COUNT: usize = 64;
 
 /// `n_txs` copies of a real, valid transaction.
 fn transactions(n_txs: usize) -> Transactions<E> {
     let tx = static_valid_tx::<E>().expect("static valid tx");
     vec![tx; n_txs].try_into().expect("transactions within cap")
+}
+
+/// `n_txs` copies of a real, valid transaction, in the Gloas progressive container.
+fn progressive_transactions(n_txs: usize) -> ProgressiveTransactions {
+    let tx = static_valid_tx::<E>().expect("static valid tx");
+    let tx = ProgressiveVariableList::new(tx.to_vec()).expect("tx bytes");
+    ProgressiveVariableList::new(vec![tx; n_txs]).expect("transactions")
+}
+
+/// An opaque EIP-7928 block access list of `n_bytes`.
+///
+/// The contents are deterministic filler. Only the length moves the numbers: SSZ memcpys the blob
+/// and JSON hex-encodes it at two chars per byte, neither of which looks at the values.
+fn block_access_list(n_bytes: usize) -> BlockAccessList {
+    let bytes = (0..n_bytes).map(|i| (i % 251) as u8).collect();
+    ProgressiveVariableList::new(bytes).expect("block access list")
 }
 
 pub fn bellatrix_execution_payload(n_txs: usize) -> ExecutionPayloadBellatrix<E> {
@@ -62,6 +88,15 @@ pub fn electra_execution_payload(n_txs: usize) -> ExecutionPayloadElectra<E> {
 pub fn fulu_execution_payload(n_txs: usize) -> ExecutionPayloadFulu<E> {
     ExecutionPayloadFulu {
         transactions: transactions(n_txs),
+        ..Default::default()
+    }
+}
+
+/// A Gloas execution payload: progressive tx/withdrawal containers plus an `n_bal_bytes` BAL.
+pub fn gloas_execution_payload(n_txs: usize, n_bal_bytes: usize) -> ExecutionPayloadGloas<E> {
+    ExecutionPayloadGloas {
+        transactions: progressive_transactions(n_txs),
+        block_access_list: block_access_list(n_bal_bytes),
         ..Default::default()
     }
 }
@@ -156,6 +191,26 @@ pub fn electra_new_payload(
         execution_requests: &requests,
     };
     let ssz = SszExecutionPayloadEnvelopeElectra::try_from(request).expect("ssz envelope");
+
+    NewPayloadFixture { ssz, json }
+}
+
+pub fn gloas_new_payload(
+    n_txs: usize,
+    n_bal_bytes: usize,
+) -> NewPayloadFixture<SszExecutionPayloadEnvelopeGloas<E>, JsonExecutionPayloadGloas<E>> {
+    let payload = gloas_execution_payload(n_txs, n_bal_bytes);
+    let requests = ExecutionRequestsGloas::<E>::default();
+
+    let json = payload.clone().try_into().expect("json payload");
+
+    let request = NewPayloadRequestGloas {
+        execution_payload: &payload,
+        versioned_hashes: vec![],
+        parent_beacon_block_root: Hash256::default(),
+        execution_requests: &requests,
+    };
+    let ssz = SszExecutionPayloadEnvelopeGloas::try_from(request).expect("ssz envelope");
 
     NewPayloadFixture { ssz, json }
 }
@@ -270,6 +325,31 @@ pub fn electra_get_payload(
     GetPayloadFixture { ssz, json }
 }
 
+pub fn gloas_get_payload(
+    n_txs: usize,
+    n_blobs: usize,
+    n_bal_bytes: usize,
+) -> GetPayloadFixture<JsonGetPayloadResponseGloas<E>> {
+    let (blobs_bundle, _) = generate_blobs::<E>(n_blobs, ForkName::Gloas).expect("blobs bundle");
+
+    let response = GetPayloadResponse::Gloas(GetPayloadResponseGloas {
+        execution_payload: gloas_execution_payload(n_txs, n_bal_bytes),
+        block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+        blobs_bundle,
+        should_override_builder: false,
+        requests: ExecutionRequestsGloas::<E>::default(),
+    });
+
+    let ssz = SszGetPayloadResponse::try_from(response.clone()).expect("ssz get_payload");
+    let JsonGetPayloadResponse::Gloas(json) =
+        JsonGetPayloadResponse::try_from(response).expect("json get_payload")
+    else {
+        unreachable!("gloas response yields gloas json")
+    };
+
+    GetPayloadFixture { ssz, json }
+}
+
 pub struct BlobsFixture {
     pub ssz: SszBlobsResponseV2<E>,
     pub json_v2: Vec<BlobAndProofV2<E>>,
@@ -316,12 +396,69 @@ pub fn fulu_blobs(n_blobs: usize) -> BlobsFixture {
     }
 }
 
-pub struct BodiesFixture<S> {
-    pub ssz: S,
-    pub json: Vec<Option<JsonExecutionPayloadBodyV1<E>>>,
+/// Paired SSZ/JSON wire objects for a `/blobs/v4` response (decode-focus).
+///
+/// v4 is cell-level, not blob-level: a reconstructing node asks for the cells it is missing, so the
+/// response carries `n_cells` cells and their KZG cell proofs per blob rather than whole blobs.
+pub struct BlobsV4Fixture {
+    pub ssz: SszBlobsResponseV4<E>,
+    pub json: GetBlobsV4List<E>,
 }
 
-pub fn fulu_bodies(n_bodies: usize, n_txs: usize) -> BodiesFixture<SszBodiesResponseV2<E>> {
+pub fn gloas_blobs_v4(n_blobs: usize, n_cells: usize) -> BlobsV4Fixture {
+    let (bundle, _) = generate_blobs::<E>(n_blobs, ForkName::Gloas).expect("blobs bundle");
+    let cells = load_test_blob_cells::<E>().expect("test blob cells");
+    let cells_per_blob = E::cells_per_ext_blob();
+    assert!(
+        n_cells <= cells_per_blob,
+        "n_cells exceeds cells per ext blob"
+    );
+
+    let contents: Vec<BlobCellsAndProofsV1<E>> = (0..n_blobs)
+        .map(|i| {
+            let start = i * cells_per_blob;
+            let proofs = bundle
+                .proofs
+                .get(start..start + n_cells)
+                .expect("cell proofs present");
+            BlobCellsAndProofsV1 {
+                blob_cells: cells
+                    .iter()
+                    .take(n_cells)
+                    .cloned()
+                    .map(|cell| Some(JsonCell(cell)))
+                    .collect(),
+                proofs: proofs.iter().copied().map(Some).collect(),
+            }
+        })
+        .collect();
+
+    let entries = contents
+        .iter()
+        .cloned()
+        .map(|contents| BlobsEntryV4 {
+            available: true,
+            contents: SszBlobCellsAndProofs::try_from(contents).expect("ssz cells and proofs"),
+        })
+        .collect::<Vec<_>>();
+    let ssz = SszBlobsResponseV4 {
+        entries: VariableList::new(entries).expect("entries within cap"),
+    };
+
+    let json = contents.into_iter().map(Some).collect();
+
+    BlobsV4Fixture { ssz, json }
+}
+
+pub struct BodiesFixture<S, J> {
+    pub ssz: S,
+    pub json: J,
+}
+
+pub fn fulu_bodies(
+    n_bodies: usize,
+    n_txs: usize,
+) -> BodiesFixture<SszBodiesResponseV2<E>, Vec<Option<JsonExecutionPayloadBodyV1<E>>>> {
     let payload = fulu_execution_payload(n_txs);
     let body = ExecutionPayloadBodyV1 {
         transactions: payload.transactions.clone(),
@@ -345,7 +482,10 @@ pub fn fulu_bodies(n_bodies: usize, n_txs: usize) -> BodiesFixture<SszBodiesResp
     BodiesFixture { ssz, json }
 }
 
-pub fn bellatrix_bodies(n_bodies: usize, n_txs: usize) -> BodiesFixture<SszBodiesResponseV1<E>> {
+pub fn bellatrix_bodies(
+    n_bodies: usize,
+    n_txs: usize,
+) -> BodiesFixture<SszBodiesResponseV1<E>, Vec<Option<JsonExecutionPayloadBodyV1<E>>>> {
     let body = ExecutionPayloadBodyV1 {
         transactions: transactions(n_txs),
         withdrawals: None,
@@ -363,6 +503,39 @@ pub fn bellatrix_bodies(n_bodies: usize, n_txs: usize) -> BodiesFixture<SszBodie
 
     let json = (0..n_bodies)
         .map(|_| Some(JsonExecutionPayloadBodyV1::try_from(body.clone()).expect("json body")))
+        .collect();
+
+    BodiesFixture { ssz, json }
+}
+
+/// A Gloas (V3) bodies response.
+///
+/// The pairing here is forced, not chosen: `from_ssz_bytes_by_fork` maps Gloas to V3, and
+/// `into_bodies()` rejects V3, so the v1 engine method cannot serve a Gloas body at all. Only
+/// `get_payload_bodies_by_hash_v2` applies, whose JSON-RPC type is `JsonExecutionPayloadBodyV2`.
+pub fn gloas_bodies(
+    n_bodies: usize,
+    n_txs: usize,
+    n_bal_bytes: usize,
+) -> BodiesFixture<SszBodiesResponseV3<E>, Vec<Option<JsonExecutionPayloadBodyV2<E>>>> {
+    let body = ExecutionPayloadBodyV2::<E> {
+        transactions: progressive_transactions(n_txs),
+        withdrawals: Some(ProgressiveVariableList::empty()),
+        block_access_list: Some(block_access_list(n_bal_bytes)),
+    };
+
+    let entries = (0..n_bodies)
+        .map(|_| SszBodyEntryV3 {
+            available: true,
+            body: SszExecutionPayloadBodyV3::try_from(body.clone()).expect("ssz body"),
+        })
+        .collect::<Vec<_>>();
+    let ssz = SszBodiesResponseV3 {
+        entries: VariableList::new(entries).expect("entries within cap"),
+    };
+
+    let json = (0..n_bodies)
+        .map(|_| Some(JsonExecutionPayloadBodyV2::try_from(body.clone()).expect("json body")))
         .collect();
 
     BodiesFixture { ssz, json }

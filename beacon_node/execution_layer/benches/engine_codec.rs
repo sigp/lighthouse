@@ -1,4 +1,4 @@
-//! Engine REST/SSZ vs JSON-RPC codec microbenchmarks (Paris -> Osaka).
+//! Engine REST/SSZ vs JSON-RPC codec microbenchmarks (Paris -> Amsterdam).
 //!
 //! Measures the pure serde cost (encode/decode) of the engine API wire formats,
 //! isolated from HTTP, auth, EL execution and network.
@@ -105,6 +105,20 @@ fn bench_new_payload(c: &mut Criterion) {
         fixture.json,
         JsonExecutionPayloadFulu<E>
     );
+
+    // Gloas sweeps the BAL instead of the tx count: the block access list is the one genuinely new
+    // thing on the Amsterdam wire, and at 0 bytes the group isolates the progressive-list framing.
+    for &n_bal in &BAL_BYTE_SWEEP {
+        let fixture = gloas_new_payload(DEFAULT_TX_COUNT, n_bal);
+        transport_group!(
+            c,
+            format!("newPayload_gloas_bal{}KiB", n_bal / 1024),
+            fixture.ssz,
+            |b: &[u8]| SszExecutionPayloadEnvelopeGloas::<E>::from_ssz_bytes(b).unwrap(),
+            fixture.json,
+            JsonExecutionPayloadGloas<E>
+        );
+    }
 }
 
 fn bench_get_payload(c: &mut Criterion) {
@@ -163,6 +177,20 @@ fn bench_get_payload(c: &mut Criterion) {
             JsonGetPayloadResponseFulu<E>
         );
     }
+
+    let fixture = gloas_get_payload(
+        DEFAULT_TX_COUNT,
+        DEFAULT_BUNDLE_BLOB_COUNT,
+        DEFAULT_BAL_BYTES,
+    );
+    transport_group!(
+        c,
+        "getPayload_gloas",
+        fixture.ssz,
+        |b: &[u8]| SszGetPayloadResponse::<E>::from_ssz_bytes_by_fork(b, ForkName::Gloas).unwrap(),
+        fixture.json,
+        JsonGetPayloadResponseGloas<E>
+    );
 }
 
 fn bench_get_blobs(c: &mut Criterion) {
@@ -182,6 +210,19 @@ fn bench_get_blobs(c: &mut Criterion) {
         |b: &[u8]| SszBlobsResponse::<E>::from_ssz_bytes(b).unwrap(),
         fixture.json_v3,
         Vec<BlobAndProofV3<E>>
+    );
+
+    let fixture = gloas_blobs_v4(DEFAULT_BUNDLE_BLOB_COUNT, DEFAULT_V4_CELL_COUNT);
+    transport_group!(
+        c,
+        "getBlobs_v4_gloas",
+        fixture.ssz,
+        // The concrete V4 type, not the `SszBlobsResponse` enum: a transparent-union decode would
+        // try V2 first and charge us for an attempt production never makes (`rest.rs` reaches for
+        // `SszBlobsResponseV4::from_ssz_bytes` directly).
+        |b: &[u8]| SszBlobsResponseV4::<E>::from_ssz_bytes(b).unwrap(),
+        fixture.json,
+        GetBlobsV4List<E>
     );
 }
 
@@ -204,6 +245,16 @@ fn bench_get_payload_bodies(c: &mut Criterion) {
         |b: &[u8]| SszBodiesResponse::<E>::from_ssz_bytes_by_fork(b, ForkName::Fulu).unwrap(),
         fixture.json,
         Vec<Option<JsonExecutionPayloadBodyV1<E>>>
+    );
+
+    let fixture = gloas_bodies(DEFAULT_BODIES_COUNT, DEFAULT_TX_COUNT, DEFAULT_BAL_BYTES);
+    transport_group!(
+        c,
+        "getPayloadBodies_gloas",
+        fixture.ssz,
+        |b: &[u8]| SszBodiesResponse::<E>::from_ssz_bytes_by_fork(b, ForkName::Gloas).unwrap(),
+        fixture.json,
+        Vec<Option<JsonExecutionPayloadBodyV2<E>>>
     );
 }
 
