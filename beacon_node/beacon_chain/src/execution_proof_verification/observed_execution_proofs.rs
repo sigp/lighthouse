@@ -1,4 +1,4 @@
-//! Provides the `ObservedExecutionProofs` struct which allows for ignoring `SignedExecutionProof`s
+//! Provides the `ObservedExecutionProofs` struct which allows for ignoring `SignedExecutionProofEnvelope`s
 //! that we have already seen over the gossip network.
 //! Only proofs that have completed signature verification can be added to this cache to reduce
 //! DoS risks.
@@ -108,6 +108,13 @@ impl ObservedExecutionProofs {
         if let Some(entry) = self.items.get_mut(&block_root) {
             entry.valid_proof_types.insert(proof_type);
         }
+    }
+
+    /// Number of distinct proof types with a valid proof for `block_root`.
+    pub fn valid_proof_count(&self, block_root: &Hash256) -> usize {
+        self.items
+            .get(block_root)
+            .map_or(0, |entry| entry.valid_proof_types.len())
     }
 
     /// Prune all entries for slots at or below `finalized_slot`.

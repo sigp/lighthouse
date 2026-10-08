@@ -7,7 +7,7 @@
 //! 406/415 negotiation) into an opaque status code. The pre-Gloas builder client still uses
 //! `eth2::Error`.
 
-use eth2::types::{BuilderUrlError, ErrorMessage};
+use eth2::types::{BuilderUrlError, ErrorMessage, ForkName};
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Response, StatusCode};
 use sensitive_url::SensitiveUrl;
@@ -32,6 +32,11 @@ pub enum Error {
     InvalidSsz(ssz::DecodeError),
     /// Request headers could not be constructed.
     InvalidHeaders(String),
+    /// The builder returned a bid for a different fork than the one requested.
+    InvalidFork {
+        expected: ForkName,
+        received: ForkName,
+    },
 }
 
 impl From<reqwest::Error> for Error {
@@ -59,6 +64,9 @@ impl fmt::Display for Error {
             Error::InvalidJson(e) => write!(f, "invalid JSON response: {e}"),
             Error::InvalidSsz(e) => write!(f, "invalid SSZ response: {e:?}"),
             Error::InvalidHeaders(e) => write!(f, "invalid response headers: {e}"),
+            Error::InvalidFork { expected, received } => {
+                write!(f, "expected a {expected} bid, received a {received} bid")
+            }
         }
     }
 }

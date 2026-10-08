@@ -35,7 +35,7 @@ use crate::envelope_times_cache::EnvelopeTimesCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
-use crate::execution_proof_verification::{GossipVerifiedExecutionProof, ObservedExecutionProofs};
+use crate::execution_proof_verification::ObservedExecutionProofs;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
 use crate::inclusion_list_store::{DependentRoot, InclusionListStore};
@@ -1768,8 +1768,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
             .map_err(Error::IncorrectStateForAttestation)?;
 
-        let dependent_root =
-            state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?;
+        let dependent_root = if self.spec.gloas_fork_epoch == Some(epoch) {
+            let decision_slot = epoch
+                .start_slot(T::EthSpec::slots_per_epoch())
+                .saturating_sub(1_u64);
+            if state.slot() == decision_slot {
+                dependent_block_root
+            } else {
+                *state.get_block_root(decision_slot)?
+            }
+        } else {
+            state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?
+        };
 
         let pubkey_cache = self.validator_pubkey_cache.read();
 
@@ -3925,7 +3935,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .message()
                         .body()
                         .signed_execution_payload_bid()?
-                        .clone(),
+                        .clone_as_signed_execution_payload_bid(),
                 );
                 chain.pending_payload_cache.insert_bid(block_root, bid);
             }
@@ -4228,23 +4238,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .process_availability(slot, availability, || Ok(()))
                 .await?)
         }
-    }
-
-    /// Caches an execution proof, importing the payload envelope if that was the last piece.
-    pub async fn check_execution_proof_availability_and_import(
-        self: &Arc<Self>,
-        verified_proof: GossipVerifiedExecutionProof,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        let GossipVerifiedExecutionProof { proof, block_slot } = verified_proof;
-        let bid = self
-            .get_or_load_gloas_payload_bid(proof.beacon_block_root())
-            .await?;
-        let availability = self
-            .pending_payload_cache
-            .put_execution_proof(proof, &bid)
-            .map_err(BlockError::from)?;
-        self.process_payload_envelope_availability(block_slot, availability, || Ok(()))
-            .await
     }
 
     /// Load a persisted Gloas bid without blocking the async runtime.
@@ -6759,14 +6752,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // if no matching entry is found. This saves recomputing the withdrawals which can take
         // considerable time to compute if a state load is required.
         let head_root = forkchoice_update_params.head_root;
+        let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
         let payload_attributes = if let Some(payload_attributes) = execution_layer
             .payload_attributes(prepare_slot, head_root, head_payload_status)
             .await
         {
             payload_attributes
         } else {
-            let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
-
             let withdrawals = if prepare_slot_fork.capella_enabled() {
                 let chain = self.clone();
                 self.spawn_blocking_handle(
@@ -6862,6 +6854,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = &self.event_handler
             && event_handler.has_payload_attributes_subscribers()
         {
+            let (safe_block_hash, finalized_block_hash) = if prepare_slot_fork.gloas_enabled() {
+                (
+                    Some(
+                        forkchoice_update_params
+                            .justified_hash
+                            .unwrap_or_else(ExecutionBlockHash::zero),
+                    ),
+                    Some(
+                        forkchoice_update_params
+                            .finalized_hash
+                            .unwrap_or_else(ExecutionBlockHash::zero),
+                    ),
+                )
+            } else {
+                (None, None)
+            };
+
             event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
                 data: SseExtendedPayloadAttributes {
                     proposal_slot: prepare_slot,
@@ -6871,6 +6880,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .parent_block_number
                         .map(|value| Quoted { value }),
                     parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
+                    safe_block_hash,
+                    finalized_block_hash,
                     payload_attributes: payload_attributes.into(),
                 },
                 metadata: Default::default(),
@@ -6999,6 +7010,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match forkchoice_updated_response {
             Ok(status) => match status {
                 PayloadStatus::Valid => {
+                    // EIP-8025: only the proofs promote a payload to valid.
+                    if self.execution_proofs_enabled() {
+                        return Ok(());
+                    }
+
                     // Ensure that fork choice knows that the payload is no longer optimistic. The
                     // EL judged `head_hash`, which for a Gloas head on its `EMPTY` node is an
                     // ancestor's payload, not the head block's.

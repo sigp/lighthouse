@@ -26,7 +26,10 @@ pub use execution_payload::{
     ExecutionPayloadHeze, ExecutionPayloadRef, ProgressiveTransactions, ProgressiveWithdrawals,
     Transaction, Transactions, TransactionsIter, TransactionsRef, WithdrawalsRef,
 };
-pub use execution_payload_bid::ExecutionPayloadBid;
+pub use execution_payload_bid::{
+    ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
+    ExecutionPayloadBidRefMut,
+};
 pub use execution_payload_envelope::ExecutionPayloadEnvelope;
 pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
@@ -34,8 +37,8 @@ pub use execution_payload_header::{
     ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
 pub use execution_proof::{
-    ExecutionProof, MAX_PROOF_SIZE, MaxProofSize, ProofData, ProofType, PublicInput,
-    SignedExecutionProof,
+    ExecutionProof, ExecutionProofEnvelope, MAX_PROOF_SIZE, MaxProofSize, ProofData, ProofType,
+    PublicInput, STATELESS_INPUT_SCHEMA_ID, SignedExecutionProofEnvelope,
 };
 pub use execution_requests::{
     BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
@@ -48,10 +51,13 @@ pub use payload::{
     BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, BlindedPayloadRef,
     BlockProductionVersion, BlockType, ExecPayload, FullPayload, FullPayloadBellatrix,
     FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu, FullPayloadRef,
-    OwnedExecPayload,
+    NewPayloadRequest, OwnedExecPayload, VersionedHashes,
 };
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
-pub use signed_execution_payload_bid::SignedExecutionPayloadBid;
+pub use signed_execution_payload_bid::{
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+    SignedExecutionPayloadBidRef,
+};
 pub use signed_execution_payload_envelope::{
     ExecutionPayloadBody, ExecutionPayloadHeaderGloas, SignedExecutionPayloadEnvelope,
     SignedExecutionPayloadEnvelopeSummary,
