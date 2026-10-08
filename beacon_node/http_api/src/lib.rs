@@ -1451,6 +1451,58 @@ pub async fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET beacon/proposer_preferences?slot,dependent_root
+    let get_beacon_proposer_preferences =
+        eth_v1
+            .clone()
+            .and(warp::path("beacon"))
+            .and(warp::path("proposer_preferences"))
+            .and(warp::path::end())
+            .and(warp::query::<api_types::ProposerPreferencesQuery>())
+            .and(task_spawner_filter.clone())
+            .and(chain_filter.clone())
+            .and(warp::header::optional::<api_types::Accept>("accept"))
+            .then(
+                |query: api_types::ProposerPreferencesQuery,
+                 task_spawner: TaskSpawner<T::EthSpec>,
+                 chain: Arc<BeaconChain<T>>,
+                 accept_header: Option<api_types::Accept>| {
+                    task_spawner.blocking_response_task(Priority::P1, move || {
+                        let preferences = chain
+                            .gossip_verified_proposer_preferences_cache
+                            .get_filtered_preferences(query.slot, query.dependent_root);
+
+                        let current_slot = chain.slot_clock.now().ok_or(
+                            warp_utils::reject::custom_server_error(
+                                "unable to read slot clock".to_string(),
+                            ),
+                        )?;
+                        let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(current_slot);
+
+                        match accept_header {
+                            Some(api_types::Accept::Ssz) => Builder::new()
+                                .status(200)
+                                .body(preferences.as_ssz_bytes())
+                                .map(add_ssz_content_type_header)
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_server_error(format!(
+                                        "failed to create response: {}",
+                                        e
+                                    ))
+                                }),
+                            _ => {
+                                let res = beacon_response(
+                                    ResponseIncludesVersion::Yes(fork_name),
+                                    &preferences,
+                                );
+                                Ok(warp::reply::json(&res).into_response())
+                            }
+                        }
+                        .map(|resp| add_consensus_version_header(resp, fork_name))
+                    })
+                },
+            );
+
     /*
      * beacon/pool
      */
@@ -3434,6 +3486,7 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_block_root)
                 .uor(get_blob_sidecars)
                 .uor(get_blobs)
+                .uor(get_beacon_proposer_preferences)
                 .uor(get_beacon_execution_payload_envelopes)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)
