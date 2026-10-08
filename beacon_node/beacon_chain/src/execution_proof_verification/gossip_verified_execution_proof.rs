@@ -5,11 +5,14 @@ use crate::data_column_verification::load_gloas_payload_bid;
 use crate::execution_proof_verification::observed_execution_proofs::{
     ObservedExecutionProofs, ProofObservation,
 };
+use crate::metrics;
 use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
+use crate::validator_monitor::get_slot_delay_ms;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use parking_lot::RwLock;
 use proof_engine::{ProofEngine, ProofVerificationOutcome};
+use slot_clock::timestamp_now;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
@@ -186,6 +189,16 @@ impl GossipVerifiedExecutionProof {
             ProofVerificationOutcome::Invalid => return Err(Error::InvalidProof),
             ProofVerificationOutcome::Valid => {}
         }
+
+        metrics::inc_counter_vec(
+            &metrics::EXECUTION_PROOF_VERIFIED,
+            &[&proof_type.to_string()],
+        );
+        metrics::observe_vec(
+            &metrics::EXECUTION_PROOF_VERIFICATION_LAG,
+            &[&proof_type.to_string()],
+            get_slot_delay_ms(timestamp_now(), block_slot, &ctx.chain.slot_clock).as_secs_f64(),
+        );
 
         ctx.observed_execution_proofs
             .write()

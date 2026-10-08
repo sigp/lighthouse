@@ -7853,6 +7853,7 @@ dependencies = [
 name = "proof_engine"
 version = "0.1.0"
 dependencies = [
+ "metrics",
  "reqwest 0.12.28",
  "sensitive_url",
  "serde",

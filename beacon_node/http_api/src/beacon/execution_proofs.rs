@@ -68,7 +68,7 @@ async fn publish_execution_proofs<T: BeaconChainTypes>(
             .verify_execution_proof_for_gossip(proof.clone(), ProofSource::Http)
             .await
         {
-            Ok(_verified) => {
+            Ok(verified) => {
                 debug!(
                     %beacon_block_root,
                     proof_type,
@@ -77,7 +77,10 @@ async fn publish_execution_proofs<T: BeaconChainTypes>(
                 utils::publish_pubsub_message(network_tx, PubsubMessage::ExecutionProof(proof))?;
 
                 // This may be the proof the block's payload was waiting on.
-                if let Err(error) = chain.promote_payload_if_proven(beacon_block_root).await {
+                if let Err(error) = chain
+                    .promote_payload_if_proven(beacon_block_root, verified.block_slot)
+                    .await
+                {
                     warn!(
                         %beacon_block_root,
                         proof_type,

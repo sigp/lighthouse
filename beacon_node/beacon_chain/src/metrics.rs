@@ -50,6 +50,40 @@ pub static ENVELOPE_PROCESSING_DB_WRITE: LazyLock<Result<Histogram>> = LazyLock:
     )
 });
 /*
+ * Execution Proof Verification
+ */
+const EXECUTION_PROOF_LAG_BUCKETS: &[f64] = &[
+    2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 24.0, 36.0, 48.0, 60.0, 120.0, 300.0, 600.0,
+];
+pub static EXECUTION_PROOF_VERIFIED: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "execution_proof_verified_total",
+        "Count of execution proofs the proof engine accepted, per proof type",
+        &["proof_type"],
+    )
+});
+pub static EXECUTION_PROOF_VERIFICATION_LAG: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec_with_buckets(
+        "execution_proof_verification_lag_seconds",
+        "Seconds from the proven payload's slot start to its proof verifying, per proof type",
+        Ok(EXECUTION_PROOF_LAG_BUCKETS.to_vec()),
+        &["proof_type"],
+    )
+});
+pub static EXECUTION_PROOF_PROMOTIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "execution_proof_promotions_total",
+        "Count of payloads fork choice marked valid from execution proofs",
+    )
+});
+pub static EXECUTION_PROOF_PROMOTION_LAG: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "execution_proof_promotion_lag_seconds",
+        "Seconds from a payload's slot start to execution proofs marking it valid",
+        Ok(EXECUTION_PROOF_LAG_BUCKETS.to_vec()),
+    )
+});
+/*
  * Block Processing
  */
 pub static BLOCK_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
