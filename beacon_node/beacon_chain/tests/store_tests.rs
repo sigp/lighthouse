@@ -17,7 +17,7 @@ use beacon_chain::test_utils::{
     SyncCommitteeStrategy, fork_name_from_env, generate_data_column_indices_rand_order,
 };
 use beacon_chain::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ChainConfig, ChainDumpSnapshot,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
     beacon_proposer_cache::{
         compute_proposer_duties_from_head, ensure_state_can_determine_proposers_for_epoch,
@@ -2540,7 +2540,7 @@ async fn payload_attribute_withdrawals_use_head_summary_after_restart() {
             ..ChainConfig::default()
         })
         .build();
-    assert!(resumed.chain.head_snapshot().execution_envelope.is_none());
+    assert!(resumed.chain.head_snapshot().execution_envelope.is_some());
 
     let withdrawals = resumed
         .chain
@@ -4002,7 +4002,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
 
     let chain_config = ChainConfig {
         archive: true,
-        verify_envelope_payload_hash_in_backfill: false,
+        verify_envelope_payload_hash_on_cl: false,
         ..ChainConfig::default()
     };
 
@@ -4244,7 +4244,7 @@ async fn weak_subjectivity_sync_test(
         archive: checkpoint_slot == 0,
         // The mock EL produces synthetic execution block hashes which cannot survive a real
         // RLP block hash recompute.
-        verify_envelope_payload_hash_in_backfill: false,
+        verify_envelope_payload_hash_on_cl: false,
         ..ChainConfig::default()
     };
 
@@ -4377,19 +4377,15 @@ async fn weak_subjectivity_sync_test(
 
         info!(block_root = ?full_block_root, ?state_root, %slot, "Importing block from chain dump");
         beacon_chain.slot_clock.set_slot(slot.as_u64());
-        beacon_chain
-            .process_block(
-                full_block_root,
-                harness.build_range_sync_block_from_store_blobs(
-                    Some(block_root),
-                    Arc::new(full_block),
-                ),
-                NotifyExecutionLayer::Yes,
-                BlockImportSource::Lookup,
-                || Ok(()),
-            )
-            .await
-            .unwrap();
+        Box::pin(beacon_chain.process_block(
+            full_block_root,
+            harness.build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        ))
+        .await
+        .unwrap();
 
         // Store the envelope, its columns, and apply to fork choice.
         if let Some(envelope) = &snapshot.execution_envelope {
@@ -7896,16 +7892,14 @@ async fn bellatrix_produce_and_store_payloads() {
 }
 
 fn get_finalized_epoch_boundary_blocks(
-    dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
+    dump: &[ChainDumpSnapshot<MinimalEthSpec>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
         .collect()
 }
 
-fn get_blocks(
-    dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
-) -> HashSet<SignedBeaconBlockHash> {
+fn get_blocks(dump: &[ChainDumpSnapshot<MinimalEthSpec>]) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .map(|checkpoint| checkpoint.beacon_block_root.into())
         .collect()

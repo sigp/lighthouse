@@ -24,6 +24,7 @@ use crate::{
     payload_envelope_verification::{
         AvailabilityPendingExecutedEnvelope, ExecutionPendingEnvelope,
         load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
+        verify_envelope_payload_hash,
     },
     validator_monitor::get_slot_delay_ms,
 };
@@ -61,7 +62,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .message()
                 .body()
                 .signed_execution_payload_bid()?
-                .clone(),
+                .clone_as_signed_execution_payload_bid(),
         );
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
@@ -408,6 +409,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             snapshot.state_root,
             &self.spec,
         )?;
+
+        // EIP-8025: execution layer verifications must be done on the CL.
+        if self.execution_proofs_enabled() && self.config.verify_envelope_payload_hash_on_cl {
+            verify_envelope_payload_hash(&signed_envelope, &block)?;
+        }
 
         // Send to EL for verification
         let payload_notifier = PayloadNotifier::new(
