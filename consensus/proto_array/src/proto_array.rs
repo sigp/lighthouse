@@ -1630,7 +1630,10 @@ impl ProtoArray {
     fn has_full_node(&self, proto_node: &ProtoNode, optimistic: OptimisticPayloads) -> bool {
         proto_node.payload_received().is_ok_and(|received| received)
             && !proto_node.is_invalid()
-            && !(optimistic.is_filtered() && proto_node.is_optimistic())
+            && match optimistic {
+                OptimisticPayloads::Eligible => true,
+                OptimisticPayloads::Filtered => !proto_node.is_optimistic(),
+            }
     }
 
     /// Returns the canonical payload status of a block, matching the decision

@@ -595,13 +595,6 @@ impl OptimisticPayloads {
             Self::Eligible
         }
     }
-
-    pub fn is_filtered(&self) -> bool {
-        match self {
-            Self::Filtered => true,
-            Self::Eligible => false,
-        }
-    }
 }
 
 #[derive(PartialEq)]

@@ -385,8 +385,7 @@ pub struct ForkChoice<T, E> {
     /// Rejects attestations from the current or a future slot instead of queueing them, as the
     /// spec does. Always `false` in production.
     spec_test_mode: bool,
-    /// Whether an optimistic payload is eligible for head. Not persisted: it comes from the chain
-    /// config.
+    /// Not persisted: it comes from the chain config.
     optimistic_payloads: OptimisticPayloads,
     _phantom: PhantomData<E>,
 }
