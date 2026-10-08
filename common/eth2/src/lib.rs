@@ -34,7 +34,7 @@ use futures::Stream;
 #[cfg(feature = "events")]
 use futures_util::StreamExt;
 #[cfg(feature = "network")]
-use libp2p_identity::PeerId;
+use libp2p::PeerId;
 use reqwest::{
     Body, IntoUrl, RequestBuilder, Response, StatusCode, Url,
     header::{HeaderMap, HeaderValue},

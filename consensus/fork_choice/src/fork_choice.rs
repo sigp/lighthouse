@@ -762,6 +762,16 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
+    /// See `ProtoArrayForkChoice::process_execution_payload_validation_by_block_root`.
+    pub fn on_valid_execution_payload_by_block_root(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .process_execution_payload_validation_by_block_root(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
+    }
+
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
