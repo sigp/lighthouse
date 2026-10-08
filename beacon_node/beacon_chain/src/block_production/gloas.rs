@@ -283,9 +283,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .gossip_verified_proposer_preferences_cache
             .get_preferences(&produce_at_slot, dependent_root);
 
-        // The node's own inclusion list bits for the slot before the proposal
+        // The node's own inclusion list bits for the slot before the proposal.
         // This contains every stored list, both timely and untimely.
-        // The self-bid claims them and every external bid must cover them
+        // The self-bid claims them and every external bid must cover them.
         let local_inclusion_list_bits = self.local_inclusion_list_bits(&ctx).await;
 
         // Fire the direct builder fan-out concurrently with the local EL payload build: both only
@@ -1129,11 +1129,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Direct bids are requested only when there are configured builders to contact and the proposer
     /// submitted preferences to validate against (`proposer_preferences`, needed for a direct bid's
-    /// gas limit and fee recipient). From Heze, every external bid's `inclusion_list_bits` must also
-    /// cover `local_inclusion_list_bits`, the node's own view of the previous slot's inclusion lists.
-    /// Acquisition is best-effort: any direct
-    /// failure — including a missing builder service — is logged and skipped, never aborting block
-    /// production, which can still proceed on the local build and gossip bids.
+    /// gas limit and fee recipient). From Heze, every external bid's `inclusion_list_bits` must
+    /// also cover `local_inclusion_list_bits`, the node's own view of the previous slot's inclusion
+    /// lists. Acquisition is best-effort: any direct failure — including a missing builder service
+    /// — is logged and skipped, never aborting block production, which can still proceed on the
+    /// local build and gossip bids.
     async fn acquire_external_bid_candidates(
         self: &Arc<Self>,
         ctx: BidRequestContext,
@@ -1176,12 +1176,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 parent_block_root: ctx.parent_root,
             },
         ) {
-            // The gossip bid was validated against the head state at gossip time, with its inclusion
-            // list bits checked only against the timely lists; its builder's eligibility or coverage
-            // can go stale before production, and more inclusion lists can arrive. Re-check against the
-            // production state, drop the bid if it would now fail `per_block_processing`, and require
-            // its bits to cover every inclusion list the node holds now, so a stale gossip bid can't
-            // outrank a viable candidate and sink the whole proposal.
+            // The gossip bid was validated against the head state at gossip time, with its
+            // inclusion list bits checked only against the timely lists; its builder's eligibility
+            // or coverage can go stale before production, and more inclusion lists can arrive.
+            // Re-check against the production state, drop the bid if it would now fail
+            // `per_block_processing`, and require its bits to cover every inclusion list the node
+            // holds now, so a stale gossip bid can't outrank a viable candidate and sink the whole
+            // proposal.
             let result = verify_bid_state_conditions(gossip_bid.message(), state, &self.spec)
                 .and_then(|_| {
                     verify_bid_inclusion_list_bits(gossip_bid.message(), local_inclusion_list_bits)
@@ -1238,7 +1239,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// The node's own inclusion list bits for the `ctx.slot - 1` slot. Every inclusion list is
     /// considered, both timely and untimely. The bits are empty before Heze, and empty when the
-    /// view cannot be read
+    /// view cannot be read.
     async fn local_inclusion_list_bits(
         self: &Arc<Self>,
         ctx: &BidRequestContext,

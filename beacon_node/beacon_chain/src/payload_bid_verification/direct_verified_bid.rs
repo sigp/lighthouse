@@ -436,7 +436,8 @@ mod tests {
     fn rejects_inclusion_list_bits_not_covering_local_view() {
         let (state, mut spec) = state_and_spec();
         spec.heze_fork_epoch = Some(Epoch::new(0));
-        // The node holds lists from committee positions 0, 1 and 2; the bid only claims a subset of it
+        // The node holds lists from committee positions 0, 1 and 2;
+        // the bid only claims a subset of it
         let bid = signed_heze_bid(inclusion_list_bits(&[0, 1]));
         let result = verify_direct_bid(
             &bid,
