@@ -1156,6 +1156,7 @@ mod tests {
     use beacon_chain::test_utils::BeaconChainHarness;
     use bls::Hash256;
     use lighthouse_network::{NetworkConfig, SyncInfo, SyncStatus};
+    use rand_08::RngCore;
     use rand_08::SeedableRng;
     use rand_08::prelude::StdRng;
     use types::MinimalEthSpec;
@@ -1179,13 +1180,17 @@ mod tests {
 
         {
             let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+            let mut key_bytes = [0u8; 32];
+            rng.fill_bytes(&mut key_bytes);
             let peer_id = network_globals
                 .peers
                 .write()
                 .__add_connected_peer_with_custody_subnets(
                     true,
                     &beacon_chain.spec,
-                    k256::ecdsa::SigningKey::random(&mut rng).into(),
+                    enr::k256::ecdsa::SigningKey::from_slice(&key_bytes)
+                        .expect("32 bytes is a valid secp256k1 key")
+                        .into(),
                 );
 
             // Simulate finalized epoch and head being 2 epochs ahead

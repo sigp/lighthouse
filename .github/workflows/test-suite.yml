@@ -61,7 +61,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
       - name: Install dependencies
-        run: apt update && apt install -y cmake libclang-dev
+        run: apt update && apt install -y cmake libclang-dev clang
       - name: Check for deadlocks
         run: ./scripts/ci/check-lockbud.sh
 

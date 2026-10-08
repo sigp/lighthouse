@@ -287,13 +287,13 @@ mod tests {
     use kzg::{KzgCommitment, KzgProof};
     use ssz_types::{FixedVector, VariableList};
     use types::block::{BeaconBlockHeader, SignedBeaconBlockHeader};
-    use types::core::{EthSpec, Hash256, MinimalEthSpec, Slot};
+    use types::core::{EthSpec, Hash256, Slot, Spec};
     use types::data::{
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, PartialDataColumn,
         PartialDataColumnFulu, PartialDataColumnSidecarFulu,
     };
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_cell(marker: u8) -> Cell<E> {
         let mut cell = Cell::<E>::default();
@@ -605,7 +605,7 @@ mod tests {
     fn do_maintenance_keeps_recent_assemblies() {
         let assembler = make_assembler();
         let root = Hash256::repeat_byte(1);
-        // Header at slot 100 → epoch 100/8 = 12 for MinimalEthSpec (8 slots/epoch)
+        // Header at slot 100 → epoch 100/8 = 12 under the minimal preset (8 slots/epoch)
         let mut header = make_header(4);
         header.signed_block_header.message.slot = Slot::new(100);
         let header = Arc::new(header);

@@ -435,9 +435,9 @@ where
             if let Ok(signed_bid) = anchor_block.message().body().signed_execution_payload_bid() {
                 // Gloas: checkpoint sync fetches the anchor's payload later.
                 (
-                    ExecutionStatus::NotYetRevealed(signed_bid.message.block_hash),
-                    Some(signed_bid.message.parent_block_hash),
-                    Some(signed_bid.message.block_hash),
+                    ExecutionStatus::NotYetRevealed(signed_bid.message().block_hash()),
+                    Some(signed_bid.message().parent_block_hash()),
+                    Some(signed_bid.message().block_hash()),
                 )
             } else if let Ok(execution_payload) = anchor_block.message().execution_payload() {
                 // Pre-Gloas forks: do not set payload hashes, they are only used post-Gloas.
@@ -762,6 +762,16 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
+    /// See `ProtoArrayForkChoice::process_execution_payload_validation_by_block_root`.
+    pub fn on_valid_execution_payload_by_block_root(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .process_execution_payload_validation_by_block_root(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
+    }
+
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
@@ -839,7 +849,7 @@ where
             let builds_on_full = block
                 .body()
                 .signed_execution_payload_bid()
-                .is_ok_and(|bid| bid.message.parent_block_hash == parent_block_hash);
+                .is_ok_and(|bid| bid.message().parent_block_hash() == parent_block_hash);
             if builds_on_full && !self.is_payload_received(&block.parent_root()) {
                 return Err(Error::InvalidBlock(InvalidBlock::ParentPayloadNotVerified(
                     block.parent_root(),
@@ -1065,8 +1075,8 @@ where
         let (execution_payload_parent_hash, execution_payload_block_hash) =
             if let Ok(signed_bid) = block.body().signed_execution_payload_bid() {
                 (
-                    Some(signed_bid.message.parent_block_hash),
-                    Some(signed_bid.message.block_hash),
+                    Some(signed_bid.message().parent_block_hash()),
+                    Some(signed_bid.message().block_hash()),
                 )
             } else {
                 (None, None)
