@@ -2612,6 +2612,21 @@ fn disable_optimistic_finalized_sync() {
 }
 
 #[test]
+fn filter_optimistic_payloads_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.filter_optimistic_payloads));
+}
+
+#[test]
+fn filter_optimistic_payloads_with_proof_engine() {
+    CommandLineTest::new()
+        .flag("proof-engine-endpoint", Some("http://localhost:8552"))
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.filter_optimistic_payloads));
+}
+
+#[test]
 fn invalid_gossip_verified_blocks_path_default() {
     CommandLineTest::new()
         .run_with_zero_port()

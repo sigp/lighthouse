@@ -336,6 +336,7 @@ pub fn get_config<E: EthSpec>(
             "--proof-engine-endpoint",
         )?);
         client_config.network.enable_execution_proof = true;
+        client_config.chain.filter_optimistic_payloads = true;
     }
 
     // Parse and set the payload builder, if any.

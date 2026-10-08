@@ -412,6 +412,7 @@ where
         anchor_block: &SignedBeaconBlock<E>,
         anchor_state: &BeaconState<E>,
         current_slot: Option<Slot>,
+        filter_optimistic_payloads: bool,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         // Sanity check: the anchor must lie on an epoch boundary.
@@ -460,7 +461,7 @@ where
         // If the current slot is not provided, use the value that was last provided to the store.
         let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
 
-        let proto_array = ProtoArrayForkChoice::new::<E>(
+        let mut proto_array = ProtoArrayForkChoice::new::<E>(
             current_slot,
             finalized_block_slot,
             finalized_block_state_root,
@@ -474,6 +475,7 @@ where
             anchor_block.message().proposer_index(),
             spec,
         )?;
+        proto_array.set_filter_optimistic_payloads(filter_optimistic_payloads);
 
         let mut fork_choice = Self {
             fc_store,
@@ -2018,15 +2020,17 @@ where
         persisted: PersistedForkChoice,
         reset_payload_statuses: ResetPayloadStatuses,
         fc_store: T,
+        filter_optimistic_payloads: bool,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         let justified_balances = fc_store.justified_balances().clone();
-        let proto_array = Self::proto_array_from_persisted(
+        let mut proto_array = Self::proto_array_from_persisted(
             persisted.proto_array,
             justified_balances,
             reset_payload_statuses,
             fc_store.equivocating_indices(),
         )?;
+        proto_array.set_filter_optimistic_payloads(filter_optimistic_payloads);
 
         let current_slot = fc_store.get_current_slot();
 
