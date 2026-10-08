@@ -250,13 +250,13 @@ mod test {
     use logging::create_test_tracing_subscriber;
     use std::sync::Arc;
     use store::HotColdDB;
-    use types::{EthSpec, MainnetEthSpec};
+    use types::{EthSpec, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
     type T = EphemeralHarnessType<E>;
 
     fn get_state(validator_count: usize) -> (BeaconState<E>, Vec<Keypair>) {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let harness = BeaconChainHarness::builder(Spec::default())
             .default_spec()
             .deterministic_keypairs(validator_count)
             .fresh_ephemeral_store()
@@ -302,7 +302,7 @@ mod test {
 
     #[test]
     fn basic_operation() {
-        // >= 32 validators required for Gloas genesis with MainnetEthSpec (32 slots/epoch).
+        // >= 32 validators required for Gloas genesis under the mainnet preset (32 slots/epoch).
         let (state, keypairs) = get_state(32);
 
         let store = get_store();

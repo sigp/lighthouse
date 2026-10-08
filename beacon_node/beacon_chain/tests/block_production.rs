@@ -15,13 +15,13 @@ use std::sync::Arc;
 use types::{
     Address, BeaconBlock, BeaconState, Checkpoint, Epoch, ExecutionBlockHash,
     ExecutionPayloadBidGloas, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu,
-    ExecutionRequests, ExecutionRequestsGloas, Hash256, InclusionList, MinimalEthSpec,
-    ProgressiveTransactions, SignedExecutionPayloadBid, SignedExecutionPayloadBidRef,
-    SignedInclusionList, Slot, WithdrawalRequest,
+    ExecutionRequests, ExecutionRequestsGloas, Hash256, InclusionList, ProgressiveTransactions,
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidRef, SignedInclusionList, Slot, Spec,
+    WithdrawalRequest,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 /// Parent partial withdrawals must be accounted for when packing voluntary exits.
 /// https://github.com/sigp/lighthouse/issues/9981

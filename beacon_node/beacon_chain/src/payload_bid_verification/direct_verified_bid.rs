@@ -140,11 +140,10 @@ mod tests {
     use bls::Signature;
     use types::{
         Address, Epoch, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ForkName,
-        MinimalEthSpec, ProposerPreferences, SignedExecutionPayloadBidGloas,
-        SignedExecutionPayloadBidHeze,
+        ProposerPreferences, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, Spec,
     };
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     /// Gas limit of the executed ancestor's payload; equal to the proposer's target in `preferences()`.
     const EXECUTED_ANCESTOR_GAS_LIMIT: u64 = 30_000_000;

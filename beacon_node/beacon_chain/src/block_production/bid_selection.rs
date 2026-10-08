@@ -252,9 +252,9 @@ mod tests {
     use super::*;
     use bls::Signature;
     use ssz_types::VariableList;
-    use types::{ExecutionPayloadBidGloas, MainnetEthSpec, SignedExecutionPayloadBidGloas};
+    use types::{ExecutionPayloadBidGloas, SignedExecutionPayloadBidGloas, Spec};
 
-    type TestSpec = MainnetEthSpec;
+    type TestSpec = Spec;
 
     const GOSSIP_BUILDER: u64 = 111;
     const DIRECT_BUILDER: u64 = 222;

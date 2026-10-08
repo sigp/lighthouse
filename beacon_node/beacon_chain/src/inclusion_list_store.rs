@@ -296,11 +296,11 @@ mod tests {
     use bls::Signature;
     use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
     use types::{
-        Epoch, EthSpec, Hash256, InclusionList, InclusionListCommittee, MinimalEthSpec,
-        SignedInclusionList, Slot,
+        Epoch, EthSpec, Hash256, InclusionList, InclusionListCommittee, SignedInclusionList, Slot,
+        Spec,
     };
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn new_store() -> InclusionListStore<E> {
         InclusionListStore::new(&E::default_spec())
