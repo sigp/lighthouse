@@ -97,9 +97,9 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256, MainnetEthSpec};
+    use types::{ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn make_envelope(slot: Slot, beacon_block_root: Hash256) -> PendingEnvelopeData<E> {
         PendingEnvelopeData {

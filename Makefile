@@ -114,8 +114,8 @@ JEMALLOC_OVERRIDE = /usr/lib/$(JEMALLOC_LIB_ARCH)-linux-gnu/libjemalloc.a
 RUST_TARGET ?= x86_64-unknown-linux-gnu
 
 # Default images for different architectures
-RUST_IMAGE_AMD64 ?= rust:1.88-bookworm@sha256:4727898c104ecd2e22d780925832502faee9fe4e70581b8572af081370b315a0
-RUST_IMAGE_ARM64 ?= rust:1.88-bookworm@sha256:8aa70d1416cf5b1cff4b95ec6c57f1c5e4e649a3b53d616a26695cda6fbb46bc
+RUST_IMAGE_AMD64 ?= rust:1.91-bookworm@sha256:8322627e69ba7780b54f39e9f4d3758c006a3ae0123ea01d63b91f0626169891
+RUST_IMAGE_ARM64 ?= rust:1.91-bookworm@sha256:20262682d0201e219012287e8c1e6a7a14b6ebd46bb2b280714f23c06678c285
 
 .PHONY: build-reproducible
 build-reproducible: ## Build the lighthouse binary into `target` directory with reproducible builds
@@ -222,8 +222,10 @@ run-ef-tests-minimal:
 # Run the tests in the `beacon_chain` crate for all known forks.
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
 
+# Run beacon chain tests on each preset.
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast --lib --test beacon_chain_tests
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,spec-minimal,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast --lib --test beacon_chain_spec_minimal_tests
 
 # Run the tests in the `fork_choice` crate for all known forks.
 test-fork-choice: $(patsubst %,test-fork-choice-%,$(RECENT_FORKS))
