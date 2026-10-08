@@ -13,7 +13,7 @@ use crate::kzg_utils::{build_data_column_sidecars_fulu, build_data_column_sideca
 use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
-use crate::pending_payload_cache::{PendingPayloadCache, REQUIRED_EXECUTION_PROOFS};
+use crate::pending_payload_cache::PendingPayloadCache;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
@@ -1006,13 +1006,6 @@ where
         debug!(?custody_context, "Loaded persisted custody context");
         let custody_context = Arc::new(custody_context);
 
-        // Without a proof engine we can't verify proofs, so we don't require them.
-        let required_execution_proofs = if self.proof_engine.is_some() {
-            REQUIRED_EXECUTION_PROOFS
-        } else {
-            0
-        };
-
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -1104,7 +1097,6 @@ where
                     self.kzg.clone(),
                     custody_context,
                     disable_get_blobs,
-                    required_execution_proofs,
                     self.spec.clone(),
                 )
                 .map_err(|e| format!("Error initializing PendingPayloadCache: {:?}", e))?,
@@ -1590,9 +1582,9 @@ mod test {
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
     use task_executor::test_utils::TestRuntime;
-    use types::{EthSpec, MinimalEthSpec, Slot};
+    use types::{EthSpec, Slot, Spec};
 
-    type TestEthSpec = MinimalEthSpec;
+    type TestEthSpec = Spec;
     type Builder = BeaconChainBuilder<EphemeralHarnessType<TestEthSpec>>;
 
     #[test]
@@ -1600,12 +1592,9 @@ mod test {
         let validator_count = 1;
         let genesis_time = 13_371_337;
 
-        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> = HotColdDB::open_ephemeral(
-            StoreConfig::default(),
-            MinimalEthSpec::default_spec().into(),
-        )
-        .unwrap();
-        let spec = MinimalEthSpec::default_spec();
+        let store: HotColdDB<Spec, MemoryStore, MemoryStore> =
+            HotColdDB::open_ephemeral(StoreConfig::default(), Spec::default_spec().into()).unwrap();
+        let spec = Spec::default_spec();
 
         let genesis_state = interop_genesis_state(
             &generate_deterministic_keypairs(validator_count),
@@ -1621,7 +1610,7 @@ mod test {
 
         let kzg = get_kzg(&spec);
 
-        let chain = Builder::new(MinimalEthSpec, kzg)
+        let chain = Builder::new(Spec::default(), kzg)
             .store(Arc::new(store))
             .task_executor(runtime.task_executor.clone())
             .genesis_state(genesis_state)
@@ -1630,9 +1619,7 @@ mod test {
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .rng(Box::new(StdRng::seed_from_u64(42)))
-            .ordered_custody_column_indices(
-                generate_data_column_indices_rand_order::<MinimalEthSpec>(),
-            )
+            .ordered_custody_column_indices(generate_data_column_indices_rand_order::<Spec>())
             .build()
             .expect("should build");
 

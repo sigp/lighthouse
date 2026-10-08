@@ -227,7 +227,7 @@ impl<E: EthSpec> Hash for IndexedAttestation<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{Epoch, MainnetEthSpec};
+    use crate::core::{Epoch, Spec};
     use arbitrary::Arbitrary;
 
     #[test]
@@ -280,17 +280,17 @@ mod tests {
 
     mod base {
         use super::*;
-        ssz_and_tree_hash_tests!(IndexedAttestationBase<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(IndexedAttestationBase<Spec>);
     }
     mod electra {
         use super::*;
-        ssz_and_tree_hash_tests!(IndexedAttestationElectra<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(IndexedAttestationElectra<Spec>);
     }
 
     fn create_indexed_attestation(
         target_epoch: u64,
         source_epoch: u64,
-    ) -> IndexedAttestation<MainnetEthSpec> {
+    ) -> IndexedAttestation<Spec> {
         let mut u = crate::test_utils::test_unstructured();
         let mut indexed_vote =
             IndexedAttestation::Base(IndexedAttestationBase::arbitrary(&mut u).unwrap());

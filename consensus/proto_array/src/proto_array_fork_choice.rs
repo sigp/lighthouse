@@ -674,6 +674,16 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("Failed to process valid payload: {:?}", e))
     }
 
+    /// See `ProtoArray::propagate_execution_payload_validation_by_block_root` for documentation.
+    pub fn process_execution_payload_validation_by_block_root(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), String> {
+        self.proto_array
+            .propagate_execution_payload_validation_by_block_root(block_root)
+            .map_err(|e| format!("Failed to process valid payload: {:?}", e))
+    }
+
     /// See `ProtoArray::propagate_execution_payload_invalidation` for documentation.
     pub fn process_execution_payload_invalidation<E: EthSpec>(
         &mut self,

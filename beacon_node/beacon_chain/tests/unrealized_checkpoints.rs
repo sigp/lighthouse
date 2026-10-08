@@ -16,11 +16,11 @@ use fork_choice::PayloadStatus;
 use state_processing::per_epoch_processing::{self, base::ValidatorStatuses};
 use std::sync::Arc;
 use types::{
-    BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, MinimalEthSpec,
+    BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Spec,
     consts::altair::TIMELY_TARGET_FLAG_INDEX,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 // Proposer slashings are limited to MaxProposerSlashings (16) per block. With 32 validators,
 // dropping below the 2/3 justification threshold requires only ~11 slashes, which fits.

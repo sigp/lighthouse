@@ -5,6 +5,9 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 autotests = false                               # using a single test binary compiles faster
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 axum = { workspace = true }
 axum_utils = { workspace = true }
@@ -16,6 +19,7 @@ bytes = { workspace = true }
 context_deserialize = { workspace = true }
 directory = { workspace = true }
 either = { workspace = true }
+enr = { workspace = true }
 eth2 = { workspace = true, features = ["lighthouse", "network"] }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
