@@ -248,14 +248,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // avoiding taking other locks whilst holding this lock.
         let mut fork_choice = fork_choice_reader.upgrade();
 
-        // The payload can be invalidated while the envelope waits for data availability.
-        if fork_choice
-            .get_block(&block_root)
-            .is_some_and(|block| block.execution_status.is_invalid())
-        {
-            return Err(EnvelopeError::BlockPayloadInvalid { block_root });
-        }
-
         // Update the block's payload to received in fork choice, which creates the `Full` virtual
         // node which can be eligible for head.
         fork_choice

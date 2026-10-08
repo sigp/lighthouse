@@ -777,6 +777,43 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
     }
 }
 
+/// An envelope whose payload is invalidated after envelope verification is rejected and does
+/// not set `payload_received`.
+pub fn get_gloas_envelope_on_invalid_payload_test_definition() -> ForkChoiceTestDefinition {
+    let ops = vec![
+        Operation::ProcessBlock {
+            slot: Slot::new(1),
+            root: get_root(1),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(0)),
+            execution_payload_block_hash: Some(get_hash(1)),
+        },
+        Operation::InvalidatePayload {
+            head_hash: get_hash(1),
+            latest_valid_ancestor: None,
+        },
+        Operation::InvalidProcessExecutionPayloadEnvelope {
+            block_root: get_root(1),
+        },
+        Operation::AssertPayloadReceived {
+            block_root: get_root(1),
+            expected: false,
+        },
+    ];
+
+    ForkChoiceTestDefinition {
+        finalized_block_slot: Slot::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        operations: ops,
+        execution_payload_parent_hash: Some(ExecutionBlockHash::zero()),
+        execution_payload_block_hash: Some(ExecutionBlockHash::zero()),
+        spec: Some(gloas_spec()),
+    }
+}
+
 /// When `current_slot == node.slot + 1`, spec `get_weight` zeroes out Full and Empty
 /// weights so the tiebreaker decides. Tests that the zero-out is applied and
 /// doesn't just compare raw payload weights.
@@ -1229,6 +1266,12 @@ mod tests {
     #[test]
     fn interleaved_attestations() {
         let test = get_gloas_interleaved_attestations_test_definition();
+        test.run();
+    }
+
+    #[test]
+    fn envelope_on_invalid_payload() {
+        let test = get_gloas_envelope_on_invalid_payload_test_definition();
         test.run();
     }
 

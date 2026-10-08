@@ -272,11 +272,6 @@ pub enum EnvelopeError {
     /// block may simply not have arrived yet), this is raised during import where the block is
     /// expected to already be present, so it indicates an internal inconsistency.
     BlockRootNotInForkChoice(Hash256),
-    /// Fork choice marks the envelope's beacon block as having an invalid payload.
-    ///
-    /// The payload or one of its executed ancestors is invalid, so the envelope can never be
-    /// valid. A peer can send it in good faith if it saw the envelope before the invalidation.
-    BlockPayloadInvalid { block_root: Hash256 },
     /// An internal error occurred while importing the envelope (e.g. updating fork choice).
     InternalError(String),
 }
@@ -308,7 +303,6 @@ impl EnvelopeError {
             | EnvelopeError::BeaconChainError(_)
             | EnvelopeError::BeaconStateError(_)
             | EnvelopeError::BlockRootNotInForkChoice(_)
-            | EnvelopeError::BlockPayloadInvalid { .. }
             | EnvelopeError::InternalError(_) => false,
         }
     }

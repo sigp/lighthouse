@@ -1,6 +1,5 @@
 mod execution_status;
 mod ffg_updates;
-mod gloas_invalidation;
 mod gloas_payload;
 mod no_votes;
 mod votes;
@@ -20,7 +19,6 @@ use types::{
 
 pub use execution_status::*;
 pub use ffg_updates::*;
-pub use gloas_invalidation::*;
 pub use gloas_payload::*;
 pub use no_votes::*;
 pub use votes::*;
@@ -112,6 +110,10 @@ pub enum Operation {
     ProcessExecutionPayloadEnvelope {
         block_root: Hash256,
     },
+    /// Receive the execution payload envelope for `block_root` and expect an error.
+    InvalidProcessExecutionPayloadEnvelope {
+        block_root: Hash256,
+    },
     AssertPayloadReceived {
         block_root: Hash256,
         expected: bool,
@@ -135,34 +137,6 @@ pub enum Operation {
         proposal_slot: Slot,
         expected: bool,
     },
-    /// Run `find_head` to apply pending votes to the weights, without checking the head.
-    ApplyScoreChanges {
-        justified_state_balances: Vec<u64>,
-        current_slot: Slot,
-    },
-    /// Receive the execution payload envelope for `block_root` with an `Optimistic` verdict.
-    ProcessOptimisticExecutionPayloadEnvelope {
-        block_root: Hash256,
-        block_hash: ExecutionBlockHash,
-    },
-    /// Receive the execution payload envelope for `block_root` with `execution_status` and expect
-    /// an error.
-    InvalidProcessExecutionPayloadEnvelope {
-        block_root: Hash256,
-        execution_status: ExecutionStatus,
-    },
-    /// Overwrite the execution status of `block_root`, without the invalidation sweep.
-    SetExecutionStatus {
-        block_root: Hash256,
-        execution_status: ExecutionStatus,
-    },
-    /// Assert the execution status of `block_root`.
-    AssertExecutionStatus {
-        block_root: Hash256,
-        expected: ExecutionStatus,
-    },
-    /// Call `set_all_blocks_to_optimistic`.
-    SetAllBlocksToOptimistic,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -619,6 +593,18 @@ impl ForkChoiceTestDefinition {
                         });
                     check_bytes_round_trip(&fork_choice);
                 }
+                Operation::InvalidProcessExecutionPayloadEnvelope { block_root } => {
+                    let result = fork_choice.on_payload_envelope_received(
+                        block_root,
+                        ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
+                    );
+                    assert!(
+                        result.is_err(),
+                        "on_payload_envelope_received op at index {} should return an error",
+                        op_index
+                    );
+                    check_bytes_round_trip(&fork_choice);
+                }
                 Operation::AssertPayloadReceived {
                     block_root,
                     expected,
@@ -673,128 +659,6 @@ impl ForkChoiceTestDefinition {
                         "should_build_on_full mismatch at op index {}",
                         op_index
                     );
-                }
-                Operation::ApplyScoreChanges {
-                    justified_state_balances,
-                    current_slot,
-                } => {
-                    let justified_balances =
-                        JustifiedBalances::from_effective_balances(justified_state_balances)
-                            .unwrap();
-                    fork_choice
-                        .find_head::<MainnetEthSpec>(
-                            self.justified_checkpoint,
-                            self.finalized_checkpoint,
-                            &justified_balances,
-                            Hash256::zero(),
-                            &equivocating_indices,
-                            current_slot,
-                            &spec,
-                        )
-                        .unwrap_or_else(|e| {
-                            panic!("find_head op at index {} returned error {}", op_index, e)
-                        });
-                    last_current_slot = current_slot;
-                    check_bytes_round_trip(&fork_choice);
-                }
-                Operation::ProcessOptimisticExecutionPayloadEnvelope {
-                    block_root,
-                    block_hash,
-                } => {
-                    fork_choice
-                        .on_payload_envelope_received(
-                            block_root,
-                            ExecutionStatus::Optimistic(block_hash),
-                        )
-                        .unwrap_or_else(|e| {
-                            panic!(
-                                "on_payload_envelope_received op at index {} returned error: {}",
-                                op_index, e
-                            )
-                        });
-                    check_bytes_round_trip(&fork_choice);
-                }
-                Operation::InvalidProcessExecutionPayloadEnvelope {
-                    block_root,
-                    execution_status,
-                } => {
-                    let result =
-                        fork_choice.on_payload_envelope_received(block_root, execution_status);
-                    assert!(
-                        result.is_err(),
-                        "on_payload_envelope_received op at index {} should return an error",
-                        op_index
-                    );
-                    check_bytes_round_trip(&fork_choice);
-                }
-                Operation::SetExecutionStatus {
-                    block_root,
-                    execution_status,
-                } => {
-                    let block_index = *fork_choice
-                        .proto_array
-                        .indices
-                        .get(&block_root)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "SetExecutionStatus: block root not found at op index {}",
-                                op_index
-                            )
-                        });
-                    *fork_choice
-                        .proto_array
-                        .nodes
-                        .get_mut(block_index)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "SetExecutionStatus: node not found at op index {}",
-                                op_index
-                            )
-                        })
-                        .execution_status_mut() = execution_status;
-                    check_bytes_round_trip(&fork_choice);
-                }
-                Operation::AssertExecutionStatus {
-                    block_root,
-                    expected,
-                } => {
-                    let block_index = fork_choice
-                        .proto_array
-                        .indices
-                        .get(&block_root)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "AssertExecutionStatus: block root not found at op index {}",
-                                op_index
-                            )
-                        });
-                    let actual = fork_choice
-                        .proto_array
-                        .nodes
-                        .get(*block_index)
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "AssertExecutionStatus: node not found at op index {}",
-                                op_index
-                            )
-                        })
-                        .execution_status();
-                    assert_eq!(
-                        actual, expected,
-                        "execution_status mismatch at op index {}",
-                        op_index
-                    );
-                }
-                Operation::SetAllBlocksToOptimistic => {
-                    fork_choice
-                        .set_all_blocks_to_optimistic::<MainnetEthSpec>(&equivocating_indices)
-                        .unwrap_or_else(|e| {
-                            panic!(
-                                "set_all_blocks_to_optimistic op at index {} returned error: {}",
-                                op_index, e
-                            )
-                        });
-                    check_bytes_round_trip(&fork_choice);
                 }
             }
         }

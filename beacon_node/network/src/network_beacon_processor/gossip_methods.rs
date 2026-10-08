@@ -3947,7 +3947,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                     EnvelopeError::PriorToFinalization { .. }
                     | EnvelopeError::EnvelopeAlreadySeen { .. }
-                    | EnvelopeError::BlockPayloadInvalid { .. }
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
                     // The following variants are produced during envelope import, not gossip
