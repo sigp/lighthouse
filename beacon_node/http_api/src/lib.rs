@@ -44,6 +44,7 @@ use crate::beacon::execution_payload_envelopes::{
     get_beacon_execution_payload_envelopes, post_beacon_execution_payload_envelopes,
     post_beacon_execution_payload_envelopes_ssz,
 };
+use crate::beacon::execution_proofs::post_beacon_execution_proofs;
 use crate::beacon::pool::*;
 use crate::caches::DEFAULT_HISTORICAL_COMMITTEE_CACHE_SIZE;
 pub use crate::caches::HistoricalCommitteeCache;
@@ -1593,6 +1594,14 @@ pub async fn serve<T: BeaconChainTypes>(
     let post_beacon_execution_payload_bids_ssz = post_beacon_execution_payload_bids_ssz(
         eth_v1.clone(),
         consensus_version_header_filter.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
+
+    // POST beacon/execution_proofs (SSZ)
+    let post_beacon_execution_proofs = post_beacon_execution_proofs(
+        eth_v1.clone(),
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
@@ -3500,6 +3509,7 @@ pub async fn serve<T: BeaconChainTypes>(
                             .uor(post_beacon_execution_payload_envelopes_ssz)
                             .uor(post_beacon_execution_payload_bids_ssz)
                             .uor(post_beacon_pool_payload_attestations_ssz)
+                            .uor(post_beacon_execution_proofs)
                             .uor(post_validator_proposer_preferences_ssz),
                     )
                     .uor(post_beacon_blocks)
