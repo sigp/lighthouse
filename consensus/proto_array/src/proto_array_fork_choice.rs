@@ -231,16 +231,6 @@ impl ExecutionStatus {
     pub fn is_invalid(&self) -> bool {
         matches!(self, ExecutionStatus::Invalid(_))
     }
-
-    pub fn is_optimistic(&self) -> bool {
-        match self {
-            ExecutionStatus::Optimistic(_) => true,
-            ExecutionStatus::Valid(_)
-            | ExecutionStatus::Invalid(_)
-            | ExecutionStatus::Irrelevant(_)
-            | ExecutionStatus::NotYetRevealed(_) => false,
-        }
-    }
 }
 
 impl fmt::Display for ExecutionStatus {

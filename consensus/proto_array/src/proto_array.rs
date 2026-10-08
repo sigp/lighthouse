@@ -1614,10 +1614,15 @@ impl ProtoArray {
         }
     }
 
+    /// If this proto node has a possible FULL edge.
     fn has_full_node(&self, proto_node: &ProtoNode) -> bool {
         proto_node.payload_received().is_ok_and(|received| received)
             && !proto_node.is_invalid()
-            && !(self.filter_optimistic_payloads && proto_node.execution_status().is_optimistic())
+            && !(self.filter_optimistic_payloads
+                && matches!(
+                    proto_node.execution_status(),
+                    ExecutionStatus::Optimistic(_)
+                ))
     }
 
     /// Returns the canonical payload status of a block, matching the decision
