@@ -149,8 +149,8 @@ Options:
           nodes during JWT authentication. It corresponds to the 'clv' field in
           the JWT claims object.Set to empty by default
       --execution-proofs-required <COUNT>
-          Distinct EIP-8025 proof types a payload needs before it is valid. Only
-          read with --proof-engine-endpoint. Experimental. [default: 2]
+          Distinct EIP-8025 proof types a payload needs before it is valid.
+          Defaults to 2. Experimental.
       --execution-timeout-multiplier <NUM>
           Unsigned integer to multiply the default execution timeouts by.
           [default: 1]

@@ -580,11 +580,11 @@ fn execution_proofs_required_zero() {
         .run_with_zero_port();
 }
 #[test]
+#[should_panic]
 fn execution_proofs_required_without_proof_engine() {
     CommandLineTest::new()
-        .flag("execution-proofs-required", Some("0"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.execution_proofs_required, 2));
+        .flag("execution-proofs-required", Some("2"))
+        .run_with_zero_port();
 }
 #[test]
 fn bellatrix_jwt_secrets_flag() {
