@@ -52,11 +52,11 @@ jobs:
           cargo install --locked cargo-sort
           cargo install --locked cargo-hack
 
-      - name: Install Java (Temurin 21)
+      - name: Install Java (Temurin 25)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '21'
+          java-version: '25'
 
       - name: Save snapshot
         uses: WarpBuilds/snapshot-save@v1

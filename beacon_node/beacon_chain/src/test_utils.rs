@@ -35,7 +35,7 @@ use execution_layer::{
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::PayloadVerificationStatus;
-use futures::channel::mpsc::Receiver;
+use futures::channel::mpsc::{Receiver, TryRecvError};
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
 use kzg::Kzg;
@@ -650,7 +650,7 @@ where
             // The mock EL produces synthetic execution block hashes, which cannot survive a real
             // RLP block hash recompute. Tests that want the recompute pass an explicit config.
             ChainConfig {
-                verify_envelope_payload_hash_in_backfill: false,
+                verify_envelope_payload_hash_on_cl: false,
                 ..ChainConfig::default()
             }
         });
@@ -953,9 +953,9 @@ where
     pub fn shutdown_reasons(&self) -> Vec<ShutdownReason> {
         let mutex = self.shutdown_receiver.clone();
         let mut receiver = mutex.lock();
-        std::iter::from_fn(move || match receiver.try_next() {
-            Ok(Some(s)) => Some(s),
-            Ok(None) => panic!("shutdown sender dropped"),
+        std::iter::from_fn(move || match receiver.try_recv() {
+            Ok(s) => Some(s),
+            Err(TryRecvError::Closed) => panic!("shutdown sender dropped"),
             Err(_) => None,
         })
         .collect()
@@ -2997,30 +2997,28 @@ where
             .is_ok_and(|c| !c.is_empty());
         let is_available = !has_blob_commitments || blob_items.is_some();
         let block_hash: SignedBeaconBlockHash = if !is_available {
-            self.chain
-                .process_block(
-                    block_root,
-                    LookupBlock::new(block),
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::Lookup,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                LookupBlock::new(block),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         } else {
             let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
-            self.chain
-                .process_block(
-                    block_root,
-                    range_sync_block,
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::RangeSync,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                range_sync_block,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         };
 
         self.chain.recompute_head_at_current_slot().await;
@@ -3044,29 +3042,27 @@ where
         let is_available = !has_blob_commitments || blob_items.is_some();
         let block_hash: SignedBeaconBlockHash = if is_available {
             let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
-            self.chain
-                .process_block(
-                    block_root,
-                    range_sync_block,
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::RangeSync,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                range_sync_block,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         } else {
-            self.chain
-                .process_block(
-                    block_root,
-                    LookupBlock::new(block),
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::Lookup,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                LookupBlock::new(block),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         };
 
         self.chain.recompute_head_at_current_slot().await;
@@ -3104,15 +3100,15 @@ where
             .expect("should read block from store")
             .expect("block should exist in store");
 
-        let bid = &block
+        let bid = block
             .message()
             .body()
             .signed_execution_payload_bid()
             .expect("Gloas block should have a payload bid")
-            .message;
+            .message();
 
         let versioned_hashes = bid
-            .blob_kzg_commitments
+            .blob_kzg_commitments()
             .iter()
             .map(kzg_commitment_to_versioned_hash)
             .collect();
@@ -3421,7 +3417,7 @@ where
     > {
         self.set_current_slot(slot);
         let (block_contents, opt_envelope, new_state) =
-            self.make_block_with_envelope(state, slot).await;
+            Box::pin(self.make_block_with_envelope(state, slot)).await;
 
         let block_hash = self
             .process_block(
@@ -4218,13 +4214,13 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
     if block.fork_name_unchecked().gloas_enabled() {
-        let kzg_commitments = &block
+        let kzg_commitments = block
             .message()
             .body()
             .signed_execution_payload_bid()
             .expect("Gloas block should have a payload bid")
-            .message
-            .blob_kzg_commitments;
+            .message()
+            .blob_kzg_commitments();
         if kzg_commitments.is_empty() {
             return vec![];
         }
