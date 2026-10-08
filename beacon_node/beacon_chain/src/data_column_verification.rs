@@ -1893,13 +1893,13 @@ mod test {
     use std::time::UNIX_EPOCH;
     use types::{
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
-        ForkName, Hash256, MainnetEthSpec, PartialDataColumn, PartialDataColumnFulu,
-        PartialDataColumnGloas, PartialDataColumnHeader, PartialDataColumnSidecarFulu,
-        PartialDataColumnSidecarGloas, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-        Slot, test_utils::test_unstructured,
+        ForkName, Hash256, PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas,
+        PartialDataColumnHeader, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas,
+        SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, Slot, Spec,
+        test_utils::test_unstructured,
     };
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     // TODO(gloas) make this generic over gloas/fulu
     #[tokio::test]

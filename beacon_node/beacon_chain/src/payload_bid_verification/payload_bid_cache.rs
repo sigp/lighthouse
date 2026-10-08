@@ -145,14 +145,14 @@ mod tests {
 
     use bls::Signature;
     use types::{
-        ExecutionBlockHash, ExecutionPayloadBidGloas, Hash256, MinimalEthSpec,
-        SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, Slot,
+        ExecutionBlockHash, ExecutionPayloadBidGloas, Hash256, SignedExecutionPayloadBid,
+        SignedExecutionPayloadBidGloas, Slot, Spec,
     };
 
     use super::{BidParent, GossipVerifiedPayloadBidCache};
     use crate::payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid;
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_gossip_verified(
         slot: Slot,

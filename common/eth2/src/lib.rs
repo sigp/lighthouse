@@ -34,7 +34,7 @@ use futures::Stream;
 #[cfg(feature = "events")]
 use futures_util::StreamExt;
 #[cfg(feature = "network")]
-use libp2p_identity::PeerId;
+use libp2p::PeerId;
 use reqwest::{
     Body, IntoUrl, RequestBuilder, Response, StatusCode, Url,
     header::{HeaderMap, HeaderValue},
@@ -46,6 +46,7 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
+use types::execution::SignedExecutionProofEnvelope;
 use types::{
     PayloadAttestationData, PayloadAttestationMessage, SignedExecutionPayloadBid,
     SignedProposerPreferences,
@@ -3259,6 +3260,33 @@ impl BeaconNodeHttpClient {
             fork_name,
         )
         .await?;
+
+        Ok(())
+    }
+
+    /// `POST beacon/execution_proofs` (SSZ)
+    ///
+    /// Takes the proofs by value because each can be megabytes.
+    pub async fn post_beacon_execution_proofs(
+        &self,
+        proofs: Vec<SignedExecutionProofEnvelope>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_proofs");
+
+        let response = self
+            .client
+            .post(path)
+            .timeout(self.timeouts.default)
+            .header("Content-Type", "application/octet-stream")
+            .body(proofs.as_ssz_bytes())
+            .send()
+            .await?;
+        success_or_error(response).await?;
 
         Ok(())
     }

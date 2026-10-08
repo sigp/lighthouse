@@ -2,6 +2,11 @@
 # Set the number of arenas to 16 when using jemalloc.
 JEMALLOC_SYS_WITH_MALLOC_CONF = "abort_conf:true,narenas:16"
 
+# LevelDB's CMake feature probe for -Wthread-safety is defeated by the `-w` flag
+# that the `cc` crate (>= 1.2.62) emits, causing GCC to be handed a Clang-only
+# option. Build C++ with Clang, which accepts it.
+CXX = "clang++"
+
 # Silence the future-incompatibility warning caused by `proc-macro-error2`.
 # TODO: Remove this once alloy releases with an updated dependency and we upgrade.
 # See: https://github.com/sigp/lighthouse/issues/9618
