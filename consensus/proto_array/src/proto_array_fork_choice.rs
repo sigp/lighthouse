@@ -2817,6 +2817,29 @@ mod optimistic_payload_has_no_full_node {
         assert_ne!(spec_behaviour, outcomes(PayloadN::Optimistic, SlotN1::Full));
     }
 
+    /// `get_canonical_payload_status` feeds `payload_present` for attestations to earlier slots
+    /// and must agree with the head's choice.
+    #[test]
+    fn canonical_payload_status_follows_the_switch() {
+        for (filter, expected) in [(true, PayloadStatus::Empty), (false, PayloadStatus::Full)] {
+            let mut rig = Rig::with_filter(filter);
+            rig.block(1, root(1), root(0), hash(99));
+            rig.envelope(root(1), ExecutionStatus::Valid);
+            rig.block(2, root(2), root(1), ExecutionBlockHash::from_root(root(1)));
+            rig.envelope(root(2), ExecutionStatus::Optimistic);
+            let status = rig
+                .fc
+                .get_canonical_payload_status::<MainnetEthSpec>(
+                    &root(2),
+                    Slot::new(2),
+                    Hash256::zero(),
+                    &rig.spec,
+                )
+                .unwrap();
+            assert_eq!(status, expected, "filter_optimistic_payloads={filter}");
+        }
+    }
+
     #[test]
     fn verified_payloads_elect_the_full_node() {
         for slot_n1 in SLOT_N1 {

@@ -1615,6 +1615,14 @@ impl ProtoArray {
         }
     }
 
+    /// Whether the block has a `FULL` node: its payload was received, not found invalid, and,
+    /// under `filter_optimistic_payloads`, verified. Pre-Gloas blocks never do.
+    fn has_full_node(&self, proto_node: &ProtoNode) -> bool {
+        proto_node.payload_received().is_ok_and(|received| received)
+            && !proto_node.is_invalid()
+            && !(self.filter_optimistic_payloads && proto_node.execution_status().is_optimistic())
+    }
+
     /// Returns the canonical payload status of a block, matching the decision
     /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
     pub(crate) fn get_canonical_payload_status<E: EthSpec>(
@@ -1631,12 +1639,11 @@ impl ProtoArray {
             .get(proto_node_index)
             .ok_or(Error::InvalidNodeIndex(proto_node_index))?;
 
-        // As in `get_node_children`, an invalid payload has no FULL node.
-        if !proto_node
+        // A pre-Gloas block has a single node and no status to pick.
+        proto_node
             .payload_received()
-            .map_err(|_| Error::InvalidNodeVariant { block_root: root })?
-            || proto_node.is_invalid()
-        {
+            .map_err(|_| Error::InvalidNodeVariant { block_root: root })?;
+        if !self.has_full_node(proto_node) {
             return Ok(PayloadStatus::Empty);
         }
 
@@ -1834,13 +1841,7 @@ impl ProtoArray {
                 .get(node.proto_node_index)
                 .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
             let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
-            // The FULL virtual child only exists if the payload has been received and not found
-            // invalid. Under `filter_optimistic_payloads` an optimistic payload is not received.
-            if proto_node.payload_received().is_ok_and(|received| received)
-                && !proto_node.is_invalid()
-                && !(self.filter_optimistic_payloads
-                    && proto_node.execution_status().is_optimistic())
-            {
+            if self.has_full_node(proto_node) {
                 children.push((node.with_status(PayloadStatus::Full), proto_node.clone()));
             }
             Ok(children)
