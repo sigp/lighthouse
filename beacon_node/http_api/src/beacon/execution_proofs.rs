@@ -2,7 +2,7 @@ use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::{
     self, ChainFilter, EthV1Filter, NetworkTxFilter, ResponseFilter, TaskSpawnerFilter,
 };
-use beacon_chain::execution_proof_verification::Error as ExecutionProofError;
+use beacon_chain::execution_proof_verification::{Error as ExecutionProofError, ProofSource};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
 use eth2::types::Failure;
@@ -64,7 +64,10 @@ async fn publish_execution_proofs<T: BeaconChainTypes>(
         let proof = Arc::new(proof);
         let beacon_block_root = proof.beacon_block_root();
         let proof_type = proof.proof_type();
-        match chain.verify_execution_proof_for_gossip(proof.clone()).await {
+        match chain
+            .verify_execution_proof_for_gossip(proof.clone(), ProofSource::Http)
+            .await
+        {
             Ok(_verified) => {
                 debug!(
                     %beacon_block_root,
@@ -84,11 +87,8 @@ async fn publish_execution_proofs<T: BeaconChainTypes>(
                     );
                 }
             }
-            // Not a failure: a relay retrying the same bytes has nothing to do differently. The
-            // record predates the engine's verdict, so a retry of a rejected proof lands here too.
-            Err(
-                ExecutionProofError::ProofAlreadySeen | ExecutionProofError::ValidProofAlreadyKnown,
-            ) => num_already_known += 1,
+            // Not a failure: a verified proof of this type is already known.
+            Err(ExecutionProofError::ValidProofAlreadyKnown) => num_already_known += 1,
             Err(e) => {
                 debug!(
                     error = ?e,
