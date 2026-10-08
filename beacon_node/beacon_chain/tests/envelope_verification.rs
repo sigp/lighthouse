@@ -9,11 +9,11 @@ use eth2::types::EventKind;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, MinimalEthSpec, Slot,
+    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, Slot, Spec,
     WithdrawalRequest,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 #[tokio::test]
 async fn pre_gloas_block_import_records_payload_gas_limit() {
@@ -98,8 +98,8 @@ async fn startup_seeds_gloas_genesis_parent_payload() {
         harness
             .chain
             .observed_execution_payloads
-            .get_gas_limit(genesis_bid.parent_block_hash),
-        Some(genesis_bid.gas_limit)
+            .get_gas_limit(genesis_bid.parent_block_hash()),
+        Some(genesis_bid.gas_limit())
     );
 }
 

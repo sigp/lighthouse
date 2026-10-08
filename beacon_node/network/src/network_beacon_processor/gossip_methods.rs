@@ -9,7 +9,7 @@ use beacon_chain::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
     GossipVerifiedPartialDataColumn, PartialColumnVerificationResult,
 };
-use beacon_chain::execution_proof_verification::Error as ExecutionProofError;
+use beacon_chain::execution_proof_verification::{Error as ExecutionProofError, ProofSource};
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::partial_data_column_assembler::UpdatedPartials;
 use beacon_chain::payload_bid_verification::PayloadBidError;
@@ -4160,7 +4160,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match self
             .chain
-            .verify_execution_proof_for_gossip(execution_proof)
+            .verify_execution_proof_for_gossip(execution_proof, ProofSource::Gossip)
             .await
         {
             Ok(verified) => {
@@ -4171,6 +4171,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Verified execution proof from gossip"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // This may be the proof the block's payload was waiting on.
+                if let Err(error) = self
+                    .chain
+                    .promote_payload_if_proven(verified.proof.beacon_block_root())
+                    .await
+                {
+                    debug!(
+                        %beacon_block_root,
+                        proof_type,
+                        ?error,
+                        "Could not validate payload after execution proof"
+                    );
+                }
             }
             Err(error) => {
                 debug!(%beacon_block_root, proof_type, ?error, "Could not verify execution proof");
@@ -4212,7 +4226,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(parent_block_hash = ?bid.message.parent_block_hash, parent_block_root = ?bid.message.parent_block_root),
+        fields(parent_block_hash = ?bid.message().parent_block_hash(), parent_block_root = ?bid.message().parent_block_root()),
     )]
     pub fn process_gossip_execution_payload_bid(
         self: &Arc<Self>,
@@ -4234,7 +4248,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::BlockHashEqualsParentBlockHash { .. }
                 | PayloadBidError::InvalidBlobKzgCommitments { .. }
                 | PayloadBidError::BidNotDescendantOfParent { .. }
-                | PayloadBidError::InvalidPrevRandao { .. },
+                | PayloadBidError::InvalidPrevRandao { .. }
+                | PayloadBidError::InconsistentFork(_),
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
