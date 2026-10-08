@@ -1522,11 +1522,17 @@ fn bid_il_bits_not_inclusive() {
     let bid_slot = Slot::new(1);
     let inclusion_list_slot = bid_slot - 1;
     let inclusion_list_committee = ctx.inclusion_list_committee(inclusion_list_slot);
+    // committee positions repeat when a slot has fewer validators than the committee size
+    let claimed_member = inclusion_list_committee[0];
+    let unclaimed_member = *inclusion_list_committee
+        .iter()
+        .find(|index| **index != claimed_member)
+        .unwrap();
 
     seed_inclusion_list(
         &ctx,
         inclusion_list_slot,
-        &inclusion_list_committee[0..3],
+        &[claimed_member, unclaimed_member],
         true,
     );
     seed_preferences(&ctx, bid_slot, Address::ZERO, 30_000_000);
@@ -1540,10 +1546,10 @@ fn bid_il_bits_not_inclusive() {
         parent_block_root: ctx.genesis_block_root,
         parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
-        // inclusion list bits vector only claims the IL committee members with indices 0 and 1
+        // inclusion list bits vector only claims one of the two members we hold lists from
         inclusion_list_bits: inclusion_list_bits_for_validators(
             &inclusion_list_committee,
-            &inclusion_list_committee[0..2],
+            &[claimed_member],
         ),
         ..ExecutionPayloadBidHeze::default()
     }));
@@ -1651,18 +1657,15 @@ fn bid_il_bits_checks_consider_only_timely_inclusion_lists() {
     let inclusion_list_slot = bid_slot - 1;
     let inclusion_list_committee = ctx.inclusion_list_committee(inclusion_list_slot);
 
-    seed_inclusion_list(
-        &ctx,
-        inclusion_list_slot,
-        &inclusion_list_committee[0..2],
-        true,
-    );
-    seed_inclusion_list(
-        &ctx,
-        inclusion_list_slot,
-        &inclusion_list_committee[2..4],
-        false,
-    );
+    // committee positions repeat when a slot has fewer validators than the committee size
+    let timely_submitter = inclusion_list_committee[0];
+    let late_submitter = *inclusion_list_committee
+        .iter()
+        .find(|index| **index != timely_submitter)
+        .unwrap();
+
+    seed_inclusion_list(&ctx, inclusion_list_slot, &[timely_submitter], true);
+    seed_inclusion_list(&ctx, inclusion_list_slot, &[late_submitter], false);
     seed_preferences(&ctx, bid_slot, Address::ZERO, 30_000_000);
 
     let bid = ctx.sign_bid(ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
@@ -1674,11 +1677,10 @@ fn bid_il_bits_checks_consider_only_timely_inclusion_lists() {
         parent_block_root: ctx.genesis_block_root,
         parent_block_hash: ctx.execution_parent_hash(),
         prev_randao: ctx.expected_prev_randao(),
-        // the bid only claims the bits matching the inclusion list committee indices
-        // of the validators that sent timely inclusion lists
+        // the bid only claims the bits of the validator that sent a timely inclusion list
         inclusion_list_bits: inclusion_list_bits_for_validators(
             &inclusion_list_committee,
-            &inclusion_list_committee[0..2],
+            &[timely_submitter],
         ),
         ..ExecutionPayloadBidHeze::default()
     }));
