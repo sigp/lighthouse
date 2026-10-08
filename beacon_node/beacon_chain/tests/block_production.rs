@@ -359,22 +359,24 @@ async fn heze_self_build_bid_claims_held_inclusion_lists() {
         .find(|index| **index != timely_submitter)
         .unwrap();
 
-    let mut store = harness.chain.inclusion_list_store.write();
     for (validator_index, is_timely) in [(timely_submitter, true), (late_submitter, false)] {
-        store.process_inclusion_list(
-            SignedInclusionList {
-                message: InclusionList {
-                    slot: inclusion_list_slot,
-                    validator_index,
-                    dependent_root,
-                    transactions: ProgressiveTransactions::default(),
+        harness
+            .chain
+            .inclusion_list_store
+            .write()
+            .process_inclusion_list(
+                SignedInclusionList {
+                    message: InclusionList {
+                        slot: inclusion_list_slot,
+                        validator_index,
+                        dependent_root,
+                        transactions: ProgressiveTransactions::default(),
+                    },
+                    signature: Signature::empty(),
                 },
-                signature: Signature::empty(),
-            },
-            is_timely,
-        );
+                is_timely,
+            );
     }
-    drop(store);
 
     harness.advance_slot();
     let state = harness.get_current_state();
