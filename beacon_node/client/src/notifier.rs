@@ -436,30 +436,25 @@ async fn post_bellatrix_readiness_logging<T: BeaconChainTypes>(
     current_slot: Slot,
     beacon_chain: &BeaconChain<T>,
 ) {
-    if beacon_chain.execution_layer.is_none() {
-        return;
-    }
-
     if let Some(fork) = find_next_fork_to_prepare(current_slot, beacon_chain) {
-        let readiness = if let Some(el) = beacon_chain.execution_layer.as_ref() {
-            match el
-                .get_engine_capabilities(Some(Duration::from_secs(
-                    ENGINE_CAPABILITIES_REFRESH_INTERVAL,
-                )))
-                .await
-            {
-                Err(e) => Err(format!("Exchange capabilities failed: {e:?}")),
-                Ok(capabilities) => {
-                    let missing_methods = methods_required_for_fork(fork, capabilities);
-                    if missing_methods.is_empty() {
-                        Ok(())
-                    } else {
-                        Err(format!("Missing required methods: {missing_methods:?}"))
-                    }
+        let Some(el) = beacon_chain.execution_layer.as_ref() else {
+            return;
+        };
+        let readiness = match el
+            .get_engine_capabilities(Some(Duration::from_secs(
+                ENGINE_CAPABILITIES_REFRESH_INTERVAL,
+            )))
+            .await
+        {
+            Err(e) => Err(format!("Exchange capabilities failed: {e:?}")),
+            Ok(capabilities) => {
+                let missing_methods = methods_required_for_fork(fork, capabilities);
+                if missing_methods.is_empty() {
+                    Ok(())
+                } else {
+                    Err(format!("Missing required methods: {missing_methods:?}"))
                 }
             }
-        } else {
-            Err("No execution endpoint".to_string())
         };
 
         if let Err(readiness) = readiness {
@@ -580,11 +575,6 @@ fn methods_required_for_fork(
 }
 
 async fn genesis_execution_payload_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
-    // The genesis payload header is read back from the engine, and there is no engine.
-    if beacon_chain.execution_layer.is_none() {
-        return;
-    }
-
     match beacon_chain
         .check_genesis_execution_payload_is_correct()
         .await
@@ -635,6 +625,7 @@ async fn genesis_execution_payload_logging<T: BeaconChainTypes>(beacon_chain: &B
                 "Unable to check genesis which has already occurred"
             );
         }
+        Ok(GenesisExecutionPayloadStatus::NoExecutionLayer) => {}
         Err(e) => {
             error!(
                 error = ?e,
