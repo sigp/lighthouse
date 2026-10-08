@@ -8,6 +8,7 @@ use bls::{PublicKeyBytes, Signature};
 use execution_layer::{
     BlockProposalContentsGloas, BuilderParams, PayloadAttributes, PayloadParameters,
 };
+use futures::future::OptionFuture;
 use operation_pool::CompactAttestationRef;
 use ssz::{BitVector, Encode, ProgressiveBitList, TryFromIter};
 use ssz_types::ProgressiveVariableList;
@@ -293,19 +294,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &state,
             &parent_execution_requests,
         );
-        let local_fut = self.clone().produce_execution_payload_bid(
-            &state,
-            parent_envelope,
-            produce_at_slot,
-            BID_VALUE_SELF_BUILD,
-            BUILDER_INDEX_SELF_BUILD,
-            executed_ancestor_hash,
-            proposer_preferences.as_deref(),
-        );
+        let local_fut: OptionFuture<_> = self
+            .execution_layer
+            .is_some()
+            .then(|| {
+                self.clone().produce_execution_payload_bid(
+                    &state,
+                    parent_envelope,
+                    produce_at_slot,
+                    BID_VALUE_SELF_BUILD,
+                    BUILDER_INDEX_SELF_BUILD,
+                    executed_ancestor_hash,
+                    proposer_preferences.as_deref(),
+                )
+            })
+            .into();
         let (mut candidates, local_result) = tokio::join!(acquire_fut, local_fut);
 
         match local_result {
-            Ok((local_signed_bid, local_build)) => {
+            None => {}
+            Some(Ok((local_signed_bid, local_build))) => {
                 let LocalBuildResult {
                     payload_data,
                     payload_value,
@@ -318,7 +326,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     should_override_builder,
                 ));
             }
-            Err(e) => {
+            Some(Err(e)) => {
                 error!(
                     error = ?e,
                     slot = %produce_at_slot,
