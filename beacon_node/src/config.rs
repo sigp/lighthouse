@@ -344,6 +344,12 @@ pub fn get_config<E: EthSpec>(
         )?);
         client_config.network.enable_execution_proof = true;
     }
+    let execution_proofs_required: usize =
+        clap_utils::parse_required(cli_args, "execution-proofs-required")?;
+    if execution_proofs_required == 0 {
+        return Err("--execution-proofs-required must be at least 1".to_string());
+    }
+    client_config.chain.execution_proofs_required = execution_proofs_required;
 
     // Parse and set the payload builder, if any.
     if let Some(endpoint) = cli_args.get_one::<String>("builder") {
