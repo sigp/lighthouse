@@ -231,6 +231,17 @@ impl ProtoNode {
         }
     }
 
+    /// Whether the execution payload this node commits to is still awaiting a verdict.
+    pub(crate) fn is_optimistic(&self) -> bool {
+        match self.execution_status() {
+            ExecutionStatus::Optimistic(_) => true,
+            ExecutionStatus::Valid(_)
+            | ExecutionStatus::Invalid(_)
+            | ExecutionStatus::Irrelevant(_)
+            | ExecutionStatus::NotYetRevealed(_) => false,
+        }
+    }
+
     /// The execution block this node commits to.
     pub fn block_hash(&self) -> PayloadBlockHash {
         match self {
@@ -1619,11 +1630,7 @@ impl ProtoArray {
     fn has_full_node(&self, proto_node: &ProtoNode, optimistic: OptimisticPayloads) -> bool {
         proto_node.payload_received().is_ok_and(|received| received)
             && !proto_node.is_invalid()
-            && !(optimistic.is_filtered()
-                && matches!(
-                    proto_node.execution_status(),
-                    ExecutionStatus::Optimistic(_)
-                ))
+            && !(optimistic.is_filtered() && proto_node.is_optimistic())
     }
 
     /// Returns the canonical payload status of a block, matching the decision
