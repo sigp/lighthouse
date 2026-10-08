@@ -13,10 +13,10 @@ use ssz_types::ProgressiveVariableList;
 use std::sync::Arc;
 use types::{
     Address, BlockImportSource, Epoch, EthSpec, ExecPayload, ForkName, Hash256, InclusionList,
-    MinimalEthSpec, ProgressiveTransactions, SignedInclusionList, Slot, WithdrawalRequest,
+    ProgressiveTransactions, SignedInclusionList, Slot, Spec, WithdrawalRequest,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 #[tokio::test]
 async fn pre_gloas_block_import_records_payload_gas_limit() {

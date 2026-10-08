@@ -649,11 +649,11 @@ mod data_availability_checker_tests {
     use std::time::Duration;
     use types::{
         Cell, CellBitmap, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas,
-        ForkName, MinimalEthSpec, PartialDataColumnGloas, PartialDataColumnSidecarGloas,
-        SignedExecutionPayloadEnvelope, Slot, test_utils::test_unstructured,
+        ForkName, PartialDataColumnGloas, PartialDataColumnSidecarGloas,
+        SignedExecutionPayloadEnvelope, Slot, Spec, test_utils::test_unstructured,
     };
 
-    type E = MinimalEthSpec;
+    type E = Spec;
     type T = DiskHarnessType<E>;
 
     const NUM_BLOBS: usize = 1;
