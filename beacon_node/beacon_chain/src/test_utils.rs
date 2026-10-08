@@ -35,7 +35,7 @@ use execution_layer::{
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::PayloadVerificationStatus;
-use futures::channel::mpsc::Receiver;
+use futures::channel::mpsc::{Receiver, TryRecvError};
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
 use kzg::Kzg;
@@ -650,7 +650,7 @@ where
             // The mock EL produces synthetic execution block hashes, which cannot survive a real
             // RLP block hash recompute. Tests that want the recompute pass an explicit config.
             ChainConfig {
-                verify_envelope_payload_hash_in_backfill: false,
+                verify_envelope_payload_hash_on_cl: false,
                 ..ChainConfig::default()
             }
         });
@@ -953,9 +953,9 @@ where
     pub fn shutdown_reasons(&self) -> Vec<ShutdownReason> {
         let mutex = self.shutdown_receiver.clone();
         let mut receiver = mutex.lock();
-        std::iter::from_fn(move || match receiver.try_next() {
-            Ok(Some(s)) => Some(s),
-            Ok(None) => panic!("shutdown sender dropped"),
+        std::iter::from_fn(move || match receiver.try_recv() {
+            Ok(s) => Some(s),
+            Err(TryRecvError::Closed) => panic!("shutdown sender dropped"),
             Err(_) => None,
         })
         .collect()
