@@ -6,7 +6,7 @@
 //! keyed by `(slot, dependent_root)`, which pins an inclusion list to the committee it was produced
 //! against.
 
-use ssz_types::{BitVector, ProgressiveVariableList};
+use ssz_types::ProgressiveVariableList;
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
@@ -227,10 +227,10 @@ impl<E: EthSpec> InclusionListStore<E> {
         dependent_root: DependentRoot,
         il_committee: &InclusionListCommittee<E>,
         only_timely: bool,
-    ) -> Result<BitVector<E::InclusionListCommitteeSize>, Error> {
+    ) -> Result<InclusionListBits<E>, Error> {
         let submitted = self.submitted_validators(slot, dependent_root, only_timely);
 
-        let mut bits = BitVector::new();
+        let mut bits = InclusionListBits::<E>::new();
         for (i, validator) in il_committee.iter().enumerate() {
             if submitted.contains(validator) {
                 bits.set(i, true)?;
@@ -246,7 +246,7 @@ impl<E: EthSpec> InclusionListStore<E> {
         slot: Slot,
         dependent_root: DependentRoot,
         il_committee: &InclusionListCommittee<E>,
-        bits: &BitVector<E::InclusionListCommitteeSize>,
+        bits: &InclusionListBits<E>,
         only_timely: bool,
     ) -> Result<bool, Error> {
         let local =

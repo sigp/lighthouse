@@ -7,7 +7,7 @@ use fork_choice::ForkChoice;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use kzg::KzgCommitment;
 use slot_clock::{SlotClock, TestingSlotClock};
-use ssz::{BitVector, Encode};
+use ssz::Encode;
 use ssz_types::ProgressiveVariableList;
 use state_processing::genesis::genesis_block;
 use store::{HotColdDB, StoreConfig, StoreOp};
@@ -15,11 +15,11 @@ use types::{
     Address, BuilderExitRequest, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
     ExecutionPayloadEnvelope, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName,
-    Hash256, InclusionList, InclusionListCommittee, MinimalEthSpec, ProgressiveTransactions,
-    ProposerPreferences, RelativeEpoch, SignedBeaconBlock, SignedExecutionPayloadBid,
-    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
-    SignedInclusionList, SignedProposerPreferences, SignedRoot, Slot,
-    consts::gloas::PAYLOAD_BUILDER_VERSION,
+    Hash256, InclusionList, InclusionListBits, InclusionListCommittee, MinimalEthSpec,
+    ProgressiveTransactions, ProposerPreferences, RelativeEpoch, SignedBeaconBlock,
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+    SignedExecutionPayloadEnvelope, SignedInclusionList, SignedProposerPreferences, SignedRoot,
+    Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 use crate::inclusion_list_store::InclusionListStore;
@@ -216,10 +216,11 @@ impl TestContext {
     fn sign_bid(&self, bid: ExecutionPayloadBid<E>) -> Arc<SignedExecutionPayloadBid<E>> {
         let head = self.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
+        let bid_epoch = bid.slot().epoch(E::slots_per_epoch());
         let domain = self.spec.get_domain(
-            bid.slot().epoch(E::slots_per_epoch()),
+            bid_epoch,
             Domain::BeaconBuilder,
-            &state.fork(),
+            &self.spec.fork_at_epoch(bid_epoch),
             state.genesis_validators_root(),
         );
 
@@ -450,8 +451,8 @@ fn make_signed_preferences(
 fn inclusion_list_bits_for_validators(
     inclusion_list_committee: &InclusionListCommittee<E>,
     validator_indices: &[u64],
-) -> BitVector<<E as EthSpec>::InclusionListCommitteeSize> {
-    let mut inclusion_list_bits = BitVector::<<E as EthSpec>::InclusionListCommitteeSize>::new();
+) -> InclusionListBits<E> {
+    let mut inclusion_list_bits = InclusionListBits::<E>::new();
 
     for (position, validator_index) in inclusion_list_committee.iter().enumerate() {
         if validator_indices.contains(validator_index) {
@@ -1551,7 +1552,7 @@ fn bid_il_bits_not_inclusive() {
     assert!(
         matches!(
             result,
-            Err(PayloadBidError::InclusionListBitsNotInclusive{ slot }) if slot == bid_slot
+            Err(PayloadBidError::InclusionListBitsNotInclusive { slot }) if slot == bid_slot
         ),
         "unexpected result: {result:?}"
     );
@@ -1760,6 +1761,37 @@ fn bid_il_bits_claiming_more_than_stored_are_inclusive() {
         ..ExecutionPayloadBidHeze::default()
     }));
 
+    let result = GossipVerifiedPayloadBid::new(bid, &gossip);
+    assert!(
+        result.is_ok(),
+        "expected Ok, got: {:?}",
+        result.unwrap_err()
+    );
+}
+
+#[test]
+fn bid_il_bits_check_at_heze_boundary() {
+    // A bid for the first Heze slot, received during the last Gloas slot
+    // The inclusion list slot is a Gloas slot, so the node holds no lists for it and the check passes
+    if fork_name_from_env() != Some(ForkName::Gloas) {
+        return;
+    }
+    let mut ctx = TestContext::new();
+    let heze_fork_epoch = Epoch::new(1);
+    ctx.spec.heze_fork_epoch = Some(heze_fork_epoch);
+    let bid_slot = heze_fork_epoch.start_slot(E::slots_per_epoch());
+    ctx.slot_clock.set_slot((bid_slot - 1).as_u64());
+    seed_preferences(&ctx, bid_slot, Address::ZERO, 30_000_000);
+    let gossip = ctx.gossip_ctx();
+
+    let bid = ctx.sign_bid(ctx.make_bid(
+        bid_slot,
+        0,
+        Address::ZERO,
+        30_000_000,
+        0,
+        ctx.genesis_block_root,
+    ));
     let result = GossipVerifiedPayloadBid::new(bid, &gossip);
     assert!(
         result.is_ok(),

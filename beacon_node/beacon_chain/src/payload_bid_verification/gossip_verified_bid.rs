@@ -88,9 +88,9 @@ fn verify_bid_blobs<E: EthSpec>(
 /// Reject a bid whose `inclusion_list_bits` do not cover `local_inclusion_list_bits`, the node's
 /// own view of the inclusion lists for the slot before the bid's. Pre-Heze bids carry no bits and pass.
 ///
-/// Shared by both intakes, each resolves the local bits under its own timeliness rule:
-/// timely inclusion lists only on gossip, and all (timely and untimely) inclusion lists on the
-/// proposer's block production path.
+/// Callers resolve `local_inclusion_list_bits` under their own timeliness rule.
+/// On gossip only timely inclusion lists count, while for the proposer's block production path
+/// both timely and untimely inclusion lists count.
 pub(crate) fn verify_bid_inclusion_list_bits<E: EthSpec>(
     bid: ExecutionPayloadBidRef<E>,
     local_inclusion_list_bits: &InclusionListBits<E>,
