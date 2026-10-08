@@ -15,11 +15,11 @@ use types::{
     Address, BuilderExitRequest, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
     ExecutionPayloadEnvelope, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName,
-    Hash256, InclusionList, InclusionListBits, InclusionListCommittee, MinimalEthSpec,
-    ProgressiveTransactions, ProposerPreferences, RelativeEpoch, SignedBeaconBlock,
-    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
-    SignedExecutionPayloadEnvelope, SignedInclusionList, SignedProposerPreferences, SignedRoot,
-    Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    Hash256, InclusionList, InclusionListBits, InclusionListCommittee, ProgressiveTransactions,
+    ProposerPreferences, RelativeEpoch, SignedBeaconBlock, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
+    SignedInclusionList, SignedProposerPreferences, SignedRoot, Slot, Spec,
+    consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 use crate::inclusion_list_store::InclusionListStore;
@@ -48,10 +48,10 @@ use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use state_processing::AllCaches;
 use types::AttestationShufflingId;
 
-type E = MinimalEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
-/// Number of regular validators (must be >= min_genesis_active_validator_count for MinimalEthSpec).
+/// Number of regular validators (must be >= min_genesis_active_validator_count for the minimal preset).
 const NUM_VALIDATORS: usize = 64;
 /// Number of builders to register.
 const NUM_BUILDERS: usize = 4;
