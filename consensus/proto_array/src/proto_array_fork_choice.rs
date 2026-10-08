@@ -2653,7 +2653,6 @@ mod optimistic_payload_has_no_full_node {
             }
         }
 
-        /// Block `root` at `slot` on `parent`, building on payload `parent_hash`.
         fn block(
             &mut self,
             slot: u64,
@@ -2730,8 +2729,7 @@ mod optimistic_payload_has_no_full_node {
         }
     }
 
-    /// `(head, vote)` at each point the node attests: in slot N after block N, in slot N after
-    /// payload N, and in slot N+1.
+    /// In slot N after block N, in slot N after payload N, and in slot N+1.
     fn outcomes(payload_n: PayloadN, slot_n1: SlotN1) -> Vec<(ForkChoiceNode, Vote)> {
         outcomes_with_filter(payload_n, slot_n1, true)
     }
@@ -2804,8 +2802,6 @@ mod optimistic_payload_has_no_full_node {
         }
     }
 
-    /// Spec behaviour, kept when the switch is off: an optimistic payload is the head on FULL,
-    /// and the node abstains once a vote would rest on it.
     #[test]
     fn without_the_switch_an_optimistic_payload_is_head_on_full() {
         let spec_behaviour = outcomes_with_filter(PayloadN::Optimistic, SlotN1::Full, false);
@@ -2817,8 +2813,6 @@ mod optimistic_payload_has_no_full_node {
         assert_ne!(spec_behaviour, outcomes(PayloadN::Optimistic, SlotN1::Full));
     }
 
-    /// `get_canonical_payload_status` feeds `payload_present` for attestations to earlier slots
-    /// and must agree with the head's choice.
     #[test]
     fn canonical_payload_status_follows_the_switch() {
         for (filter, expected) in [(true, PayloadStatus::Empty), (false, PayloadStatus::Full)] {

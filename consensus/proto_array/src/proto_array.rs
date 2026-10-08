@@ -420,8 +420,7 @@ pub struct ProtoArray {
     /// node `i`. Maintained incrementally by `on_block` and `maybe_prune`.
     #[serde(skip)]
     pub children: Vec<Vec<usize>>,
-    /// Treat an optimistic payload as not received, so no head rests on it. Departs from the
-    /// spec; set at construction, never persisted.
+    /// Treat an optimistic payload as not received. Departs from the spec.
     #[serde(skip)]
     pub filter_optimistic_payloads: bool,
 }
@@ -1615,8 +1614,6 @@ impl ProtoArray {
         }
     }
 
-    /// Whether the block has a `FULL` node: its payload was received, not found invalid, and,
-    /// under `filter_optimistic_payloads`, verified. Pre-Gloas blocks never do.
     fn has_full_node(&self, proto_node: &ProtoNode) -> bool {
         proto_node.payload_received().is_ok_and(|received| received)
             && !proto_node.is_invalid()
@@ -1639,7 +1636,7 @@ impl ProtoArray {
             .get(proto_node_index)
             .ok_or(Error::InvalidNodeIndex(proto_node_index))?;
 
-        // A pre-Gloas block has a single node and no status to pick.
+        // As in `get_node_children`, an invalid payload has no FULL node.
         proto_node
             .payload_received()
             .map_err(|_| Error::InvalidNodeVariant { block_root: root })?;
@@ -1841,6 +1838,8 @@ impl ProtoArray {
                 .get(node.proto_node_index)
                 .ok_or(Error::InvalidNodeIndex(node.proto_node_index))?;
             let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
+            // The FULL virtual child only exists if the payload has been received and not found
+            // invalid.
             if self.has_full_node(proto_node) {
                 children.push((node.with_status(PayloadStatus::Full), proto_node.clone()));
             }
