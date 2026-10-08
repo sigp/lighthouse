@@ -100,19 +100,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.proof_engine.is_some()
     }
 
+    /// Whether `block_root`'s payload has proofs from as many proof systems as we require.
+    pub(crate) fn execution_proofs_satisfied(&self, block_root: &Hash256) -> bool {
+        self.observed_execution_proofs
+            .read()
+            .valid_proof_count(block_root)
+            >= REQUIRED_EXECUTION_PROOFS
+    }
+
     /// Tell fork choice `block_root`'s payload is valid.
     pub async fn promote_payload_if_proven(
         self: &Arc<Self>,
         block_root: Hash256,
         block_slot: Slot,
     ) -> Result<(), BlockError> {
-        // Exactly at the threshold: a later proof type would re-promote a valid payload.
-        if self
-            .observed_execution_proofs
-            .read()
-            .valid_proof_count(&block_root)
-            != REQUIRED_EXECUTION_PROOFS
-        {
+        if !self.execution_proofs_satisfied(&block_root) {
             return Ok(());
         }
 
@@ -129,6 +131,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "validate_proven_payload",
         )
         .await??;
+        // TODO(9658): overcounts, every proof past the threshold promotes a valid payload again.
+        // https://github.com/sigp/lighthouse/issues/9658
         metrics::inc_counter(&metrics::EXECUTION_PROOF_PROMOTIONS);
         metrics::observe(
             &metrics::EXECUTION_PROOF_PROMOTION_LAG,
