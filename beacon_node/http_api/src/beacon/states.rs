@@ -208,6 +208,66 @@ pub fn get_beacon_state_builder_pending_withdrawals<T: BeaconChainTypes>(
         .boxed()
 }
 
+// GET beacon/states/{state_id}/builder_pending_payments
+pub fn get_beacon_state_builder_pending_payments<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("builder_pending_payments"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(payments) = state.builder_pending_payments() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Builder pending payments are not available for pre-Gloas states"
+                                            .to_string(),
+                                    ));
+                                };
+
+                                Ok((
+                                    payments.to_vec(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
+                            },
+                        )?;
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => execution_optimistic_finalized_beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            execution_optimistic,
+                            finalized,
+                            data,
+                        )
+                        .map(|res| warp::reply::json(&res).into_response()),
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        )
+        .boxed()
+}
+
 // GET beacon/states/{state_id}/pending_deposits
 pub fn get_beacon_state_pending_deposits<T: BeaconChainTypes>(
     beacon_states_path: BeaconStatesPath<T>,

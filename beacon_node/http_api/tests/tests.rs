@@ -117,6 +117,11 @@ struct BuilderPendingWithdrawalsTestFixture {
     withdrawals: Vec<types::BuilderPendingWithdrawal>,
 }
 
+struct BuilderPendingPaymentsTestFixture {
+    state_id: CoreStateId,
+    payments: Vec<types::BuilderPendingPayment>,
+}
+
 impl Default for ApiTesterConfig {
     fn default() -> Self {
         let mut spec = E::default_spec();
@@ -1339,6 +1344,37 @@ impl ApiTester {
         }
     }
 
+    fn builder_pending_payments_test_fixture(&self) -> BuilderPendingPaymentsTestFixture {
+        let mut state = self.chain.head_snapshot().beacon_state.clone();
+
+        // Give every slot of the fixed-length vector a distinct, non-default payment.
+        let payments = (0..E::builder_pending_payments_limit() as u64)
+            .map(|i| types::BuilderPendingPayment {
+                weight: self.chain.spec.min_deposit_amount * (i + 1),
+                withdrawal: types::BuilderPendingWithdrawal {
+                    fee_recipient: Address::repeat_byte(i as u8 + 1),
+                    amount: self.chain.spec.min_deposit_amount * (i + 2),
+                    builder_index: i,
+                },
+                proposer_index: i + 10,
+            })
+            .collect::<Vec<_>>();
+
+        let pending_payments = state.builder_pending_payments_mut().unwrap();
+        assert_eq!(pending_payments.len(), payments.len());
+        for (index, payment) in payments.iter().enumerate() {
+            *pending_payments.get_mut(index).unwrap() = payment.clone();
+        }
+
+        let state_root = state.update_tree_hash_cache().unwrap();
+        self.chain.store.put_state(&state_root, &state).unwrap();
+
+        BuilderPendingPaymentsTestFixture {
+            state_id: CoreStateId::Root(state_root),
+            payments,
+        }
+    }
+
     pub async fn test_beacon_state_builders_filters(self) -> Self {
         let fixture = self.builder_state_test_fixture();
         let all_builders = self
@@ -1871,6 +1907,43 @@ impl ApiTester {
         let decoded = Vec::<types::BuilderPendingWithdrawal>::from_ssz_bytes(&ssz_bytes)
             .expect("should decode SSZ builder pending withdrawals");
         assert_eq!(decoded, fixture.withdrawals);
+
+        self
+    }
+
+    pub async fn test_beacon_states_builder_pending_payments(self) -> Self {
+        let fixture = self.builder_pending_payments_test_fixture();
+
+        let response = self
+            .client
+            .get_beacon_states_builder_pending_payments(fixture.state_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(response.data(), &fixture.payments);
+        assert_eq!(response.metadata().execution_optimistic, Some(false));
+        assert_eq!(response.metadata().finalized, Some(false));
+
+        // Check that the version header is returned in the response
+        assert_eq!(response.version(), Some(ForkName::Gloas));
+
+        self
+    }
+
+    pub async fn test_beacon_states_builder_pending_payments_ssz(self) -> Self {
+        let fixture = self.builder_pending_payments_test_fixture();
+
+        let ssz_bytes = self
+            .client
+            .get_beacon_states_builder_pending_payments_ssz(fixture.state_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let decoded = Vec::<types::BuilderPendingPayment>::from_ssz_bytes(&ssz_bytes)
+            .expect("should decode SSZ builder pending payments");
+        assert_eq!(decoded, fixture.payments);
 
         self
     }
@@ -9924,6 +9997,10 @@ async fn beacon_get_state_info_gloas() {
         .test_beacon_states_builder_pending_withdrawals()
         .await
         .test_beacon_states_builder_pending_withdrawals_ssz()
+        .await
+        .test_beacon_states_builder_pending_payments()
+        .await
+        .test_beacon_states_builder_pending_payments_ssz()
         .await;
 }
 
