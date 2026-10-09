@@ -1462,25 +1462,33 @@ where
     /// Only works for a builder registered from `validator_keypairs[builder_index]`.
     pub fn sign_payload_bid(
         &self,
-        bid: ExecutionPayloadBidGloas<E>,
+        bid: ExecutionPayloadBid<E>,
         state: &BeaconState<E>,
     ) -> Arc<SignedExecutionPayloadBid<E>> {
         let domain = self.spec.get_domain(
-            bid.slot.epoch(E::slots_per_epoch()),
+            bid.slot().epoch(E::slots_per_epoch()),
             Domain::BeaconBuilder,
             &state.fork(),
             state.genesis_validators_root(),
         );
-        let signature = self.validator_keypairs[bid.builder_index as usize]
+        let signature = self.validator_keypairs[bid.builder_index() as usize]
             .sk
-            .sign(ExecutionPayloadBidRef::Gloas(&bid).signing_root(domain));
+            .sign(bid.signing_root(domain));
 
-        Arc::new(SignedExecutionPayloadBid::Gloas(
-            SignedExecutionPayloadBidGloas {
-                message: bid,
-                signature,
-            },
-        ))
+        Arc::new(match bid {
+            ExecutionPayloadBid::Gloas(message) => {
+                SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                    message,
+                    signature,
+                })
+            }
+            ExecutionPayloadBid::Heze(message) => {
+                SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
+                    message,
+                    signature,
+                })
+            }
+        })
     }
 
     /// Sign a beacon block using the proposer's key.

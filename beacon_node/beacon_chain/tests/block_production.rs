@@ -5,7 +5,7 @@ use beacon_chain::{
     payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid,
     test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec},
 };
-use bls::PublicKeyBytes;
+use bls::{PublicKeyBytes, Signature};
 use eth2::types::{BuilderConfig, GraffitiPolicy};
 use ethereum_hashing::hash;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
@@ -13,10 +13,12 @@ use proto_array::PayloadStatus;
 use ssz::Encode;
 use std::sync::Arc;
 use types::{
-    Address, BeaconBlock, BeaconState, Checkpoint, Epoch, ExecutionBlockHash,
-    ExecutionPayloadBidGloas, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu,
-    ExecutionRequests, ExecutionRequestsGloas, Hash256, SignedExecutionPayloadBid, Slot, Spec,
-    WithdrawalRequest, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    Address, BeaconBlock, BeaconState, Checkpoint, Epoch, ExecutionBlockHash, ExecutionPayloadBid,
+    ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadHeader,
+    ExecutionPayloadHeaderFulu, ExecutionRequests, ExecutionRequestsGloas, Hash256, InclusionList,
+    InclusionListBits, ProgressiveTransactions, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidRef, SignedInclusionList, Slot, Spec, WithdrawalRequest,
+    consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
 };
 
 type E = Spec;
@@ -157,11 +159,15 @@ struct BuilderOnlyProposer {
 
 impl BuilderOnlyProposer {
     /// Returns `None` when the fork under test is not Gloas.
-    fn new() -> Option<Self> {
-        let spec = Arc::new(test_spec::<E>());
+    fn new(heze_at_genesis: bool) -> Option<Self> {
+        let mut spec = test_spec::<E>();
         if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
             return None;
         }
+        if heze_at_genesis {
+            spec.heze_fork_epoch = Some(Epoch::new(0));
+        }
+        let spec = Arc::new(spec);
 
         let keypairs = generate_deterministic_keypairs(64);
         // Gloas has no payload header, so seed genesis with the last pre-Gloas one and let the
@@ -228,11 +234,17 @@ impl BuilderOnlyProposer {
         })
     }
 
-    fn signed_builder_bid(&self) -> Arc<SignedExecutionPayloadBid<E>> {
+    /// A bid worth `value` from the registered builder. It is a Heze bid claiming
+    /// `inclusion_list_bits` when they are given, and a Gloas bid otherwise.
+    fn signed_builder_bid(
+        &self,
+        value: u64,
+        inclusion_list_bits: Option<InclusionListBits<E>>,
+    ) -> Arc<SignedExecutionPayloadBid<E>> {
         let bid = ExecutionPayloadBidGloas::<E> {
             slot: Slot::new(1),
             builder_index: BUILDER_INDEX,
-            value: BID_VALUE,
+            value,
             fee_recipient: Address::repeat_byte(0xbb),
             gas_limit: GENESIS_GAS_LIMIT,
             parent_block_root: self.genesis_block_root,
@@ -245,6 +257,25 @@ impl BuilderOnlyProposer {
                 .get_randao_mix(Epoch::new(0))
                 .expect("should read the genesis randao mix"),
             ..Default::default()
+        };
+
+        let bid = match inclusion_list_bits {
+            None => ExecutionPayloadBid::Gloas(bid),
+            Some(inclusion_list_bits) => ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
+                parent_block_hash: bid.parent_block_hash,
+                parent_block_root: bid.parent_block_root,
+                block_hash: bid.block_hash,
+                prev_randao: bid.prev_randao,
+                fee_recipient: bid.fee_recipient,
+                gas_limit: bid.gas_limit,
+                builder_index: bid.builder_index,
+                slot: bid.slot,
+                value: bid.value,
+                execution_payment: bid.execution_payment,
+                blob_kzg_commitments: bid.blob_kzg_commitments,
+                execution_requests_root: bid.execution_requests_root,
+                inclusion_list_bits,
+            }),
         };
 
         self.harness.sign_payload_bid(bid, &self.state)
@@ -292,10 +323,10 @@ impl BuilderOnlyProposer {
 /// a builder's bid.
 #[tokio::test]
 async fn gloas_block_production_without_an_execution_layer_uses_a_builder_bid() {
-    let Some(rig) = BuilderOnlyProposer::new() else {
+    let Some(rig) = BuilderOnlyProposer::new(false) else {
         return;
     };
-    let bid = rig.signed_builder_bid();
+    let bid = rig.signed_builder_bid(BID_VALUE, None);
     rig.observe_bid(bid.clone());
 
     let block = rig
@@ -317,7 +348,7 @@ async fn gloas_block_production_without_an_execution_layer_uses_a_builder_bid() 
 /// With no bid such a node has nothing to propose: there is no local build to fall back on.
 #[tokio::test]
 async fn gloas_block_production_without_an_execution_layer_needs_a_bid() {
-    let Some(rig) = BuilderOnlyProposer::new() else {
+    let Some(rig) = BuilderOnlyProposer::new(false) else {
         return;
     };
 
@@ -325,5 +356,146 @@ async fn gloas_block_production_without_an_execution_layer_needs_a_bid() {
         Err(BlockProductionError::NoViablePayloadBid) => {}
         Err(other) => panic!("expected NoViablePayloadBid, got {other:?}"),
         Ok(_) => panic!("a proposer with no execution layer and no bid has nothing to propose"),
+    }
+}
+
+/// A gossip bid cached before a late inclusion list arrived, whose bits miss that list, is
+/// skipped at production, while one covering it is used.
+#[tokio::test]
+async fn heze_gossip_bid_missing_a_late_inclusion_list_is_skipped_at_production() {
+    let Some(rig) = BuilderOnlyProposer::new(true) else {
+        return;
+    };
+
+    let inclusion_list_slot = Slot::new(0);
+    let (committee, dependent_root) = rig
+        .harness
+        .chain
+        .inclusion_list_committee(rig.genesis_block_root, inclusion_list_slot)
+        .unwrap();
+    let late_submitter = committee[0];
+    rig.harness
+        .chain
+        .inclusion_list_store
+        .write()
+        .process_inclusion_list(
+            SignedInclusionList {
+                message: InclusionList {
+                    slot: inclusion_list_slot,
+                    validator_index: late_submitter,
+                    dependent_root,
+                    transactions: ProgressiveTransactions::default(),
+                },
+                signature: Signature::empty(),
+            },
+            false,
+        );
+
+    rig.observe_bid(rig.signed_builder_bid(BID_VALUE, Some(InclusionListBits::<E>::default())));
+    match rig.produce_block().await {
+        Err(BlockProductionError::NoViablePayloadBid) => {}
+        Err(other) => panic!("expected NoViablePayloadBid, got {other:?}"),
+        Ok(_) => panic!("a bid missing a held inclusion list must not be used"),
+    }
+
+    let mut inclusion_list_bits = InclusionListBits::<E>::default();
+    for (position, validator_index) in committee.iter().enumerate() {
+        if *validator_index == late_submitter {
+            inclusion_list_bits.set(position, true).unwrap();
+        }
+    }
+    let covering_bid = rig.signed_builder_bid(BID_VALUE + 1, Some(inclusion_list_bits));
+    rig.observe_bid(covering_bid.clone());
+
+    let block = rig
+        .produce_block()
+        .await
+        .expect("a bid covering every held inclusion list is viable");
+    assert_eq!(
+        &block
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .clone_as_signed_execution_payload_bid(),
+        covering_bid.as_ref()
+    );
+}
+
+/// The self-built bid claims every inclusion list the node holds for the slot before the proposal,
+/// both timely and untimely.
+#[tokio::test]
+async fn heze_self_build_bid_claims_held_inclusion_lists() {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    spec.heze_fork_epoch = Some(Epoch::new(0));
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let inclusion_list_slot = Slot::new(0);
+    let parent_root = harness.head_block_root();
+    let (committee, dependent_root) = harness
+        .chain
+        .inclusion_list_committee(parent_root, inclusion_list_slot)
+        .unwrap();
+
+    let timely_submitter = committee[0];
+    let late_submitter = *committee
+        .iter()
+        .find(|index| **index != timely_submitter)
+        .unwrap();
+
+    for (validator_index, is_timely) in [(timely_submitter, true), (late_submitter, false)] {
+        harness
+            .chain
+            .inclusion_list_store
+            .write()
+            .process_inclusion_list(
+                SignedInclusionList {
+                    message: InclusionList {
+                        slot: inclusion_list_slot,
+                        validator_index,
+                        dependent_root,
+                        transactions: ProgressiveTransactions::default(),
+                    },
+                    signature: Signature::empty(),
+                },
+                is_timely,
+            );
+    }
+
+    harness.advance_slot();
+    let state = harness.get_current_state();
+    let (block_contents, _, _) = harness.make_block_with_envelope(state, Slot::new(1)).await;
+
+    let SignedExecutionPayloadBidRef::Heze(signed_bid) = block_contents
+        .0
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap()
+    else {
+        panic!("a Heze block should carry a Heze bid");
+    };
+    assert_eq!(signed_bid.message.builder_index, BUILDER_INDEX_SELF_BUILD);
+
+    // A validator holding several committee positions has all of them set
+    for (position, validator_index) in committee.iter().enumerate() {
+        let expected = *validator_index == timely_submitter || *validator_index == late_submitter;
+        assert_eq!(
+            signed_bid
+                .message
+                .inclusion_list_bits
+                .get(position)
+                .unwrap(),
+            expected,
+            "unexpected bit at committee position {position}"
+        );
     }
 }
