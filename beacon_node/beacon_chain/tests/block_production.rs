@@ -334,10 +334,11 @@ async fn gloas_block_production_without_an_execution_layer_needs_a_bid() {
 /// both timely and untimely.
 #[tokio::test]
 async fn heze_self_build_bid_claims_held_inclusion_lists() {
-    let spec = test_spec::<E>();
-    if !spec.fork_name_at_slot::<E>(Slot::new(0)).heze_enabled() {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
         return;
     }
+    spec.heze_fork_epoch = Some(Epoch::new(0));
 
     let harness = BeaconChainHarness::builder(E::default())
         .spec(Arc::new(spec))
