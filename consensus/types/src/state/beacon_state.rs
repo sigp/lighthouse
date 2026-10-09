@@ -36,7 +36,7 @@ use crate::{
     execution::{
         Eth1Data, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+        ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, InclusionListCommittee,
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     light_client::consts::{
@@ -1223,7 +1223,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_inclusion_list_committee(
         &self,
         slot: Slot,
-    ) -> Result<FixedVector<u64, E::InclusionListCommitteeSize>, BeaconStateError> {
+    ) -> Result<InclusionListCommittee<E>, BeaconStateError> {
         let cache = self.committee_cache_at_slot(slot)?;
         let committee =
             cache.get_inclusion_list_committee_at_slot(slot, E::inclusion_list_committee_size())?;
@@ -2133,18 +2133,11 @@ impl<E: EthSpec> BeaconState<E> {
     /// Take ownership of the validators list, leaving an empty list in its place.
     ///
     /// Used by the database layer for efficient diffing.
-    pub fn take_validators(&mut self) -> ValidatorsOwned<E> {
-        match self {
-            Self::Base(state) => AnyList::Basic(std::mem::take(&mut state.validators)),
-            Self::Altair(state) => AnyList::Basic(std::mem::take(&mut state.validators)),
-            Self::Bellatrix(state) => AnyList::Basic(std::mem::take(&mut state.validators)),
-            Self::Capella(state) => AnyList::Basic(std::mem::take(&mut state.validators)),
-            Self::Deneb(state) => AnyList::Basic(std::mem::take(&mut state.validators)),
-            Self::Electra(state) => AnyList::Basic(std::mem::take(&mut state.validators)),
-            Self::Fulu(state) => AnyList::Basic(std::mem::take(&mut state.validators)),
-            Self::Gloas(state) => AnyList::Progressive(std::mem::take(&mut state.validators)),
-            Self::Heze(state) => AnyList::Progressive(std::mem::take(&mut state.validators)),
-        }
+    pub fn take_validators<'a>(&'a mut self) -> ValidatorsOwned<E> {
+        map_beacon_state_ref_mut!(&'a _, self.to_mut(), |inner, cons| {
+            let _: fn(_) -> BeaconStateRefMut<'a, E> = cons;
+            std::mem::take(&mut inner.validators).into()
+        })
     }
 
     /// Replace the validators list, preserving the fork-appropriate representation.
@@ -2169,18 +2162,11 @@ impl<E: EthSpec> BeaconState<E> {
     /// Take ownership of the balances list, leaving an empty list in its place.
     ///
     /// Used by the database layer for efficient diffing.
-    pub fn take_balances(&mut self) -> BalancesOwned<E> {
-        match self {
-            Self::Base(state) => AnyList::Basic(std::mem::take(&mut state.balances)),
-            Self::Altair(state) => AnyList::Basic(std::mem::take(&mut state.balances)),
-            Self::Bellatrix(state) => AnyList::Basic(std::mem::take(&mut state.balances)),
-            Self::Capella(state) => AnyList::Basic(std::mem::take(&mut state.balances)),
-            Self::Deneb(state) => AnyList::Basic(std::mem::take(&mut state.balances)),
-            Self::Electra(state) => AnyList::Basic(std::mem::take(&mut state.balances)),
-            Self::Fulu(state) => AnyList::Basic(std::mem::take(&mut state.balances)),
-            Self::Gloas(state) => AnyList::Progressive(std::mem::take(&mut state.balances)),
-            Self::Heze(state) => AnyList::Progressive(std::mem::take(&mut state.balances)),
-        }
+    pub fn take_balances<'a>(&'a mut self) -> BalancesOwned<E> {
+        map_beacon_state_ref_mut!(&'a _, self.to_mut(), |inner, cons| {
+            let _: fn(_) -> BeaconStateRefMut<'a, E> = cons;
+            std::mem::take(&mut inner.balances).into()
+        })
     }
 
     /// Replace the balances list, preserving the fork-appropriate representation.
@@ -3551,6 +3537,12 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, BeaconStateError> {
         let ptc_window = self.ptc_window()?;
         let epoch = slot.epoch(E::slots_per_epoch());
+        if spec
+            .gloas_fork_epoch
+            .is_none_or(|fork_epoch| epoch < fork_epoch)
+        {
+            return Err(BeaconStateError::SlotOutOfBounds);
+        }
         let state_epoch = self.current_epoch();
         let slots_per_epoch = E::slots_per_epoch() as usize;
         let slot_in_epoch = slot.as_usize().safe_rem(slots_per_epoch)?;

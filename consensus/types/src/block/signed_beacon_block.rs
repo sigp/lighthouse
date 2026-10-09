@@ -709,35 +709,7 @@ pub mod ssz_tagged_signed_beacon_block {
                 .get(1..)
                 .ok_or(DecodeError::OutOfBoundsByte { i: 1 })?;
 
-            match ForkName::from_ssz_bytes(&[fork_byte])? {
-                ForkName::Base => Ok(SignedBeaconBlock::Base(
-                    SignedBeaconBlockBase::from_ssz_bytes(body)?,
-                )),
-                ForkName::Altair => Ok(SignedBeaconBlock::Altair(
-                    SignedBeaconBlockAltair::from_ssz_bytes(body)?,
-                )),
-                ForkName::Bellatrix => Ok(SignedBeaconBlock::Bellatrix(
-                    SignedBeaconBlockBellatrix::from_ssz_bytes(body)?,
-                )),
-                ForkName::Capella => Ok(SignedBeaconBlock::Capella(
-                    SignedBeaconBlockCapella::from_ssz_bytes(body)?,
-                )),
-                ForkName::Deneb => Ok(SignedBeaconBlock::Deneb(
-                    SignedBeaconBlockDeneb::from_ssz_bytes(body)?,
-                )),
-                ForkName::Electra => Ok(SignedBeaconBlock::Electra(
-                    SignedBeaconBlockElectra::from_ssz_bytes(body)?,
-                )),
-                ForkName::Fulu => Ok(SignedBeaconBlock::Fulu(
-                    SignedBeaconBlockFulu::from_ssz_bytes(body)?,
-                )),
-                ForkName::Gloas => Ok(SignedBeaconBlock::Gloas(
-                    SignedBeaconBlockGloas::from_ssz_bytes(body)?,
-                )),
-                ForkName::Heze => Ok(SignedBeaconBlock::Heze(
-                    SignedBeaconBlockHeze::from_ssz_bytes(body)?,
-                )),
-            }
+            SignedBeaconBlock::from_ssz_bytes_by_fork(body, ForkName::from_ssz_bytes(&[fork_byte])?)
         }
     }
 }
@@ -766,13 +738,13 @@ pub mod ssz_tagged_signed_beacon_block_arc {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{block::EmptyBlock, core::MainnetEthSpec};
+    use crate::{block::EmptyBlock, core::Spec};
 
     #[test]
     fn add_remove_payload_roundtrip() {
-        type E = MainnetEthSpec;
+        type E = Spec;
 
-        let spec = &E::default_spec();
+        let spec = &ForkName::Bellatrix.make_genesis_spec(E::default_spec());
         let sig = Signature::empty();
         let blocks = vec![
             SignedBeaconBlock::<E>::from_block(
@@ -827,7 +799,7 @@ mod test {
 
     #[test]
     fn test_ssz_tagged_signed_beacon_block() {
-        type E = MainnetEthSpec;
+        type E = Spec;
 
         let spec = &spec_with_all_forks_enabled::<E>();
         let sig = Signature::empty();
