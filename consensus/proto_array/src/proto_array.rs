@@ -1619,15 +1619,15 @@ impl ProtoArray {
     fn has_full_node(&self, proto_node: &ProtoNode, policy: OptimisticPayloads) -> bool {
         proto_node.payload_received().is_ok_and(|received| received)
             && !proto_node.is_invalid()
-            && match proto_node.execution_status() {
-                ExecutionStatus::Optimistic(_) => match policy {
-                    OptimisticPayloads::Eligible => true,
-                    OptimisticPayloads::Filtered => false,
+            && match policy {
+                OptimisticPayloads::Eligible => true,
+                OptimisticPayloads::Filtered => match proto_node.execution_status() {
+                    ExecutionStatus::Optimistic(_) => false,
+                    ExecutionStatus::Valid(_)
+                    | ExecutionStatus::Invalid(_)
+                    | ExecutionStatus::Irrelevant(_)
+                    | ExecutionStatus::NotYetRevealed(_) => true,
                 },
-                ExecutionStatus::Valid(_)
-                | ExecutionStatus::Invalid(_)
-                | ExecutionStatus::Irrelevant(_)
-                | ExecutionStatus::NotYetRevealed(_) => true,
             }
     }
 
