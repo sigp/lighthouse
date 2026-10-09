@@ -562,25 +562,30 @@ mod tests {
         },
     };
     use std::time::Duration;
-    use types::MinimalEthSpec;
+    use types::Spec;
 
-    type TestHarness = BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>>;
+    type TestHarness = BeaconChainHarness<EphemeralHarnessType<Spec>>;
+
+    // Gloas genesis needs at least one validator per slot.
+    fn validator_count() -> usize {
+        Spec::slots_per_epoch() as usize
+    }
 
     fn harness() -> TestHarness {
-        BeaconChainHarness::builder(MinimalEthSpec)
+        BeaconChainHarness::builder(Spec::default())
             .default_spec()
-            .deterministic_keypairs(8)
+            .deterministic_keypairs(validator_count())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .build()
     }
 
     fn gloas_supernode_harness() -> TestHarness {
-        BeaconChainHarness::builder(MinimalEthSpec)
+        BeaconChainHarness::builder(Spec::default())
             .spec(Arc::new(
-                ForkName::Gloas.make_genesis_spec(MinimalEthSpec::default_spec()),
+                ForkName::Gloas.make_genesis_spec(Spec::default_spec()),
             ))
-            .deterministic_keypairs(8)
+            .deterministic_keypairs(validator_count())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(NodeCustodyType::Supernode)
