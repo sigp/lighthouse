@@ -429,9 +429,9 @@ async fn dependent_root_must_be_the_shuffling_dependent_block() {
         Err(InclusionListVerificationError::DependentRootTooRecent { .. })
     ));
 
-    // A later block in epoch 0 exists, so this one can't be the dependent block.
+    // Its only child sits at the dependent slot, so this one can't be the dependent block.
     let superseded =
-        ctx.valid_inclusion_list(slot, block_root_at(dependent_slot - 2), vec![vec![0xaa]]);
+        ctx.valid_inclusion_list(slot, block_root_at(dependent_slot - 1), vec![vec![0xaa]]);
     let result = GossipVerifiedInclusionList::new(superseded, &ctx.gossip_ctx());
     assert!(matches!(
         result,
