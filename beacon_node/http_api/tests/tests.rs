@@ -112,6 +112,11 @@ struct BuilderStateTestFixture {
     pending_id: BuilderId,
 }
 
+struct BuilderPendingWithdrawalsTestFixture {
+    state_id: CoreStateId,
+    withdrawals: Vec<types::BuilderPendingWithdrawal>,
+}
+
 impl Default for ApiTesterConfig {
     fn default() -> Self {
         let mut spec = E::default_spec();
@@ -1308,6 +1313,32 @@ impl ApiTester {
         }
     }
 
+    fn builder_pending_withdrawals_test_fixture(&self) -> BuilderPendingWithdrawalsTestFixture {
+        let mut state = self.chain.head_snapshot().beacon_state.clone();
+
+        let withdrawals = (0..3u64)
+            .map(|i| types::BuilderPendingWithdrawal {
+                fee_recipient: Address::repeat_byte(i as u8 + 1),
+                amount: self.chain.spec.min_deposit_amount * (i + 1),
+                builder_index: i,
+            })
+            .collect::<Vec<_>>();
+
+        let pending_withdrawals = state.builder_pending_withdrawals_mut().unwrap();
+        assert!(pending_withdrawals.is_empty());
+        for withdrawal in &withdrawals {
+            pending_withdrawals.push(withdrawal.clone()).unwrap();
+        }
+
+        let state_root = state.update_tree_hash_cache().unwrap();
+        self.chain.store.put_state(&state_root, &state).unwrap();
+
+        BuilderPendingWithdrawalsTestFixture {
+            state_id: CoreStateId::Root(state_root),
+            withdrawals,
+        }
+    }
+
     pub async fn test_beacon_state_builders_filters(self) -> Self {
         let fixture = self.builder_state_test_fixture();
         let all_builders = self
@@ -1803,6 +1834,43 @@ impl ApiTester {
                 .expect("should decode SSZ proposer lookahead");
             assert_eq!(decoded, expected.to_vec());
         }
+
+        self
+    }
+
+    pub async fn test_beacon_states_builder_pending_withdrawals(self) -> Self {
+        let fixture = self.builder_pending_withdrawals_test_fixture();
+
+        let response = self
+            .client
+            .get_beacon_states_builder_pending_withdrawals(fixture.state_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(response.data(), &fixture.withdrawals);
+        assert_eq!(response.metadata().execution_optimistic, Some(false));
+        assert_eq!(response.metadata().finalized, Some(false));
+
+        // Check that the version header is returned in the response
+        assert_eq!(response.version(), Some(ForkName::Gloas));
+
+        self
+    }
+
+    pub async fn test_beacon_states_builder_pending_withdrawals_ssz(self) -> Self {
+        let fixture = self.builder_pending_withdrawals_test_fixture();
+
+        let ssz_bytes = self
+            .client
+            .get_beacon_states_builder_pending_withdrawals_ssz(fixture.state_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let decoded = Vec::<types::BuilderPendingWithdrawal>::from_ssz_bytes(&ssz_bytes)
+            .expect("should decode SSZ builder pending withdrawals");
+        assert_eq!(decoded, fixture.withdrawals);
 
         self
     }
@@ -9838,6 +9906,24 @@ async fn beacon_get_state_info_fulu() {
         .test_beacon_states_proposer_lookahead()
         .await
         .test_beacon_states_proposer_lookahead_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_get_state_info_gloas() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    config.spec.gloas_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_states_builder_pending_withdrawals()
+        .await
+        .test_beacon_states_builder_pending_withdrawals_ssz()
         .await;
 }
 
