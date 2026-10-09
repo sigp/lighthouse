@@ -3028,12 +3028,8 @@ async fn test_blocks_by_head_unknown_root() {
     }
 }
 
-/// An inclusion list from the first committee member, signed by `signer` if given.
-fn inclusion_list_for_current_slot(
-    rig: &TestRig,
-    tx: u8,
-    signer: Option<u64>,
-) -> SignedInclusionList {
+/// A signed inclusion list from the first committee member for the current slot.
+fn inclusion_list_for_current_slot(rig: &TestRig, tx: u8) -> SignedInclusionList {
     let slot = rig.chain.slot().unwrap();
     let (committee, dependent_root) = rig
         .chain
@@ -3054,8 +3050,7 @@ fn inclusion_list_for_current_slot(
         &rig.chain.spec.fork_at_epoch(epoch),
         rig.chain.genesis_validators_root,
     );
-    let signer = signer.unwrap_or(validator_index);
-    let signature = rig._harness.validator_keypairs[signer as usize]
+    let signature = rig._harness.validator_keypairs[validator_index as usize]
         .sk
         .sign(message.signing_root(domain));
     SignedInclusionList { message, signature }
@@ -3087,7 +3082,7 @@ fn assert_validation_result(network_message: &NetworkMessage<E>, expected: Messa
 #[tokio::test]
 async fn test_gossip_inclusion_list_propagation_follows_the_store_outcome() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
-    let inclusion_list = inclusion_list_for_current_slot(&rig, 0xaa, None);
+    let inclusion_list = inclusion_list_for_current_slot(&rig, 0xaa);
 
     for expected in [MessageAcceptance::Accept, MessageAcceptance::Ignore] {
         let messages = send_gossip_inclusion_list(&mut rig, inclusion_list.clone(), 1).await;
@@ -3105,7 +3100,7 @@ async fn test_gossip_inclusion_list_equivocation_is_propagated_once() {
         (0xbb, MessageAcceptance::Accept),
         (0xcc, MessageAcceptance::Ignore),
     ] {
-        let inclusion_list = inclusion_list_for_current_slot(&rig, tx, None);
+        let inclusion_list = inclusion_list_for_current_slot(&rig, tx);
         let messages = send_gossip_inclusion_list(&mut rig, inclusion_list, 1).await;
         assert_validation_result(&messages[0], expected);
     }
@@ -3115,11 +3110,12 @@ async fn test_gossip_inclusion_list_equivocation_is_propagated_once() {
 #[tokio::test]
 async fn test_gossip_inclusion_list_rejection_penalises_the_peer() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
-    let validator_index = inclusion_list_for_current_slot(&rig, 0xaa, None)
-        .message
-        .validator_index;
-    let other_signer = (validator_index + 1) % VALIDATOR_COUNT as u64;
-    let inclusion_list = inclusion_list_for_current_slot(&rig, 0xaa, Some(other_signer));
+    // Signatures always verify with the `fake_crypto` feature, so use an empty transaction instead.
+    let mut inclusion_list = inclusion_list_for_current_slot(&rig, 0xaa);
+    inclusion_list.message.transactions =
+        vec![vec![0xaa].try_into().unwrap(), vec![].try_into().unwrap()]
+            .try_into()
+            .unwrap();
 
     let messages = send_gossip_inclusion_list(&mut rig, inclusion_list, 2).await;
     assert_validation_result(&messages[0], MessageAcceptance::Reject);
