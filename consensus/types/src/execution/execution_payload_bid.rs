@@ -5,12 +5,24 @@ use crate::{
 };
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
+use metastruct::metastruct;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::BitVector;
 use superstruct::superstruct;
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+
+/// The `active_fields` of the Gloas `ExecutionPayloadBid` progressive container (EIP-7688).
+///
+/// Must match the `active_fields` attribute on the Gloas variant.
+pub const EXECUTION_PAYLOAD_BID_GLOAS_ACTIVE_FIELDS: [bool; 12] = [true; 12];
+
+/// The `active_fields` of the Heze `ExecutionPayloadBid` progressive container (EIP-7688).
+///
+/// Must match the `active_fields` attribute on the Heze variant.
+pub const EXECUTION_PAYLOAD_BID_HEZE_ACTIVE_FIELDS: [bool; 13] = [true; 13];
 
 #[superstruct(
     variants(Gloas, Heze),
@@ -37,14 +49,20 @@ use tree_hash_derive::TreeHash;
     ),
     ref_attributes(derive(Debug, PartialEq, TreeHash), tree_hash(enum_behaviour = "transparent")),
     specific_variant_attributes(
-        Gloas(tree_hash(
-            struct_behaviour = "progressive_container",
-            active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
-        )),
-        Heze(tree_hash(
-            struct_behaviour = "progressive_container",
-            active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
-        ))
+        Gloas(
+            tree_hash(
+                struct_behaviour = "progressive_container",
+                active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+            ),
+            metastruct(mappings(map_execution_payload_bid_gloas_fields()))
+        ),
+        Heze(
+            tree_hash(
+                struct_behaviour = "progressive_container",
+                active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+            ),
+            metastruct(mappings(map_execution_payload_bid_heze_fields()))
+        )
     ),
     cast_error(
         ty = "BeaconStateError",
@@ -183,6 +201,31 @@ impl<'a, E: EthSpec> ExecutionPayloadBidRef<'a, E> {
             ExecutionPayloadBidRef::Heze(_) => ForkName::Heze,
         }
     }
+
+    /// Returns the `tree_hash_root` of every field in declaration order, for use in progressive
+    /// container Merkle proofs.
+    pub fn field_roots(&self) -> Vec<Hash256> {
+        let mut roots = vec![];
+        match self {
+            ExecutionPayloadBidRef::Gloas(bid) => {
+                map_execution_payload_bid_gloas_fields!(bid, |_, field| roots
+                    .push(field.tree_hash_root()))
+            }
+            ExecutionPayloadBidRef::Heze(bid) => {
+                map_execution_payload_bid_heze_fields!(bid, |_, field| roots
+                    .push(field.tree_hash_root()))
+            }
+        }
+        roots
+    }
+
+    /// Returns the `active_fields` of the progressive container for this variant.
+    pub fn active_fields(&self) -> &'static [bool] {
+        match self {
+            ExecutionPayloadBidRef::Gloas(_) => &EXECUTION_PAYLOAD_BID_GLOAS_ACTIVE_FIELDS,
+            ExecutionPayloadBidRef::Heze(_) => &EXECUTION_PAYLOAD_BID_HEZE_ACTIVE_FIELDS,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -191,6 +234,38 @@ mod gloas_tests {
     use crate::Spec;
 
     ssz_and_tree_hash_tests!(ExecutionPayloadBidGloas<Spec>);
+
+    #[test]
+    fn field_roots_match_root() {
+        // Use a distinct value for every field so a swapped or missing entry in `field_roots`
+        // changes the root.
+        let bid = ExecutionPayloadBidGloas::<Spec> {
+            parent_block_hash: ExecutionBlockHash::from_root(Hash256::repeat_byte(1)),
+            parent_block_root: Hash256::repeat_byte(2),
+            block_hash: ExecutionBlockHash::from_root(Hash256::repeat_byte(3)),
+            prev_randao: Hash256::repeat_byte(4),
+            fee_recipient: Address::repeat_byte(5),
+            gas_limit: 30_000_000,
+            builder_index: 7,
+            slot: Slot::new(11),
+            value: 42,
+            execution_payment: 3,
+            blob_kzg_commitments: ProgressiveKzgCommitments::<Spec>::new(vec![
+                kzg::KzgCommitment::empty_for_testing(),
+            ])
+            .unwrap(),
+            execution_requests_root: Hash256::repeat_byte(6),
+        };
+        let bid_ref = ExecutionPayloadBidRef::Gloas(&bid);
+        assert_eq!(
+            merkle_proof::progressive_container_root(
+                &bid_ref.field_roots(),
+                bid_ref.active_fields()
+            )
+            .unwrap(),
+            bid.tree_hash_root()
+        );
+    }
 }
 
 #[cfg(test)]

@@ -27,6 +27,7 @@ pub use execution_payload::{
     Transaction, Transactions, TransactionsIter, TransactionsRef, WithdrawalsRef,
 };
 pub use execution_payload_bid::{
+    EXECUTION_PAYLOAD_BID_GLOAS_ACTIVE_FIELDS, EXECUTION_PAYLOAD_BID_HEZE_ACTIVE_FIELDS,
     ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
     ExecutionPayloadBidRefMut,
 };
