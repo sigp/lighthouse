@@ -1,7 +1,7 @@
 use crate::errors::BeaconChainError;
 use crate::summaries_dag::{DAGStateSummary, Error as SummariesDagError, StateSummariesDAG};
 use parking_lot::Mutex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -644,7 +644,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
 
         // We don't know which blocks are shared among abandoned chains, so we buffer and delete
         // everything in one fell swoop.
-        let mut blocks_to_prune: HashSet<Hash256> = HashSet::new();
+        let mut blocks_to_prune: HashMap<Hash256, Slot> = HashMap::new();
         let mut states_to_prune: HashSet<(Slot, Hash256)> = HashSet::new();
         let mut kept_summaries_for_hdiff = vec![];
 
@@ -734,7 +734,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
             };
 
             if should_prune {
-                blocks_to_prune.insert(block_root);
+                blocks_to_prune.insert(block_root, slot);
             }
         }
 
@@ -761,7 +761,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
         // Don't log the full `states_to_prune` in the log statement above as it can result in a
         // single log line of +1Kb and break logging setups. Log `new_finalized_state_root` as a
         // prunning ID to trace these individual logs to the above "Extra pruning information"
-        for block_root in &blocks_to_prune {
+        for block_root in blocks_to_prune.keys() {
             debug!(?new_finalized_state_root, ?block_root, "Pruning block");
         }
         for (slot, state_root) in &states_to_prune {
@@ -773,22 +773,27 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
             );
         }
 
-        let mut batch: Vec<StoreOp<E>> = blocks_to_prune
-            .into_iter()
-            .flat_map(|block_root| {
-                [
-                    StoreOp::DeleteBlock(block_root),
-                    StoreOp::DeleteExecutionPayload(block_root),
-                    StoreOp::DeleteBlobs(block_root),
-                    StoreOp::DeletePayloadWithSummary(block_root),
-                    StoreOp::DeleteSyncCommitteeBranch(block_root),
-                ]
-            })
-            .chain(states_to_prune.into_iter().flat_map(|(slot, state_hash)| {
-                // Hot state diffs necessary for the HDiff grid are never added to `states_to_prune`
-                [StoreOp::DeleteState(state_hash, Some(slot))]
-            }))
-            .collect();
+        let mut batch: Vec<StoreOp<E>> = vec![];
+        for (block_root, slot) in blocks_to_prune {
+            batch.push(StoreOp::DeleteBlock(block_root));
+            batch.push(StoreOp::DeleteExecutionPayload(block_root));
+            batch.push(StoreOp::DeleteBlobs(block_root));
+            batch.push(StoreOp::DeletePayloadWithSummary(block_root));
+            batch.push(StoreOp::DeleteSyncCommitteeBranch(block_root));
+
+            let fork_name = store.spec.fork_name_at_slot::<E>(slot);
+            if fork_name.fulu_enabled() {
+                batch.push(StoreOp::DeleteDataColumns(
+                    block_root,
+                    store.get_data_column_keys(block_root)?,
+                    fork_name,
+                ));
+            }
+        }
+        for (slot, state_hash) in states_to_prune {
+            // Hot state diffs necessary for the HDiff grid are never added to `states_to_prune`
+            batch.push(StoreOp::DeleteState(state_hash, Some(slot)));
+        }
 
         // Prune sync committee branches of non-checkpoint canonical finalized blocks
         Self::prune_non_checkpoint_sync_committee_branches(&newly_finalized_blocks, &mut batch);
