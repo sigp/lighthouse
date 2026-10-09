@@ -152,15 +152,21 @@ impl GossipVerifiedInclusionList {
             }
         }
 
+        let now = ctx
+            .slot_clock
+            .now_duration()
+            .ok_or(InclusionListVerificationError::UnableToReadSlot)?;
         let current_slot = ctx
             .slot_clock
-            .now()
+            .slot_of(now)
             .ok_or(InclusionListVerificationError::UnableToReadSlot)?;
         let is_timely = slot == current_slot
             && ctx
                 .slot_clock
-                .millis_from_current_slot_start()
-                .is_some_and(|time_into_slot| time_into_slot < ctx.spec.get_inclusion_list_due());
+                .start_of(current_slot)
+                .is_some_and(|slot_start| {
+                    now.saturating_sub(slot_start) < ctx.spec.get_inclusion_list_due()
+                });
 
         Ok(Self {
             signed_inclusion_list,
