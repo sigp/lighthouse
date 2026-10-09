@@ -49,13 +49,14 @@ jobs:
                            lcli]
                 cpu_arch: [aarch64,
                            x86_64]
-                include:
-                    - profile: maxperf
 
         needs: [extract-version]
         env:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
+            # Releases use `maxperf` (fat LTO), which needs ~16 GB to build. Unstable images use
+            # `release` so they build reliably on free runners.
+            PROFILE: ${{ startsWith(github.ref, 'refs/tags/') && 'maxperf' || 'release' }}
         steps:
             - uses: actions/checkout@v7
             - name: Update Rust
@@ -82,13 +83,13 @@ jobs:
             - name: Cross build binaries
               run: |
                   cargo install cross --version 0.2.5
-                  env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ env.CROSS_FEATURES }} make ${{ env.MAKE_CMD }}
+                  env CROSS_PROFILE=${{ env.PROFILE }} CROSS_FEATURES=${{ env.CROSS_FEATURES }} make ${{ env.MAKE_CMD }}
 
             - name: Make bin dir
               run: mkdir ./bin
 
             - name: Move cross-built binary into Docker scope
-              run: mv ./target/${{ matrix.cpu_arch }}-unknown-linux-gnu/${{ matrix.profile }}/${{ matrix.binary }} ./bin
+              run: mv ./target/${{ matrix.cpu_arch }}-unknown-linux-gnu/${{ env.PROFILE }}/${{ matrix.binary }} ./bin
 
             - name: Map aarch64 to arm64 short arch
               if: startsWith(matrix.cpu_arch, 'aarch64')
