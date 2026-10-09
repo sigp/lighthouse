@@ -11,7 +11,7 @@ use std::{
 };
 use tracing::{debug, warn};
 use types::{
-    ChainSpec, ColumnIndex, Epoch, EthSpec, SignedBeaconBlock, SignedExecutionPayloadBid, Slot,
+    ChainSpec, ColumnIndex, Epoch, EthSpec, SignedBeaconBlock, SignedExecutionPayloadBidRef, Slot,
 };
 
 /// A delay before making the CGC change effective to the data availability checker.
@@ -590,7 +590,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
 
     pub fn data_columns_required_for_bid(
         &self,
-        bid: &SignedExecutionPayloadBid<T::EthSpec>,
+        bid: SignedExecutionPayloadBidRef<T::EthSpec>,
     ) -> bool {
         bid.num_blobs_expected() > 0 && self.data_columns_required_for_epoch(bid.epoch())
     }
@@ -650,9 +650,9 @@ mod tests {
     use crate::test_utils::{EphemeralHarnessType, generate_data_column_indices_rand_order};
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::time::Duration;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
-    type E = MainnetEthSpec;
+    type E = Spec;
     type T = EphemeralHarnessType<E>;
 
     fn testing_slot_clock(spec: &ChainSpec) -> TestingSlotClock {

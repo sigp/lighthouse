@@ -383,31 +383,31 @@ mod tests {
     // `ssz_tests!` can only be defined once per namespace
     #[cfg(test)]
     mod altair {
-        use crate::{LightClientHeaderAltair, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderAltair<MainnetEthSpec>);
+        use crate::{LightClientHeaderAltair, Spec};
+        ssz_tests!(LightClientHeaderAltair<Spec>);
     }
 
     #[cfg(test)]
     mod capella {
-        use crate::{LightClientHeaderCapella, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderCapella<MainnetEthSpec>);
+        use crate::{LightClientHeaderCapella, Spec};
+        ssz_tests!(LightClientHeaderCapella<Spec>);
     }
 
     #[cfg(test)]
     mod deneb {
-        use crate::{LightClientHeaderDeneb, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderDeneb<MainnetEthSpec>);
+        use crate::{LightClientHeaderDeneb, Spec};
+        ssz_tests!(LightClientHeaderDeneb<Spec>);
     }
 
     #[cfg(test)]
     mod electra {
-        use crate::{LightClientHeaderElectra, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderElectra<MainnetEthSpec>);
+        use crate::{LightClientHeaderElectra, Spec};
+        ssz_tests!(LightClientHeaderElectra<Spec>);
     }
 
     #[cfg(test)]
     mod fulu {
-        use crate::{LightClientHeaderFulu, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderFulu<MainnetEthSpec>);
+        use crate::{LightClientHeaderFulu, Spec};
+        ssz_tests!(LightClientHeaderFulu<Spec>);
     }
 }

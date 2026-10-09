@@ -1,8 +1,9 @@
 use beacon_node::{get_data_dir, set_network_config};
 use bytes::Bytes;
 use clap::ArgMatches;
+use enr::CombinedKey;
 use eth2_network_config::Eth2NetworkConfig;
-use lighthouse_network::discv5::{self, Enr, enr::CombinedKey};
+use lighthouse_network::discv5::{self, Enr};
 use lighthouse_network::{
     NetworkConfig,
     discovery::{load_enr_from_disk, use_or_load_enr},

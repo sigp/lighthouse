@@ -17,9 +17,9 @@ use store::{
 };
 use strum::IntoEnumIterator;
 use tempfile::{TempDir, tempdir};
-use types::{ChainSpec, Hash256, MainnetEthSpec, Slot};
+use types::{ChainSpec, Hash256, Slot, Spec};
 
-type E = MainnetEthSpec;
+type E = Spec;
 type Store<E> = Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
@@ -74,7 +74,7 @@ async fn schema_stability() {
         ..ChainConfig::default()
     };
 
-    let harness = TestHarness::builder(MainnetEthSpec)
+    let harness = TestHarness::builder(Spec::default())
         .spec(spec)
         .keypairs(KEYPAIRS.to_vec())
         .fresh_disk_store(store.clone())

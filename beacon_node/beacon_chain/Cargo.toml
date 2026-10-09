@@ -8,6 +8,7 @@ autotests = false # using a single test binary compiles faster
 
 [features]
 default = ["participation_metrics"]
+spec-minimal = ["types/spec-minimal"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = []
 # Exposes validator participation metrics to Prometheus.
@@ -97,3 +98,8 @@ harness = false
 [[test]]
 name = "beacon_chain_tests"
 path = "tests/main.rs"
+
+[[test]]
+name = "beacon_chain_spec_minimal_tests"
+path = "tests/spec_minimal.rs"
+required-features = ["spec-minimal"]

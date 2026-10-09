@@ -460,6 +460,9 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE` constant for this specification.
     fn max_signed_execution_payload_bid_size() -> usize;
 
+    /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE_HEZE` constant for this specification.
+    fn max_signed_execution_payload_bid_size_heze() -> usize;
+
     /// Returns the `MAX_SIGNED_INCLUSION_LIST_SIZE` constant for this specification.
     fn max_signed_inclusion_list_size() -> usize;
 
@@ -575,6 +578,10 @@ impl EthSpec for MainnetEthSpec {
         196932
     }
 
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
+    }
+
     fn max_signed_inclusion_list_size() -> usize {
         41112
     }
@@ -671,6 +678,10 @@ impl EthSpec for MinimalEthSpec {
         196932
     }
 
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
+    }
+
     fn max_signed_inclusion_list_size() -> usize {
         41112
     }
@@ -764,6 +775,10 @@ impl EthSpec for GnosisEthSpec {
         196932
     }
 
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
+    }
+
     fn max_signed_inclusion_list_size() -> usize {
         41112
     }
@@ -771,7 +786,7 @@ impl EthSpec for GnosisEthSpec {
 
 #[cfg(test)]
 mod test {
-    use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+    use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec, Spec};
     use typenum::Unsigned;
 
     fn assert_valid_spec<E: EthSpec>() {
@@ -801,5 +816,11 @@ mod test {
     #[test]
     fn gnosis_spec() {
         assert_valid_spec::<GnosisEthSpec>();
+    }
+
+    /// Whichever preset was compiled in must be a valid one.
+    #[test]
+    fn compiled_spec() {
+        assert_valid_spec::<Spec>();
     }
 }
