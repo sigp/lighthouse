@@ -668,7 +668,7 @@ pub async fn serve<T: BeaconChainTypes>(
     let get_beacon_state_proposer_lookahead =
         states::get_beacon_state_proposer_lookahead(beacon_states_path.clone());
 
-    // `GET /eth/v1/beacon/states/{state_id}/ptc`
+    // `GET /beacon/states/{state_id}/ptc`
     let get_beacon_state_ptc = states::get_beacon_state_ptc(beacon_states_path.clone());
 
     // GET beacon/headers
