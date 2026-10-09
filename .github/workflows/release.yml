@@ -27,7 +27,9 @@ jobs:
     build:
         name:   Build Release
         # Linux builds use paid GitHub-hosted larger runners, configured via the `RELEASE_RUNNER`
-        # repository variable. Forks fall back to free GitHub-hosted runners.
+        # repository variable. macOS uses the paid `macos-15-xlarge` (M2 Pro, 14 GB); the free
+        # 7 GB runner swaps during the `maxperf` link and takes ~3x as long. Forks fall back to
+        # free GitHub-hosted runners.
         strategy:
             matrix:
                 arch: [aarch64-unknown-linux-gnu,
@@ -41,7 +43,7 @@ jobs:
                         runner: ${{ vars.RELEASE_RUNNER || 'ubuntu-24.04' }}
                         profile: maxperf
                     -   arch: aarch64-apple-darwin
-                        runner: macos-14
+                        runner: ${{ github.repository == 'sigp/lighthouse' && 'macos-15-xlarge' || 'macos-15' }}
                         profile: maxperf
 
         runs-on:    ${{ matrix.runner }}
