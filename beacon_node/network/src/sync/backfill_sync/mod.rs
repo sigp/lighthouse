@@ -1159,18 +1159,18 @@ mod tests {
     use rand_08::RngCore;
     use rand_08::SeedableRng;
     use rand_08::prelude::StdRng;
-    use types::MinimalEthSpec;
+    use types::Spec;
 
     #[test]
     fn request_batches_should_not_loop_infinitely() {
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        let harness = BeaconChainHarness::builder(Spec::default())
             .default_spec()
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()
             .build();
 
         let beacon_chain = harness.chain.clone();
-        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+        let slots_per_epoch = Spec::slots_per_epoch();
 
         let network_globals = Arc::new(NetworkGlobals::new_test_globals(
             vec![],

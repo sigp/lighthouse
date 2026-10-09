@@ -24,11 +24,11 @@ use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas,
     DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment,
-    KzgProof, LightClientUpdate, LightClientUpdateCapella, MinimalEthSpec, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot, SyncAggregate, SyncCommittee,
+    KzgProof, LightClientUpdate, LightClientUpdateCapella, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot, Spec, SyncAggregate, SyncCommittee,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 /// Bellatrix block with length < max_rpc_size.
 fn bellatrix_block_small(spec: &ChainSpec) -> BeaconBlock<E> {

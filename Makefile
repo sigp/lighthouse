@@ -189,7 +189,9 @@ test-debug:
 # Run the tests of crates converted to `Spec` under the minimal preset. Add each crate as it
 # is converted.
 test-spec-minimal:
-	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" -p types
+	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" \
+		-p lighthouse_network \
+		-p types
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -253,12 +255,16 @@ test-op-pool-%:
 # Run the tests in the `network` crate for all known forks.
 test-network: $(patsubst %,test-network-%,$(TEST_NETWORK_FORKS))
 
+# Run network tests on each preset. The sync, service and persisted_dht tests use minimal.
 test-network-%:
 	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
 		--features "fork_from_env,fake_crypto,$(TEST_FEATURES)" \
-		-p network
+		-p network -E 'not (test(/^sync::/) | test(/^service::tests::/) | test(/^persisted_dht::tests::/))'
 	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
-		--features "fork_from_env,$(TEST_FEATURES)" \
+		--features "fork_from_env,fake_crypto,spec-minimal,$(TEST_FEATURES)" \
+		-p network -E 'test(/^sync::/) | test(/^service::tests::/) | test(/^persisted_dht::tests::/)'
+	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
+		--features "fork_from_env,spec-minimal,$(TEST_FEATURES)" \
 		-p network crypto_on
 
 # Run the tests in the `slasher` crate for all supported database backends.

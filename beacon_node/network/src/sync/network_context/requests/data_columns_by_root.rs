@@ -93,7 +93,7 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRequestItems<E> {
 mod tests {
     use super::*;
     use beacon_chain::test_utils::{NumBlobs, generate_rand_block_and_data_columns, test_spec};
-    use types::{Epoch, ForkName, MinimalEthSpec as E};
+    use types::{Epoch, ForkName, Spec as E};
 
     /// A response missing any requested `(block_root, index)` must not report the request complete,
     /// whether it covers all roots but misses an index, or all indices but misses a root.

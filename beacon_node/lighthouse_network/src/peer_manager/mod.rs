@@ -1728,7 +1728,7 @@ mod tests {
     use super::*;
     use crate::NetworkConfig;
     use crate::rpc::MetaDataV3;
-    use types::{ChainSpec, ForkName, MainnetEthSpec as E};
+    use types::{ChainSpec, ForkName, Spec as E};
 
     async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
         build_peer_manager_with_trusted_peers(vec![], target_peer_count).await
@@ -3024,7 +3024,7 @@ mod tests {
         use tokio::runtime::Runtime;
         use typenum::Unsigned;
         use types::DataColumnSubnetId;
-        use types::{EthSpec, MainnetEthSpec as E};
+        use types::{EthSpec, Spec as E};
 
         #[derive(Clone, Debug)]
         struct PeerCondition {
