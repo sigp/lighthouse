@@ -1,7 +1,13 @@
+use crate::request_auth_cache::RequestAuthCache;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
 use bls::PublicKeyBytes;
+use builder_store::BuilderStore;
+use builder_types::SignedRequestAuth;
 use eth2::BeaconNodeHttpClient;
-use eth2::types::GraffitiPolicy;
+use eth2::types::{
+    BlockAndEnvelope, GraffitiPolicy, ProduceBlockV4Response,
+    SignedExecutionPayloadEnvelopeContents,
+};
 use graffiti_file::{GraffitiFile, determine_graffiti};
 use logging::crit;
 use reqwest::StatusCode;
@@ -14,8 +20,44 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
-use types::{BlockType, ChainSpec, EthSpec, Graffiti, Hash256, Slot};
+use tree_hash::TreeHash;
+use types::{
+    BeaconBlock, BlobsList, BlockType, ChainSpec, EthSpec, ExecutionPayloadEnvelope, ForkName,
+    Graffiti, Hash256, KzgProofs, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+};
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
+
+/// Hard deadline on signing a single builder's request auth during block production.
+///
+/// Request-auth signing is optional — the proposal proceeds with a local or p2p payload without
+/// it — and the [`RequestAuthCache`] is pre-warmed by the builder-preferences service, so a signer
+/// round trip here is already the exception. The signer request itself may have no timeout of its
+/// own (`request_timeout_ms` defaults to none for web3signer validators), so without a deadline a
+/// stalled signer could hold block production past the slot. The mandatory signatures (randao, the
+/// block itself) are unaffected by this.
+///
+/// The value is priced against the serial pre-publish chain, not the slot: this wait precedes the
+/// production request (which holds its own builder bid timeout), block signing, and publish, all
+/// of which must land within the attestation deadline. 200ms clears a same-host or LAN signer,
+/// including a cold connection, while bounding what a degraded one can take from that budget.
+const REQUEST_AUTH_SIGN_TIMEOUT: Duration = Duration::from_millis(200);
+
+/// Run one builder's request-auth `sign` future under [`REQUEST_AUTH_SIGN_TIMEOUT`].
+///
+/// A deadline miss becomes an ordinary error, so the caller's log-and-omit path drops just that
+/// builder from the proposal; a cache hit resolves immediately and never sees the deadline.
+async fn sign_request_auth_with_deadline<Fut, E>(sign: Fut) -> Result<SignedRequestAuth, String>
+where
+    Fut: Future<Output = Result<SignedRequestAuth, E>>,
+    E: Debug,
+{
+    match tokio::time::timeout(REQUEST_AUTH_SIGN_TIMEOUT, sign).await {
+        Ok(result) => result.map_err(|e| format!("{e:?}")),
+        Err(_elapsed) => Err(format!(
+            "request auth signing timed out after {REQUEST_AUTH_SIGN_TIMEOUT:?}"
+        )),
+    }
+}
 
 #[derive(Debug)]
 pub enum BlockError {
@@ -53,6 +95,9 @@ pub struct BlockServiceBuilder<S, T> {
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
     graffiti_policy: Option<GraffitiPolicy>,
+    configured_builders: Option<BuilderStore>,
+    request_auth_cache: Option<RequestAuthCache>,
+    stateless_block_production: bool,
 }
 
 impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
@@ -67,6 +112,9 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
             graffiti: None,
             graffiti_file: None,
             graffiti_policy: None,
+            configured_builders: None,
+            request_auth_cache: None,
+            stateless_block_production: false,
         }
     }
 
@@ -115,6 +163,21 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
         self
     }
 
+    pub fn configured_builders(mut self, configured_builders: BuilderStore) -> Self {
+        self.configured_builders = Some(configured_builders);
+        self
+    }
+
+    pub fn request_auth_cache(mut self, request_auth_cache: RequestAuthCache) -> Self {
+        self.request_auth_cache = Some(request_auth_cache);
+        self
+    }
+
+    pub fn stateless_block_production(mut self, enabled: bool) -> Self {
+        self.stateless_block_production = enabled;
+        self
+    }
+
     pub fn build(self) -> Result<BlockService<S, T>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -137,6 +200,13 @@ impl<S: ValidatorStore, T: SlotClock + 'static> BlockServiceBuilder<S, T> {
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
                 graffiti_policy: self.graffiti_policy,
+                configured_builders: self
+                    .configured_builders
+                    .ok_or("Cannot build BlockService without configured_builders")?,
+                request_auth_cache: self
+                    .request_auth_cache
+                    .ok_or("Cannot build BlockService without request_auth_cache")?,
+                stateless_block_production: self.stateless_block_production,
             }),
         })
     }
@@ -203,6 +273,133 @@ pub struct Inner<S, T> {
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
     graffiti_policy: Option<GraffitiPolicy>,
+    /// The configured builders to resolve into a `BuilderConfig` when producing a Gloas block.
+    configured_builders: BuilderStore,
+    /// Caches the per-(slot, proposer, auth_data) request-auth signatures reused when resolving the
+    /// builder config.
+    request_auth_cache: RequestAuthCache,
+    /// Produce Gloas blocks with `include_payload=true` and publish the self-built envelope from
+    /// the response, rather than fetching it from the beacon node that built the block.
+    stateless_block_production: bool,
+}
+
+/// The envelope, KZG proofs and blobs returned with a self-built block when `include_payload=true`.
+struct LocalPayloadContents<E: EthSpec> {
+    envelope: ExecutionPayloadEnvelope<E>,
+    kzg_proofs: KzgProofs<E>,
+    blobs: BlobsList<E>,
+}
+
+/// What to do about the execution payload envelope once the block is published.
+enum EnvelopeAction<E: EthSpec> {
+    /// Nothing to publish: pre-Gloas or an external builder.
+    Skip,
+    /// Fetch the envelope from the beacon node by this block root.
+    Fetch(Hash256),
+    /// Sign and publish the envelope returned with the block.
+    Local(Box<LocalPayloadContents<E>>),
+}
+
+impl<E: EthSpec> EnvelopeAction<E> {
+    /// Split a Gloas produce response into the block and the envelope action it implies. Contents
+    /// that were not requested are ignored, so the stateful path is unchanged.
+    fn from_response(
+        include_payload: bool,
+        response: ProduceBlockV4Response<E>,
+        slot: Slot,
+    ) -> (BeaconBlock<E>, Self) {
+        match (include_payload, response) {
+            (
+                true,
+                ProduceBlockV4Response::BlockAndEnvelope(BlockAndEnvelope {
+                    block,
+                    execution_payload_envelope,
+                    kzg_proofs,
+                    blobs,
+                }),
+            ) => {
+                // Check the pair returned by the beacon node. A different block decided by a
+                // distributed validator store is handled separately after block signing.
+                let block_root = block.canonical_root();
+                if execution_payload_envelope.beacon_block_root != block_root {
+                    warn!(
+                        slot = slot.as_u64(),
+                        %block_root,
+                        envelope_block_root = %execution_payload_envelope.beacon_block_root,
+                        "Beacon node returned an envelope for a different block"
+                    );
+                }
+                (
+                    block,
+                    Self::Local(Box::new(LocalPayloadContents {
+                        envelope: execution_payload_envelope,
+                        kzg_proofs,
+                        blobs,
+                    })),
+                )
+            }
+            (true, ProduceBlockV4Response::BlockOnly(block)) => {
+                let action = match block.body().signed_execution_payload_bid() {
+                    Ok(bid) if bid.message().builder_index() == BUILDER_INDEX_SELF_BUILD => {
+                        warn!(
+                            slot = slot.as_u64(),
+                            "Beacon node omitted the payload contents for a self-built block, \
+                             falling back to fetching the execution payload envelope"
+                        );
+                        Self::Fetch(block.canonical_root())
+                    }
+                    Ok(bid) => {
+                        info!(
+                            slot = slot.as_u64(),
+                            builder_index = bid.message().builder_index(),
+                            "Builder bid won; the builder reveals the payload envelope"
+                        );
+                        Self::Skip
+                    }
+                    Err(_) => {
+                        warn!(
+                            slot = slot.as_u64(),
+                            "Produced Gloas block has no readable payload bid; skipping envelope"
+                        );
+                        Self::Skip
+                    }
+                };
+                (block, action)
+            }
+            (false, response) => {
+                let block = response.into_block();
+                let action = match block.body().signed_execution_payload_bid() {
+                    Ok(bid) if bid.message().builder_index() == BUILDER_INDEX_SELF_BUILD => {
+                        Self::Fetch(block.canonical_root())
+                    }
+                    Ok(bid) => {
+                        info!(
+                            slot = slot.as_u64(),
+                            builder_index = bid.message().builder_index(),
+                            "Builder bid won; the builder reveals the payload envelope"
+                        );
+                        Self::Skip
+                    }
+                    Err(_) => {
+                        warn!(
+                            slot = slot.as_u64(),
+                            "Produced Gloas block has no readable payload bid; skipping envelope"
+                        );
+                        Self::Skip
+                    }
+                };
+                (block, action)
+            }
+        }
+    }
+
+    /// The `hash_tree_root` of the locally built payload, when there is one.
+    fn local_payload_root(&self) -> Option<Hash256> {
+        match self {
+            Self::Local(contents) => Some(contents.envelope.payload.tree_hash_root()),
+            Self::Fetch(_) | Self::Skip => None,
+        }
+    }
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -339,12 +536,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         graffiti: Option<Graffiti>,
         validator_pubkey: &PublicKeyBytes,
         unsigned_block: UnsignedBlock<S::E>,
-    ) -> Result<(), BlockError> {
+        local_payload_root: Option<Hash256>,
+        builder_url: Option<String>,
+    ) -> Result<Option<Hash256>, BlockError> {
         let signing_timer = validator_metrics::start_timer(&validator_metrics::BLOCK_SIGNING_TIMES);
 
         let res = self
             .validator_store
-            .sign_block(*validator_pubkey, unsigned_block, slot)
+            .sign_block(*validator_pubkey, unsigned_block, slot, local_payload_root)
             .instrument(info_span!("sign_block"))
             .await;
 
@@ -359,7 +558,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     ?slot,
                     "Missing pubkey for block"
                 );
-                return Ok(());
+                return Ok(None);
             }
             Err(e) => {
                 return Err(BlockError::Recoverable(format!(
@@ -383,9 +582,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         // Try the proposer nodes first, since we've likely gone to efforts to
         // protect them from DoS attacks and they're most likely to successfully
         // publish a block.
+        let builder_url_ref = builder_url.as_deref();
         proposer_fallback
             .request_proposers_first(|beacon_node| async {
-                self.publish_signed_block_contents(&signed_block, beacon_node)
+                self.publish_signed_block_contents(&signed_block, beacon_node, builder_url_ref)
                     .await
             })
             .await?;
@@ -399,7 +599,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             slot = metadata.slot.as_u64(),
             "Successfully published block"
         );
-        Ok(())
+        let block_root = match &signed_block {
+            SignedBlock::Full(block) => block.signed_block().canonical_root(),
+            SignedBlock::Blinded(block) => block.canonical_root(),
+        };
+        Ok(Some(block_root))
     }
 
     #[instrument(
@@ -463,7 +667,40 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         // Check if Gloas fork is active at this slot
         let fork_name = self_ref.chain_spec.fork_name_at_slot::<S::E>(slot);
 
-        let (block_proposer, unsigned_block) = if fork_name.gloas_enabled() {
+        let (block_proposer, unsigned_block, builder_url, envelope_action) = if fork_name
+            .gloas_enabled()
+        {
+            // Resolve the validator's builder config for this proposal, signing each builder's
+            // request auth via the cache. Sent in the POST `produceBlockV4` body below (the same
+            // body is reused on the SSZ-to-JSON fallback and on every proposer-fallback BN). With
+            // no builders configured this resolves to an empty list, so the proposal still falls
+            // back to a local or p2p payload. Per-builder sign failures are logged and omitted
+            // inside `builder_config`, and each sign runs under `REQUEST_AUTH_SIGN_TIMEOUT`, so
+            // neither a failed nor a stalled signer ever fails (or stalls) the proposal.
+            let builder_config = self_ref
+                .configured_builders
+                .builder_config(&validator_pubkey, |auth_data| async move {
+                    sign_request_auth_with_deadline(self_ref.request_auth_cache.get_or_sign(
+                        slot,
+                        validator_pubkey,
+                        auth_data,
+                        |request_auth_v1| {
+                            self_ref
+                                .validator_store
+                                .sign_request_auth_v1(validator_pubkey, request_auth_v1)
+                        },
+                    ))
+                    .await
+                })
+                .await;
+            debug!(
+                slot = slot.as_u64(),
+                builders = builder_config.builders.len(),
+                "Resolved builder config for block production"
+            );
+            let builder_config_ref = &builder_config;
+            let include_payload = self_ref.stateless_block_production;
+
             // Use V4 block production for Gloas
             // Request an SSZ block from all beacon nodes in order, returning on the first successful response.
             // If all nodes fail, run a second pass falling back to JSON.
@@ -474,20 +711,23 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                         &[validator_metrics::BEACON_BLOCK_HTTP_GET],
                     );
                     beacon_node
-                        .get_validator_blocks_v4_ssz::<S::E>(
+                        .post_validator_blocks_v4_ssz::<S::E>(
                             slot,
                             randao_reveal_ref,
                             graffiti.as_ref(),
-                            false,
-                            builder_boost_factor,
+                            include_payload,
+                            builder_config_ref,
                             self_ref.graffiti_policy,
+                            fork_name,
                         )
                         .await
                 })
                 .await;
 
-            let block_response = match ssz_block_response {
-                Ok((ssz_block_response, _metadata)) => ssz_block_response.into_block(),
+            // `builder_url` is the `Eth-Builder-Url` from the winning beacon node — echoed on publish
+            // so it forwards the block to the builder that won selection.
+            let (block_response, builder_url) = match ssz_block_response {
+                Ok((ssz_block_response, metadata)) => (ssz_block_response, metadata.builder_url),
                 Err(e) => {
                     warn!(
                         slot = slot.as_u64(),
@@ -501,14 +741,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                 &validator_metrics::BLOCK_SERVICE_TIMES,
                                 &[validator_metrics::BEACON_BLOCK_HTTP_GET],
                             );
-                            let (json_block_response, _metadata) = beacon_node
-                                .get_validator_blocks_v4::<S::E>(
+                            let (json_block_response, metadata) = beacon_node
+                                .post_validator_blocks_v4::<S::E>(
                                     slot,
                                     randao_reveal_ref,
                                     graffiti.as_ref(),
-                                    false,
-                                    builder_boost_factor,
+                                    include_payload,
+                                    builder_config_ref,
                                     self_ref.graffiti_policy,
+                                    fork_name,
                                 )
                                 .await
                                 .map_err(|e| {
@@ -518,18 +759,23 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                                     ))
                                 })?;
 
-                            Ok(json_block_response.into_block())
+                            Ok((json_block_response, metadata.builder_url))
                         })
                         .await
                         .map_err(BlockError::from)?
                 }
             };
 
+            let (block_response, envelope_action) =
+                EnvelopeAction::from_response(include_payload, block_response, slot);
+
             // Gloas blocks don't have blobs (they're in the execution layer)
             let block_contents = eth2::types::FullBlockContents::Block(block_response);
             (
                 block_contents.block().proposer_index(),
                 UnsignedBlock::Full(block_contents),
+                builder_url,
+                envelope_action,
             )
         } else {
             // Use V3 block production for pre-Gloas forks
@@ -594,13 +840,21 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 }
             };
 
+            // Pre-Gloas has no builder-URL provenance (the V3 mev-boost path handles builder
+            // forwarding itself), so there's nothing to echo on publish.
             match block_response {
-                eth2::types::ProduceBlockV3Response::Full(block) => {
-                    (block.block().proposer_index(), UnsignedBlock::Full(block))
-                }
-                eth2::types::ProduceBlockV3Response::Blinded(block) => {
-                    (block.proposer_index(), UnsignedBlock::Blinded(block))
-                }
+                eth2::types::ProduceBlockV3Response::Full(block) => (
+                    block.block().proposer_index(),
+                    UnsignedBlock::Full(block),
+                    None,
+                    EnvelopeAction::Skip,
+                ),
+                eth2::types::ProduceBlockV3Response::Blinded(block) => (
+                    block.proposer_index(),
+                    UnsignedBlock::Blinded(block),
+                    None,
+                    EnvelopeAction::Skip,
+                ),
             }
         };
 
@@ -611,33 +865,65 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             ));
         }
 
-        // Capture before `sign_and_publish_block` moves `unsigned_block`.
-        let produced_block_root = fork_name
-            .gloas_enabled()
-            .then(|| unsigned_block.block_root());
+        let local_payload_root = envelope_action.local_payload_root();
 
-        self_ref
+        let Some(signed_block_root) = self_ref
             .sign_and_publish_block(
                 &proposer_fallback,
                 slot,
                 graffiti,
                 &validator_pubkey,
                 unsigned_block,
+                local_payload_root,
+                builder_url,
             )
-            .await?;
+            .await?
+        else {
+            return Ok(());
+        };
 
-        // TODO(gloas) we only need to fetch, sign and publish the envelope in the local building case.
-        // Right now we always default to local building. Once we implement trustless/trusted builder logic
-        // we should check the bid for index == BUILDER_INDEX_SELF_BUILD
-        if let Some(beacon_block_root) = produced_block_root {
-            self_ref
-                .fetch_sign_and_publish_payload_envelope(
-                    &proposer_fallback,
-                    slot,
-                    beacon_block_root,
-                    &validator_pubkey,
-                )
-                .await?;
+        match envelope_action {
+            EnvelopeAction::Skip => {}
+            EnvelopeAction::Fetch(beacon_block_root) => {
+                // The producing node's cache is only useful if the local candidate was signed.
+                if beacon_block_root != signed_block_root {
+                    debug!(
+                        local_block_root = %beacon_block_root,
+                        %signed_block_root,
+                        "Skipping envelope fetch for a different block"
+                    );
+                    return Ok(());
+                }
+                self_ref
+                    .fetch_sign_and_publish_payload_envelope(
+                        &proposer_fallback,
+                        slot,
+                        beacon_block_root,
+                        &validator_pubkey,
+                    )
+                    .await?;
+            }
+            EnvelopeAction::Local(contents) => {
+                // A distributed validator store can sign a different block after consensus.
+                // Its unused local envelope must not be signed or published.
+                if contents.envelope.beacon_block_root != signed_block_root {
+                    debug!(
+                        local_block_root = %contents.envelope.beacon_block_root,
+                        %signed_block_root,
+                        "Skipping local envelope for a different block"
+                    );
+                    return Ok(());
+                }
+                self_ref
+                    .sign_and_publish_local_payload_envelope(
+                        &proposer_fallback,
+                        slot,
+                        fork_name,
+                        *contents,
+                        &validator_pubkey,
+                    )
+                    .await?;
+            }
         }
 
         Ok(())
@@ -649,6 +935,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
     /// TODO(gloas): For multi-BN setups, we need to track which beacon node produced the block
     /// and fetch the envelope from that same node. The envelope is cached per-BN,
     /// so fetching from a different BN than the one that built the block will fail.
+    /// This applies to the `Fetch` path. The `Local` path already uses proposer fallback to
+    /// publish the envelope with its blobs and proofs without relying on the producing BN's cache.
     /// See: https://github.com/sigp/lighthouse/pull/8313
     #[instrument(skip_all)]
     async fn fetch_sign_and_publish_payload_envelope(
@@ -706,7 +994,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         let fork_name = self.chain_spec.fork_name_at_slot::<S::E>(slot);
 
         // Publish the signed envelope
-        // TODO(gloas): Use proposer_fallback once multi-BN is supported.
+        // TODO(gloas): Use proposer_fallback for the Fetch path once multi-BN is supported (#8313).
+        // The Local path already uses proposer_fallback to publish the full contents.
         self.beacon_nodes
             .first_success(|beacon_node| {
                 let signed_envelope = signed_envelope.clone();
@@ -737,11 +1026,79 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         Ok(())
     }
 
+    /// Sign the envelope returned with a self-built block and publish it with its blobs and KZG
+    /// proofs via the same nodes as the block, since any beacon node can accept that form.
+    #[instrument(skip_all)]
+    async fn sign_and_publish_local_payload_envelope(
+        &self,
+        proposer_fallback: &ProposerFallback<T>,
+        slot: Slot,
+        fork_name: ForkName,
+        contents: LocalPayloadContents<S::E>,
+        validator_pubkey: &PublicKeyBytes,
+    ) -> Result<(), BlockError> {
+        let LocalPayloadContents {
+            envelope,
+            kzg_proofs,
+            blobs,
+        } = contents;
+        let beacon_block_root = envelope.beacon_block_root;
+        info!(
+            slot = slot.as_u64(),
+            %beacon_block_root,
+            "Signing locally built execution payload envelope"
+        );
+
+        let signed_execution_payload_envelope = self
+            .validator_store
+            .sign_execution_payload_envelope(*validator_pubkey, envelope)
+            .await
+            .map_err(|e| {
+                BlockError::Recoverable(format!(
+                    "Error signing execution payload envelope: {:?}",
+                    e
+                ))
+            })?;
+        let signed_contents = SignedExecutionPayloadEnvelopeContents {
+            signed_execution_payload_envelope,
+            kzg_proofs,
+            blobs,
+        };
+        let signed_contents = &signed_contents;
+
+        proposer_fallback
+            .request_proposers_first(|beacon_node| async move {
+                beacon_node
+                    .post_beacon_execution_payload_envelope_contents_ssz(
+                        signed_contents,
+                        fork_name,
+                        None,
+                    )
+                    .await
+                    .map_err(|e| {
+                        BlockError::Recoverable(format!(
+                            "Error publishing execution payload envelope: {:?}",
+                            e
+                        ))
+                    })
+            })
+            .await?;
+
+        info!(
+            slot = slot.as_u64(),
+            %beacon_block_root,
+            "Successfully published signed execution payload envelope"
+        );
+
+        Ok(())
+    }
+
     #[instrument(skip_all)]
     async fn publish_signed_block_contents(
         &self,
         signed_block: &SignedBlock<S::E>,
         beacon_node: BeaconNodeHttpClient,
+        builder_url: Option<&str>,
     ) -> Result<(), BlockError> {
         match signed_block {
             SignedBlock::Full(signed_block) => {
@@ -750,7 +1107,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     &[validator_metrics::BEACON_BLOCK_HTTP_POST],
                 );
                 beacon_node
-                    .post_beacon_blocks_v2_ssz(signed_block, None, None)
+                    .post_beacon_blocks_v2_ssz(signed_block, None, builder_url)
                     .await
                     .map(|_| ())
                     .or_else(|e| {
@@ -829,18 +1186,66 @@ fn handle_block_post_error(err: eth2::Error, slot: Slot) -> Result<(), BlockErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beacon_node_fallback::{CandidateBeaconNode, Config as BeaconNodeConfig};
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
-    use types::{BeaconBlock, ExecutionPayloadEnvelope, ForkName, Slot};
+    use types::{Blob, KzgProof, MainnetEthSpec};
+    use validator_test_rig::mock_beacon_node::MockBeaconNode;
+    use validator_test_rig::recording_validator_store::RecordingValidatorStore;
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
+
+    #[tokio::test]
+    async fn request_auth_sign_deadline_drops_stalled_signer() {
+        // A signer that never answers must be cut off at the deadline, not allowed to stall
+        // block production for the slot.
+        let result = sign_request_auth_with_deadline::<_, String>(std::future::pending()).await;
+        assert!(result.unwrap_err().contains("timed out"));
+    }
+
+    #[tokio::test]
+    async fn request_auth_sign_deadline_passes_fast_result() {
+        let signed = SignedRequestAuth {
+            message: builder_types::RequestAuth {
+                data: builder_types::RequestAuthData::new(b"http://builder.example.com".to_vec())
+                    .unwrap(),
+                slot: Slot::new(0),
+            },
+            signature: bls::Signature::empty(),
+        };
+        let result =
+            sign_request_auth_with_deadline::<_, String>(std::future::ready(Ok(signed.clone())))
+                .await;
+        assert_eq!(result.unwrap(), signed);
+    }
+
+    type Store = RecordingValidatorStore<S>;
 
     struct TestHarness {
         harness: ValidatorClientHarness,
-        service: BlockService<S, ManualSlotClock>,
+        service: BlockService<Store, ManualSlotClock>,
     }
 
     impl TestHarness {
         async fn new_with_validators(num_validators: usize) -> Self {
+            Self::new(num_validators, false, None).await
+        }
+
+        async fn new_stateless() -> Self {
+            Self::new(1, true, None).await
+        }
+
+        /// A stateless-mode service that publishes to the returned proposer node first.
+        async fn new_stateless_with_proposer_node() -> (Self, MockBeaconNode<MainnetEthSpec>) {
+            let proposer_node = MockBeaconNode::<MainnetEthSpec>::new().await;
+            let harness = Self::new(1, true, Some(&proposer_node)).await;
+            (harness, proposer_node)
+        }
+
+        async fn new(
+            num_validators: usize,
+            stateless_block_production: bool,
+            proposer_node: Option<&MockBeaconNode<MainnetEthSpec>>,
+        ) -> Self {
             let harness = ValidatorClientHarness::new(num_validators).await;
 
             // advance the time to Slot 1
@@ -848,17 +1253,159 @@ mod tests {
                 .slot_clock
                 .advance_time(harness.spec.get_slot_duration());
 
-            let service = BlockServiceBuilder::new()
-                .validator_store(harness.validator_store.clone())
+            let mut builder = BlockServiceBuilder::new()
+                .validator_store(Arc::new(RecordingValidatorStore::new(
+                    harness.validator_store.clone(),
+                )))
                 .slot_clock(harness.slot_clock.clone())
                 .beacon_nodes(harness.beacon_nodes.clone())
                 .executor(harness.test_runtime.task_executor.clone())
                 .chain_spec(harness.spec.clone())
-                .build()
-                .unwrap();
+                .request_auth_cache(RequestAuthCache::default())
+                .configured_builders(
+                    BuilderStore::open_or_create(harness._validator_dir.path()).unwrap(),
+                )
+                .stateless_block_production(stateless_block_production);
 
-            Self { harness, service }
+            if let Some(proposer_node) = proposer_node {
+                let candidate =
+                    CandidateBeaconNode::new(proposer_node.beacon_api_client.clone(), 0);
+                builder = builder.proposer_nodes(Arc::new(BeaconNodeFallback::new(
+                    vec![candidate],
+                    BeaconNodeConfig::default(),
+                    vec![],
+                    harness.spec.clone(),
+                )));
+            }
+
+            Self {
+                harness,
+                service: builder.build().unwrap(),
+            }
         }
+
+        fn bn1(&mut self) -> &mut MockBeaconNode<MainnetEthSpec> {
+            &mut self.harness.mock_beacon_node_1
+        }
+
+        fn bn2(&mut self) -> &mut MockBeaconNode<MainnetEthSpec> {
+            &mut self.harness.mock_beacon_node_2
+        }
+
+        /// Propose at `slot` for the first validator and require success.
+        async fn publish(&self, slot: Slot) {
+            let result = self
+                .service
+                .clone()
+                .get_validator_block_and_publish_block(slot, self.harness.pubkeys[0], None)
+                .await;
+            assert!(
+                result.is_ok(),
+                "Block production failed: {:?}",
+                result.err()
+            );
+        }
+
+        /// Assert `sign_block` was called once, for `block`, with `local_payload_root`.
+        fn assert_signed_once(
+            &self,
+            block: &BeaconBlock<MainnetEthSpec>,
+            local_payload_root: Option<Hash256>,
+        ) {
+            let calls = self.service.validator_store.sign_block_calls();
+            assert_eq!(calls.len(), 1, "expected exactly one sign_block call");
+            assert_eq!(calls[0].validator_pubkey, self.harness.pubkeys[0]);
+            assert_eq!(calls[0].block_root, block.canonical_root());
+            assert_eq!(calls[0].local_payload_root, local_payload_root);
+        }
+    }
+
+    fn block_only(block: &BeaconBlock<MainnetEthSpec>) -> ProduceBlockV4Response<MainnetEthSpec> {
+        ProduceBlockV4Response::BlockOnly(block.clone())
+    }
+
+    /// A Gloas block with a self-built bid.
+    fn self_build_block(spec: &ChainSpec) -> BeaconBlock<MainnetEthSpec> {
+        let mut block = BeaconBlock::empty(spec);
+        let BeaconBlock::Gloas(gloas_block) = &mut block else {
+            panic!("expected Gloas block");
+        };
+        gloas_block
+            .body
+            .signed_execution_payload_bid
+            .message
+            .builder_index = BUILDER_INDEX_SELF_BUILD;
+        block
+    }
+
+    /// The `include_payload=true` response for a self-built `block`, with one blob and one proof.
+    fn local_contents(block: &BeaconBlock<MainnetEthSpec>) -> BlockAndEnvelope<MainnetEthSpec> {
+        let mut envelope = ExecutionPayloadEnvelope::empty();
+        envelope.payload.slot_number = block.slot();
+        envelope.payload.block_number = 7;
+        envelope.builder_index = BUILDER_INDEX_SELF_BUILD;
+        envelope.beacon_block_root = block.canonical_root();
+        envelope.parent_beacon_block_root = block.parent_root();
+        BlockAndEnvelope {
+            block: block.clone(),
+            execution_payload_envelope: envelope,
+            kzg_proofs: KzgProofs::<MainnetEthSpec>::try_from(vec![KzgProof::empty()]).unwrap(),
+            blobs: BlobsList::<MainnetEthSpec>::try_from(vec![Blob::<MainnetEthSpec>::default()])
+                .unwrap(),
+        }
+    }
+
+    /// Assert `node` received exactly one envelope publish matching `contents`.
+    fn assert_published_contents(
+        node: &MockBeaconNode<MainnetEthSpec>,
+        contents: &BlockAndEnvelope<MainnetEthSpec>,
+    ) {
+        let received = node.execution_payload_envelope_contents.lock().unwrap();
+        assert_eq!(received.len(), 1, "Expected one envelope contents publish");
+        assert_eq!(
+            received[0].signed_execution_payload_envelope.message,
+            contents.execution_payload_envelope
+        );
+        assert_eq!(received[0].kzg_proofs, contents.kzg_proofs);
+        assert_eq!(received[0].blobs, contents.blobs);
+    }
+
+    #[tokio::test]
+    async fn stateless_external_builder_bid_publishes_block_only() {
+        let mut test_harness = TestHarness::new_stateless().await;
+        let slot = Slot::new(1);
+        let block = BeaconBlock::empty(&test_harness.harness.spec);
+
+        test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+            &block_only(&block),
+            true,
+            ForkName::Gloas,
+            slot,
+        );
+        let mock_post_block = test_harness
+            .bn1()
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_get_envelope = test_harness
+            .bn1()
+            .mock_get_validator_execution_payload_envelope_ssz(
+                &ExecutionPayloadEnvelope::empty(),
+                slot,
+                block.canonical_root(),
+            );
+        let mock_post_bare_envelope = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_ssz();
+        let mock_post_contents = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_contents_ssz();
+
+        test_harness.publish(slot).await;
+
+        mock_post_block.expect(1).assert();
+        mock_get_envelope.expect(0).assert();
+        mock_post_bare_envelope.expect(0).assert();
+        mock_post_contents.expect(0).assert();
+        test_harness.assert_signed_once(&block, None);
     }
 
     #[tokio::test]
@@ -880,7 +1427,12 @@ mod tests {
         let mock_different_slot = test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_blocks_v4_ssz(&block, ForkName::Gloas, different_notification_slot);
+            .mock_post_validator_blocks_v4_ssz(
+                &block_only(&block),
+                false,
+                ForkName::Gloas,
+                different_notification_slot,
+            );
 
         test_harness
             .service
@@ -902,7 +1454,12 @@ mod tests {
         let mock_same_slot = test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_blocks_v4_ssz(&block, ForkName::Gloas, same_notification_slot);
+            .mock_post_validator_blocks_v4_ssz(
+                &block_only(&block),
+                false,
+                ForkName::Gloas,
+                same_notification_slot,
+            );
 
         test_harness
             .service
@@ -930,14 +1487,13 @@ mod tests {
         let mut test_harness = TestHarness::new_with_validators(1).await;
 
         let slot = Slot::new(1);
-        let validator_pubkey = test_harness.harness.pubkeys[0];
-        let block = BeaconBlock::empty(&test_harness.harness.spec);
+        let block = self_build_block(&test_harness.harness.spec);
         let envelope = ExecutionPayloadEnvelope::empty();
 
         test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_blocks_v4_ssz(&block, ForkName::Gloas, slot);
+            .mock_post_validator_blocks_v4_ssz(&block_only(&block), false, ForkName::Gloas, slot);
         let mock_post_block = test_harness
             .harness
             .mock_beacon_node_1
@@ -955,17 +1511,7 @@ mod tests {
             .mock_beacon_node_1
             .mock_post_beacon_execution_payload_envelope_ssz();
 
-        let result = test_harness
-            .service
-            .clone()
-            .get_validator_block_and_publish_block(slot, validator_pubkey, None)
-            .await;
-
-        assert!(
-            result.is_ok(),
-            "Block production failed: {:?}",
-            result.err()
-        );
+        test_harness.publish(slot).await;
 
         // Both mock BN only being hit once, as it is successful on the first call
         mock_post_block.expect(1).assert();
@@ -986,6 +1532,487 @@ mod tests {
             .lock()
             .unwrap();
         assert_eq!(received_envelopes.len(), 1, "Expected one envelope");
+
+        test_harness.assert_signed_once(&block, None);
+    }
+
+    #[tokio::test]
+    async fn stateless_self_build_publishes_inline_envelope_contents_through_proposer_node() {
+        let (mut test_harness, mut proposer_node) =
+            TestHarness::new_stateless_with_proposer_node().await;
+
+        let slot = Slot::new(1);
+        let block = self_build_block(&test_harness.harness.spec);
+        let contents = local_contents(&block);
+        let expected_payload_root = contents.execution_payload_envelope.payload.tree_hash_root();
+
+        // Production goes to a beacon node; the block and envelope must go to the proposer node.
+        test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+            &ProduceBlockV4Response::BlockAndEnvelope(contents.clone()),
+            true,
+            ForkName::Gloas,
+            slot,
+        );
+        let mock_get_envelope = test_harness
+            .bn1()
+            .mock_get_validator_execution_payload_envelope_ssz(
+                &contents.execution_payload_envelope,
+                slot,
+                block.canonical_root(),
+            );
+        let mock_beacon_node_post_contents = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_contents_ssz();
+        let mock_post_block = proposer_node.mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_post_bare_envelope =
+            proposer_node.mock_post_beacon_execution_payload_envelope_ssz();
+        let mock_post_contents =
+            proposer_node.mock_post_beacon_execution_payload_envelope_contents_ssz();
+
+        test_harness.publish(slot).await;
+
+        mock_post_block.expect(1).assert();
+        mock_post_contents.expect(1).assert();
+        mock_post_bare_envelope.expect(0).assert();
+        mock_get_envelope.expect(0).assert();
+        mock_beacon_node_post_contents.expect(0).assert();
+
+        test_harness.assert_signed_once(&block, Some(expected_payload_root));
+        assert_eq!(
+            test_harness
+                .service
+                .validator_store
+                .signed_envelope_block_roots(),
+            vec![block.canonical_root()]
+        );
+        assert_published_contents(&proposer_node, &contents);
+        assert_eq!(
+            proposer_node.received_full_blocks.lock().unwrap().len(),
+            1,
+            "Expected one published block"
+        );
+    }
+
+    #[tokio::test]
+    async fn stateless_mismatched_inline_envelope_preserves_block_signing() {
+        let mut test_harness = TestHarness::new_stateless().await;
+        let slot = Slot::new(1);
+        let block = self_build_block(&test_harness.harness.spec);
+        let mut contents = local_contents(&block);
+        contents.execution_payload_envelope.beacon_block_root = Hash256::repeat_byte(42);
+        assert_ne!(
+            contents.execution_payload_envelope.beacon_block_root,
+            block.canonical_root()
+        );
+        let payload_root = contents.execution_payload_envelope.payload.tree_hash_root();
+
+        test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+            &ProduceBlockV4Response::BlockAndEnvelope(contents),
+            true,
+            ForkName::Gloas,
+            slot,
+        );
+        let mock_post_block = test_harness
+            .bn1()
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_post_contents = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_contents_ssz();
+
+        // The warning must not prevent entering the store's block consensus/signing flow.
+        test_harness.publish(slot).await;
+        test_harness.assert_signed_once(&block, Some(payload_root));
+        mock_post_block.expect(1).assert();
+
+        // The existing check against the signed block still suppresses the mismatched envelope.
+        assert!(
+            test_harness
+                .service
+                .validator_store
+                .signed_envelope_block_roots()
+                .is_empty()
+        );
+        mock_post_contents.expect(0).assert();
+    }
+
+    async fn assert_skips_envelope_when_store_signs_different_block(
+        stateless: bool,
+        with_contents: bool,
+    ) {
+        for decided_builder_index in [BUILDER_INDEX_SELF_BUILD, 7] {
+            let mut test_harness = TestHarness::new(1, stateless, None).await;
+            let slot = Slot::new(1);
+            let block = self_build_block(&test_harness.harness.spec);
+            let contents = local_contents(&block);
+            let payload_root = contents.execution_payload_envelope.payload.tree_hash_root();
+
+            // Model a distributed store returning the cluster's decision, which may be another
+            // operator's self-build or an external bid, instead of the local candidate.
+            let mut decided_block = block.clone();
+            *decided_block.state_root_mut() = Hash256::repeat_byte(42);
+            let BeaconBlock::Gloas(gloas_block) = &mut decided_block else {
+                panic!("expected Gloas block");
+            };
+            gloas_block
+                .body
+                .signed_execution_payload_bid
+                .message
+                .builder_index = decided_builder_index;
+            assert_ne!(block.canonical_root(), decided_block.canonical_root());
+            let signed_block = test_harness
+                .harness
+                .validator_store
+                .sign_block(
+                    test_harness.harness.pubkeys[0],
+                    UnsignedBlock::Full(eth2::types::FullBlockContents::Block(
+                        decided_block.clone(),
+                    )),
+                    slot,
+                    None,
+                )
+                .await
+                .unwrap();
+            test_harness
+                .service
+                .validator_store
+                .set_next_sign_block_result(Ok(signed_block));
+
+            let mock_get_envelope = test_harness
+                .bn1()
+                .mock_get_validator_execution_payload_envelope_ssz(
+                    &contents.execution_payload_envelope,
+                    slot,
+                    block.canonical_root(),
+                );
+            let response = if with_contents {
+                ProduceBlockV4Response::BlockAndEnvelope(contents)
+            } else {
+                block_only(&block)
+            };
+            test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+                &response,
+                stateless,
+                ForkName::Gloas,
+                slot,
+            );
+            let mock_post_block = test_harness
+                .bn1()
+                .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+            let mock_post_contents = test_harness
+                .bn1()
+                .mock_post_beacon_execution_payload_envelope_contents_ssz();
+            let mock_post_bare_envelope = test_harness
+                .bn1()
+                .mock_post_beacon_execution_payload_envelope_ssz();
+
+            test_harness.publish(slot).await;
+
+            test_harness
+                .assert_signed_once(&block, (stateless && with_contents).then_some(payload_root));
+            assert!(
+                test_harness
+                    .service
+                    .validator_store
+                    .signed_envelope_block_roots()
+                    .is_empty(),
+                "a losing local envelope must not reach the signer"
+            );
+            mock_post_block.expect(1).assert();
+            mock_get_envelope.expect(0).assert();
+            mock_post_contents.expect(0).assert();
+            mock_post_bare_envelope.expect(0).assert();
+            let published = test_harness
+                .harness
+                .mock_beacon_node_1
+                .received_full_blocks
+                .lock()
+                .unwrap();
+            assert_eq!(published.len(), 1);
+            assert_eq!(
+                published[0].signed_block().canonical_root(),
+                decided_block.canonical_root()
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn stateless_skips_local_envelope_when_store_signs_different_block() {
+        assert_skips_envelope_when_store_signs_different_block(true, true).await;
+    }
+
+    #[tokio::test]
+    async fn stateless_skips_fetched_envelope_when_store_signs_different_block() {
+        assert_skips_envelope_when_store_signs_different_block(true, false).await;
+    }
+
+    #[tokio::test]
+    async fn stateful_skips_fetched_envelope_when_store_signs_different_block() {
+        assert_skips_envelope_when_store_signs_different_block(false, false).await;
+    }
+
+    #[tokio::test]
+    async fn stateless_skips_local_envelope_when_block_signer_has_no_pubkey() {
+        let mut test_harness = TestHarness::new_stateless().await;
+        let slot = Slot::new(1);
+        let block = self_build_block(&test_harness.harness.spec);
+        let contents = local_contents(&block);
+        test_harness
+            .service
+            .validator_store
+            .set_next_sign_block_result(Err(ValidatorStoreError::UnknownPubkey(
+                test_harness.harness.pubkeys[0],
+            )));
+        test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+            &ProduceBlockV4Response::BlockAndEnvelope(contents),
+            true,
+            ForkName::Gloas,
+            slot,
+        );
+        let mock_post_block = test_harness
+            .bn1()
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_post_contents = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_contents_ssz();
+
+        test_harness.publish(slot).await;
+
+        assert!(
+            test_harness
+                .service
+                .validator_store
+                .signed_envelope_block_roots()
+                .is_empty(),
+            "no envelope should be signed when no block was signed"
+        );
+        mock_post_block.expect(0).assert();
+        mock_post_contents.expect(0).assert();
+    }
+
+    #[tokio::test]
+    async fn stateless_ssz_produce_fails_and_json_succeeds_with_inline_contents() {
+        let mut test_harness = TestHarness::new_stateless().await;
+
+        let slot = Slot::new(1);
+        let block = self_build_block(&test_harness.harness.spec);
+        let contents = local_contents(&block);
+        let expected_payload_root = contents.execution_payload_envelope.payload.tree_hash_root();
+
+        let mock_ssz_1 = test_harness
+            .bn1()
+            .mock_post_validator_blocks_v4_ssz_error(slot, true);
+        let mock_ssz_2 = test_harness
+            .bn2()
+            .mock_post_validator_blocks_v4_ssz_error(slot, true);
+        let mock_json = test_harness.bn1().mock_post_validator_blocks_v4(
+            &ProduceBlockV4Response::BlockAndEnvelope(contents.clone()),
+            true,
+            ForkName::Gloas,
+            slot,
+        );
+        let mock_post_block = test_harness
+            .bn1()
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_get_envelope = test_harness
+            .bn1()
+            .mock_get_validator_execution_payload_envelope_ssz(
+                &contents.execution_payload_envelope,
+                slot,
+                block.canonical_root(),
+            );
+        let mock_post_contents = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_contents_ssz();
+
+        test_harness.publish(slot).await;
+
+        // `first_success` makes two passes over the candidates before the JSON fallback.
+        mock_ssz_1.expect(2).assert();
+        mock_ssz_2.expect(2).assert();
+        mock_json.expect(1).assert();
+        mock_post_block.expect(1).assert();
+        mock_post_contents.expect(1).assert();
+        mock_get_envelope.expect(0).assert();
+
+        test_harness.assert_signed_once(&block, Some(expected_payload_root));
+        assert_published_contents(&test_harness.harness.mock_beacon_node_1, &contents);
+    }
+
+    #[tokio::test]
+    async fn flag_off_ignores_unsolicited_inline_contents() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let slot = Slot::new(1);
+        let block = self_build_block(&test_harness.harness.spec);
+        let contents = local_contents(&block);
+
+        // The beacon node attaches contents although `include_payload=false` was requested.
+        test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+            &ProduceBlockV4Response::BlockAndEnvelope(contents.clone()),
+            false,
+            ForkName::Gloas,
+            slot,
+        );
+        let mock_post_block = test_harness
+            .bn1()
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_get_envelope = test_harness
+            .bn1()
+            .mock_get_validator_execution_payload_envelope_ssz(
+                &contents.execution_payload_envelope,
+                slot,
+                block.canonical_root(),
+            );
+        let mock_post_bare_envelope = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_ssz();
+        let mock_post_contents = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_contents_ssz();
+
+        test_harness.publish(slot).await;
+
+        // The stateful path runs as if the contents had not been returned.
+        mock_post_block.expect(1).assert();
+        mock_get_envelope.expect(1).assert();
+        mock_post_bare_envelope.expect(1).assert();
+        mock_post_contents.expect(0).assert();
+        test_harness.assert_signed_once(&block, None);
+    }
+
+    #[tokio::test]
+    async fn stateless_envelope_falls_back_from_proposer_node_to_beacon_node() {
+        let (mut test_harness, mut proposer_node) =
+            TestHarness::new_stateless_with_proposer_node().await;
+
+        let slot = Slot::new(1);
+        let block = self_build_block(&test_harness.harness.spec);
+        let contents = local_contents(&block);
+
+        test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+            &ProduceBlockV4Response::BlockAndEnvelope(contents.clone()),
+            true,
+            ForkName::Gloas,
+            slot,
+        );
+        let mock_beacon_node_post_contents = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_contents_ssz();
+        let mock_post_block = proposer_node.mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_proposer_post_contents =
+            proposer_node.mock_post_beacon_execution_payload_envelope_contents_ssz_error();
+
+        test_harness.publish(slot).await;
+
+        // The proposer node accepted the block but rejects the envelope, so the beacon nodes are
+        // tried next with the same contents.
+        mock_post_block.expect(1).assert();
+        mock_proposer_post_contents.expect(2).assert();
+        mock_beacon_node_post_contents.expect(1).assert();
+        assert_published_contents(&test_harness.harness.mock_beacon_node_1, &contents);
+    }
+
+    #[tokio::test]
+    async fn stateless_self_build_without_inline_contents_fetches_envelope() {
+        let mut test_harness = TestHarness::new_stateless().await;
+        let slot = Slot::new(1);
+        let block = self_build_block(&test_harness.harness.spec);
+        let envelope = local_contents(&block).execution_payload_envelope;
+        test_harness.bn1().mock_post_validator_blocks_v4_ssz(
+            &block_only(&block),
+            true,
+            ForkName::Gloas,
+            slot,
+        );
+        let mock_post_block = test_harness
+            .bn1()
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_get_envelope = test_harness
+            .bn1()
+            .mock_get_validator_execution_payload_envelope_ssz(
+                &envelope,
+                slot,
+                block.canonical_root(),
+            );
+        let mock_post_bare_envelope = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_ssz();
+        let mock_post_contents = test_harness
+            .bn1()
+            .mock_post_beacon_execution_payload_envelope_contents_ssz();
+
+        test_harness.publish(slot).await;
+
+        mock_post_block.expect(1).assert();
+        mock_get_envelope.expect(1).assert();
+        mock_post_bare_envelope.expect(1).assert();
+        mock_post_contents.expect(0).assert();
+        test_harness.assert_signed_once(&block, None);
+        assert_eq!(
+            test_harness
+                .service
+                .validator_store
+                .signed_envelope_block_roots(),
+            vec![block.canonical_root()]
+        );
+        let published = test_harness
+            .harness
+            .mock_beacon_node_1
+            .execution_payload_envelope
+            .lock()
+            .unwrap();
+        assert_eq!(published.len(), 1);
+        assert_eq!(published[0].message, envelope);
+    }
+
+    #[tokio::test]
+    async fn builder_won_block_publishes_without_envelope() {
+        let mut test_harness = TestHarness::new_with_validators(1).await;
+
+        let slot = Slot::new(1);
+        let validator_pubkey = test_harness.harness.pubkeys[0];
+        // `BeaconBlock::empty` carries a default bid (`builder_index: 0`) — a block whose payload
+        // bid was won by a builder. The builder reveals the envelope, so the proposal must succeed
+        // without the VC fetching or publishing one.
+        let block = BeaconBlock::empty(&test_harness.harness.spec);
+        let envelope = ExecutionPayloadEnvelope::empty();
+
+        test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_validator_blocks_v4_ssz(&block_only(&block), false, ForkName::Gloas, slot);
+        let mock_post_block = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_blocks_v2_ssz(ForkName::Gloas);
+        let mock_get_envelope = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_get_validator_execution_payload_envelope_ssz(
+                &envelope,
+                slot,
+                block.canonical_root(),
+            );
+        let mock_post_envelope = test_harness
+            .harness
+            .mock_beacon_node_1
+            .mock_post_beacon_execution_payload_envelope_ssz();
+
+        let result = test_harness
+            .service
+            .clone()
+            .get_validator_block_and_publish_block(slot, validator_pubkey, None)
+            .await;
+
+        assert!(
+            result.is_ok(),
+            "builder-won proposal should succeed without an envelope: {:?}",
+            result.err()
+        );
+
+        mock_post_block.expect(1).assert();
+        mock_get_envelope.expect(0).assert();
+        mock_post_envelope.expect(0).assert();
     }
 
     #[tokio::test]
@@ -1000,11 +2027,11 @@ mod tests {
         let mock_bn_1 = test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_blocks_v4_ssz_error(slot);
+            .mock_post_validator_blocks_v4_ssz_error(slot, false);
         let mock_bn_2 = test_harness
             .harness
             .mock_beacon_node_2
-            .mock_get_validator_blocks_v4_ssz_error(slot);
+            .mock_post_validator_blocks_v4_ssz_error(slot, false);
 
         let mock_post_block = test_harness
             .harness
@@ -1048,11 +2075,11 @@ mod tests {
         let mock_ssz = test_harness
             .harness
             .mock_beacon_node_1
-            .mock_get_validator_blocks_v4_ssz_error(slot);
+            .mock_post_validator_blocks_v4_ssz_error(slot, false);
         let mock_json = test_harness
             .harness
             .mock_beacon_node_2
-            .mock_get_validator_blocks_v4(&block, ForkName::Gloas, slot);
+            .mock_post_validator_blocks_v4(&block_only(&block), false, ForkName::Gloas, slot);
 
         let _result = test_harness
             .service

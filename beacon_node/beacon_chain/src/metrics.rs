@@ -665,6 +665,14 @@ pub static BALANCES_CACHE_MISSES: LazyLock<Result<IntCounter>> = LazyLock::new(|
         "Count of times balances cache misses request",
     )
 });
+pub static BALANCES_CACHE_BOUNDARY_STATE_LOAD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(
+    || {
+        try_create_histogram(
+            "beacon_balances_cache_boundary_state_load_seconds",
+            "Time spent loading the epoch boundary state to fill the balances cache after a skipped boundary slot",
+        )
+    },
+);
 
 /*
  * Persisting BeaconChain components to disk

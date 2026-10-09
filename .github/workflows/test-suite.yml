@@ -61,7 +61,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
       - name: Install dependencies
-        run: apt update && apt install -y cmake libclang-dev
+        run: apt update && apt install -y cmake libclang-dev clang
       - name: Check for deadlocks
         run: ./scripts/ci/check-lockbud.sh
 
@@ -108,13 +108,12 @@ jobs:
     runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@v5
-    # Set Java version to 21. (required since Web3Signer 24.12.0).
-    # On sigp/lighthouse, Java 21 is baked into the snapshot.
-    - if: github.repository != 'sigp/lighthouse'
-      uses: actions/setup-java@v4
+    # Set Java version to 25. (required since Web3Signer 26.7.0).
+    # Always install; do not rely on the WarpBuild snapshot containing Java 25.
+    - uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
-        java-version: '21'
+        java-version: '25'
     - if: github.repository != 'sigp/lighthouse'
       name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
@@ -258,6 +257,23 @@ jobs:
           bins: cargo-nextest
     - name: Run slasher tests for all supported backends
       run: make test-slasher
+  spec-minimal-tests:
+    name: spec-minimal-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ubuntu-latest
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run tests using the minimal preset
+      run: make test-spec-minimal
   debug-tests-ubuntu:
     name: debug-tests-ubuntu
     needs: [check-labels]
@@ -293,8 +309,8 @@ jobs:
           cache-target: release
     - name: Run state_transition_vectors in release.
       run: make run-state-transition-tests
-  ef-tests-ubuntu:
-    name: ef-tests-ubuntu
+  ef-tests-mainnet-ubuntu:
+    name: ef-tests-mainnet-ubuntu
     needs: [check-labels]
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
@@ -313,8 +329,30 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
           cache-provider: warpbuild
-    - name: Run consensus-spec-tests with blst and fake_crypto
-      run: make test-ef
+    - name: Run mainnet consensus-spec-tests with blst and fake_crypto
+      run: make test-ef-mainnet
+  ef-tests-minimal-ubuntu:
+    name: ef-tests-minimal-ubuntu
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-ubuntu-latest-x64-8x;snapshot.key=lighthouse-ubuntu-latest-v1' || 'ubuntu-latest' }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v5
+    - if: github.repository != 'sigp/lighthouse'
+      name: Get latest version of stable Rust
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - if: github.repository == 'sigp/lighthouse'
+      uses: Swatinem/rust-cache@v2
+      with:
+          cache-provider: warpbuild
+    - name: Run minimal consensus-spec-tests with blst and fake_crypto
+      run: make test-ef-minimal
   basic-simulator-ubuntu:
     name: basic-simulator-ubuntu
     needs: [check-labels]
@@ -396,6 +434,8 @@ jobs:
       run: make insecure-deps
     - name: Lint code for quality and style with Clippy
       run: make lint-full
+    - name: Lint code using the minimal preset
+      run: make lint-spec-minimal
     - name: Certify Cargo.lock freshness
       run: git diff --exit-code Cargo.lock
     - name: Typecheck benchmark code without running it
@@ -488,7 +528,11 @@ jobs:
         channel: stable
     - uses: taiki-e/install-action@cargo-hack
     - name: Check types feature powerset
-      run: cargo hack check -p types --feature-powerset --no-dev-deps --exclude-features arbitrary-fuzz,portable
+      run: cargo hack check -p types --feature-powerset --no-dev-deps --exclude-features arbitrary-fuzz,portable,spec-gnosis,spec-minimal
+    - name: Check types with the minimal preset
+      run: cargo check -p types --features spec-minimal
+    - name: Check types with the gnosis preset
+      run: cargo check -p types --features spec-gnosis
     - name: Check eth2 feature powerset
       run: cargo hack check -p eth2 --feature-powerset --no-dev-deps
   cargo-sort:
@@ -522,10 +566,12 @@ jobs:
       'fork-choice-tests',
       'network-tests',
       'slasher-tests',
+      'spec-minimal-tests',
       'http-api-tests',
       'debug-tests-ubuntu',
       'state-transition-vectors-ubuntu',
-      'ef-tests-ubuntu',
+      'ef-tests-mainnet-ubuntu',
+      'ef-tests-minimal-ubuntu',
       'basic-simulator-ubuntu',
       'fallback-simulator-ubuntu',
       'execution-engine-integration-ubuntu',

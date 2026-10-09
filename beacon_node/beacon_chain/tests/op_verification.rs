@@ -26,7 +26,7 @@ pub const VALIDATOR_COUNT: usize = 24;
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
-type E = MinimalEthSpec;
+type E = Spec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 type HotColdDB = store::HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>;
 
@@ -48,7 +48,7 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
 }
 
 fn get_harness(store: Arc<HotColdDB>, validator_count: usize) -> TestHarness {
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store)
@@ -535,7 +535,7 @@ async fn attester_slashing_duplicate_in_state() {
 
 fn get_fork_harness(fork_name: ForkName) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let spec = Arc::new(fork_name.make_genesis_spec(E::default_spec()));
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec)
         .keypairs(KEYPAIRS.to_vec())
         .fresh_ephemeral_store()
@@ -614,8 +614,12 @@ async fn gloas_attester_slashing_included_in_electra_block() {
         panic!("expected Electra slashing variant");
     };
     let slashing_gloas = AttesterSlashing::<E>::Gloas(AttesterSlashingGloas {
-        attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
-        attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
+        attestation_1: IndexedAttestation::Electra(slashing.attestation_1)
+            .to_gloas()
+            .unwrap(),
+        attestation_2: IndexedAttestation::Electra(slashing.attestation_2)
+            .to_gloas()
+            .unwrap(),
     });
 
     let ObservationOutcome::New(verified_slashing) = harness

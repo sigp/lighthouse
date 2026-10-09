@@ -15,11 +15,11 @@ use beacon_chain::{
 use state_processing::per_epoch_processing::{self, base::ValidatorStatuses};
 use std::sync::Arc;
 use types::{
-    BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, MinimalEthSpec,
+    BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Spec,
     consts::altair::TIMELY_TARGET_FLAG_INDEX,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 // Proposer slashings are limited to MaxProposerSlashings (16) per block. With 32 validators,
 // dropping below the 2/3 justification threshold requires only ~11 slashes, which fits.
@@ -108,7 +108,7 @@ async fn child_with_stale_voting_source_not_head_at_epoch_plus_two() {
     // checkpoint, the child is the only leaf below the justified root and is outside the viability
     // window. The spec-correct result is to set the justified checkpoint as the head.
     assert_eq!(
-        head_result.unwrap().0,
+        head_result.unwrap().root(),
         fork_choice.justified_checkpoint().root
     );
 }

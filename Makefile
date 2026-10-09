@@ -114,8 +114,8 @@ JEMALLOC_OVERRIDE = /usr/lib/$(JEMALLOC_LIB_ARCH)-linux-gnu/libjemalloc.a
 RUST_TARGET ?= x86_64-unknown-linux-gnu
 
 # Default images for different architectures
-RUST_IMAGE_AMD64 ?= rust:1.88-bookworm@sha256:4727898c104ecd2e22d780925832502faee9fe4e70581b8572af081370b315a0
-RUST_IMAGE_ARM64 ?= rust:1.88-bookworm@sha256:8aa70d1416cf5b1cff4b95ec6c57f1c5e4e649a3b53d616a26695cda6fbb46bc
+RUST_IMAGE_AMD64 ?= rust:1.91-bookworm@sha256:8322627e69ba7780b54f39e9f4d3758c006a3ae0123ea01d63b91f0626169891
+RUST_IMAGE_ARM64 ?= rust:1.91-bookworm@sha256:20262682d0201e219012287e8c1e6a7a14b6ebd46bb2b280714f23c06678c285
 
 .PHONY: build-reproducible
 build-reproducible: ## Build the lighthouse binary into `target` directory with reproducible builds
@@ -186,6 +186,11 @@ test-debug:
 		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api \
 		--exclude fork_choice
 
+# Run the tests of crates converted to `Spec` under the minimal preset. Add each crate as it
+# is converted.
+test-spec-minimal:
+	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" -p types
+
 # Runs cargo-fmt (linter).
 cargo-fmt:
 	cargo fmt --all -- --check
@@ -197,16 +202,30 @@ check-benches:
 
 # Runs EF test vectors
 run-ef-tests:
+	$(MAKE) run-ef-tests-mainnet
+	$(MAKE) run-ef-tests-minimal
+
+# Runs the mainnet EF test vectors
+run-ef-tests-mainnet:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
-	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
+	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests "tests/minimal/"
+
+# Runs the minimal EF test vectors
+run-ef-tests-minimal:
+	rm -rf $(EF_TESTS)/.accessed_file_log.txt
+	cargo nextest run --release -p ef_tests --features "ef_tests,spec-minimal,$(EF_TEST_FEATURES)"
+	cargo nextest run --release -p ef_tests --features "ef_tests,spec-minimal,$(EF_TEST_FEATURES),fake_crypto"
+	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests "tests/mainnet/"
 
 # Run the tests in the `beacon_chain` crate for all known forks.
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
 
+# Run beacon chain tests on each preset.
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast --lib --test beacon_chain_tests
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,spec-minimal,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast --lib --test beacon_chain_spec_minimal_tests
 
 # Run the tests in the `fork_choice` crate for all known forks.
 test-fork-choice: $(patsubst %,test-fork-choice-%,$(RECENT_FORKS))
@@ -253,6 +272,12 @@ run-state-transition-tests:
 
 # Downloads and runs the EF test vectors.
 test-ef: make-ef-tests run-ef-tests
+
+# Downloads and runs the mainnet EF test vectors.
+test-ef-mainnet: make-ef-tests run-ef-tests-mainnet
+
+# Downloads and runs the minimal EF test vectors.
+test-ef-minimal: make-ef-tests run-ef-tests-minimal
 
 # Downloads and runs the nightly EF test vectors.
 test-ef-nightly: make-ef-tests-nightly run-ef-tests
@@ -306,6 +331,10 @@ lint-fix:
 # Also run the lints on the optimized-only tests
 lint-full:
 	TEST_FEATURES="beacon-node-leveldb,beacon-node-redb,${TEST_FEATURES}"  RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
+
+# Lint the code when compiled using the minimal preset.
+lint-spec-minimal:
+	TEST_FEATURES="spec-minimal,$(TEST_FEATURES)" $(MAKE) lint-full
 
 # Runs the makefile in the `ef_tests` repo.
 #

@@ -109,6 +109,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
         );
 
         // Insert a proposer to ensure the fork choice updated command works.
@@ -132,6 +133,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -147,6 +149,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             timestamp,
             prev_randao,
             suggested_fee_recipient,
+            None,
             None,
             None,
             None,
@@ -201,6 +204,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             timestamp,
             prev_randao,
             suggested_fee_recipient,
+            None,
             None,
             None,
             None,
@@ -304,6 +308,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 slot,
                 head_block_root,
                 fork_choice::PayloadStatus::Pending,
+                &[],
             )
             .await
             .unwrap();

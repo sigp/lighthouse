@@ -60,12 +60,16 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
     pub async fn notify_new_payload(
         self,
     ) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
+        // EIP-8025: the proofs are this payload's validity, so the execution layer is not asked.
+        if self.chain.execution_proofs_enabled() {
+            return Ok(PayloadVerificationStatus::Optimistic);
+        }
+
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
-            let parent_root = self.block.message().parent_root();
             let request = Self::build_new_payload_request(&self.envelope, &self.block)?;
-            notify_new_payload(&self.chain, self.envelope.slot(), parent_root, request).await
+            notify_new_payload(&self.chain, self.envelope.slot(), request).await
         }
     }
 
@@ -73,15 +77,15 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         envelope: &'a SignedExecutionPayloadEnvelope<T::EthSpec>,
         block: &'a SignedBeaconBlock<T::EthSpec>,
     ) -> Result<NewPayloadRequest<'a, T::EthSpec>, PayloadVerificationError> {
-        let bid = &block
+        let bid = block
             .message()
             .body()
             .signed_execution_payload_bid()
             .map_err(|e| PayloadVerificationError::BeaconChainError(Box::new(e.into())))?
-            .message;
+            .message();
 
         let versioned_hashes = bid
-            .blob_kzg_commitments
+            .blob_kzg_commitments()
             .iter()
             .map(kzg_commitment_to_versioned_hash)
             .collect();

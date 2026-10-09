@@ -12,7 +12,6 @@ use eth2::types::{
     BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
     PublishBlockRequest, SignedBlockContents,
 };
-use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::{PubsubMessage, PubsubPartialMessage};
 use logging::crit;
@@ -618,8 +617,8 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
     }
 }
 
-/// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
-/// blocks before publishing.
+/// Handles a request from the HTTP API for blinded blocks. Locally built blocks are reconstructed
+/// and published here; builder blocks are submitted to the builder for publication.
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
     blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
@@ -643,18 +642,16 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
         )
         .await
     } else {
-        // From the fulu fork, builders are responsible for publishing and
-        // will no longer return the full payload and blobs.
+        // Builders publish the full block and blobs after accepting a blinded block.
         Ok(warp::reply().into_response())
     }
 }
 
-/// Deconstruct the given blinded block, and construct a full block. This attempts to use the
-/// execution layer's payload cache, and if that misses, attempts a blind block proposal to retrieve
-/// the full payload.
+/// Deconstruct the given blinded block and construct a full block from the execution layer's
+/// payload cache, or submit the blinded block to the builder for publication.
 ///
-/// From the Fulu fork, external builders no longer return the full payload and blobs, and this
-/// function will always return `Ok(None)` on successful submission of blinded block.
+/// External builders do not return the full payload and blobs, so this function returns
+/// `Ok(None)` after successfully submitting a blinded block to a builder.
 pub async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
@@ -672,7 +669,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
             if fork_name == ForkName::Bellatrix {
                 let payload: FullPayload<T::EthSpec> = FullPayloadBellatrix::default().into();
-                ProvenancedPayload::Local(FullPayloadContents::Payload(payload.into()))
+                FullPayloadContents::Payload(payload.into())
             } else {
                 Err(warp_utils::reject::custom_server_error(
                     "Failed to construct full payload - block hash must be non-zero after Bellatrix.".to_string()
@@ -683,7 +680,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
             info!(block_hash = ?cached_payload.block_hash(), "Reconstructing a full block using a local payload");
-            ProvenancedPayload::Local(cached_payload)
+            cached_payload
         // Otherwise, this means we are attempting a blind block proposal.
         } else {
             // Perform the logging for late blocks when we publish to the
@@ -699,24 +696,16 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 "builder",
             );
 
-            match el
-                .propose_blinded_beacon_block(block_root, &block, &chain.spec)
+            el.propose_blinded_beacon_block(block_root, &block)
                 .await
                 .map_err(|e| {
                     warp_utils::reject::custom_server_error(format!(
                         "Blind block proposal failed: {:?}",
                         e
                     ))
-                })? {
-                SubmitBlindedBlockResponse::V1(full_payload) => {
-                    info!(block_root = ?block_root, "Successfully published a block to the builder network");
-                    ProvenancedPayload::Builder(*full_payload)
-                }
-                SubmitBlindedBlockResponse::V2 => {
-                    info!(block_root = ?block_root, "Successfully published a block to the builder network");
-                    return Ok(None);
-                }
-            }
+                })?;
+            info!(block_root = ?block_root, "Successfully published a block to the builder network");
+            return Ok(None);
         };
 
         Some(full_payload_contents)
@@ -735,14 +724,8 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             .try_into_full_block(None)
             .ok_or("Failed to build full block with payload".to_string())
             .map(|full_block| ProvenancedBlock::local(Arc::new(full_block), None)),
-        Some(ProvenancedPayload::Local(full_payload_contents)) => {
-            into_full_block_and_blobs::<T>(block, full_payload_contents)
-                .map(|(block, blobs)| ProvenancedBlock::local(block, blobs))
-        }
-        Some(ProvenancedPayload::Builder(full_payload_contents)) => {
-            into_full_block_and_blobs::<T>(block, full_payload_contents)
-                .map(|(block, blobs)| ProvenancedBlock::builder(block, blobs))
-        }
+        Some(full_payload_contents) => into_full_block_and_blobs::<T>(block, full_payload_contents)
+            .map(|(block, blobs)| ProvenancedBlock::local(block, blobs)),
     }
     .map(Some)
     .map_err(|e| {

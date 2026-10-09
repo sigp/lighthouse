@@ -1,4 +1,5 @@
 //! Tests related to the beacon node's sync status
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     BlockError,
     test_utils::{
@@ -6,10 +7,11 @@ use beacon_chain::{
         fork_name_from_env, test_spec,
     },
 };
+use eth2::types::ProposerPreparationData;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use http_api::test_utils::InteractiveTester;
 use reqwest::StatusCode;
-use types::{EthSpec, ExecPayload, MinimalEthSpec, Slot, Uint256};
+use types::{Address, EthSpec, ExecPayload, MinimalEthSpec, Slot, Uint256};
 
 type E = MinimalEthSpec;
 
@@ -141,6 +143,7 @@ async fn el_error_on_new_payload() {
             status: PayloadStatusV1Status::Valid,
             latest_valid_hash: Some(block_hash),
             validation_error: None,
+            inclusion_list_satisfied: None,
         },
     );
     harness.process_block_result((block, blobs)).await.unwrap();
@@ -235,4 +238,51 @@ async fn node_health_el_online_and_not_synced() {
             panic!("should return 206 status code");
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn no_execution_layer_with_a_proof_engine_is_not_offline() {
+    let tester = proof_engine_tester().await;
+
+    let api_response = tester.client.get_node_syncing().await.unwrap().data;
+    assert!(!api_response.el_offline);
+
+    assert_eq!(
+        tester.client.get_node_health().await.unwrap(),
+        StatusCode::OK,
+        "and the node is healthy, where a missing execution layer would be a 503"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn proposer_preparation_without_an_execution_layer() {
+    let tester = proof_engine_tester().await;
+
+    tester
+        .client
+        .post_validator_prepare_beacon_proposer(&[ProposerPreparationData {
+            validator_index: 0,
+            fee_recipient: Address::repeat_byte(1),
+        }])
+        .await
+        .expect("proposer preparation should be accepted with no execution layer");
+}
+
+async fn proof_engine_tester() -> InteractiveTester<E> {
+    let validator_count = E::slots_per_epoch() as usize;
+    InteractiveTester::<E>::new_with_initializer_and_mutator(
+        None,
+        validator_count,
+        Some(Box::new(move |builder| {
+            builder
+                .deterministic_keypairs(validator_count)
+                .fresh_ephemeral_store()
+                .proof_engine()
+        })),
+        None,
+        Default::default(),
+        false,
+        NodeCustodyType::Fullnode,
+    )
+    .await
 }

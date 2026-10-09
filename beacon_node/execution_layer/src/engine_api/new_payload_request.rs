@@ -11,6 +11,7 @@ use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
     ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsRef,
+    ProgressiveTransactions,
 };
 
 #[superstruct(
@@ -57,43 +58,21 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub execution_requests: &'block ExecutionRequestsElectra<E>,
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "execution_requests_gloas"))]
     pub execution_requests: &'block ExecutionRequestsGloas<E>,
+    #[superstruct(only(Heze))]
+    pub inclusion_list_transactions: ProgressiveTransactions,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     pub fn parent_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Bellatrix(payload) => payload.execution_payload.parent_hash,
-            Self::Capella(payload) => payload.execution_payload.parent_hash,
-            Self::Deneb(payload) => payload.execution_payload.parent_hash,
-            Self::Electra(payload) => payload.execution_payload.parent_hash,
-            Self::Fulu(payload) => payload.execution_payload.parent_hash,
-            Self::Gloas(payload) => payload.execution_payload.parent_hash,
-            Self::Heze(payload) => payload.execution_payload.parent_hash,
-        }
+        self.execution_payload_ref().parent_hash()
     }
 
     pub fn block_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Bellatrix(payload) => payload.execution_payload.block_hash,
-            Self::Capella(payload) => payload.execution_payload.block_hash,
-            Self::Deneb(payload) => payload.execution_payload.block_hash,
-            Self::Electra(payload) => payload.execution_payload.block_hash,
-            Self::Fulu(payload) => payload.execution_payload.block_hash,
-            Self::Gloas(payload) => payload.execution_payload.block_hash,
-            Self::Heze(payload) => payload.execution_payload.block_hash,
-        }
+        self.execution_payload_ref().block_hash()
     }
 
     pub fn block_number(&self) -> u64 {
-        match self {
-            Self::Bellatrix(payload) => payload.execution_payload.block_number,
-            Self::Capella(payload) => payload.execution_payload.block_number,
-            Self::Deneb(payload) => payload.execution_payload.block_number,
-            Self::Electra(payload) => payload.execution_payload.block_number,
-            Self::Fulu(payload) => payload.execution_payload.block_number,
-            Self::Gloas(payload) => payload.execution_payload.block_number,
-            Self::Heze(payload) => payload.execution_payload.block_number,
-        }
+        self.execution_payload_ref().block_number()
     }
 
     pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'block, E> {
@@ -109,17 +88,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     }
 
     pub fn into_execution_payload(self) -> ExecutionPayload<E> {
-        match self {
-            Self::Bellatrix(request) => {
-                ExecutionPayload::Bellatrix(request.execution_payload.clone())
-            }
-            Self::Capella(request) => ExecutionPayload::Capella(request.execution_payload.clone()),
-            Self::Deneb(request) => ExecutionPayload::Deneb(request.execution_payload.clone()),
-            Self::Electra(request) => ExecutionPayload::Electra(request.execution_payload.clone()),
-            Self::Fulu(request) => ExecutionPayload::Fulu(request.execution_payload.clone()),
-            Self::Gloas(request) => ExecutionPayload::Gloas(request.execution_payload.clone()),
-            Self::Heze(request) => ExecutionPayload::Heze(request.execution_payload.clone()),
-        }
+        self.execution_payload_ref().clone_from_ref()
     }
 
     /// Performs the required verifications of the payload when the chain is optimistically syncing.
