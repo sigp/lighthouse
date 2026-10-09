@@ -229,6 +229,9 @@ impl<E: EthSpec> OperationPool<E> {
         spec: &ChainSpec,
     ) -> Result<Vec<PayloadAttestation<E>>, OpPoolError> {
         let target_slot = state.slot().saturating_sub(1u64);
+        if !spec.fork_name_at_slot::<E>(target_slot).gloas_enabled() {
+            return Ok(vec![]);
+        }
 
         let ptc = state
             .get_ptc(target_slot, spec)
@@ -2720,7 +2723,10 @@ mod release_tests {
         .unwrap();
 
         // Set the parent slot payload availability
-        let parent_slot = advanced_state.latest_execution_payload_bid().unwrap().slot;
+        let parent_slot = advanced_state
+            .latest_execution_payload_bid()
+            .unwrap()
+            .slot();
         let availability_index =
             parent_slot.as_usize() % MinimalEthSpec::slots_per_historical_root();
         advanced_state

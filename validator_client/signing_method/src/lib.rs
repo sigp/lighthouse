@@ -4,6 +4,7 @@
 //! - Via a remote signer (Web3Signer)
 
 use bls::{Keypair, PublicKey, Signature};
+use builder_types::RequestAuth;
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
 use parking_lot::Mutex;
@@ -52,6 +53,7 @@ pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     ExecutionPayloadEnvelope(&'a ExecutionPayloadEnvelope<E>),
     PayloadAttestationData(&'a PayloadAttestationData),
     ProposerPreferences(&'a ProposerPreferences),
+    RequestAuth(&'a RequestAuth),
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload> {
@@ -76,6 +78,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload
             SignableMessage::ExecutionPayloadEnvelope(e) => e.signing_root(domain),
             SignableMessage::PayloadAttestationData(d) => d.signing_root(domain),
             SignableMessage::ProposerPreferences(p) => p.signing_root(domain),
+            SignableMessage::RequestAuth(r) => r.signing_root(domain),
         }
     }
 }
@@ -240,19 +243,24 @@ impl SigningMethod {
                     }
                     SignableMessage::VoluntaryExit(e) => Web3SignerObject::VoluntaryExit(e),
                     SignableMessage::ExecutionPayloadEnvelope(e) => {
-                        Web3SignerObject::ExecutionPayloadEnvelope(e)
+                        Web3SignerObject::execution_payload_envelope(e)
                     }
                     SignableMessage::PayloadAttestationData(d) => {
-                        Web3SignerObject::PayloadAttestationData(d)
+                        Web3SignerObject::payload_attestation_message(d)
                     }
                     SignableMessage::ProposerPreferences(p) => {
-                        Web3SignerObject::ProposerPreferences(p)
+                        Web3SignerObject::proposer_preferences(p)
                     }
+                    SignableMessage::RequestAuth(r) => Web3SignerObject::builder_request_auth(r),
                 };
 
                 // Determine the Web3Signer message type.
                 let message_type = object.message_type();
-                if matches!(message_type, MessageType::ValidatorRegistration) && fork_info.is_some()
+                // VALIDATOR_REGISTRATION and BUILDER_REQUEST_AUTH must omit fork_info.
+                if matches!(
+                    message_type,
+                    MessageType::ValidatorRegistration | MessageType::BuilderRequestAuth
+                ) && fork_info.is_some()
                 {
                     return Err(Error::GenesisForkVersionRequired);
                 }

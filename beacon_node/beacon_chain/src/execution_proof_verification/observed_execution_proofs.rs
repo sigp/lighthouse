@@ -1,4 +1,4 @@
-//! Provides the `ObservedExecutionProofs` struct which allows for ignoring `SignedExecutionProof`s
+//! Provides the `ObservedExecutionProofs` struct which allows for ignoring `SignedExecutionProofEnvelope`s
 //! that we have already seen over the gossip network.
 //! Only proofs that have completed signature verification can be added to this cache to reduce
 //! DoS risks.
@@ -61,10 +61,12 @@ impl ObservedExecutionProofs {
         let Some(entry) = self.items.get(&block_root) else {
             return Ok(ProofObservation::New);
         };
-        let observation = if entry.seen_proof_roots.contains(&proof_root) {
-            ProofObservation::ProofAlreadySeen
-        } else if entry.valid_proof_types.contains(&proof_type) {
+        // Validity first: the same bytes are in `seen_proof_roots` whether or not the engine
+        // accepted them, so testing that first would hide a proof that is already valid.
+        let observation = if entry.valid_proof_types.contains(&proof_type) {
             ProofObservation::ValidProofAlreadyKnown
+        } else if entry.seen_proof_roots.contains(&proof_root) {
+            ProofObservation::ProofAlreadySeen
         } else if entry
             .seen_validators
             .contains(&(proof_type, validator_index))
@@ -108,6 +110,13 @@ impl ObservedExecutionProofs {
         if let Some(entry) = self.items.get_mut(&block_root) {
             entry.valid_proof_types.insert(proof_type);
         }
+    }
+
+    /// Number of distinct proof types with a valid proof for `block_root`.
+    pub fn valid_proof_count(&self, block_root: &Hash256) -> usize {
+        self.items
+            .get(block_root)
+            .map_or(0, |entry| entry.valid_proof_types.len())
     }
 
     /// Prune all entries for slots at or below `finalized_slot`.

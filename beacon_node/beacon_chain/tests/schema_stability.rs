@@ -17,9 +17,9 @@ use store::{
 };
 use strum::IntoEnumIterator;
 use tempfile::{TempDir, tempdir};
-use types::{ChainSpec, Hash256, MainnetEthSpec, Slot};
+use types::{ChainSpec, Hash256, Slot, Spec};
 
-type E = MainnetEthSpec;
+type E = Spec;
 type Store<E> = Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
@@ -74,7 +74,7 @@ async fn schema_stability() {
         ..ChainConfig::default()
     };
 
-    let harness = TestHarness::builder(MainnetEthSpec)
+    let harness = TestHarness::builder(Spec::default())
         .spec(spec)
         .keypairs(KEYPAIRS.to_vec())
         .fresh_disk_store(store.clone())
@@ -106,8 +106,8 @@ fn check_db_columns() {
     let current_columns: Vec<&'static str> = DBColumn::iter().map(|c| c.as_str()).collect();
     let expected_columns = vec![
         "bma", "blk", "blb", "bdc", "bdi", "ste", "hsd", "hsn", "bsn", "bsd", "bss", "bs3", "bcs",
-        "bst", "exp", "pay", "bch", "opo", "etc", "frk", "pkc", "brp", "bsx", "bsr", "bbx", "bbr",
-        "bhr", "brm", "dht", "cus", "otb", "bhs", "olc", "lcu", "scb", "scm", "dmy",
+        "bst", "exp", "pay", "pys", "bch", "opo", "etc", "frk", "pkc", "brp", "bsx", "bsr", "bbx",
+        "bbr", "bhr", "brm", "dht", "cus", "otb", "bhs", "olc", "lcu", "scb", "scm", "dmy",
     ];
     assert_eq!(expected_columns, current_columns);
 }
