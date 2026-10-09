@@ -11,6 +11,8 @@ use beacon_chain::data_column_verification::{
 };
 use beacon_chain::execution_proof_verification::{Error as ExecutionProofError, ProofSource};
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
+use beacon_chain::inclusion_list_store::InsertOutcome;
+use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
 use beacon_chain::partial_data_column_assembler::UpdatedPartials;
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
@@ -4362,10 +4364,57 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         inclusion_list: Box<SignedInclusionList>,
+        seen_timestamp: Duration,
     ) {
-        // TODO(heze): ignore every inclusion list until gossip verification lands, so that
-        // unverified messages are never forwarded.
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+        let verification_result = self
+            .chain
+            .verify_inclusion_list_for_gossip(*inclusion_list, seen_timestamp);
+        if let Err(error) = &verification_result {
+            metrics::register_inclusion_list_error(error);
+        }
+
+        match verification_result {
+            Ok(verified_inclusion_list) => {
+                // Concurrent workers can all pass the first-or-second check before any of them
+                // imports, so only propagate based on the import outcome.
+                let outcome = self.chain.import_inclusion_list(verified_inclusion_list);
+                debug!(?outcome, "Imported gossip inclusion list");
+                let acceptance = match outcome {
+                    InsertOutcome::New | InsertOutcome::Equivocating => MessageAcceptance::Accept,
+                    InsertOutcome::Seen
+                    | InsertOutcome::SubsequentEquivocation
+                    | InsertOutcome::Old => MessageAcceptance::Ignore,
+                };
+                self.propagate_validation_result(message_id, peer_id, acceptance);
+            }
+            Err(
+                InclusionListVerificationError::AlreadySeenTwice { .. }
+                | InclusionListVerificationError::FutureSlot { .. }
+                | InclusionListVerificationError::PastSlot { .. }
+                | InclusionListVerificationError::EmptyTransactions
+                | InclusionListVerificationError::DependentRootUnknown { .. }
+                | InclusionListVerificationError::InvalidDependentRoot { .. }
+                | InclusionListVerificationError::UnableToReadSlot
+                | InclusionListVerificationError::BeaconChainError(_)
+                | InclusionListVerificationError::BeaconStateError(_),
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            Err(
+                InclusionListVerificationError::InvalidTransactions(_)
+                | InclusionListVerificationError::DependentRootTooRecent { .. }
+                | InclusionListVerificationError::NotInCommittee { .. }
+                | InclusionListVerificationError::UnknownValidatorIndex(_)
+                | InclusionListVerificationError::InvalidSignature,
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "invalid_gossip_inclusion_list",
+                );
+            }
+        }
     }
 
     #[instrument(

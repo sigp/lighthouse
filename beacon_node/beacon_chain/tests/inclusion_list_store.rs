@@ -3,6 +3,7 @@
 //! These do not need a Heze state: the committee derives from the ordinary attester shuffling and
 //! the store holds no fork-specific data.
 
+use beacon_chain::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{BeaconChainError, WhenSlotSkipped};
 use bls::Signature;
@@ -116,10 +117,10 @@ async fn committee_resolves_for_a_slot_in_the_previous_epoch() {
         .chain
         .inclusion_list_store
         .write()
-        .process_inclusion_list(
-            signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
-            true,
-        );
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
+            is_timely: true,
+        });
 
     assert_eq!(
         harness
@@ -154,14 +155,14 @@ async fn bits_and_transactions_read_back_through_the_chain() {
         .unwrap();
 
     let mut store = harness.chain.inclusion_list_store.write();
-    store.process_inclusion_list(
-        signed_inclusion_list(slot, timely_submitter, dependent_root, 0xaa),
-        true,
-    );
-    store.process_inclusion_list(
-        signed_inclusion_list(slot, late_submitter, dependent_root, 0xbb),
-        false,
-    );
+    store.process_inclusion_list(GossipVerifiedInclusionList {
+        signed_inclusion_list: signed_inclusion_list(slot, timely_submitter, dependent_root, 0xaa),
+        is_timely: true,
+    });
+    store.process_inclusion_list(GossipVerifiedInclusionList {
+        signed_inclusion_list: signed_inclusion_list(slot, late_submitter, dependent_root, 0xbb),
+        is_timely: false,
+    });
     drop(store);
 
     // A validator holding two positions has both bits set.
@@ -237,10 +238,10 @@ async fn per_slot_task_prunes_the_store() {
         .chain
         .inclusion_list_store
         .write()
-        .process_inclusion_list(
-            signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
-            true,
-        );
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
+            is_timely: true,
+        });
 
     // The store retains the two slots behind the current one.
     while harness.chain.slot().unwrap() < slot + 2 {
