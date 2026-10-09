@@ -531,6 +531,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         VALIDATOR_COUNT,
         Some(Box::new(|harness_builder| {
             harness_builder
+                .mock_execution_layer()
                 .keypairs(validator_keypairs)
                 .withdrawal_keypairs(withdrawal_keypairs)
                 .genesis_state_ephemeral_store(genesis_state)

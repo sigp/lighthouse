@@ -4,8 +4,8 @@ use std::time::Duration;
 use slot_clock::{SlotClock, TestingSlotClock};
 use ssz_types::ProgressiveVariableList;
 use types::{
-    Domain, Epoch, EthSpec, Hash256, InclusionList, MinimalEthSpec, ProgressiveTransactions,
-    SignedInclusionList, SignedRoot, Slot,
+    Domain, Epoch, EthSpec, Hash256, InclusionList, ProgressiveTransactions, SignedInclusionList,
+    SignedRoot, Slot, Spec,
 };
 
 use crate::{
@@ -18,7 +18,7 @@ use crate::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
 const NUM_VALIDATORS: usize = 64;

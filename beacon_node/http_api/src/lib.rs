@@ -44,6 +44,7 @@ use crate::beacon::execution_payload_envelopes::{
     get_beacon_execution_payload_envelopes, post_beacon_execution_payload_envelopes,
     post_beacon_execution_payload_envelopes_ssz,
 };
+use crate::beacon::execution_proofs::post_beacon_execution_proofs;
 use crate::beacon::pool::*;
 use crate::caches::DEFAULT_HISTORICAL_COMMITTEE_CACHE_SIZE;
 pub use crate::caches::HistoricalCommitteeCache;
@@ -316,6 +317,15 @@ pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::
             );
         }
     })
+}
+
+/// Whether the node has nothing able to tell it a payload is valid.
+async fn is_el_offline<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> bool {
+    match &chain.execution_layer {
+        Some(execution_layer) => execution_layer.is_offline_or_erroring().await,
+        // Running with no execution layer is deliberate when EIP-8025 proofs decide validity.
+        None => !chain.execution_proofs_enabled(),
+    }
 }
 
 /// Creates a server that will serve requests using information from `ctx`.
@@ -1589,6 +1599,14 @@ pub async fn serve<T: BeaconChainTypes>(
         network_tx_filter.clone(),
     );
 
+    // POST beacon/execution_proofs (SSZ)
+    let post_beacon_execution_proofs = post_beacon_execution_proofs(
+        eth_v1.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
+
     // GET beacon/execution_payload_envelopes/{block_id}
     let get_beacon_execution_payload_envelopes = get_beacon_execution_payload_envelopes(
         eth_v1.clone(),
@@ -2304,11 +2322,7 @@ pub async fn serve<T: BeaconChainTypes>(
              network_globals: Arc<NetworkGlobals<T::EthSpec>>,
              chain: Arc<BeaconChain<T>>| {
                 async move {
-                    let el_offline = if let Some(el) = &chain.execution_layer {
-                        el.is_offline_or_erroring().await
-                    } else {
-                        true
-                    };
+                    let el_offline = is_el_offline(&chain).await;
 
                     task_spawner
                         .blocking_json_task(Priority::P0, move || {
@@ -2366,11 +2380,7 @@ pub async fn serve<T: BeaconChainTypes>(
              network_globals: Arc<NetworkGlobals<T::EthSpec>>,
              chain: Arc<BeaconChain<T>>| {
                 async move {
-                    let el_offline = if let Some(el) = &chain.execution_layer {
-                        el.is_offline_or_erroring().await
-                    } else {
-                        true
-                    };
+                    let el_offline = is_el_offline(&chain).await;
 
                     task_spawner
                         .blocking_response_task(Priority::P0, move || {
@@ -3502,6 +3512,7 @@ pub async fn serve<T: BeaconChainTypes>(
                             .uor(post_beacon_execution_payload_envelopes_ssz)
                             .uor(post_beacon_execution_payload_bids_ssz)
                             .uor(post_beacon_pool_payload_attestations_ssz)
+                            .uor(post_beacon_execution_proofs)
                             .uor(post_validator_proposer_preferences_ssz),
                     )
                     .uor(post_beacon_blocks)

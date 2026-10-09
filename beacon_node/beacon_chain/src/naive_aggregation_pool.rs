@@ -601,7 +601,7 @@ mod tests {
         test_utils::{generate_deterministic_keypair, test_arbitrary_instance},
     };
 
-    type E = types::MainnetEthSpec;
+    type E = types::Spec;
 
     fn get_attestation_base(slot: Slot) -> Attestation<E> {
         let mut a: AttestationBase<E> = test_arbitrary_instance();

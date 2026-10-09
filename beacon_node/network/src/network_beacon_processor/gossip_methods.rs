@@ -9,7 +9,7 @@ use beacon_chain::data_column_verification::{
     GossipDataColumnError, GossipPartialDataColumnError, GossipVerifiedDataColumn,
     GossipVerifiedPartialDataColumn, PartialColumnVerificationResult,
 };
-use beacon_chain::execution_proof_verification::Error as ExecutionProofError;
+use beacon_chain::execution_proof_verification::{Error as ExecutionProofError, ProofSource};
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
@@ -4162,7 +4162,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match self
             .chain
-            .verify_execution_proof_for_gossip(execution_proof)
+            .verify_execution_proof_for_gossip(execution_proof, ProofSource::Gossip)
             .await
         {
             Ok(verified) => {
