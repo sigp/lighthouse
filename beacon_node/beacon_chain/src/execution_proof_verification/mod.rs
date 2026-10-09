@@ -125,6 +125,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
             "validate_proven_payload",
         )
-        .await?
+        .await??;
+
+        // The cached head still carries the verdict from before this payload was proven, and no
+        // block import is due until the next slot.
+        self.recompute_head_at_current_slot().await;
+
+        Ok(())
     }
 }
