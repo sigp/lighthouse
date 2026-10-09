@@ -51,7 +51,7 @@ jobs:
         fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
       fail-fast: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.branch || 'unstable' }}
       - name: Get latest version of stable Rust
@@ -75,7 +75,7 @@ jobs:
         fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
       fail-fast: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.branch || 'unstable' }}
       - name: Get latest version of stable Rust
@@ -99,7 +99,7 @@ jobs:
         fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
       fail-fast: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.branch || 'unstable' }}
       - name: Get latest version of stable Rust
@@ -118,7 +118,7 @@ jobs:
           CI_LOGGER_DIR: ${{ runner.temp }}/network_test_logs
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: network_test_logs_${{ matrix.fork }}
           path: ${{ runner.temp }}/network_test_logs

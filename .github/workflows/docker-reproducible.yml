@@ -17,7 +17,7 @@ env:
 jobs:
   extract-version:
     name: extract version
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Extract version
         run: |
@@ -48,19 +48,19 @@ jobs:
             rust_image: >-
               rust:1.91-bookworm@sha256:8322627e69ba7780b54f39e9f4d3758c006a3ae0123ea01d63b91f0626169891
             platform: linux/amd64
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
           - arch: arm64
             rust_target: aarch64-unknown-linux-gnu
             rust_image: >-
               rust:1.91-bookworm@sha256:20262682d0201e219012287e8c1e6a7a14b6ebd46bb2b280714f23c06678c285
             platform: linux/arm64
-            runner: ubuntu-22.04-arm
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver: docker
 
@@ -120,7 +120,7 @@ jobs:
 
       - name: Log in to Docker Hub
         if: ${{ github.event_name != 'workflow_dispatch' }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
@@ -140,7 +140,7 @@ jobs:
 
       - name: Upload verification artifacts (on failure)
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: verification-failure-${{ matrix.arch }}
           path: |
@@ -148,12 +148,12 @@ jobs:
 
   create-manifest:
     name: create multi-arch manifest
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     needs: [extract-version, verify-and-build]
     if: ${{ github.event_name != 'workflow_dispatch' }}
     steps:
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
