@@ -52,7 +52,9 @@ use std::time::Duration;
 use store::KeyValueStore;
 use store::database::interface::BeaconNodeBackend;
 use store::invariants::InvariantViolation;
-use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
+use store::metadata::{
+    CURRENT_SCHEMA_VERSION, DataColumnInfo, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion,
+};
 use store::{
     BlobInfo, DBColumn, HotColdDB, StoreConfig, StoreOp,
     hdiff::HierarchyConfig,
@@ -2230,6 +2232,182 @@ async fn prunes_envelopes_finalized_as_empty() {
 #[tokio::test]
 async fn prunes_envelopes_finalized_as_empty_without_payload_pruning() {
     check_prunes_envelopes_finalized_as_empty(false).await;
+}
+
+/// Pruning must delete the columns of Gloas blocks older than a block whose payload was withheld,
+/// and the columns of abandoned Gloas forks.
+#[tokio::test]
+async fn gloas_prune_data_columns_past_withheld_payload_and_forks() {
+    let gloas_fork_epoch = Epoch::new(1);
+    let db_path = tempdir().unwrap();
+    let rig = get_gloas_harness(&db_path, gloas_fork_epoch);
+    let store = rig.chain.store.clone();
+    let spec = store.get_chain_spec().clone();
+    assert!(spec.is_peer_das_scheduled());
+    rig.execution_block_generator().set_min_blob_count(1);
+    let validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
+    let withheld_slot = 14;
+    let fork_slot = 20;
+    let boundary = Epoch::new(4);
+    let boundary_slot = boundary.start_slot(E::slots_per_epoch());
+
+    let mut state = rig.get_current_state();
+    let mut roots = vec![];
+    let mut withheld_root = None;
+    let mut fork_root = None;
+    for slot in 1..=rig.epoch_start_slot(8) {
+        rig.set_current_slot(Slot::new(slot));
+        let parent_payload_status = if slot == withheld_slot + 1 {
+            PayloadStatus::Empty
+        } else {
+            rig.chain.canonical_head.cached_head().head_payload_status()
+        };
+
+        if slot == fork_slot {
+            let (contents, envelope, fork_state) = rig
+                .make_block_with_envelope_on(state.clone(), Slot::new(slot), parent_payload_status)
+                .await;
+            let root = contents.0.canonical_root();
+            let state_root = contents.0.state_root();
+            rig.process_block(Slot::new(slot), root, contents)
+                .await
+                .unwrap();
+            rig.process_envelope(root, envelope.unwrap(), &fork_state, state_root)
+                .await;
+            fork_root = Some(root);
+        }
+
+        let (contents, envelope, mut new_state) = rig
+            .make_block_with_envelope_on(state, Slot::new(slot), parent_payload_status)
+            .await;
+        let block = &contents.0;
+        let block_root = block.canonical_root();
+        let block_hash = rig
+            .process_block(Slot::new(slot), block_root, contents.clone())
+            .await
+            .unwrap();
+        if slot == withheld_slot {
+            withheld_root = Some(block_root);
+        } else {
+            if let Some(envelope) = envelope {
+                rig.process_envelope(block_root, envelope, &new_state, block.state_root())
+                    .await;
+            }
+        }
+        let state_root = new_state.canonical_root().unwrap();
+        rig.attest_block(&new_state, state_root, block_hash, block, &validators);
+        rig.chain.recompute_head_at_current_slot().await;
+        if slot != withheld_slot {
+            roots.push((block_root, Slot::new(slot)));
+        }
+        state = new_state;
+    }
+    assert!(store.get_split_slot() > boundary_slot);
+    let withheld_root = withheld_root.unwrap();
+    let fork_root = fork_root.unwrap();
+    assert!(
+        store
+            .get_data_column_keys(withheld_root)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(store.get_blinded_block(&fork_root).unwrap().is_none());
+    assert!(store.get_data_column_keys(fork_root).unwrap().is_empty());
+
+    let older = roots
+        .iter()
+        .filter(|(_, slot)| *slot < boundary_slot)
+        .collect::<Vec<_>>();
+    assert!(older.iter().any(|(_, slot)| slot.as_u64() < withheld_slot));
+    for (root, slot) in &older {
+        assert!(
+            !store.get_data_column_keys(*root).unwrap().is_empty(),
+            "columns should be stored at slot {slot}"
+        );
+    }
+
+    store.try_prune_blobs(true, boundary).unwrap();
+
+    assert_eq!(
+        store.get_data_column_info().oldest_data_column_slot,
+        Some(boundary_slot)
+    );
+    for (root, slot) in &older {
+        assert!(
+            store.get_data_column_keys(*root).unwrap().is_empty(),
+            "columns at slot {slot} should be pruned"
+        );
+    }
+    let (newer_root, _) = roots
+        .iter()
+        .find(|(_, slot)| *slot >= boundary_slot)
+        .unwrap();
+    assert!(!store.get_data_column_keys(*newer_root).unwrap().is_empty());
+}
+
+/// Pruning must delete columns below an `oldest_data_column_slot` that was advanced without
+/// deleting them.
+#[tokio::test]
+async fn gloas_prune_data_columns_below_advanced_oldest_slot() {
+    let gloas_fork_epoch = Epoch::new(1);
+    let db_path = tempdir().unwrap();
+    let harness = get_gloas_harness(&db_path, gloas_fork_epoch);
+    let store = harness.chain.store.clone();
+    let spec = store.get_chain_spec().clone();
+    assert!(spec.is_peer_das_scheduled());
+    let boundary = Epoch::new(3);
+    let boundary_slot = boundary.start_slot(E::slots_per_epoch());
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 8) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    assert!(store.get_split_slot() > boundary_slot);
+
+    let mut roots = vec![];
+    for (block_root, slot) in harness
+        .chain
+        .forwards_iter_block_roots_until(Slot::new(1), boundary_slot - 1)
+        .unwrap()
+        .map(Result::unwrap)
+    {
+        let block = store.get_blinded_block(&block_root).unwrap().unwrap();
+        if block.slot() == slot && block.num_expected_blobs() > 0 {
+            roots.push((block_root, slot));
+        }
+    }
+    assert!(
+        roots
+            .iter()
+            .any(|(_, slot)| spec.fork_name_at_slot::<E>(*slot).gloas_enabled())
+    );
+    for (root, slot) in &roots {
+        assert!(
+            !store.get_data_column_keys(*root).unwrap().is_empty(),
+            "columns should be stored at slot {slot}"
+        );
+    }
+
+    store
+        .compare_and_set_data_column_info_with_write(
+            store.get_data_column_info(),
+            DataColumnInfo {
+                oldest_data_column_slot: Some(boundary_slot),
+            },
+        )
+        .unwrap();
+
+    store.try_prune_blobs(true, boundary).unwrap();
+
+    for (root, slot) in &roots {
+        assert!(
+            store.get_data_column_keys(*root).unwrap().is_empty(),
+            "columns at slot {slot} should be pruned"
+        );
+    }
 }
 
 async fn check_prunes_envelopes_finalized_as_empty(prune_payloads: bool) {

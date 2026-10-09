@@ -1698,6 +1698,10 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                         guard.delete_blobs(&block_root);
                     }
 
+                    StoreOp::DeleteDataColumns(block_root, _, _) => {
+                        guard.delete_data_columns(&block_root);
+                    }
+
                     _ => (),
                 }
             }
@@ -3508,19 +3512,31 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
 
         // Iterate blocks backwards until we reach a block for which we've already pruned
         // blobs/columns.
+        let mut child_block: Option<SignedBlindedBeaconBlock<E>> = None;
         for tuple in ParentRootBlockIterator::new(self, end_block_root) {
             let (block_root, blinded_block) = tuple?;
             let slot = blinded_block.slot();
+            let fork_name = blinded_block.fork_name_unchecked();
+            let num_expected_blobs = blinded_block.num_expected_blobs();
+
+            // From Gloas the columns are stored with the payload envelope, so a block whose payload
+            // was never received has no columns even though its bid commits to blobs. The payload
+            // status of a block is recorded by its child, which was the previous block iterated.
+            let payload_received = match (&child_block, blinded_block.payload_bid_block_hash()) {
+                (Some(child), Ok(block_hash)) => child.is_parent_block_full(block_hash),
+                _ => false,
+            };
+            child_block = Some(blinded_block);
 
             // If the block has no blobs we can't tell if they've been pruned, and there is nothing
             // to prune, so we just skip.
-            if !blinded_block.message().body().has_blobs() {
+            if num_expected_blobs == 0 {
                 continue;
             }
 
             // Check if we have blobs or columns stored. If not, we assume pruning has already
             // reached this point.
-            let (db_column, db_keys) = if blinded_block.fork_name_unchecked().fulu_enabled() {
+            let (db_column, db_keys) = if fork_name.fulu_enabled() {
                 (
                     DBColumn::BeaconDataColumn,
                     self.get_all_data_column_keys(block_root),
@@ -3548,6 +3564,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     "Pruning blobs or columns for block"
                 );
                 removed_block_roots.push(block_root);
+            } else if fork_name.gloas_enabled() && !payload_received {
+                continue;
             } else {
                 debug!(
                     %slot,
