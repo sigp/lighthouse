@@ -5,13 +5,14 @@ use crate::inclusion_list_verification::{
 };
 use crate::shuffling_cache::{ShufflingCache, with_cached_shuffling};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BeaconStore, metrics};
 use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::per_block_processing::signature_sets::inclusion_list_signature_set;
 use std::borrow::Cow;
+use std::time::Duration;
 use tracing::debug;
 use types::{ChainSpec, EthSpec, Hash256, SignedInclusionList, Slot};
 
@@ -37,6 +38,7 @@ pub struct GossipVerifiedInclusionList {
 impl GossipVerifiedInclusionList {
     pub fn new<T: BeaconChainTypes>(
         signed_inclusion_list: SignedInclusionList,
+        seen_timestamp: Duration,
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, InclusionListVerificationError> {
         let inclusion_list = &signed_inclusion_list.message;
@@ -152,20 +154,16 @@ impl GossipVerifiedInclusionList {
             }
         }
 
-        let now = ctx
+        let seen_slot = ctx
             .slot_clock
-            .now_duration()
+            .slot_of(seen_timestamp)
             .ok_or(InclusionListVerificationError::UnableToReadSlot)?;
-        let current_slot = ctx
-            .slot_clock
-            .slot_of(now)
-            .ok_or(InclusionListVerificationError::UnableToReadSlot)?;
-        let is_timely = slot == current_slot
+        let is_timely = slot == seen_slot
             && ctx
                 .slot_clock
-                .start_of(current_slot)
+                .start_of(seen_slot)
                 .is_some_and(|slot_start| {
-                    now.saturating_sub(slot_start) < ctx.spec.get_inclusion_list_due()
+                    seen_timestamp.saturating_sub(slot_start) < ctx.spec.get_inclusion_list_due()
                 });
 
         Ok(Self {
@@ -225,13 +223,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_inclusion_list_for_gossip(
         &self,
         signed_inclusion_list: SignedInclusionList,
+        seen_timestamp: Duration,
     ) -> Result<GossipVerifiedInclusionList, InclusionListVerificationError> {
+        metrics::inc_counter(&metrics::INCLUSION_LIST_PROCESSING_REQUESTS);
         let slot = signed_inclusion_list.message.slot;
         let validator_index = signed_inclusion_list.message.validator_index;
 
         let ctx = self.inclusion_list_gossip_verification_context();
-        match GossipVerifiedInclusionList::new(signed_inclusion_list, &ctx) {
+        match GossipVerifiedInclusionList::new(signed_inclusion_list, seen_timestamp, &ctx) {
             Ok(verified) => {
+                metrics::inc_counter(&metrics::INCLUSION_LIST_PROCESSING_SUCCESSES);
                 debug!(
                     %slot,
                     %validator_index,
@@ -267,6 +268,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .inclusion_list_store
             .write()
             .process_inclusion_list(verified_inclusion_list);
+
+        if outcome == InsertOutcome::Equivocating {
+            metrics::inc_counter(&metrics::INCLUSION_LIST_EQUIVOCATIONS);
+        }
 
         // Only emit the inclusion lists that are propagated on gossip.
         if let Some(signed_inclusion_list) = event_inclusion_list

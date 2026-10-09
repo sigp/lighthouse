@@ -3062,7 +3062,12 @@ async fn send_gossip_inclusion_list(
     expected_messages: usize,
 ) -> Vec<NetworkMessage<E>> {
     rig.network_beacon_processor
-        .send_gossip_inclusion_list(junk_message_id(), junk_peer_id(), Box::new(inclusion_list))
+        .send_gossip_inclusion_list(
+            junk_message_id(),
+            junk_peer_id(),
+            Box::new(inclusion_list),
+            rig.chain.slot_clock.now_duration().unwrap(),
+        )
         .unwrap();
     rig.receive_network_messages_with_timeout(Duration::from_secs(1), Some(expected_messages))
         .await

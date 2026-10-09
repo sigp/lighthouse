@@ -4355,8 +4355,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         inclusion_list: Box<SignedInclusionList>,
+        seen_timestamp: Duration,
     ) {
-        let verification_result = self.chain.verify_inclusion_list_for_gossip(*inclusion_list);
+        let verification_result = self
+            .chain
+            .verify_inclusion_list_for_gossip(*inclusion_list, seen_timestamp);
+        if let Err(error) = &verification_result {
+            metrics::register_inclusion_list_error(error);
+        }
 
         match verification_result {
             Ok(verified_inclusion_list) => {

@@ -5,6 +5,7 @@ use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
 use eth2::types::{EventKind, SseBlobSidecar, SseDataColumnSidecar};
+use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::{
@@ -550,7 +551,10 @@ async fn inclusion_list_event_on_import() {
     for _ in 0..2 {
         let verified = harness
             .chain
-            .verify_inclusion_list_for_gossip(signed.clone())
+            .verify_inclusion_list_for_gossip(
+                signed.clone(),
+                harness.chain.slot_clock.now_duration().unwrap(),
+            )
             .expect("verification should succeed");
         harness.chain.import_inclusion_list(verified);
     }

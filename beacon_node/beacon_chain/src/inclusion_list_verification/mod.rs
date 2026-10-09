@@ -19,7 +19,7 @@ pub mod gossip_verified_inclusion_list;
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug)]
+#[derive(Debug, AsRefStr)]
 pub enum InclusionListVerificationError {
     /// Two valid inclusion lists were already seen from this validator for this slot and
     /// dependent root.
@@ -46,7 +46,7 @@ pub enum InclusionListVerificationError {
     InvalidTransactions(InclusionListTransactionsError),
     /// The block with root `dependent_root` has not been seen.
     DependentRootUnknown { dependent_root: Hash256 },
-    /// The block with root `dependent_root` is not before the start of the lookahead epoch.
+    /// The block with root `dependent_root` is after `dependent_slot`.
     DependentRootTooRecent {
         dependent_root: Hash256,
         block_slot: Slot,

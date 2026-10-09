@@ -51,9 +51,6 @@ struct SlotEntry {
     by_dependent_root: HashMap<DependentRoot, HashMap<u64, (SignedInclusionList, bool)>>,
     /// Validator indices flagged as equivocators.
     equivocators: HashMap<DependentRoot, HashSet<u64>>,
-    /// Count of valid inclusion lists seen per dependent root and validator, for the
-    /// first-or-second rule.
-    validator_counts: HashMap<(DependentRoot, u64), usize>,
 }
 
 pub struct InclusionListStore<E: EthSpec> {
@@ -109,7 +106,7 @@ impl<E: EthSpec> InclusionListStore<E> {
             .map(|(stored, _)| stored.message != *inclusion_list);
 
         match stored_differs {
-            // An exact duplicate is not a second valid message, so it is not counted.
+            // An exact duplicate is not a second valid message.
             Some(false) => InsertOutcome::Seen,
             Some(true) => {
                 let newly_flagged = entry
@@ -118,20 +115,12 @@ impl<E: EthSpec> InclusionListStore<E> {
                     .or_default()
                     .insert(validator_index);
                 if newly_flagged {
-                    *entry
-                        .validator_counts
-                        .entry((dependent_root, validator_index))
-                        .or_insert(0) += 1;
                     InsertOutcome::Equivocating
                 } else {
                     InsertOutcome::SubsequentEquivocation
                 }
             }
             None => {
-                *entry
-                    .validator_counts
-                    .entry((dependent_root, validator_index))
-                    .or_insert(0) += 1;
                 entry
                     .by_dependent_root
                     .entry(dependent_root)
@@ -143,6 +132,8 @@ impl<E: EthSpec> InclusionListStore<E> {
     }
 
     /// Answers the gossip "first or second valid message from this validator" check.
+    ///
+    /// A validator's second valid message is always the one that flags it as an equivocator.
     pub fn seen_twice(
         &self,
         slot: Slot,
@@ -151,12 +142,8 @@ impl<E: EthSpec> InclusionListStore<E> {
     ) -> bool {
         self.slots
             .get(&slot)
-            .and_then(|entry| {
-                entry
-                    .validator_counts
-                    .get(&(dependent_root, validator_index))
-            })
-            .is_some_and(|count| *count >= 2)
+            .and_then(|entry| entry.equivocators.get(&dependent_root))
+            .is_some_and(|equivocators| equivocators.contains(&validator_index))
     }
 
     /// Validator indices that submitted a valid, non-equivocating inclusion list for
