@@ -1385,6 +1385,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return cached_block;
         }
 
+        if let Some((block, source)) = self.pending_payload_cache.get_block(block_root) {
+            return BlockProcessStatus::NotValidated(block, source);
+        }
+
         BlockProcessStatus::Unknown
     }
 
@@ -3930,14 +3934,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let block = execution_pending.block.block_cloned();
             if block.fork_name_unchecked().gloas_enabled() {
-                let bid = Arc::new(
-                    block
-                        .message()
-                        .body()
-                        .signed_execution_payload_bid()?
-                        .clone_as_signed_execution_payload_bid(),
-                );
-                chain.pending_payload_cache.insert_bid(block_root, bid);
+                chain
+                    .pending_payload_cache
+                    .insert_block(block_root, block, block_source);
             }
 
             publish_fn()?;
