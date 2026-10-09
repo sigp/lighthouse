@@ -53,15 +53,15 @@ use tree_hash::TreeHash;
 use types::ApplicationDomain;
 use types::{
     Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas,
-    ExecutionPayloadBidHeze, Hash256, MainnetEthSpec, ProposerPreferences, RelativeEpoch,
-    SelectionProof, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedRoot, SingleAttestation, Slot,
+    ExecutionPayloadBidHeze, Hash256, ProposerPreferences, RelativeEpoch, SelectionProof,
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, SingleAttestation, Slot,
+    Spec,
     attestation::AttestationBase,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
 };
 
-type E = MainnetEthSpec;
+type E = Spec;
 
 const SLOT_DURATION_MS: u64 = 12_000;
 const SLOTS_PER_EPOCH: u64 = 32;
@@ -148,7 +148,7 @@ impl ApiTester {
     pub async fn new_from_config(config: ApiTesterConfig) -> Self {
         let spec = Arc::new(config.spec);
 
-        let mut harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let mut harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
             .chain_config(ChainConfig {
                 archive: config.retain_historic_states,
@@ -351,7 +351,7 @@ impl ApiTester {
 
     pub async fn new_from_genesis() -> Self {
         let harness = Arc::new(
-            BeaconChainHarness::builder(MainnetEthSpec)
+            BeaconChainHarness::builder(E::default())
                 .default_spec()
                 .deterministic_keypairs(VALIDATOR_COUNT)
                 .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
@@ -697,7 +697,7 @@ impl ApiTester {
             // now that we know the block is valid, we can unwrap() everything we need
             let result = self
                 .client
-                .get_beacon_blocks::<MainnetEthSpec>(block_id.0)
+                .get_beacon_blocks::<E>(block_id.0)
                 .await
                 .unwrap()
                 .unwrap()
@@ -734,7 +734,7 @@ impl ApiTester {
             // now that we know the block is valid, we can unwrap() everything we need
             let result = self
                 .client
-                .get_beacon_blinded_blocks::<MainnetEthSpec>(block_id.0)
+                .get_beacon_blinded_blocks::<E>(block_id.0)
                 .await
                 .unwrap()
                 .unwrap()
@@ -772,7 +772,7 @@ impl ApiTester {
             // now that we know the state is valid, we can unwrap() everything we need
             let result = self
                 .client
-                .get_debug_beacon_states::<MainnetEthSpec>(state_id.0)
+                .get_debug_beacon_states::<E>(state_id.0)
                 .await
                 .unwrap()
                 .unwrap()
