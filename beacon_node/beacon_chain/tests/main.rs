@@ -3,6 +3,7 @@ mod attestation_verification;
 mod blob_verification;
 mod block_verification;
 mod column_verification;
+mod gloas_pre_import_rpc_cache;
 mod payload_invalidation;
 mod schema_stability;
 mod sync_committee_verification;
