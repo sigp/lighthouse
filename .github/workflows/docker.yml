@@ -14,8 +14,6 @@ concurrency:
 env:
     DOCKER_PASSWORD: ${{ secrets.DH_KEY }}
     DOCKER_USERNAME: ${{ secrets.DH_ORG }}
-    # Enable self-hosted runners for the sigp repo only.
-    SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
 
 jobs:
     # Extract the VERSION which is either `latest` or `vX.Y.Z`, and the VERSION_SUFFIX
@@ -25,7 +23,7 @@ jobs:
     # `unstable`, but for now we keep the two parts of the version separate for backwards
     # compatibility.
     extract-version:
-        runs-on: ubuntu-22.04
+        runs-on: ubuntu-24.04
         steps:
             - name: Extract version (if unstable)
               if: github.event.ref == 'refs/heads/unstable'
@@ -42,8 +40,9 @@ jobs:
             VERSION_SUFFIX: ${{ env.VERSION_SUFFIX }}
     build-docker-single-arch:
         name: build-docker-${{ matrix.binary }}-${{ matrix.cpu_arch }}${{ matrix.features.version_suffix }}
-        # Use self-hosted runners only on the sigp repo.
-        runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release"]') || 'ubuntu-22.04'  }}
+        # Releases build on paid GitHub-hosted larger runners, configured via the `RELEASE_RUNNER`
+        # repository variable. Everything else (and forks) uses free GitHub-hosted runners.
+        runs-on: ${{ startsWith(github.ref, 'refs/tags/') && vars.RELEASE_RUNNER || 'ubuntu-24.04' }}
         strategy:
             matrix:
                 binary:   [lighthouse,
@@ -58,9 +57,8 @@ jobs:
             VERSION: ${{ needs.extract-version.outputs.VERSION }}
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
-            - uses: actions/checkout@v5
+            - uses: actions/checkout@v7
             - name: Update Rust
-              if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable
             - name: Dockerhub login
               run: |
@@ -83,7 +81,7 @@ jobs:
 
             - name: Cross build binaries
               run: |
-                  cargo install cross
+                  cargo install cross --version 0.2.5
                   env CROSS_PROFILE=${{ matrix.profile }} CROSS_FEATURES=${{ env.CROSS_FEATURES }} make ${{ env.MAKE_CMD }}
 
             - name: Make bin dir
@@ -101,16 +99,14 @@ jobs:
               run: echo "SHORT_ARCH=amd64" >> $GITHUB_ENV;
 
             - name: Install QEMU
-              if: env.SELF_HOSTED_RUNNERS == 'false'
               run: sudo apt-get update && sudo apt-get install -y qemu-user-static
 
             - name: Set up Docker Buildx
-              if: env.SELF_HOSTED_RUNNERS == 'false'
-              uses: docker/setup-buildx-action@v3
+              uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
             - name: Build and push (Lighthouse)
               if: startsWith(matrix.binary, 'lighthouse')
-              uses: docker/build-push-action@v5
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
               with:
                 file: ./Dockerfile.cross
                 context: .
@@ -121,7 +117,7 @@ jobs:
 
             - name: Build and push (lcli)
               if: startsWith(matrix.binary, 'lcli')
-              uses: docker/build-push-action@v5
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
               with:
                 file: ./lcli/Dockerfile.cross
                 context: .
@@ -134,7 +130,7 @@ jobs:
 
     build-docker-multiarch:
         name: build-docker-${{ matrix.binary }}-multiarch
-        runs-on: ubuntu-22.04
+        runs-on: ubuntu-24.04
         strategy:
             matrix:
                 binary: [lighthouse,
@@ -145,7 +141,7 @@ jobs:
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+              uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
             - name: Dockerhub login
               run: |

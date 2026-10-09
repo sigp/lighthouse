@@ -14,8 +14,6 @@ env:
     DOCKER_USERNAME: ${{ secrets.DH_ORG }}
     REPO_NAME: ${{ github.repository_owner }}/lighthouse
     IMAGE_NAME: ${{ github.repository_owner }}/lighthouse
-    # Enable self-hosted runners for the sigp repo only.
-    SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
 
 jobs:
     extract-version:
@@ -28,6 +26,8 @@ jobs:
             VERSION: ${{ steps.extract_version.outputs.VERSION }}
     build:
         name:   Build Release
+        # Linux builds use paid GitHub-hosted larger runners, configured via the `RELEASE_RUNNER`
+        # repository variable. Forks fall back to free GitHub-hosted runners.
         strategy:
             matrix:
                 arch: [aarch64-unknown-linux-gnu,
@@ -35,10 +35,10 @@ jobs:
                        aarch64-apple-darwin]
                 include:
                     -   arch: aarch64-unknown-linux-gnu
-                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
+                        runner: ${{ vars.RELEASE_RUNNER || 'ubuntu-24.04' }}
                         profile: maxperf
                     -   arch: x86_64-unknown-linux-gnu
-                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
+                        runner: ${{ vars.RELEASE_RUNNER || 'ubuntu-24.04' }}
                         profile: maxperf
                     -   arch: aarch64-apple-darwin
                         runner: macos-14
@@ -48,9 +48,8 @@ jobs:
         needs: extract-version
         steps:
             - name: Checkout sources
-              uses: actions/checkout@v5
+              uses: actions/checkout@v7
             - name: Get latest version of stable Rust
-              if: env.SELF_HOSTED_RUNNERS == 'false'
               run: rustup update stable
 
             # ==============================
@@ -60,13 +59,13 @@ jobs:
             - name: Build Lighthouse for aarch64-unknown-linux-gnu
               if:   matrix.arch == 'aarch64-unknown-linux-gnu'
               run:  |
-                cargo install cross
+                cargo install cross --version 0.2.5
                 env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64
 
             - name: Build Lighthouse for x86_64-unknown-linux-gnu
               if:   matrix.arch == 'x86_64-unknown-linux-gnu'
               run:  |
-                cargo install cross
+                cargo install cross --version 0.2.5
                 env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64
 
             - name: Move cross-compiled binary
@@ -102,14 +101,14 @@ jobs:
             # =======================================================================
 
             - name: Upload artifact
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   compression-level: 0
 
             - name: Upload signature
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
@@ -124,7 +123,7 @@ jobs:
         steps:
             # This is necessary for generating the changelog. It has to come before "Download Artifacts" or else it deletes the artifacts.
             - name: Checkout sources
-              uses: actions/checkout@v5
+              uses: actions/checkout@v7
               with:
                   fetch-depth: 0
 
@@ -133,7 +132,7 @@ jobs:
             # ==============================
 
             - name: Download artifacts
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
 
             # ==============================
             #       Create release draft

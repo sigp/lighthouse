@@ -13,12 +13,12 @@ jobs:
   build-and-upload-to-s3:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Setup mdBook
-        uses: peaceiris/actions-mdbook@v1
+        uses: taiki-e/install-action@v2
         with:
-          mdbook-version: 'latest'
+          tool: mdbook
 
       - run: mdbook build
         working-directory: book
