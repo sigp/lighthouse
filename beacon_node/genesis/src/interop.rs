@@ -192,9 +192,9 @@ pub fn interop_genesis_state_with_eth1<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::{MinimalEthSpec, test_utils::generate_deterministic_keypairs};
+    use types::{Spec, test_utils::generate_deterministic_keypairs};
 
-    type TestEthSpec = MinimalEthSpec;
+    type TestEthSpec = Spec;
 
     #[test]
     fn interop_state() {

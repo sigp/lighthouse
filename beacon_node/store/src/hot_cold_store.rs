@@ -4221,7 +4221,7 @@ mod tests {
 
     #[test]
     fn payload_pruning_fast_path_skips_withheld_gloas_blocks() {
-        type E = MinimalEthSpec;
+        type E = Spec;
 
         let mut spec = E::default_spec();
         spec.gloas_fork_epoch = Some(Epoch::new(0));

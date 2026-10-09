@@ -424,12 +424,12 @@ mod tests {
     use super::*;
     use arbitrary::Arbitrary;
     use bls::Signature;
-    use eth2::types::MainnetEthSpec;
+    use eth2::types::Spec;
     use eth2::types::builder::{BuilderBid, BuilderBidFulu};
     use mockito::{Matcher, Server, ServerGuard};
     use std::str::FromStr;
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     #[test]
     fn test_headers_no_panic() {

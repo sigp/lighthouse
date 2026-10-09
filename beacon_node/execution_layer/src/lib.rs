@@ -2097,9 +2097,9 @@ mod test {
     use super::*;
     use crate::test_utils::{Block, MockExecutionLayer as GenericMockExecutionLayer};
     use task_executor::test_utils::TestRuntime;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
-    type MockExecutionLayer = GenericMockExecutionLayer<MainnetEthSpec>;
+    type MockExecutionLayer = GenericMockExecutionLayer<Spec>;
 
     #[tokio::test]
     async fn produce_three_valid_pos_execution_blocks() {
@@ -2127,7 +2127,7 @@ mod test {
                 ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]).unwrap(),
             ])
             .unwrap(),
-            withdrawals: types::ProgressiveWithdrawals::<MainnetEthSpec>::new(vec![Withdrawal {
+            withdrawals: types::ProgressiveWithdrawals::<Spec>::new(vec![Withdrawal {
                 index: 1,
                 validator_index: 2,
                 address: Address::from([0x33; 20]),
@@ -2166,7 +2166,7 @@ mod test {
 
     #[tokio::test]
     async fn test_expected_gas_limit() {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Spec::default_spec();
         assert_eq!(
             expected_gas_limit(30_000_000, 30_000_000, &spec),
             Some(30_000_000)
