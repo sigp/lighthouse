@@ -866,23 +866,25 @@ impl ProtoArray {
         let v29 = node
             .as_v29_mut()
             .map_err(|_| Error::InvalidNodeVariant { block_root })?;
-        // The invalidation sweep condemned this payload after the envelope was verified.
-        if let ExecutionStatus::Invalid(_) = v29.execution_status {
-            return Err(Error::EnvelopeForInvalidPayload { block_root });
-        }
-        // The envelope arrived: record it so sync stops fetching.
-        v29.payload_received = true;
-
-        // A settled `Valid` verdict is never revisited.
         match v29.execution_status {
             ExecutionStatus::NotYetRevealed(_) | ExecutionStatus::Optimistic(_) => {}
-            ExecutionStatus::Valid(_) | ExecutionStatus::Invalid(_) => return Ok(()),
+            // A settled `Valid` verdict is never revisited.
+            ExecutionStatus::Valid(_) => {
+                v29.payload_received = true;
+                return Ok(());
+            }
+            // The invalidation sweep condemned this payload after the envelope was verified.
+            ExecutionStatus::Invalid(_) => {
+                return Err(Error::EnvelopeForInvalidPayload { block_root });
+            }
             ExecutionStatus::Irrelevant(_) => {
                 return Err(Error::Unexpected(format!(
                     "pre-merge status on a Gloas node: {block_root:?}"
                 )));
             }
         }
+        // The envelope arrived: record it so sync stops fetching.
+        v29.payload_received = true;
 
         // Store the EL's verdict; only `Valid` also validates the branch this payload executed.
         match execution_status {

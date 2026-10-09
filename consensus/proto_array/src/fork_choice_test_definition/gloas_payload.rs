@@ -777,8 +777,8 @@ pub fn get_gloas_payload_received_interleaving_test_definition() -> ForkChoiceTe
     }
 }
 
-/// An envelope whose payload is invalidated after envelope verification is rejected and does
-/// not set `payload_received`.
+/// Block 2 builds on the `FULL` variant of block 1. Block 1's payload is invalidated while block
+/// 2's envelope awaits import, so the envelope is rejected and does not set `payload_received`.
 pub fn get_gloas_envelope_on_invalid_payload_test_definition() -> ForkChoiceTestDefinition {
     let ops = vec![
         Operation::ProcessBlock {
@@ -790,15 +790,28 @@ pub fn get_gloas_envelope_on_invalid_payload_test_definition() -> ForkChoiceTest
             execution_payload_parent_hash: Some(get_hash(0)),
             execution_payload_block_hash: Some(get_hash(1)),
         },
+        Operation::ProcessBlock {
+            slot: Slot::new(2),
+            root: get_root(2),
+            parent_root: get_root(1),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: Some(get_hash(1)),
+            execution_payload_block_hash: Some(get_hash(2)),
+        },
+        Operation::AssertParentPayloadStatus {
+            block_root: get_root(2),
+            expected_status: ParentPayloadStatus::Full,
+        },
         Operation::InvalidatePayload {
             head_hash: get_hash(1),
             latest_valid_ancestor: None,
         },
         Operation::InvalidProcessExecutionPayloadEnvelope {
-            block_root: get_root(1),
+            block_root: get_root(2),
         },
         Operation::AssertPayloadReceived {
-            block_root: get_root(1),
+            block_root: get_root(2),
             expected: false,
         },
     ];
