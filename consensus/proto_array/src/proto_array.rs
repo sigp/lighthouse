@@ -890,7 +890,8 @@ impl ProtoArray {
             ExecutionStatus::Valid(_) => {
                 // The walk validates this node on its own `FULL` side and every payload above it that
                 // its branch executed.
-                self.propagate_execution_payload_validation_from(index, ParentPayloadStatus::Full)
+                self.propagate_execution_payload_validation_from(index, ParentPayloadStatus::Full)?;
+                Ok(())
             }
             // The fork choice wrapper only maps envelope verdicts to `Valid` or `Optimistic`.
             ExecutionStatus::Invalid(_)
@@ -907,7 +908,7 @@ impl ProtoArray {
     pub fn propagate_execution_payload_validation_by_block_root(
         &mut self,
         block_root: Hash256,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let index = *self
             .indices
             .get(&block_root)
@@ -925,7 +926,8 @@ impl ProtoArray {
     pub fn propagate_execution_payload_validation(
         &mut self,
         block_hash: ExecutionBlockHash,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
+        let mut promoted = false;
         for index in self.execution_block_hash_to_node_indices(&block_hash) {
             // The block's own payload is the validated one: a pre-Gloas block carries it inside
             // itself, a Gloas block runs it on its `FULL` node.
@@ -937,15 +939,17 @@ impl ProtoArray {
                 ProtoNode::V17(_) => ParentPayloadStatus::PreGloas,
                 ProtoNode::V29(_) => ParentPayloadStatus::Full,
             };
-            self.propagate_execution_payload_validation_from(index, start_status)?;
+            promoted |= self.propagate_execution_payload_validation_from(index, start_status)?;
         }
-        Ok(())
+        Ok(promoted)
     }
 
     /// Promotes `start_index` and every payload that its branch executed to `Valid`.
     ///
     /// `start_status` is the node that the walk starts on. An `EMPTY` edge is a gap in the
     /// execution chain, not the end of it. The walk steps over that node and continues.
+    ///
+    /// Returns `true` if at least one payload moved to `Valid`, which can change the head.
     ///
     /// Returns an error if:
     ///
@@ -955,9 +959,10 @@ impl ProtoArray {
         &mut self,
         start_index: usize,
         start_status: ParentPayloadStatus,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let mut index = start_index;
         let mut status = start_status;
+        let mut promoted = false;
         loop {
             let node = self
                 .nodes
@@ -974,15 +979,16 @@ impl ProtoArray {
                 match node.execution_status() {
                     // We have reached a node that we already know is valid. No need to iterate further
                     // since we assume an ancestors have already been set to valid.
-                    ExecutionStatus::Valid(_) => return Ok(()),
+                    ExecutionStatus::Valid(_) => return Ok(promoted),
                     // We have reached an irrelevant node, this node is prior to a terminal execution
                     // block. There's no need to iterate further, it's impossible for this block to have
                     // any relevant ancestors.
-                    ExecutionStatus::Irrelevant(_) => return Ok(()),
+                    ExecutionStatus::Irrelevant(_) => return Ok(promoted),
                     // The block has an unknown status, set it to valid since any ancestor of a valid
                     // payload can be considered valid.
                     ExecutionStatus::Optimistic(hash) | ExecutionStatus::NotYetRevealed(hash) => {
                         *node.execution_status_mut() = ExecutionStatus::Valid(hash);
+                        promoted = true;
                     }
                     // An ancestor of the valid payload was invalid. This is a serious error which
                     // indicates a consensus failure in the execution node. This is unrecoverable.
@@ -997,7 +1003,7 @@ impl ProtoArray {
 
             let Some(parent_index) = node.parent() else {
                 // We have reached the root block, iteration complete.
-                return Ok(());
+                return Ok(promoted);
             };
             // Which of the two nodes of the parent this block extends.
             status = node.get_parent_payload_status();
