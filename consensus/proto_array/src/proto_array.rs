@@ -926,8 +926,7 @@ impl ProtoArray {
     pub fn propagate_execution_payload_validation(
         &mut self,
         block_hash: ExecutionBlockHash,
-    ) -> Result<bool, Error> {
-        let mut promoted = false;
+    ) -> Result<(), Error> {
         for index in self.execution_block_hash_to_node_indices(&block_hash) {
             // The block's own payload is the validated one: a pre-Gloas block carries it inside
             // itself, a Gloas block runs it on its `FULL` node.
@@ -939,9 +938,9 @@ impl ProtoArray {
                 ProtoNode::V17(_) => ParentPayloadStatus::PreGloas,
                 ProtoNode::V29(_) => ParentPayloadStatus::Full,
             };
-            promoted |= self.propagate_execution_payload_validation_from(index, start_status)?;
+            self.propagate_execution_payload_validation_from(index, start_status)?;
         }
-        Ok(promoted)
+        Ok(())
     }
 
     /// Promotes `start_index` and every payload that its branch executed to `Valid`.
@@ -979,11 +978,11 @@ impl ProtoArray {
                 match node.execution_status() {
                     // We have reached a node that we already know is valid. No need to iterate further
                     // since we assume an ancestors have already been set to valid.
-                    ExecutionStatus::Valid(_) => return Ok(promoted),
+                    ExecutionStatus::Valid(_) => break,
                     // We have reached an irrelevant node, this node is prior to a terminal execution
                     // block. There's no need to iterate further, it's impossible for this block to have
                     // any relevant ancestors.
-                    ExecutionStatus::Irrelevant(_) => return Ok(promoted),
+                    ExecutionStatus::Irrelevant(_) => break,
                     // The block has an unknown status, set it to valid since any ancestor of a valid
                     // payload can be considered valid.
                     ExecutionStatus::Optimistic(hash) | ExecutionStatus::NotYetRevealed(hash) => {
@@ -1003,12 +1002,14 @@ impl ProtoArray {
 
             let Some(parent_index) = node.parent() else {
                 // We have reached the root block, iteration complete.
-                return Ok(promoted);
+                break;
             };
             // Which of the two nodes of the parent this block extends.
             status = node.get_parent_payload_status();
             index = parent_index;
         }
+
+        Ok(promoted)
     }
 
     /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.
