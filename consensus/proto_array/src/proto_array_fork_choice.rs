@@ -586,17 +586,6 @@ pub enum OptimisticPayloads {
     Filtered,
 }
 
-impl OptimisticPayloads {
-    /// From the `filter_optimistic_payloads` chain config flag.
-    pub fn from_filter(filter_optimistic_payloads: bool) -> Self {
-        if filter_optimistic_payloads {
-            Self::Filtered
-        } else {
-            Self::Eligible
-        }
-    }
-}
-
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
@@ -794,7 +783,7 @@ impl ProtoArrayForkChoice {
         proposer_boost_root: Hash256,
         equivocating_indices: &BTreeSet<u64>,
         current_slot: Slot,
-        optimistic: OptimisticPayloads,
+        policy: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<ForkChoiceNode, String> {
         let old_balances = &mut self.balances;
@@ -832,7 +821,7 @@ impl ProtoArrayForkChoice {
                 finalized_checkpoint,
                 proposer_boost_root,
                 new_balances,
-                optimistic,
+                policy,
                 spec,
             )
             .map(|(root, payload_status)| ForkChoiceNode::new(root, payload_status))
@@ -1254,7 +1243,7 @@ impl ProtoArrayForkChoice {
         block_root: &Hash256,
         current_slot: Slot,
         proposer_boost_root: Hash256,
-        optimistic: OptimisticPayloads,
+        policy: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<PayloadStatus, Error> {
         self.proto_array.get_canonical_payload_status::<E>(
@@ -1262,7 +1251,7 @@ impl ProtoArrayForkChoice {
             current_slot,
             proposer_boost_root,
             &self.balances,
-            optimistic,
+            policy,
             spec,
         )
     }

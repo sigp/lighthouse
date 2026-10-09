@@ -231,17 +231,6 @@ impl ProtoNode {
         }
     }
 
-    /// Whether the execution payload this node commits to is still awaiting a verdict.
-    pub(crate) fn is_optimistic(&self) -> bool {
-        match self.execution_status() {
-            ExecutionStatus::Optimistic(_) => true,
-            ExecutionStatus::Valid(_)
-            | ExecutionStatus::Invalid(_)
-            | ExecutionStatus::Irrelevant(_)
-            | ExecutionStatus::NotYetRevealed(_) => false,
-        }
-    }
-
     /// The execution block this node commits to.
     pub fn block_hash(&self) -> PayloadBlockHash {
         match self {
@@ -1235,7 +1224,7 @@ impl ProtoArray {
         best_finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
-        optimistic: OptimisticPayloads,
+        policy: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<(Hash256, PayloadStatus), Error> {
         let justified_index = self
@@ -1251,7 +1240,7 @@ impl ProtoArray {
             best_finalized_checkpoint,
             proposer_boost_root,
             justified_balances,
-            optimistic,
+            policy,
             spec,
         )?;
 
@@ -1405,7 +1394,7 @@ impl ProtoArray {
         best_finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
-        optimistic: OptimisticPayloads,
+        policy: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<IndexedForkChoiceNode, Error> {
         let mut head = IndexedForkChoiceNode {
@@ -1429,9 +1418,9 @@ impl ProtoArray {
         loop {
             let children: Vec<_> = if head.payload_status == PayloadStatus::Pending {
                 // Spec: `get_node_children` does not consult `get_filtered_block_tree` for PENDING.
-                self.get_node_children(&head, optimistic)?
+                self.get_node_children(&head, policy)?
             } else {
-                self.get_node_children(&head, optimistic)?
+                self.get_node_children(&head, policy)?
                     .into_iter()
                     .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
                     .collect()
@@ -1484,7 +1473,7 @@ impl ProtoArray {
         finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
-        optimistic: OptimisticPayloads,
+        policy: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<Vec<(Hash256, PayloadStatus, u64)>, Error> {
         let start_index = self
@@ -1517,9 +1506,9 @@ impl ProtoArray {
                 .ok_or(Error::InvalidNodeIndex(fc_node.proto_node_index))?;
 
             let children: Vec<_> = if fc_node.payload_status == PayloadStatus::Pending {
-                self.get_node_children(&fc_node, optimistic)?
+                self.get_node_children(&fc_node, policy)?
             } else {
-                self.get_node_children(&fc_node, optimistic)?
+                self.get_node_children(&fc_node, policy)?
                     .into_iter()
                     .filter(|(child, _)| viable_nodes.contains(&child.proto_node_index))
                     .collect()
@@ -1627,12 +1616,18 @@ impl ProtoArray {
     }
 
     /// If this proto node has a possible FULL edge.
-    fn has_full_node(&self, proto_node: &ProtoNode, optimistic: OptimisticPayloads) -> bool {
+    fn has_full_node(&self, proto_node: &ProtoNode, policy: OptimisticPayloads) -> bool {
         proto_node.payload_received().is_ok_and(|received| received)
             && !proto_node.is_invalid()
-            && match optimistic {
-                OptimisticPayloads::Eligible => true,
-                OptimisticPayloads::Filtered => !proto_node.is_optimistic(),
+            && match proto_node.execution_status() {
+                ExecutionStatus::Optimistic(_) => match policy {
+                    OptimisticPayloads::Eligible => true,
+                    OptimisticPayloads::Filtered => false,
+                },
+                ExecutionStatus::Valid(_)
+                | ExecutionStatus::Invalid(_)
+                | ExecutionStatus::Irrelevant(_)
+                | ExecutionStatus::NotYetRevealed(_) => true,
             }
     }
 
@@ -1644,7 +1639,7 @@ impl ProtoArray {
         current_slot: Slot,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
-        optimistic: OptimisticPayloads,
+        policy: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<PayloadStatus, Error> {
         let proto_node_index = *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;
@@ -1654,7 +1649,7 @@ impl ProtoArray {
             .ok_or(Error::InvalidNodeIndex(proto_node_index))?;
 
         // As in `get_node_children`, an invalid payload has no FULL node.
-        if !self.has_full_node(proto_node, optimistic) {
+        if !self.has_full_node(proto_node, policy) {
             return Ok(PayloadStatus::Empty);
         }
 
@@ -1845,7 +1840,7 @@ impl ProtoArray {
     fn get_node_children(
         &self,
         node: &IndexedForkChoiceNode,
-        optimistic: OptimisticPayloads,
+        policy: OptimisticPayloads,
     ) -> Result<Vec<(IndexedForkChoiceNode, ProtoNode)>, Error> {
         if node.payload_status == PayloadStatus::Pending {
             let proto_node = self
@@ -1855,7 +1850,7 @@ impl ProtoArray {
             let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
             // The FULL virtual child only exists if the payload has been received and not found
             // invalid.
-            if self.has_full_node(proto_node, optimistic) {
+            if self.has_full_node(proto_node, policy) {
                 children.push((node.with_status(PayloadStatus::Full), proto_node.clone()));
             }
             Ok(children)

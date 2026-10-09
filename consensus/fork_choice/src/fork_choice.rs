@@ -483,7 +483,11 @@ where
             proto_array,
             queued_attestations: BTreeMap::new(),
             spec_test_mode: false,
-            optimistic_payloads: OptimisticPayloads::from_filter(filter_optimistic_payloads),
+            optimistic_payloads: if filter_optimistic_payloads {
+                OptimisticPayloads::Filtered
+            } else {
+                OptimisticPayloads::Eligible
+            },
             // This will be updated during the next call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -2042,7 +2046,11 @@ where
             proto_array,
             queued_attestations: BTreeMap::new(),
             spec_test_mode: false,
-            optimistic_payloads: OptimisticPayloads::from_filter(filter_optimistic_payloads),
+            optimistic_payloads: if filter_optimistic_payloads {
+                OptimisticPayloads::Filtered
+            } else {
+                OptimisticPayloads::Eligible
+            },
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,

@@ -195,7 +195,7 @@ impl ForkChoiceTestDefinition {
         .expect("should create fork choice struct");
         let equivocating_indices = BTreeSet::new();
         let mut last_current_slot = Slot::new(0);
-        let mut optimistic = OptimisticPayloads::Eligible;
+        let mut policy = OptimisticPayloads::Eligible;
 
         for (op_index, op) in self.operations.into_iter().enumerate() {
             match op.clone() {
@@ -218,7 +218,7 @@ impl ForkChoiceTestDefinition {
                             Hash256::zero(),
                             &equivocating_indices,
                             current_slot,
-                            optimistic,
+                            policy,
                             &spec,
                         )
                         .unwrap_or_else(|e| {
@@ -243,7 +243,7 @@ impl ForkChoiceTestDefinition {
                         &head,
                         current_slot,
                         Hash256::zero(),
-                        optimistic,
+                        policy,
                         &spec,
                         payload_status,
                         op_index,
@@ -270,7 +270,7 @@ impl ForkChoiceTestDefinition {
                             proposer_boost_root,
                             &equivocating_indices,
                             Slot::new(0),
-                            optimistic,
+                            policy,
                             &spec,
                         )
                         .unwrap_or_else(|e| {
@@ -288,7 +288,7 @@ impl ForkChoiceTestDefinition {
                         &head,
                         Slot::new(0),
                         proposer_boost_root,
-                        optimistic,
+                        policy,
                         &spec,
                         payload_status,
                         op_index,
@@ -310,7 +310,7 @@ impl ForkChoiceTestDefinition {
                         Hash256::zero(),
                         &equivocating_indices,
                         Slot::new(0),
-                        optimistic,
+                        policy,
                         &spec,
                     );
 
@@ -646,7 +646,11 @@ impl ForkChoiceTestDefinition {
                     );
                 }
                 Operation::SetFilterOptimisticPayloads { enabled } => {
-                    optimistic = OptimisticPayloads::from_filter(enabled);
+                    policy = if enabled {
+                        OptimisticPayloads::Filtered
+                    } else {
+                        OptimisticPayloads::Eligible
+                    };
                 }
                 Operation::AssertPayloadReceived {
                     block_root,
@@ -670,7 +674,7 @@ impl ForkChoiceTestDefinition {
                             &block_root,
                             current_slot.unwrap_or(last_current_slot),
                             proposer_boost_root.unwrap_or_else(Hash256::zero),
-                            optimistic,
+                            policy,
                             &spec,
                         )
                         .unwrap();
@@ -736,7 +740,7 @@ fn assert_canonical_payload_status_matches_find_head(
     head: &Hash256,
     current_slot: Slot,
     proposer_boost_root: Hash256,
-    optimistic: OptimisticPayloads,
+    policy: OptimisticPayloads,
     spec: &ChainSpec,
     expected: PayloadStatus,
     op_index: usize,
@@ -745,7 +749,7 @@ fn assert_canonical_payload_status_matches_find_head(
         head,
         current_slot,
         proposer_boost_root,
-        optimistic,
+        policy,
         spec,
     ) {
         Ok(actual) => assert_eq!(
