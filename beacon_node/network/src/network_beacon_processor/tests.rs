@@ -75,6 +75,7 @@ struct TestRig {
     beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    sync_rx: mpsc::UnboundedReceiver<crate::sync::SyncMessage<E>>,
     duplicate_cache: DuplicateCache,
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     _harness: BeaconChainHarness<T>,
@@ -302,7 +303,7 @@ impl TestRig {
             beacon_processor_rx,
         } = BeaconProcessorChannels::new(&beacon_processor_config);
 
-        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
+        let (sync_tx, sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
         let meta_data = if spec.is_peer_das_scheduled() {
@@ -408,6 +409,7 @@ impl TestRig {
             beacon_processor_tx,
             work_journal_rx,
             network_rx,
+            sync_rx,
             duplicate_cache,
             network_beacon_processor,
             _harness: harness,
@@ -973,6 +975,100 @@ fn junk_peer_id() -> PeerId {
 
 fn junk_message_id() -> MessageId {
     MessageId::new(&[])
+}
+
+#[tokio::test]
+async fn status_finalized_checkpoint_relevance() {
+    use crate::status::ToStatusMessage;
+    use crate::sync::SyncMessage;
+    use lighthouse_network::rpc::{GoodbyeReason, StatusMessage};
+
+    let mut rig = TestRig::new(SLOTS_PER_EPOCH * 4).await;
+    let local = rig.chain.status_message().status_v2();
+    assert!(local.finalized_epoch > Epoch::new(0));
+    assert!(!local.finalized_root.is_zero());
+    // At the split boundary, the historical freezer lookup cannot catch a conflict.
+    assert_eq!(
+        rig.chain.store.get_split_slot(),
+        local.finalized_epoch.start_slot(E::slots_per_epoch())
+    );
+
+    let mut conflicting = local.clone();
+    conflicting.finalized_root = Hash256::repeat_byte(0x42);
+    assert_ne!(conflicting.finalized_root, local.finalized_root);
+
+    let mut genesis = local.clone();
+    genesis.finalized_epoch = Epoch::new(0);
+    genesis.finalized_root = Hash256::ZERO;
+
+    let mut ahead = conflicting.clone();
+    ahead.finalized_epoch += 1;
+
+    let mut wrong_fork = local.clone();
+    wrong_fork.fork_digest[0] ^= 1;
+
+    for (status, admitted) in [
+        (local, true),
+        (conflicting, false),
+        (genesis, true),
+        (ahead, true),
+        (wrong_fork, false),
+    ] {
+        let status = StatusMessage::V2(status);
+        for status in [StatusMessage::V1(status.status_v1()), status] {
+            let peer = junk_peer_id();
+            rig.network_beacon_processor
+                .process_status(peer, status.clone());
+            if admitted {
+                assert_matches!(
+                    rig.sync_rx.try_recv(),
+                    Ok(SyncMessage::AddPeer(id, info))
+                        if id == peer
+                            && info.finalized_epoch == *status.finalized_epoch()
+                            && info.finalized_root == *status.finalized_root()
+                );
+                assert_matches!(
+                    rig.network_rx.try_recv(),
+                    Err(mpsc::error::TryRecvError::Empty)
+                );
+            } else {
+                assert_matches!(
+                    rig.network_rx.try_recv(),
+                    Ok(NetworkMessage::GoodbyePeer {
+                        peer_id, reason: GoodbyeReason::IrrelevantNetwork, ..
+                    }) if peer_id == peer
+                );
+                assert_matches!(
+                    rig.sync_rx.try_recv(),
+                    Err(mpsc::error::TryRecvError::Empty)
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn status_unfinalized_local_chain_allows_peer() {
+    use crate::status::ToStatusMessage;
+    use crate::sync::SyncMessage;
+    use lighthouse_network::rpc::StatusMessage;
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut remote = rig.chain.status_message().status_v2();
+    assert_eq!(remote.finalized_epoch, Epoch::new(0));
+    assert!(remote.finalized_root.is_zero());
+    remote.finalized_root = Hash256::repeat_byte(0x42);
+
+    let status = StatusMessage::V2(remote);
+    for status in [StatusMessage::V1(status.status_v1()), status] {
+        let peer = junk_peer_id();
+        rig.network_beacon_processor.process_status(peer, status);
+        assert_matches!(rig.sync_rx.try_recv(), Ok(SyncMessage::AddPeer(id, _)) if id == peer);
+        assert_matches!(
+            rig.network_rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        );
+    }
 }
 
 // Test that column reconstruction is delayed for columns that arrive
