@@ -198,7 +198,7 @@ pub mod deposit_log {
     #[cfg(test)]
     pub mod tests {
         use super::*;
-        use types::{EthSpec, MainnetEthSpec};
+        use types::{EthSpec, Spec};
 
         /// The data from a deposit event, using the v0.8.3 version of the deposit contract.
         pub const EXAMPLE_LOG: &[u8] = &[
@@ -233,7 +233,7 @@ pub mod deposit_log {
                 block_number: 42,
                 data: EXAMPLE_LOG.to_vec(),
             };
-            log.to_deposit_log(&MainnetEthSpec::default_spec())
+            log.to_deposit_log(&Spec::default_spec())
                 .expect("should decode log");
         }
     }
@@ -1667,10 +1667,10 @@ mod test {
     use std::str::FromStr;
     use std::sync::Arc;
     use typenum::Unsigned;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
     struct Tester {
-        server: MockServer<MainnetEthSpec>,
+        server: MockServer<Spec>,
         rpc_client: Arc<HttpJsonRpc>,
         echo_client: Arc<HttpJsonRpc>,
     }
@@ -1854,34 +1854,30 @@ mod test {
 
     #[test]
     fn transaction_serde() {
-        assert_transactions_serde::<MainnetEthSpec>(
-            "empty",
-            generate_transactions::<MainnetEthSpec>(&[]),
-            json!([]),
-        );
-        assert_transactions_serde::<MainnetEthSpec>(
+        assert_transactions_serde::<Spec>("empty", generate_transactions::<Spec>(&[]), json!([]));
+        assert_transactions_serde::<Spec>(
             "one empty tx",
-            generate_transactions::<MainnetEthSpec>(&[0]),
+            generate_transactions::<Spec>(&[0]),
             json!(["0x"]),
         );
-        assert_transactions_serde::<MainnetEthSpec>(
+        assert_transactions_serde::<Spec>(
             "two empty txs",
-            generate_transactions::<MainnetEthSpec>(&[0, 0]),
+            generate_transactions::<Spec>(&[0, 0]),
             json!(["0x", "0x"]),
         );
-        assert_transactions_serde::<MainnetEthSpec>(
+        assert_transactions_serde::<Spec>(
             "one one-byte tx",
-            generate_transactions::<MainnetEthSpec>(&[1]),
+            generate_transactions::<Spec>(&[1]),
             json!(["0x00"]),
         );
-        assert_transactions_serde::<MainnetEthSpec>(
+        assert_transactions_serde::<Spec>(
             "two one-byte txs",
-            generate_transactions::<MainnetEthSpec>(&[1, 1]),
+            generate_transactions::<Spec>(&[1, 1]),
             json!(["0x00", "0x00"]),
         );
-        assert_transactions_serde::<MainnetEthSpec>(
+        assert_transactions_serde::<Spec>(
             "mixed bag",
-            generate_transactions::<MainnetEthSpec>(&[0, 1, 3, 0]),
+            generate_transactions::<Spec>(&[0, 1, 3, 0]),
             json!(["0x", "0x00", "0x000000", "0x"]),
         );
 
@@ -1889,15 +1885,12 @@ mod test {
          * Check for too many transactions
          */
 
-        let num_max_txs = <MainnetEthSpec as EthSpec>::MaxTransactionsPerPayload::to_usize();
+        let num_max_txs = <Spec as EthSpec>::MaxTransactionsPerPayload::to_usize();
         let max_txs = (0..num_max_txs).map(|_| "0x00").collect::<Vec<_>>();
         let too_many_txs = (0..=num_max_txs).map(|_| "0x00").collect::<Vec<_>>();
 
-        decode_transactions::<MainnetEthSpec>(serde_json::to_value(max_txs).unwrap()).unwrap();
-        assert!(
-            decode_transactions::<MainnetEthSpec>(serde_json::to_value(too_many_txs).unwrap())
-                .is_err()
-        );
+        decode_transactions::<Spec>(serde_json::to_value(max_txs).unwrap()).unwrap();
+        assert!(decode_transactions::<Spec>(serde_json::to_value(too_many_txs).unwrap()).is_err());
     }
 
     fn assert_inclusion_list_serde(
@@ -2167,7 +2160,7 @@ mod test {
         Tester::new(true)
             .assert_request_equals(
                 |client| async move {
-                    let _ = client.get_payload_v1::<MainnetEthSpec>([42; 8]).await;
+                    let _ = client.get_payload_v1::<Spec>([42; 8]).await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -2179,9 +2172,9 @@ mod test {
             .await;
 
         Tester::new(false)
-            .assert_auth_failure(|client| async move {
-                client.get_payload_v1::<MainnetEthSpec>([42; 8]).await
-            })
+            .assert_auth_failure(
+                |client| async move { client.get_payload_v1::<Spec>([42; 8]).await },
+            )
             .await;
     }
 
@@ -2191,7 +2184,7 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(
+                        .new_payload_v1::<Spec>(ExecutionPayload::Bellatrix(
                             ExecutionPayloadBellatrix {
                                 parent_hash: ExecutionBlockHash::repeat_byte(0),
                                 fee_recipient: Address::repeat_byte(1),
@@ -2238,7 +2231,7 @@ mod test {
         Tester::new(false)
             .assert_auth_failure(|client| async move {
                 client
-                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(
+                    .new_payload_v1::<Spec>(ExecutionPayload::Bellatrix(
                         ExecutionPayloadBellatrix {
                             parent_hash: ExecutionBlockHash::repeat_byte(0),
                             fee_recipient: Address::repeat_byte(1),
@@ -2410,7 +2403,7 @@ mod test {
                 // engine_getPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<Spec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await;
                 },
                 json!({
@@ -2445,7 +2438,7 @@ mod test {
                 })],
                 |client| async move {
                     let payload: ExecutionPayload<_> = client
-                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<Spec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await
                         .unwrap()
                         .into();
@@ -2475,7 +2468,7 @@ mod test {
                 // engine_newPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix{
+                        .new_payload_v1::<Spec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix{
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
@@ -2529,7 +2522,7 @@ mod test {
                 })],
                 |client| async move {
                     let response = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()))
+                        .new_payload_v1::<Spec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()))
                         .await
                         .unwrap();
 
