@@ -183,6 +183,12 @@ pub struct ReOrgTest {
     parent_distance: u64,
     /// Number of slots between head block and block proposal slot.
     head_distance: u64,
+    /// Percentage of the committee weight below which the head is weak enough to re-org.
+    reorg_head_weight_threshold: u64,
+    /// Percentage of the committee weight above which the parent is strong enough to re-org.
+    reorg_parent_weight_threshold: u64,
+    /// Maximum epochs since finalization at which a proposer re-org is allowed.
+    reorg_max_epochs_since_finalization: u64,
     percent_parent_votes: usize,
     percent_empty_votes: usize,
     percent_head_votes: usize,
@@ -199,6 +205,9 @@ impl Default for ReOrgTest {
             head_slot: Slot::new(E::slots_per_epoch() - 2),
             parent_distance: 1,
             head_distance: 1,
+            reorg_head_weight_threshold: 20,
+            reorg_parent_weight_threshold: 160,
+            reorg_max_epochs_since_finalization: 2,
             percent_parent_votes: 100,
             percent_empty_votes: 100,
             percent_head_votes: 0,
@@ -346,12 +355,80 @@ pub async fn proposer_boost_re_org_weight_misprediction() {
     .await;
 }
 
+// 30% head support is below a 40% threshold, so the head is re-orged.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_head_threshold_permits() {
+    proposer_boost_re_org_test(ReOrgTest {
+        reorg_head_weight_threshold: 40,
+        // Reserve the other 30% of the head-slot committee for the head vote.
+        percent_empty_votes: 70,
+        percent_head_votes: 30,
+        ..Default::default()
+    })
+    .await;
+}
+
+// 10% head support is above a 5% threshold, so the head is not re-orged. The early fork-choice
+// update still predicts a re-org, so this is a misprediction.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_head_threshold_blocks() {
+    proposer_boost_re_org_test(ReOrgTest {
+        reorg_head_weight_threshold: 5,
+        // Reserve the other 10% of the head-slot committee for the head vote.
+        percent_empty_votes: 90,
+        percent_head_votes: 10,
+        should_re_org: false,
+        misprediction: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+// A full parent committee plus half the head-slot committee is above 100% and below 160%.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_parent_threshold_permits() {
+    proposer_boost_re_org_test(ReOrgTest {
+        reorg_parent_weight_threshold: 100,
+        percent_empty_votes: 50,
+        ..Default::default()
+    })
+    .await;
+}
+
+// Full parent support is below a 250% threshold. The early fork-choice update skips that check,
+// so this is a misprediction.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_parent_threshold_blocks() {
+    proposer_boost_re_org_test(ReOrgTest {
+        reorg_parent_weight_threshold: 250,
+        should_re_org: false,
+        misprediction: true,
+        ..Default::default()
+    })
+    .await;
+}
+
+// Finalization distance is 2, so a maximum of 1 rejects the re-org before the early fork-choice
+// update.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub async fn proposer_boost_re_org_max_epochs_since_finalization_blocks() {
+    proposer_boost_re_org_test(ReOrgTest {
+        head_slot: Slot::new(4 * E::slots_per_epoch() + 1),
+        reorg_max_epochs_since_finalization: 1,
+        should_re_org: false,
+        ..Default::default()
+    })
+    .await;
+}
+
 /// Run a proposer boost re-org test.
 ///
 /// - `head_slot`: the slot of the canonical head to be reorged
-/// - `reorg_threshold`: committee percentage value for reorging
-/// - `num_empty_votes`: percentage of comm of attestations for the parent block
-/// - `num_head_votes`: number of attestations for the head block
+/// - `reorg_head_weight_threshold`: committee percentage below which the head is weak
+/// - `reorg_parent_weight_threshold`: committee percentage above which the parent is strong
+/// - `reorg_max_epochs_since_finalization`: largest finalization distance at which a re-org is still allowed
+/// - `percent_empty_votes`: percentage of the head-slot committee attesting to the parent
+/// - `percent_head_votes`: percentage of the head-slot committee attesting to the head
 /// - `should_re_org`: whether the proposer should build on the parent rather than the head
 #[allow(clippy::large_stack_frames)]
 pub async fn proposer_boost_re_org_test(
@@ -359,6 +436,9 @@ pub async fn proposer_boost_re_org_test(
         head_slot,
         parent_distance,
         head_distance,
+        reorg_head_weight_threshold,
+        reorg_parent_weight_threshold,
+        reorg_max_epochs_since_finalization,
         percent_parent_votes,
         percent_empty_votes,
         percent_head_votes,
@@ -375,7 +455,10 @@ pub async fn proposer_boost_re_org_test(
         return;
     }
 
-    let spec = test_spec::<E>();
+    let mut spec = test_spec::<E>();
+    spec.reorg_head_weight_threshold = reorg_head_weight_threshold;
+    spec.reorg_parent_weight_threshold = reorg_parent_weight_threshold;
+    spec.reorg_max_epochs_since_finalization = reorg_max_epochs_since_finalization;
 
     // Ensure there are enough validators to have `attesters_per_slot`.
     let attesters_per_slot = 10;
