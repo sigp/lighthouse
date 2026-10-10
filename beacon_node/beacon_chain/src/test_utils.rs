@@ -3214,6 +3214,10 @@ where
             )
             .expect("should update fork choice with envelope");
 
+        // Apply any block-carried votes that were waiting for this payload.
+        self.chain
+            .apply_pending_block_attestations_awaiting_payload(block_root);
+
         // Run fork choice because the envelope could become the head.
         self.chain.recompute_head_at_current_slot().await;
     }
