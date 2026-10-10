@@ -1945,6 +1945,27 @@ pub async fn serve<T: BeaconChainTypes>(
         );
 
     /*
+     * inclusion lists
+     */
+
+    // POST validator/inclusion_list (JSON)
+    let post_validator_inclusion_list = post_validator_inclusion_list(
+        eth_v1.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
+
+    // POST validator/inclusion_list (SSZ)
+    let post_validator_inclusion_list_ssz = post_validator_inclusion_list_ssz(
+        eth_v1.clone(),
+        not_while_syncing_filter.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
+    /*
      * config
      */
 
@@ -3510,7 +3531,8 @@ pub async fn serve<T: BeaconChainTypes>(
                             .uor(post_beacon_execution_payload_bids_ssz)
                             .uor(post_beacon_pool_payload_attestations_ssz)
                             .uor(post_beacon_execution_proofs)
-                            .uor(post_validator_proposer_preferences_ssz),
+                            .uor(post_validator_proposer_preferences_ssz)
+                            .uor(post_validator_inclusion_list_ssz),
                     )
                     .uor(post_beacon_blocks)
                     .uor(post_beacon_blinded_blocks)
@@ -3524,6 +3546,7 @@ pub async fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_pool_payload_attestations)
                     .uor(post_beacon_pool_bls_to_execution_changes)
                     .uor(post_validator_proposer_preferences)
+                    .uor(post_validator_inclusion_list)
                     .uor(post_beacon_execution_payload_envelopes)
                     .uor(post_beacon_execution_payload_bids)
                     .uor(post_beacon_state_validators)
