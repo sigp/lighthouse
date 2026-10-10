@@ -83,6 +83,7 @@ const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_AGGREGATOR_TIMEOUT_QUOTIENT: u32 = 24; // For DVT involving middleware only
 // TODO(EIP-7732): Determine what this quotient should be
 const HTTP_PTC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_INCLUSION_LIST_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_INCLUSION_LIST_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
@@ -106,6 +107,7 @@ pub struct Timeouts {
     pub sync_duties: Duration,
     pub sync_aggregators: Duration,
     pub ptc_duties: Duration,
+    pub inclusion_list: Duration,
     pub inclusion_list_duties: Duration,
     pub get_beacon_blocks_ssz: Duration,
     pub get_debug_beacon_states: Duration,
@@ -129,6 +131,7 @@ impl Timeouts {
             sync_duties: timeout,
             sync_aggregators: timeout,
             ptc_duties: timeout,
+            inclusion_list: timeout,
             inclusion_list_duties: timeout,
             get_beacon_blocks_ssz: timeout,
             get_debug_beacon_states: timeout,
@@ -154,6 +157,7 @@ impl Timeouts {
             sync_duties: base_timeout / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
             sync_aggregators: base_timeout / HTTP_SYNC_AGGREGATOR_TIMEOUT_QUOTIENT,
             ptc_duties: base_timeout / HTTP_PTC_DUTIES_TIMEOUT_QUOTIENT,
+            inclusion_list: base_timeout / HTTP_INCLUSION_LIST_TIMEOUT_QUOTIENT,
             inclusion_list_duties: base_timeout / HTTP_INCLUSION_LIST_DUTIES_TIMEOUT_QUOTIENT,
             get_beacon_blocks_ssz: base_timeout / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
             get_debug_beacon_states: base_timeout / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
@@ -3708,6 +3712,66 @@ impl BeaconNodeHttpClient {
             );
 
         self.get_opt(path).await
+    }
+
+    /// `GET validator/inclusion_list`
+    pub async fn get_validator_inclusion_list(
+        &self,
+        slot: Slot,
+    ) -> Result<GenericResponse<InclusionListTransactions>, Error> {
+        let mut path = self.eth_path(V1)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("inclusion_list");
+
+        path.query_pairs_mut()
+            .append_pair("slot", &slot.to_string());
+
+        self.get_with_timeout(path, self.timeouts.inclusion_list)
+            .await
+    }
+
+    /// `POST validator/inclusion_list`
+    pub async fn post_validator_inclusion_list(
+        &self,
+        signed_inclusion_list: &SignedInclusionList,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("inclusion_list");
+
+        // The request body is wrapped in a `data` object, per the beacon-APIs specs
+        let body = serde_json::json!({ "data": signed_inclusion_list });
+        self.post_generic_with_consensus_version(path, &body, None, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/inclusion_list` (SSZ)
+    pub async fn post_validator_inclusion_list_ssz(
+        &self,
+        signed_inclusion_list: &SignedInclusionList,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("inclusion_list");
+
+        let ssz_body = signed_inclusion_list.as_ssz_bytes();
+
+        self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
+            .await?;
+
+        Ok(())
     }
 
     /// `POST lighthouse/liveness`

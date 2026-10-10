@@ -904,6 +904,13 @@ impl TryFrom<Option<String>> for SkipRandaoVerification {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct InclusionListTransactions {
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub transactions: ProgressiveTransactions,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ValidatorAttestationDataQuery {
     pub slot: Slot,
