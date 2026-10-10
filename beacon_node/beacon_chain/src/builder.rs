@@ -951,18 +951,19 @@ where
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
             Slot::new(0)
         } else {
-            let backfill_epoch_range = if cfg!(feature = "test_backfill") {
-                3
-            } else {
-                self.spec.min_validator_withdrawability_delay.as_u64()
-                    + self.spec.churn_limit_quotient / 2
-            };
-
             match slot_clock.now() {
                 Some(current_slot) => {
-                    let genesis_backfill_epoch = current_slot
-                        .epoch(E::slots_per_epoch())
-                        .saturating_sub(backfill_epoch_range);
+                    let current_epoch = current_slot.epoch(E::slots_per_epoch());
+                    let backfill_epoch_range = if cfg!(feature = "test_backfill") {
+                        3
+                    } else {
+                        self.spec
+                            .compute_min_epochs_for_block_requests(current_epoch)
+                            .map_err(|e| {
+                                format!("Unable to compute the backfill epoch range: {e:?}")
+                            })?
+                    };
+                    let genesis_backfill_epoch = current_epoch.saturating_sub(backfill_epoch_range);
                     genesis_backfill_epoch.start_slot(E::slots_per_epoch())
                 }
                 None => {
