@@ -323,8 +323,8 @@ pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::
 async fn is_el_offline<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> bool {
     match &chain.execution_layer {
         Some(execution_layer) => execution_layer.is_offline_or_erroring().await,
-        // Running with no execution layer is deliberate when EIP-8025 proofs decide validity.
-        None => !chain.execution_proofs_enabled(),
+        // If there's a proof_engine assume EL is never offline
+        None => false,
     }
 }
 

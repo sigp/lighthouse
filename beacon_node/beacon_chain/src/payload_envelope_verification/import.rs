@@ -410,8 +410,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.spec,
         )?;
 
-        // EIP-8025: execution layer verifications must be done on the CL.
-        if self.execution_proofs_enabled() && self.config.verify_envelope_payload_hash_on_cl {
+        // No execution layer to check the payload hash, so check it here.
+        if self.execution_layer.is_none() {
             verify_envelope_payload_hash(&signed_envelope, &block)?;
         }
 
