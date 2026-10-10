@@ -452,6 +452,21 @@ where
                     })?
                     .ok_or("Finalized block missing from remote, it returned 404")?;
                 let block_root = block.canonical_root();
+		// If --wss-checkpoint was provided, verify the downloaded block root matches it
+		// before initializing the chain from the checkpoint state.
+		if let Some(wss_checkpoint) = config.chain.weak_subjectivity_checkpoint {
+		    if block_root != wss_checkpoint.root {
+		        return Err(format!(
+		            "Checkpoint sync block root mismatch. Expected (from --wss-checkpoint): {:?}, \
+		             Downloaded: {:?}. The checkpoint provider may be serving a different chain.",
+		            wss_checkpoint.root, block_root
+		        ));
+		    }
+		    info!(
+		        block_root = ?block_root,
+		        "Verified checkpoint block root matches --wss-checkpoint"
+		    );
+		}
 
                 debug!("Downloaded finalized block");
 
