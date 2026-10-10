@@ -2,6 +2,7 @@ use super::*;
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, TryFromIter};
+use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, ProgressiveVariableList, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
@@ -1025,11 +1026,12 @@ impl<E: EthSpec> From<JsonBlobsBundleV1<E>> for BlobsBundle<E> {
 #[superstruct(
     variants(V1, V2),
     variant_attributes(
-        derive(Debug, Clone, PartialEq, Serialize, Deserialize),
+        derive(Debug, Clone, PartialEq, Encode, Decode, Serialize, Deserialize),
         serde(bound = "E: EthSpec", rename_all = "camelCase")
     )
 )]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Encode, Decode, Serialize, Deserialize)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct BlobAndProof<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub blob: Blob<E>,
