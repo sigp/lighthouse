@@ -221,10 +221,9 @@ fn main() {
                 .long("log-color")
                 .alias("log-color")
                 .help("Enables/Disables colors for logs in terminal. \
-                    Set it to false to disable colors.")
+                    If not specified, colors are enabled only when stdout is a terminal.")
                 .num_args(0..=1)
                 .default_missing_value("true")
-                .default_value("true")
                 .value_parser(clap::value_parser!(bool))
                 .help_heading(FLAG_HEADER)
                 .global(true)
@@ -511,14 +510,11 @@ fn run<E: EthSpec>(
 
     let log_format = matches.get_one::<String>("log-format");
 
-    let log_color = if std::io::stdin().is_terminal() {
-        matches
-            .get_one::<bool>("log-color")
-            .copied()
-            .unwrap_or(true)
-    } else {
-        // Disable color when in non-interactive mode.
-        false
+    let log_color = match matches.get_one::<bool>("log-color") {
+        // User specified whether logs should be colored.
+        Some(v) => *v,
+        // Otherwise, only use color if stdout is a terminal (i.e. not redirected to a file or piped)
+        None => std::io::stdout().is_terminal(),
     };
 
     let logfile_color = matches.get_flag("logfile-color");
