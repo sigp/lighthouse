@@ -115,6 +115,8 @@ pub struct ChainConfig {
     /// backfill, where the EL cannot be consulted. Disabled in test harnesses whose mock EL
     /// produces synthetic block hashes.
     pub verify_envelope_payload_hash_on_cl: bool,
+    /// Distinct EIP-8025 proof types a payload needs before fork choice calls it valid.
+    pub execution_proofs_required: usize,
 }
 
 /// Whether the Fast Confirmation Rule (FCR) is enabled.
@@ -176,6 +178,7 @@ impl Default for ChainConfig {
             fast_confirmation: FastConfirmationMode::Disabled,
             disable_proposer_reorg: false,
             verify_envelope_payload_hash_on_cl: true,
+            execution_proofs_required: 2,
         }
     }
 }

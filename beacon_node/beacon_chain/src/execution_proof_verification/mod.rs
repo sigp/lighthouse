@@ -16,11 +16,6 @@ pub use observed_execution_proofs::ObservedExecutionProofs;
 
 use observed_execution_proofs::Error as ObservationError;
 
-/// Distinct proof systems that must prove a payload before fork choice calls it valid.
-///
-/// TODO(9658): make configurable. https://github.com/sigp/lighthouse/issues/9658
-pub const REQUIRED_EXECUTION_PROOFS: usize = 2;
-
 /// How a proof reached us, which decides whether deduplication rejects it.
 #[derive(Clone, Copy)]
 pub enum ProofSource {
@@ -101,7 +96,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.observed_execution_proofs
             .read()
             .valid_proof_count(block_root)
-            >= REQUIRED_EXECUTION_PROOFS
+            >= self.config.execution_proofs_required
     }
 
     /// Tell fork choice `block_root`'s payload is valid.
