@@ -157,7 +157,7 @@ where
                 // this new finalized chain.
 
                 self.chains.add_peer_or_create_chain(
-                    local_info.finalized_epoch,
+                    self.beacon_chain.range_sync_start_epoch(),
                     remote_info.finalized_root,
                     target_head_slot,
                     peer_id,

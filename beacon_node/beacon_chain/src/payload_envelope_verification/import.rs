@@ -9,7 +9,7 @@ use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
 use types::{
     BlockImportSource, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelope, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 use super::{
@@ -397,18 +397,60 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), EnvelopeError> {
         let signed_envelope = available_envelope.envelope().clone();
 
-        // Load the state snapshot for envelope processing
-        let state_root = block.state_root();
-        let snapshot = load_snapshot_from_state_root::<T>(block_root, state_root, &self.store)?;
+        let split = self.store.get_split_info();
+        if block_root == split.block_root && block.slot() < split.slot {
+            // The anchor's post-state isn't stored, so verify against the split state at its slot.
+            let mut state = self
+                .store
+                .get_hot_state(&split.state_root, false)?
+                .ok_or_else(|| {
+                    BeaconChainError::DBInconsistent(format!(
+                        "Missing split state {:?}",
+                        split.state_root
+                    ))
+                })?;
+            *state.slot_mut() = block.slot();
+            verify_execution_payload_envelope(
+                &state,
+                &signed_envelope,
+                VerifySignatures::False,
+                block.state_root(),
+                &self.spec,
+            )?;
 
-        // Verify envelope signature and state processing
-        verify_execution_payload_envelope(
-            &snapshot.pre_state,
-            &signed_envelope,
-            VerifySignatures::True,
-            snapshot.state_root,
-            &self.spec,
-        )?;
+            let builder_index = signed_envelope.message.builder_index;
+            let pubkey = if builder_index == BUILDER_INDEX_SELF_BUILD {
+                state
+                    .get_validator(block.message().proposer_index() as usize)?
+                    .pubkey
+            } else {
+                state.get_builder(builder_index)?.pubkey
+            };
+            let pubkey = pubkey
+                .decompress()
+                .map_err(|_| EnvelopeError::BadSignature)?;
+            if !signed_envelope.verify_signature(
+                &pubkey,
+                &self.spec.fork_at_epoch(signed_envelope.epoch()),
+                state.genesis_validators_root(),
+                &self.spec,
+            ) {
+                return Err(EnvelopeError::BadSignature);
+            }
+        } else {
+            // Load the state snapshot for envelope processing
+            let snapshot =
+                load_snapshot_from_state_root::<T>(block_root, block.state_root(), &self.store)?;
+
+            // Verify envelope signature and state processing
+            verify_execution_payload_envelope(
+                &snapshot.pre_state,
+                &signed_envelope,
+                VerifySignatures::True,
+                snapshot.state_root,
+                &self.spec,
+            )?;
+        }
 
         // EIP-8025: execution layer verifications must be done on the CL.
         if self.execution_proofs_enabled() && self.config.verify_envelope_payload_hash_on_cl {
