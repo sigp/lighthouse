@@ -850,6 +850,13 @@ fn fork_choice_should_apply_proposer_boost() {
 
 #[test]
 #[cfg(feature = "spec-minimal")]
+fn fork_choice_filter_node_tree_variants() {
+    ForkChoiceHandler::<Spec>::new("filter_node_tree_variants").run();
+    // There is no mainnet variant for this test.
+}
+
+#[test]
+#[cfg(feature = "spec-minimal")]
 fn fork_choice_compliance_attester_slashing_test() {
     ForkChoiceComplianceHandler::<Spec>::new("attester_slashing_test").run();
 }

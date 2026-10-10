@@ -52,6 +52,11 @@ impl VoteTracker {
     pub fn current_slot(&self) -> Slot {
         self.current_slot
     }
+
+    /// The payload status of this validator's latest message for a block at `block_slot`.
+    pub fn current_payload_status(&self, block_slot: Slot) -> PayloadStatus {
+        PayloadStatus::from_vote(self.current_slot, self.current_payload_present, block_slot)
+    }
 }
 
 // This impl is only used upon upgrade from pre-Gloas to Gloas with all pre-Gloas nodes.
