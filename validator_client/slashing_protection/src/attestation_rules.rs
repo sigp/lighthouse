@@ -5,6 +5,11 @@
 //! the validator's rows and calls `check_attestation`. This makes the rules easier to
 //! read, test and formally verify.
 //!
+//! A machine checked proof that this function never returns `Verdict::Valid` for a slashable
+//! attestation lives in `../proofs`. Charon and Aeneas generate the Lean definition directly
+//! from this Rust. If you edit this file, the proof no longer matches and the CI job in
+//! `.github/workflows/proofs.yml` fails.
+//!
 //! # Why this is written the way it is
 //!
 //! The style here is unidiomatic on purpose. Indexed `while` loops, no iterator adapters,
