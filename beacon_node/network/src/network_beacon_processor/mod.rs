@@ -1163,13 +1163,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
                 self.publish_data_columns_gradually(data_columns_to_publish, block_root);
                 match &availability_processing_status {
-                    AvailabilityProcessingStatus::Imported(_, hash) => {
+                    AvailabilityProcessingStatus::Imported(imported_slot, imported_root) => {
                         debug!(
                             result = "imported block and custody columns",
-                            block_hash = %hash,
+                            block_root = %imported_root,
                             "Block components available via reconstruction"
                         );
                         self.chain.recompute_head_at_current_slot().await;
+                        self.notify_import_after_column(
+                            *imported_slot,
+                            *imported_root,
+                            EnvelopeSource::Gossip,
+                        );
                     }
                     AvailabilityProcessingStatus::MissingComponents(_, _) => {
                         debug!(
