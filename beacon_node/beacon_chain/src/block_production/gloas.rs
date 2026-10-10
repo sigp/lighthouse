@@ -487,10 +487,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BlockProductionError::OpPoolError)?
         };
 
-        let mut payload_attestations = self
-            .op_pool
-            .get_payload_attestations(&state, parent_root, &self.spec)
-            .map_err(BlockProductionError::OpPoolError)?;
+        let mut payload_attestations = {
+            let target_slot = state.slot().saturating_sub(1u64);
+            let mut result = self.op_pool.get_payload_attestations(|data| {
+                data.slot == target_slot && data.beacon_block_root == parent_root
+            });
+
+            // Prefer most participation and cap by `max_payload_attestations`
+            result.sort_by(|a, b| {
+                b.aggregation_bits
+                    .num_set_bits()
+                    .cmp(&a.aggregation_bits.num_set_bits())
+            });
+            result.truncate(T::EthSpec::max_payload_attestations());
+
+            result
+        };
 
         // If paranoid mode is enabled re-check the signatures of every included message.
         // This will be a lot slower but guards against bugs in block production and can be
