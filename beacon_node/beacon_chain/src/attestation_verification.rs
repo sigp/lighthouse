@@ -257,6 +257,10 @@ pub enum Error {
     Invalid(AttestationValidationError),
     /// The attestation head block is too far behind the attestation slot, causing many skip slots.
     /// This is deemed a DoS risk.
+    ///
+    /// ## Peer scoring
+    ///
+    /// Exceeds the local `--max-skip-slots` limit. The attestation is ignored (not penalized).
     TooManySkippedSlots {
         head_block_slot: Slot,
         attestation_slot: Slot,
