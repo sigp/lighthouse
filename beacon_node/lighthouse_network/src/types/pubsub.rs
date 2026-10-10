@@ -701,11 +701,10 @@ mod tests {
     use libp2p::gossipsub::partial_messages::Partial;
     use types::data::{CellBitmap, PartialDataColumnSidecarGloas};
     use types::{
-        BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, MainnetEthSpec, Slot,
-        data::DataColumnSubnetId,
+        BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, Slot, Spec, data::DataColumnSubnetId,
     };
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     #[test]
     fn beacon_blocks_decode_all_forks() {
