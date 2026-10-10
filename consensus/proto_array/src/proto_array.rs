@@ -942,6 +942,27 @@ impl ProtoArray {
         Ok(())
     }
 
+    /// Envelope write failed. Set `payload_received` to false to match the DB.
+    pub fn on_payload_envelope_write_failed(&mut self, block_root: Hash256) -> Result<(), Error> {
+        let index = *self
+            .indices
+            .get(&block_root)
+            .ok_or(Error::NodeUnknown(block_root))?;
+
+        let node = self
+            .nodes
+            .get_mut(index)
+            .ok_or(Error::InvalidNodeIndex(index))?;
+
+        let v29 = node
+            .as_v29_mut()
+            .map_err(|_| Error::InvalidNodeVariant { block_root })?;
+
+        v29.payload_received = false;
+
+        Ok(())
+    }
+
     /// Promotes `start_index` and every payload that its branch executed to `Valid`.
     ///
     /// `start_status` is the node that the walk starts on. An `EMPTY` edge is a gap in the

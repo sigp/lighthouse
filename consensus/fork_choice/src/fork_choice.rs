@@ -750,6 +750,16 @@ where
         Ok(())
     }
 
+    /// Envelope write failed. Set `payload_received` to false. Execution status is kept.
+    pub fn on_payload_envelope_write_failed(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .on_payload_envelope_write_failed(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
+    }
+
     /// Mark the payload `block_hash` valid, as judged by a forkchoiceUpdated.
     ///
     /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.

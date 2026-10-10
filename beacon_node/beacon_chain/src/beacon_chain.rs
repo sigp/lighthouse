@@ -4772,7 +4772,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Poison fork choice so the diverged version is never persisted, and shut down the
     /// node. On restart, the normal startup procedure loads the last consistent fork
     /// choice from disk.
-    fn handle_import_block_db_write_error(
+    pub(crate) fn handle_import_block_db_write_error(
         &self,
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
