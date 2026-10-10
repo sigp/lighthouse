@@ -4,8 +4,8 @@ use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
     Block as ProtoBlock, ExecutionStatus, ExecutionVerdict, ForkChoiceNode, JustifiedBalances,
-    LatestMessage, PayloadBlockHash, PayloadStatus, ProposerHeadError, ProposerHeadInfo,
-    ProtoArrayForkChoice, ReOrgThreshold,
+    LatestMessage, OptimisticPayloads, PayloadBlockHash, PayloadStatus, ProposerHeadError,
+    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -385,6 +385,8 @@ pub struct ForkChoice<T, E> {
     /// Rejects attestations from the current or a future slot instead of queueing them, as the
     /// spec does. Always `false` in production.
     spec_test_mode: bool,
+    /// Not persisted: it comes from the chain config.
+    optimistic_payloads: OptimisticPayloads,
     _phantom: PhantomData<E>,
 }
 
@@ -412,6 +414,7 @@ where
         anchor_block: &SignedBeaconBlock<E>,
         anchor_state: &BeaconState<E>,
         current_slot: Option<Slot>,
+        filter_optimistic_payloads: bool,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         // Sanity check: the anchor must lie on an epoch boundary.
@@ -480,6 +483,11 @@ where
             proto_array,
             queued_attestations: BTreeMap::new(),
             spec_test_mode: false,
+            optimistic_payloads: if filter_optimistic_payloads {
+                OptimisticPayloads::Filtered
+            } else {
+                OptimisticPayloads::Eligible
+            },
             // This will be updated during the next call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,
@@ -595,6 +603,7 @@ where
             store.proposer_boost_root(),
             store.equivocating_indices(),
             current_slot,
+            self.optimistic_payloads,
             spec,
         )?;
         let (head_root, head_payload_status) = head_node.as_pair();
@@ -1792,6 +1801,7 @@ where
                     block_root,
                     current_slot,
                     proposer_boost_root,
+                    self.optimistic_payloads,
                     spec,
                 )
                 .map_err(Error::ProtoArrayError)
@@ -2018,6 +2028,7 @@ where
         persisted: PersistedForkChoice,
         reset_payload_statuses: ResetPayloadStatuses,
         fc_store: T,
+        filter_optimistic_payloads: bool,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         let justified_balances = fc_store.justified_balances().clone();
@@ -2035,6 +2046,11 @@ where
             proto_array,
             queued_attestations: BTreeMap::new(),
             spec_test_mode: false,
+            optimistic_payloads: if filter_optimistic_payloads {
+                OptimisticPayloads::Filtered
+            } else {
+                OptimisticPayloads::Eligible
+            },
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
                 head_hash: None,

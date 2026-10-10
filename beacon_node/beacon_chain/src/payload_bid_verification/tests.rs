@@ -152,9 +152,16 @@ impl TestContext {
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store.clone(), snapshot.clone())
             .expect("should create fork choice store");
-        let mut fork_choice =
-            ForkChoice::from_anchor(fc_store, block_root, &signed_block, &state, None, &spec)
-                .expect("should create fork choice");
+        let mut fork_choice = ForkChoice::from_anchor(
+            fc_store,
+            block_root,
+            &signed_block,
+            &state,
+            None,
+            false,
+            &spec,
+        )
+        .expect("should create fork choice");
 
         store
             .put_block(&block_root, signed_block.clone())

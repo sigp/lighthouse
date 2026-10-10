@@ -1,6 +1,8 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fixed_bytes::FixedBytesExtended;
-use proto_array::{Block, ExecutionStatus, JustifiedBalances, ProtoArrayForkChoice};
+use proto_array::{
+    Block, ExecutionStatus, JustifiedBalances, OptimisticPayloads, ProtoArrayForkChoice,
+};
 use std::collections::BTreeSet;
 use std::time::Duration;
 use types::{
@@ -104,6 +106,7 @@ fn bench_find_head(c: &mut Criterion) {
                             Hash256::zero(),
                             &equivocating_indices,
                             Slot::new(num_blocks),
+                            OptimisticPayloads::Eligible,
                             &spec,
                         )
                         .expect("should find head")
