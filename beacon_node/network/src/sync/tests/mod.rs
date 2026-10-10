@@ -36,23 +36,23 @@ type T = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
 /// 3. Making assertion on `NetworkMessage` received from sync (Outgoing RPC requests).
 ///
 /// The test utility covers testing the interactions from and to `SyncManager`. In diagram form:
-///                      +-----------------+
-///                      | BeaconProcessor |
-///                      +---------+-------+
-///                             ^  |
-///                             |  |
-///                   WorkEvent |  | SyncMsg
-///                             |  | (Result)
-///                             |  v
-/// +--------+            +-----+-----------+             +----------------+
-/// | Router +----------->|  SyncManager    +------------>| NetworkService |
-/// +--------+  SyncMsg   +-----------------+ NetworkMsg  +----------------+
-///           (RPC resp)  |  - RangeSync    |  (RPC req)
-///                       +-----------------+
-///                       |  - BackFillSync |
-///                       +-----------------+
-///                       |  - BlockLookups |
-///                       +-----------------+
+///                               +-----------------+
+///                               | BeaconProcessor |
+///                               +---------+-------+
+///                                      ^  |
+///                                      |  |
+///                            WorkEvent |  | SyncMsg
+///                                      |  | (Result)
+///                                      |  v
+/// +----------------+   SyncMsg +-----------------+
+/// | NetworkService  +---------->|  SyncManager    |
+/// |                |  SyncMsg   +-----------------+
+/// |                | (RPC resp) |  - RangeSync    |
+/// |                |<-----------+-----------------+
+/// |   (dispatch)   | NetworkMsg |  - BackFillSync |
+/// +----------------+  (RPC req) +-----------------+
+///                               |  - BlockLookups |
+///                               +-----------------+
 struct TestRig {
     /// Receiver for `BeaconProcessor` events (e.g. block processing results).
     beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
