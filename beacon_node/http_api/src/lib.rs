@@ -678,6 +678,14 @@ pub async fn serve<T: BeaconChainTypes>(
     let get_beacon_state_proposer_lookahead =
         states::get_beacon_state_proposer_lookahead(beacon_states_path.clone());
 
+    // GET beacon/states/{state_id}/builder_pending_withdrawals
+    let get_beacon_state_builder_pending_withdrawals =
+        states::get_beacon_state_builder_pending_withdrawals(beacon_states_path.clone());
+
+    // GET beacon/states/{state_id}/builder_pending_payments
+    let get_beacon_state_builder_pending_payments =
+        states::get_beacon_state_builder_pending_payments(beacon_states_path.clone());
+
     // GET beacon/headers
     //
     // Note: this endpoint only returns information about blocks in the canonical chain. Given that
@@ -3436,6 +3444,8 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_state_pending_partial_withdrawals)
                 .uor(get_beacon_state_pending_consolidations)
                 .uor(get_beacon_state_proposer_lookahead)
+                .uor(get_beacon_state_builder_pending_withdrawals)
+                .uor(get_beacon_state_builder_pending_payments)
                 .uor(get_beacon_headers)
                 .uor(get_beacon_headers_block_id)
                 .uor(get_beacon_block)
