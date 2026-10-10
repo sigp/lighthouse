@@ -2068,6 +2068,59 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `GET beacon/proposer_preferences?slot,dependent_root`
+    pub async fn get_beacon_proposer_preferences(
+        &self,
+        slot: Option<Slot>,
+        dependent_root: Option<Hash256>,
+    ) -> Result<BeaconResponse<Vec<SignedProposerPreferences>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("proposer_preferences");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        if let Some(root) = dependent_root {
+            path.query_pairs_mut()
+                .append_pair("dependent_root", &format!("{:?}", root));
+        }
+
+        self.get(path).await.map(BeaconResponse::ForkVersioned)
+    }
+
+    /// `GET beacon/proposer_preferences?slot,dependent_root` (SSZ)
+    pub async fn get_beacon_proposer_preferences_ssz(
+        &self,
+        slot: Option<Slot>,
+        dependent_root: Option<Hash256>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("proposer_preferences");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        if let Some(root) = dependent_root {
+            path.query_pairs_mut()
+                .append_pair("dependent_root", &format!("{:?}", root));
+        }
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
+    }
+
     /// `POST validator/proposer_preferences`
     pub async fn post_validator_proposer_preferences(
         &self,

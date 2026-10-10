@@ -555,6 +555,12 @@ pub struct AttestationPoolQuery {
     pub committee_index: Option<u64>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ProposerPreferencesQuery {
+    pub slot: Option<Slot>,
+    pub dependent_root: Option<Hash256>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ValidatorsQuery {

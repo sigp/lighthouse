@@ -3467,6 +3467,77 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_beacon_proposer_preferences(mut self) -> Self {
+        let signed = self.make_valid_signed_proposer_preferences(6);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(signed.message.proposal_slot);
+
+        self.client
+            .post_validator_proposer_preferences(std::slice::from_ref(&signed), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid proposer preferences should be sent to network"
+        );
+
+        let response = self
+            .client
+            .get_beacon_proposer_preferences(
+                Some(signed.message.proposal_slot),
+                Some(signed.message.dependent_root),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.data(), &vec![signed]);
+
+        let current_slot = self.chain.slot().unwrap();
+        assert_eq!(
+            response.version(),
+            Some(self.chain.spec.fork_name_at_slot::<E>(current_slot))
+        );
+
+        self
+    }
+
+    pub async fn test_get_beacon_proposer_preferences_ssz(mut self) -> Self {
+        let signed = self.make_valid_signed_proposer_preferences(7);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(signed.message.proposal_slot);
+
+        self.client
+            .post_validator_proposer_preferences(std::slice::from_ref(&signed), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid proposer preferences should be sent to network"
+        );
+
+        let ssz_bytes = self
+            .client
+            .get_beacon_proposer_preferences_ssz(
+                Some(signed.message.proposal_slot),
+                Some(signed.message.dependent_root),
+            )
+            .await
+            .unwrap()
+            .expect("SSZ response should be present");
+
+        let decoded = Vec::<SignedProposerPreferences>::from_ssz_bytes(&ssz_bytes)
+            .expect("should decode SSZ proposer preferences");
+        assert_eq!(decoded, vec![signed]);
+
+        self
+    }
+
     /// Build a `SignedExecutionPayloadBid`
     fn make_signed_execution_payload_bid(&self) -> (SignedExecutionPayloadBid<E>, ForkName) {
         let head = self.chain.canonical_head.cached_head();
@@ -11302,6 +11373,19 @@ async fn post_validator_proposer_preferences() {
         .test_post_validator_proposer_preferences_invalid_sig_ssz()
         .await
         .test_post_validator_proposer_preferences_duplicate()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_proposer_preferences() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_proposer_preferences()
+        .await
+        .test_get_beacon_proposer_preferences_ssz()
         .await;
 }
 
