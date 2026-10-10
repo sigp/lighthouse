@@ -197,20 +197,18 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
         let sync_aggregate_count = remote_node
             .get_beacon_blocks::<E>(BlockId::Slot(Slot::new(slot)))
             .await
-            .map(|resp| {
-                resp.unwrap_or_else(|| {
-                    panic!(
-                        "Beacon block for slot {} not returned from Beacon API",
-                        slot
-                    )
-                })
-                .data()
-                .message()
-                .body()
-                .sync_aggregate()
-                .map(|agg| agg.num_set_bits())
-            })
             .map_err(|e| format!("Error while getting beacon block: {:?}", e))?
+            .ok_or_else(|| {
+                format!(
+                    "Beacon block for slot {} not returned from Beacon API",
+                    slot
+                )
+            })?
+            .data()
+            .message()
+            .body()
+            .sync_aggregate()
+            .map(|agg| agg.num_set_bits())
             .map_err(|_| format!("Altair block {} should have sync aggregate", slot))?;
 
         if sync_aggregate_count == 0 {
