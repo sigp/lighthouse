@@ -110,6 +110,18 @@ impl InvalidPayloadRig {
             .execution_status
     }
 
+    /// The verdict on the payload that `block_root`'s branch last executed, as the finalized and
+    /// justified checks see it.
+    fn inherited_execution_verdict(&self, block_root: Hash256) -> ExecutionVerdict {
+        self.harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .inherited_execution_status(&block_root)
+            .unwrap()
+            .unwrap()
+    }
+
     async fn recompute_head(&self) {
         self.harness.chain.recompute_head_at_current_slot().await;
     }
@@ -434,6 +446,64 @@ impl InvalidPayloadRig {
             },
             other => other,
         })
+    }
+
+    /// Import a block built on the `parent_payload_status` node of `parent_root`, setting the
+    /// newPayload and forkchoiceUpdated responses to `is_valid`.
+    async fn import_block_on(
+        &self,
+        parent_root: Hash256,
+        parent_payload_status: proto_array::PayloadStatus,
+        is_valid: Payload,
+    ) -> Hash256 {
+        let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
+        match is_valid {
+            Payload::Valid => mock_execution_layer.server.full_payload_verification(),
+            Payload::Syncing => {
+                mock_execution_layer
+                    .server
+                    .all_payloads_syncing_on_new_payload(true);
+                mock_execution_layer
+                    .server
+                    .all_payloads_syncing_on_forkchoice_updated();
+            }
+            Payload::Invalid { .. } | Payload::InvalidBlockHash => {
+                panic!("import_block_on only imports valid or syncing payloads")
+            }
+        }
+
+        let parent = self.harness.get_block(parent_root.into()).unwrap();
+        let parent_post_state = self
+            .harness
+            .get_hot_state(parent.state_root().into())
+            .unwrap();
+        let slot = parent.slot() + 1;
+        let ((block, blobs), opt_envelope, post_state) = self
+            .harness
+            .make_block_with_envelope_on(parent_post_state, slot, parent_payload_status)
+            .await;
+        let block_root = block.canonical_root();
+
+        self.harness
+            .process_block(slot, block_root, (block.clone(), blobs))
+            .await
+            .unwrap();
+        self.import_envelope(&block, opt_envelope)
+            .await
+            .expect("envelope import should succeed");
+
+        if self.enable_attestations {
+            let all_validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
+            self.harness.attest_block(
+                &post_state,
+                block.state_root(),
+                block_root.into(),
+                &block,
+                &all_validators,
+            );
+        }
+
+        block_root
     }
 
     async fn invalidate_manually(&self, head_hash: ExecutionBlockHash) {
@@ -1889,6 +1959,485 @@ async fn gloas_latest_valid_hash_keeps_its_child_on_empty() {
         cached_head.head_payload_status(),
         proto_array::PayloadStatus::Empty
     );
+}
+
+/// A lagging execution layer answers SYNCING for a Gloas block and its parent. Once it catches up,
+/// a minority child built on the block's `FULL` node arrives and its payload is answered INVALID,
+/// condemning the block's payload too. The majority chain is built on the block's `EMPTY` node until
+/// that block is finalized. The node keeps running with an invalid finalized payload, since the
+/// finalized block builds on its parent's valid payload.
+#[tokio::test]
+async fn gloas_invalid_finalized_payload_on_empty_keeps_running_on_full_child_rejection() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+
+    let finalized_epoch = Epoch::new(2);
+    let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
+    rig.build_blocks(finalized_slot.as_u64() - 2, Payload::Valid)
+        .await;
+
+    let finalized_parent_root = rig.import_block(Payload::Syncing).await;
+    let finalized_parent_payload_hash = rig.block_hash(finalized_parent_root);
+    let finalized_root = rig.import_block(Payload::Syncing).await;
+
+    let cached_head = rig.cached_head();
+    assert_eq!(cached_head.head_block_root(), finalized_root);
+    assert_eq!(
+        cached_head.head_payload_status(),
+        proto_array::PayloadStatus::Full
+    );
+
+    let full_child_root = rig
+        .import_block_parametric(
+            Payload::Invalid {
+                latest_valid_hash: Some(finalized_parent_payload_hash),
+            },
+            Payload::Invalid {
+                latest_valid_hash: Some(finalized_parent_payload_hash),
+            },
+            None,
+            |error| {
+                matches!(
+                    error,
+                    BlockError::ExecutionPayloadError(
+                        ExecutionPayloadError::RejectedByExecutionEngine { .. }
+                    )
+                )
+            },
+        )
+        .await;
+    let full_child = rig.harness.get_block(full_child_root.into()).unwrap();
+    assert_eq!(
+        full_child
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message()
+            .parent_block_hash(),
+        rig.block_hash(finalized_root)
+    );
+    assert!(rig.execution_status(full_child_root).is_invalid());
+    assert!(rig.execution_status(finalized_root).is_invalid());
+
+    let cached_head = rig.cached_head();
+    assert_eq!(cached_head.head_block_root(), finalized_root);
+    assert_eq!(
+        cached_head.head_payload_status(),
+        proto_array::PayloadStatus::Empty
+    );
+
+    let finality_slot = (finalized_epoch + 2).start_slot(E::slots_per_epoch());
+    let descendant_roots = rig
+        .build_blocks((finality_slot - finalized_slot).as_u64(), Payload::Valid)
+        .await;
+    let first_child = rig.harness.get_block(descendant_roots[0].into()).unwrap();
+    assert_eq!(
+        first_child
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message()
+            .parent_block_hash(),
+        finalized_parent_payload_hash
+    );
+
+    assert_eq!(
+        rig.harness.finalized_checkpoint(),
+        Checkpoint {
+            epoch: finalized_epoch,
+            root: finalized_root,
+        }
+    );
+    assert!(rig.harness.shutdown_reasons().is_empty());
+
+    assert!(rig.execution_status(finalized_root).is_invalid());
+    assert_eq!(
+        rig.inherited_execution_verdict(finalized_root),
+        ExecutionVerdict::Valid
+    );
+    assert_eq!(
+        rig.cached_head()
+            .forkchoice_update_parameters()
+            .finalized_hash,
+        Some(finalized_parent_payload_hash)
+    );
+    for root in &descendant_roots {
+        assert!(is_valid_and_post_bellatrix(rig.execution_status(*root)));
+    }
+}
+
+/// A syncing execution layer answers SYNCING for a Gloas block's invalid payload, and the chain is
+/// imported optimistically on the block's `EMPTY` node until that block is finalized. Once the
+/// execution layer catches up, a new head is imported as valid and its validity reaches the
+/// finalized block's parent through the `EMPTY` edge. The node keeps running, and the finalized
+/// block's own payload is never judged and stays optimistic.
+#[tokio::test]
+async fn gloas_invalid_finalized_payload_on_empty_keeps_running_on_optimistic_sync() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+
+    let finalized_epoch = Epoch::new(2);
+    let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
+    rig.build_blocks(finalized_slot.as_u64() - 2, Payload::Valid)
+        .await;
+
+    let finalized_parent_root = rig.import_block(Payload::Syncing).await;
+    let finalized_parent_payload_hash = rig.block_hash(finalized_parent_root);
+
+    let finalized_root = rig.import_block(Payload::Syncing).await;
+    assert!(is_optimistic(rig.execution_status(finalized_root)));
+
+    let first_child_root = rig
+        .import_block_on(
+            finalized_root,
+            proto_array::PayloadStatus::Empty,
+            Payload::Syncing,
+        )
+        .await;
+    let first_child = rig.harness.get_block(first_child_root.into()).unwrap();
+    assert_eq!(
+        first_child
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message()
+            .parent_block_hash(),
+        finalized_parent_payload_hash
+    );
+
+    let finality_slot = (finalized_epoch + 2).start_slot(E::slots_per_epoch());
+    let mut descendant_roots = vec![first_child_root];
+    descendant_roots.extend(
+        rig.build_blocks(
+            (finality_slot - finalized_slot).as_u64() - 1,
+            Payload::Syncing,
+        )
+        .await,
+    );
+
+    assert_eq!(
+        rig.harness.finalized_checkpoint(),
+        Checkpoint {
+            epoch: finalized_epoch,
+            root: finalized_root,
+        }
+    );
+    assert!(rig.harness.shutdown_reasons().is_empty());
+
+    // Finality was reached optimistically: the finalized block inherits its parent's unverified
+    // payload, and every descendant is optimistic.
+    assert_eq!(
+        rig.inherited_execution_verdict(finalized_root),
+        ExecutionVerdict::Optimistic
+    );
+    for root in &descendant_roots {
+        assert!(is_optimistic(rig.execution_status(*root)));
+    }
+
+    // The execution layer catches up and validates the new head's payload chain, which runs
+    // through the finalized block's parent but not the finalized block's payload.
+    let new_head_root = rig.import_block(Payload::Valid).await;
+    assert_eq!(rig.harness.head_block_root(), new_head_root);
+    assert!(rig.harness.shutdown_reasons().is_empty());
+
+    // The finalized block's own payload is never judged, while the payload it builds on is.
+    assert!(is_optimistic(rig.execution_status(finalized_root)));
+    assert_eq!(
+        rig.inherited_execution_verdict(finalized_root),
+        ExecutionVerdict::Valid
+    );
+    assert_eq!(
+        rig.cached_head()
+            .forkchoice_update_parameters()
+            .finalized_hash,
+        Some(finalized_parent_payload_hash)
+    );
+    for root in descendant_roots.iter().chain([&new_head_root]) {
+        assert!(is_valid_and_post_bellatrix(rig.execution_status(*root)));
+    }
+}
+
+/// A synced execution layer rejects a Gloas block's payload when its envelope arrives, so the
+/// payload never reaches fork choice, and the chain is built on the block's `EMPTY` node until that
+/// block is finalized. The node keeps running, since the finalized block builds on its parent's
+/// valid payload.
+#[tokio::test]
+async fn gloas_invalid_finalized_payload_on_empty_keeps_running_on_envelope_rejection() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+
+    let finalized_epoch = Epoch::new(2);
+    let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
+    rig.build_blocks(finalized_slot.as_u64() - 2, Payload::Valid)
+        .await;
+
+    let finalized_parent_root = rig.import_block(Payload::Valid).await;
+    let finalized_parent_payload_hash = rig.block_hash(finalized_parent_root);
+
+    let finalized_root = rig
+        .import_block_parametric(
+            Payload::Invalid {
+                latest_valid_hash: Some(finalized_parent_payload_hash),
+            },
+            Payload::Valid,
+            None,
+            |error| {
+                matches!(
+                    error,
+                    BlockError::ExecutionPayloadError(
+                        ExecutionPayloadError::RejectedByExecutionEngine { .. }
+                    )
+                )
+            },
+        )
+        .await;
+    assert!(is_not_yet_revealed(rig.execution_status(finalized_root)));
+
+    let first_child_root = rig
+        .import_block_on(
+            finalized_root,
+            proto_array::PayloadStatus::Empty,
+            Payload::Valid,
+        )
+        .await;
+    let first_child = rig.harness.get_block(first_child_root.into()).unwrap();
+    assert_eq!(
+        first_child
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message()
+            .parent_block_hash(),
+        finalized_parent_payload_hash
+    );
+
+    let finality_slot = (finalized_epoch + 2).start_slot(E::slots_per_epoch());
+    let mut descendant_roots = vec![first_child_root];
+    descendant_roots.extend(
+        rig.build_blocks(
+            (finality_slot - finalized_slot).as_u64() - 1,
+            Payload::Valid,
+        )
+        .await,
+    );
+
+    assert_eq!(
+        rig.harness.finalized_checkpoint(),
+        Checkpoint {
+            epoch: finalized_epoch,
+            root: finalized_root,
+        }
+    );
+    assert!(rig.harness.shutdown_reasons().is_empty());
+
+    assert!(is_not_yet_revealed(rig.execution_status(finalized_root)));
+    assert_eq!(
+        rig.inherited_execution_verdict(finalized_root),
+        ExecutionVerdict::Valid
+    );
+    assert_eq!(
+        rig.cached_head()
+            .forkchoice_update_parameters()
+            .finalized_hash,
+        Some(finalized_parent_payload_hash)
+    );
+    for root in &descendant_roots {
+        assert!(is_valid_and_post_bellatrix(rig.execution_status(*root)));
+    }
+}
+
+/// The chain is imported optimistically on a Gloas block's `FULL` node until that block is
+/// finalized. The execution layer then catches up and answers INVALID with the block's parent
+/// payload as the latest valid hash. That hash is older than finality, so only heads are condemned
+/// until the head reaches the justified block, and the justified check shuts the node down.
+#[tokio::test]
+async fn gloas_invalid_finalized_payload_on_full_shuts_down_on_optimistic_sync() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+
+    let finalized_epoch = Epoch::new(2);
+    let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
+    rig.build_blocks(finalized_slot.as_u64() - 2, Payload::Valid)
+        .await;
+
+    let finality_slot = (finalized_epoch + 2).start_slot(E::slots_per_epoch());
+    let mut roots = rig
+        .build_blocks(
+            (finality_slot - finalized_slot).as_u64() + 2,
+            Payload::Syncing,
+        )
+        .await;
+    let descendant_roots = roots.split_off(2);
+    let (finalized_parent_root, finalized_root) = (roots[0], roots[1]);
+    let finalized_parent_payload_hash = rig.block_hash(finalized_parent_root);
+    let finalized_payload_hash = rig.block_hash(finalized_root);
+
+    let first_child = rig.harness.get_block(descendant_roots[0].into()).unwrap();
+    assert_eq!(
+        first_child
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message()
+            .parent_block_hash(),
+        finalized_payload_hash
+    );
+
+    let finalized_checkpoint = Checkpoint {
+        epoch: finalized_epoch,
+        root: finalized_root,
+    };
+    assert_eq!(rig.harness.finalized_checkpoint(), finalized_checkpoint);
+
+    let justified_root = rig.harness.justified_checkpoint().root;
+    let justified_parent_root = rig
+        .harness
+        .get_block(justified_root.into())
+        .unwrap()
+        .parent_root();
+
+    let new_block_root = rig
+        .import_block_parametric(
+            Payload::Invalid {
+                latest_valid_hash: Some(finalized_parent_payload_hash),
+            },
+            Payload::Invalid {
+                latest_valid_hash: Some(finalized_parent_payload_hash),
+            },
+            None,
+            |error| match error {
+                BlockError::EnvelopeError(envelope_error) => matches!(
+                    envelope_error.as_ref(),
+                    EnvelopeError::BeaconChainError(e)
+                        if matches!(e.as_ref(), BeaconChainError::JustifiedPayloadInvalid { .. })
+                ),
+                _ => false,
+            },
+        )
+        .await;
+
+    // The justified check fires, not the finalized one: the finalized block still builds on its
+    // parent's payload.
+    assert_eq!(
+        rig.harness.shutdown_reasons().first(),
+        Some(&ShutdownReason::Failure(
+            INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON
+        ))
+    );
+    assert_eq!(rig.harness.finalized_checkpoint(), finalized_checkpoint);
+
+    // Head selection cannot go above the justified block, so with every descendant invalid it
+    // stops on the justified block's `EMPTY` node, which is itself on an invalid branch.
+    let cached_head = rig.cached_head();
+    assert_eq!(cached_head.head_block_root(), justified_root);
+    assert_eq!(
+        cached_head.head_payload_status(),
+        proto_array::PayloadStatus::Empty
+    );
+    assert_eq!(
+        rig.inherited_execution_verdict(justified_root),
+        ExecutionVerdict::Invalid
+    );
+
+    // The finalized block's payload and the blocks below the justified block's
+    // parent are never judged.
+    assert!(is_optimistic(rig.execution_status(finalized_root)));
+    let justified_parent_index = descendant_roots
+        .iter()
+        .position(|root| *root == justified_parent_root)
+        .unwrap();
+    let (optimistic_roots, invalid_roots) = descendant_roots.split_at(justified_parent_index);
+    for root in optimistic_roots {
+        assert!(is_optimistic(rig.execution_status(*root)));
+    }
+    for root in invalid_roots.iter().chain([&new_block_root]) {
+        assert!(rig.execution_status(*root).is_invalid());
+    }
+}
+
+/// A pre-Gloas block and its descendants, including Gloas blocks after the fork, are imported
+/// optimistically until that block is finalized, and its payload is then invalidated directly. A
+/// pre-Gloas block runs its own payload, so the finalized check shuts the node down.
+#[tokio::test]
+async fn pre_gloas_invalid_finalized_payload_with_gloas_descendants_shuts_down() {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    let finalized_epoch = Epoch::new(2);
+    let gloas_fork_epoch = finalized_epoch + 1;
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    let mut rig = InvalidPayloadRig::new_with_spec(spec).enable_attestations();
+
+    let finalized_slot = finalized_epoch.start_slot(E::slots_per_epoch());
+    rig.build_blocks(finalized_slot.as_u64() - 1, Payload::Valid)
+        .await;
+
+    let finality_slot = (finalized_epoch + 2).start_slot(E::slots_per_epoch());
+    let mut roots = rig
+        .build_blocks(
+            (finality_slot - finalized_slot).as_u64() + 1,
+            Payload::Syncing,
+        )
+        .await;
+    let descendant_roots = roots.split_off(1);
+    let finalized_root = roots[0];
+    let finalized_payload_hash = rig.block_hash(finalized_root);
+
+    let spec = &rig.harness.chain.spec;
+    assert!(!spec.fork_name_at_slot::<E>(finalized_slot).gloas_enabled());
+    assert!(
+        spec.fork_name_at_slot::<E>(gloas_fork_epoch.start_slot(E::slots_per_epoch()))
+            .gloas_enabled()
+    );
+    assert_eq!(
+        rig.harness.finalized_checkpoint(),
+        Checkpoint {
+            epoch: finalized_epoch,
+            root: finalized_root,
+        }
+    );
+    assert_eq!(
+        rig.cached_head()
+            .forkchoice_update_parameters()
+            .finalized_hash,
+        Some(finalized_payload_hash)
+    );
+    assert!(rig.harness.shutdown_reasons().is_empty());
+
+    let head_root_before_invalidation = rig.harness.head_block_root();
+    let result = rig
+        .harness
+        .chain
+        .process_invalid_execution_payload(&InvalidationOperation::InvalidateOne {
+            head_hash: finalized_payload_hash,
+        })
+        .await;
+    assert!(result.is_err());
+
+    assert_eq!(
+        rig.harness.shutdown_reasons().first(),
+        Some(&ShutdownReason::Failure(
+            "Finalized block has an invalid execution payload."
+        ))
+    );
+    for root in [finalized_root].iter().chain(&descendant_roots) {
+        assert!(rig.execution_status(*root).is_invalid());
+    }
+    assert_eq!(rig.harness.head_block_root(), head_root_before_invalidation);
 }
 
 fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
