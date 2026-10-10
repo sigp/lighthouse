@@ -899,7 +899,10 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let operation = match self.operation.as_ref().ok_or(Error::SkippedBls)? {
             Ok(operation) => operation,
-            Err(error) => return compare_result::<BeaconState<E>, _>(&Err(error), &self.post),
+            Err(error @ (Error::InvalidSSZInput(_) | Error::InvalidBLSInput(_))) => {
+                return compare_result::<BeaconState<E>, _>(&Err(error), &self.post);
+            }
+            Err(error) => return Err(error.clone()),
         };
         let spec = &testing_spec_with_config::<E>(fork_name, self.config.as_ref())?;
 
@@ -923,5 +926,103 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         let mut result = operation.apply_to(&mut state, spec, self).map(|()| state);
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use snap::raw::Encoder;
+    use ssz::Encode;
+    use std::fs;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+    use types::MinimalEthSpec;
+
+    type ExitCase = Operations<MinimalEthSpec, SignedVoluntaryExit>;
+
+    fn invalid_exit_case_dir() -> (TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        // The access-log checker expects fixture paths beneath consensus-spec-tests.
+        let path = dir.path().join("consensus-spec-tests");
+        fs::create_dir(&path).unwrap();
+        let spec = crate::testing_spec::<MinimalEthSpec>(ForkName::Base);
+        let pre = BeaconState::<MinimalEthSpec>::new(0, <_>::default(), &spec);
+        let bytes = Encoder::new().compress_vec(&pre.as_ssz_bytes()).unwrap();
+        fs::write(path.join("pre.ssz_snappy"), bytes).unwrap();
+        // No post-state means that the operation is expected to be rejected.
+        (dir, path)
+    }
+
+    fn exit_case_result(path: &Path) -> Result<(), Error> {
+        ExitCase::load_from_dir(path, ForkName::Base)?.result(0, ForkName::Base)
+    }
+
+    #[test]
+    fn missing_operation_file_is_not_an_expected_rejection() {
+        let (_dir, path) = invalid_exit_case_dir();
+        let result = exit_case_result(&path);
+        assert!(
+            matches!(&result, Err(Error::FailedToParseTest(message)) if message.contains("Unable to load")),
+            "Missing operation file should fail the test harness, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn corrupt_snappy_is_not_an_expected_rejection() {
+        let (_dir, path) = invalid_exit_case_dir();
+        fs::write(path.join("voluntary_exit.ssz_snappy"), [0xff]).unwrap();
+        let result = exit_case_result(&path);
+        assert!(
+            matches!(&result, Err(Error::FailedToParseTest(message)) if message.contains("Error decoding snappy")),
+            "Corrupt Snappy should fail the test harness, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn invalid_ssz_is_an_expected_rejection() {
+        let (_dir, path) = invalid_exit_case_dir();
+        let bytes = Encoder::new().compress_vec(&[]).unwrap();
+        fs::write(path.join("voluntary_exit.ssz_snappy"), bytes).unwrap();
+        assert_eq!(exit_case_result(&path), Ok(()));
+    }
+
+    #[test]
+    fn invalid_ssz_fails_when_a_post_state_is_expected() {
+        let (_dir, path) = invalid_exit_case_dir();
+        let bytes = Encoder::new().compress_vec(&[]).unwrap();
+        fs::write(path.join("voluntary_exit.ssz_snappy"), bytes).unwrap();
+        fs::copy(path.join("pre.ssz_snappy"), path.join("post.ssz_snappy")).unwrap();
+
+        assert!(matches!(exit_case_result(&path), Err(Error::NotEqual(_))));
+    }
+
+    #[test]
+    #[cfg(not(feature = "fake_crypto"))]
+    fn invalid_bls_is_an_expected_rejection() {
+        let (_dir, path) = invalid_exit_case_dir();
+        let invalid_exit = vec![0xff; <SignedVoluntaryExit as Encode>::ssz_fixed_len()];
+        let bytes = Encoder::new().compress_vec(&invalid_exit).unwrap();
+        fs::write(path.join("voluntary_exit.ssz_snappy"), bytes).unwrap();
+
+        let case = ExitCase::load_from_dir(&path, ForkName::Base).unwrap();
+        assert!(matches!(
+            &case.operation,
+            Some(Err(Error::InvalidBLSInput(_)))
+        ));
+        assert_eq!(case.result(0, ForkName::Base), Ok(()));
+    }
+
+    #[test]
+    fn incompatible_bls_setting_skips_operation_decoding() {
+        let (_dir, path) = invalid_exit_case_dir();
+        let metadata = if cfg!(feature = "fake_crypto") {
+            "bls_setting: 1\n"
+        } else {
+            "bls_setting: 2\n"
+        };
+        fs::write(path.join("meta.yaml"), metadata).unwrap();
+
+        assert_eq!(exit_case_result(&path), Err(Error::SkippedBls));
     }
 }

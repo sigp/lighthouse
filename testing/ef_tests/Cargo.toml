@@ -48,3 +48,6 @@ tree_hash_derive = { workspace = true }
 typenum = { workspace = true }
 types = { workspace = true }
 yaml_serde = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
