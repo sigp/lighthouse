@@ -1445,8 +1445,12 @@ impl BannedPeersCount {
         self.banned_peers = self.banned_peers.saturating_sub(1);
         for address in ip_addresses {
             let normalized_ip = normalize_ip_for_banning(address);
-            if let Some(count) = self.banned_peers_per_ip.get_mut(&normalized_ip) {
+            if let Entry::Occupied(mut entry) = self.banned_peers_per_ip.entry(normalized_ip) {
+                let count = entry.get_mut();
                 *count = count.saturating_sub(1);
+                if *count == 0 {
+                    entry.remove();
+                }
             }
         }
     }
@@ -2334,6 +2338,32 @@ mod tests {
 
         let ip2 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
         assert_eq!(normalize_ip_for_banning(ip2), ip2);
+    }
+
+    #[test]
+    fn test_remove_banned_peer_removes_zero_count_ip() {
+        let ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let mut banned_peers_count = BannedPeersCount::default();
+
+        banned_peers_count.add_banned_peer(std::iter::once(ip));
+        banned_peers_count.remove_banned_peer(std::iter::once(ip));
+
+        assert!(!banned_peers_count.banned_peers_per_ip.contains_key(&ip));
+    }
+
+    #[test]
+    fn test_remove_banned_peer_retains_non_zero_count_ip() {
+        let ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let mut banned_peers_count = BannedPeersCount::default();
+
+        banned_peers_count.add_banned_peer(std::iter::once(ip));
+        banned_peers_count.add_banned_peer(std::iter::once(ip));
+        banned_peers_count.remove_banned_peer(std::iter::once(ip));
+
+        assert_eq!(banned_peers_count.banned_peers_per_ip.get(&ip), Some(&1));
+
+        banned_peers_count.remove_banned_peer(std::iter::once(ip));
+        assert!(!banned_peers_count.banned_peers_per_ip.contains_key(&ip));
     }
 
     #[test]

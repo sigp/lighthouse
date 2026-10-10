@@ -17,6 +17,9 @@ use std::time::Instant;
 use strum::AsRefStr;
 use types::{DataColumnSubnetId, EthSpec, Slot};
 
+/// Maximum number of observed addresses retained for a peer.
+const MAX_SEEN_MULTIADDRS: usize = 64;
+
 /// Information about a given connected peer.
 #[derive(Clone, Debug, Serialize)]
 #[serde(bound = "E: EthSpec")]
@@ -296,6 +299,21 @@ impl<E: EthSpec> PeerInfo<E> {
         })
     }
 
+    /// Records an observed address while bounding the retained address history.
+    fn add_seen_multiaddr(&mut self, multiaddr: &Multiaddr) {
+        if self.seen_multiaddrs.contains(multiaddr) {
+            return;
+        }
+
+        if self.seen_multiaddrs.len() >= MAX_SEEN_MULTIADDRS
+            && let Some(address) = self.seen_multiaddrs.iter().next().cloned()
+        {
+            self.seen_multiaddrs.remove(&address);
+        }
+
+        self.seen_multiaddrs.insert(multiaddr.clone());
+    }
+
     /// Returns the connection status of the peer.
     pub fn connection_status(&self) -> &PeerConnectionStatus {
         &self.connection_status
@@ -502,7 +520,7 @@ impl<E: EthSpec> PeerInfo<E> {
     /// Modifies the status to Connected and increases the number of ingoing
     /// connections by one
     pub(super) fn connect_ingoing(&mut self, multiaddr: Multiaddr) {
-        self.seen_multiaddrs.insert(multiaddr.clone());
+        self.add_seen_multiaddr(&multiaddr);
 
         match &mut self.connection_status {
             Connected { n_in, .. } => *n_in += 1,
@@ -524,7 +542,7 @@ impl<E: EthSpec> PeerInfo<E> {
     /// Modifies the status to Connected and increases the number of outgoing
     /// connections by one
     pub(super) fn connect_outgoing(&mut self, multiaddr: Multiaddr) {
-        self.seen_multiaddrs.insert(multiaddr.clone());
+        self.add_seen_multiaddr(&multiaddr);
         match &mut self.connection_status {
             Connected { n_out, .. } => *n_out += 1,
             Disconnected { .. }
@@ -690,6 +708,24 @@ mod tests {
 
     fn create_test_peer_info() -> PeerInfo<E> {
         PeerInfo::default()
+    }
+
+    #[test]
+    fn seen_multiaddrs_are_bounded_and_retain_current_address() {
+        let mut peer_info = create_test_peer_info();
+
+        for port in 0..=MAX_SEEN_MULTIADDRS {
+            let multiaddr = format!("/ip4/127.0.0.1/tcp/{}", port + 1)
+                .parse()
+                .expect("valid multiaddr");
+            peer_info.connect_ingoing(multiaddr);
+        }
+
+        let current_address = format!("/ip4/127.0.0.1/tcp/{}", MAX_SEEN_MULTIADDRS + 1)
+            .parse()
+            .expect("valid multiaddr");
+        assert_eq!(peer_info.seen_multiaddrs.len(), MAX_SEEN_MULTIADDRS);
+        assert!(peer_info.seen_multiaddrs.contains(&current_address));
     }
 
     #[test]
