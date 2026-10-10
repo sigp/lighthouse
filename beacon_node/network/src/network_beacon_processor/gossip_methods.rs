@@ -4179,12 +4179,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     block_slot = %verified.block_slot,
                     "Verified execution proof from gossip"
                 );
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_GOSSIP_EXECUTION_PROOF_VERIFIED_TOTAL,
+                );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
                 // This may be the proof the block's payload was waiting on.
                 if let Err(error) = self
                     .chain
-                    .promote_payload_if_proven(verified.proof.beacon_block_root())
+                    .promote_payload_if_proven(
+                        verified.proof.beacon_block_root(),
+                        verified.block_slot,
+                    )
                     .await
                 {
                     debug!(
@@ -4197,6 +4203,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(error) => {
                 debug!(%beacon_block_root, proof_type, ?error, "Could not verify execution proof");
+                metrics::inc_counter_vec(
+                    &metrics::GOSSIP_EXECUTION_PROOF_ERRORS_PER_TYPE,
+                    &[<&'static str>::from(&error)],
+                );
                 let (acceptance, peer_action) = match &error {
                     // IGNORE: duplicates, unknown or finalized blocks.
                     ExecutionProofError::ProofAlreadySeen

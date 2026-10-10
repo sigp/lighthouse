@@ -158,6 +158,13 @@ pub static BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL: L
         "Total number of gossip partial data column sidecar verified for propagation.",
     )
 });
+pub static BEACON_PROCESSOR_GOSSIP_EXECUTION_PROOF_VERIFIED_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_processor_gossip_execution_proof_verified_total",
+            "Total number of gossip execution proofs verified for propagation.",
+        )
+    });
 pub static BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_MISSING_HEADER_TOTAL: LazyLock<
     Result<IntCounter>,
 > = LazyLock::new(|| {
@@ -393,6 +400,14 @@ pub static GOSSIP_OPTIMISTIC_UPDATE_ERRORS_PER_TYPE: LazyLock<Result<IntCounterV
         try_create_int_counter_vec(
             "gossipsub_light_client_optimistic_update_errors_per_type",
             "Gossipsub light_client_optimistic_update errors per error type",
+            &["type"],
+        )
+    });
+pub static GOSSIP_EXECUTION_PROOF_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "gossipsub_execution_proof_errors_per_type",
+            "Gossipsub execution_proof errors per error type",
             &["type"],
         )
     });
