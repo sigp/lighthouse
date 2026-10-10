@@ -16,6 +16,7 @@ mod builders;
 mod caches;
 mod custody;
 mod database;
+mod debug_fork_choice;
 mod light_client;
 mod metrics;
 mod peer;
@@ -66,8 +67,8 @@ use context_deserialize::ContextDeserialize;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::lighthouse::sync_state::SyncState;
 use eth2::types::{
-    self as api_types, BroadcastValidation, EndpointVersion, ForkChoice, ForkChoiceExtraData,
-    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, ValidatorId,
+    self as api_types, BroadcastValidation, EndpointVersion, LightClientUpdatesQuery,
+    PublishBlockRequest, ValidatorId,
 };
 use eth2::{
     BUILDER_URL_HEADER, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
@@ -81,7 +82,6 @@ use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders};
 use network_utils::enr_ext::EnrExt;
 use parking_lot::RwLock;
-use proto_array::PayloadBlockHash;
 pub use publish_blocks::{
     ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
@@ -2174,8 +2174,8 @@ pub async fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET debug/fork_choice
-    let get_debug_fork_choice = eth_v1
+    // GET debug/fork_choice (v1 deprecated in favour of v2)
+    let get_debug_fork_choice = any_version
         .clone()
         .and(warp::path("debug"))
         .and(warp::path("fork_choice"))
@@ -2183,78 +2183,16 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    let beacon_fork_choice = chain.canonical_head.fork_choice_read_lock();
-
-                    let proto_array = beacon_fork_choice.proto_array().core_proto_array();
-
-                    let fork_choice_nodes = proto_array
-                        .nodes
-                        .iter()
-                        .map(|node| {
-                            let execution_status = node
-                                .execution_status()
-                                .is_execution_enabled()
-                                .then(|| node.execution_status().to_string());
-
-                            let execution_status_string = node.execution_status().to_string();
-
-                            ForkChoiceNode {
-                                slot: node.slot(),
-                                block_root: node.root(),
-                                parent_root: node
-                                    .parent()
-                                    .and_then(|index| proto_array.nodes.get(index))
-                                    .map(|parent| parent.root()),
-                                justified_epoch: node.justified_checkpoint().epoch,
-                                finalized_epoch: node.finalized_checkpoint().epoch,
-                                weight: node.weight(),
-                                validity: execution_status,
-                                execution_block_hash: match node.block_hash() {
-                                    PayloadBlockHash::Hash(block_hash) => {
-                                        Some(block_hash.into_root())
-                                    }
-                                    PayloadBlockHash::PreMerge => None,
-                                },
-                                extra_data: ForkChoiceExtraData {
-                                    target_root: node.target_root(),
-                                    justified_root: node.justified_checkpoint().root,
-                                    finalized_root: node.finalized_checkpoint().root,
-                                    unrealized_justified_root: node
-                                        .unrealized_justified_checkpoint()
-                                        .map(|checkpoint| checkpoint.root),
-                                    unrealized_finalized_root: node
-                                        .unrealized_finalized_checkpoint()
-                                        .map(|checkpoint| checkpoint.root),
-                                    unrealized_justified_epoch: node
-                                        .unrealized_justified_checkpoint()
-                                        .map(|checkpoint| checkpoint.epoch),
-                                    unrealized_finalized_epoch: node
-                                        .unrealized_finalized_checkpoint()
-                                        .map(|checkpoint| checkpoint.epoch),
-                                    execution_status: execution_status_string,
-                                    best_child: node
-                                        .best_child()
-                                        .ok()
-                                        .flatten()
-                                        .and_then(|index| proto_array.nodes.get(index))
-                                        .map(|child| child.root()),
-                                    best_descendant: node
-                                        .best_descendant()
-                                        .ok()
-                                        .flatten()
-                                        .and_then(|index| proto_array.nodes.get(index))
-                                        .map(|descendant| descendant.root()),
-                                },
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    Ok(ForkChoice {
-                        justified_checkpoint: beacon_fork_choice.justified_checkpoint(),
-                        finalized_checkpoint: beacon_fork_choice.finalized_checkpoint(),
-                        fork_choice_nodes,
-                    })
+            |endpoint_version: EndpointVersion,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_response_task(Priority::P1, move || match endpoint_version {
+                    V1 => debug_fork_choice::fork_choice_v1(&chain)
+                        .map(|res| warp::reply::json(&res).into_response()),
+                    V2 => debug_fork_choice::fork_choice_v2(&chain).map(|res| {
+                        warp::reply::json(&api_types::GenericResponse::from(res)).into_response()
+                    }),
+                    _ => Err(unsupported_version_rejection(endpoint_version)),
                 })
             },
         );
