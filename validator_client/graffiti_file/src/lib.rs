@@ -63,6 +63,10 @@ impl GraffitiFile {
 
         let lines = reader.lines();
 
+        // Build the new state from scratch so entries removed from the file are dropped.
+        let mut graffitis = HashMap::new();
+        let mut default = None;
+
         for line in lines {
             let line = line.map_err(|e| Error::InvalidLine(e.to_string()))?;
             if line.trim().is_empty() {
@@ -71,11 +75,14 @@ impl GraffitiFile {
             let (pk_opt, graffiti) = read_line(&line)?;
             match pk_opt {
                 Some(pk) => {
-                    self.graffitis.insert(pk, graffiti);
+                    graffitis.insert(pk, graffiti);
                 }
-                None => self.default = Some(graffiti),
+                None => default = Some(graffiti),
             }
         }
+
+        self.graffitis = graffitis;
+        self.default = default;
         Ok(())
     }
 }
@@ -246,5 +253,31 @@ mod tests {
             gf.load_graffiti(&random_pk).unwrap().unwrap(),
             GraffitiString::from_str(DEFAULT_GRAFFITI).unwrap().into()
         );
+    }
+
+    #[test]
+    fn test_reload_drops_removed_entries() {
+        let graffiti_file_path = create_graffiti_file();
+        let mut gf = GraffitiFile::new(graffiti_file_path.clone());
+        gf.read_graffiti_file().unwrap();
+
+        let pk1 = PublicKeyBytes::deserialize(&hex::decode(&PK1[2..]).unwrap()).unwrap();
+        let pk2 = PublicKeyBytes::deserialize(&hex::decode(&PK2[2..]).unwrap()).unwrap();
+
+        // Rewrite the file with only `pk2`, removing `pk1` and the default.
+        std::fs::write(
+            &graffiti_file_path,
+            format!("{}: {}\n", pk2.as_hex_string(), CUSTOM_GRAFFITI1),
+        )
+        .unwrap();
+
+        assert_eq!(
+            gf.load_graffiti(&pk2).unwrap().unwrap(),
+            GraffitiString::from_str(CUSTOM_GRAFFITI1).unwrap().into()
+        );
+        // Entries removed from the file should no longer be used.
+        assert_eq!(gf.load_graffiti(&pk1).unwrap(), None);
+        let random_pk = Keypair::random().pk.compress();
+        assert_eq!(gf.load_graffiti(&random_pk).unwrap(), None);
     }
 }
