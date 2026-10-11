@@ -3,7 +3,7 @@ use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{
     BeaconNodeHttpClient, Error, SensitiveUrl, Timeouts,
-    types::{BlockId, ChainSpec, ForkName, PublishBlockRequest, SignedBlockContents},
+    types::{BlockId, ChainSpec, PublishBlockRequest, SignedBlockContents},
 };
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
@@ -13,7 +13,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use types::EthSpec;
+use types::{BlobsList, EthSpec, KzgProofs, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(3600);
 const DEFAULT_CACHE_DIR: &str = "./cache";
@@ -116,7 +116,7 @@ async fn get_block_from_source<T: EthSpec>(
         let mut f = File::open(&cache_path).unwrap();
         let mut bytes = vec![];
         f.read_to_end(&mut bytes).unwrap();
-        PublishBlockRequest::from_ssz_bytes(&bytes, ForkName::Deneb).unwrap()
+        decode_cached_block::<T>(&bytes, spec).unwrap()
     } else {
         let block_from_source = source
             .get_beacon_blocks_ssz::<T>(block_id, spec)
@@ -149,4 +149,32 @@ async fn get_block_from_source<T: EthSpec>(
 
         publish_block_req
     }
+}
+
+/// Decode a `PublishBlockRequest` that was previously written to the block cache.
+///
+/// The cache holds the SSZ encoding of a `SignedBlockContents`, whose outer container is the same
+/// for all post-Deneb forks, so it can be decoded without knowing the fork. The fork of the inner
+/// block is not stored, so it is resolved from the block's slot via `spec`, as the cache may hold
+/// blocks from any fork. Assuming a fixed fork here (previously `ForkName::Deneb`) fails to decode
+/// Electra and Fulu blocks.
+fn decode_cached_block<T: EthSpec>(
+    bytes: &[u8],
+    spec: &ChainSpec,
+) -> Result<PublishBlockRequest<T>, ssz::DecodeError> {
+    let mut builder = ssz::SszDecoderBuilder::new(bytes);
+    builder.register_anonymous_variable_length_item()?;
+    builder.register_type::<KzgProofs<T>>()?;
+    builder.register_type::<BlobsList<T>>()?;
+
+    let mut decoder = builder.build()?;
+    let block =
+        decoder.decode_next_with(|bytes| SignedBeaconBlock::<T>::from_ssz_bytes(bytes, spec))?;
+    let kzg_proofs = decoder.decode_next()?;
+    let blobs = decoder.decode_next()?;
+
+    Ok(PublishBlockRequest::new(
+        Arc::new(block),
+        Some((kzg_proofs, blobs)),
+    ))
 }

@@ -5,7 +5,7 @@ The primary component which connects to the Ethereum 2.0 P2P network and
 downloads, verifies and stores blocks. Provides a HTTP API for querying the
 beacon chain and publishing messages to the network.
 
-Usage: lighthouse beacon_node [OPTIONS] --execution-endpoint <EXECUTION-ENDPOINT>
+Usage: lighthouse beacon_node [OPTIONS]
 
 Options:
       --auto-compact-db <auto-compact-db>
@@ -90,8 +90,8 @@ Options:
           [default: true]
       --enable-partial-columns [<BOOLEAN>]
           Enable partial messages for data columns. This can reduce the amount
-          of data sent over the network. Enabled by default on Hoodi and
-          Sepolia; set to "false" to opt out.
+          of data sent over the network. Enabled by default; set to "false" to
+          opt out. [default: true]
       --enr-address <ADDRESS>...
           The IP address/ DNS address to broadcast to other peers on how to
           reach this node. If a DNS address is provided, the enr-address is set
@@ -133,6 +133,7 @@ Options:
       --execution-endpoint <EXECUTION-ENDPOINT>
           Server endpoint for an execution layer JWT-authenticated HTTP JSON-RPC
           connection. Uses the same endpoint to populate the deposit cache.
+          Optional when --proof-engine-endpoint is set.
       --execution-jwt <EXECUTION-JWT>
           File path which contains the hex-encoded JWT secret for the execution
           endpoint provided in the --execution-endpoint flag.
@@ -313,6 +314,10 @@ Options:
           which don't improve their payload after the first call, and high
           values are useful for ensuring the EL is given ample notice. Default:
           1/3 of a slot.
+      --proof-engine-endpoint <PROOF-ENGINE-ENDPOINT>
+          Server endpoint for an EIP-8025 proof engine used to verify execution
+          proofs. When present, the node subscribes to the execution_proof
+          gossip topic and propagates proofs that verify. Experimental.
       --proposer-reorg-cutoff <MILLISECONDS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-disallowed-offsets <N1,N2,...>
@@ -494,6 +499,11 @@ Flags:
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
           --listen-address and the UDP port will be --discovery-port.
+      --enable-fast-confirmation
+          Enable the Fast Confirmation Rule (FCR). When enabled, FCR provides
+          faster block confirmation (typically within 1-2 slots of the head) by
+          computing a confirmed root that is fed into the execution layer's
+          safe_block_hash.
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.

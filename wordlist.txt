@@ -39,12 +39,14 @@ Ethereum
 EthStaker
 Exercism
 Extractable
+FCR
 FFG
 Fulu
 Fusaka
 Geth
 GiB
 Gitcoin
+Gloas
 Gnosis
 Goerli
 Grafana
@@ -107,6 +109,7 @@ UI
 Uncached
 UPnP
 USD
+UTF
 UX
 Validator
 VC
@@ -149,6 +152,7 @@ doppelgänger
 dropdown
 else's
 env
+ePBS
 eth
 ethdo
 ethereum
@@ -211,6 +215,7 @@ presign
 presigned
 pubkey
 pubkeys
+punycode
 rc
 redb
 reimport

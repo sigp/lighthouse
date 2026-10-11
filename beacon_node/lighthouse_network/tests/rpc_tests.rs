@@ -9,7 +9,8 @@ use libp2p::PeerId;
 use lighthouse_network::rpc::{RequestType, methods::*};
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
-    DataColumnsByRangeRequestId, DataColumnsByRangeRequester, RangeRequestId, SyncRequestId,
+    CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequestId,
+    DataColumnsByRangeRequester, RangeRequestId, SyncRequestId,
 };
 use lighthouse_network::{NetworkEvent, ReportSource, Response};
 use ssz::Encode;
@@ -23,7 +24,8 @@ use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas,
     DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment,
-    KzgProof, MinimalEthSpec, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    KzgProof, LightClientUpdate, LightClientUpdateCapella, MinimalEthSpec, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot, SyncAggregate, SyncCommittee,
 };
 
 type E = MinimalEthSpec;
@@ -64,7 +66,7 @@ fn bellatrix_block_large(spec: &ChainSpec) -> BeaconBlock<E> {
 fn test_tcp_status_rpc() {
     // Set up the logging.
     let log_level = "debug";
-    let enable_logging = true;
+    let enable_logging = false;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
@@ -166,7 +168,7 @@ fn test_tcp_status_rpc() {
 fn test_tcp_blocks_by_range_chunked_rpc() {
     // Set up the logging.
     let log_level = "debug";
-    let enable_logging = true;
+    let enable_logging = false;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 6;
@@ -306,13 +308,137 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
     })
 }
 
+// Tests a streamed LightClientUpdatesByRange RPC Message
+#[test]
+fn test_tcp_light_client_updates_by_range_chunked_rpc() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = false;
+    let _subscriber = build_tracing_subscriber(log_level, enable_logging);
+
+    let messages_to_send = 3;
+
+    let rt = Arc::new(Runtime::new().unwrap());
+
+    let spec = Arc::new(spec_with_all_forks_enabled());
+
+    rt.block_on(async {
+        // get sender/receiver
+        let response_slot = spec
+            .capella_fork_epoch
+            .expect("Capella fork is configured")
+            .start_slot(E::slots_per_epoch());
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            ForkName::Capella,
+            spec.clone(),
+            Protocol::Tcp,
+            false,
+            None,
+        )
+        .await;
+
+        // LightClientUpdatesByRange Request
+        let rpc_request =
+            RequestType::LightClientUpdatesByRange(LightClientUpdatesByRangeRequest {
+                start_period: 0,
+                count: messages_to_send,
+            });
+
+        // LightClientUpdatesByRange Response
+        let mut attested_header = types::LightClientHeaderCapella::default();
+        attested_header.beacon.slot = response_slot;
+        let light_client_update = LightClientUpdate::Capella(LightClientUpdateCapella {
+            attested_header,
+            next_sync_committee: Arc::new(SyncCommittee::temporary()),
+            next_sync_committee_branch: Default::default(),
+            finalized_header: Default::default(),
+            finality_branch: Default::default(),
+            sync_aggregate: SyncAggregate::empty(),
+            signature_slot: response_slot,
+        });
+        let rpc_response = Response::LightClientUpdatesByRange(Some(Arc::new(light_client_update)));
+
+        // keep count of the number of messages received
+        let mut messages_received = 0;
+        // build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        debug!("Sending RPC");
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id: _,
+                        app_request_id: AppRequestId::Router,
+                        response,
+                    } => match response {
+                        Response::LightClientUpdatesByRange(Some(_)) => {
+                            assert_eq!(response, rpc_response);
+                            messages_received += 1;
+                            warn!("Chunk received");
+                        }
+                        Response::LightClientUpdatesByRange(None) => {
+                            // should be exactly `messages_to_send` messages before terminating
+                            assert_eq!(messages_received, messages_to_send);
+                            // end the test
+                            return;
+                        }
+                        _ => panic!("Invalid RPC received"),
+                    },
+                    NetworkEvent::RPCFailed { error, .. } => panic!("RPC failed: {error:?}"),
+                    _ => {} // Ignore other behaviour events
+                }
+            }
+        }
+        .instrument(info_span!("Sender"));
+
+        // build the receiver future
+        let receiver_future = async {
+            loop {
+                if let NetworkEvent::RequestReceived {
+                    peer_id,
+                    inbound_request_id,
+                    request_type,
+                } = receiver.next_event().await
+                    && request_type == rpc_request
+                {
+                    // send the response
+                    warn!("Receiver got request");
+                    for _ in 0..messages_to_send {
+                        receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                    }
+                    // send the stream termination
+                    receiver.send_response(
+                        peer_id,
+                        inbound_request_id,
+                        Response::LightClientUpdatesByRange(None),
+                    );
+                }
+            }
+        }
+        .instrument(info_span!("Receiver"));
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                    panic!("Future timed out");
+            }
+        }
+    })
+}
+
 // Tests a streamed BlobsByRange RPC Message
 #[test]
 #[allow(clippy::single_match)]
 fn test_blobs_by_range_chunked_rpc() {
     // Set up the logging.
     let log_level = "debug";
-    let enable_logging = true;
+    let enable_logging = false;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
 
     let slot_count = 32;
@@ -438,7 +564,7 @@ fn test_blobs_by_range_chunked_rpc() {
 fn test_tcp_blocks_by_range_over_limit() {
     // Set up the logging.
     let log_level = "debug";
-    let enable_logging = true;
+    let enable_logging = false;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 5;
@@ -542,7 +668,7 @@ fn test_tcp_blocks_by_range_over_limit() {
 fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
     // Set up the logging.
     let log_level = "debug";
-    let enable_logging = true;
+    let enable_logging = false;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 10;
@@ -678,7 +804,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
 fn test_tcp_blocks_by_range_single_empty_rpc() {
     // Set up the logging.
     let log_level = "trace";
-    let enable_logging = true;
+    let enable_logging = false;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
 
     let rt = Arc::new(Runtime::new().unwrap());
@@ -799,7 +925,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
 fn test_tcp_blocks_by_root_chunked_rpc() {
     // Set up the logging.
     let log_level = "debug";
-    let enable_logging = true;
+    let enable_logging = false;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 6;
@@ -944,7 +1070,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
 fn test_tcp_columns_by_root_chunked_rpc_for_fork(fork_name: ForkName) {
     // Set up the logging.
     let log_level = "debug";
-    let enable_logging = true;
+    let enable_logging = false;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
     let num_of_columns = E::number_of_columns();
     let messages_to_send = 32 * num_of_columns;
@@ -1134,7 +1260,7 @@ fn test_tcp_columns_by_root_chunked_rpc_gloas() {
 fn test_tcp_columns_by_range_chunked_rpc_for_fork(fork_name: ForkName) {
     // Set up the logging.
     let log_level = "debug";
-    let enable_logging = true;
+    let enable_logging = false;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send = 32;
@@ -1296,7 +1422,7 @@ fn test_tcp_columns_by_range_chunked_rpc_gloas() {
 fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     // Set up the logging.
     let log_level = "debug";
-    let enable_logging = true;
+    let enable_logging = false;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
 
     let messages_to_send: u64 = 10;
@@ -1510,7 +1636,7 @@ fn goodbye_test(log_level: &str, enable_logging: bool, protocol: Protocol) {
 #[allow(clippy::single_match)]
 fn tcp_test_goodbye_rpc() {
     let log_level = "debug";
-    let enabled_logging = true;
+    let enabled_logging = false;
     goodbye_test(log_level, enabled_logging, Protocol::Tcp);
 }
 
@@ -1519,7 +1645,7 @@ fn tcp_test_goodbye_rpc() {
 #[allow(clippy::single_match)]
 fn quic_test_goodbye_rpc() {
     let log_level = "debug";
-    let enabled_logging = true;
+    let enabled_logging = false;
     goodbye_test(log_level, enabled_logging, Protocol::Quic);
 }
 
@@ -1527,7 +1653,7 @@ fn quic_test_goodbye_rpc() {
 #[test]
 fn test_delayed_rpc_response() {
     // Set up the logging.
-    let _subscriber = build_tracing_subscriber("debug", true);
+    let _subscriber = build_tracing_subscriber("debug", false);
     let rt = Arc::new(Runtime::new().unwrap());
     let spec = Arc::new(spec_with_all_forks_enabled());
 
@@ -1663,7 +1789,7 @@ fn test_delayed_rpc_response() {
 #[test]
 fn test_active_requests() {
     // Set up the logging.
-    let _subscriber = build_tracing_subscriber("debug", true);
+    let _subscriber = build_tracing_subscriber("debug", false);
     let rt = Arc::new(Runtime::new().unwrap());
     let spec = Arc::new(spec_with_all_forks_enabled());
 
@@ -1828,12 +1954,12 @@ fn test_request_too_large_data_columns_by_range() {
         AppRequestId::Sync(SyncRequestId::DataColumnsByRange(
             DataColumnsByRangeRequestId {
                 id: 1,
-                parent_request_id: DataColumnsByRangeRequester::ComponentsByRange(
-                    ComponentsByRangeRequestId {
+                parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
+                    CustodyBackFillBatchRequestId {
                         id: 1,
-                        requester: RangeRequestId::RangeSync {
-                            chain_id: 1,
-                            batch_id: Epoch::new(1),
+                        batch_id: CustodyBackfillBatchId {
+                            epoch: Epoch::new(1),
+                            run_id: 1,
                         },
                     },
                 ),

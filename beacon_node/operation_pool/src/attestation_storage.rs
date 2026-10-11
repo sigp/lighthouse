@@ -1,13 +1,13 @@
 use crate::AttestationStats;
 use bls::AggregateSignature;
 use itertools::Itertools;
-use ssz::{BitList, BitVector};
+use ssz::{BitList, BitVector, ProgressiveBitList};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use superstruct::superstruct;
 use typenum::Unsigned;
 use types::{
     Attestation, AttestationData, BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot,
-    attestation::{AttestationBase, AttestationElectra},
+    attestation::{AttestationBase, AttestationElectra, AttestationGloas},
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -24,7 +24,10 @@ pub struct CompactAttestationData {
     pub target_root: Hash256,
 }
 
-#[superstruct(variants(Base, Electra), variant_attributes(derive(Debug, PartialEq,)))]
+#[superstruct(
+    variants(Base, Electra, Gloas),
+    variant_attributes(derive(Debug, PartialEq,))
+)]
 #[derive(Debug, PartialEq)]
 pub struct CompactIndexedAttestation<E: EthSpec> {
     pub attesting_indices: Vec<u64>,
@@ -32,8 +35,10 @@ pub struct CompactIndexedAttestation<E: EthSpec> {
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
     #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
     pub aggregation_bits: BitList<E::MaxValidatorsPerSlot>,
+    #[superstruct(only(Gloas), partial_getter(rename = "aggregation_bits_gloas"))]
+    pub aggregation_bits: ProgressiveBitList,
     pub signature: AggregateSignature,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Gloas))]
     pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
 }
 
@@ -90,6 +95,14 @@ impl<E: EthSpec> SplitAttestation<E> {
                     committee_bits: attn.committee_bits,
                 })
             }
+            Attestation::Gloas(attn) => {
+                CompactIndexedAttestation::Gloas(CompactIndexedAttestationGloas {
+                    attesting_indices,
+                    aggregation_bits: attn.aggregation_bits,
+                    signature: attestation.signature().clone(),
+                    committee_bits: attn.committee_bits,
+                })
+            }
         };
 
         Self {
@@ -131,6 +144,12 @@ impl<E: EthSpec> CompactAttestationRef<'_, E> {
                 .enumerate()
                 .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
                 .collect(),
+            CompactIndexedAttestation::Gloas(indexed_att) => indexed_att
+                .committee_bits
+                .iter()
+                .enumerate()
+                .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+                .collect(),
         }
     }
 
@@ -149,6 +168,12 @@ impl<E: EthSpec> CompactAttestationRef<'_, E> {
                     committee_bits: indexed_att.committee_bits.clone(),
                 })
             }
+            CompactIndexedAttestation::Gloas(indexed_att) => Attestation::Gloas(AttestationGloas {
+                aggregation_bits: indexed_att.aggregation_bits.clone(),
+                data: self.attestation_data(),
+                signature: indexed_att.signature.clone(),
+                committee_bits: indexed_att.committee_bits.clone(),
+            }),
         }
     }
 }
@@ -180,6 +205,9 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
                 CompactIndexedAttestation::Electra(this),
                 CompactIndexedAttestation::Electra(other),
             ) => this.should_aggregate(other),
+            (CompactIndexedAttestation::Gloas(this), CompactIndexedAttestation::Gloas(other)) => {
+                this.should_aggregate(other)
+            }
             _ => false,
         }
     }
@@ -195,6 +223,9 @@ impl<E: EthSpec> CompactIndexedAttestation<E> {
                 CompactIndexedAttestation::Electra(this),
                 CompactIndexedAttestation::Electra(other),
             ) => this.aggregate_same_committee(other),
+            (CompactIndexedAttestation::Gloas(this), CompactIndexedAttestation::Gloas(other)) => {
+                this.aggregate_same_committee(other)
+            }
             _ => false,
         }
     }
@@ -299,10 +330,114 @@ impl<E: EthSpec> CompactIndexedAttestationElectra<E> {
     }
 }
 
+impl<E: EthSpec> CompactIndexedAttestationGloas<E> {
+    pub fn should_aggregate(&self, other: &Self) -> bool {
+        // Only aggregate attestations in the same committee.
+        self.committee_bits == other.committee_bits
+            && self
+                .aggregation_bits
+                .intersection(&other.aggregation_bits)
+                .is_zero()
+    }
+
+    /// Returns `true` if aggregated, otherwise `false`.
+    pub fn aggregate_same_committee(&mut self, other: &Self) -> bool {
+        if self.committee_bits != other.committee_bits {
+            return false;
+        }
+        self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
+        self.attesting_indices = self
+            .attesting_indices
+            .drain(..)
+            .merge(other.attesting_indices.iter().copied())
+            .dedup()
+            .collect();
+        self.signature.add_assign_aggregate(&other.signature);
+        true
+    }
+
+    pub fn aggregate_with_disjoint_committees(&mut self, other: &Self) -> Option<()> {
+        if !self
+            .committee_bits
+            .intersection(&other.committee_bits)
+            .is_zero()
+        {
+            return None;
+        }
+        // The attestation being aggregated in must only have 1 committee bit set.
+        if other.committee_bits.num_set_bits() != 1 {
+            return None;
+        }
+
+        // Check we are aggregating in increasing committee index order (so we can append
+        // aggregation bits).
+        if self.committee_bits.highest_set_bit() >= other.committee_bits.highest_set_bit() {
+            return None;
+        }
+
+        self.committee_bits = self.committee_bits.union(&other.committee_bits);
+        if let Some(agg_bits) =
+            progressive_bitlist_extend(&self.aggregation_bits, &other.aggregation_bits)
+        {
+            self.aggregation_bits = agg_bits;
+
+            self.attesting_indices = self
+                .attesting_indices
+                .drain(..)
+                .merge(other.attesting_indices.iter().copied())
+                .dedup()
+                .collect();
+            self.signature.add_assign_aggregate(&other.signature);
+
+            return Some(());
+        }
+
+        None
+    }
+
+    pub fn committee_index(&self) -> Option<u64> {
+        self.committee_bits
+            .iter()
+            .enumerate()
+            .find(|&(_, bit)| bit)
+            .map(|(index, _)| index as u64)
+    }
+
+    pub fn get_committee_indices(&self) -> Vec<u64> {
+        self.committee_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect()
+    }
+}
+
 // TODO(electra): upstream this or a more efficient implementation
 fn bitlist_extend<N: Unsigned>(list1: &BitList<N>, list2: &BitList<N>) -> Option<BitList<N>> {
     let new_length = list1.len() + list2.len();
     let mut list = BitList::<N>::with_capacity(new_length).ok()?;
+
+    // Copy bits from list1.
+    for (i, bit) in list1.iter().enumerate() {
+        list.set(i, bit).ok()?;
+    }
+
+    // Copy bits from list2, starting from the end of list1.
+    let offset = list1.len();
+    for (i, bit) in list2.iter().enumerate() {
+        list.set(offset + i, bit).ok()?;
+    }
+
+    Some(list)
+}
+
+/// Progressive (Gloas, EIP-7916) equivalent of [`bitlist_extend`].
+fn progressive_bitlist_extend(
+    list1: &ProgressiveBitList,
+    list2: &ProgressiveBitList,
+) -> Option<ProgressiveBitList> {
+    let new_length = list1.len() + list2.len();
+    let mut list = ProgressiveBitList::with_capacity(new_length);
 
     // Copy bits from list1.
     for (i, bit) in list1.iter().enumerate() {
@@ -347,10 +482,10 @@ impl<E: EthSpec> AttestationMap<E> {
         }
     }
 
-    /// Aggregate Electra attestations for the same attestation data signed by different
+    /// Aggregate Electra/Gloas attestations for the same attestation data signed by different
     /// committees.
     ///
-    /// Non-Electra attestations are left as-is.
+    /// Base attestations are left as-is.
     pub fn aggregate_across_committees(&mut self, checkpoint_key: CheckpointKey) {
         let Some(attestation_map) = self.checkpoint_map.get_mut(&checkpoint_key) else {
             return;
@@ -364,6 +499,10 @@ impl<E: EthSpec> AttestationMap<E> {
                 u64,
                 CompactIndexedAttestationElectra<E>,
             > = BTreeMap::new();
+            let mut best_gloas_attestations_by_committee: BTreeMap<
+                u64,
+                CompactIndexedAttestationGloas<E>,
+            > = BTreeMap::new();
 
             for committee_attestation in unaggregated_attestations {
                 let mut electra_attestation = match committee_attestation {
@@ -372,14 +511,40 @@ impl<E: EthSpec> AttestationMap<E> {
                     {
                         att
                     }
-                    CompactIndexedAttestation::Electra(att) => {
-                        // Aggregate already covers multiple committees, leave it as-is.
-                        aggregated_attestations.push(CompactIndexedAttestation::Electra(att));
+                    CompactIndexedAttestation::Gloas(att)
+                        if att.committee_bits.num_set_bits() == 1 =>
+                    {
+                        let mut gloas_attestation = att;
+                        if let Some(committee_index) = gloas_attestation.committee_index() {
+                            if let Some(existing_attestation) =
+                                best_gloas_attestations_by_committee.get_mut(&committee_index)
+                            {
+                                // Search for the best (most aggregation bits) attestation for this
+                                // committee index.
+                                if gloas_attestation.aggregation_bits.num_set_bits()
+                                    > existing_attestation.aggregation_bits.num_set_bits()
+                                {
+                                    // New attestation is better than the previously known one for
+                                    // this committee. Replace it.
+                                    std::mem::swap(existing_attestation, &mut gloas_attestation);
+                                }
+                                // Put the inferior attestation into the list of aggregated
+                                // attestations without performing any cross-committee aggregation.
+                                aggregated_attestations
+                                    .push(CompactIndexedAttestation::Gloas(gloas_attestation));
+                            } else {
+                                // First attestation seen for this committee. Place it in the map
+                                // provisionally.
+                                best_gloas_attestations_by_committee
+                                    .insert(committee_index, gloas_attestation);
+                            }
+                        }
                         continue;
                     }
-                    CompactIndexedAttestation::Base(att) => {
-                        // Leave as-is.
-                        aggregated_attestations.push(CompactIndexedAttestation::Base(att));
+                    other => {
+                        // Aggregates that already cover multiple committees and Base attestations
+                        // are left as-is.
+                        aggregated_attestations.push(other);
                         continue;
                     }
                 };
@@ -415,6 +580,12 @@ impl<E: EthSpec> AttestationMap<E> {
                     .push(CompactIndexedAttestation::Electra(on_chain_aggregate));
             }
 
+            if let Some(on_chain_aggregate) =
+                Self::compute_on_chain_aggregate_gloas(best_gloas_attestations_by_committee)
+            {
+                aggregated_attestations.push(CompactIndexedAttestation::Gloas(on_chain_aggregate));
+            }
+
             *compact_indexed_attestations = aggregated_attestations;
         }
     }
@@ -422,6 +593,16 @@ impl<E: EthSpec> AttestationMap<E> {
     pub fn compute_on_chain_aggregate(
         mut attestations_by_committee: BTreeMap<u64, CompactIndexedAttestationElectra<E>>,
     ) -> Option<CompactIndexedAttestationElectra<E>> {
+        let (_, mut on_chain_aggregate) = attestations_by_committee.pop_first()?;
+        for (_, attestation) in attestations_by_committee {
+            on_chain_aggregate.aggregate_with_disjoint_committees(&attestation);
+        }
+        Some(on_chain_aggregate)
+    }
+
+    pub fn compute_on_chain_aggregate_gloas(
+        mut attestations_by_committee: BTreeMap<u64, CompactIndexedAttestationGloas<E>>,
+    ) -> Option<CompactIndexedAttestationGloas<E>> {
         let (_, mut on_chain_aggregate) = attestations_by_committee.pop_first()?;
         for (_, attestation) in attestations_by_committee {
             on_chain_aggregate.aggregate_with_disjoint_committees(&attestation);

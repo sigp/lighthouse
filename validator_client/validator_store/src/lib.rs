@@ -1,4 +1,5 @@
 use bls::{PublicKeyBytes, Signature};
+use builder_types::{RequestAuth, SignedRequestAuth};
 use eth2::types::{FullBlockContents, PublishBlockRequest};
 use futures::Stream;
 use slashing_protection::NotSafe;
@@ -6,12 +7,12 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;
 use types::{
-    Address, Attestation, AttestationError, BlindedBeaconBlock, Epoch, EthSpec,
+    Address, Attestation, AttestationData, BlindedBeaconBlock, Epoch, EthSpec,
     ExecutionPayloadEnvelope, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
     ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock,
     SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedValidatorRegistrationData, Slot, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    SignedValidatorRegistrationData, SingleAttestation, Slot, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -22,7 +23,6 @@ pub enum Error<T> {
     Slashable(NotSafe),
     SameData,
     GreaterThanCurrentSlot { slot: Slot, current_slot: Slot },
-    UnableToSignAttestation(AttestationError),
     SpecificError(T),
     ExecutorError,
     Middleware(String),
@@ -35,11 +35,11 @@ impl<T> From<T> for Error<T> {
 }
 
 /// Input for batch attestation signing
-pub struct AttestationToSign<E: EthSpec> {
-    pub validator_index: u64,
+pub struct AttestationToSign {
+    pub attester_index: u64,
     pub pubkey: PublicKeyBytes,
-    pub validator_committee_index: usize,
-    pub attestation: Attestation<E>,
+    pub committee_index: u64,
+    pub data: AttestationData,
 }
 
 /// Input for batch aggregate signing
@@ -131,27 +131,27 @@ pub trait ValidatorStore: Send + Sync {
 
     fn set_validator_index(&self, validator_pubkey: &PublicKeyBytes, index: u64);
 
+    /// Sign `block` and apply slashing protection.
+    ///
+    /// `local_payload_root` is the `hash_tree_root` of the locally built execution payload, `Some`
+    /// only for a self-build Gloas bid in stateless block production mode. Lighthouse's store
+    /// ignores it; distributed validator stores commit to it before the block is published.
     fn sign_block(
         &self,
         validator_pubkey: PublicKeyBytes,
         block: UnsignedBlock<Self::E>,
         current_slot: Slot,
+        local_payload_root: Option<Hash256>,
     ) -> impl Future<Output = Result<SignedBlock<Self::E>, Error<Self::Error>>> + Send;
 
     /// Sign a batch of `attestations` and apply slashing protection to them.
     ///
-    /// Returns a stream of batches of successfully signed attestations. Each batch contains
-    /// attestations that passed slashing protection, along with the validator index of the signer.
-    /// Eventually this will be replaced by `SingleAttestation` use.
-    ///
-    /// Output:
-    ///
-    /// * Vec of (validator_index, signed_attestation).
-    #[allow(clippy::type_complexity)]
+    /// Returns a stream of batches of successfully signed `SingleAttestation`s. Each batch
+    /// contains attestations that passed slashing protection.
     fn sign_attestations(
         self: &Arc<Self>,
-        attestations: Vec<AttestationToSign<Self::E>>,
-    ) -> impl Stream<Item = Result<Vec<(u64, Attestation<Self::E>)>, Error<Self::Error>>> + Send;
+        attestations: Vec<AttestationToSign>,
+    ) -> impl Stream<Item = Result<Vec<SingleAttestation>, Error<Self::Error>>> + Send;
 
     fn sign_validator_registration_data(
         &self,
@@ -220,16 +220,40 @@ pub trait ValidatorStore: Send + Sync {
         preferences: ProposerPreferences,
     ) -> impl Future<Output = Result<SignedProposerPreferences, Error<Self::Error>>> + Send;
 
+    fn sign_request_auth_v1(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        request_auth_v1: RequestAuth,
+    ) -> impl Future<Output = Result<SignedRequestAuth, Error<Self::Error>>> + Send;
+
     /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
     /// `get_gas_limit_defaulting`, and `get_builder_proposals_defaulting`.
     fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData>;
+
+    /// Like `proposal_data`, with the gas limit schedule evaluated at `epoch`.
+    fn proposal_data_at_epoch(&self, pubkey: &PublicKeyBytes, epoch: Epoch)
+    -> Option<ProposalData>;
 }
 
 #[derive(Debug)]
 pub enum UnsignedBlock<E: EthSpec> {
     Full(FullBlockContents<E>),
     Blinded(BlindedBeaconBlock<E>),
+}
+
+impl<E: EthSpec> UnsignedBlock<E> {
+    /// The canonical root of this beacon block (identical for the full and blinded forms).
+    ///
+    /// This is the root of the block *this node produced*, which the local beacon node keys its
+    /// pending payload-envelope cache by. It is not necessarily the block ultimately signed or
+    /// published (e.g. under distributed validators).
+    pub fn block_root(&self) -> Hash256 {
+        match self {
+            UnsignedBlock::Full(block) => block.block().canonical_root(),
+            UnsignedBlock::Blinded(block) => block.canonical_root(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

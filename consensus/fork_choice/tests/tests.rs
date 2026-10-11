@@ -2,6 +2,7 @@
 
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    fork_name_from_env,
 };
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
@@ -14,6 +15,7 @@ use fork_choice::{
     InvalidPayloadAttestation, PayloadVerificationStatus, QueuedAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -60,8 +62,10 @@ impl ForkChoiceTest {
 
     /// Creates a new tester with a custom chain config.
     pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
-        // Run fork choice tests against the latest fork.
-        let spec = ForkName::latest_stable().make_genesis_spec(ChainSpec::default());
+        // Run fork choice tests against the fork named by `FORK_NAME` when the `fork_from_env`
+        // feature is enabled, otherwise against the latest stable fork.
+        let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest_stable);
+        let spec = fork_name.make_genesis_spec(ChainSpec::default());
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.into())
             .chain_config(chain_config)
@@ -122,8 +126,7 @@ impl ForkChoiceTest {
         let mut shutdown_receiver = mutex.lock();
 
         shutdown_receiver.close();
-        let msg = shutdown_receiver.try_next().unwrap();
-        msg.is_some()
+        shutdown_receiver.try_recv().is_ok()
     }
 
     /// Assert there was a shutdown signal sent by the beacon chain.
@@ -149,13 +152,17 @@ impl ForkChoiceTest {
             .fork_choice_write_lock()
             .update_time(self.harness.chain.slot().unwrap())
             .unwrap();
-        func(
-            self.harness
-                .chain
-                .canonical_head
-                .fork_choice_read_lock()
-                .queued_attestations(),
-        );
+        let queued = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .queued_attestations()
+            .values()
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        func(&queued);
         self
     }
 
@@ -174,6 +181,10 @@ impl ForkChoiceTest {
     }
 
     /// Build the chain whilst `predicate` returns `true` and `process_block_result` does not error.
+    ///
+    /// Both variants intentionally carry the whole test harness (`Ok` to continue, `Err` to stop
+    /// with the state at that point), so boxing only the error would not shrink anything useful.
+    #[allow(clippy::result_large_err)]
     pub async fn apply_blocks_while<F>(self, mut predicate: F) -> Result<Self, Self>
     where
         F: FnMut(BeaconBlockRef<'_, E>, &BeaconState<E>) -> bool,
@@ -187,7 +198,7 @@ impl ForkChoiceTest {
             // Skip slashed proposers, as we expect validators to get slashed in these tests.
             // Presently `make_block` will panic if the proposer is slashed, so we just avoid
             // calling it in this case.
-            complete_state_advance(&mut state, None, slot, &self.harness.spec).unwrap();
+            complete_state_advance(&mut state, None, slot, None, &self.harness.spec).unwrap();
             state.build_caches(&self.harness.spec).unwrap();
             let proposer_index = state
                 .get_beacon_proposer_index(slot, &self.harness.chain.spec)
@@ -386,27 +397,41 @@ impl ForkChoiceTest {
             .get_state(&state_root, None, CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
+        let current_epoch = state.current_epoch();
+        let mut num_active_validators = 0u64;
+        let mut slashed_balances = BTreeMap::new();
         let balances = state
             .validators()
             .into_iter()
-            .map(|v| {
-                if v.is_active_at(state.current_epoch()) {
+            .enumerate()
+            .map(|(i, v)| {
+                if !v.slashed && v.is_active_at(current_epoch) {
+                    num_active_validators += 1;
                     v.effective_balance
                 } else {
+                    if v.slashed && v.is_active_at(current_epoch) {
+                        slashed_balances.insert(i as u64, v.effective_balance);
+                    }
                     0
                 }
             })
             .collect::<Vec<_>>();
 
+        let justified_balances = fc.fc_store().justified_balances();
         assert_eq!(
             &balances[..],
-            &fc.fc_store().justified_balances().effective_balances,
+            &justified_balances.effective_balances,
             "balances should match"
         );
         assert_eq!(
             balances.iter().sum::<u64>(),
-            fc.fc_store().justified_balances().total_effective_balance
+            justified_balances.total_effective_balance
         );
+        assert_eq!(
+            num_active_validators,
+            justified_balances.num_active_validators
+        );
+        assert_eq!(slashed_balances, justified_balances.slashed_balances);
     }
 
     /// Returns an attestation that is valid for some slot in the given `chain`.
@@ -414,6 +439,24 @@ impl ForkChoiceTest {
     /// Also returns some info about who created it.
     async fn apply_attestation_to_chain<F, G>(
         self,
+        delay: MutationDelay,
+        mutation_func: F,
+        comparison_func: G,
+    ) -> Self
+    where
+        F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<EphemeralHarnessType<E>>),
+        G: FnMut(Result<(), BeaconChainError>),
+    {
+        self.apply_nth_attestation_to_chain(0, delay, mutation_func, comparison_func)
+            .await
+    }
+
+    /// Like `apply_attestation_to_chain`, but attests with the validator at
+    /// `validator_index_in_committee` within the committee. Lets a test enqueue multiple distinct
+    /// votes for the same slot without tripping `PriorAttestationKnown`.
+    async fn apply_nth_attestation_to_chain<F, G>(
+        self,
+        validator_index_in_committee: usize,
         delay: MutationDelay,
         mut mutation_func: F,
         mut comparison_func: G,
@@ -431,18 +474,16 @@ impl ForkChoiceTest {
             .produce_unaggregated_attestation(current_slot, 0)
             .expect("should not error while producing attestation");
 
-        let validator_committee_index = 0;
+        // For these tests we always use committee index 0, which also matches the "dummy" committee
+        // index used post-Electra.
+        let committee_index = 0;
+
         let validator_index = *head
             .beacon_state
-            .get_beacon_committee(
-                current_slot,
-                attestation
-                    .committee_index()
-                    .expect("should get committee index"),
-            )
+            .get_beacon_committee(current_slot, committee_index)
             .expect("should get committees")
             .committee
-            .get(validator_committee_index)
+            .get(validator_index_in_committee)
             .expect("there should be an attesting validator");
 
         let committee_count = head
@@ -452,7 +493,7 @@ impl ForkChoiceTest {
 
         let subnet_id = SubnetId::compute_subnet::<E>(
             current_slot,
-            0,
+            committee_index,
             committee_count,
             &self.harness.chain.spec,
         )
@@ -463,7 +504,7 @@ impl ForkChoiceTest {
         attestation
             .sign(
                 &validator_sk,
-                validator_committee_index,
+                committee_index as usize,
                 &head.beacon_state.fork(),
                 self.harness.chain.genesis_validators_root,
                 &self.harness.chain.spec,
@@ -472,7 +513,7 @@ impl ForkChoiceTest {
 
         let single_attestation = SingleAttestation {
             attester_index: validator_index as u64,
-            committee_index: validator_committee_index as u64,
+            committee_index,
             data: attestation.data().clone(),
             signature: attestation.signature().clone(),
         };
@@ -602,6 +643,56 @@ async fn justified_balances() {
         .await
         .assert_justified_epoch(2)
         .check_justified_balances()
+}
+
+/// Check that the balances are obtained correctly when the justified state contains a slashed
+/// validator.
+///
+/// The slashing is included two epochs before the head so that it is present in the justified
+/// checkpoint state.
+#[tokio::test]
+async fn justified_balances_with_attester_slashing() {
+    let test = ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_attester_slashing()
+        .await
+        .apply_blocks(1)
+        .await
+        .apply_blocks(2 * E::slots_per_epoch() as usize)
+        .await;
+
+    let slashed_balances =
+        test.get(|fc_store| fc_store.justified_balances().slashed_balances.clone());
+    assert_eq!(slashed_balances.len(), 1, "one attester was slashed");
+    test.check_justified_balances();
+}
+
+/// Regression test for a slashing included just after a skipped epoch boundary slot (#9691).
+///
+/// The slashing postdates the justified checkpoint state, so it must not appear in the justified
+/// balances even though it is present in the state that populates the balances cache entry.
+#[tokio::test]
+async fn justified_balances_with_slashing_after_skipped_boundary() {
+    let test = ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_attester_slashing()
+        .await
+        .apply_blocks(1)
+        .await
+        .apply_blocks(E::slots_per_epoch() as usize)
+        .await;
+
+    let slashed_balances =
+        test.get(|fc_store| fc_store.justified_balances().slashed_balances.clone());
+    assert!(
+        slashed_balances.is_empty(),
+        "the slashing postdates the justified checkpoint state"
+    );
+    test.check_justified_balances();
 }
 
 macro_rules! assert_invalid_block {
@@ -763,6 +854,9 @@ async fn invalid_attestation_empty_bitfield() {
                 }
                 IndexedAttestation::Electra(att) => {
                     att.attesting_indices = vec![].try_into().unwrap();
+                }
+                IndexedAttestation::Gloas(att) => {
+                    att.attesting_indices = Default::default();
                 }
             },
             |result| {
@@ -1037,6 +1131,100 @@ async fn invalid_attestation_delayed_slot() {
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 1))
         .skip_slot()
         .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0));
+}
+
+/// Regression test for dequeuing when votes for two different future slots are queued.
+///
+/// With votes queued for consecutive slots, advancing the clock past the earlier one must release
+/// only that vote and leave the later one queued until its own slot is in the past.
+#[tokio::test]
+async fn dequeue_attestations_consecutive_slot_divergence() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0))
+        // Queue a vote for `slot + 2`.
+        .apply_nth_attestation_to_chain(
+            0,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 2;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        // Queue a vote for `slot + 1`, which becomes due sooner.
+        // A different committee position avoids `PriorAttestationKnown`.
+        .apply_nth_attestation_to_chain(
+            1,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 1;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 2))
+        // Advance so the slot+1 vote is due (in the past) but the slot+2 vote is not yet.
+        .skip_slots(2)
+        .inspect_queued_attestations(|queue| {
+            assert_eq!(
+                queue.len(),
+                1,
+                "only the due slot+1 vote should be dequeued"
+            );
+            assert_eq!(
+                queue[0].slot,
+                Slot::new(3),
+                "the surviving vote must be the not-yet-due slot+2 vote"
+            );
+        });
+}
+
+/// Companion to `dequeue_attestations_consecutive_slot_divergence`: votes for two different slots
+/// are queued, but the clock is advanced far enough that *both* are due at dequeue time.
+///
+/// When every queued vote is in the past, the whole queue drains in a single dequeue.
+#[tokio::test]
+async fn dequeue_attestations_conciliation() {
+    ForkChoiceTest::new()
+        .apply_blocks_without_new_attestations(1)
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 0))
+        // Queue a vote for `slot + 2`.
+        .apply_nth_attestation_to_chain(
+            0,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 2;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        // Queue a vote for `slot + 1`.
+        .apply_nth_attestation_to_chain(
+            1,
+            MutationDelay::NoDelay,
+            |attestation, _| {
+                let slot = attestation.data().slot;
+                attestation.data_mut().slot = slot + 1;
+            },
+            |result| assert!(result.is_ok()),
+        )
+        .await
+        .inspect_queued_attestations(|queue| assert_eq!(queue.len(), 2))
+        // Advance past both votes (to slot + 3) so the whole queue drains.
+        .skip_slots(3)
+        .inspect_queued_attestations(|queue| {
+            assert_eq!(
+                queue.len(),
+                0,
+                "all votes are due, so the entire queue must drain"
+            );
+        });
 }
 
 /// Tests that the correct target root is used when the attested-to block is in a prior epoch to

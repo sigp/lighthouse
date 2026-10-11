@@ -79,7 +79,7 @@ mod tests {
     trait SignedObject: PartialEq + Debug {}
 
     impl SignedObject for Signature {}
-    impl SignedObject for Attestation<E> {}
+    impl SignedObject for SingleAttestation {}
     impl SignedObject for SignedBeaconBlock<E> {}
     impl SignedObject for SignedBlock<E> {}
     impl SignedObject for SignedAggregateAndProof<E> {}
@@ -319,6 +319,7 @@ mod tests {
             slashing_protection_config: SlashingProtectionConfig,
             using_web3signer: bool,
             spec: Arc<ChainSpec>,
+            initial_slot: Slot,
         ) -> Self {
             let validator_dir = TempDir::new().unwrap();
 
@@ -352,6 +353,7 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+            slot_clock.set_slot(initial_slot.as_u64());
             let config = lighthouse_validator_store::Config {
                 enable_web3signer_slashing_protection: slashing_protection_config.local,
                 ..Default::default()
@@ -408,6 +410,23 @@ mod tests {
             spec: Arc<ChainSpec>,
             listen_port: u16,
         ) -> Self {
+            Self::new_at_slot(
+                network,
+                slashing_protection_config,
+                spec,
+                listen_port,
+                Slot::new(0),
+            )
+            .await
+        }
+
+        pub async fn new_at_slot(
+            network: &str,
+            slashing_protection_config: SlashingProtectionConfig,
+            spec: Arc<ChainSpec>,
+            listen_port: u16,
+            initial_slot: Slot,
+        ) -> Self {
             let signer_rig =
                 Web3SignerRig::new(network, WEB3SIGNER_LISTEN_ADDRESS, listen_port).await;
             let validator_pubkey = signer_rig.keypair.pk.clone();
@@ -434,6 +453,7 @@ mod tests {
                     slashing_protection_config,
                     false,
                     spec.clone(),
+                    initial_slot,
                 )
                 .await
             };
@@ -462,6 +482,7 @@ mod tests {
                     slashing_protection_config,
                     true,
                     spec,
+                    initial_slot,
                 )
                 .await
             };
@@ -551,9 +572,7 @@ mod tests {
         ) -> Self
         where
             F: Fn(PublicKeyBytes, Arc<LighthouseValidatorStore<TestingSlotClock, E>>) -> R,
-            R: Future<
-                Output = Result<Vec<(u64, Attestation<E>)>, lighthouse_validator_store::Error>,
-            >,
+            R: Future<Output = Result<Vec<SingleAttestation>, lighthouse_validator_store::Error>>,
         {
             for validator_rig in &self.validator_rigs {
                 let result =
@@ -590,23 +609,28 @@ mod tests {
         }
     }
 
+    /// Get generic, arbitrary attestation data for signing.
+    fn get_attestation_data() -> AttestationData {
+        AttestationData {
+            slot: <_>::default(),
+            index: <_>::default(),
+            beacon_block_root: <_>::default(),
+            source: Checkpoint {
+                epoch: <_>::default(),
+                root: <_>::default(),
+            },
+            target: Checkpoint {
+                epoch: <_>::default(),
+                root: <_>::default(),
+            },
+        }
+    }
+
     /// Get a generic, arbitrary attestation for signing.
     fn get_attestation() -> Attestation<E> {
         Attestation::Base(AttestationBase {
             aggregation_bits: BitList::with_capacity(1).unwrap(),
-            data: AttestationData {
-                slot: <_>::default(),
-                index: <_>::default(),
-                beacon_block_root: <_>::default(),
-                source: Checkpoint {
-                    epoch: <_>::default(),
-                    root: <_>::default(),
-                },
-                target: Checkpoint {
-                    epoch: <_>::default(),
-                    root: <_>::default(),
-                },
-            },
+            data: get_attestation_data(),
             signature: AggregateSignature::empty(),
         })
     }
@@ -647,22 +671,21 @@ mod tests {
                 let block_slot = block.slot();
                 let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
                 validator_store
-                    .sign_block(pubkey, unsigned_block, block_slot)
+                    .sign_block(pubkey, unsigned_block, block_slot, None)
                     .await
                     .unwrap()
             }
         })
         .await
         .assert_signatures_match("attestation", |pubkey, validator_store| async move {
-            let attestation = get_attestation();
             let stream = validator_store.sign_attestations(vec![AttestationToSign {
-                validator_index: 0,
+                attester_index: 0,
                 pubkey,
-                validator_committee_index: 0,
-                attestation,
+                committee_index: 0,
+                data: get_attestation_data(),
             }]);
             tokio::pin!(stream);
-            stream.next().await.unwrap().unwrap().pop().unwrap().1
+            stream.next().await.unwrap().unwrap().pop().unwrap()
         })
         .await
         .assert_signatures_match("signed_aggregate", |pubkey, validator_store| async move {
@@ -722,7 +745,7 @@ mod tests {
                 let unsigned_block =
                     UnsignedBlock::Full(FullBlockContents::Block(altair_block.into()));
                 validator_store
-                    .sign_block(pubkey, unsigned_block, altair_fork_slot)
+                    .sign_block(pubkey, unsigned_block, altair_fork_slot, None)
                     .await
                     .unwrap()
             }
@@ -807,7 +830,7 @@ mod tests {
                 let unsigned_block =
                     UnsignedBlock::Full(FullBlockContents::Block(bellatrix_block.into()));
                 validator_store
-                    .sign_block(pubkey, unsigned_block, bellatrix_fork_slot)
+                    .sign_block(pubkey, unsigned_block, bellatrix_fork_slot, None)
                     .await
                     .unwrap()
             }
@@ -834,30 +857,30 @@ mod tests {
         let slashable_message_should_sign = !slashing_protection_config.local;
 
         let first_attestation = || {
-            let mut attestation = get_attestation();
-            attestation.data_mut().source.epoch = Epoch::new(1);
-            attestation.data_mut().target.epoch = Epoch::new(4);
-            attestation
+            let mut data = get_attestation_data();
+            data.source.epoch = Epoch::new(1);
+            data.target.epoch = Epoch::new(4);
+            data
         };
 
         let double_vote_attestation = || {
-            let mut attestation = first_attestation();
-            attestation.data_mut().beacon_block_root = Hash256::from_low_u64_be(1);
-            attestation
+            let mut data = first_attestation();
+            data.beacon_block_root = Hash256::from_low_u64_be(1);
+            data
         };
 
         let surrounding_attestation = || {
-            let mut attestation = first_attestation();
-            attestation.data_mut().source.epoch = Epoch::new(0);
-            attestation.data_mut().target.epoch = Epoch::new(5);
-            attestation
+            let mut data = first_attestation();
+            data.source.epoch = Epoch::new(0);
+            data.target.epoch = Epoch::new(5);
+            data
         };
 
         let surrounded_attestation = || {
-            let mut attestation = first_attestation();
-            attestation.data_mut().source.epoch = Epoch::new(2);
-            attestation.data_mut().target.epoch = Epoch::new(3);
-            attestation
+            let mut data = first_attestation();
+            data.source.epoch = Epoch::new(2);
+            data.target.epoch = Epoch::new(3);
+            data
         };
 
         let first_block = || {
@@ -880,26 +903,24 @@ mod tests {
         )
         .await
         .assert_signatures_match("first_attestation", |pubkey, validator_store| async move {
-            let attestation = first_attestation();
             let stream = validator_store.sign_attestations(vec![AttestationToSign {
-                validator_index: 0,
+                attester_index: 0,
                 pubkey,
-                validator_committee_index: 0,
-                attestation,
+                committee_index: 0,
+                data: first_attestation(),
             }]);
             tokio::pin!(stream);
-            stream.next().await.unwrap().unwrap().pop().unwrap().1
+            stream.next().await.unwrap().unwrap().pop().unwrap()
         })
         .await
         .assert_slashable_attestation_should_sign(
             "double_vote_attestation",
             move |pubkey, validator_store| async move {
-                let attestation = double_vote_attestation();
                 let stream = validator_store.sign_attestations(vec![AttestationToSign {
-                    validator_index: 0,
+                    attester_index: 0,
                     pubkey,
-                    validator_committee_index: 0,
-                    attestation,
+                    committee_index: 0,
+                    data: double_vote_attestation(),
                 }]);
                 tokio::pin!(stream);
                 stream.next().await.unwrap()
@@ -910,12 +931,11 @@ mod tests {
         .assert_slashable_attestation_should_sign(
             "surrounding_attestation",
             move |pubkey, validator_store| async move {
-                let attestation = surrounding_attestation();
                 let stream = validator_store.sign_attestations(vec![AttestationToSign {
-                    validator_index: 0,
+                    attester_index: 0,
                     pubkey,
-                    validator_committee_index: 0,
-                    attestation,
+                    committee_index: 0,
+                    data: surrounding_attestation(),
                 }]);
                 tokio::pin!(stream);
                 stream.next().await.unwrap()
@@ -926,12 +946,11 @@ mod tests {
         .assert_slashable_attestation_should_sign(
             "surrounded_attestation",
             move |pubkey, validator_store| async move {
-                let attestation = surrounded_attestation();
                 let stream = validator_store.sign_attestations(vec![AttestationToSign {
-                    validator_index: 0,
+                    attester_index: 0,
                     pubkey,
-                    validator_committee_index: 0,
-                    attestation,
+                    committee_index: 0,
+                    data: surrounded_attestation(),
                 }]);
                 tokio::pin!(stream);
                 stream.next().await.unwrap()
@@ -944,7 +963,7 @@ mod tests {
             let slot = block.slot();
             let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
             validator_store
-                .sign_block(pubkey, unsigned_block, slot)
+                .sign_block(pubkey, unsigned_block, slot, None)
                 .await
                 .unwrap()
         })
@@ -956,11 +975,95 @@ mod tests {
                 let slot = block.slot();
                 let unsigned_block = UnsignedBlock::Full(FullBlockContents::Block(block));
                 validator_store
-                    .sign_block(pubkey, unsigned_block, slot)
+                    .sign_block(pubkey, unsigned_block, slot, None)
                     .await
                     .map(|_| ())
             },
             slashable_message_should_sign,
+        )
+        .await;
+    }
+
+    /// Test all the Gloas types.
+    async fn test_gloas_types(network: &str, listen_port: u16) {
+        let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
+        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
+        let gloas_fork_slot = spec
+            .gloas_fork_epoch
+            .expect("network must schedule Gloas for these tests")
+            .start_slot(E::slots_per_epoch());
+
+        TestingRig::new_at_slot(
+            network,
+            SlashingProtectionConfig::default(),
+            spec.clone(),
+            listen_port,
+            gloas_fork_slot,
+        )
+        .await
+        .assert_signatures_match(
+            "execution_payload_envelope_gloas",
+            |pubkey, validator_store| async move {
+                let mut envelope = ExecutionPayloadEnvelope::<E>::empty();
+                envelope.payload.slot_number = gloas_fork_slot;
+                validator_store
+                    .sign_execution_payload_envelope(pubkey, envelope)
+                    .await
+                    .unwrap()
+                    .signature
+            },
+        )
+        .await
+        .assert_signatures_match(
+            "payload_attestation_message_gloas",
+            |pubkey, validator_store| async move {
+                validator_store.set_validator_index(&pubkey, 0);
+                let data = PayloadAttestationData {
+                    beacon_block_root: Hash256::zero(),
+                    slot: gloas_fork_slot,
+                    payload_present: true,
+                    blob_data_available: true,
+                };
+                validator_store
+                    .sign_payload_attestation(pubkey, data)
+                    .await
+                    .unwrap()
+                    .signature
+            },
+        )
+        .await
+        .assert_signatures_match(
+            "proposer_preferences_gloas",
+            |pubkey, validator_store| async move {
+                let preferences = ProposerPreferences {
+                    dependent_root: Hash256::zero(),
+                    proposal_slot: gloas_fork_slot,
+                    validator_index: 0,
+                    fee_recipient: Address::repeat_byte(42),
+                    target_gas_limit: 30_000_000,
+                };
+                validator_store
+                    .sign_proposer_preferences(pubkey, preferences)
+                    .await
+                    .unwrap()
+                    .signature
+            },
+        )
+        .await
+        .assert_signatures_match(
+            "builder_request_auth_gloas",
+            |pubkey, validator_store| async move {
+                let request_auth = eth2::types::RequestAuth {
+                    data: eth2::types::RequestAuthData::new(b"http://builder.example.com".to_vec())
+                        .unwrap(),
+                    slot: gloas_fork_slot,
+                };
+                validator_store
+                    .sign_request_auth_v1(pubkey, request_auth)
+                    .await
+                    .unwrap()
+                    .signature
+            },
         )
         .await;
     }
@@ -999,6 +1102,11 @@ mod tests {
     #[tokio::test]
     async fn sepolia_bellatrix_types() {
         test_bellatrix_types("sepolia", 4252).await
+    }
+
+    #[tokio::test]
+    async fn sepolia_gloas_types() {
+        test_gloas_types("sepolia", 4255).await
     }
 
     #[tokio::test]

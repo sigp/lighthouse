@@ -8,7 +8,9 @@ use parking_lot::RwLock;
 use types::{Hash256, SignedProposerPreferences, Slot};
 
 pub struct GossipVerifiedProposerPreferenceCache {
-    preferences: RwLock<BTreeMap<Slot, GossipVerifiedProposerPreferences>>,
+    /// Mapping of `(proposal_slot, dependent_root)` to `GossipVerifiedProposerPreferences`
+    preferences: RwLock<BTreeMap<(Slot, Hash256), GossipVerifiedProposerPreferences>>,
+    /// Mapping of `proposal_slot` to `(dependent_root, validator_index)`
     seen: RwLock<BTreeMap<Slot, HashSet<(Hash256, u64)>>>,
 }
 
@@ -22,16 +24,23 @@ impl Default for GossipVerifiedProposerPreferenceCache {
 }
 
 impl GossipVerifiedProposerPreferenceCache {
-    pub fn get_preferences(&self, slot: &Slot) -> Option<Arc<SignedProposerPreferences>> {
+    pub fn get_preferences(
+        &self,
+        slot: &Slot,
+        dependent_root: Hash256,
+    ) -> Option<Arc<SignedProposerPreferences>> {
         self.preferences
             .read()
-            .get(slot)
+            .get(&(*slot, dependent_root))
             .map(|p| p.signed_preferences.clone())
     }
 
     pub fn insert_preferences(&self, preferences: GossipVerifiedProposerPreferences) {
         let slot = preferences.signed_preferences.message.proposal_slot;
-        self.preferences.write().insert(slot, preferences);
+        let dependent_root = preferences.signed_preferences.message.dependent_root;
+        self.preferences
+            .write()
+            .insert((slot, dependent_root), preferences);
     }
 
     pub fn get_seen_validator(
@@ -60,7 +69,7 @@ impl GossipVerifiedProposerPreferenceCache {
     pub fn prune(&self, current_slot: Slot) {
         self.preferences
             .write()
-            .retain(|&slot, _| slot >= current_slot);
+            .retain(|&(slot, _), _| slot >= current_slot);
         self.seen.write().retain(|&slot, _| slot >= current_slot);
     }
 }
@@ -108,13 +117,37 @@ mod tests {
         cache.prune(Slot::new(8));
 
         for slot in [1, 2, 3, 7] {
-            assert!(cache.get_preferences(&Slot::new(slot)).is_none());
+            assert!(cache.get_preferences(&Slot::new(slot), root).is_none());
             assert!(!cache.get_seen_validator(&Slot::new(slot), root, slot));
         }
         for slot in [8, 9, 10] {
-            assert!(cache.get_preferences(&Slot::new(slot)).is_some());
+            assert!(cache.get_preferences(&Slot::new(slot), root).is_some());
             assert!(cache.get_seen_validator(&Slot::new(slot), root, slot));
         }
+    }
+
+    #[test]
+    fn different_dependent_roots_not_overwritten() {
+        let cache = GossipVerifiedProposerPreferenceCache::default();
+        let slot = Slot::new(5);
+        let root_a = Hash256::repeat_byte(0xaa);
+        let root_b = Hash256::repeat_byte(0xbb);
+
+        // Two competing branches each have a (different) proposer for the same slot.
+        let verified_a = make_gossip_verified(slot, 1, root_a);
+        let verified_b = make_gossip_verified(slot, 2, root_b);
+        cache.insert_preferences(verified_a);
+        cache.insert_preferences(verified_b);
+
+        // Neither branch's preferences overwrite the other; each is retrievable by its dependent root.
+        let prefs_a = cache
+            .get_preferences(&slot, root_a)
+            .expect("root_a present");
+        let prefs_b = cache
+            .get_preferences(&slot, root_b)
+            .expect("root_b present");
+        assert_eq!(prefs_a.message.validator_index, 1);
+        assert_eq!(prefs_b.message.validator_index, 2);
     }
 
     #[test]

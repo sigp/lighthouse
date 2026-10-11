@@ -114,6 +114,8 @@ pub(crate) struct BlockLookupSummary {
     pub block_root: Hash256,
     /// List of peers that claim to have imported this set of block components.
     pub peers: Vec<PeerId>,
+    /// Whether the lookup expects some future event to make progress.
+    pub is_awaiting_event: bool,
 }
 
 impl<T: BeaconChainTypes> BlockLookups<T> {
@@ -150,6 +152,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 id: *id,
                 block_root: l.block_root(),
                 peers: l.all_peers(),
+                is_awaiting_event: l.is_awaiting_event(),
             })
             .collect()
     }
@@ -218,6 +221,29 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
         self.new_current_lookup(block_root, None, None, peer_source, &PeerType::Block, cx)
+    }
+
+    /// Search the payload envelope of a known block. `peer_source` peers claim the payload for
+    /// `bid_block_hash` has been imported (e.g. via an `index == 1` attestation), so they can
+    /// serve this block's payload envelope and data columns.
+    ///
+    /// Returns true if the lookup is created or already exists
+    #[must_use = "only reference the new lookup if returns true"]
+    pub fn search_payload_envelope(
+        &mut self,
+        block_root: Hash256,
+        bid_block_hash: ExecutionBlockHash,
+        peer_source: &[PeerId],
+        cx: &mut SyncNetworkContext<T>,
+    ) -> bool {
+        self.new_current_lookup(
+            block_root,
+            None,
+            None,
+            peer_source,
+            &PeerType::PayloadEnvelope(bid_block_hash),
+            cx,
+        )
     }
 
     /// A block or blob triggers the search of a parent.
@@ -430,6 +456,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_block_download_response(
         &mut self,
         id: SingleLookupReqId,
+        peer_id: PeerId,
         response: BlockDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -437,7 +464,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             debug!(?id, "Block returned for single block lookup not present");
             return;
         };
-        let result = lookup.on_block_download_response(id.req_id, response, cx);
+        let result = lookup.on_block_download_response(id.req_id, peer_id, response, cx);
         self.on_lookup_result(id.lookup_id, result, "block_download_response", cx);
     }
 
@@ -458,6 +485,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn on_payload_download_response(
         &mut self,
         id: SingleLookupReqId,
+        peer_id: PeerId,
         response: PayloadDownloadResponse<T::EthSpec>,
         cx: &mut SyncNetworkContext<T>,
     ) {
@@ -468,7 +496,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             );
             return;
         };
-        let result = lookup.on_payload_download_response(id.req_id, response, cx);
+        let result = lookup.on_payload_download_response(id.req_id, peer_id, response, cx);
         self.on_lookup_result(id.lookup_id, result, "payload_download_response", cx);
     }
 

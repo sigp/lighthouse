@@ -7,7 +7,7 @@ use keccak_hash::KECCAK_EMPTY_LIST_RLP;
 use triehash::ordered_trie_root;
 use types::{
     EncodableExecutionBlockHeader, EthSpec, ExecutionBlockHash, ExecutionBlockHeader,
-    ExecutionPayloadRef, ExecutionRequests, Hash256,
+    ExecutionPayloadRef, ExecutionRequestsRef, Hash256,
 };
 
 /// Calculate the block hash of an execution block.
@@ -17,14 +17,12 @@ use types::{
 pub fn calculate_execution_block_hash<E: EthSpec>(
     payload: ExecutionPayloadRef<E>,
     parent_beacon_block_root: Option<Hash256>,
-    execution_requests: Option<&ExecutionRequests<E>>,
+    execution_requests: Option<ExecutionRequestsRef<E>>,
 ) -> (ExecutionBlockHash, Hash256) {
     // Calculate the transactions root.
     // We're currently using a deprecated Parity library for this. We should move to a
     // better alternative when one appears, possibly following Reth.
-    let rlp_transactions_root = ordered_trie_root::<KeccakHasher, _>(
-        payload.transactions().iter().map(|txn_bytes| &**txn_bytes),
-    );
+    let rlp_transactions_root = ordered_trie_root::<KeccakHasher, _>(payload.transactions().iter());
 
     // Calculate withdrawals root (post-Capella).
     let rlp_withdrawals_root = if let Ok(withdrawals) = payload.withdrawals() {
@@ -41,6 +39,12 @@ pub fn calculate_execution_block_hash<E: EthSpec>(
     let rlp_excess_blob_gas = payload.excess_blob_gas().ok();
     let requests_root = execution_requests.map(|requests| requests.requests_hash());
 
+    // Post-Gloas the execution block header commits to the block access list (EIP-7928) and
+    // the slot number (EIP-7843). The BAL hash is the keccak of the payload's RLP-encoded
+    // block access list bytes.
+    let rlp_block_access_list_hash = payload.block_access_list().ok().map(|bal| keccak256(bal));
+    let slot_number = payload.slot_number().ok().map(|slot| slot.as_u64());
+
     // Construct the block header.
     let exec_block_header = ExecutionBlockHeader::from_payload(
         payload,
@@ -51,6 +55,8 @@ pub fn calculate_execution_block_hash<E: EthSpec>(
         rlp_excess_blob_gas,
         parent_beacon_block_root,
         requests_root,
+        rlp_block_access_list_hash,
+        slot_number,
     );
 
     // Hash the RLP encoding of the block header.
@@ -122,6 +128,8 @@ mod test {
             excess_blob_gas: None,
             parent_beacon_block_root: None,
             requests_root: None,
+            block_access_list_hash: None,
+            slot_number: None,
         };
         let expected_rlp = "f90200a0e0a94a7a3c9617401586b1a27025d2d9671332d22d540e0af72b069170380f2aa01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d4934794ba5e000000000000000000000000000000000000a0ec3c94b18b8a1cff7d60f8d258ec723312932928626b4c9355eb4ab3568ec7f7a050f738580ed699f0469702c7ccc63ed2e51bc034be9479b7bff4e68dee84accfa029b0562f7140574dd0d50dee8a271b22e1a0a7b78fca58f7c60370d8317ba2a9b9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000830200000188016345785d8a00008301553482079e42a0000000000000000000000000000000000000000000000000000000000000000088000000000000000082036b";
         let expected_hash =
@@ -154,6 +162,8 @@ mod test {
             excess_blob_gas: None,
             parent_beacon_block_root: None,
             requests_root: None,
+            block_access_list_hash: None,
+            slot_number: None,
         };
         let expected_rlp = "f901fda0927ca537f06c783a3a2635b8805eef1c8c2124f7444ad4a3389898dd832f2dbea01dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d4934794ba5e000000000000000000000000000000000000a0e97859b065bd8dbbb4519c7cb935024de2484c2b7f881181b4360492f0b06b82a050f738580ed699f0469702c7ccc63ed2e51bc034be9479b7bff4e68dee84accfa029b0562f7140574dd0d50dee8a271b22e1a0a7b78fca58f7c60370d8317ba2a9b9010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800188016345785d8a00008301553482079e42a0000000000000000000000000000000000000000000000000000000000002000088000000000000000082036b";
         let expected_hash =
@@ -187,6 +197,8 @@ mod test {
             excess_blob_gas: None,
             parent_beacon_block_root: None,
             requests_root: None,
+            block_access_list_hash: None,
+            slot_number: None,
         };
         let expected_hash =
             Hash256::from_str("6da69709cd5a34079b6604d29cd78fc01dacd7c6268980057ad92a2bede87351")
@@ -218,6 +230,8 @@ mod test {
             excess_blob_gas: Some(0x0u64),
             parent_beacon_block_root: Some(Hash256::from_str("f7d327d2c04e4f12e9cdd492e53d39a1d390f8b1571e3b2a22ac6e1e170e5b1a").unwrap()),
             requests_root: None,
+            block_access_list_hash: None,
+            slot_number: None,
         };
         let expected_hash =
             Hash256::from_str("a7448e600ead0a23d16f96aa46e8dea9eef8a7c5669a5f0a5ff32709afe9c408")
@@ -249,6 +263,8 @@ mod test {
             excess_blob_gas: Some(44695552),
             parent_beacon_block_root: Some(Hash256::from_str("f3a888fee010ebb1ae083547004e96c254b240437823326fdff8354b1fc25629").unwrap()),
             requests_root: Some(Hash256::from_str("9440d3365f07573919e1e9ac5178c20ec6fe267357ee4baf8b6409901f331b62").unwrap()),
+            block_access_list_hash: None,
+            slot_number: None,
         };
         let expected_hash =
             Hash256::from_str("61e67afc96bf21be6aab52c1ace1db48de7b83f03119b0644deb4b69e87e09e1")

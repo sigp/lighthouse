@@ -4,8 +4,8 @@ use std::time::Duration;
 use bls::Signature;
 use slot_clock::{SlotClock, TestingSlotClock};
 use types::{
-    Domain, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec, PayloadAttestationData,
-    PayloadAttestationMessage, SignedRoot, Slot,
+    Domain, Epoch, EthSpec, ForkName, Hash256, PayloadAttestationData, PayloadAttestationMessage,
+    SignedRoot, Slot, Spec,
 };
 
 use crate::{
@@ -15,10 +15,13 @@ use crate::{
             GossipVerificationContext, VerifiedPayloadAttestationMessage,
         },
     },
-    test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
+    test_utils::{
+        BeaconChainHarness, EphemeralHarnessType, MakePayloadAttestationOptions,
+        PayloadAttestationVote, fork_name_from_env, test_spec,
+    },
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
 const NUM_VALIDATORS: usize = 64;
@@ -30,6 +33,10 @@ struct TestContext {
 
 impl TestContext {
     fn new() -> Self {
+        Self::with_validator_count(NUM_VALIDATORS)
+    }
+
+    fn with_validator_count(num_validators: usize) -> Self {
         let spec = Arc::new(test_spec::<E>());
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
@@ -38,8 +45,9 @@ impl TestContext {
         );
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec)
-            .deterministic_keypairs(NUM_VALIDATORS)
+            .deterministic_keypairs(num_validators)
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .testing_slot_clock(slot_clock)
             .build();
 
@@ -290,6 +298,166 @@ fn duplicate_after_valid() {
 }
 
 #[tokio::test]
+async fn harness_builds_and_imports_payload_attestation_messages() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let slot = Slot::new(1);
+    let beacon_block_root = ctx.harness.extend_to_slot(slot).await;
+    let state = &ctx.harness.chain.head_snapshot().beacon_state;
+    assert_eq!(state.slot(), slot);
+    let ptc = state.get_ptc(slot, &ctx.harness.spec).unwrap();
+    let mut ptc_weights = std::collections::HashMap::new();
+    for validator_index in ptc.0.iter().copied() {
+        *ptc_weights.entry(validator_index).or_insert(0usize) += 1;
+    }
+    let mut weights = ptc_weights.values().copied().collect::<Vec<_>>();
+    weights.sort_unstable_by(|a, b| b.cmp(a));
+    let [present_weight, absent_weight, ..] = weights[..] else {
+        panic!("PTC should have at least two distinct validators");
+    };
+    let votes = vec![
+        PayloadAttestationVote {
+            validator_count: present_weight,
+            payload_present: true,
+            blob_data_available: true,
+        },
+        PayloadAttestationVote {
+            validator_count: absent_weight,
+            payload_present: false,
+            blob_data_available: false,
+        },
+    ];
+
+    let (messages, attesters) = ctx.harness.make_payload_attestation_messages_with_opts(
+        &ctx.harness.get_all_validators(),
+        state,
+        beacon_block_root,
+        slot,
+        MakePayloadAttestationOptions {
+            votes,
+            fork: state.fork(),
+        },
+    );
+
+    assert_eq!(messages.len(), attesters.len());
+    assert_eq!(
+        attesters
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        attesters.len()
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message.data.payload_present && message.data.blob_data_available)
+            .map(|message| ptc_weights[&(message.validator_index as usize)])
+            .sum::<usize>(),
+        present_weight
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| !message.data.payload_present && !message.data.blob_data_available)
+            .map(|message| ptc_weights[&(message.validator_index as usize)])
+            .sum::<usize>(),
+        absent_weight
+    );
+
+    let pool_count_before = ctx.harness.chain.op_pool.num_payload_attestation_messages();
+    ctx.harness
+        .import_payload_attestation_messages(messages)
+        .expect("payload attestation messages should import");
+    assert_eq!(
+        ctx.harness.chain.op_pool.num_payload_attestation_messages(),
+        pool_count_before + attesters.len()
+    );
+}
+
+#[tokio::test]
+async fn harness_packs_payload_attestation_messages_by_ptc_weight() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let ctx = TestContext::new();
+    let slot = Slot::new(1);
+    let beacon_block_root = ctx.harness.extend_to_slot(slot).await;
+    let state = &ctx.harness.chain.head_snapshot().beacon_state;
+    assert_eq!(state.slot(), slot);
+    let ptc = state.get_ptc(slot, &ctx.harness.spec).unwrap();
+    let mut ptc_weights = std::collections::HashMap::new();
+    let mut ptc_validator_order = vec![];
+    for validator_index in ptc.0.iter().copied() {
+        if let Some(weight) = ptc_weights.get_mut(&validator_index) {
+            *weight += 1;
+        } else {
+            ptc_weights.insert(validator_index, 1usize);
+            ptc_validator_order.push(validator_index);
+        }
+    }
+    let mut sorted_ptc_validators = ptc_validator_order
+        .into_iter()
+        .enumerate()
+        .map(|(order, validator_index)| (validator_index, ptc_weights[&validator_index], order))
+        .collect::<Vec<_>>();
+    sorted_ptc_validators.sort_by(|(_, weight_a, order_a), (_, weight_b, order_b)| {
+        weight_b.cmp(weight_a).then(order_a.cmp(order_b))
+    });
+    let first_weight = sorted_ptc_validators
+        .first()
+        .map(|(_, weight, _)| *weight)
+        .expect("PTC should have at least one validator");
+    assert!(first_weight > 1, "test requires a duplicate PTC member");
+    let second_weight = sorted_ptc_validators
+        .iter()
+        .skip(1)
+        .map(|(_, weight, _)| *weight)
+        .next()
+        .expect("PTC should have at least two distinct validators");
+    let requested_weight = first_weight + second_weight;
+
+    let (messages, attesters) = ctx.harness.make_payload_attestation_messages_with_opts(
+        &ctx.harness.get_all_validators(),
+        state,
+        beacon_block_root,
+        slot,
+        MakePayloadAttestationOptions {
+            votes: vec![PayloadAttestationVote {
+                validator_count: requested_weight,
+                payload_present: true,
+                blob_data_available: true,
+            }],
+            fork: state.fork(),
+        },
+    );
+
+    assert!(
+        messages.len() < requested_weight,
+        "duplicate PTC positions should pack into fewer messages"
+    );
+    assert_eq!(messages.len(), attesters.len());
+    assert_eq!(
+        attesters
+            .iter()
+            .map(|validator_index| ptc_weights[validator_index])
+            .sum::<usize>(),
+        requested_weight
+    );
+    assert!(
+        attesters
+            .iter()
+            .any(|validator_index| ptc_weights[validator_index] > 1)
+    );
+
+    ctx.harness
+        .import_payload_attestation_messages(messages)
+        .expect("weighted payload attestation messages should import");
+}
+
+#[tokio::test]
 async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
     // Only run this test once, when FORK_NAME=gloas exactly.
     let mut spec = test_spec::<E>();
@@ -331,6 +499,15 @@ async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
 
         let head = harness.chain.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
+        if slot == fork_boundary_slot {
+            let pre_fork_slot = slot - 1;
+            assert!(state.get_ptc(pre_fork_slot, &harness.spec).is_err());
+            let message = make_payload_attestation(pre_fork_slot, 0, Hash256::ZERO);
+            assert!(matches!(
+                harness.chain.verify_payload_attestation_message_for_gossip(message),
+                Err(PayloadAttestationError::PreGloasSlot { slot }) if slot == pre_fork_slot
+            ));
+        }
         let ptc = state.get_ptc(slot, &harness.spec).expect("should get PTC");
         let validator_index = *ptc.0.first().expect("PTC should have a member") as u64;
         let data = PayloadAttestationData {

@@ -9,7 +9,7 @@ use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
+use ssz_types::{ProgressiveVariableList, VariableList};
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
@@ -21,7 +21,7 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
 ///
 /// Spec v0.12.1
 #[superstruct(
-    variants(Base, Electra),
+    variants(Base, Electra, Gloas),
     variant_attributes(
         derive(
             Debug,
@@ -41,7 +41,10 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
             derive(arbitrary::Arbitrary),
             arbitrary(bound = "E: EthSpec"),
         ),
-    )
+    ),
+    specific_variant_attributes(Gloas(
+        tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1))
+    ))
 )]
 #[cfg_attr(
     feature = "arbitrary",
@@ -62,6 +65,10 @@ pub struct IndexedAttestation<E: EthSpec> {
     #[superstruct(only(Electra), partial_getter(rename = "attesting_indices_electra"))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     pub attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot>,
+    // [Modified in Gloas:EIP7688]
+    #[superstruct(only(Gloas), partial_getter(rename = "attesting_indices_gloas"))]
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
+    pub attesting_indices: ProgressiveVariableList<u64, E::MaxValidatorsPerSlot>,
     pub data: AttestationData,
     pub signature: AggregateSignature,
 }
@@ -84,41 +91,26 @@ impl<E: EthSpec> IndexedAttestation<E> {
     }
 
     pub fn attesting_indices_len(&self) -> usize {
-        match self {
-            IndexedAttestation::Base(att) => att.attesting_indices.len(),
-            IndexedAttestation::Electra(att) => att.attesting_indices.len(),
-        }
+        self.to_ref().attesting_indices_len()
     }
 
     pub fn attesting_indices_to_vec(&self) -> Vec<u64> {
-        match self {
-            IndexedAttestation::Base(att) => att.attesting_indices.to_vec(),
-            IndexedAttestation::Electra(att) => att.attesting_indices.to_vec(),
-        }
+        self.to_ref().attesting_indices_to_vec()
     }
 
     pub fn attesting_indices_is_empty(&self) -> bool {
-        match self {
-            IndexedAttestation::Base(att) => att.attesting_indices.is_empty(),
-            IndexedAttestation::Electra(att) => att.attesting_indices.is_empty(),
-        }
+        self.to_ref().attesting_indices_is_empty()
     }
 
     pub fn attesting_indices_iter(&self) -> Iter<'_, u64> {
-        match self {
-            IndexedAttestation::Base(att) => att.attesting_indices.iter(),
-            IndexedAttestation::Electra(att) => att.attesting_indices.iter(),
-        }
+        self.to_ref().attesting_indices_iter()
     }
 
     pub fn attesting_indices_first(&self) -> Option<&u64> {
-        match self {
-            IndexedAttestation::Base(att) => att.attesting_indices.first(),
-            IndexedAttestation::Electra(att) => att.attesting_indices.first(),
-        }
+        self.to_ref().attesting_indices_first()
     }
 
-    pub fn to_electra(self) -> IndexedAttestationElectra<E> {
+    pub fn to_electra(self) -> Result<IndexedAttestationElectra<E>, ssz_types::Error> {
         match self {
             Self::Base(att) => {
                 let extended_attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot> =
@@ -127,18 +119,42 @@ impl<E: EthSpec> IndexedAttestation<E> {
                 // Note a unit test in consensus/types/src/eth_spec.rs asserts this invariant for
                 // all known specs
 
-                IndexedAttestationElectra {
+                Ok(IndexedAttestationElectra {
                     attesting_indices: extended_attesting_indices,
                     data: att.data,
                     signature: att.signature,
-                }
+                })
             }
-            Self::Electra(att) => att,
+            Self::Electra(att) => Ok(att),
+            Self::Gloas(att) => {
+                let attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot> =
+                    VariableList::new(att.attesting_indices.to_vec())?;
+
+                Ok(IndexedAttestationElectra {
+                    attesting_indices,
+                    data: att.data,
+                    signature: att.signature,
+                })
+            }
         }
+    }
+
+    pub fn to_gloas(self) -> Result<IndexedAttestationGloas<E>, ssz_types::Error> {
+        let attesting_indices = ProgressiveVariableList::new(self.attesting_indices_to_vec())?;
+        let (data, signature) = match self {
+            Self::Base(att) => (att.data, att.signature),
+            Self::Electra(att) => (att.data, att.signature),
+            Self::Gloas(att) => return Ok(att),
+        };
+        Ok(IndexedAttestationGloas {
+            attesting_indices,
+            data,
+            signature,
+        })
     }
 }
 
-impl<E: EthSpec> IndexedAttestationRef<'_, E> {
+impl<'a, E: EthSpec> IndexedAttestationRef<'a, E> {
     pub fn is_double_vote(&self, other: Self) -> bool {
         self.data().target.epoch == other.data().target.epoch && self.data() != other.data()
     }
@@ -149,45 +165,45 @@ impl<E: EthSpec> IndexedAttestationRef<'_, E> {
     }
 
     pub fn attesting_indices_len(&self) -> usize {
-        match self {
-            IndexedAttestationRef::Base(att) => att.attesting_indices.len(),
-            IndexedAttestationRef::Electra(att) => att.attesting_indices.len(),
-        }
+        map_indexed_attestation_ref!(&'a _, self, |attestation, cons| {
+            cons(attestation);
+            attestation.attesting_indices.len()
+        })
     }
 
     pub fn attesting_indices_to_vec(&self) -> Vec<u64> {
-        match self {
-            IndexedAttestationRef::Base(att) => att.attesting_indices.to_vec(),
-            IndexedAttestationRef::Electra(att) => att.attesting_indices.to_vec(),
-        }
+        map_indexed_attestation_ref!(&'a _, self, |attestation, cons| {
+            cons(attestation);
+            attestation.attesting_indices.to_vec()
+        })
     }
 
     pub fn attesting_indices_is_empty(&self) -> bool {
-        match self {
-            IndexedAttestationRef::Base(att) => att.attesting_indices.is_empty(),
-            IndexedAttestationRef::Electra(att) => att.attesting_indices.is_empty(),
-        }
+        map_indexed_attestation_ref!(&'a _, self, |attestation, cons| {
+            cons(attestation);
+            attestation.attesting_indices.is_empty()
+        })
     }
 
-    pub fn attesting_indices_iter(&self) -> Iter<'_, u64> {
-        match self {
-            IndexedAttestationRef::Base(att) => att.attesting_indices.iter(),
-            IndexedAttestationRef::Electra(att) => att.attesting_indices.iter(),
-        }
+    pub fn attesting_indices_iter(&self) -> Iter<'a, u64> {
+        map_indexed_attestation_ref!(&'a _, self, |attestation, cons| {
+            cons(attestation);
+            attestation.attesting_indices.iter()
+        })
     }
 
-    pub fn attesting_indices_first(&self) -> Option<&u64> {
-        match self {
-            IndexedAttestationRef::Base(att) => att.attesting_indices.first(),
-            IndexedAttestationRef::Electra(att) => att.attesting_indices.first(),
-        }
+    pub fn attesting_indices_first(&self) -> Option<&'a u64> {
+        map_indexed_attestation_ref!(&'a _, self, |attestation, cons| {
+            cons(attestation);
+            attestation.attesting_indices.first()
+        })
     }
 
     pub fn clone_as_indexed_attestation(self) -> IndexedAttestation<E> {
-        match self {
-            IndexedAttestationRef::Base(att) => IndexedAttestation::Base(att.clone()),
-            IndexedAttestationRef::Electra(att) => IndexedAttestation::Electra(att.clone()),
-        }
+        map_indexed_attestation_ref!(&'a _, self, |attestation, cons| {
+            cons(attestation);
+            attestation.clone().into()
+        })
     }
 }
 
@@ -201,6 +217,7 @@ impl<E: EthSpec> Hash for IndexedAttestation<E> {
         match self {
             IndexedAttestation::Base(att) => att.attesting_indices.hash(state),
             IndexedAttestation::Electra(att) => att.attesting_indices.hash(state),
+            IndexedAttestation::Gloas(att) => att.attesting_indices.hash(state),
         };
         self.data().hash(state);
         self.signature().as_ssz_bytes().hash(state);
@@ -210,7 +227,7 @@ impl<E: EthSpec> Hash for IndexedAttestation<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{Epoch, MainnetEthSpec};
+    use crate::core::{Epoch, Spec};
     use arbitrary::Arbitrary;
 
     #[test]
@@ -263,17 +280,17 @@ mod tests {
 
     mod base {
         use super::*;
-        ssz_and_tree_hash_tests!(IndexedAttestationBase<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(IndexedAttestationBase<Spec>);
     }
     mod electra {
         use super::*;
-        ssz_and_tree_hash_tests!(IndexedAttestationElectra<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(IndexedAttestationElectra<Spec>);
     }
 
     fn create_indexed_attestation(
         target_epoch: u64,
         source_epoch: u64,
-    ) -> IndexedAttestation<MainnetEthSpec> {
+    ) -> IndexedAttestation<Spec> {
         let mut u = crate::test_utils::test_unstructured();
         let mut indexed_vote =
             IndexedAttestation::Base(IndexedAttestationBase::arbitrary(&mut u).unwrap());

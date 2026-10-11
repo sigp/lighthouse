@@ -686,11 +686,11 @@ pub fn cli_app() -> Command {
                 .long("enable-partial-columns")
                 .value_name("BOOLEAN")
                 .help("Enable partial messages for data columns. This can reduce the amount of \
-                data sent over the network. Enabled by default on Hoodi and Sepolia; set to \
-                \"false\" to opt out.")
+                data sent over the network. Enabled by default; set to \"false\" to opt out.")
                 .action(ArgAction::Set)
                 .num_args(0..=1)
                 .default_missing_value("true")
+                .default_value("true")
                 .display_order(0)
         )
         /*
@@ -840,8 +840,18 @@ pub fn cli_app() -> Command {
                 .alias("execution-endpoints")
                 .help("Server endpoint for an execution layer JWT-authenticated HTTP \
                        JSON-RPC connection. Uses the same endpoint to populate the \
-                       deposit cache.")
-                .required(true)
+                       deposit cache. Optional when --proof-engine-endpoint is set.")
+                .required_unless_present("proof-engine-endpoint")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("proof-engine-endpoint")
+                .long("proof-engine-endpoint")
+                .value_name("PROOF-ENGINE-ENDPOINT")
+                .help("Server endpoint for an EIP-8025 proof engine used to verify execution \
+                       proofs. When present, the node subscribes to the execution_proof gossip \
+                       topic and propagates proofs that verify. Experimental.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -926,6 +936,17 @@ pub fn cli_app() -> Command {
             Arg::new("disable-get-blobs")
                 .long("disable-get-blobs")
                 .help("Disables the getBlobs optimisation to fetch blobs from the EL mempool")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("enable-fast-confirmation")
+                .long("enable-fast-confirmation")
+                .help("Enable the Fast Confirmation Rule (FCR). When enabled, \
+                    FCR provides faster block confirmation (typically within 1-2 slots of \
+                    the head) by computing a confirmed root that is fed into the execution \
+                    layer's safe_block_hash.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)

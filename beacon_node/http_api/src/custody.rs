@@ -17,6 +17,7 @@ pub fn info<T: BeaconChainTypes>(
         .map_err(|e| custom_server_error(format!("error reading DataColumnCustodyInfo: {e:?}")))?;
 
     let column_data_availability_boundary = chain
+        .custody_context
         .column_data_availability_boundary()
         .ok_or_else(|| custom_server_error("unreachable: Fulu should be enabled".to_string()))?;
 
@@ -38,12 +39,13 @@ pub fn info<T: BeaconChainTypes>(
     // Compute the custody columns and the CGC *at the earliest custodied slot*. The node might
     // have some columns prior to this, but this value is the most up-to-date view of the data the
     // node is custodying.
-    let custody_context = chain.data_availability_checker.custody_context();
-    let custody_columns = custody_context
-        .custody_columns_for_epoch(Some(earliest_custodied_data_column_epoch), &chain.spec)
+    let custody_columns = chain
+        .custody_context
+        .custody_columns_for_epoch(Some(earliest_custodied_data_column_epoch))
         .to_vec();
-    let custody_group_count = custody_context
-        .custody_group_count_at_epoch(earliest_custodied_data_column_epoch, &chain.spec);
+    let custody_group_count = chain
+        .custody_context
+        .custody_group_count_at_epoch(earliest_custodied_data_column_epoch);
 
     Ok(CustodyInfo {
         earliest_custodied_data_column_slot,

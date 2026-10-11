@@ -1,12 +1,17 @@
 use super::errors::{BlockOperationError, DepositInvalid};
 use crate::per_block_processing::signature_sets::deposit_pubkey_signature_message;
-use bls::PublicKeyBytes;
+use bls::{PublicKey, PublicKeyBytes, Signature, SignatureSet, verify_signature_sets};
 use merkle_proof::verify_merkle_proof;
+use rayon::prelude::*;
 use safe_arith::SafeArith;
+use std::borrow::Cow;
+use tracing::instrument;
 use tree_hash::TreeHash;
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<DepositInvalid>>;
+
+const DEPOSIT_SIGNATURE_BATCH_SIZE: usize = 8;
 
 fn error(reason: DepositInvalid) -> BlockOperationError<DepositInvalid> {
     BlockOperationError::invalid(reason)
@@ -65,4 +70,85 @@ pub fn verify_deposit_merkle_proof<E: EthSpec>(
     );
 
     Ok(())
+}
+
+/// Batch verify a slice of deposit signatures.
+fn verify_deposit_signature_sets(entries: &[&(usize, PublicKey, Signature, Hash256)]) -> bool {
+    if entries.is_empty() {
+        return true;
+    }
+
+    let signature_sets = entries
+        .iter()
+        .map(|(_, public_key, signature, message)| {
+            SignatureSet::single_pubkey(signature, Cow::Borrowed(public_key), *message)
+        })
+        .collect::<Vec<_>>();
+
+    verify_signature_sets(signature_sets.iter())
+}
+
+/// Helper for verifying a single deposit signature.
+fn verify_deposit_signature(entry: &(usize, PublicKey, Signature, Hash256)) -> bool {
+    let (_, public_key, signature, message) = entry;
+    signature.verify(public_key, *message)
+}
+
+/// Verify `Deposit.pubkey` signed `Deposit.signature` for each deposit in batches of
+/// `DEPOSIT_SIGNATURE_BATCH_SIZE`.
+///
+/// Returns `true` for valid signatures and `false` for invalid signatures.
+///
+/// Note: decompression failures are also considered as invalid signatures.
+#[instrument(skip_all, level = "debug")]
+pub fn is_valid_deposit_signature_batch(
+    deposit_data: Vec<DepositData>,
+    spec: &ChainSpec,
+) -> Vec<bool> {
+    let decompressed = deposit_data
+        .par_iter()
+        .enumerate()
+        .map(|(index, deposit)| {
+            deposit_pubkey_signature_message(deposit, spec)
+                .map(|(public_key, signature, message)| (index, public_key, signature, message))
+        })
+        .collect::<Vec<_>>();
+
+    // Initialize with false to ensure signatures that fail decompression above are also
+    // marked as signature verification failures.
+    let mut results = vec![false; decompressed.len()];
+
+    let batch_results = decompressed
+        .par_chunks(DEPOSIT_SIGNATURE_BATCH_SIZE)
+        .map(|chunk| {
+            let valid_entries = chunk
+                .iter()
+                .filter_map(|entry| entry.as_ref())
+                .collect::<Vec<_>>();
+
+            // All signatures in this batch are valid.
+            if verify_deposit_signature_sets(&valid_entries) {
+                valid_entries
+                    .into_iter()
+                    .map(|entry| (entry.0, true))
+                    .collect::<Vec<_>>()
+            // There were some invalid signatures in this batch,
+            // verify individually to detect the invalid signatures.
+            } else {
+                valid_entries
+                    .into_iter()
+                    .map(|entry| (entry.0, verify_deposit_signature(entry)))
+                    .collect::<Vec<_>>()
+            }
+        })
+        .collect::<Vec<_>>();
+
+    for (index, is_valid) in batch_results.into_iter().flatten() {
+        debug_assert!(index < results.len());
+        if let Some(res) = results.get_mut(index) {
+            *res = is_valid;
+        }
+    }
+
+    results
 }

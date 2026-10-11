@@ -1,6 +1,6 @@
 use crate::metrics;
 use beacon_chain::{
-    BeaconChain, BeaconChainTypes, ExecutionStatus,
+    BeaconChain, BeaconChainTypes, ExecutionVerdict,
     bellatrix_readiness::GenesisExecutionPayloadStatus,
 };
 use execution_layer::{
@@ -171,7 +171,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         Ok(data_column_custody_info) => {
                             if let Some(earliest_data_column_slot) = data_column_custody_info
                                 .and_then(|info| info.earliest_data_column_slot)
-                                && let Some(da_boundary) = beacon_chain.get_column_da_boundary()
+                                && let Some(da_boundary) = beacon_chain
+                                    .custody_context
+                                    .column_data_availability_boundary()
                             {
                                 sync_distance = earliest_data_column_slot.saturating_sub(
                                     da_boundary.start_slot(T::EthSpec::slots_per_epoch()),
@@ -295,7 +297,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 let speed = speedo.slots_per_second();
                 let display_speed = speed.is_some_and(|speed| speed != 0.0);
                 let est_time_in_secs = if let (Some(da_boundary_epoch), Some(original_slot)) = (
-                    beacon_chain.get_column_da_boundary(),
+                    beacon_chain
+                        .custody_context
+                        .column_data_availability_boundary(),
                     original_earliest_data_column_slot,
                 ) {
                     let target = original_slot.saturating_sub(
@@ -363,29 +367,34 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     head_root.short().to_string()
                 };
 
+                // `cached_head.head_hash()` is `None` only pre-merge. Default to zero (display only).
+                let head_hash = beacon_chain
+                    .canonical_head
+                    .cached_head()
+                    .head_hash()
+                    .unwrap_or_else(ExecutionBlockHash::zero);
                 let block_hash = match beacon_chain.canonical_head.head_execution_status() {
-                    Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
-                    Ok(ExecutionStatus::Valid(hash)) => {
+                    Ok(ExecutionVerdict::Valid) => {
                         metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
-                        format!("{} (verified)", hash)
+                        format!("{} (verified)", head_hash)
                     }
-                    Ok(ExecutionStatus::Optimistic(hash)) => {
+                    Ok(ExecutionVerdict::Optimistic) => {
                         metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 1);
                         warn!(
                             info = "chain not fully verified, \
                             block and attestation production disabled until execution engine syncs",
-                            execution_block_hash = ?hash,
+                            execution_block_hash = ?head_hash,
                             "Head is optimistic"
                         );
-                        format!("{} (unverified)", hash)
+                        format!("{} (unverified)", head_hash)
                     }
-                    Ok(ExecutionStatus::Invalid(hash)) => {
+                    Ok(ExecutionVerdict::Invalid) => {
                         crit!(
                             msg = "this scenario may be unrecoverable",
-                            execution_block_hash = ?hash,
+                            execution_block_hash = ?head_hash,
                             "Head execution payload is invalid"
                         );
-                        format!("{} (invalid)", hash)
+                        format!("{} (invalid)", head_hash)
                     }
                     Err(_) => "unknown".to_string(),
                 };
@@ -446,7 +455,7 @@ async fn post_bellatrix_readiness_logging<T: BeaconChainTypes>(
                 }
             }
         } else {
-            Err("No execution endpoint".to_string())
+            return;
         };
 
         if let Err(readiness) = readiness {
@@ -554,7 +563,7 @@ fn methods_required_for_fork(
                 missing_methods.push(ENGINE_NEW_PAYLOAD_V4);
             }
         }
-        ForkName::Gloas => {
+        ForkName::Gloas | ForkName::Heze => {
             if !capabilities.get_payload_v6 {
                 missing_methods.push(ENGINE_GET_PAYLOAD_V6);
             }
@@ -617,6 +626,7 @@ async fn genesis_execution_payload_logging<T: BeaconChainTypes>(beacon_chain: &B
                 "Unable to check genesis which has already occurred"
             );
         }
+        Ok(GenesisExecutionPayloadStatus::NoExecutionLayer) => {}
         Err(e) => {
             error!(
                 error = ?e,

@@ -8,6 +8,7 @@ autotests = false # using a single test binary compiles faster
 
 [features]
 default = ["participation_metrics"]
+spec-minimal = ["types/spec-minimal"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = []
 # Exposes validator participation metrics to Prometheus.
@@ -16,6 +17,7 @@ participation_metrics = []
 fork_from_env = []
 portable = ["bls/supranational-portable"]
 test_backfill = []
+ef_tests = ["fork_choice/test-utils"]
 arbitrary = ["dep:arbitrary", "types/arbitrary"]
 
 [dependencies]
@@ -23,6 +25,7 @@ alloy-primitives = { workspace = true }
 arbitrary = { workspace = true, optional = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
+builder_client = { workspace = true }
 educe = { workspace = true }
 eth2 = { workspace = true, features = ["lighthouse", "network"] }
 eth2_network_config = { workspace = true }
@@ -31,6 +34,7 @@ ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 execution_layer = { workspace = true }
+fast_confirmation = { workspace = true }
 fixed_bytes = { workspace = true }
 fork_choice = { workspace = true }
 futures = { workspace = true }
@@ -49,6 +53,7 @@ once_cell = { workspace = true }
 oneshot_broadcast = { path = "../../common/oneshot_broadcast/" }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
+proof_engine = { workspace = true }
 proto_array = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
@@ -93,3 +98,8 @@ harness = false
 [[test]]
 name = "beacon_chain_tests"
 path = "tests/main.rs"
+
+[[test]]
+name = "beacon_chain_spec_minimal_tests"
+path = "tests/spec_minimal.rs"
+required-features = ["spec-minimal"]

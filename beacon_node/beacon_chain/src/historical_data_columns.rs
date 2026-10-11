@@ -76,9 +76,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;
 
+        let mut previous_block_root = None;
         for block_iter_result in forward_blocks_iter {
             let (block_root, slot) = block_iter_result
                 .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;
+
+            // The iterator repeats the prior block root for skip slots. We need to skip those entries.
+            // The first entry has no prior root to compare against, so check the block's slot.
+            let is_skip_slot = match previous_block_root {
+                Some(previous_root) => previous_root == block_root,
+                None => self
+                    .get_blinded_block(&block_root)
+                    .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?
+                    .is_none_or(|block| block.slot() != slot),
+            };
+            previous_block_root = Some(block_root);
+            if is_skip_slot {
+                continue;
+            }
 
             let fork_name = self.spec.fork_name_at_slot::<T::EthSpec>(slot);
             for column_index in unique_column_indices.clone() {
@@ -131,8 +146,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        self.data_availability_checker
-            .custody_context()
+        self.custody_context
             .update_and_backfill_custody_count_at_epoch(epoch, expected_cgc);
 
         self.safely_backfill_data_column_custody_info(epoch)

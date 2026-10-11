@@ -162,7 +162,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     /// - The earliest data column epoch's custodied columns != previous epoch's custodied columns
     /// - The earliest data column epoch is a finalied epoch
     pub fn should_start_custody_backfill_sync(&mut self) -> bool {
-        let Some(da_boundary_epoch) = self.beacon_chain.get_column_da_boundary() else {
+        let Some(da_boundary_epoch) = self
+            .beacon_chain
+            .custody_context
+            .column_data_availability_boundary()
+        else {
             return false;
         };
 
@@ -220,9 +224,8 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     fn restart_if_required(&mut self) -> bool {
         let cgc_at_head = self
             .beacon_chain
-            .data_availability_checker
-            .custody_context()
-            .custody_group_count_at_head(&self.beacon_chain.spec);
+            .custody_context
+            .custody_group_count_at_head();
 
         if cgc_at_head != self.cgc {
             self.restart_sync();
@@ -290,7 +293,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             }
         }
 
-        let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
+        let Some(column_da_boundary) = self
+            .beacon_chain
+            .custody_context
+            .column_data_availability_boundary()
+        else {
             return Ok(SyncStart::NotSyncing);
         };
 
@@ -309,9 +316,8 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     fn set_cgc(&mut self) {
         self.cgc = self
             .beacon_chain
-            .data_availability_checker
-            .custody_context()
-            .custody_group_count_at_head(&self.beacon_chain.spec);
+            .custody_context
+            .custody_group_count_at_head();
     }
 
     fn set_start_epoch(&mut self) {
@@ -379,9 +385,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     /// Creates the next required batch from the chain. If there are no more batches required,
     /// `None` is returned.
     fn include_next_batch(&mut self) -> Option<BatchId> {
-        let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
-            return None;
-        };
+        let column_da_boundary = self
+            .beacon_chain
+            .custody_context
+            .column_data_availability_boundary()?;
 
         // Skip all batches (Epochs) that don't have missing columns.
         for epoch in Epoch::range_inclusive_rev(self.to_be_downloaded, column_da_boundary) {
@@ -598,7 +605,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     && let CouplingError::DataColumnPeerFailure {
                         error,
                         faulty_peers,
-                        exceeded_retries: _,
                     } = coupling_error
                 {
                     let mut failed_peers = HashSet::new();
@@ -715,7 +721,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
 
                 self.advance_custody_backfill_sync(batch_id);
 
-                let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
+                let Some(column_da_boundary) = self
+                    .beacon_chain
+                    .custody_context
+                    .column_data_availability_boundary()
+                else {
                     return Err(CustodyBackfillError::InvalidSyncState(
                         "Can't calculate column data availability boundary".to_string(),
                     ));
@@ -862,7 +872,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     // The batch is validated
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed | BatchState::Processing(_) => {
+                BatchState::Failed | BatchState::Processing(..) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Columns should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
@@ -889,7 +899,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     ///
     /// The `validating_epoch` must align with batch boundaries.
     fn advance_custody_backfill_sync(&mut self, validating_epoch: Epoch) {
-        let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
+        let Some(column_da_boundary) = self
+            .beacon_chain
+            .custody_context
+            .column_data_availability_boundary()
+        else {
             return;
         };
         // make sure this epoch produces an advancement, unless its at the column DA boundary
@@ -909,10 +923,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             match batch.state() {
                 BatchState::Downloading(..) | BatchState::AwaitingValidation(..) => {}
                 BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
-                    crit!("Batch indicates inconsistent data columns while advancing custody sync")
+                    crit!("Batch indicates inconsistent data columns while advancing custody sync");
                 }
                 BatchState::AwaitingProcessing(..) => {}
-                BatchState::Processing(_) => {
+                BatchState::Processing(..) => {
                     debug!(batch = %id, %batch, "Advancing custody sync while processing a batch");
                     if let Some(processing_id) = self.current_processing_batch
                         && id >= processing_id
@@ -986,7 +1000,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 return false;
             };
 
-            let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
+            let Some(column_da_boundary) = self
+                .beacon_chain
+                .custody_context
+                .column_data_availability_boundary()
+            else {
                 return false;
             };
 
@@ -997,7 +1015,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
 
     /// Checks if custody backfill would complete by syncing to `start_epoch`.
     fn would_complete(&self, start_epoch: Epoch) -> bool {
-        let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
+        let Some(column_da_boundary) = self
+            .beacon_chain
+            .custody_context
+            .column_data_availability_boundary()
+        else {
             return false;
         };
         start_epoch <= column_da_boundary

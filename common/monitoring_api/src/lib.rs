@@ -5,6 +5,7 @@ use std::{path::PathBuf, time::Duration};
 use eth2::lighthouse::SystemHealth;
 use gather::{gather_beacon_metrics, gather_validator_metrics};
 use health_metrics::observe::Observe;
+use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{IntoUrl, Response};
 pub use reqwest::{StatusCode, Url};
 use sensitive_url::SensitiveUrl;
@@ -24,7 +25,7 @@ pub const TIMEOUT_DURATION: u64 = 5;
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
-    Reqwest(reqwest::Error),
+    Reqwest(PrettyReqwestError),
     /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
     InvalidUrl(SensitiveUrl),
     SystemMetricsFailed(String),
@@ -43,6 +44,12 @@ impl std::fmt::Display for Error {
             // Print the debug value
             e => write!(f, "{:?}", e),
         }
+    }
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(e: reqwest::Error) -> Self {
+        Error::Reqwest(e.into())
     }
 }
 
@@ -93,8 +100,7 @@ impl MonitoringHttpClient {
             .json(body)
             .timeout(Duration::from_secs(TIMEOUT_DURATION))
             .send()
-            .await
-            .map_err(Error::Reqwest)?;
+            .await?;
         ok_or_error(response).await?;
         Ok(())
     }
@@ -211,5 +217,42 @@ async fn ok_or_error(response: Response) -> Result<Response, Error> {
         Err(Error::ServerMessage(message))
     } else {
         Err(Error::StatusCode(status))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    #[tokio::test]
+    async fn reqwest_error_display_redacts_monitoring_endpoint_query() {
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+
+        let client = MonitoringHttpClient::new(&Config {
+            monitoring_endpoint: "http://127.0.0.1/".to_string(),
+            db_path: None,
+            freezer_db_path: None,
+            update_period_secs: None,
+        })
+        .unwrap();
+        let api_key = "test-api-key";
+        let url = format!("http://127.0.0.1:{port}/api/v1/client/metrics?apikey={api_key}");
+
+        let error = client
+            .post(url, &Vec::<MonitoringMetrics>::new())
+            .await
+            .unwrap_err();
+
+        let formatted_error = error.to_string();
+
+        assert!(formatted_error.contains(&format!("http://127.0.0.1:{port}/")));
+        assert!(!formatted_error.contains("apikey"));
+        assert!(!formatted_error.contains(api_key));
+        assert!(!formatted_error.contains(&format!("apikey={api_key}")));
     }
 }
