@@ -246,6 +246,7 @@ where
             ResetPayloadStatuses::always_reset_conditionally(
                 self.chain_config.always_reset_payload_statuses,
             ),
+            self.chain_config.filter_optimistic_payloads,
             &self.spec,
         )
         .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
@@ -392,6 +393,7 @@ where
             &genesis.beacon_block,
             &genesis.beacon_state,
             current_slot,
+            self.chain_config.filter_optimistic_payloads,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -614,6 +616,7 @@ where
             &snapshot.beacon_block,
             &snapshot.beacon_state,
             Some(weak_subj_slot),
+            self.chain_config.filter_optimistic_payloads,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
@@ -1450,6 +1453,7 @@ where
             &snapshot.beacon_block,
             &snapshot.beacon_state,
             Some(fork_choice_slot),
+            self.chain_config.filter_optimistic_payloads,
             &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;

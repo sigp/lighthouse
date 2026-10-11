@@ -1,7 +1,7 @@
 use crate::proto_array_fork_choice::IndexedForkChoiceNode;
 use crate::{
-    Block, ExecutionStatus, ExecutionVerdict, JustifiedBalances, LatestMessage, PayloadBlockHash,
-    PayloadStatus, error::Error,
+    Block, ExecutionStatus, ExecutionVerdict, JustifiedBalances, LatestMessage, OptimisticPayloads,
+    PayloadBlockHash, PayloadStatus, error::Error,
 };
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
@@ -1224,6 +1224,7 @@ impl ProtoArray {
         best_finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
+        policy: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<(Hash256, PayloadStatus), Error> {
         let justified_index = self
@@ -1239,6 +1240,7 @@ impl ProtoArray {
             best_finalized_checkpoint,
             proposer_boost_root,
             justified_balances,
+            policy,
             spec,
         )?;
 
@@ -1392,6 +1394,7 @@ impl ProtoArray {
         best_finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
+        policy: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<IndexedForkChoiceNode, Error> {
         let mut head = IndexedForkChoiceNode {
@@ -1415,9 +1418,9 @@ impl ProtoArray {
         loop {
             let children: Vec<_> = if head.payload_status == PayloadStatus::Pending {
                 // Spec: `get_node_children` does not consult `get_filtered_block_tree` for PENDING.
-                self.get_node_children(&head)?
+                self.get_node_children(&head, policy)?
             } else {
-                self.get_node_children(&head)?
+                self.get_node_children(&head, policy)?
                     .into_iter()
                     .filter(|(fc_node, _)| viable_nodes.contains(&fc_node.proto_node_index))
                     .collect()
@@ -1470,6 +1473,7 @@ impl ProtoArray {
         finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
+        policy: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<Vec<(Hash256, PayloadStatus, u64)>, Error> {
         let start_index = self
@@ -1502,9 +1506,9 @@ impl ProtoArray {
                 .ok_or(Error::InvalidNodeIndex(fc_node.proto_node_index))?;
 
             let children: Vec<_> = if fc_node.payload_status == PayloadStatus::Pending {
-                self.get_node_children(&fc_node)?
+                self.get_node_children(&fc_node, policy)?
             } else {
-                self.get_node_children(&fc_node)?
+                self.get_node_children(&fc_node, policy)?
                     .into_iter()
                     .filter(|(child, _)| viable_nodes.contains(&child.proto_node_index))
                     .collect()
@@ -1611,6 +1615,22 @@ impl ProtoArray {
         }
     }
 
+    /// If this proto node has a possible FULL edge.
+    fn has_full_node(&self, proto_node: &ProtoNode, policy: OptimisticPayloads) -> bool {
+        proto_node.payload_received().is_ok_and(|received| received)
+            && !proto_node.is_invalid()
+            && match policy {
+                OptimisticPayloads::Eligible => true,
+                OptimisticPayloads::Filtered => match proto_node.execution_status() {
+                    ExecutionStatus::Optimistic(_) => false,
+                    ExecutionStatus::Valid(_)
+                    | ExecutionStatus::Invalid(_)
+                    | ExecutionStatus::Irrelevant(_)
+                    | ExecutionStatus::NotYetRevealed(_) => true,
+                },
+            }
+    }
+
     /// Returns the canonical payload status of a block, matching the decision
     /// `get_head` would make between `(root, FULL)` and `(root, EMPTY)`.
     pub(crate) fn get_canonical_payload_status<E: EthSpec>(
@@ -1619,6 +1639,7 @@ impl ProtoArray {
         current_slot: Slot,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
+        policy: OptimisticPayloads,
         spec: &ChainSpec,
     ) -> Result<PayloadStatus, Error> {
         let proto_node_index = *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;
@@ -1628,11 +1649,7 @@ impl ProtoArray {
             .ok_or(Error::InvalidNodeIndex(proto_node_index))?;
 
         // As in `get_node_children`, an invalid payload has no FULL node.
-        if !proto_node
-            .payload_received()
-            .map_err(|_| Error::InvalidNodeVariant { block_root: root })?
-            || proto_node.is_invalid()
-        {
+        if !self.has_full_node(proto_node, policy) {
             return Ok(PayloadStatus::Empty);
         }
 
@@ -1823,6 +1840,7 @@ impl ProtoArray {
     fn get_node_children(
         &self,
         node: &IndexedForkChoiceNode,
+        policy: OptimisticPayloads,
     ) -> Result<Vec<(IndexedForkChoiceNode, ProtoNode)>, Error> {
         if node.payload_status == PayloadStatus::Pending {
             let proto_node = self
@@ -1832,9 +1850,7 @@ impl ProtoArray {
             let mut children = vec![(node.with_status(PayloadStatus::Empty), proto_node.clone())];
             // The FULL virtual child only exists if the payload has been received and not found
             // invalid.
-            if proto_node.payload_received().is_ok_and(|received| received)
-                && !proto_node.is_invalid()
-            {
+            if self.has_full_node(proto_node, policy) {
                 children.push((node.with_status(PayloadStatus::Full), proto_node.clone()));
             }
             Ok(children)

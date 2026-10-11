@@ -18,7 +18,9 @@ use fast_confirmation::{
 };
 use fixed_bytes::FixedBytesExtended;
 use proto_array::core::{ProtoArray, VoteTracker};
-use proto_array::{Block, ExecutionStatus, JustifiedBalances, ProtoArrayForkChoice};
+use proto_array::{
+    Block, ExecutionStatus, JustifiedBalances, OptimisticPayloads, ProtoArrayForkChoice,
+};
 use types::*;
 
 type E = MainnetEthSpec;
@@ -236,6 +238,7 @@ fn build_chain_inner(
         Hash256::zero(), // no proposer boost
         &BTreeSet::new(),
         Slot::new(CHAIN_TIP_SLOT),
+        OptimisticPayloads::Eligible,
         &spec,
     )
     .expect("find head");

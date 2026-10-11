@@ -20,7 +20,7 @@ use bls::AggregateSignature;
 use execution_layer::{
     PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
 };
-use proto_array::{PayloadBlockHash, ReOrgThreshold};
+use proto_array::{OptimisticPayloads, PayloadBlockHash, ReOrgThreshold};
 use serde::Deserialize;
 use ssz_derive::Decode;
 use ssz_types::VariableList;
@@ -1405,6 +1405,7 @@ impl<E: EthSpec> Tester<E> {
                 finalized,
                 proposer_boost_root,
                 &justified_balances,
+                OptimisticPayloads::Eligible,
                 &self.spec,
             )
             .map_err(|e| {

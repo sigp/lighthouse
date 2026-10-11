@@ -1,6 +1,6 @@
 use super::*;
 
-fn gloas_spec() -> ChainSpec {
+pub(super) fn gloas_spec() -> ChainSpec {
     let mut spec = MainnetEthSpec::default_spec();
     spec.proposer_score_boost = 50;
     spec.gloas_fork_epoch = Some(Epoch::new(0));
