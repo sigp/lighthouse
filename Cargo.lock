@@ -1491,6 +1491,7 @@ dependencies = [
  "operation_pool",
  "parking_lot",
  "proof_engine",
+ "proptest",
  "proto_array",
  "rand 0.9.5",
  "rand_xorshift 0.4.0",
