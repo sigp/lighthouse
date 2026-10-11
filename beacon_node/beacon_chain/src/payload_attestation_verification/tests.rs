@@ -4,8 +4,8 @@ use std::time::Duration;
 use bls::Signature;
 use slot_clock::{SlotClock, TestingSlotClock};
 use types::{
-    Domain, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec, PayloadAttestationData,
-    PayloadAttestationMessage, SignedRoot, Slot,
+    Domain, Epoch, EthSpec, ForkName, Hash256, PayloadAttestationData, PayloadAttestationMessage,
+    SignedRoot, Slot, Spec,
 };
 
 use crate::{
@@ -21,7 +21,7 @@ use crate::{
     },
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
 const NUM_VALIDATORS: usize = 64;
@@ -312,14 +312,19 @@ async fn harness_builds_and_imports_payload_attestation_messages() {
     for validator_index in ptc.0.iter().copied() {
         *ptc_weights.entry(validator_index).or_insert(0usize) += 1;
     }
+    let mut weights = ptc_weights.values().copied().collect::<Vec<_>>();
+    weights.sort_unstable_by(|a, b| b.cmp(a));
+    let [present_weight, absent_weight, ..] = weights[..] else {
+        panic!("PTC should have at least two distinct validators");
+    };
     let votes = vec![
         PayloadAttestationVote {
-            validator_count: 2,
+            validator_count: present_weight,
             payload_present: true,
             blob_data_available: true,
         },
         PayloadAttestationVote {
-            validator_count: 3,
+            validator_count: absent_weight,
             payload_present: false,
             blob_data_available: false,
         },
@@ -351,7 +356,7 @@ async fn harness_builds_and_imports_payload_attestation_messages() {
             .filter(|message| message.data.payload_present && message.data.blob_data_available)
             .map(|message| ptc_weights[&(message.validator_index as usize)])
             .sum::<usize>(),
-        2
+        present_weight
     );
     assert_eq!(
         messages
@@ -359,7 +364,7 @@ async fn harness_builds_and_imports_payload_attestation_messages() {
             .filter(|message| !message.data.payload_present && !message.data.blob_data_available)
             .map(|message| ptc_weights[&(message.validator_index as usize)])
             .sum::<usize>(),
-        3
+        absent_weight
     );
 
     let pool_count_before = ctx.harness.chain.op_pool.num_payload_attestation_messages();

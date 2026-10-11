@@ -4,7 +4,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::validator_monitor::{MISSED_BLOCK_LAG_SLOTS, ValidatorMonitorConfig};
 use bls::{Keypair, PublicKeyBytes};
 use std::sync::LazyLock;
-use types::{Epoch, EthSpec, Hash256, MainnetEthSpec, Slot};
+use types::{Epoch, EthSpec, Hash256, Slot, Spec};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
@@ -13,13 +13,13 @@ pub const VALIDATOR_COUNT: usize = 48;
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
-type E = MainnetEthSpec;
+type E = Spec;
 
 fn get_harness(
     validator_count: usize,
     validator_indexes_to_monitor: Vec<usize>,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
@@ -116,14 +116,14 @@ async fn missed_blocks_across_epochs() {
 
 #[tokio::test]
 async fn missed_blocks_basic() {
-    // >= 32 validators required for Gloas genesis with MainnetEthSpec (32 slots/epoch).
+    // >= 32 validators required for Gloas genesis under the mainnet preset (32 slots/epoch).
     let validator_count = 32;
 
     let slots_per_epoch = E::slots_per_epoch();
 
     let nb_epoch_to_simulate = Epoch::new(2);
 
-    // Generate 63 slots (2 epochs * 32 slots per epoch - 1)
+    // Generate 2 epochs of slots, less one
     let initial_blocks = slots_per_epoch * nb_epoch_to_simulate.as_u64() - 1;
 
     // 1st scenario //
@@ -141,8 +141,7 @@ async fn missed_blocks_basic() {
     let mut _state = &mut harness1.get_current_state();
     let mut epoch = _state.current_epoch();
 
-    // We have a total of 63 slots and we want slot 57 to be a missed block
-    // and this is slot=25 in epoch=1
+    // We want the slot 6 before the head, in epoch 1, to be a missed block
     let mut idx = initial_blocks - 6;
     let mut slot = Slot::new(idx);
     let mut slot_in_epoch = slot % slots_per_epoch;
@@ -203,7 +202,8 @@ async fn missed_blocks_basic() {
     // making sure that the cache reloads when the epoch changes
     // in that scenario the slot that missed a block is the first slot of the epoch
     let harness2 = get_harness(validator_count, vec![]);
-    let advance_slot_by = 9;
+    // Keep the head in epoch 2, leaving room after the missed slot for the 3rd scenario
+    let advance_slot_by = slots_per_epoch / 2 + 1;
     harness2
         .extend_chain(
             (initial_blocks + advance_slot_by) as usize,
@@ -215,9 +215,8 @@ async fn missed_blocks_basic() {
     let mut _state2 = &mut harness2.get_current_state();
     epoch = _state2.current_epoch();
 
-    // We have a total of 72 slots and we want slot 64 to be the missed block
-    // and this is slot=64 in epoch=2
-    idx = initial_blocks + (advance_slot_by) - 8;
+    // We want the first slot of epoch 2 to be the missed block
+    idx = nb_epoch_to_simulate.as_u64() * slots_per_epoch;
     slot = Slot::new(idx);
     prev_slot = Slot::new(idx - 1);
     slot_in_epoch = slot % slots_per_epoch;
@@ -318,8 +317,7 @@ async fn missed_blocks_basic() {
     let mut _state3 = &mut harness3.get_current_state();
     epoch = _state3.current_epoch();
 
-    // We have a total of 32 slots and we want slot 30 to be a missed block
-    // and this is slot=30 in epoch=0
+    // We want a slot near the end of epoch 0 to be a missed block
     idx = slots_per_epoch - MISSED_BLOCK_LAG_SLOTS as u64 + 2;
     slot = Slot::new(idx);
     slot_in_epoch = slot % slots_per_epoch;

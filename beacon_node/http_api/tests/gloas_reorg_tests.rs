@@ -27,11 +27,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ForkName, Hash256, MinimalEthSpec,
-    ProposerPreparationData, Slot,
+    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ForkName, Hash256,
+    ProposerPreparationData, Slot, Spec,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 // Must be at least PTC size to simplify PTC reasoning (unique PTC members per slot).
 const ATTESTERS_PER_SLOT: usize = 20;

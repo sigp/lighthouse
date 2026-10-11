@@ -21,6 +21,13 @@ use observed_execution_proofs::Error as ObservationError;
 /// TODO(9658): make configurable. https://github.com/sigp/lighthouse/issues/9658
 pub const REQUIRED_EXECUTION_PROOFS: usize = 2;
 
+/// How a proof reached us, which decides whether deduplication rejects it.
+#[derive(Clone, Copy)]
+pub enum ProofSource {
+    Gossip,
+    Http,
+}
+
 #[derive(Debug)]
 pub enum Error {
     /// The proof has already been seen (IGNORE).
@@ -85,7 +92,7 @@ impl From<ObservationError> for Error {
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Whether EIP-8025 proofs decide payload validity here.
-    pub(crate) fn execution_proofs_enabled(&self) -> bool {
+    pub fn execution_proofs_enabled(&self) -> bool {
         self.proof_engine.is_some()
     }
 

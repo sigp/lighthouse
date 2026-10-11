@@ -1385,6 +1385,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return cached_block;
         }
 
+        if let Some((block, source)) = self.pending_payload_cache.get_block(block_root) {
+            return BlockProcessStatus::NotValidated(block, source);
+        }
+
         BlockProcessStatus::Unknown
     }
 
@@ -3930,14 +3934,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let block = execution_pending.block.block_cloned();
             if block.fork_name_unchecked().gloas_enabled() {
-                let bid = Arc::new(
-                    block
-                        .message()
-                        .body()
-                        .signed_execution_payload_bid()?
-                        .clone_as_signed_execution_payload_bid(),
-                );
-                chain.pending_payload_cache.insert_bid(block_root, bid);
+                chain
+                    .pending_payload_cache
+                    .insert_block(block_root, block, block_source);
             }
 
             publish_fn()?;
@@ -6656,10 +6655,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         }
 
-        let execution_layer = self
-            .execution_layer
-            .clone()
-            .ok_or(Error::ExecutionLayerMissing)?;
+        // Nor is there anything to prepare when the node runs with no execution layer.
+        let Some(execution_layer) = self.execution_layer.clone() else {
+            return Ok(None);
+        };
 
         // Nothing to do if there are no proposers registered with the EL, exit early to avoid
         // wasting cycles.
@@ -6933,10 +6932,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_payload_status: fork_choice::PayloadStatus,
         override_forkchoice_update: OverrideForkchoiceUpdate,
     ) -> Result<(), Error> {
-        let execution_layer = self
-            .execution_layer
-            .as_ref()
-            .ok_or(Error::ExecutionLayerMissing)?;
+        // There is no engine to notify when the node runs with no execution layer.
+        let Some(execution_layer) = self.execution_layer.as_ref() else {
+            return Ok(());
+        };
 
         // Determine whether to override the forkchoiceUpdated message if we want to re-org
         // the current head at the next slot.

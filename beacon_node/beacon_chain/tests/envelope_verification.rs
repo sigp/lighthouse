@@ -9,11 +9,11 @@ use eth2::types::EventKind;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, MinimalEthSpec, Slot,
+    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, Slot, Spec,
     WithdrawalRequest,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 #[tokio::test]
 async fn pre_gloas_block_import_records_payload_gas_limit() {

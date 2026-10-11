@@ -13,11 +13,11 @@ use http_api::test_utils::*;
 use state_processing::state_advance::complete_state_advance;
 use std::collections::HashSet;
 use types::{
-    Address, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec, Slot,
+    Address, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256, Slot, Spec,
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 fn altair_spec(altair_fork_epoch: Epoch) -> ChainSpec {
     let mut spec = E::default_spec();
@@ -531,6 +531,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         VALIDATOR_COUNT,
         Some(Box::new(|harness_builder| {
             harness_builder
+                .mock_execution_layer()
                 .keypairs(validator_keypairs)
                 .withdrawal_keypairs(withdrawal_keypairs)
                 .genesis_state_ephemeral_store(genesis_state)

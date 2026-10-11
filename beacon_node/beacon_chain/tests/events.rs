@@ -9,12 +9,12 @@ use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::{
     Address, BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain,
-    EthSpec, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerPreferences, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-    SignedProposerPreferences, SignedRoot, Slot,
+    EthSpec, PayloadAttestationData, PayloadAttestationMessage, ProposerPreferences,
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedProposerPreferences,
+    SignedRoot, Slot, Spec,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 /// Verifies that a data column event is emitted when a gossip verified data column is received via gossip or the publish block API.
 #[tokio::test]
