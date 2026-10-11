@@ -12,10 +12,11 @@ use beacon_chain::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
     },
 };
+use fork_choice::PayloadStatus;
 use state_processing::per_epoch_processing::{self, base::ValidatorStatuses};
 use std::sync::Arc;
 use types::{
-    BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Spec,
+    BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Spec,
     consts::altair::TIMELY_TARGET_FLAG_INDEX,
 };
 
@@ -31,6 +32,7 @@ fn ceil_two_thirds(value: u64) -> u64 {
 
 struct SameEpochSlashingChild {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+    parent_root: Hash256,
     stored_parent_justified: Checkpoint,
     stored_parent_finalized: Checkpoint,
     stored_child_justified: Checkpoint,
@@ -105,12 +107,22 @@ async fn child_with_stale_voting_source_not_head_at_epoch_plus_two() {
     );
 
     // No epoch N + 1 blocks were produced after the slashing child. Under the spec-computed child
-    // checkpoint, the child is the only leaf below the justified root and is outside the viability
-    // window. The spec-correct result is to set the justified checkpoint as the head.
-    assert_eq!(
-        head_result.unwrap().root(),
-        fork_choice.justified_checkpoint().root
-    );
+    // checkpoint, the child is outside the viability window.
+    let head = head_result.unwrap();
+    if scenario
+        .harness
+        .chain
+        .spec
+        .fork_name_at_slot::<E>(divergence_slot)
+        .gloas_enabled()
+    {
+        // The child is on the parent's `FULL` branch. The parent's `EMPTY` node has no children and
+        // is a viable leaf, so it is the head.
+        assert_eq!(head.as_pair(), (scenario.parent_root, PayloadStatus::Empty));
+    } else {
+        // The child is the only leaf below the justified root, so the justified root is the head.
+        assert_eq!(head.root(), fork_choice.justified_checkpoint().root);
+    }
 }
 
 /// Basic test checking child checkpoints but with proposer slashings instead of attester slashings.
@@ -341,6 +353,7 @@ where
 
     SameEpochSlashingChild {
         harness,
+        parent_root,
         stored_parent_justified,
         stored_parent_finalized,
         stored_child_justified,
