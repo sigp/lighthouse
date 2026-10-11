@@ -13,11 +13,11 @@ use http_api::test_utils::*;
 use state_processing::state_advance::complete_state_advance;
 use std::collections::HashSet;
 use types::{
-    Address, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec, Slot,
+    Address, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, Hash256, Slot, Spec,
     test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 fn altair_spec(altair_fork_epoch: Epoch) -> ChainSpec {
     let mut spec = E::default_spec();
