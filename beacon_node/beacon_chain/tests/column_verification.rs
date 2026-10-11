@@ -14,9 +14,9 @@ use logging::create_test_tracing_subscriber;
 use std::sync::{Arc, LazyLock};
 use types::*;
 
-type E = MainnetEthSpec;
+type E = Spec;
 
-// >= 32 validators required for Gloas genesis with MainnetEthSpec (32 slots/epoch).
+// >= 32 validators required for Gloas genesis under the mainnet preset (32 slots/epoch).
 const VALIDATOR_COUNT: usize = 32;
 
 /// A cached set of keys.
@@ -29,7 +29,7 @@ fn get_harness(
     node_custody_type: NodeCustodyType,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     create_test_tracing_subscriber();
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec)
         .chain_config(ChainConfig {
             archive: true,
@@ -158,7 +158,7 @@ async fn gloas_envelope_blobs_produce_valid_columns() {
         .signed_execution_payload_bid()
         .expect("Gloas block should have a payload bid");
     assert!(
-        !bid.message.blob_kzg_commitments.is_empty(),
+        !bid.message().blob_kzg_commitments().is_empty(),
         "Block should have blob KZG commitments"
     );
 

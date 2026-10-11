@@ -16,9 +16,9 @@ use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
 use tempfile::{TempDir, tempdir};
-use types::{BeaconState, EthSpec, Hash256, MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot};
+use types::{BeaconState, EthSpec, Hash256, SignedExecutionPayloadEnvelope, Slot, Spec};
 
-type E = MinimalEthSpec;
+type E = Spec;
 type Harness = BeaconChainHarness<DiskHarnessType<E>>;
 type Store = Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>;
 
@@ -57,7 +57,7 @@ fn config(fcr: bool, reset_payload_statuses: bool) -> ChainConfig {
 
 /// The harness owns the mock execution layer and the clock; the node shares both.
 fn harness(store: Store) -> Harness {
-    let harness = Harness::builder(MinimalEthSpec)
+    let harness = Harness::builder(Spec::default())
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS.to_vec())
         .fresh_disk_store(store)
@@ -69,7 +69,7 @@ fn harness(store: Store) -> Harness {
 }
 
 fn node(store: Store, harness: &Harness, fresh: bool, fcr: bool, reset: bool) -> Harness {
-    let builder = Harness::builder(MinimalEthSpec)
+    let builder = Harness::builder(Spec::default())
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS.to_vec());
     let builder = if fresh {

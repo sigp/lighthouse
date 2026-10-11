@@ -763,7 +763,7 @@ mod test {
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::info;
-    use types::{DataColumnSubnetId, MinimalEthSpec};
+    use types::{DataColumnSubnetId, Spec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 
@@ -947,7 +947,7 @@ mod test {
 
     #[tokio::test]
     async fn overflow_cache_test_insert_components() {
-        type E = MinimalEthSpec;
+        type E = Spec;
         type T = DiskHarnessType<E>;
         let capacity = 4;
         let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
@@ -1085,9 +1085,9 @@ mod pending_components_tests {
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
     use state_processing::ConsensusContext;
-    use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
+    use types::{BeaconState, ForkName, SignedBeaconBlock, Slot, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     type Setup<E> = (
         SignedBeaconBlock<E>,

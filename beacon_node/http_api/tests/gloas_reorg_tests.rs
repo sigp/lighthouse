@@ -27,11 +27,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ForkName, Hash256, MinimalEthSpec,
-    ProposerPreparationData, Slot,
+    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ForkName, Hash256,
+    ProposerPreparationData, Slot, Spec,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 // Must be at least PTC size to simplify PTC reasoning (unique PTC members per slot).
 const ATTESTERS_PER_SLOT: usize = 20;
@@ -751,16 +751,16 @@ pub async fn proposer_boost_re_org_test(
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .block_hash
+            .message()
+            .block_hash()
     };
     let exec_parent_hash = |block: BeaconBlockRef<E>| -> ExecutionBlockHash {
         block
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .parent_block_hash
+            .message()
+            .parent_block_hash()
     };
 
     let block_a_exec_hash = exec_block_hash(block_a.0.message());

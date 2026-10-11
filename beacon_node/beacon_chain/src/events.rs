@@ -4,7 +4,8 @@ use tokio::sync::broadcast::{Receiver, Sender, error::SendError};
 use tracing::trace;
 use types::EthSpec;
 
-const DEFAULT_CHANNEL_CAPACITY: usize = 16;
+// Allow a full slot of payload attestation messages (mainnet PTC_SIZE) to be buffered.
+const DEFAULT_CHANNEL_CAPACITY: usize = 512;
 
 pub struct ServerSentEventHandler<E: EthSpec> {
     attestation_tx: Sender<EventKind<E>>,

@@ -10,11 +10,10 @@ use task_executor::test_utils::TestRuntime;
 use types::{
     BlockAccessList, ExecutionBlockHash, ExecutionPayloadBody, ExecutionPayloadEnvelope,
     ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-    Hash256, MinimalEthSpec, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary,
-    Slot,
+    Hash256, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot, Spec,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
 struct SlotEntry {

@@ -250,8 +250,9 @@ mod tests {
     use bls::Signature;
     use eth2::types::beacon_response::EmptyMetadata;
     use eth2::types::{
-        ExecutionPayloadBid, ForkName, ForkVersionedResponse, MainnetEthSpec, RequestAuth,
-        RequestAuthData, SignedExecutionPayloadBid, SignedRequestAuth,
+        ExecutionPayloadBidGloas, ForkName, ForkVersionedResponse, MainnetEthSpec, RequestAuth,
+        RequestAuthData, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
+        SignedRequestAuth,
     };
     use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER};
     use mockito::{Matcher, Mock, Server, ServerGuard};
@@ -281,16 +282,16 @@ mod tests {
         let body = ForkVersionedResponse {
             version: ForkName::Gloas,
             metadata: EmptyMetadata {},
-            data: SignedExecutionPayloadBid::<E> {
-                message: ExecutionPayloadBid {
+            data: SignedExecutionPayloadBid::<E>::Gloas(SignedExecutionPayloadBidGloas {
+                message: ExecutionPayloadBidGloas {
                     slot: Slot::new(1),
                     parent_block_hash: ExecutionBlockHash::zero(),
                     parent_block_root: Hash256::ZERO,
                     value,
-                    ..ExecutionPayloadBid::default()
+                    ..ExecutionPayloadBidGloas::default()
                 },
                 signature: Signature::empty(),
-            },
+            }),
         };
         serde_json::to_string(&body).unwrap()
     }
@@ -334,7 +335,10 @@ mod tests {
                 Ok::<(), String>(())
             })
             .await;
-        let mut values: Vec<u64> = bids.iter().map(|b| b.signed_bid.message.value).collect();
+        let mut values: Vec<u64> = bids
+            .iter()
+            .map(|b| b.signed_bid.message().value())
+            .collect();
         values.sort_unstable();
         assert_eq!(values, vec![100, 200]);
     }

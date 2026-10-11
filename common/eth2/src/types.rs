@@ -14,9 +14,9 @@ use context_deserialize::{ContextDeserialize, context_deserialize};
 #[cfg(feature = "network")]
 use enr::{CombinedKey, Enr};
 use fork_choice::PayloadStatus;
-use mediatype::{MediaType, MediaTypeList, names};
 #[cfg(feature = "network")]
-use multiaddr::Multiaddr;
+use libp2p::multiaddr::Multiaddr;
+use mediatype::{MediaType, MediaTypeList, names};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
@@ -1253,6 +1253,10 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_block_number: Option<Quoted<u64>>,
     pub parent_block_hash: ExecutionBlockHash,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_block_hash: Option<ExecutionBlockHash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finalized_block_hash: Option<ExecutionBlockHash>,
     pub payload_attributes: T,
 }
 
@@ -1312,6 +1316,8 @@ impl<'de> ContextDeserialize<'de, ForkName> for SseExtendedPayloadAttributes {
             parent_block_root: helper.parent_block_root,
             parent_block_number: helper.parent_block_number,
             parent_block_hash: helper.parent_block_hash,
+            safe_block_hash: helper.safe_block_hash,
+            finalized_block_hash: helper.finalized_block_hash,
             payload_attributes: SsePayloadAttributes::context_deserialize(
                 helper.payload_attributes,
                 context,

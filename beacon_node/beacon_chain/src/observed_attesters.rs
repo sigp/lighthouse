@@ -664,7 +664,7 @@ mod tests {
     use super::*;
     use fixed_bytes::FixedBytesExtended;
 
-    type E = types::MainnetEthSpec;
+    type E = types::Spec;
 
     #[test]
     fn value_storage() {

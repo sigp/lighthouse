@@ -20,6 +20,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use bls::Signature;
+use enr::{self, CombinedKey};
 use itertools::Itertools;
 use libp2p::gossipsub::MessageAcceptance;
 use lighthouse_network::rpc::InboundRequestId;
@@ -30,7 +31,6 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::{
     Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
-    discv5::enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
 };
@@ -1860,7 +1860,7 @@ async fn rpc_columns_notify_after_deferred_envelope_import() {
                 bundle
                     .commitments
                     .iter()
-                    .eq(bid.message.blob_kzg_commitments.iter())
+                    .eq(bid.message().blob_kzg_commitments().iter())
             })
             .expect("blobs for next block")
             .blobs

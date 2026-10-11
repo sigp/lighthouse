@@ -901,6 +901,20 @@ impl ProtoArray {
         }
     }
 
+    /// Promotes the payload of `block_root` and every payload its branch executed to `Valid`.
+    ///
+    /// Assumes `FULL`.
+    pub fn propagate_execution_payload_validation_by_block_root(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error> {
+        let index = *self
+            .indices
+            .get(&block_root)
+            .ok_or(Error::NodeUnknown(block_root))?;
+        self.propagate_execution_payload_validation_from(index, ParentPayloadStatus::Full)
+    }
+
     /// The EL judged the payload `block_hash` VALID. Promotes every block that commits to it, and
     /// every payload their branches executed.
     ///
