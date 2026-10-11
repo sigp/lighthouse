@@ -517,12 +517,13 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `get_restart_resilient_confirmed_root`. The root confirmed before the restart, until
-    /// the re-seeded rule catches up with it or it is old enough to have been finalized. Always a
-    /// block fork choice holds, so a caller may ask at any point in a run.
+    /// the re-seeded rule catches up with it, it is old enough to have been finalized, or it is no
+    /// longer canonical. Otherwise, returns the current confirmed root.
+    ///
+    /// Call only once the node is fully synced and `on_fast_confirmation` has run.
     pub fn get_restart_resilient_confirmed_root<E: EthSpec>(
         &self,
         head_root: Hash256,
-        finalized_checkpoint: &Checkpoint,
         current_slot: Slot,
         proto_array: &ProtoArray,
     ) -> Result<Hash256, Error> {
@@ -549,12 +550,12 @@ impl FastConfirmationRule {
 
         // Old enough to be finalized already, or finality is delayed and it cannot be trusted.
         if block_should_be_finalized::<E>(root_before_restart_slot, current_slot)? {
-            return Ok(finalized_checkpoint.root);
+            return Ok(confirmed_root);
         }
 
         // Not canonical.
         if !is_ancestor(head_root, root_before_restart, proto_array)? {
-            return Ok(finalized_checkpoint.root);
+            return Ok(confirmed_root);
         }
 
         // DIVERGENCE: the spec's confirmed root is always VALID. `--reset-payload-statuses` makes
@@ -1473,8 +1474,10 @@ fn block_should_be_finalized<E: EthSpec>(
     current_slot: Slot,
 ) -> Result<bool, Error> {
     let spe = E::slots_per_epoch();
-    let checkpoint_epoch = block_slot.safe_add(spe.safe_sub(1)?)?.epoch(spe);
-    Ok(checkpoint_epoch.safe_add(2)? <= current_slot.epoch(spe))
+    let next_checkpoint_epoch = block_slot.safe_add(spe.safe_sub(1)?)?.epoch(spe);
+    let earliest_finality_slot =
+        compute_start_slot_at_epoch::<E>(next_checkpoint_epoch.safe_add(2)?);
+    Ok(earliest_finality_slot <= current_slot)
 }
 
 /// Spec: `is_full_validator_set_covered`.
@@ -1561,6 +1564,31 @@ mod tests {
     use types::MainnetEthSpec;
 
     type E = MainnetEthSpec;
+
+    #[test]
+    fn test_block_should_be_finalized() {
+        fn check<E: EthSpec>() {
+            let slots_per_epoch = E::slots_per_epoch();
+            for offset in 0..slots_per_epoch {
+                let block_slot = Slot::new(slots_per_epoch.safe_add(offset).unwrap());
+                // A boundary block can finalize two epochs later; other blocks must wait
+                // for the next checkpoint and can finalize three epochs later.
+                let finality_epoch = if offset == 0 { 3 } else { 4 };
+                let finality_slot = Epoch::new(finality_epoch).start_slot(slots_per_epoch);
+                assert!(
+                    !block_should_be_finalized::<E>(
+                        block_slot,
+                        finality_slot.safe_sub(1).unwrap(),
+                    )
+                    .unwrap()
+                );
+                assert!(block_should_be_finalized::<E>(block_slot, finality_slot).unwrap());
+            }
+        }
+
+        check::<MainnetEthSpec>();
+        check::<types::MinimalEthSpec>();
+    }
 
     #[test]
     fn test_is_start_slot_at_epoch() {
