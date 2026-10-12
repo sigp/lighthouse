@@ -2283,6 +2283,9 @@ async fn test_blobs_by_range_spans_fulu_fork() {
     let mut spec = test_spec::<E>();
     spec.fulu_fork_epoch = Some(Epoch::new(1));
     spec.gloas_fork_epoch = Some(Epoch::new(2));
+    // This test covers the Fulu transition only,
+    // so Heze must not activate before it
+    spec.heze_fork_epoch = None;
 
     // This test focuses on Electra→Fulu blob counts (epoch 0 to 1). Build 62 blocks since no need for Gloas activation at slot 64.
     let mut rig = TestRig::new_parametric(TestRigParams {
@@ -2595,6 +2598,9 @@ async fn test_data_columns_by_range_skip_slot_at_fork_boundary() {
     let mut spec = test_spec::<E>();
     spec.shard_committee_period = 2;
     spec.gloas_fork_epoch = Some(Epoch::new(2));
+    // This test covers the Gloas transition only,
+    // so Heze must not activate before it
+    spec.heze_fork_epoch = None;
 
     let gloas_fork_slot = Epoch::new(2).start_slot(E::slots_per_epoch());
 
