@@ -6737,12 +6737,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     } else {
                                         fork_choice::PayloadStatus::Empty
                                     };
-                                    fcu_params.head_hash = match proto_block
-                                        .head_payload_block_hash(build_payload_status)
-                                    {
-                                        PayloadBlockHash::Hash(hash) => Some(hash),
-                                        PayloadBlockHash::PreMerge => None,
+                                    let PayloadBlockHash::Hash(hash) =
+                                        proto_block.head_payload_block_hash(build_payload_status)
+                                    else {
+                                        return Err(Error::PreMergeBlockHasNoExecutionHash(
+                                            fcu_params.head_root,
+                                        ));
                                     };
+                                    fcu_params.head_hash = Some(hash);
                                 }
                                 Err(e) => {
                                     warn!(
