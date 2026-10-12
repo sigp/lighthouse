@@ -48,6 +48,7 @@ use optimizations::{AttestationScoreCache, HonestFfgSupportCache};
 use slot_assignments::{SlotAssignments, WindowEpoch, attestation_shuffling_id};
 
 use proto_array::core::{ProtoArray, ProtoNode, VoteTracker};
+use proto_array::{ParentPayloadStatus, PayloadStatus};
 use safe_arith::{ArithError, SafeArith};
 use std::collections::BTreeSet;
 use tracing::{debug, debug_span};
@@ -145,7 +146,7 @@ pub struct FastConfirmationRule {
 
     // === Committee data from head state ===
     /// Per-validator committee slot assignments across the last 3 epochs.
-    /// Used by `get_block_support_between_slots` and `compute_adversarial_weight`.
+    /// Used by `get_node_support_between_slots` and `compute_adversarial_weight`.
     slot_assignments: SlotAssignments,
 
     // === FFG data from the head state ===
@@ -517,12 +518,13 @@ impl FastConfirmationRule {
     }
 
     /// Spec: `get_restart_resilient_confirmed_root`. The root confirmed before the restart, until
-    /// the re-seeded rule catches up with it or it is old enough to have been finalized. Always a
-    /// block fork choice holds, so a caller may ask at any point in a run.
+    /// the re-seeded rule catches up with it, it is old enough to have been finalized, or it is no
+    /// longer canonical. Otherwise, returns the current confirmed root.
+    ///
+    /// Call only once the node is fully synced and `on_fast_confirmation` has run.
     pub fn get_restart_resilient_confirmed_root<E: EthSpec>(
         &self,
         head_root: Hash256,
-        finalized_checkpoint: &Checkpoint,
         current_slot: Slot,
         proto_array: &ProtoArray,
     ) -> Result<Hash256, Error> {
@@ -549,12 +551,12 @@ impl FastConfirmationRule {
 
         // Old enough to be finalized already, or finality is delayed and it cannot be trusted.
         if block_should_be_finalized::<E>(root_before_restart_slot, current_slot)? {
-            return Ok(finalized_checkpoint.root);
+            return Ok(confirmed_root);
         }
 
         // Not canonical.
         if !is_ancestor(head_root, root_before_restart, proto_array)? {
-            return Ok(finalized_checkpoint.root);
+            return Ok(confirmed_root);
         }
 
         // DIVERGENCE: the spec's confirmed root is always VALID. `--reset-payload-statuses` makes
@@ -839,11 +841,15 @@ impl FastConfirmationRule {
     // LMD-GHOST helpers
     // -----------------------------------------------------------------------
 
-    /// Spec: `get_block_support_between_slots`.
-    fn get_block_support_between_slots(
+    /// Spec: `get_node_support_between_slots`.
+    ///
+    /// The node is `block` with `payload_status`, which is `None` for a pre-Gloas block.
+    #[allow(clippy::too_many_arguments)]
+    fn get_node_support_between_slots(
         &self,
         balance_source: &BalanceSourceData,
-        block_root: Hash256,
+        block: &ProtoNode,
+        payload_status: Option<PayloadStatus>,
         start_slot: Slot,
         end_slot: Slot,
         votes: &[VoteTracker],
@@ -854,7 +860,7 @@ impl FastConfirmationRule {
         // - Are active in `balance_source` tracked here as `balance > 0`
         // - Are not slashed in `balance_source` tracked here as `slashed == false`
         // - Do not belong to the `store.equivocating_indices` set
-        // - Their vote is for exactly `block_root`
+        // - Their vote supports exactly the node
         let mut score = 0u64;
         for (val_idx, balance) in balance_source.unslashed_and_active_indices() {
             let Some(vote) = votes.get(val_idx) else {
@@ -864,7 +870,9 @@ impl FastConfirmationRule {
                 && self
                     .slot_assignments
                     .is_in_range(val_idx, start_slot, end_slot)?
-                && vote.current_root() == block_root
+                && vote.current_root() == block.root()
+                && payload_status
+                    .is_none_or(|status| vote.current_payload_status(block.slot()) == status)
                 && !equivocating_indices.contains(&(val_idx as u64))
             {
                 score = score.safe_add(balance)?;
@@ -904,9 +912,15 @@ impl FastConfirmationRule {
             return Ok(0);
         }
 
-        let parent_support_in_empty_slots = self.get_block_support_between_slots(
+        let parent_payload_status = match block.get_parent_payload_status() {
+            ParentPayloadStatus::Full => Some(PayloadStatus::Full),
+            ParentPayloadStatus::Empty => Some(PayloadStatus::Empty),
+            ParentPayloadStatus::PreGloas => None,
+        };
+        let parent_support_in_empty_slots = self.get_node_support_between_slots(
             balance_source,
-            parent_block.root(),
+            parent_block,
+            parent_payload_status,
             parent_block.slot().safe_add(1)?,
             block.slot().safe_sub(1)?,
             votes,
@@ -1473,8 +1487,10 @@ fn block_should_be_finalized<E: EthSpec>(
     current_slot: Slot,
 ) -> Result<bool, Error> {
     let spe = E::slots_per_epoch();
-    let checkpoint_epoch = block_slot.safe_add(spe.safe_sub(1)?)?.epoch(spe);
-    Ok(checkpoint_epoch.safe_add(2)? <= current_slot.epoch(spe))
+    let next_checkpoint_epoch = block_slot.safe_add(spe.safe_sub(1)?)?.epoch(spe);
+    let earliest_finality_slot =
+        compute_start_slot_at_epoch::<E>(next_checkpoint_epoch.safe_add(2)?);
+    Ok(earliest_finality_slot <= current_slot)
 }
 
 /// Spec: `is_full_validator_set_covered`.
@@ -1561,6 +1577,31 @@ mod tests {
     use types::MainnetEthSpec;
 
     type E = MainnetEthSpec;
+
+    #[test]
+    fn test_block_should_be_finalized() {
+        fn check<E: EthSpec>() {
+            let slots_per_epoch = E::slots_per_epoch();
+            for offset in 0..slots_per_epoch {
+                let block_slot = Slot::new(slots_per_epoch.safe_add(offset).unwrap());
+                // A boundary block can finalize two epochs later; other blocks must wait
+                // for the next checkpoint and can finalize three epochs later.
+                let finality_epoch = if offset == 0 { 3 } else { 4 };
+                let finality_slot = Epoch::new(finality_epoch).start_slot(slots_per_epoch);
+                assert!(
+                    !block_should_be_finalized::<E>(
+                        block_slot,
+                        finality_slot.safe_sub(1).unwrap(),
+                    )
+                    .unwrap()
+                );
+                assert!(block_should_be_finalized::<E>(block_slot, finality_slot).unwrap());
+            }
+        }
+
+        check::<MainnetEthSpec>();
+        check::<types::MinimalEthSpec>();
+    }
 
     #[test]
     fn test_is_start_slot_at_epoch() {
