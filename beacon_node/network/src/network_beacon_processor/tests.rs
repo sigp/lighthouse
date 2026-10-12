@@ -28,7 +28,7 @@ use lighthouse_network::rpc::methods::{
     MetaDataV3, PayloadEnvelopesByRangeRequest, PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::{
-    Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
+    Client, MessageId, NetworkConfig, NetworkGlobals, PeerAction, PeerId, Response,
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
 };
@@ -42,9 +42,10 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch, EthSpec,
-    Hash256, MainnetEthSpec, PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope, SignedRoot,
-    SignedVoluntaryExit, SingleAttestation, Slot, SubnetId, data::BlobIdentifier,
+    Hash256, InclusionList, MainnetEthSpec, PayloadAttestationData, PayloadAttestationMessage,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    SignedInclusionList, SignedRoot, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    data::BlobIdentifier,
 };
 
 type E = MainnetEthSpec;
@@ -3025,4 +3026,110 @@ async fn test_blocks_by_head_unknown_root() {
         }
         other => panic!("expected SendErrorResponse, got {:?}", other),
     }
+}
+
+/// A signed inclusion list from the first committee member for the current slot.
+fn inclusion_list_for_current_slot(rig: &TestRig, tx: u8) -> SignedInclusionList {
+    let slot = rig.chain.slot().unwrap();
+    let (committee, dependent_root) = rig
+        .chain
+        .inclusion_list_committee(rig.chain.head_beacon_block_root(), slot)
+        .unwrap();
+    let validator_index = committee[0];
+
+    let message = InclusionList {
+        slot,
+        validator_index,
+        dependent_root,
+        transactions: vec![vec![tx].try_into().unwrap()].try_into().unwrap(),
+    };
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let domain = rig.chain.spec.get_domain(
+        epoch,
+        Domain::InclusionListCommittee,
+        &rig.chain.spec.fork_at_epoch(epoch),
+        rig.chain.genesis_validators_root,
+    );
+    let signature = rig._harness.validator_keypairs[validator_index as usize]
+        .sk
+        .sign(message.signing_root(domain));
+    SignedInclusionList { message, signature }
+}
+
+async fn send_gossip_inclusion_list(
+    rig: &mut TestRig,
+    inclusion_list: SignedInclusionList,
+    expected_messages: usize,
+) -> Vec<NetworkMessage<E>> {
+    rig.network_beacon_processor
+        .send_gossip_inclusion_list(
+            junk_message_id(),
+            junk_peer_id(),
+            Box::new(inclusion_list),
+            rig.chain.slot_clock.now_duration().unwrap(),
+        )
+        .unwrap();
+    rig.receive_network_messages_with_timeout(Duration::from_secs(1), Some(expected_messages))
+        .await
+        .expect("should receive network messages")
+}
+
+fn assert_validation_result(network_message: &NetworkMessage<E>, expected: MessageAcceptance) {
+    match network_message {
+        NetworkMessage::ValidationResult {
+            validation_result, ..
+        } => assert_eq!(*validation_result, expected),
+        other => panic!("expected ValidationResult, got {:?}", other),
+    }
+}
+
+// A verified list that the store has already seen is ignored rather than propagated.
+#[tokio::test]
+async fn test_gossip_inclusion_list_propagation_follows_the_store_outcome() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let inclusion_list = inclusion_list_for_current_slot(&rig, 0xaa);
+
+    for expected in [MessageAcceptance::Accept, MessageAcceptance::Ignore] {
+        let messages = send_gossip_inclusion_list(&mut rig, inclusion_list.clone(), 1).await;
+        assert_validation_result(&messages[0], expected);
+    }
+}
+
+// A second, different list from the same validator is propagated, but not a third.
+#[tokio::test]
+async fn test_gossip_inclusion_list_equivocation_is_propagated_once() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    for (tx, expected) in [
+        (0xaa, MessageAcceptance::Accept),
+        (0xbb, MessageAcceptance::Accept),
+        (0xcc, MessageAcceptance::Ignore),
+    ] {
+        let inclusion_list = inclusion_list_for_current_slot(&rig, tx);
+        let messages = send_gossip_inclusion_list(&mut rig, inclusion_list, 1).await;
+        assert_validation_result(&messages[0], expected);
+    }
+}
+
+// An invalid list is rejected and the peer that sent it is penalised.
+#[tokio::test]
+async fn test_gossip_inclusion_list_rejection_penalises_the_peer() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    // Signatures always verify with the `fake_crypto` feature, so use an empty transaction instead.
+    let mut inclusion_list = inclusion_list_for_current_slot(&rig, 0xaa);
+    inclusion_list.message.transactions =
+        vec![vec![0xaa].try_into().unwrap(), vec![].try_into().unwrap()]
+            .try_into()
+            .unwrap();
+
+    let messages = send_gossip_inclusion_list(&mut rig, inclusion_list, 2).await;
+    assert_validation_result(&messages[0], MessageAcceptance::Reject);
+    assert_matches!(
+        messages[1],
+        NetworkMessage::ReportPeer {
+            action: PeerAction::LowToleranceError,
+            msg: "invalid_gossip_inclusion_list",
+            ..
+        }
+    );
 }

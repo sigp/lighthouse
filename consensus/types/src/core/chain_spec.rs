@@ -1027,7 +1027,6 @@ impl ChainSpec {
     }
 
     /// Spec: `get_inclusion_list_due_ms`.
-    /// Get the duration into a slot in which an inclusion list production duty is due.
     pub fn get_inclusion_list_due(&self) -> Duration {
         self.inclusion_list_due
     }
