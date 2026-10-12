@@ -1506,6 +1506,145 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_proposer_preparation(
 }
 
 #[tokio::test]
+async fn prepare_payload_inclusion_lists_late_list_reaches_empty_build_parent() {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    let heze_fork_epoch = Epoch::new(1);
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+    let spec = Arc::new(spec);
+
+    // Prepare for the slot after the first Heze slot, so the inclusion list slot is a Heze slot
+    let prepare_slot = heze_fork_epoch.start_slot(E::slots_per_epoch()) + 1;
+    let il_slot = prepare_slot - 1;
+    let il_transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::<u8>::new(vec![0xaa]).unwrap(),
+    ])
+    .unwrap();
+
+    // Produce blocks up to the parent slot, including one Heze block
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store, LOW_VALIDATOR_COUNT);
+    harness
+        .extend_chain(
+            il_slot.as_usize(),
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // The PTC votes against the parent's payload, so the head stays Full while the proposer
+    // builds on the Empty parent
+    let parent_root = harness.head_block_root();
+    let parent_state = harness.get_current_state();
+    let (messages, _) = harness.make_payload_attestation_messages(
+        &parent_state,
+        parent_root,
+        parent_state.slot(),
+        vec![PayloadAttestationVote {
+            validator_count: E::ptc_size(),
+            payload_present: false,
+            blob_data_available: false,
+        }],
+    );
+    harness
+        .import_payload_attestation_messages(messages)
+        .unwrap();
+    harness.chain.recompute_head_at_current_slot().await;
+
+    // The canonical head is still the Full parent
+    let cached_head = harness.chain.canonical_head.cached_head();
+    assert_eq!(cached_head.head_block_root(), parent_root);
+    assert_eq!(cached_head.head_payload_status(), PayloadStatus::Full);
+    let proposer_index = cached_head
+        .snapshot
+        .beacon_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+    drop(cached_head);
+
+    // Capture the payload attributes of every fcU the mock EL receives from now on
+    let captured = Arc::new(Mutex::new(Vec::<PayloadAttributes>::new()));
+    let captured_inner = captured.clone();
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .ctx
+        .hook
+        .lock()
+        .set_forkchoice_updated_hook(Box::new(move |_state, payload_attributes| {
+            if let Some(attributes) = payload_attributes {
+                captured_inner.lock().push(attributes.into());
+            }
+            None
+        }));
+
+    // Register the proposer so prepare_beacon_proposer doesn't skip it
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &None,
+        )],
+    )
+    .await;
+
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+    // First beacon proposer preparation call, with the inclusion list not in the store
+    // The attributes are cached under the Empty build payload status
+    harness
+        .chain
+        .prepare_beacon_proposer(il_slot)
+        .await
+        .unwrap();
+
+    // The inclusion list arrives after the initial beacon proposer preparation
+    let insert_outcome =
+        seed_inclusion_list(&harness, parent_root, il_slot, il_transactions.clone());
+    assert_eq!(insert_outcome, InsertOutcome::New);
+
+    // Prepare the same slot again, as fork choice does later in the slot
+    harness
+        .chain
+        .prepare_beacon_proposer(il_slot)
+        .await
+        .unwrap();
+
+    // The warm-up fcU carried an empty list
+    // The second preparation sent the stored list instead of reusing the cached attributes
+    {
+        let captured = captured.lock();
+        let [
+            PayloadAttributes::V5(warm_up),
+            PayloadAttributes::V5(refreshed),
+        ] = captured.as_slice()
+        else {
+            panic!("expected two V5 fcUs with payload attributes, got {captured:?}");
+        };
+        assert!(warm_up.inclusion_list_transactions.is_empty());
+        assert_eq!(refreshed.inclusion_list_transactions, il_transactions);
+    }
+
+    // The refreshed attributes replaced the ones cached under the Empty build payload status,
+    // rather than being written under the head's Full status
+    let Some(PayloadAttributes::V5(cached)) = el
+        .payload_attributes(prepare_slot, parent_root, PayloadStatus::Empty)
+        .await
+    else {
+        panic!("attributes should be cached under the Empty build payload status");
+    };
+    assert_eq!(cached.inclusion_list_transactions, il_transactions);
+}
+
+#[tokio::test]
 async fn gloas_block_production_caches_blobs_for_column_publishing() {
     let spec = Arc::new(test_spec::<E>());
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
