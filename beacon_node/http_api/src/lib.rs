@@ -44,6 +44,7 @@ use crate::beacon::execution_payload_envelopes::{
     get_beacon_execution_payload_envelopes, post_beacon_execution_payload_envelopes,
     post_beacon_execution_payload_envelopes_ssz,
 };
+use crate::beacon::execution_proofs::post_beacon_execution_proofs;
 use crate::beacon::pool::*;
 use crate::caches::DEFAULT_HISTORICAL_COMMITTEE_CACHE_SIZE;
 pub use crate::caches::HistoricalCommitteeCache;
@@ -80,6 +81,7 @@ use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders};
 use network_utils::enr_ext::EnrExt;
 use parking_lot::RwLock;
+use proto_array::PayloadBlockHash;
 pub use publish_blocks::{
     ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
@@ -316,6 +318,15 @@ pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::
             );
         }
     })
+}
+
+/// Whether the node has nothing able to tell it a payload is valid.
+async fn is_el_offline<T: BeaconChainTypes>(chain: &BeaconChain<T>) -> bool {
+    match &chain.execution_layer {
+        Some(execution_layer) => execution_layer.is_offline_or_erroring().await,
+        // Running with no execution layer is deliberate when EIP-8025 proofs decide validity.
+        None => !chain.execution_proofs_enabled(),
+    }
 }
 
 /// Creates a server that will serve requests using information from `ctx`.
@@ -1069,7 +1080,7 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
         .and(warp_utils::json::json())
-        .and(consensus_version_header_filter)
+        .and(consensus_version_header_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
@@ -1574,6 +1585,7 @@ pub async fn serve<T: BeaconChainTypes>(
     // POST beacon/execution_payload_bids
     let post_beacon_execution_payload_bids = post_beacon_execution_payload_bids(
         eth_v1.clone(),
+        consensus_version_header_filter.clone(),
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
@@ -1581,6 +1593,15 @@ pub async fn serve<T: BeaconChainTypes>(
 
     // POST beacon/execution_payload_bids (SSZ)
     let post_beacon_execution_payload_bids_ssz = post_beacon_execution_payload_bids_ssz(
+        eth_v1.clone(),
+        consensus_version_header_filter.clone(),
+        task_spawner_filter.clone(),
+        chain_filter.clone(),
+        network_tx_filter.clone(),
+    );
+
+    // POST beacon/execution_proofs (SSZ)
+    let post_beacon_execution_proofs = post_beacon_execution_proofs(
         eth_v1.clone(),
         task_spawner_filter.clone(),
         chain_filter.clone(),
@@ -2137,7 +2158,7 @@ pub async fn serve<T: BeaconChainTypes>(
                                 chain
                                     .canonical_head
                                     .fork_choice_read_lock()
-                                    .is_optimistic_or_invalid_block(&root)
+                                    .is_optimistic_or_invalid_block_assuming_full(&root)
                                     .ok()
                             } else {
                                 return Err(unsupported_version_rejection(endpoint_version));
@@ -2173,20 +2194,12 @@ pub async fn serve<T: BeaconChainTypes>(
                         .nodes
                         .iter()
                         .map(|node| {
-                            let execution_status = if node
+                            let execution_status = node
                                 .execution_status()
-                                .is_ok_and(|status| status.is_execution_enabled())
-                            {
-                                node.execution_status()
-                                    .ok()
-                                    .map(|status| status.to_string())
-                            } else {
-                                None
-                            };
+                                .is_execution_enabled()
+                                .then(|| node.execution_status().to_string());
 
-                            let execution_status_string = node
-                                .execution_status()
-                                .map_or_else(|_| "irrelevant".to_string(), |s| s.to_string());
+                            let execution_status_string = node.execution_status().to_string();
 
                             ForkChoiceNode {
                                 slot: node.slot(),
@@ -2199,11 +2212,12 @@ pub async fn serve<T: BeaconChainTypes>(
                                 finalized_epoch: node.finalized_checkpoint().epoch,
                                 weight: node.weight(),
                                 validity: execution_status,
-                                execution_block_hash: node
-                                    .execution_status()
-                                    .ok()
-                                    .and_then(|status| status.block_hash())
-                                    .map(|block_hash| block_hash.into_root()),
+                                execution_block_hash: match node.block_hash() {
+                                    PayloadBlockHash::Hash(block_hash) => {
+                                        Some(block_hash.into_root())
+                                    }
+                                    PayloadBlockHash::PreMerge => None,
+                                },
                                 extra_data: ForkChoiceExtraData {
                                     target_root: node.target_root(),
                                     justified_root: node.justified_checkpoint().root,
@@ -2309,11 +2323,7 @@ pub async fn serve<T: BeaconChainTypes>(
              network_globals: Arc<NetworkGlobals<T::EthSpec>>,
              chain: Arc<BeaconChain<T>>| {
                 async move {
-                    let el_offline = if let Some(el) = &chain.execution_layer {
-                        el.is_offline_or_erroring().await
-                    } else {
-                        true
-                    };
+                    let el_offline = is_el_offline(&chain).await;
 
                     task_spawner
                         .blocking_json_task(Priority::P0, move || {
@@ -2371,11 +2381,7 @@ pub async fn serve<T: BeaconChainTypes>(
              network_globals: Arc<NetworkGlobals<T::EthSpec>>,
              chain: Arc<BeaconChain<T>>| {
                 async move {
-                    let el_offline = if let Some(el) = &chain.execution_layer {
-                        el.is_offline_or_erroring().await
-                    } else {
-                        true
-                    };
+                    let el_offline = is_el_offline(&chain).await;
 
                     task_spawner
                         .blocking_response_task(Priority::P0, move || {
@@ -2619,7 +2625,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
     );
 
-    // GET validator/payload_attestation_data/{slot}
+    // GET validator/payload_attestation_data?slot
     let get_validator_payload_attestation_data = get_validator_payload_attestation_data(
         eth_v1.clone(),
         chain_filter.clone(),
@@ -2741,6 +2747,14 @@ pub async fn serve<T: BeaconChainTypes>(
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
+                    // Manual finalization is not compatible with FCR.
+                    // See: https://github.com/sigp/lighthouse/issues/10166
+                    if chain.canonical_head.fast_confirmation.is_some() {
+                        return Err(warp_utils::reject::custom_bad_request(
+                            "manual finalization is not compatible with FCR".into(),
+                        ));
+                    }
+
                     let checkpoint = Checkpoint {
                         epoch: request_data.epoch,
                         root: request_data.block_root,
@@ -3496,6 +3510,7 @@ pub async fn serve<T: BeaconChainTypes>(
                             .uor(post_beacon_execution_payload_envelopes_ssz)
                             .uor(post_beacon_execution_payload_bids_ssz)
                             .uor(post_beacon_pool_payload_attestations_ssz)
+                            .uor(post_beacon_execution_proofs)
                             .uor(post_validator_proposer_preferences_ssz),
                     )
                     .uor(post_beacon_blocks)

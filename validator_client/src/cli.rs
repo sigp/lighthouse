@@ -199,6 +199,16 @@ pub struct ValidatorClient {
     )]
     pub distributed: bool,
 
+    #[clap(
+        long,
+        help = "Request the execution payload with each Gloas block and publish the self-built \
+                payload envelope from that response, so it can be published via any beacon node \
+                rather than only the one that built the block.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub stateless_block_production: bool,
+
     /* REST API related arguments */
     #[clap(
         long,
@@ -410,14 +420,15 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "INTEGER",
-        default_value_t = 60_000_000,
         requires = "builder_proposals",
         help = "The gas limit to be used in all builder proposals for all validators managed \
-                by this validator client. Note this will not necessarily be used if the gas limit \
-                set here moves too far from the previous block's gas limit.",
+                by this validator client. If this value is not set, the gas limit schedule from \
+                the network config is used, falling back to a default of 60,000,000. Note this \
+                will not necessarily be used if the gas limit set here moves too far from the \
+                previous block's gas limit.",
         display_order = 0
     )]
-    pub gas_limit: u64,
+    pub gas_limit: Option<u64>,
 
     #[clap(
         long,
@@ -490,14 +501,26 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
-        help = "Disable the beacon head monitor which tries to attest as soon as any of the \
-                configured beacon nodes sends a head event. Leaving the service enabled is \
+        help = "Disable the beacon head monitor which triggers attestations and sync committee \
+                messages when a configured beacon node sends a head event. Leaving it enabled is \
                 recommended, but disabling it can lead to reduced bandwidth and more predictable \
                 usage of the primary beacon node (rather than the fastest BN).",
         display_order = 0,
         help_heading = FLAG_HEADER
     )]
     pub disable_beacon_head_monitor: bool,
+
+    #[clap(
+        long,
+        help = "Disable the payload available monitor. This monitor listens for notifications from \
+                beacon nodes indicating when a new payload (execution block) is available and attempts \
+                to attest as soon as a notification is received. This monitor is enabled by default. \
+                Keeping it enabled can help your validator produce more timely attestations whenever \
+                payloads become available, by leveraging the fastest of your configured beacon nodes.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub disable_payload_available_monitor: bool,
 
     #[clap(
         long,

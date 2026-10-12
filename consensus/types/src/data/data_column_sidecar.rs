@@ -91,7 +91,7 @@ pub struct DataColumnSidecar<E: EthSpec> {
     // [Modified in Gloas:EIP7688]
     #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_fixed_vec")]
     #[superstruct(only(Gloas), partial_getter(rename = "column_gloas"))]
-    pub column: ProgressiveVariableList<Cell<E>>,
+    pub column: ProgressiveVariableList<Cell<E>, E::MaxBlobCommitmentsPerBlock>,
     /// All the KZG commitments associated with the block, used for verifying sample cells.
     /// In Gloas, commitments come from `block.body.signed_execution_payload_bid.message.blob_kzg_commitments`.
     #[superstruct(only(Fulu))]
@@ -100,7 +100,7 @@ pub struct DataColumnSidecar<E: EthSpec> {
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     // [Modified in Gloas:EIP7688]
     #[superstruct(only(Gloas), partial_getter(rename = "kzg_proofs_gloas"))]
-    pub kzg_proofs: ProgressiveVariableList<KzgProof>,
+    pub kzg_proofs: ProgressiveVariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     #[superstruct(only(Fulu))]
     pub signed_block_header: SignedBeaconBlockHeader,
     /// An inclusion proof, proving the inclusion of `blob_kzg_commitments` in `BeaconBlockBody`.
@@ -334,28 +334,28 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
 
 impl<E: EthSpec> DataColumnSidecarGloas<E> {
     pub fn min_size() -> usize {
-        // min size is one cell
-        Self {
+        // The minimum is one cell and its proof, both with fixed SSZ lengths.
+        let fixed_size = Self {
             index: 0,
-            column: ProgressiveVariableList::new(vec![Cell::<E>::default()]),
-            kzg_proofs: ProgressiveVariableList::new(vec![KzgProof::empty()]),
+            column: ProgressiveVariableList::empty(),
+            kzg_proofs: ProgressiveVariableList::empty(),
             slot: Slot::new(0),
             beacon_block_root: Hash256::ZERO,
         }
-        .as_ssz_bytes()
-        .len()
+        .ssz_bytes_len();
+        fixed_size
+            .saturating_add(<Cell<E> as Encode>::ssz_fixed_len())
+            .saturating_add(<KzgProof as Encode>::ssz_fixed_len())
     }
 
     pub fn max_size(max_blobs_per_block: usize) -> usize {
-        Self {
-            index: 0,
-            column: ProgressiveVariableList::new(vec![Cell::<E>::default(); max_blobs_per_block]),
-            kzg_proofs: ProgressiveVariableList::new(vec![KzgProof::empty(); max_blobs_per_block]),
-            slot: Slot::new(0),
-            beacon_block_root: Hash256::ZERO,
-        }
-        .as_ssz_bytes()
-        .len()
+        let cell_with_proof_size = <Cell<E> as Encode>::ssz_fixed_len()
+            .saturating_add(<KzgProof as Encode>::ssz_fixed_len());
+        <u64 as Encode>::ssz_fixed_len()
+            .saturating_mul(2)
+            .saturating_add(<Hash256 as Encode>::ssz_fixed_len())
+            .saturating_add(2 * ssz::BYTES_PER_LENGTH_OFFSET)
+            .saturating_add(max_blobs_per_block.saturating_mul(cell_with_proof_size))
     }
 }
 
@@ -402,7 +402,7 @@ impl From<SszError> for DataColumnSidecarError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{MainnetEthSpec, max_data_columns_by_root_request_common};
+    use crate::core::{Spec, max_data_columns_by_root_request_common};
     use fixed_bytes::FixedBytesExtended;
     use ssz_types::RuntimeVariableList;
 
@@ -431,8 +431,8 @@ mod tests {
     fn max_data_columns_by_root_request_matches_simplified() {
         for n in [0, 1, 2, 8, 16, 32, 64, 128, 256, 512, 1024] {
             assert_eq!(
-                max_data_columns_by_root_request_common::<MainnetEthSpec>(n),
-                max_data_columns_by_root_request_implementation::<MainnetEthSpec>(n),
+                max_data_columns_by_root_request_common::<Spec>(n),
+                max_data_columns_by_root_request_implementation::<Spec>(n),
                 "Mismatch at n={n}"
             );
         }

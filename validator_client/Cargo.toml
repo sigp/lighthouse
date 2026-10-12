@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 account_utils = { workspace = true }
 beacon_node_fallback = { workspace = true }
+builder_store = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
 directory = { workspace = true }

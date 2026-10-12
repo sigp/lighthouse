@@ -55,6 +55,7 @@ pub mod pending_payload_cache;
 pub mod pending_payload_envelopes;
 pub mod persisted_beacon_chain;
 pub mod persisted_custody;
+mod persisted_fast_confirmation;
 mod persisted_fork_choice;
 mod pre_finalization_cache;
 pub mod proposer_preferences_verification;
@@ -77,7 +78,7 @@ pub use self::beacon_chain::{
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, LightClientProducerEvent, OverrideForkchoiceUpdate,
     ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
 };
-pub use self::beacon_snapshot::BeaconSnapshot;
+pub use self::beacon_snapshot::{BeaconSnapshot, ChainDumpSnapshot};
 pub use self::block_production::PayloadEnvelopeContents;
 pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};
@@ -100,7 +101,7 @@ pub use custody_context::CustodyContext;
 pub use events::ServerSentEventHandler;
 pub use execution_layer::EngineState;
 pub use execution_payload::NotifyExecutionLayer;
-pub use fork_choice::{ExecutionStatus, ForkchoiceUpdateParameters};
+pub use fork_choice::{ExecutionVerdict, ForkchoiceUpdateParameters};
 pub use kzg::{Kzg, TrustedSetup};
 pub use metrics::scrape_for_metrics;
 pub use migrate::MigratorConfig;

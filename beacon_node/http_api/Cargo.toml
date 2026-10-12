@@ -5,6 +5,9 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 autotests = false                               # using a single test binary compiles faster
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 axum = { workspace = true }
 axum_utils = { workspace = true }
@@ -15,6 +18,8 @@ bs58 = "0.4.0"
 bytes = { workspace = true }
 context_deserialize = { workspace = true }
 directory = { workspace = true }
+either = { workspace = true }
+enr = { workspace = true }
 eth2 = { workspace = true, features = ["lighthouse", "network"] }
 ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
@@ -65,6 +70,7 @@ proto_array = { workspace = true }
 name = "bn_http_api_tests"
 path = "tests/main.rs"
 
-[[bench]]
-name = "bench"
-harness = false
+[[test]]
+name = "bn_http_api_spec_minimal_tests"
+path = "tests/spec_minimal.rs"
+required-features = ["spec-minimal"]

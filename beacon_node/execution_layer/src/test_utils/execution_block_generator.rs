@@ -1,11 +1,14 @@
-use crate::engine_api::{
-    ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
-    json_structures::{
-        BlobAndProof, BlobAndProofV1, BlobAndProofV2, JsonForkchoiceUpdatedV1Response,
-        JsonPayloadStatusV1, JsonPayloadStatusV1Status,
+use crate::engines::ForkchoiceState;
+use crate::{
+    calculate_execution_block_hash,
+    engine_api::{
+        ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
+        json_structures::{
+            BlobAndProof, BlobAndProofV1, BlobAndProofV2, JsonForkchoiceUpdatedV1Response,
+            JsonPayloadStatusV1, JsonPayloadStatusV1Status,
+        },
     },
 };
-use crate::engines::ForkchoiceState;
 use alloy_consensus::TxEnvelope;
 use alloy_rpc_types_eth::Transaction as AlloyTransaction;
 use eth2::types::BlobsBundle;
@@ -28,7 +31,8 @@ use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
     ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeze, ExecutionRequests,
-    ForkName, Hash256, KzgProofs, ProgressiveTransactions, Transaction, Transactions, Uint256,
+    ExecutionRequestsRef, ForkName, Hash256, KzgProofs, ProgressiveTransactions, Transaction,
+    Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -577,6 +581,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 status: PayloadStatusV1Status::Syncing,
                 latest_valid_hash: None,
                 validation_error: None,
+                inclusion_list_satisfied: None,
             };
         };
 
@@ -585,6 +590,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 status: PayloadStatusV1Status::Invalid,
                 latest_valid_hash: Some(parent.block_hash()),
                 validation_error: Some("invalid block number".to_string()),
+                inclusion_list_satisfied: None,
             };
         }
 
@@ -595,6 +601,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             status: PayloadStatusV1Status::Valid,
             latest_valid_hash: Some(valid_hash),
             validation_error: None,
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -845,12 +852,16 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: ProgressiveVariableList::empty(),
-                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone()),
+                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone())
+                        .map_err(|e| format!("invalid withdrawals: {e:?}"))?,
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
                     block_access_list: ProgressiveVariableList::empty(),
                     slot_number: pa.slot_number.into(),
                 }),
+                _ => unreachable!(),
+            },
+            PayloadAttributes::V5(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
                 ForkName::Heze => ExecutionPayload::Heze(ExecutionPayloadHeze {
                     parent_hash: head_block_hash,
                     fee_recipient: pa.suggested_fee_recipient,
@@ -866,7 +877,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                     base_fee_per_gas: Uint256::from(1u64),
                     block_hash: ExecutionBlockHash::zero(),
                     transactions: ProgressiveVariableList::empty(),
-                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone()),
+                    withdrawals: ProgressiveVariableList::new(pa.withdrawals.clone())
+                        .map_err(|e| format!("invalid withdrawals: {e:?}"))?,
                     blob_gas_used: 0,
                     excess_blob_gas: 0,
                     block_access_list: ProgressiveVariableList::empty(),
@@ -877,7 +889,8 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         };
 
         // Store execution requests for this payload if configured.
-        if let Some(requests) = self.next_execution_requests.take() {
+        let execution_requests = self.next_execution_requests.take();
+        if let Some(requests) = execution_requests.clone() {
             self.execution_requests.insert(id, requests);
         }
 
@@ -890,22 +903,26 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 let max_blobs = max(1, self.min_blobs_count);
                 let num_blobs = rng.random_range(self.min_blobs_count..=max_blobs);
                 let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
-                match &mut execution_payload {
-                    ExecutionPayload::Gloas(payload) => {
-                        for tx in Vec::from(transactions) {
-                            payload
-                                .transactions
-                                .push(ProgressiveVariableList::<u8>::new(tx.into()));
-                        }
+                // Gloas and later carry a progressive transactions list, earlier forks a bounded one.
+                if fork_name.gloas_enabled() {
+                    let payload_transactions = execution_payload
+                        .transactions_progressive_mut()
+                        .map_err(|e| format!("invalid payload variant: {e:?}"))?;
+                    for tx in Vec::from(transactions) {
+                        payload_transactions
+                            .push(
+                                ProgressiveVariableList::<u8>::new(tx.into())
+                                    .map_err(|e| format!("invalid transaction: {e:?}"))?,
+                            )
+                            .map_err(|e| format!("invalid transactions: {e:?}"))?;
                     }
-                    _ => {
-                        for tx in Vec::from(transactions) {
-                            execution_payload
-                                .transactions_bounded_mut()
-                                .map_err(|e| format!("invalid payload variant: {e:?}"))?
-                                .push(tx)
-                                .map_err(|_| "transactions are full".to_string())?;
-                        }
+                } else {
+                    for tx in Vec::from(transactions) {
+                        execution_payload
+                            .transactions_bounded_mut()
+                            .map_err(|e| format!("invalid payload variant: {e:?}"))?
+                            .push(tx)
+                            .map_err(|_| "transactions are full".to_string())?;
                     }
                 }
 
@@ -924,8 +941,25 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             self.blobs_bundles.insert(id, bundle);
         }
 
-        *execution_payload.block_hash_mut() =
-            ExecutionBlockHash::from_root(execution_payload.tree_hash_root());
+        let block_hash = if let PayloadAttributes::V4(attributes) = attributes {
+            let default_execution_requests = ExecutionRequests::Gloas(Default::default());
+            let execution_requests = execution_requests
+                .as_ref()
+                .unwrap_or(&default_execution_requests);
+            let execution_requests_ref = match execution_requests {
+                ExecutionRequests::Electra(requests) => ExecutionRequestsRef::Electra(requests),
+                ExecutionRequests::Gloas(requests) => ExecutionRequestsRef::Gloas(requests),
+            };
+            calculate_execution_block_hash(
+                execution_payload.to_ref(),
+                Some(attributes.parent_beacon_block_root),
+                Some(execution_requests_ref),
+            )
+            .0
+        } else {
+            ExecutionBlockHash::from_root(execution_payload.tree_hash_root())
+        };
+        *execution_payload.block_hash_mut() = block_hash;
         Ok(execution_payload)
     }
 }

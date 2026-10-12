@@ -65,7 +65,9 @@ impl<E: EthSpec> PartialHeaderOrBid<E> {
         block: &SignedBeaconBlock<E, P>,
     ) -> Option<Self> {
         if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
-            Some(PartialHeaderOrBid::Bid(Arc::new(bid.clone())))
+            Some(PartialHeaderOrBid::Bid(Arc::new(
+                bid.clone_as_signed_execution_payload_bid(),
+            )))
         } else {
             PartialDataColumnHeader::try_from(block)
                 .ok()
@@ -76,14 +78,16 @@ impl<E: EthSpec> PartialHeaderOrBid<E> {
     pub fn kzg_commitments(&self) -> ListRef<'_, KzgCommitment, E::MaxBlobCommitmentsPerBlock> {
         match self {
             PartialHeaderOrBid::PartialHeader(header) => ListRef::Basic(&header.kzg_commitments),
-            PartialHeaderOrBid::Bid(bid) => ListRef::Progressive(&bid.message.blob_kzg_commitments),
+            PartialHeaderOrBid::Bid(bid) => {
+                ListRef::Progressive(bid.message().blob_kzg_commitments())
+            }
         }
     }
 
     pub fn slot(&self) -> Slot {
         match self {
             PartialHeaderOrBid::PartialHeader(header) => header.slot(),
-            PartialHeaderOrBid::Bid(bid) => bid.message.slot,
+            PartialHeaderOrBid::Bid(bid) => bid.slot(),
         }
     }
 }
@@ -369,15 +373,11 @@ async fn import_custody_partial_columns<T: BeaconChainTypes>(
                     KzgVerifiedCustodyPartialDataColumn::from_asserted_custody(column).into_gloas()
                 })
                 .collect();
-            // Ensure the bid is present in the cache.
-            chain_adapter
-                .pending_payload_cache()
-                .insert_bid(block_root, bid.clone());
             // Merge partials into the pending payload cache and return any full columns for
             // publishing.
             let (availability, merge_result) = chain_adapter
                 .pending_payload_cache()
-                .merge_partial_data_columns(block_root, &custody_columns_to_import)
+                .merge_partial_data_columns(block_root, &custody_columns_to_import, bid)
                 .map_err(|e| {
                     FetchEngineBlobError::InternalError(format!(
                         "Failed to merge partials into pending payload cache: {e:?}"
@@ -605,8 +605,12 @@ async fn build_partial_columns_from_v4_response<T: BeaconChainTypes>(
                 })
             }
             PartialHeaderOrBid::Bid(_) => {
-                let column = ProgressiveVariableList::new(cells);
-                let kzg_proofs = ProgressiveVariableList::new(proofs);
+                let column = ProgressiveVariableList::new(cells).map_err(|e| {
+                    FetchEngineBlobError::InternalError(format!("invalid cells list: {e:?}"))
+                })?;
+                let kzg_proofs = ProgressiveVariableList::new(proofs).map_err(|e| {
+                    FetchEngineBlobError::InternalError(format!("invalid proofs list: {e:?}"))
+                })?;
 
                 PartialDataColumn::Gloas(PartialDataColumnGloas {
                     block_root,
@@ -632,7 +636,7 @@ async fn build_partial_columns_from_v4_response<T: BeaconChainTypes>(
             header.slot(),
         ),
         PartialHeaderOrBid::Bid(bid) => {
-            ObservationKey::new_block_root_key(block_root, bid.message.slot)
+            ObservationKey::new_block_root_key(block_root, bid.message().slot())
         }
     };
     if let Some(observed_columns) =
@@ -709,7 +713,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                         header.slot(),
                     ),
                     PartialHeaderOrBid::Bid(bid) => {
-                        ObservationKey::new_block_root_key(block_root, bid.message.slot)
+                        ObservationKey::new_block_root_key(block_root, bid.slot())
                     }
                 };
 

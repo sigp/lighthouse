@@ -565,7 +565,7 @@ mod test {
 
     use super::*;
 
-    type E = MinimalEthSpec;
+    type E = Spec;
     type TestBeaconChainType = EphemeralHarnessType<E>;
     type BeaconChainHarness = crate::test_utils::BeaconChainHarness<TestBeaconChainType>;
     const TEST_CACHE_SIZE: usize = 5;
@@ -591,9 +591,10 @@ mod test {
 
     /// Returns two different committee caches for testing.
     fn committee_caches() -> (Arc<CommitteeCache>, Arc<CommitteeCache>) {
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        // Gloas genesis needs at least one validator per slot.
+        let harness = BeaconChainHarness::builder(Spec::default())
             .default_spec()
-            .deterministic_keypairs(8)
+            .deterministic_keypairs(E::slots_per_epoch() as usize)
             .fresh_ephemeral_store()
             .build();
         let mut state = harness.get_current_state();
@@ -871,7 +872,7 @@ mod test {
         let gloas_fork_epoch = Epoch::new(2);
         spec.gloas_fork_epoch = Some(gloas_fork_epoch);
 
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        let harness = BeaconChainHarness::builder(Spec::default())
             .spec(Arc::new(spec.clone()))
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()

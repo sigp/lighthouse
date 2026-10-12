@@ -7,7 +7,10 @@ use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
-use types::{BlockImportSource, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope};
+use types::{
+    BlockImportSource, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelope,
+};
 
 use super::{
     AvailableEnvelope, AvailableExecutedEnvelope, EnvelopeError,
@@ -21,6 +24,7 @@ use crate::{
     payload_envelope_verification::{
         AvailabilityPendingExecutedEnvelope, ExecutionPendingEnvelope,
         load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
+        verify_envelope_payload_hash,
     },
     validator_monitor::get_slot_delay_ms,
 };
@@ -52,6 +56,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         publish_fn: impl FnOnce() -> Result<(), EnvelopeError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_slot = unverified_envelope.signed_envelope.slot();
+        let bid = Arc::new(
+            unverified_envelope
+                .block
+                .message()
+                .body()
+                .signed_execution_payload_bid()?
+                .clone_as_signed_execution_payload_bid(),
+        );
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
@@ -101,7 +113,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .set_time_executed(block_root, block_slot, timestamp);
             }
 
-            self.check_envelope_availability_and_import(executed_envelope)
+            self.check_envelope_availability_and_import(executed_envelope, &bid)
                 .await
         };
 
@@ -141,11 +153,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn check_envelope_availability_and_import(
         self: &Arc<Self>,
         envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
+        bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let slot = envelope.envelope.slot();
         let availability = self
             .pending_payload_cache
-            .put_executed_payload_envelope(envelope)?;
+            .put_executed_payload_envelope(envelope, bid)?;
         self.process_payload_envelope_availability(slot, availability, || Ok(()))
             .await
     }
@@ -169,14 +182,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
-
-        // TODO(gloas): optimistic sync is not supported for Gloas, maybe we could re-add it
-        if payload_verification_outcome
-            .payload_verification_status
-            .is_optimistic()
-        {
-            return Err(EnvelopeError::OptimisticSyncNotSupported { block_root });
-        }
 
         Ok(AvailabilityPendingExecutedEnvelope::new(
             signed_envelope,
@@ -247,7 +252,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Update the block's payload to received in fork choice, which creates the `Full` virtual
         // node which can be eligible for head.
         fork_choice
-            .on_valid_payload_envelope_received(block_root)
+            .on_payload_envelope_received(
+                block_root,
+                payload_verification_status,
+                signed_envelope.message().payload.block_hash,
+            )
             .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
         // It is important NOT to return errors here before the database commit, because the envelope
@@ -400,6 +409,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             snapshot.state_root,
             &self.spec,
         )?;
+
+        // EIP-8025: execution layer verifications must be done on the CL.
+        if self.execution_proofs_enabled() && self.config.verify_envelope_payload_hash_on_cl {
+            verify_envelope_payload_hash(&signed_envelope, &block)?;
+        }
 
         // Send to EL for verification
         let payload_notifier = PayloadNotifier::new(

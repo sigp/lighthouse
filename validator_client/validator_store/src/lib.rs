@@ -1,4 +1,5 @@
 use bls::{PublicKeyBytes, Signature};
+use builder_types::{RequestAuth, SignedRequestAuth};
 use eth2::types::{FullBlockContents, PublishBlockRequest};
 use futures::Stream;
 use slashing_protection::NotSafe;
@@ -130,11 +131,17 @@ pub trait ValidatorStore: Send + Sync {
 
     fn set_validator_index(&self, validator_pubkey: &PublicKeyBytes, index: u64);
 
+    /// Sign `block` and apply slashing protection.
+    ///
+    /// `local_payload_root` is the `hash_tree_root` of the locally built execution payload, `Some`
+    /// only for a self-build Gloas bid in stateless block production mode. Lighthouse's store
+    /// ignores it; distributed validator stores commit to it before the block is published.
     fn sign_block(
         &self,
         validator_pubkey: PublicKeyBytes,
         block: UnsignedBlock<Self::E>,
         current_slot: Slot,
+        local_payload_root: Option<Hash256>,
     ) -> impl Future<Output = Result<SignedBlock<Self::E>, Error<Self::Error>>> + Send;
 
     /// Sign a batch of `attestations` and apply slashing protection to them.
@@ -213,10 +220,20 @@ pub trait ValidatorStore: Send + Sync {
         preferences: ProposerPreferences,
     ) -> impl Future<Output = Result<SignedProposerPreferences, Error<Self::Error>>> + Send;
 
+    fn sign_request_auth_v1(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        request_auth_v1: RequestAuth,
+    ) -> impl Future<Output = Result<SignedRequestAuth, Error<Self::Error>>> + Send;
+
     /// Returns `ProposalData` for the provided `pubkey` if it exists in `InitializedValidators`.
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
     /// `get_gas_limit_defaulting`, and `get_builder_proposals_defaulting`.
     fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData>;
+
+    /// Like `proposal_data`, with the gas limit schedule evaluated at `epoch`.
+    fn proposal_data_at_epoch(&self, pubkey: &PublicKeyBytes, epoch: Epoch)
+    -> Option<ProposalData>;
 }
 
 #[derive(Debug)]

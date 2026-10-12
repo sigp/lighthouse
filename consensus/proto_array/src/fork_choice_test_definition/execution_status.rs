@@ -295,8 +295,8 @@ pub fn get_execution_status_test_definition_01() -> ForkChoiceTestDefinition {
         //            |
         //            3 <- INVALID
         Operation::InvalidatePayload {
-            head_block_root: get_root(3),
-            latest_valid_ancestor_root: Some(get_hash(1)),
+            head_hash: get_hash(3),
+            latest_valid_ancestor: Some(get_hash(1)),
         },
         // Ensure that the head is still 2.
         //
@@ -714,8 +714,8 @@ pub fn get_execution_status_test_definition_02() -> ForkChoiceTestDefinition {
         //            |
         //            3 <- INVALID
         Operation::InvalidatePayload {
-            head_block_root: get_root(3),
-            latest_valid_ancestor_root: Some(get_hash(1)),
+            head_hash: get_hash(3),
+            latest_valid_ancestor: Some(get_hash(1)),
         },
         // Ensure that the head is now 2.
         //
@@ -1023,8 +1023,8 @@ pub fn get_execution_status_test_definition_03() -> ForkChoiceTestDefinition {
         //            |
         //            3 <- INVALID
         Operation::InvalidatePayload {
-            head_block_root: get_root(3),
-            latest_valid_ancestor_root: Some(get_hash(1)),
+            head_hash: get_hash(3),
+            latest_valid_ancestor: Some(get_hash(1)),
         },
         // Ensure that the head is now 1, maintaining the proposer boost on the invalid block.
         //

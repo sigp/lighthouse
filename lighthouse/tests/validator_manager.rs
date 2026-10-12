@@ -156,6 +156,7 @@ pub fn validator_create_defaults() {
                 gas_limit: None,
                 bn_url: None,
                 force_bls_withdrawal_credentials: false,
+                compounding: false,
             };
             assert_eq!(expected, config);
         });
@@ -197,8 +198,21 @@ pub fn validator_create_misc_flags() {
                 gas_limit: Some(1337),
                 bn_url: Some(SensitiveUrl::parse("http://localhost:1001").unwrap()),
                 force_bls_withdrawal_credentials: true,
+                compounding: false,
             };
             assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_create_compounding_flag() {
+    CommandLineTest::validators_create()
+        .flag("--output-path", Some("./meow"))
+        .flag("--count", Some("1"))
+        .flag("--eth1-withdrawal-address", Some(EXAMPLE_ETH1_ADDRESS))
+        .flag("--compounding", None)
+        .assert_success(|config| {
+            assert!(config.compounding);
         });
 }
 

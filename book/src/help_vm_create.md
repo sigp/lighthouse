@@ -144,6 +144,10 @@ Flags:
           is safely backed up.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
+
+compounding:
+      --compounding
+          If present, use the 0x02 withdrawal credentials prefix.
 ```
 
 <style> .content main {max-width:88%;} </style>

@@ -285,7 +285,7 @@ impl<E: EthSpec> Slasher<E> {
                 indexed_attestation_id,
             )?;
 
-            if let Some(slashing) = slashing_status.into_slashing(attestation) {
+            if let Some(slashing) = slashing_status.into_slashing(attestation)? {
                 debug!(
                     validator_index,
                     epoch = %slashing.attestation_1().data().target.epoch,

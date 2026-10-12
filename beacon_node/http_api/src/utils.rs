@@ -21,6 +21,7 @@ pub type ValidatorSubscriptionTxFilter = BoxedFilter<(Sender<ValidatorSubscripti
 pub type NetworkTxFilter<T> =
     BoxedFilter<(UnboundedSender<NetworkMessage<<T as BeaconChainTypes>::EthSpec>>,)>;
 pub type OptionalConsensusVersionHeaderFilter = BoxedFilter<(Option<ForkName>,)>;
+pub type ConsensusVersionHeaderFilter = BoxedFilter<(ForkName,)>;
 
 pub fn from_meta_data<E: EthSpec>(
     meta_data: &RwLock<MetaData<E>>,

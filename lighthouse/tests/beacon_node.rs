@@ -8,6 +8,7 @@ use beacon_node::{
     beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend,
 };
 use beacon_processor::BeaconProcessorConfig;
+use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::PeerId;
 use network_utils::unused_port::{
     unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port,
@@ -533,6 +534,33 @@ fn bellatrix_execution_endpoints_flag() {
 #[test]
 fn bellatrix_execution_endpoint_flag() {
     run_bellatrix_execution_endpoints_flag_test("execution-endpoint")
+}
+#[test]
+fn proof_engine_endpoint_without_execution_endpoint() {
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("proof-engine-endpoint", Some("http://localhost:8552/"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config
+                    .proof_engine_endpoint
+                    .as_ref()
+                    .unwrap()
+                    .expose_full()
+                    .to_string(),
+                "http://localhost:8552/"
+            );
+            assert!(config.network.enable_execution_proof);
+            // No endpoint means no execution layer at all, and so no JWT is needed either.
+            assert!(config.execution_layer.is_none());
+            assert!(config.chain.disable_get_blobs);
+            assert!(!config.store.prune_payloads);
+        });
+}
+#[test]
+#[should_panic]
+fn no_execution_endpoint_and_no_proof_engine_endpoint() {
+    CommandLineTest::new_with_no_execution_endpoint().run_with_zero_port();
 }
 #[test]
 fn bellatrix_jwt_secrets_flag() {
@@ -1258,7 +1286,12 @@ fn default_backfill_rate_limiting_flag() {
 }
 #[test]
 fn default_boot_nodes() {
-    let number_of_boot_nodes = 17;
+    let number_of_boot_nodes = Eth2NetworkConfig::constant("mainnet")
+        .unwrap()
+        .unwrap()
+        .boot_enr
+        .unwrap()
+        .len();
 
     CommandLineTest::new()
         .run_with_zero_port()
@@ -2813,11 +2846,11 @@ fn invalid_block_roots_default_mainnet() {
 }
 
 #[test]
-fn disable_mplex_default() {
+fn enable_mplex_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.network.enable_mplex);
+            assert!(config.network.enable_mplex);
         })
 }
 
@@ -2860,12 +2893,12 @@ fn partial_columns() {
             assert!(config.network.enable_partial_columns);
             assert!(config.chain.enable_partial_columns);
         });
-    // And disabled by default on mainnet:
+    // And enabled by default on mainnet:
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.network.enable_partial_columns);
-            assert!(!config.chain.enable_partial_columns);
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
         })
 }
 
@@ -2893,30 +2926,7 @@ fn partial_columns_default_hoodi() {
 }
 
 #[test]
-fn partial_columns_default_sepolia() {
-    CommandLineTest::new()
-        .flag("network", Some("sepolia"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert!(config.network.enable_partial_columns);
-            assert!(config.chain.enable_partial_columns);
-        });
-}
-
-#[test]
-fn partial_columns_false_overrides_hoodi_default() {
-    CommandLineTest::new()
-        .flag("network", Some("hoodi"))
-        .flag("enable-partial-columns", Some("false"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert!(!config.network.enable_partial_columns);
-            assert!(!config.chain.enable_partial_columns);
-        });
-}
-
-#[test]
-fn partial_columns_false_on_mainnet() {
+fn partial_columns_false_overrides_default() {
     CommandLineTest::new()
         .flag("enable-partial-columns", Some("false"))
         .run_with_zero_port()

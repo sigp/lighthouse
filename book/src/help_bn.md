@@ -5,7 +5,7 @@ The primary component which connects to the Ethereum 2.0 P2P network and
 downloads, verifies and stores blocks. Provides a HTTP API for querying the
 beacon chain and publishing messages to the network.
 
-Usage: lighthouse beacon_node [OPTIONS] --execution-endpoint <EXECUTION-ENDPOINT>
+Usage: lighthouse beacon_node [OPTIONS]
 
 Options:
       --auto-compact-db <auto-compact-db>
@@ -86,12 +86,12 @@ Options:
           both IPv4 and IPv6. Defaults to `port6`
       --enable-mplex [<BOOLEAN>]
           Enables the mplex multiplexer alongside yamux. Yamux is preferred when
-          both are available. Disabled by default; set to "true" to enable.
-          [default: false]
+          both are available. Enabled by default; set to "false" to disable.
+          [default: true]
       --enable-partial-columns [<BOOLEAN>]
           Enable partial messages for data columns. This can reduce the amount
-          of data sent over the network. Enabled by default on Hoodi, Sepolia
-          and custom networks; set to "false" to opt out.
+          of data sent over the network. Enabled by default; set to "false" to
+          opt out. [default: true]
       --enr-address <ADDRESS>...
           The IP address/ DNS address to broadcast to other peers on how to
           reach this node. If a DNS address is provided, the enr-address is set
@@ -133,6 +133,7 @@ Options:
       --execution-endpoint <EXECUTION-ENDPOINT>
           Server endpoint for an execution layer JWT-authenticated HTTP JSON-RPC
           connection. Uses the same endpoint to populate the deposit cache.
+          Optional when --proof-engine-endpoint is set.
       --execution-jwt <EXECUTION-JWT>
           File path which contains the hex-encoded JWT secret for the execution
           endpoint provided in the --execution-endpoint flag.
