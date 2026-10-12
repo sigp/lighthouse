@@ -992,20 +992,6 @@ fn get_activation_exit_churn_limit(
     state_ctxt: &StateContext,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
-    if state_ctxt.fork_name.gloas_enabled() {
-        let churn = std::cmp::max(
-            spec.min_per_epoch_churn_limit_electra,
-            state_ctxt
-                .total_active_balance
-                .safe_div(spec.churn_limit_quotient_gloas)?,
-        );
-        // EIP-8198 caps, scales, then rounds once. This equals the Gloas rule while the cap is a
-        // multiple of `effective_balance_increment`.
-        let churn = std::cmp::min(spec.max_per_epoch_activation_churn_limit_gloas, churn)
-            .safe_mul(spec.get_slot_duration_ms(state_ctxt.current_epoch))?
-            .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?;
-        return Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?);
-    }
     Ok(std::cmp::min(
         spec.max_per_epoch_activation_exit_churn_limit,
         get_balance_churn_limit(state_ctxt, spec)?,
