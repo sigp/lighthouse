@@ -789,7 +789,7 @@ pub async fn proposer_boost_re_org_test(
         .into();
 
     if let Some(proposal_delay) = proposal_delay {
-        assert!(proposal_delay < slot_clock.slot_duration());
+        assert!(proposal_delay < slot_clock.slot_duration_at(slot_c));
         slot_clock.set_current_time(slot_clock.start_of(slot_c).unwrap() + proposal_delay);
         assert_eq!(harness.get_current_slot(), slot_c);
     }
