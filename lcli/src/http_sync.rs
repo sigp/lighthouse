@@ -39,7 +39,7 @@ pub async fn run_async<T: EthSpec>(
     let target_url: SensitiveUrl = parse_required(matches, "target-url")?;
     let start_block: BlockId = parse_required(matches, "start-block")?;
     let maybe_common_ancestor_block: Option<BlockId> =
-        parse_optional(matches, "known–common-ancestor")?;
+        parse_optional(matches, "known-common-ancestor")?;
     let cache_dir_path: PathBuf =
         parse_optional(matches, "block-cache-dir")?.unwrap_or(DEFAULT_CACHE_DIR.into());
 
