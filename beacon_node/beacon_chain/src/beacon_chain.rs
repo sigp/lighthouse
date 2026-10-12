@@ -120,7 +120,7 @@ use operation_pool::{
 };
 use parking_lot::{Mutex, RwLock};
 use proof_engine::ProofEngine;
-use proto_array::{DoNotReOrg, PayloadBlockHash, ProposerHeadError, ReOrgThreshold};
+use proto_array::{DoNotReOrg, PayloadBlockHash, ProposerHeadError};
 use rand::RngCore;
 use safe_arith::SafeArith;
 use serde_utils::quoted_u64::Quoted;
@@ -5443,23 +5443,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Box::new(DoNotReOrg::ReOrgsDisabled.into()));
         };
 
-        let re_org_head_threshold = ReOrgThreshold(self.spec.reorg_head_weight_threshold);
-        let re_org_parent_threshold = ReOrgThreshold(self.spec.reorg_parent_weight_threshold);
-        let re_org_max_epochs_since_finalization =
-            Epoch::new(self.spec.reorg_max_epochs_since_finalization);
-
         let head_block_root = canonical_forkchoice_params.head_root;
 
         // Perform initial checks and load the relevant info from fork choice.
         let info = self
             .canonical_head
             .fork_choice_read_lock()
-            .get_preliminary_proposer_head(
-                head_block_root,
-                re_org_head_threshold,
-                re_org_parent_threshold,
-                re_org_max_epochs_since_finalization,
-            )
+            .get_preliminary_proposer_head(head_block_root, &self.spec)
             .map_err(|e| e.map_inner_error(Error::ProposerHeadForkChoiceError))?;
 
         // We don't need to override fork choice updates for Gloas.
