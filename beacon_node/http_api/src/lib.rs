@@ -1902,8 +1902,9 @@ pub async fn serve<T: BeaconChainTypes>(
                                 e
                             )),
                         })?;
-                    let execution_optimistic =
-                        chain.is_optimistic_or_invalid_head().unwrap_or_default();
+                    let execution_optimistic = chain
+                        .is_optimistic_or_invalid_head()
+                        .map_err(warp_utils::reject::unhandled_error)?;
 
                     let finalized = epoch + 2
                         <= chain
@@ -3326,6 +3327,9 @@ pub async fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::FastConfirmation => {
                                     event_handler.subscribe_fast_confirmation()
+                                }
+                                api_types::EventTopic::InclusionList => {
+                                    event_handler.subscribe_inclusion_list()
                                 }
                             };
 
