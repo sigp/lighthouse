@@ -235,12 +235,12 @@ impl BuilderOnlyProposer {
         })
     }
 
-    /// A bid worth `value` from the registered builder. It is a Heze bid claiming
-    /// `inclusion_list_bits` when they are given, and a Gloas bid otherwise.
+    /// A bid worth `value` from the registered builder, in the bid variant of the proposal's fork.
+    /// Only Heze bids carry `inclusion_list_bits`.
     fn signed_builder_bid(
         &self,
         value: u64,
-        inclusion_list_bits: Option<InclusionListBits<E>>,
+        inclusion_list_bits: InclusionListBits<E>,
     ) -> Arc<SignedExecutionPayloadBid<E>> {
         let bid = ExecutionPayloadBidGloas::<E> {
             slot: Slot::new(1),
@@ -260,9 +260,9 @@ impl BuilderOnlyProposer {
             ..Default::default()
         };
 
-        let bid = match inclusion_list_bits {
-            None => ExecutionPayloadBid::Gloas(bid),
-            Some(inclusion_list_bits) => ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
+        let bid = match &self.state {
+            BeaconState::Gloas(_) => ExecutionPayloadBid::Gloas(bid),
+            BeaconState::Heze(_) => ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
                 parent_block_hash: bid.parent_block_hash,
                 parent_block_root: bid.parent_block_root,
                 block_hash: bid.block_hash,
@@ -277,6 +277,10 @@ impl BuilderOnlyProposer {
                 execution_requests_root: bid.execution_requests_root,
                 inclusion_list_bits,
             }),
+            state => panic!(
+                "builder bids start at Gloas, got a {} state",
+                state.fork_name_unchecked()
+            ),
         };
 
         self.harness.sign_payload_bid(bid, &self.state)
@@ -327,7 +331,7 @@ async fn gloas_block_production_without_an_execution_layer_uses_a_builder_bid() 
     let Some(rig) = BuilderOnlyProposer::new(false) else {
         return;
     };
-    let bid = rig.signed_builder_bid(BID_VALUE, None);
+    let bid = rig.signed_builder_bid(BID_VALUE, InclusionListBits::<E>::default());
     rig.observe_bid(bid.clone());
 
     let block = rig
@@ -392,7 +396,7 @@ async fn heze_gossip_bid_missing_a_late_inclusion_list_is_skipped_at_production(
             is_timely: false,
         });
 
-    rig.observe_bid(rig.signed_builder_bid(BID_VALUE, Some(InclusionListBits::<E>::default())));
+    rig.observe_bid(rig.signed_builder_bid(BID_VALUE, InclusionListBits::<E>::default()));
     match rig.produce_block().await {
         Err(BlockProductionError::NoViablePayloadBid) => {}
         Err(other) => panic!("expected NoViablePayloadBid, got {other:?}"),
@@ -405,7 +409,7 @@ async fn heze_gossip_bid_missing_a_late_inclusion_list_is_skipped_at_production(
             inclusion_list_bits.set(position, true).unwrap();
         }
     }
-    let covering_bid = rig.signed_builder_bid(BID_VALUE + 1, Some(inclusion_list_bits));
+    let covering_bid = rig.signed_builder_bid(BID_VALUE + 1, inclusion_list_bits);
     rig.observe_bid(covering_bid.clone());
 
     let block = rig
