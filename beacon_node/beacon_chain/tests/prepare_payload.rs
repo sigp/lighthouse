@@ -254,7 +254,7 @@ async fn prepare_payload_on_full_parent_with_negative_ptc() {
     let parent_slot = parent_state.slot();
     let prepare_slot = parent_slot + 1;
     let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
-    assert_ne!(parent_bid.block_hash, parent_bid.parent_block_hash);
+    assert_ne!(parent_bid.block_hash(), parent_bid.parent_block_hash());
 
     let (messages, _) = harness.make_payload_attestation_messages(
         &parent_state,
@@ -317,7 +317,8 @@ async fn prepare_payload_on_full_parent_with_negative_ptc() {
     let forkchoice_state: JsonForkchoiceStateV1 =
         serde_json::from_value(params.get(0).expect("no forkchoice state param").clone()).unwrap();
     assert_eq!(
-        forkchoice_state.head_block_hash, parent_bid.parent_block_hash,
+        forkchoice_state.head_block_hash,
+        parent_bid.parent_block_hash(),
         "prep FCU must advertise the Empty parent when PTC votes against a Full payload"
     );
 
