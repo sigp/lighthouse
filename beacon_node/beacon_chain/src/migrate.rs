@@ -821,7 +821,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
         store: &HotColdDB<E, Hot, Cold>,
         new_finalized_slot: Slot,
         finalized_blocks: &[(Hash256, Slot)],
-        hot_db_ops: &mut Vec<StoreOp<E>>,
+        store_ops: &mut Vec<StoreOp<E>>,
     ) -> Result<(), BeaconChainError> {
         let prune_payloads = store.get_config().prune_payloads;
         let mut child_block: Option<SignedBlindedBeaconBlock<E>> = None;
@@ -829,7 +829,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
         // The input is sorted by slot with duplicates removed. A canonical child's bid commits
         // to its parent's payload status, including when there are skipped slots between them.
         for (block_root, slot) in finalized_blocks.iter().rev() {
-            if store.spec.fork_name_at_slot::<E>(*slot).gloas_enabled() {
+            let fork_name = store.spec.fork_name_at_slot::<E>(*slot);
+            if fork_name.gloas_enabled() {
                 let block = store.get_blinded_block(block_root)?;
 
                 if let Some(block) = &block
@@ -838,9 +839,15 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
                     && !child.is_parent_block_full(block.payload_bid_block_hash()?)
                 {
                     // An envelope may have been received even though its block finalized as
-                    // EMPTY. Remove its summary as well, so by-range RPCs cannot reconstruct it.
+                    // EMPTY. Its columns belong to the abandoned payload, even though the beacon
+                    // block remains canonical. Remove its summary too, to prevent reconstruction.
                     // This applies even to nodes that retain canonical payload bodies.
-                    hot_db_ops.push(StoreOp::DeletePayloadWithSummary(*block_root));
+                    store_ops.push(StoreOp::DeletePayloadWithSummary(*block_root));
+                    store_ops.push(StoreOp::DeleteDataColumns(
+                        *block_root,
+                        store.get_data_column_keys(*block_root)?,
+                        fork_name,
+                    ));
                 }
 
                 if block.is_none() {
@@ -860,8 +867,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> BackgroundMigrator<E, Hot, Col
             // delete the payload for the finalized block itself, but that's OK as we only guarantee
             // that payloads are present for slots >= the split slot.
             if prune_payloads && *slot < new_finalized_slot {
-                hot_db_ops.push(StoreOp::DeleteExecutionPayload(*block_root));
-                hot_db_ops.push(StoreOp::DeletePayload(*block_root));
+                store_ops.push(StoreOp::DeleteExecutionPayload(*block_root));
+                store_ops.push(StoreOp::DeletePayload(*block_root));
             }
         }
         Ok(())

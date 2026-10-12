@@ -2428,9 +2428,10 @@ async fn check_prunes_envelopes_finalized_as_empty(prune_payloads: bool) {
         spec,
     );
     let rig = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    rig.execution_block_generator().set_min_blob_count(1);
     let validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
     let mut state = rig.get_current_state();
-    let mut blocks: Vec<(Hash256, Slot, bool)> = Vec::new();
+    let mut blocks: Vec<(Hash256, Slot, bool, Vec<ColumnIndex>)> = Vec::new();
     let mut checked_skipped_checkpoint = false;
 
     // Include consecutive EMPTY parents, a return to FULL, and EMPTY parents separated from
@@ -2465,6 +2466,12 @@ async fn check_prunes_envelopes_finalized_as_empty(prune_payloads: bool) {
             block.state_root(),
         )
         .await;
+
+        let column_indices = store.get_data_column_keys(block_root).unwrap();
+        assert!(
+            !column_indices.is_empty(),
+            "every received payload should have columns"
+        );
 
         let state_root = new_state.canonical_root().unwrap();
         rig.attest_block(&new_state, state_root, block_hash, block, &validators);
@@ -2503,11 +2510,11 @@ async fn check_prunes_envelopes_finalized_as_empty(prune_payloads: bool) {
             checked_skipped_checkpoint = true;
         }
 
-        if let Some((parent_root, _, parent_payload_is_full)) = blocks.last_mut() {
+        if let Some((parent_root, _, parent_payload_is_full, _)) = blocks.last_mut() {
             assert_eq!(block.parent_root(), *parent_root);
             *parent_payload_is_full = parent_payload_status == PayloadStatus::Full;
         }
-        blocks.push((block_root, Slot::new(slot), true));
+        blocks.push((block_root, Slot::new(slot), true, column_indices));
         state = new_state;
     }
 
@@ -2518,10 +2525,11 @@ async fn check_prunes_envelopes_finalized_as_empty(prune_payloads: bool) {
     );
     assert!(checked_skipped_checkpoint);
     let mut empty_roots = Vec::new();
-    for (block_root, slot, payload_is_full) in blocks {
+    for (block_root, slot, payload_is_full, column_indices) in blocks {
         assert!(store.get_blinded_block(&block_root).unwrap().is_some());
         let has_summary = store.payload_envelope_summary_exists(&block_root).unwrap();
         let has_body = store.payload_body_exists(&block_root).unwrap();
+        let stored_column_indices = store.get_data_column_keys(block_root).unwrap();
 
         if slot < split_slot && !payload_is_full {
             empty_roots.push(block_root);
@@ -2530,6 +2538,10 @@ async fn check_prunes_envelopes_finalized_as_empty(prune_payloads: bool) {
                 "finalized EMPTY summary at {slot} should be pruned"
             );
             assert!(!has_body, "finalized EMPTY body at {slot} should be pruned");
+            assert!(
+                stored_column_indices.is_empty(),
+                "finalized EMPTY columns at {slot} should be pruned"
+            );
         } else {
             assert!(
                 has_summary,
@@ -2539,6 +2551,10 @@ async fn check_prunes_envelopes_finalized_as_empty(prune_payloads: bool) {
                 has_body,
                 !prune_payloads || slot >= split_slot,
                 "body retention at {slot} should follow payload pruning"
+            );
+            assert_eq!(
+                stored_column_indices, column_indices,
+                "FULL or unfinalized columns at {slot} should remain"
             );
         }
     }
@@ -2742,7 +2758,7 @@ async fn gloas_payload_database_invariants() {
             ForkName::Gloas.make_genesis_spec(E::default_spec()),
         );
         let rig = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
-        rig.execution_block_generator().set_generate_blobs(false);
+        rig.execution_block_generator().set_min_blob_count(1);
         let slot = Slot::new(1);
         let (contents, envelope, state) = rig
             .make_block_with_envelope(rig.get_current_state(), slot)
@@ -2786,6 +2802,41 @@ async fn gloas_payload_database_invariants() {
             child_state_root,
         )
         .await;
+        check_db_invariants(&rig);
+
+        // A received payload still requires its columns while unfinalized, even if its child
+        // selects it as EMPTY. The summary must continue to trigger the column invariant.
+        let column = store
+            .get_data_columns(&block_root, ForkName::Gloas)
+            .unwrap()
+            .unwrap()
+            .first()
+            .unwrap()
+            .clone();
+        let column_index = *column.index();
+        store
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeleteDataColumns(
+                block_root,
+                vec![column_index],
+                ForkName::Gloas,
+            )])
+            .unwrap();
+        let result = rig.chain.check_database_invariants().unwrap();
+        assert_eq!(result.violations.len(), 1, "{:#?}", result.violations);
+        assert!(matches!(
+            result.violations.first(),
+            Some(InvariantViolation::DataColumnMissing {
+                block_root: missing_root,
+                slot: missing_slot,
+                column_index: missing_index,
+            }) if *missing_root == block_root && *missing_slot == slot && *missing_index == column_index
+        ));
+        store
+            .do_atomically_with_block_and_blobs_cache(vec![StoreOp::PutDataColumns(
+                block_root,
+                vec![column],
+            )])
+            .unwrap();
         check_db_invariants(&rig);
 
         // Summary-only storage is valid even if the node now has payload pruning disabled.
