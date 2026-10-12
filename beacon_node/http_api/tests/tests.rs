@@ -9757,6 +9757,129 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_inclusion_list_post_invalid_signature_returns_400(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let valid = self.make_signed_inclusion_list(slot);
+        let validator_index = valid.message.validator_index;
+        // Sign the committee member's list with another validator's key
+        let wrong_signer = (validator_index as usize + 1) % self.validator_count();
+        let signed_il = self.sign_inclusion_list(
+            valid.message,
+            &self.validator_keypairs()[wrong_signer].sk,
+            &self.chain.head_beacon_state_cloned().fork(),
+            self.chain.genesis_validators_root,
+        );
+
+        let err = self
+            .client
+            .post_validator_inclusion_list(&signed_il, self.chain.spec.fork_name_at_slot::<E>(slot))
+            .await
+            .expect_err("publishing an inclusion list with an invalid signature should fail");
+
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+        assert!(
+            self.chain
+                .inclusion_list_store
+                .read()
+                .get_signed_inclusion_lists(
+                    slot,
+                    signed_il.message.dependent_root,
+                    &[validator_index]
+                )
+                .is_empty()
+        );
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_non_committee_member_returns_400(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let (committee, dependent_root) = self
+            .chain
+            .inclusion_list_committee(self.chain.head_beacon_block_root(), slot)
+            .unwrap();
+        let validator_index = (0..self.validator_count() as u64)
+            .find(|index| !committee.contains(index))
+            .expect("some validator should be outside the inclusion list committee");
+        let signed_il = self.sign_inclusion_list(
+            InclusionList {
+                slot,
+                validator_index,
+                dependent_root,
+                transactions: vec![vec![0xaa].try_into().unwrap()].try_into().unwrap(),
+            },
+            &self.validator_keypairs()[validator_index as usize].sk,
+            &self.chain.head_beacon_state_cloned().fork(),
+            self.chain.genesis_validators_root,
+        );
+
+        let err = self
+            .client
+            .post_validator_inclusion_list(&signed_il, self.chain.spec.fork_name_at_slot::<E>(slot))
+            .await
+            .expect_err("publishing an inclusion list from a non-committee member should fail");
+
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_empty_transactions_is_not_published(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let valid = self.make_signed_inclusion_list(slot);
+        let validator_index = valid.message.validator_index;
+        let signed_il = self.sign_inclusion_list(
+            InclusionList {
+                transactions: Default::default(),
+                ..valid.message
+            },
+            &self.validator_keypairs()[validator_index as usize].sk,
+            &self.chain.head_beacon_state_cloned().fork(),
+            self.chain.genesis_validators_root,
+        );
+
+        // Gossip ignores an empty list, so the endpoint accepts it without publishing it
+        self.client
+            .post_validator_inclusion_list(&signed_il, self.chain.spec.fork_name_at_slot::<E>(slot))
+            .await
+            .expect("publishing an empty inclusion list should not fail");
+
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+        assert!(
+            self.chain
+                .inclusion_list_store
+                .read()
+                .get_signed_inclusion_lists(
+                    slot,
+                    signed_il.message.dependent_root,
+                    &[validator_index]
+                )
+                .is_empty()
+        );
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
     async fn test_get_beacon_rewards_blocks_at_head(
         &self,
     ) -> ExecutionOptimisticFinalizedResponse<StandardBlockReward> {
@@ -11655,7 +11778,6 @@ async fn inclusion_list_publish_pre_heze() {
         .await;
 }
 
-// TODO(heze): once IL gossip verification lands, cover the endpoint's error mapping
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn inclusion_list_api() {
     if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
@@ -11675,6 +11797,12 @@ async fn inclusion_list_api() {
         .test_inclusion_list_post_valid()
         .await
         .test_inclusion_list_post_ssz_valid()
+        .await
+        .test_inclusion_list_post_invalid_signature_returns_400()
+        .await
+        .test_inclusion_list_post_non_committee_member_returns_400()
+        .await
+        .test_inclusion_list_post_empty_transactions_is_not_published()
         .await
         .test_inclusion_list_post_known_is_not_republished()
         .await;
