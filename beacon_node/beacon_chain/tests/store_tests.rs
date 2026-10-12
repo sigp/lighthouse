@@ -2329,10 +2329,7 @@ async fn gloas_prune_data_columns_past_withheld_payload_and_forks() {
 
     store.try_prune_blobs(true, boundary).unwrap();
 
-    assert_eq!(
-        store.get_data_column_info().oldest_data_column_slot,
-        Some(boundary_slot)
-    );
+    assert_eq!(store.get_data_info().oldest_data_slot, boundary_slot);
     for (root, slot) in &older {
         assert!(
             store.get_data_column_keys(*root).unwrap().is_empty(),
@@ -2346,7 +2343,7 @@ async fn gloas_prune_data_columns_past_withheld_payload_and_forks() {
     assert!(!store.get_data_column_keys(*newer_root).unwrap().is_empty());
 }
 
-/// Pruning must delete columns below an `oldest_data_column_slot` that was advanced without
+/// Pruning must delete columns below an `oldest_data_slot` that was advanced without
 /// deleting them.
 #[tokio::test]
 async fn gloas_prune_data_columns_below_advanced_oldest_slot() {
@@ -2392,13 +2389,16 @@ async fn gloas_prune_data_columns_below_advanced_oldest_slot() {
         );
     }
 
-    store
-        .compare_and_set_data_column_info_with_write(
-            store.get_data_column_info(),
-            DataColumnInfo {
-                oldest_data_column_slot: Some(boundary_slot),
+    let data_info_op = store
+        .compare_and_set_data_info(
+            store.get_data_info(),
+            DataInfo {
+                oldest_data_slot: boundary_slot,
             },
         )
+        .unwrap();
+    store
+        .do_atomically_with_block_and_blobs_cache(vec![StoreOp::KeyValueOp(data_info_op)])
         .unwrap();
 
     store.try_prune_blobs(true, boundary).unwrap();
