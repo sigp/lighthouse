@@ -2401,7 +2401,8 @@ async fn gloas_prune_data_columns_below_advanced_oldest_slot() {
         .do_atomically_with_block_and_blobs_cache(vec![StoreOp::KeyValueOp(data_info_op)])
         .unwrap();
 
-    store.try_prune_blobs(true, boundary).unwrap();
+    // Advance past the marker so pruning runs and also removes the older columns.
+    store.try_prune_blobs(true, Epoch::new(4)).unwrap();
 
     for (root, slot) in &roots {
         assert!(
