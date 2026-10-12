@@ -1,11 +1,12 @@
 use super::per_block_processing::{
     errors::BlockProcessingError, process_operations::apply_deposit,
 };
+use crate::GloasVerificationContext;
 use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb, upgrade_to_fulu,
-    upgrade_to_gloas,
+    upgrade_to_gloas, upgrade_to_heze,
 };
 use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};
@@ -162,22 +163,36 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         .gloas_fork_epoch
         .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
     {
-        upgrade_to_gloas(&mut state, spec)?;
+        upgrade_to_gloas(&mut state, GloasVerificationContext::FullVerification, spec)?;
 
         // Remove intermediate Fulu fork from `state.fork`.
         state.fork_mut().previous_version = spec.gloas_fork_version;
 
         // The genesis block's bid must have block_hash = 0x00 per spec (empty payload).
         // Retain the EL genesis hash in latest_block_hash and parent_block_hash so the
-        // first post-genesis proposer can build on the correct EL head.
-        let el_genesis_hash = state.latest_execution_payload_bid()?.block_hash;
-        let bid = state.latest_execution_payload_bid_mut()?;
+        // first post-genesis proposer can build on the correct EL head. This runs on the
+        // Gloas genesis state; a later Heze upgrade carries these fields forward.
+        let bid = state.latest_execution_payload_bid_gloas_mut()?;
+        let el_genesis_hash = bid.block_hash;
         bid.parent_block_hash = el_genesis_hash;
         bid.block_hash = ExecutionBlockHash::default();
+    }
 
-        // Update the `latest_block_header.body_root` so that it matches the body of the
-        // Gloas genesis block, which embeds `state.latest_execution_payload_bid` in its
-        // `signed_execution_payload_bid` field (see `genesis_block`).
+    // Upgrade to heze if configured from genesis.
+    if spec
+        .heze_fork_epoch
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
+    {
+        upgrade_to_heze(&mut state, spec)?;
+
+        // Remove intermediate Gloas fork from `state.fork`.
+        state.fork_mut().previous_version = spec.heze_fork_version;
+    }
+
+    // From Gloas onwards the genesis block body embeds `state.latest_execution_payload_bid`
+    // (see `genesis_block`), so `latest_block_header.body_root` must be computed against the
+    // final genesis fork, after every upgrade has run
+    if state.fork_name_unchecked().gloas_enabled() {
         let genesis_body_root = genesis_block(&state, spec)?.body_root();
         state.latest_block_header_mut().body_root = genesis_body_root;
     }
@@ -193,8 +208,8 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
 /// Create an unsigned genesis `BeaconBlock`.
 ///
-/// Per spec, the genesis block body is empty (all default fields) except for Gloas,
-/// where `body.signed_execution_payload_bid.message` is initialised from
+/// Per spec, the genesis block body is empty (all default fields) except from Gloas
+/// onwards, where `body.signed_execution_payload_bid.message` is initialised from
 /// `state.latest_execution_payload_bid` so that the first post-genesis proposer can
 /// build on the correct execution layer head.
 ///
@@ -205,9 +220,22 @@ pub fn genesis_block<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconBlock<E>, BeaconStateError> {
     let mut block = BeaconBlock::empty(spec);
-    if let BeaconBlock::Gloas(ref mut gloas_block) = block {
-        let bid = state.latest_execution_payload_bid()?.clone();
-        gloas_block.body.signed_execution_payload_bid.message = bid;
+    match &mut block {
+        BeaconBlock::Base(_)
+        | BeaconBlock::Altair(_)
+        | BeaconBlock::Bellatrix(_)
+        | BeaconBlock::Capella(_)
+        | BeaconBlock::Deneb(_)
+        | BeaconBlock::Electra(_)
+        | BeaconBlock::Fulu(_) => {}
+        BeaconBlock::Gloas(gloas_block) => {
+            gloas_block.body.signed_execution_payload_bid.message =
+                state.latest_execution_payload_bid_gloas()?.clone();
+        }
+        BeaconBlock::Heze(heze_block) => {
+            heze_block.body.signed_execution_payload_bid.message =
+                state.latest_execution_payload_bid_heze()?.clone();
+        }
     }
     Ok(block)
 }
@@ -227,7 +255,8 @@ pub fn process_activations<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), BeaconStateError> {
-    let (validators, balances, _) = state.validators_and_balances_and_progressive_balances_mut();
+    let (mut validators, balances, _) =
+        state.validators_and_balances_and_progressive_balances_mut();
     let mut validators_iter = validators.iter_cow();
     while let Some((index, validator)) = validators_iter.next_cow() {
         let validator = validator.into_mut()?;

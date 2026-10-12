@@ -1,9 +1,11 @@
 use kzg::{Error as KzgError, KzgCommitment};
+use strum::IntoStaticStr;
 use types::{BeaconStateError, ColumnIndex, Hash256};
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum Error {
     InvalidBlobs(KzgError),
+    MissingBid(Hash256),
     InvalidColumn((Option<ColumnIndex>, KzgError)),
     ReconstructColumnsError(KzgError),
     KzgCommitmentMismatch {
@@ -23,6 +25,7 @@ pub enum Error {
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
     InvalidAvailableBlockData,
+    InvalidVariant,
 }
 
 #[derive(PartialEq, Eq)]
@@ -38,6 +41,7 @@ impl Error {
         match self {
             Error::SszTypes(_)
             | Error::MissingBlobs
+            | Error::MissingBid(_)
             | Error::MissingCustodyColumns
             | Error::StoreError(_)
             | Error::DecodeError(_)
@@ -46,7 +50,8 @@ impl Error {
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
             | Error::SlotClockError
-            | Error::InvalidAvailableBlockData => ErrorCategory::Internal,
+            | Error::InvalidAvailableBlockData
+            | Error::InvalidVariant => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
             | Error::ReconstructColumnsError { .. }

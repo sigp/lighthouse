@@ -5,8 +5,8 @@ use crate::metrics;
 use crate::{DBColumn, Error, ItemStore};
 use itertools::{Itertools, process_results};
 use state_processing::{
-    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, per_block_processing,
-    per_slot_processing,
+    BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, VerifyBlockRoot,
+    per_block_processing, per_slot_processing,
 };
 use std::sync::Arc;
 use tracing::{debug, info};
@@ -15,8 +15,8 @@ use types::{EthSpec, Slot};
 impl<E, Hot, Cold> HotColdDB<E, Hot, Cold>
 where
     E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
+    Hot: ItemStore,
+    Cold: ItemStore,
 {
     pub fn reconstruct_historic_states(
         self: &Arc<Self>,
@@ -145,8 +145,13 @@ where
                 };
 
                 // Advance state to slot.
-                per_slot_processing(&mut state, prev_state_root.take(), &self.spec)
-                    .map_err(HotColdDBError::BlockReplaySlotError)?;
+                per_slot_processing(
+                    &mut state,
+                    prev_state_root.take(),
+                    GloasVerificationContext::FullVerification,
+                    &self.spec,
+                )
+                .map_err(HotColdDBError::BlockReplaySlotError)?;
 
                 // Apply block.
                 if let Some(block) = block {

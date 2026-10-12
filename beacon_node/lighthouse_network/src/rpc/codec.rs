@@ -19,10 +19,7 @@ use types::SignedExecutionPayloadEnvelope;
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
     ForkName, ForkVersionDecode, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
-    SignedBeaconBlockGloas,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockBase,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -870,36 +867,8 @@ fn handle_rpc_response<E: EthSpec>(
             MetaData::V2(MetaDataV2::from_ssz_bytes(decoded_buffer)?),
         )))),
         SupportedProtocol::BlocksByRangeV2 => match fork_name {
-            Some(ForkName::Altair) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(decoded_buffer)?),
-            )))),
-
-            Some(ForkName::Base) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Bellatrix) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Capella) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Electra) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Gloas) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(decoded_buffer)?),
+            Some(fork_name) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::from_ssz_bytes_by_fork(decoded_buffer, fork_name)?,
             )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
@@ -910,35 +879,8 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         SupportedProtocol::BlocksByRootV2 => match fork_name {
-            Some(ForkName::Altair) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Base) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Bellatrix) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Capella) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Electra) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Gloas) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(decoded_buffer)?),
+            Some(fork_name) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::from_ssz_bytes_by_fork(decoded_buffer, fork_name)?,
             )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
@@ -1009,6 +951,7 @@ mod tests {
         chain_spec.electra_fork_epoch = Some(Epoch::new(5));
         chain_spec.fulu_fork_epoch = Some(Epoch::new(6));
         chain_spec.gloas_fork_epoch = Some(Epoch::new(7));
+        chain_spec.heze_fork_epoch = Some(Epoch::new(8));
 
         // check that we have all forks covered
         assert!(chain_spec.fork_epoch(ForkName::latest()).is_some());
@@ -1016,16 +959,7 @@ mod tests {
     }
 
     fn fork_context(fork_name: ForkName, spec: &ChainSpec) -> ForkContext {
-        let current_epoch = match fork_name {
-            ForkName::Base => Some(Epoch::new(0)),
-            ForkName::Altair => spec.altair_fork_epoch,
-            ForkName::Bellatrix => spec.bellatrix_fork_epoch,
-            ForkName::Capella => spec.capella_fork_epoch,
-            ForkName::Deneb => spec.deneb_fork_epoch,
-            ForkName::Electra => spec.electra_fork_epoch,
-            ForkName::Fulu => spec.fulu_fork_epoch,
-            ForkName::Gloas => spec.gloas_fork_epoch,
-        };
+        let current_epoch = spec.fork_epoch(fork_name);
         let current_slot = current_epoch.unwrap().start_slot(Spec::slots_per_epoch());
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), spec)
     }
@@ -1887,28 +1821,41 @@ mod tests {
         );
     }
 
-    // BlocksByHead is introduced in Fulu but the response is just `SignedBeaconBlock`,
-    // so the codec must accept blocks of any fork variant — the chain a Fulu peer walks
-    // back may straddle the Fulu boundary and include pre-Fulu canonical blocks.
+    // Each block response must preserve the fork variant selected by the context bytes,
+    // including variants with identical SSZ encodings.
     #[test]
-    fn test_blocks_by_head_decodes_all_forks() {
-        let chain_spec = spec_with_all_forks_enabled();
-        for (block, fork) in [
-            (empty_base_block(&chain_spec), ForkName::Base),
-            (altair_block(&chain_spec), ForkName::Altair),
-            (bellatrix_block_small(&chain_spec), ForkName::Bellatrix),
-        ] {
-            let block_arc = Arc::new(block);
-            assert_eq!(
-                encode_then_decode_response(
-                    SupportedProtocol::BlocksByHeadV1,
-                    RpcResponse::Success(RpcSuccessResponse::BlocksByHead(block_arc.clone())),
-                    fork,
-                    &chain_spec,
+    fn test_block_responses_decode_all_forks() {
+        for fork in ForkName::list_all() {
+            let chain_spec = fork.make_genesis_spec(Spec::default_spec());
+            let block = Arc::new(SignedBeaconBlock::from_block(
+                BeaconBlock::empty(&chain_spec),
+                Signature::empty(),
+            ));
+            for (protocol, response) in [
+                (
+                    SupportedProtocol::BlocksByRangeV2,
+                    RpcSuccessResponse::BlocksByRange(block.clone()),
                 ),
-                Ok(Some(RpcSuccessResponse::BlocksByHead(block_arc))),
-                "BlocksByHeadV1 must round-trip a {fork} block"
-            );
+                (
+                    SupportedProtocol::BlocksByRootV2,
+                    RpcSuccessResponse::BlocksByRoot(block.clone()),
+                ),
+                (
+                    SupportedProtocol::BlocksByHeadV1,
+                    RpcSuccessResponse::BlocksByHead(block),
+                ),
+            ] {
+                assert_eq!(
+                    encode_then_decode_response(
+                        protocol,
+                        RpcResponse::Success(response.clone()),
+                        fork,
+                        &chain_spec,
+                    ),
+                    Ok(Some(response)),
+                    "{protocol:?} must round-trip a {fork} block"
+                );
+            }
         }
     }
 

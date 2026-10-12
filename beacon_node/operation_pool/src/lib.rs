@@ -229,6 +229,9 @@ impl<E: EthSpec> OperationPool<E> {
         spec: &ChainSpec,
     ) -> Result<Vec<PayloadAttestation<E>>, OpPoolError> {
         let target_slot = state.slot().saturating_sub(1u64);
+        if !spec.fork_name_at_slot::<E>(target_slot).gloas_enabled() {
+            return Ok(vec![]);
+        }
 
         let ptc = state
             .get_ptc(target_slot, spec)
@@ -246,16 +249,16 @@ impl<E: EthSpec> OperationPool<E> {
             let mut aggregate_sig = AggregateSignature::infinity();
 
             for msg in msgs {
-                if let Some(pos) = ptc
-                    .0
-                    .iter()
-                    .position(|&idx| idx == msg.validator_index as usize)
-                    && !aggregation_bits.get(pos).unwrap_or(false)
-                {
-                    aggregation_bits
-                        .set(pos, true)
-                        .map_err(|_| OpPoolError::PayloadAttestationBitError)?;
-                    aggregate_sig.add_assign(&msg.signature);
+                // Add the signature once per set bit.
+                for (ptc_index, &ptc_validator_index) in ptc.0.iter().enumerate() {
+                    if ptc_validator_index == msg.validator_index as usize
+                        && !aggregation_bits.get(ptc_index).unwrap_or(false)
+                    {
+                        aggregation_bits
+                            .set(ptc_index, true)
+                            .map_err(|_| OpPoolError::PayloadAttestationBitError)?;
+                        aggregate_sig.add_assign(&msg.signature);
+                    }
                 }
             }
 
@@ -546,9 +549,15 @@ impl<E: EthSpec> OperationPool<E> {
             }
         });
 
+        let max_attester_slashings = if state.fork_name_unchecked().electra_enabled() {
+            E::max_attester_slashings_electra()
+        } else {
+            E::MaxAttesterSlashings::to_usize()
+        };
+
         maximum_cover(
             relevant_attester_slashings,
-            E::MaxAttesterSlashings::to_usize(),
+            max_attester_slashings,
             "attester_slashings",
         )
         .into_iter()
@@ -894,10 +903,10 @@ mod release_tests {
     use super::attestation::earliest_attestation_validators;
     use super::*;
     use beacon_chain::test_utils::{
-        BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee, test_spec,
+        BeaconChainHarness, EphemeralHarnessType, MakeAttestationOptions, RelativeSyncCommittee,
+        test_spec,
     };
     use bls::Keypair;
-    use fixed_bytes::FixedBytesExtended;
     use maplit::hashset;
     use state_processing::epoch_cache::initialize_epoch_cache;
     use state_processing::{VerifyOperation, common::get_attesting_indices_from_state};
@@ -928,6 +937,29 @@ mod release_tests {
         harness
     }
 
+    /// The maximum number of attester slashings allowed in a block for the state's fork.
+    fn max_attester_slashings<E: EthSpec>(state: &BeaconState<E>) -> usize {
+        if state.fork_name_unchecked().electra_enabled() {
+            E::max_attester_slashings_electra()
+        } else {
+            E::MaxAttesterSlashings::to_usize()
+        }
+    }
+
+    /// Given the candidate slashings ordered most-profitable first, return the prefix that a
+    /// block on the state's fork would actually include (i.e. the N most profitable, where N
+    /// is the per-block attester slashing limit). This keeps the max-cover assertions generic
+    /// across forks.
+    fn most_profitable_slashings<E: EthSpec, T>(
+        state: &BeaconState<E>,
+        ordered_by_profitability: Vec<T>,
+    ) -> Vec<T> {
+        ordered_by_profitability
+            .into_iter()
+            .take(max_attester_slashings(state))
+            .collect()
+    }
+
     /// Test state for attestation-related tests.
     fn attestation_test_state<E: EthSpec>(
         num_committees: usize,
@@ -944,10 +976,10 @@ mod release_tests {
     fn get_current_state_initialize_epoch_cache<E: EthSpec>(
         harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
         spec: &ChainSpec,
-    ) -> BeaconState<E> {
-        let mut state = harness.get_current_state();
+    ) -> (BeaconState<E>, Hash256) {
+        let (mut state, state_root) = harness.get_current_state_and_root();
         initialize_epoch_cache(&mut state, spec).unwrap();
-        state
+        (state, state_root)
     }
 
     /// Test state for sync contribution-related tests.
@@ -965,7 +997,6 @@ mod release_tests {
         harness
             .add_attested_blocks_at_slots(
                 state,
-                Hash256::zero(),
                 &[Slot::new(1)],
                 (0..num_validators).collect::<Vec<_>>().as_slice(),
             )
@@ -983,7 +1014,7 @@ mod release_tests {
             return;
         }
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (mut state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
         let slot = state.slot();
         let committees = state
             .get_beacon_committees_at_slot(slot)
@@ -998,8 +1029,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -1065,7 +1096,7 @@ mod release_tests {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
-        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (mut state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let slot = state.slot();
         let committees = state
@@ -1087,8 +1118,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -1141,7 +1172,7 @@ mod release_tests {
     fn attestation_duplicate() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1158,8 +1189,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -1184,7 +1215,7 @@ mod release_tests {
     fn attestation_pairwise_overlapping() {
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
 
-        let state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1202,8 +1233,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -1279,7 +1310,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (mut state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
@@ -1300,8 +1331,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -1385,7 +1416,7 @@ mod release_tests {
 
         let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
 
-        let mut state = get_current_state_initialize_epoch_cache(&harness, spec);
+        let (mut state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
         let op_pool = OperationPool::<MainnetEthSpec>::new();
 
         let slot = state.slot();
@@ -1411,8 +1442,8 @@ mod release_tests {
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
-            Hash256::zero(),
-            SignedBeaconBlockHash::from(Hash256::zero()),
+            state_root,
+            harness.head_block_root().into(),
             slot,
         );
 
@@ -1596,7 +1627,10 @@ mod release_tests {
         op_pool.insert_attester_slashing(slashing_4.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
-        assert_eq!(best_slashings.1, vec![slashing_4, slashing_3]);
+        assert_eq!(
+            best_slashings.1,
+            most_profitable_slashings(&state, vec![slashing_4, slashing_3])
+        );
     }
 
     // Check that we get maximum coverage for attester slashings with overlapping indices
@@ -1618,7 +1652,10 @@ mod release_tests {
         op_pool.insert_attester_slashing(slashing_4.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
-        assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
+        assert_eq!(
+            best_slashings.1,
+            most_profitable_slashings(&state, vec![slashing_1, slashing_3])
+        );
     }
 
     // Max coverage of attester slashings taking into account proposer slashings
@@ -1640,7 +1677,10 @@ mod release_tests {
         op_pool.insert_attester_slashing(a_slashing_3.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
-        assert_eq!(best_slashings.1, vec![a_slashing_1, a_slashing_3]);
+        assert_eq!(
+            best_slashings.1,
+            most_profitable_slashings(&state, vec![a_slashing_1, a_slashing_3])
+        );
     }
 
     //Max coverage checking that non overlapping indices are still recognized for their value
@@ -1663,7 +1703,10 @@ mod release_tests {
         op_pool.insert_attester_slashing(slashing_3.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
-        assert_eq!(best_slashings.1, vec![slashing_1, slashing_3]);
+        assert_eq!(
+            best_slashings.1,
+            most_profitable_slashings(&state, vec![slashing_1, slashing_3])
+        );
     }
 
     // Max coverage should be affected by the overall effective balances
@@ -1686,7 +1729,10 @@ mod release_tests {
         op_pool.insert_attester_slashing(slashing_3.clone().validate(&state, spec).unwrap());
 
         let best_slashings = op_pool.get_slashings_and_exits(&state, &harness.spec);
-        assert_eq!(best_slashings.1, vec![slashing_2, slashing_3]);
+        assert_eq!(
+            best_slashings.1,
+            most_profitable_slashings(&state, vec![slashing_2, slashing_3])
+        );
     }
 
     /// End-to-end test of basic sync contribution handling.
@@ -2179,6 +2225,53 @@ mod release_tests {
         assert_eq!(op_pool.attester_slashings.read().len(), 1);
     }
 
+    /// Regression test to ensure that we are using the correct spec value for max attester slashings post-Electra.
+    #[tokio::test]
+    async fn attester_slashings_capped_at_electra_limit() {
+        let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        let electra_fork_epoch = spec.electra_fork_epoch.unwrap();
+        let deneb_fork_epoch = spec.deneb_fork_epoch.unwrap();
+
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+
+        harness
+            .extend_to_slot(electra_fork_epoch.start_slot(slots_per_epoch))
+            .await;
+        let electra_head = harness.chain.canonical_head.cached_head().snapshot;
+        assert!(
+            electra_head
+                .beacon_state
+                .fork_name_unchecked()
+                .electra_enabled()
+        );
+
+        // Create two slashings
+        for validators in [vec![0], vec![1]] {
+            let slashing = harness.make_attester_slashing_with_epochs(
+                validators,
+                Some(Epoch::new(0)),
+                Some(deneb_fork_epoch - 1),
+                Some(Epoch::new(0)),
+                Some(deneb_fork_epoch - 1),
+            );
+            let verified = slashing
+                .validate(&electra_head.beacon_state, &harness.chain.spec)
+                .unwrap();
+            op_pool.insert_attester_slashing(verified);
+        }
+        assert_eq!(op_pool.attester_slashings.read().len(), 2);
+
+        // Despite two valid slashings being pending, only one may be extracted post-Electra.
+        let mut to_be_slashed = HashSet::new();
+        let attester_slashings =
+            op_pool.get_attester_slashings(&electra_head.beacon_state, &mut to_be_slashed);
+        assert_eq!(
+            attester_slashings.len(),
+            MainnetEthSpec::max_attester_slashings_electra()
+        );
+    }
+
     fn make_payload_attestation_message(
         slot: Slot,
         validator_index: u64,
@@ -2275,7 +2368,6 @@ mod release_tests {
         harness
             .add_attested_blocks_at_slots(
                 harness.get_current_state(),
-                Hash256::zero(),
                 &[Slot::new(1)],
                 (0..num_validators).collect::<Vec<_>>().as_slice(),
             )
@@ -2304,6 +2396,7 @@ mod release_tests {
             &mut advanced_state,
             None,
             Slot::new(2),
+            None,
             &spec,
         )
         .unwrap();
@@ -2312,11 +2405,102 @@ mod release_tests {
             .get_payload_attestations(&advanced_state, parent_root, &spec)
             .unwrap();
 
+        let expected_positions: Vec<usize> = ptc
+            .0
+            .iter()
+            .enumerate()
+            .filter(|&(_, &ptc_validator_index)| {
+                ptc_validator_index as u64 == ptc_member_0
+                    || ptc_validator_index as u64 == ptc_member_1
+            })
+            .map(|(ptc_index, _)| ptc_index)
+            .collect();
+
         assert_eq!(attestations.len(), 1);
-        assert_eq!(attestations[0].aggregation_bits.num_set_bits(), 2);
-        assert!(attestations[0].aggregation_bits.get(0).unwrap());
-        assert!(attestations[0].aggregation_bits.get(1).unwrap());
+        assert_eq!(
+            attestations[0].aggregation_bits.num_set_bits(),
+            expected_positions.len()
+        );
+        for pos in expected_positions {
+            assert!(attestations[0].aggregation_bits.get(pos).unwrap());
+        }
         assert!(attestations[0].data.payload_present);
+    }
+
+    #[tokio::test]
+    async fn payload_attestation_sets_all_duplicate_ptc_positions() {
+        let spec = test_spec::<MinimalEthSpec>();
+        if spec.gloas_fork_epoch.is_none() {
+            return;
+        };
+
+        let num_validators = 64;
+        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
+
+        harness
+            .add_attested_blocks_at_slots(
+                harness.get_current_state(),
+                &[Slot::new(1)],
+                (0..num_validators).collect::<Vec<_>>().as_slice(),
+            )
+            .await;
+
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let target_slot = Slot::new(1);
+        let parent_root = head.head_block_root();
+        let ptc = state.get_ptc(target_slot, &spec).unwrap();
+
+        // Minimal preset: 16 PTC seats sampled from 8 committee members, so duplicates always exist.
+        let distinct_members: HashSet<usize> = ptc.0.iter().copied().collect();
+        assert!(distinct_members.len() < MinimalEthSpec::ptc_size());
+
+        let fork = state.fork();
+
+        let op_pool = OperationPool::<MinimalEthSpec>::new();
+        for &validator_index in &distinct_members {
+            let data = PayloadAttestationData {
+                beacon_block_root: parent_root,
+                slot: target_slot,
+                payload_present: true,
+                blob_data_available: true,
+            };
+            let msg = harness.make_payload_attestation_message(validator_index, data, &fork);
+            op_pool.insert_payload_attestation_message(msg).unwrap();
+        }
+
+        let mut advanced_state = state.clone();
+        state_processing::state_advance::complete_state_advance(
+            &mut advanced_state,
+            None,
+            Slot::new(2),
+            None,
+            &spec,
+        )
+        .unwrap();
+        let attestations = op_pool
+            .get_payload_attestations(&advanced_state, parent_root, &spec)
+            .unwrap();
+
+        assert_eq!(attestations.len(), 1);
+        assert_eq!(
+            attestations[0].aggregation_bits.num_set_bits(),
+            MinimalEthSpec::ptc_size()
+        );
+
+        let indexed = state_processing::common::get_indexed_payload_attestation(
+            &advanced_state,
+            &attestations[0],
+            &spec,
+        )
+        .unwrap();
+        state_processing::per_block_processing::is_valid_indexed_payload_attestation(
+            &advanced_state,
+            &indexed,
+            state_processing::VerifySignatures::True,
+            &spec,
+        )
+        .unwrap();
     }
 
     #[tokio::test]
@@ -2332,7 +2516,6 @@ mod release_tests {
         harness
             .add_attested_blocks_at_slots(
                 harness.get_current_state(),
-                Hash256::zero(),
                 &[Slot::new(1)],
                 (0..num_validators).collect::<Vec<_>>().as_slice(),
             )
@@ -2373,6 +2556,7 @@ mod release_tests {
             &mut advanced_state,
             None,
             Slot::new(2),
+            None,
             &spec,
         )
         .unwrap();
@@ -2386,6 +2570,305 @@ mod release_tests {
             .iter()
             .map(|a| a.aggregation_bits.num_set_bits())
             .collect();
-        assert_eq!(bit_counts, vec![3, 2, 1, 1]);
+        let mut expected: Vec<usize> = combos
+            .iter()
+            .map(|(_, _, positions)| {
+                let validators: HashSet<usize> = positions.iter().map(|&pos| ptc.0[pos]).collect();
+                validators
+                    .iter()
+                    .map(|&validator_index| {
+                        ptc.0
+                            .iter()
+                            .filter(|&&ptc_validator_index| ptc_validator_index == validator_index)
+                            .count()
+                    })
+                    .sum()
+            })
+            .collect();
+        expected.sort_unstable_by(|a, b| b.cmp(a));
+        assert_eq!(bit_counts, expected);
+    }
+
+    // Test when payload_present is true and the slot is not the head slot, `index` in AttestationData = 1 (for Gloas)
+    // If payload_present is false, `index` = 0
+    // https://github.com/ethereum/consensus-specs/blame/6b2201c3c25603f24ae967a92bbce5340d672c5c/specs/gloas/validator.md#L97-L111
+    #[tokio::test]
+    async fn attestation_payload_present_index_one_included_first() {
+        let spec = test_spec::<MinimalEthSpec>();
+        if spec.gloas_fork_epoch.is_none() {
+            return;
+        }
+
+        let num_validators = 64;
+        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
+        let all_validators: Vec<usize> = (0..num_validators).collect();
+
+        harness
+            .add_attested_blocks_at_slots(
+                harness.get_current_state(),
+                &[Slot::new(1)],
+                &all_validators,
+            )
+            .await;
+
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let state_root = head.head_state_root();
+        let head_block_root = head.head_block_root();
+
+        let attestations_at_head = harness.make_unaggregated_attestations(
+            &all_validators,
+            state,
+            state_root,
+            head_block_root.into(),
+            Slot::new(1),
+        );
+
+        // when block.slot == current slot, index should always be 0
+        // https://github.com/ethereum/consensus-specs/blame/6b2201c3c25603f24ae967a92bbce5340d672c5c/specs/gloas/validator.md#L104-L105
+        for committee_attestations in &attestations_at_head {
+            for (attestation, _subnetid) in committee_attestations {
+                assert_eq!(
+                    attestation.data().index,
+                    0,
+                    "Attestation at head slot should always have index=0"
+                );
+            }
+        }
+
+        // Advance to Slot 2 without producing a block (skipped slot).
+        // The head is now Slot 2, but Slot 2 has no block (skipped slot)
+        harness.advance_slot();
+
+        let attestations_with_payload = harness.make_unaggregated_attestations(
+            &all_validators,
+            state,
+            state_root,
+            head_block_root.into(),
+            Slot::new(2),
+        );
+
+        // head_block is still Slot 1 (since Slot 2 is a skipped slot)
+        // block.slot (Slot 1) != current_slot (Slot 2)
+        // With payload_present and attesting at Slot 2, index = 1
+        for committee_attestations in &attestations_with_payload {
+            for (attestation, _subnetid) in committee_attestations {
+                assert_eq!(
+                    attestation.data().index,
+                    1,
+                    "Attestation after head slot should have index=1 when payload_present=true"
+                );
+            }
+        }
+
+        // Create attestations at Slot 2 without payload_present
+        let fork = spec.fork_at_epoch(Slot::new(2).epoch(MinimalEthSpec::slots_per_epoch()));
+        let (attestations_no_payload, _attesters) = harness.make_attestations_with_opts(
+            &all_validators,
+            state,
+            state_root,
+            head_block_root.into(),
+            Slot::new(2),
+            MakeAttestationOptions {
+                limit: None,
+                fork,
+                payload_present_override: Some(false),
+            },
+        );
+
+        // Without payload_present, index = 0
+        for (committee_attestations, _signed_aggregate_and_proof) in &attestations_no_payload {
+            for (attestation, _subnetid) in committee_attestations {
+                assert_eq!(
+                    attestation.data().index,
+                    0,
+                    "Attestation after head slot should have index=0 when payload_present=false"
+                );
+            }
+        }
+
+        let op_pool = OperationPool::<MinimalEthSpec>::new();
+
+        // Insert attestations with index 1
+        for committee_attestations in &attestations_with_payload {
+            for (attestation, _subnetid) in committee_attestations {
+                let attesting_indices =
+                    get_attesting_indices_from_state(state, attestation.to_ref()).unwrap();
+                op_pool
+                    .insert_attestation(attestation.clone(), attesting_indices)
+                    .unwrap();
+            }
+        }
+
+        // Insert attestations with index 0
+        for (committee_attestations, _signed_aggregate_and_proof) in &attestations_no_payload {
+            for (attestation, _subnetid) in committee_attestations {
+                let attesting_indices =
+                    get_attesting_indices_from_state(state, attestation.to_ref()).unwrap();
+                op_pool
+                    .insert_attestation(attestation.clone(), attesting_indices)
+                    .unwrap();
+            }
+        }
+
+        // Advance state to Slot 3 so that we can include attestations from Slot 2
+        let mut advanced_state = state.clone();
+        state_processing::state_advance::complete_state_advance(
+            &mut advanced_state,
+            None,
+            Slot::new(3),
+            None,
+            &spec,
+        )
+        .unwrap();
+
+        // Set the parent slot payload availability
+        let parent_slot = advanced_state
+            .latest_execution_payload_bid()
+            .unwrap()
+            .slot();
+        let availability_index =
+            parent_slot.as_usize() % MinimalEthSpec::slots_per_historical_root();
+        advanced_state
+            .execution_payload_availability_mut()
+            .unwrap()
+            .set(availability_index, true)
+            .unwrap();
+
+        let attestations = op_pool
+            .get_attestations(&advanced_state, |_| true, |_| true, &spec)
+            .unwrap();
+
+        // Both sets of attestations (index=0 and index=1) should be included
+        assert!(
+            attestations.len() == 2,
+            "Expected at least 2 packed attestations (one per index value), got {}",
+            attestations.len()
+        );
+
+        // Attestations with index=1 (payload_present=true) should be included first because
+        // it matches the payload_present = true of the attested block
+        let first_attestation = &attestations[0];
+        assert_eq!(
+            first_attestation.data().index,
+            1,
+            "Attestations with index = 1 (with payload) should be included first"
+        );
+        let second_attestation = &attestations[1];
+        assert_eq!(
+            second_attestation.data().index,
+            0,
+            "Attestations with index = 1 (with payload) should be included first"
+        );
+    }
+
+    // Opposite test case for: attestation_payload_present_index_one_included_first
+    #[tokio::test]
+    async fn attestation_payload_absent_index_zero_included_first() {
+        let spec = test_spec::<MinimalEthSpec>();
+        if spec.gloas_fork_epoch.is_none() {
+            return;
+        }
+
+        let num_validators = 64;
+        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
+        let all_validators: Vec<usize> = (0..num_validators).collect();
+
+        harness
+            .add_attested_blocks_at_slots(
+                harness.get_current_state(),
+                &[Slot::new(1)],
+                &all_validators,
+            )
+            .await;
+
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let state_root = head.head_state_root();
+        let head_block_root = head.head_block_root();
+
+        // Advance to Slot 2 without producing a block (skipped slot).
+        harness.advance_slot();
+
+        let fork = spec.fork_at_epoch(Slot::new(2).epoch(MinimalEthSpec::slots_per_epoch()));
+
+        // Create attestations at Slot 2 with index=1 (with payload)
+        let (attestations_with_payload, _attesters) = harness.make_attestations_with_opts(
+            &all_validators,
+            state,
+            state_root,
+            head_block_root.into(),
+            Slot::new(2),
+            MakeAttestationOptions {
+                limit: None,
+                fork,
+                payload_present_override: Some(true),
+            },
+        );
+
+        // Create attestations at Slot 2 with index=0 (no payloa)
+        let (attestations_no_payload, _attesters) = harness.make_attestations_with_opts(
+            &all_validators,
+            state,
+            state_root,
+            head_block_root.into(),
+            Slot::new(2),
+            MakeAttestationOptions {
+                limit: None,
+                fork,
+                payload_present_override: Some(false),
+            },
+        );
+
+        let op_pool = OperationPool::<MinimalEthSpec>::new();
+
+        for (committee_attestations, _signed_aggregate_and_proof) in &attestations_with_payload {
+            for (attestation, _subnetid) in committee_attestations {
+                let attesting_indices =
+                    get_attesting_indices_from_state(state, attestation.to_ref()).unwrap();
+                op_pool
+                    .insert_attestation(attestation.clone(), attesting_indices)
+                    .unwrap();
+            }
+        }
+
+        for (committee_attestations, _signed_aggregate_and_proof) in &attestations_no_payload {
+            for (attestation, _subnetid) in committee_attestations {
+                let attesting_indices =
+                    get_attesting_indices_from_state(state, attestation.to_ref()).unwrap();
+                op_pool
+                    .insert_attestation(attestation.clone(), attesting_indices)
+                    .unwrap();
+            }
+        }
+
+        // Advance state to Slot 3 so that we can include attestations from Slot 2
+        let mut advanced_state = state.clone();
+        state_processing::state_advance::complete_state_advance(
+            &mut advanced_state,
+            None,
+            Slot::new(3),
+            None,
+            &spec,
+        )
+        .unwrap();
+
+        let attestations = op_pool
+            .get_attestations(&advanced_state, |_| true, |_| true, &spec)
+            .unwrap();
+
+        let first_attestation = &attestations[0];
+        // index = 0 (no payload) should be packed first
+        assert_eq!(
+            first_attestation.data().index,
+            0,
+            "Attestations with index = 0 (no payload) should be included first"
+        );
+        let second_attestation = &attestations[1];
+        assert_eq!(
+            second_attestation.data().index,
+            1,
+            "Attestations with index = 1 (with payload) should be included later"
+        );
     }
 }

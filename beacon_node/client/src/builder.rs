@@ -19,6 +19,7 @@ use beacon_chain::{
 use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
+use builder_client::{BuilderHttpClient, Builders};
 use environment::RuntimeContext;
 use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
@@ -32,6 +33,7 @@ use lighthouse_network::identity::Keypair;
 use lighthouse_network::{NetworkGlobals, prometheus_client::registry::Registry};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
+use proof_engine::ProofEngine;
 use rand::SeedableRng;
 use rand::rngs::{OsRng, StdRng};
 use slasher::Slasher;
@@ -97,8 +99,8 @@ impl<TSlotClock, E, THotStore, TColdStore>
 where
     TSlotClock: SlotClock + Clone + 'static,
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Instantiates a new, empty builder.
     ///
@@ -187,6 +189,38 @@ where
             None
         };
 
+        let proof_engine = config
+            .proof_engine_endpoint
+            .clone()
+            .map(|url| {
+                ProofEngine::new(url)
+                    .map(Arc::new)
+                    .map_err(|e| format!("unable to start proof engine client: {:?}", e))
+            })
+            .transpose()?;
+
+        // Construct the Gloas builder handle (Builder API client) when the Gloas fork is scheduled.
+        // The client is stateless w.r.t. the target builder — each request carries its own URL — but
+        // still honors the same `--builder-user-agent` / `--builder-disable-ssz` flags as the
+        // pre-Gloas builder client.
+        let builders = if spec.gloas_fork_epoch.is_some() {
+            let (user_agent, disable_ssz) = config
+                .execution_layer
+                .as_ref()
+                .map(|el| {
+                    (
+                        el.builder_user_agent.clone(),
+                        el.disable_builder_ssz_requests,
+                    )
+                })
+                .unwrap_or((None, false));
+            let client = BuilderHttpClient::new(user_agent, disable_ssz)
+                .map_err(|e| format!("unable to start builder client: {:?}", e))?;
+            Some(Arc::new(Builders::new(Arc::new(client))))
+        } else {
+            None
+        };
+
         let kzg_err_msg = |e| format!("Failed to load trusted setup: {:?}", e);
         let kzg = if spec.is_peer_das_scheduled() {
             Kzg::new_from_trusted_setup(&config.trusted_setup).map_err(kzg_err_msg)?
@@ -210,6 +244,8 @@ where
             .beacon_graffiti(beacon_graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
+            .proof_engine(proof_engine)
+            .builders(builders)
             .node_custody_type(config.chain.node_custody_type)
             .ordered_custody_column_indices(ordered_custody_column_indices)
             .validator_monitor_config(config.validator_monitor.clone())
@@ -234,7 +270,7 @@ where
             builder
         };
 
-        let chain_exists = builder.store_contains_beacon_chain().unwrap_or(false);
+        let chain_exists = builder.store_contains_beacon_chain()?;
 
         // If the client is expect to resume but there's no beacon chain in the database,
         // use the `DepositContract` method. This scenario is quite common when the client
@@ -615,7 +651,7 @@ where
     /// If type inference errors are being raised, see the comment on the definition of `Self`.
     #[allow(clippy::type_complexity)]
     #[instrument(name = "build_client", skip_all)]
-    pub fn build(
+    pub async fn build(
         mut self,
     ) -> Result<Client<Witness<TSlotClock, E, THotStore, TColdStore>>, String> {
         let runtime_context = self
@@ -639,11 +675,15 @@ where
                 network_globals: self.network_globals.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
+                historical_committee_cache: Arc::new(http_api::HistoricalCommitteeCache::new(
+                    self.http_api_config.historical_committee_cache_size,
+                )),
             });
 
             let exit = runtime_context.executor.exit();
 
             let (listen_addr, server) = http_api::serve(ctx, exit)
+                .await
                 .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
 
             let http_api_task = async move {
@@ -674,6 +714,7 @@ where
             let exit = runtime_context.executor.exit();
 
             let (listen_addr, server) = http_metrics::serve(ctx, exit)
+                .await
                 .map_err(|e| format!("Unable to start HTTP metrics server: {:?}", e))?;
 
             runtime_context
@@ -810,8 +851,8 @@ impl<TSlotClock, E, THotStore, TColdStore>
 where
     TSlotClock: SlotClock + Clone + 'static,
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Consumes the internal `BeaconChainBuilder`, attaching the resulting `BeaconChain` to self.
     #[instrument(skip_all)]
@@ -834,6 +875,32 @@ where
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 
+        if chain.execution_layer.is_none() && chain.execution_proofs_enabled() {
+            // Blocks at or below finality are never imported.
+            let finalized_epoch = chain
+                .canonical_head
+                .cached_head()
+                .finalized_checkpoint()
+                .epoch;
+            if !chain
+                .spec
+                .fork_name_at_epoch(finalized_epoch)
+                .gloas_enabled()
+            {
+                return Err(
+                    "Running with no execution layer needs finality at or after the Gloas fork, \
+                     where EIP-8025 proofs decide payload validity. Set --execution-endpoint, \
+                     or checkpoint sync past the fork."
+                        .to_string(),
+                );
+            }
+
+            info!(
+                info = "the node cannot verify pre-Gloas payloads or propose a locally built one",
+                "Running with no execution layer; EIP-8025 proofs decide payload validity"
+            );
+        }
+
         self.beacon_chain = Some(Arc::new(chain));
         self.beacon_chain_builder = None;
 
@@ -842,8 +909,7 @@ where
     }
 }
 
-impl<TSlotClock, E>
-    ClientBuilder<Witness<TSlotClock, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>
+impl<TSlotClock, E> ClientBuilder<Witness<TSlotClock, E, BeaconNodeBackend, BeaconNodeBackend>>
 where
     TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
@@ -884,8 +950,8 @@ where
 impl<E, THotStore, TColdStore> ClientBuilder<Witness<SystemTimeSlotClock, E, THotStore, TColdStore>>
 where
     E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
+    THotStore: ItemStore + 'static,
+    TColdStore: ItemStore + 'static,
 {
     /// Specifies that the slot clock should read the time from the computers system clock.
     pub fn system_time_slot_clock(mut self) -> Result<Self, String> {

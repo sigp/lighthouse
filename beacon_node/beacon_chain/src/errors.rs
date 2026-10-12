@@ -2,6 +2,7 @@ use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
+use crate::inclusion_list_store::Error as InclusionListStoreError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
@@ -11,11 +12,13 @@ use crate::observed_data_sidecars::Error as ObservedDataSidecarsError;
 use crate::payload_envelope_streamer::Error as EnvelopeStreamerError;
 use bls::PublicKeyBytes;
 use execution_layer::PayloadStatus;
-use fork_choice::ExecutionStatus;
+use fork_choice::ExecutionVerdict;
 use futures::channel::mpsc::TrySendError;
 use milhouse::Error as MilhouseError;
 use operation_pool::OpPoolError;
+use proto_array::PayloadBlockHash;
 use safe_arith::ArithError;
+use ssz::BitfieldError;
 use ssz_types::Error as SszTypesError;
 use state_processing::envelope_processing::EnvelopeProcessingError;
 use state_processing::{
@@ -81,6 +84,7 @@ pub enum BeaconChainError {
     BlsExecutionChangeValidationError(BlsExecutionChangeValidationError),
     MissingFinalizedStateRoot(Slot),
     SszTypesError(SszTypesError),
+    BitfieldError(BitfieldError),
     NoProposerForSlot(Slot),
     CanonicalHeadLockTimeout,
     AttestationCacheLockTimeout,
@@ -102,6 +106,7 @@ pub enum BeaconChainError {
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
     ObservedDataSidecarsError(ObservedDataSidecarsError),
+    InclusionListStoreError(InclusionListStoreError),
     EarlyAttesterCacheError,
     PruningError(PruningError),
     ArithError(ArithError),
@@ -149,9 +154,7 @@ pub enum BeaconChainError {
     ExecutionLayerMissing,
     BlockVariantLacksExecutionPayload(Hash256),
     ExecutionLayerErrorPayloadReconstruction(ExecutionBlockHash, Box<execution_layer::Error>),
-    EngineGetCapabilititesFailed(Box<execution_layer::Error>),
     ExecutionLayerGetBlockByNumberFailed(Box<execution_layer::Error>),
-    ExecutionLayerGetBlockByHashFailed(Box<execution_layer::Error>),
     BlockHashMissingFromExecutionLayer(ExecutionBlockHash),
     InconsistentPayloadReconstructed {
         slot: Slot,
@@ -178,12 +181,12 @@ pub enum BeaconChainError {
     HeadBlockMissingFromForkChoice(Hash256),
     InvalidFinalizedPayload {
         finalized_root: Hash256,
-        execution_block_hash: ExecutionBlockHash,
+        execution_block_hash: PayloadBlockHash,
     },
     InvalidFinalizedPayloadShutdownError(TrySendError<ShutdownReason>),
     JustifiedPayloadInvalid {
         justified_root: Hash256,
-        execution_block_hash: Option<ExecutionBlockHash>,
+        execution_block_hash: PayloadBlockHash,
     },
     ForkchoiceUpdate(execution_layer::Error),
     InvalidCheckpoint {
@@ -193,7 +196,7 @@ pub enum BeaconChainError {
     InvalidSlot(Slot),
     HeadBlockNotFullyVerified {
         beacon_block_root: Hash256,
-        execution_status: ExecutionStatus,
+        execution_status: ExecutionVerdict,
     },
     CannotAttestToFinalizedBlock {
         beacon_block_root: Hash256,
@@ -211,10 +214,11 @@ pub enum BeaconChainError {
     ForkchoiceUpdateParamsMissing,
     HeadHasInvalidPayload {
         block_root: Hash256,
-        execution_status: ExecutionStatus,
+        execution_status: ExecutionVerdict,
     },
     AttestationHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,
+    ForkChoicePoisoned,
     CommitteePromiseFailed(oneshot_broadcast::Error),
     MaxCommitteePromises(usize),
     BlsToExecutionPriorToCapella,
@@ -251,6 +255,13 @@ pub enum BeaconChainError {
         request_epoch: Epoch,
         cache_epoch: Epoch,
     },
+    AttesterCachePtcOutOfBounds {
+        slot: Slot,
+        epoch: Epoch,
+    },
+    AttesterCacheNoPtcPreGloas {
+        slot: Slot,
+    },
     SkipProposerPreparation,
     FailedColumnCustodyInfoUpdate,
 }
@@ -264,12 +275,14 @@ easy_from_to!(ProposerSlashingValidationError, BeaconChainError);
 easy_from_to!(AttesterSlashingValidationError, BeaconChainError);
 easy_from_to!(BlsExecutionChangeValidationError, BeaconChainError);
 easy_from_to!(SszTypesError, BeaconChainError);
+easy_from_to!(BitfieldError, BeaconChainError);
 easy_from_to!(OpPoolError, BeaconChainError);
 easy_from_to!(NaiveAggregationError, BeaconChainError);
 easy_from_to!(ObservedAttestationsError, BeaconChainError);
 easy_from_to!(ObservedAttestersError, BeaconChainError);
 easy_from_to!(ObservedBlockProducersError, BeaconChainError);
 easy_from_to!(ObservedDataSidecarsError, BeaconChainError);
+easy_from_to!(InclusionListStoreError, BeaconChainError);
 easy_from_to!(BlockSignatureVerifierError, BeaconChainError);
 easy_from_to!(PruningError, BeaconChainError);
 easy_from_to!(ArithError, BeaconChainError);
@@ -287,12 +300,15 @@ easy_from_to!(AttestationError, BeaconChainError);
 pub enum BlockProductionError {
     UnableToGetBlockRootFromState,
     UnableToReadSlot,
+    /// No viable payload bid was available (no local build and no eligible external bid).
+    NoViablePayloadBid,
     UnableToProduceAtSlot(Slot),
     SlotProcessingError(SlotProcessingError),
     BlockProcessingError(BlockProcessingError),
     EpochCacheError(EpochCacheError),
     ForkChoiceError(ForkChoiceError),
     BeaconStateError(BeaconStateError),
+    BitfieldError(BitfieldError),
     StateAdvanceError(StateAdvanceError),
     OpPoolError(OpPoolError),
     StateSlotTooHigh {
@@ -326,10 +342,13 @@ pub enum BlockProductionError {
     MissingExecutionPayloadEnvelope(Hash256),
     // TODO(gloas): Remove this once Gloas is implemented
     GloasNotImplemented(String),
+    // TODO(heze): Remove this once Heze is implemented
+    HezeNotImplemented(String),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
+easy_from_to!(BitfieldError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
 easy_from_to!(StateAdvanceError, BlockProductionError);
 easy_from_to!(ForkChoiceError, BlockProductionError);

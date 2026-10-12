@@ -612,6 +612,35 @@ pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = La
         exponential_buckets(1e-3, 4.0, 7),
     )
 });
+pub static FORK_CHOICE_READ_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_read_lock_hold_seconds",
+        "Time the fork-choice read lock was held before being released.",
+        decimal_buckets(-4, 1),
+    )
+});
+pub static FORK_CHOICE_WRITE_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_write_lock_hold_seconds",
+        "Time the fork-choice write lock was held before being released.",
+        decimal_buckets(-4, 1),
+    )
+});
+pub static FORK_CHOICE_UPGRADABLE_READ_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "beacon_fork_choice_upgradable_read_lock_hold_seconds",
+            "Time the fork-choice upgradable read lock was held before being released or upgraded.",
+            decimal_buckets(-4, 1),
+        )
+    });
+pub static FORK_CHOICE_UPGRADE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_upgrade_seconds",
+        "Time taken to upgrade the fork-choice upgradable read lock to a write lock.",
+        exponential_buckets(1e-3, 4.0, 7),
+    )
+});
 pub static FORK_CHOICE_ENCODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_fork_choice_encode_seconds",
@@ -636,6 +665,14 @@ pub static BALANCES_CACHE_MISSES: LazyLock<Result<IntCounter>> = LazyLock::new(|
         "Count of times balances cache misses request",
     )
 });
+pub static BALANCES_CACHE_BOUNDARY_STATE_LOAD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(
+    || {
+        try_create_histogram(
+            "beacon_balances_cache_boundary_state_load_seconds",
+            "Time spent loading the epoch boundary state to fill the balances cache after a skipped boundary slot",
+        )
+    },
+);
 
 /*
  * Persisting BeaconChain components to disk
@@ -1711,21 +1748,21 @@ pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_REQUESTS: LazyLock<Resu
     LazyLock::new(|| {
         try_create_int_counter(
             "beacon_partial_data_column_sidecar_header_processing_requests_total",
-            "Count of all partial data column sidecars submitted for processing",
+            "Count of all partial data column sidecar headers submitted for processing",
         )
     });
 pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_DUPES: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
             "beacon_partial_data_column_sidecar_header_processing_dupes_total",
-            "Number of partial data column sidecars verified for gossip (excluding dupes)",
+            "Number of partial data column sidecar headers received that matched a cached header",
         )
     });
 pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
             "beacon_partial_data_column_sidecar_header_processing_successes_total",
-            "Number of partial data column sidecar headers verified for gossip (excluding dupes)",
+            "Number of partial data column sidecar headers verified for gossip",
         )
     });
 pub static PARTIAL_DATA_COLUMN_SIDECAR_HEADER_GOSSIP_VERIFICATION_TIMES: LazyLock<
@@ -1857,6 +1894,38 @@ pub static BEACON_ENGINE_GET_BLOBS_V3_REQUEST_DURATION_SECONDS: LazyLock<Result<
         try_create_histogram(
             "beacon_engine_getBlobsV3_request_duration_seconds",
             "Duration of engine_getBlobsV3 requests to the execution layer in seconds",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_REQUESTS_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV4_requests_total",
+            "Total number of engine_getBlobsV4 requests made to the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_COMPLETE_RESPONSES_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV4_complete_responses_total",
+            "Total number of engine_getBlobsV4 responses with all requested cells present",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_PARTIAL_RESPONSES_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV4_partial_responses_total",
+            "Total number of engine_getBlobsV4 responses with at least one missing cell",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_REQUEST_DURATION_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_engine_getBlobsV4_request_duration_seconds",
+            "Duration of engine_getBlobsV4 requests to the execution layer in seconds",
         )
     });
 
@@ -2043,6 +2112,12 @@ pub static DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE: LazyLock<Result<I
             "Number of entries in the data availability overflow block memory cache.",
         )
     });
+pub static PENDING_PAYLOAD_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "pending_payload_cache_size",
+        "Number of entries in the pending payload availability cache.",
+    )
+});
 pub static DATA_AVAILABILITY_RECONSTRUCTION_TIME: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
@@ -2149,6 +2224,10 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     set_gauge_by_usize(
         &DATA_AVAILABILITY_OVERFLOW_MEMORY_BLOCK_CACHE_SIZE,
         da_checker_metrics.block_cache_size,
+    );
+    set_gauge_by_usize(
+        &PENDING_PAYLOAD_CACHE_SIZE,
+        beacon_chain.pending_payload_cache.cache_size(),
     );
 
     if let Some((size, num_lookups)) = beacon_chain.pre_finalization_block_cache.metrics() {

@@ -33,6 +33,7 @@ impl<E: EthSpec> ActiveRequestItems for BlobsByRangeRequestItems<E> {
         if blob.index >= self.max_blobs_per_block {
             return Err(LookupVerifyError::UnrequestedIndex(blob.index));
         }
+
         if !blob.verify_blob_sidecar_inclusion_proof() {
             return Err(LookupVerifyError::InvalidInclusionProof);
         }

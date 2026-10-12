@@ -4,8 +4,9 @@ use eth2::beacon_response::{
     ExecutionOptimisticFinalizedMetadata, ForkVersionedResponse, UnversionedResponse,
 };
 use eth2::{
-    CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
-    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, SSZ_CONTENT_TYPE_HEADER,
+    BUILDER_URL_HEADER, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
+    CONTENT_TYPE_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_INCLUDED_HEADER,
+    EXECUTION_PAYLOAD_VALUE_HEADER, SSZ_CONTENT_TYPE_HEADER,
 };
 use serde::Serialize;
 use types::{ForkName, InconsistentFork, Uint256};
@@ -14,6 +15,7 @@ use warp::reply::{self, Reply, Response};
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
 pub const V3: EndpointVersion = EndpointVersion(3);
+pub const V4: EndpointVersion = EndpointVersion(4);
 
 #[derive(Debug, PartialEq, Clone, Serialize)]
 pub enum ResponseIncludesVersion {
@@ -88,6 +90,19 @@ pub fn add_execution_payload_blinded_header<T: Reply>(
     .into_response()
 }
 
+/// Add the `Eth-Execution-Payload-Included` header to a response.
+pub fn add_execution_payload_included_header<T: Reply>(
+    reply: T,
+    execution_payload_included: bool,
+) -> Response {
+    reply::with_header(
+        reply,
+        EXECUTION_PAYLOAD_INCLUDED_HEADER,
+        execution_payload_included.to_string(),
+    )
+    .into_response()
+}
+
 /// Add the `Eth-Execution-Payload-Value` header to a response.
 pub fn add_execution_payload_value_header<T: Reply>(
     reply: T,
@@ -99,6 +114,15 @@ pub fn add_execution_payload_value_header<T: Reply>(
         execution_payload_value.to_string(),
     )
     .into_response()
+}
+
+/// Add the `Eth-Builder-Url` header (the winning builder's URL) to a response, when present.
+/// Absent for a self-built block or a block won by a p2p bid.
+pub fn add_builder_url_header<T: Reply>(reply: T, builder_url: Option<&str>) -> Response {
+    match builder_url {
+        Some(url) => reply::with_header(reply, BUILDER_URL_HEADER, url).into_response(),
+        None => reply.into_response(),
+    }
 }
 
 /// Add the `Eth-Consensus-Block-Value` header to a response.

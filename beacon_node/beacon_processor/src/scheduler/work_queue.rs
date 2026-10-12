@@ -111,6 +111,8 @@ pub struct BeaconProcessorQueueLengths {
     attestation_queue: usize,
     unknown_block_aggregate_queue: usize,
     unknown_block_attestation_queue: usize,
+    unknown_block_payload_attestation_queue: usize,
+    unknown_block_data_column_queue: usize,
     sync_message_queue: usize,
     sync_contribution_queue: usize,
     gossip_voluntary_exit_queue: usize,
@@ -120,11 +122,11 @@ pub struct BeaconProcessorQueueLengths {
     rpc_block_queue: usize,
     rpc_blob_queue: usize,
     rpc_custody_column_queue: usize,
+    rpc_envelope_queue: usize,
     column_reconstruction_queue: usize,
     chain_segment_queue: usize,
     backfill_chain_segment: usize,
     gossip_block_queue: usize,
-    gossip_blob_queue: usize,
     gossip_data_column_queue: usize,
     gossip_partial_data_column_queue: usize,
     delayed_block_queue: usize,
@@ -141,9 +143,11 @@ pub struct BeaconProcessorQueueLengths {
     payload_envelopes_broots_queue: usize,
     gossip_bls_to_execution_change_queue: usize,
     gossip_execution_payload_queue: usize,
+    gossip_execution_proof_queue: usize,
     gossip_execution_payload_bid_queue: usize,
     gossip_payload_attestation_queue: usize,
     gossip_proposer_preferences_queue: usize,
+    gossip_inclusion_list_queue: usize,
     lc_bootstrap_queue: usize,
     lc_rpc_optimistic_update_queue: usize,
     lc_rpc_finality_update_queue: usize,
@@ -174,6 +178,8 @@ impl BeaconProcessorQueueLengths {
         Ok(Self {
             aggregate_queue: 4096,
             unknown_block_aggregate_queue: 1024,
+            // Capacity for two slot's worth of data columns for a supernode.
+            unknown_block_data_column_queue: 256,
             // Capacity for a full slot's worth of attestations if subscribed to all subnets
             attestation_queue: std::cmp::max(
                 active_validator_count / slots_per_epoch,
@@ -184,6 +190,8 @@ impl BeaconProcessorQueueLengths {
                 active_validator_count / slots_per_epoch,
                 MIN_QUEUE_LEN,
             ),
+            // PTC size ~512 per slot, buffer 2-3 slots for reorgs and processing delays (512 * 3 = 1536)
+            unknown_block_payload_attestation_queue: 1536,
             sync_message_queue: 2048,
             sync_contribution_queue: 1024,
             gossip_voluntary_exit_queue: 4096,
@@ -195,11 +203,12 @@ impl BeaconProcessorQueueLengths {
             // We don't request more than `PARENT_DEPTH_TOLERANCE` (32) lookups, so we can limit
             // this queue size. With 48 max blobs per block, each column sidecar list could be up to 12MB.
             rpc_custody_column_queue: 64,
+            // Bounded by `PARENT_DEPTH_TOLERANCE`; one envelope per Gloas block.
+            rpc_envelope_queue: 1024,
             column_reconstruction_queue: 1,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
-            gossip_blob_queue: 1024,
             gossip_data_column_queue: 1024,
             gossip_partial_data_column_queue: 1024,
             delayed_block_queue: 1024,
@@ -215,8 +224,9 @@ impl BeaconProcessorQueueLengths {
             payload_envelopes_brange_queue: 1024,
             payload_envelopes_broots_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
-            // TODO(EIP-7732): verify 1024 is preferable. I used same value as `gossip_block_queue` and `gossip_blob_queue`
+            // TODO(EIP-7732): verify 1024 is preferable.
             gossip_execution_payload_queue: 1024,
+            gossip_execution_proof_queue: 1024,
             // TODO(EIP-7732) how big should this queue be?
             gossip_execution_payload_bid_queue: 1024,
             // PTC size ~512 per slot, buffer 2-3 slots for reorgs and processing delays (512 * 3 = 1536)
@@ -224,6 +234,8 @@ impl BeaconProcessorQueueLengths {
             gossip_payload_attestation_queue: 1536,
             // TODO(EIP-7732): verify if this is preferable queue length
             gossip_proposer_preferences_queue: 1024,
+            // TODO(heze): verify if this is preferable queue length
+            gossip_inclusion_list_queue: 1024,
             lc_gossip_finality_update_queue: 1024,
             lc_gossip_optimistic_update_queue: 1024,
             lc_bootstrap_queue: 1024,
@@ -240,10 +252,11 @@ pub struct WorkQueues<E: EthSpec> {
     pub aggregate_queue: LifoQueue<Work<E>>,
     pub aggregate_debounce: TimeLatch,
     pub attestation_queue: LifoQueue<Work<E>>,
-    pub attestation_to_convert_queue: LifoQueue<Work<E>>,
     pub attestation_debounce: TimeLatch,
     pub unknown_block_aggregate_queue: LifoQueue<Work<E>>,
     pub unknown_block_attestation_queue: LifoQueue<Work<E>>,
+    pub unknown_block_payload_attestation_queue: LifoQueue<Work<E>>,
+    pub unknown_block_data_column_queue: FifoQueue<Work<E>>,
     pub sync_message_queue: LifoQueue<Work<E>>,
     pub sync_contribution_queue: LifoQueue<Work<E>>,
     pub gossip_voluntary_exit_queue: FifoQueue<Work<E>>,
@@ -253,11 +266,11 @@ pub struct WorkQueues<E: EthSpec> {
     pub rpc_block_queue: FifoQueue<Work<E>>,
     pub rpc_blob_queue: FifoQueue<Work<E>>,
     pub rpc_custody_column_queue: FifoQueue<Work<E>>,
+    pub rpc_envelope_queue: FifoQueue<Work<E>>,
     pub column_reconstruction_queue: LifoQueue<Work<E>>,
     pub chain_segment_queue: FifoQueue<Work<E>>,
     pub backfill_chain_segment: FifoQueue<Work<E>>,
     pub gossip_block_queue: FifoQueue<Work<E>>,
-    pub gossip_blob_queue: FifoQueue<Work<E>>,
     pub gossip_data_column_queue: FifoQueue<Work<E>>,
     pub gossip_partial_data_column_queue: FifoQueue<Work<E>>,
     pub delayed_block_queue: FifoQueue<Work<E>>,
@@ -274,9 +287,11 @@ pub struct WorkQueues<E: EthSpec> {
     pub dcbrange_queue: FifoQueue<Work<E>>,
     pub gossip_bls_to_execution_change_queue: FifoQueue<Work<E>>,
     pub gossip_execution_payload_queue: FifoQueue<Work<E>>,
+    pub gossip_execution_proof_queue: FifoQueue<Work<E>>,
     pub gossip_execution_payload_bid_queue: FifoQueue<Work<E>>,
     pub gossip_payload_attestation_queue: FifoQueue<Work<E>>,
     pub gossip_proposer_preferences_queue: FifoQueue<Work<E>>,
+    pub gossip_inclusion_list_queue: FifoQueue<Work<E>>,
     pub lc_gossip_finality_update_queue: FifoQueue<Work<E>>,
     pub lc_gossip_optimistic_update_queue: FifoQueue<Work<E>>,
     pub lc_bootstrap_queue: FifoQueue<Work<E>>,
@@ -295,12 +310,15 @@ impl<E: EthSpec> WorkQueues<E> {
         let aggregate_queue = LifoQueue::new(queue_lengths.aggregate_queue);
         let aggregate_debounce = TimeLatch::default();
         let attestation_queue = LifoQueue::new(queue_lengths.attestation_queue);
-        let attestation_to_convert_queue = LifoQueue::new(queue_lengths.attestation_queue);
         let attestation_debounce = TimeLatch::default();
         let unknown_block_aggregate_queue =
             LifoQueue::new(queue_lengths.unknown_block_aggregate_queue);
         let unknown_block_attestation_queue =
             LifoQueue::new(queue_lengths.unknown_block_attestation_queue);
+        let unknown_block_payload_attestation_queue =
+            LifoQueue::new(queue_lengths.unknown_block_payload_attestation_queue);
+        let unknown_block_data_column_queue =
+            FifoQueue::new(queue_lengths.unknown_block_data_column_queue);
 
         let sync_message_queue = LifoQueue::new(queue_lengths.sync_message_queue);
         let sync_contribution_queue = LifoQueue::new(queue_lengths.sync_contribution_queue);
@@ -323,11 +341,11 @@ impl<E: EthSpec> WorkQueues<E> {
         let rpc_block_queue = FifoQueue::new(queue_lengths.rpc_block_queue);
         let rpc_blob_queue = FifoQueue::new(queue_lengths.rpc_blob_queue);
         let rpc_custody_column_queue = FifoQueue::new(queue_lengths.rpc_custody_column_queue);
+        let rpc_envelope_queue = FifoQueue::new(queue_lengths.rpc_envelope_queue);
         let column_reconstruction_queue = LifoQueue::new(queue_lengths.column_reconstruction_queue);
         let chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
-        let gossip_blob_queue = FifoQueue::new(queue_lengths.gossip_blob_queue);
         let gossip_data_column_queue = FifoQueue::new(queue_lengths.gossip_data_column_queue);
         let gossip_partial_data_column_queue =
             FifoQueue::new(queue_lengths.gossip_partial_data_column_queue);
@@ -352,12 +370,15 @@ impl<E: EthSpec> WorkQueues<E> {
 
         let gossip_execution_payload_queue =
             FifoQueue::new(queue_lengths.gossip_execution_payload_queue);
+        let gossip_execution_proof_queue =
+            FifoQueue::new(queue_lengths.gossip_execution_proof_queue);
         let gossip_execution_payload_bid_queue =
             FifoQueue::new(queue_lengths.gossip_execution_payload_bid_queue);
         let gossip_payload_attestation_queue =
             FifoQueue::new(queue_lengths.gossip_payload_attestation_queue);
         let gossip_proposer_preferences_queue =
             FifoQueue::new(queue_lengths.gossip_proposer_preferences_queue);
+        let gossip_inclusion_list_queue = FifoQueue::new(queue_lengths.gossip_inclusion_list_queue);
 
         let lc_gossip_optimistic_update_queue =
             FifoQueue::new(queue_lengths.lc_gossip_optimistic_update_queue);
@@ -378,10 +399,11 @@ impl<E: EthSpec> WorkQueues<E> {
             aggregate_queue,
             aggregate_debounce,
             attestation_queue,
-            attestation_to_convert_queue,
             attestation_debounce,
             unknown_block_aggregate_queue,
             unknown_block_attestation_queue,
+            unknown_block_payload_attestation_queue,
+            unknown_block_data_column_queue,
             sync_message_queue,
             sync_contribution_queue,
             gossip_voluntary_exit_queue,
@@ -391,11 +413,11 @@ impl<E: EthSpec> WorkQueues<E> {
             rpc_block_queue,
             rpc_blob_queue,
             rpc_custody_column_queue,
+            rpc_envelope_queue,
             chain_segment_queue,
             column_reconstruction_queue,
             backfill_chain_segment,
             gossip_block_queue,
-            gossip_blob_queue,
             gossip_data_column_queue,
             gossip_partial_data_column_queue,
             delayed_block_queue,
@@ -412,9 +434,11 @@ impl<E: EthSpec> WorkQueues<E> {
             payload_envelopes_broots_queue,
             gossip_bls_to_execution_change_queue,
             gossip_execution_payload_queue,
+            gossip_execution_proof_queue,
             gossip_execution_payload_bid_queue,
             gossip_payload_attestation_queue,
             gossip_proposer_preferences_queue,
+            gossip_inclusion_list_queue,
             lc_gossip_optimistic_update_queue,
             lc_gossip_finality_update_queue,
             lc_bootstrap_queue,
@@ -430,12 +454,12 @@ impl<E: EthSpec> WorkQueues<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{BeaconState, ChainSpec, Eth1Data, ForkName, MainnetEthSpec};
+    use types::{BeaconState, Eth1Data, ForkName, MainnetEthSpec};
 
     #[test]
     fn min_queue_len() {
         // State with no validators.
-        let spec = ForkName::latest().make_genesis_spec(ChainSpec::mainnet());
+        let spec = ForkName::latest().make_genesis_spec(MainnetEthSpec::default_spec());
         let genesis_time = 0;
         let state = BeaconState::<MainnetEthSpec>::new(genesis_time, Eth1Data::default(), &spec);
         assert_eq!(state.validators().len(), 0);

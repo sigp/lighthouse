@@ -2,7 +2,8 @@ use crate::{
     JustifiedBalances,
     error::Error,
     proto_array::{
-        InvalidationOperation, Iter, NodeDelta, ProtoArray, ProtoNode, calculate_committee_fraction,
+        InvalidationOperation, Iter, NodeDelta, ParentPayloadStatus, ProtoArray, ProtoNode,
+        calculate_committee_fraction,
     },
     ssz_container::SszContainer,
 };
@@ -41,6 +42,23 @@ pub struct VoteTrackerV28 {
     next_epoch: Epoch,
 }
 
+impl VoteTracker {
+    /// The block root this validator most recently voted for.
+    pub fn current_root(&self) -> Hash256 {
+        self.current_root
+    }
+
+    /// The slot of this validator's latest message.
+    pub fn current_slot(&self) -> Slot {
+        self.current_slot
+    }
+
+    /// The payload status of this validator's latest message for a block at `block_slot`.
+    pub fn current_payload_status(&self, block_slot: Slot) -> PayloadStatus {
+        PayloadStatus::from_vote(self.current_slot, self.current_payload_present, block_slot)
+    }
+}
+
 // This impl is only used upon upgrade from pre-Gloas to Gloas with all pre-Gloas nodes.
 // The payload status is `false` for pre-Gloas nodes.
 impl From<VoteTrackerV28> for VoteTracker {
@@ -48,8 +66,13 @@ impl From<VoteTrackerV28> for VoteTracker {
         VoteTracker {
             current_root: v.current_root,
             next_root: v.next_root,
-            // The v28 format stored next_epoch rather than slots. Default to 0 since the
-            // vote tracker will be updated on the next attestation.
+            // Known issue, won't fix: sigp/lighthouse#10089.
+            //
+            // V28 stored an epoch, not slots, so the slot is set to 0. Until this validator's next
+            // attestation is processed, an older one can replace the vote via
+            // `attestation_slot > next_slot`. Bounded to one epoch per validator, once per
+            // database; not worth threading `slots_per_epoch` through every V28/V29 conversion
+            // (sigp/lighthouse#10095).
             current_slot: Slot::new(0),
             next_slot: Slot::new(0),
             current_payload_present: false,
@@ -80,7 +103,10 @@ pub struct LatestMessage {
     pub payload_present: bool,
 }
 
-/// Represents the verification status of an execution payload pre-Gloas.
+/// Represents the verification status of an execution payload.
+///
+/// Do not implement a direct conversion to `ExecutionVerdict`; deriving a verdict requires fork
+/// choice state.
 #[derive(Clone, Copy, Debug, PartialEq, Encode, Decode, Serialize, Deserialize)]
 #[ssz(enum_behaviour = "union")]
 pub enum ExecutionStatus {
@@ -98,16 +124,41 @@ pub enum ExecutionStatus {
     /// This `bool` only exists to satisfy our SSZ implementation which requires all variants
     /// to have a value. It can be set to anything.
     Irrelevant(bool),
+    /// The Gloas envelope carrying this block's committed payload has not arrived yet, so no EL
+    /// has been asked about it. Unlike `Irrelevant`, the payload exists and is unverified.
+    ///
+    /// The `ExecutionBlockHash` is the bid's committed block hash.
+    NotYetRevealed(ExecutionBlockHash),
 }
 
 /// Represents the status of an execution payload post-Gloas.
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 #[ssz(enum_behaviour = "tag")]
 #[repr(u8)]
 pub enum PayloadStatus {
     Empty = 0,
     Full = 1,
     Pending = 2,
+}
+
+impl PayloadStatus {
+    /// Classify a vote into the payload bucket it contributes to for `block_slot`.
+    ///
+    /// Per the gloas model:
+    ///
+    /// - a same-slot vote is `Pending`
+    /// - a later vote with `payload_present = true` is `Full`
+    /// - a later vote with `payload_present = false` is `Empty`
+    pub fn from_vote(vote_slot: Slot, payload_present: bool, block_slot: Slot) -> Self {
+        if vote_slot == block_slot {
+            PayloadStatus::Pending
+        } else if payload_present {
+            PayloadStatus::Full
+        } else {
+            PayloadStatus::Empty
+        }
+    }
 }
 
 /// Spec's `ForkChoiceNode` augmented with ProtoNode index.
@@ -127,6 +178,48 @@ impl IndexedForkChoiceNode {
     }
 }
 
+/// Spec's `ForkChoiceNode`: a block root paired with the payload status of the branch it names.
+///
+/// Fields are private with no public constructor, so a `ForkChoiceNode` can only be produced by
+/// `find_head`, `get_head`, or `get_supported_node` — a node the chain actually elected or that was
+/// voted for. This keeps callers from querying the "wrong half" of a block and getting an answer
+/// about a branch the chain never ran.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ForkChoiceNode {
+    root: Hash256,
+    payload_status: PayloadStatus,
+}
+
+impl ForkChoiceNode {
+    /// Deliberately not `pub`: a `ForkChoiceNode` is only produced by fork choice.
+    pub(crate) fn new(root: Hash256, payload_status: PayloadStatus) -> Self {
+        Self {
+            root,
+            payload_status,
+        }
+    }
+
+    pub fn root(&self) -> Hash256 {
+        self.root
+    }
+
+    pub fn payload_status(&self) -> PayloadStatus {
+        self.payload_status
+    }
+
+    /// Root and payload status as a pair, for callers that still thread them separately.
+    pub fn as_pair(&self) -> (Hash256, PayloadStatus) {
+        (self.root, self.payload_status)
+    }
+}
+
+/// The execution block a beacon block commits to. Says nothing about its validity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PayloadBlockHash {
+    PreMerge,
+    Hash(ExecutionBlockHash),
+}
+
 impl ExecutionStatus {
     pub fn is_execution_enabled(&self) -> bool {
         !matches!(self, ExecutionStatus::Irrelevant(_))
@@ -136,74 +229,12 @@ impl ExecutionStatus {
         ExecutionStatus::Irrelevant(false)
     }
 
-    pub fn block_hash(&self) -> Option<ExecutionBlockHash> {
-        match self {
-            ExecutionStatus::Valid(hash)
-            | ExecutionStatus::Invalid(hash)
-            | ExecutionStatus::Optimistic(hash) => Some(*hash),
-            ExecutionStatus::Irrelevant(_) => None,
-        }
-    }
-
-    /// Returns `true` if the block:
-    ///
-    /// - Has a valid payload, OR
-    /// - Does not have execution enabled.
-    ///
-    /// Whenever this function returns `true`, the block is *fully valid*.
-    pub fn is_valid_or_irrelevant(&self) -> bool {
-        matches!(
-            self,
-            ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_)
-        )
-    }
-
-    /// Returns `true` if the block:
-    ///
-    /// - Has execution enabled, AND
-    /// - Has a valid payload
-    ///
-    /// This function will return `false` for any block from a slot prior to the Bellatrix fork.
-    /// This means that some blocks that are perfectly valid will still receive a `false` response.
-    /// See `Self::is_valid_or_irrelevant` for a function that will always return `true` given any
-    /// perfectly valid block.
-    pub fn is_valid_and_post_bellatrix(&self) -> bool {
-        matches!(self, ExecutionStatus::Valid(_))
-    }
-
-    /// Returns `true` if the block:
-    ///
-    /// - Has execution enabled, AND
-    /// - Has a payload that has not yet been verified by an EL.
-    pub fn is_strictly_optimistic(&self) -> bool {
-        matches!(self, ExecutionStatus::Optimistic(_))
-    }
-
-    /// Returns `true` if the block:
-    ///
-    /// - Has execution enabled, AND
-    ///     - Has a payload that has not yet been verified by an EL, OR.
-    ///     - Has a payload that has been deemed invalid by an EL.
-    pub fn is_optimistic_or_invalid(&self) -> bool {
-        matches!(
-            self,
-            ExecutionStatus::Optimistic(_) | ExecutionStatus::Invalid(_)
-        )
-    }
-
     /// Returns `true` if the block:
     ///
     /// - Has execution enabled, AND
     /// - Has an invalid payload.
     pub fn is_invalid(&self) -> bool {
         matches!(self, ExecutionStatus::Invalid(_))
-    }
-
-    /// Returns `true` if the block:
-    ///
-    /// - Does not have execution enabled (before or after Bellatrix fork)
-    pub fn is_irrelevant(&self) -> bool {
-        matches!(self, ExecutionStatus::Irrelevant(_))
     }
 }
 
@@ -214,6 +245,59 @@ impl fmt::Display for ExecutionStatus {
             ExecutionStatus::Invalid(_) => write!(f, "invalid"),
             ExecutionStatus::Optimistic(_) => write!(f, "optimistic"),
             ExecutionStatus::Irrelevant(_) => write!(f, "irrelevant"),
+            ExecutionStatus::NotYetRevealed(_) => write!(f, "not_yet_revealed"),
+        }
+    }
+}
+
+/// The execution layer's ruling on a fork choice node: is its chain fully validated (`Valid`),
+/// rejected (`Invalid`), or not checked yet (`Optimistic`)?
+///
+/// Do not implement a direct conversion from `ExecutionStatus`; deriving a verdict requires fork
+/// choice state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutionVerdict {
+    Valid,
+    Invalid,
+    Optimistic,
+}
+
+impl ExecutionVerdict {
+    pub fn is_valid(&self) -> bool {
+        match self {
+            ExecutionVerdict::Valid => true,
+            ExecutionVerdict::Invalid | ExecutionVerdict::Optimistic => false,
+        }
+    }
+
+    pub fn is_optimistic(&self) -> bool {
+        match self {
+            ExecutionVerdict::Optimistic => true,
+            ExecutionVerdict::Valid | ExecutionVerdict::Invalid => false,
+        }
+    }
+
+    pub fn is_invalid(&self) -> bool {
+        match self {
+            ExecutionVerdict::Invalid => true,
+            ExecutionVerdict::Valid | ExecutionVerdict::Optimistic => false,
+        }
+    }
+
+    pub fn is_optimistic_or_invalid(&self) -> bool {
+        match self {
+            ExecutionVerdict::Optimistic | ExecutionVerdict::Invalid => true,
+            ExecutionVerdict::Valid => false,
+        }
+    }
+}
+
+impl fmt::Display for ExecutionVerdict {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExecutionVerdict::Valid => write!(f, "valid"),
+            ExecutionVerdict::Invalid => write!(f, "invalid"),
+            ExecutionVerdict::Optimistic => write!(f, "optimistic"),
         }
     }
 }
@@ -232,8 +316,7 @@ pub struct Block {
     pub next_epoch_shuffling_id: AttestationShufflingId,
     pub justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
-    /// Indicates if an execution node has marked this block as valid. Also contains the execution
-    /// block hash.
+    /// Indicates if an execution node has marked this block's committed payload as valid.
     pub execution_status: ExecutionStatus,
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
@@ -242,9 +325,54 @@ pub struct Block {
     pub execution_payload_parent_hash: Option<ExecutionBlockHash>,
     pub execution_payload_block_hash: Option<ExecutionBlockHash>,
     pub proposer_index: Option<u64>,
+    /// Whether the block's execution payload envelope has been received. Always `false` pre-Gloas.
+    pub payload_received: bool,
 }
 
 impl Block {
+    /// The execution block this block commits to.
+    pub fn block_hash(&self) -> PayloadBlockHash {
+        // Post-Gloas the bid commits the hash; pre-Gloas the embedded payload carries it.
+        if let Some(hash) = self.execution_payload_block_hash {
+            PayloadBlockHash::Hash(hash)
+        } else {
+            match self.execution_status {
+                ExecutionStatus::Valid(hash)
+                | ExecutionStatus::Invalid(hash)
+                | ExecutionStatus::Optimistic(hash) => PayloadBlockHash::Hash(hash),
+                ExecutionStatus::Irrelevant(_) => PayloadBlockHash::PreMerge,
+                ExecutionStatus::NotYetRevealed(hash) => PayloadBlockHash::Hash(hash),
+            }
+        }
+    }
+
+    /// The `head_block_hash` argument for `notify_forkchoice_updated`.
+    pub fn head_payload_block_hash(&self, payload_status: PayloadStatus) -> PayloadBlockHash {
+        if let (Some(block_hash), Some(parent_hash)) = (
+            self.execution_payload_block_hash,
+            self.execution_payload_parent_hash,
+        ) {
+            // Post-Gloas the bid commits both hashes, and the elected node says which one ran.
+            PayloadBlockHash::Hash(match payload_status {
+                PayloadStatus::Full => block_hash,
+                PayloadStatus::Pending | PayloadStatus::Empty => parent_hash,
+            })
+        } else {
+            // Pre-Gloas the payload is embedded, so it ran whatever the payload status.
+            self.block_hash()
+        }
+    }
+
+    /// Spec: `finalized_block_hash` and `get_safe_execution_block_hash`. Post-Gloas that is
+    /// the bid's parent payload, not this block's own.
+    pub fn checkpoint_payload_block_hash(&self) -> PayloadBlockHash {
+        if let Some(parent_hash) = self.execution_payload_parent_hash {
+            PayloadBlockHash::Hash(parent_hash)
+        } else {
+            self.block_hash()
+        }
+    }
+
     /// Compute the proposer shuffling decision root of a child block in `child_block_epoch`.
     ///
     /// This function assumes that `child_block_epoch >= self.epoch`. It is the responsibility of
@@ -385,10 +513,6 @@ pub enum DoNotReOrg {
     MissingHeadFinalizedCheckpoint,
     ParentDistance,
     HeadDistance,
-    ShufflingUnstable,
-    DisallowedOffset {
-        offset: u64,
-    },
     JustificationAndFinalizationNotCompetitive,
     ChainNotFinalizing {
         epochs_since_finalization: u64,
@@ -413,10 +537,6 @@ impl std::fmt::Display for DoNotReOrg {
             Self::MissingHeadFinalizedCheckpoint => write!(f, "finalized checkpoint missing"),
             Self::ParentDistance => write!(f, "parent too far from head"),
             Self::HeadDistance => write!(f, "head too far from current slot"),
-            Self::ShufflingUnstable => write!(f, "shuffling unstable at epoch boundary"),
-            Self::DisallowedOffset { offset } => {
-                write!(f, "re-orgs disabled at offset {offset}")
-            }
             Self::JustificationAndFinalizationNotCompetitive => {
                 write!(f, "justification or finalization not competitive")
             }
@@ -462,31 +582,6 @@ impl std::fmt::Display for DoNotReOrg {
 #[serde(transparent)]
 pub struct ReOrgThreshold(pub u64);
 
-/// New-type for disallowed re-org slots.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct DisallowedReOrgOffsets {
-    // Vecs are faster than hashmaps for small numbers of items.
-    offsets: Vec<u64>,
-}
-
-impl Default for DisallowedReOrgOffsets {
-    fn default() -> Self {
-        DisallowedReOrgOffsets { offsets: vec![0] }
-    }
-}
-
-impl DisallowedReOrgOffsets {
-    pub fn new<E: EthSpec>(offsets: Vec<u64>) -> Result<Self, Error> {
-        for &offset in &offsets {
-            if offset >= E::slots_per_epoch() {
-                return Err(Error::InvalidEpochOffset(offset));
-            }
-        }
-        Ok(Self { offsets })
-    }
-}
-
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
@@ -514,6 +609,7 @@ impl ProtoArrayForkChoice {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
+            children: Vec::with_capacity(1),
         };
 
         let block = Block {
@@ -534,6 +630,7 @@ impl ProtoArrayForkChoice {
             execution_payload_parent_hash,
             execution_payload_block_hash,
             proposer_index: Some(proposer_index),
+            payload_received: false,
         };
 
         proto_array
@@ -555,25 +652,35 @@ impl ProtoArrayForkChoice {
         })
     }
 
-    /// Mark a Gloas payload envelope as valid and received.
-    ///
-    /// This must only be called for valid Gloas payloads.
-    pub fn on_valid_payload_envelope_received(
+    /// Record the execution layer's verdict for a Gloas payload envelope, and mark the envelope
+    /// as received.
+    pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
+        execution_status: ExecutionStatus,
     ) -> Result<(), String> {
         self.proto_array
-            .on_valid_payload_envelope_received(block_root)
+            .on_payload_envelope_received(block_root, execution_status)
             .map_err(|e| format!("Failed to process execution payload: {:?}", e))
     }
 
     /// See `ProtoArray::propagate_execution_payload_validation` for documentation.
     pub fn process_execution_payload_validation(
         &mut self,
+        block_hash: ExecutionBlockHash,
+    ) -> Result<(), String> {
+        self.proto_array
+            .propagate_execution_payload_validation(block_hash)
+            .map_err(|e| format!("Failed to process valid payload: {:?}", e))
+    }
+
+    /// See `ProtoArray::propagate_execution_payload_validation_by_block_root` for documentation.
+    pub fn process_execution_payload_validation_by_block_root(
+        &mut self,
         block_root: Hash256,
     ) -> Result<(), String> {
         self.proto_array
-            .propagate_execution_payload_validation(block_root)
+            .propagate_execution_payload_validation_by_block_root(block_root)
             .map_err(|e| format!("Failed to process valid payload: {:?}", e))
     }
 
@@ -640,6 +747,9 @@ impl ProtoArrayForkChoice {
             .map_err(|e| {
                 format!("process_payload_attestation: data availability set failed: {e:?}")
             })?;
+        v29.ptc_participation
+            .set(ptc_index, true)
+            .map_err(|e| format!("process_payload_attestation: participation set failed: {e:?}"))?;
 
         Ok(())
     }
@@ -670,7 +780,7 @@ impl ProtoArrayForkChoice {
         equivocating_indices: &BTreeSet<u64>,
         current_slot: Slot,
         spec: &ChainSpec,
-    ) -> Result<(Hash256, PayloadStatus), String> {
+    ) -> Result<ForkChoiceNode, String> {
         let old_balances = &mut self.balances;
         let new_balances = justified_state_balances;
         let node_slots = self
@@ -694,7 +804,9 @@ impl ProtoArrayForkChoice {
             .apply_score_changes::<E>(deltas)
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
-        *old_balances = new_balances.clone();
+        if old_balances != new_balances {
+            *old_balances = new_balances.clone();
+        }
 
         self.proto_array
             .find_head::<E>(
@@ -706,6 +818,7 @@ impl ProtoArrayForkChoice {
                 new_balances,
                 spec,
             )
+            .map(|(root, payload_status)| ForkChoiceNode::new(root, payload_status))
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
@@ -720,7 +833,6 @@ impl ProtoArrayForkChoice {
         justified_balances: &JustifiedBalances,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
@@ -729,7 +841,6 @@ impl ProtoArrayForkChoice {
             justified_balances,
             re_org_head_threshold,
             re_org_parent_threshold,
-            disallowed_offsets,
             max_epochs_since_finalization,
         )?;
 
@@ -751,15 +862,14 @@ impl ProtoArrayForkChoice {
             .into());
         }
 
-        // Spec: `is_parent_strong`. Use payload-aware weight matching the
-        // payload path the head node is on from its parent.
-        let parent_payload_status = info.head_node.get_parent_payload_status();
-        let parent_weight = info.parent_node.attestation_score(parent_payload_status);
+        // Spec: `is_parent_strong`. Use `PayloadStatus::Pending` to avoid weight split
+        // between payload statuses. https://github.com/ethereum/consensus-specs/issues/5305
+        let parent_pending_weight = info.parent_node.attestation_score(PayloadStatus::Pending);
         let re_org_parent_weight_threshold = info.re_org_parent_weight_threshold;
-        let parent_strong = parent_weight > re_org_parent_weight_threshold;
+        let parent_strong = parent_pending_weight > re_org_parent_weight_threshold;
         if !parent_strong {
             return Err(DoNotReOrg::ParentNotStrong {
-                parent_weight,
+                parent_weight: parent_pending_weight,
                 re_org_parent_weight_threshold,
             }
             .into());
@@ -780,7 +890,6 @@ impl ProtoArrayForkChoice {
         justified_balances: &JustifiedBalances,
         re_org_head_threshold: ReOrgThreshold,
         re_org_parent_threshold: ReOrgThreshold,
-        disallowed_offsets: &DisallowedReOrgOffsets,
         max_epochs_since_finalization: Epoch,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
@@ -819,18 +928,6 @@ impl ProtoArrayForkChoice {
             return Err(DoNotReOrg::ParentDistance.into());
         }
 
-        // Check shuffling stability.
-        let shuffling_stable = re_org_block_slot % E::slots_per_epoch() != 0;
-        if !shuffling_stable {
-            return Err(DoNotReOrg::ShufflingUnstable.into());
-        }
-
-        // Check allowed slot offsets.
-        let offset = (re_org_block_slot % E::slots_per_epoch()).as_u64();
-        if disallowed_offsets.offsets.contains(&offset) {
-            return Err(DoNotReOrg::DisallowedOffset { offset }.into());
-        }
-
         // Check FFG.
         let ffg_competitive = parent_node.unrealized_justified_checkpoint()
             == head_node.unrealized_justified_checkpoint()
@@ -863,92 +960,96 @@ impl ProtoArrayForkChoice {
     /// This will operate on *all* blocks, even those that do not descend from the finalized
     /// ancestor.
     pub fn contains_invalid_payloads(&mut self) -> bool {
-        self.proto_array.nodes.iter().any(|node| {
-            node.execution_status()
-                .is_ok_and(|status| status.is_invalid())
-        })
+        self.proto_array
+            .nodes
+            .iter()
+            .any(|node| node.execution_status().is_invalid())
     }
 
     /// For all nodes, regardless of their relationship to the finalized block, set their execution
     /// status to be optimistic.
     ///
     /// In practice this means forgetting any `VALID` or `INVALID` statuses.
-    pub fn set_all_blocks_to_optimistic<E: EthSpec>(&mut self) -> Result<(), String> {
-        // Iterate backwards through all nodes in the `proto_array`. Whilst it's not strictly
-        // required to do this process in reverse, it seems natural when we consider how LMD votes
-        // are counted.
-        //
-        // This function will touch all blocks, even those that do not descend from the finalized
-        // block. Since this function is expected to run at start-up during very rare
-        // circumstances we prefer simplicity over efficiency.
-        for node_index in (0..self.proto_array.nodes.len()).rev() {
-            let node = self
-                .proto_array
-                .nodes
-                .get_mut(node_index)
-                .ok_or("unreachable index out of bounds in proto_array nodes")?;
+    pub fn set_all_blocks_to_optimistic<E: EthSpec>(
+        &mut self,
+        equivocating_indices: &BTreeSet<u64>,
+    ) -> Result<(), String> {
+        let node_slots = self
+            .proto_array
+            .nodes
+            .iter()
+            .map(|node| node.slot())
+            .collect::<Vec<_>>();
 
+        // Settle pending vote moves and slashings through an ordinary production round first: a
+        // slashing persisted but not yet processed must credit the equivocation score against
+        // the old weights, exactly as the next `find_head` would have.
+        let deltas = compute_deltas(
+            &self.proto_array.indices,
+            &node_slots,
+            &mut self.votes,
+            &self.balances.effective_balances,
+            &self.balances.effective_balances,
+            equivocating_indices,
+        )
+        .map_err(|e| format!("optimistic reset settle compute_deltas failed: {:?}", e))?;
+        self.proto_array
+            .apply_score_changes::<E>(deltas)
+            .map_err(|e| {
+                format!(
+                    "optimistic reset settle apply_score_changes failed: {:?}",
+                    e
+                )
+            })?;
+
+        // Clear every `VALID`/`INVALID` verdict. `Irrelevant` and `NotYetRevealed` have no verdict
+        // to reset. This must happen before the replay below: `apply_score_changes` discards
+        // deltas aimed at invalid nodes.
+        for node in self.proto_array.nodes.iter_mut() {
             match node.execution_status() {
-                Ok(ExecutionStatus::Invalid(block_hash)) => {
-                    if let ProtoNode::V17(node) = node {
-                        node.execution_status = ExecutionStatus::Optimistic(block_hash);
-                    }
-
-                    // Restore the weight of the node, it would have been set to `0` in
-                    // `apply_score_changes` when it was invalidated.
-                    let restored_weight: u64 = self
-                        .votes
-                        .0
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(validator_index, vote)| {
-                            if vote.current_root == node.root() {
-                                // Any voting validator that does not have a balance should be
-                                // ignored. This is consistent with `compute_deltas`.
-                                self.balances.effective_balances.get(validator_index)
-                            } else {
-                                None
-                            }
-                        })
-                        .sum();
-
-                    // Add the restored weight to the node and all ancestors.
-                    if restored_weight > 0 {
-                        let mut node_or_ancestor = node;
-                        loop {
-                            *node_or_ancestor.weight_mut() = node_or_ancestor
-                                .weight()
-                                .checked_add(restored_weight)
-                                .ok_or("Overflow when adding weight to ancestor")?;
-
-                            if let Some(parent_index) = node_or_ancestor.parent() {
-                                node_or_ancestor = self
-                                    .proto_array
-                                    .nodes
-                                    .get_mut(parent_index)
-                                    .ok_or(format!("Missing parent index: {}", parent_index))?;
-                            } else {
-                                // This is either the finalized block or a block that does not
-                                // descend from the finalized block.
-                                break;
-                            }
-                        }
-                    }
+                ExecutionStatus::Valid(hash)
+                | ExecutionStatus::Invalid(hash)
+                | ExecutionStatus::Optimistic(hash) => {
+                    *node.execution_status_mut() = ExecutionStatus::Optimistic(hash);
                 }
-                // There are no balance changes required if the node was either valid or
-                // optimistic.
-                Ok(ExecutionStatus::Valid(block_hash))
-                | Ok(ExecutionStatus::Optimistic(block_hash)) => {
-                    if let ProtoNode::V17(node) = node {
-                        node.execution_status = ExecutionStatus::Optimistic(block_hash)
-                    }
-                }
-                // An irrelevant node cannot become optimistic, this is a no-op.
-                Ok(ExecutionStatus::Irrelevant(_)) | Err(_) => (),
+                ExecutionStatus::Irrelevant(_) | ExecutionStatus::NotYetRevealed(_) => (),
             }
         }
 
-        Ok(())
+        // Reset every weight before rebuilding.
+        for node in self.proto_array.nodes.iter_mut() {
+            *node.weight_mut() = 0;
+            match node {
+                ProtoNode::V29(node) => {
+                    node.full_payload_weight = 0;
+                    node.empty_payload_weight = 0;
+                }
+                ProtoNode::V17(_) => (),
+            }
+        }
+
+        // Replay every settled vote through the production accounting: against a zero-balance
+        // past, `compute_deltas` emits each validator's full balance as a delta, and
+        // `apply_score_changes` rebuilds the weights, the payload buckets and the
+        // back-propagation exactly as `find_head` does.
+        let deltas = compute_deltas(
+            &self.proto_array.indices,
+            &node_slots,
+            &mut self.votes,
+            &[],
+            &self.balances.effective_balances,
+            equivocating_indices,
+        )
+        .map_err(|e| format!("optimistic reset replay compute_deltas failed: {:?}", e))?;
+
+        self.proto_array
+            .apply_score_changes::<E>(deltas)
+            .map_err(|e| {
+                format!(
+                    "optimistic reset replay apply_score_changes failed: {:?}",
+                    e
+                )
+            })
     }
 
     pub fn maybe_prune(&mut self, finalized_root: Hash256) -> Result<(), String> {
@@ -980,12 +1081,34 @@ impl ProtoArrayForkChoice {
 
     pub fn get_block(&self, block_root: &Hash256) -> Option<Block> {
         let block = self.get_proto_node(block_root)?;
+        Some(self.proto_node_to_block(block))
+    }
+
+    /// Returns the blocks of the direct children of the block with `block_root`.
+    ///
+    /// Returns an empty vec if the block is unknown or has no children.
+    pub fn get_children(&self, block_root: &Hash256) -> Vec<Block> {
+        self.proto_array
+            .indices
+            .get(block_root)
+            .and_then(|&index| self.proto_array.children.get(index))
+            .map(|children| {
+                children
+                    .iter()
+                    .filter_map(|&child_index| self.proto_array.nodes.get(child_index))
+                    .map(|child| self.proto_node_to_block(child))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn proto_node_to_block(&self, block: &ProtoNode) -> Block {
         let parent_root = block
             .parent()
             .and_then(|i| self.proto_array.nodes.get(i))
             .map(|parent| parent.root());
 
-        Some(Block {
+        Block {
             slot: block.slot(),
             root: block.root(),
             parent_root,
@@ -995,15 +1118,42 @@ impl ProtoArrayForkChoice {
             next_epoch_shuffling_id: block.next_epoch_shuffling_id().clone(),
             justified_checkpoint: *block.justified_checkpoint(),
             finalized_checkpoint: *block.finalized_checkpoint(),
-            execution_status: block
-                .execution_status()
-                .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
+            execution_status: block.execution_status(),
             unrealized_justified_checkpoint: block.unrealized_justified_checkpoint(),
             unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint(),
             execution_payload_parent_hash: block.execution_payload_parent_hash().ok(),
             execution_payload_block_hash: block.execution_payload_block_hash().ok(),
             proposer_index: block.proposer_index().ok(),
-        })
+            payload_received: block.payload_received().unwrap_or(false),
+        }
+    }
+
+    /// Called by the proposer to decide whether to build on the full or empty
+    /// parent. Returns false if the PTC has voted the data as unavailable.
+    pub fn should_build_on_full<E: EthSpec>(
+        &self,
+        block_root: &Hash256,
+        parent_payload_status: PayloadStatus,
+        current_slot: Slot,
+    ) -> Result<bool, String> {
+        let block_index = self
+            .proto_array
+            .indices
+            .get(block_root)
+            .ok_or_else(|| format!("Unknown block root: {block_root:?}"))?;
+        let proto_node = self
+            .proto_array
+            .nodes
+            .get(*block_index)
+            .ok_or_else(|| format!("Missing node at index: {block_index}"))?;
+        let fc_node = IndexedForkChoiceNode {
+            root: proto_node.root(),
+            proto_node_index: *block_index,
+            payload_status: parent_payload_status,
+        };
+        self.proto_array
+            .should_build_on_full::<E>(&fc_node, proto_node, current_slot)
+            .map_err(|e| format!("{e:?}"))
     }
 
     /// Returns whether the proposer should extend the parent's execution payload chain.
@@ -1012,6 +1162,7 @@ impl ProtoArrayForkChoice {
     pub fn should_extend_payload<E: EthSpec>(
         &self,
         block_root: &Hash256,
+        current_slot: Slot,
         proposer_boost_root: Hash256,
     ) -> Result<bool, String> {
         let block_index = self
@@ -1027,21 +1178,47 @@ impl ProtoArrayForkChoice {
         let fc_node = IndexedForkChoiceNode {
             root: proto_node.root(),
             proto_node_index: *block_index,
-            payload_status: proto_node.get_parent_payload_status(),
+            payload_status: match proto_node.get_parent_payload_status() {
+                ParentPayloadStatus::Full => PayloadStatus::Full,
+                // A pre-Gloas parent has a single virtual node, conventionally `EMPTY`.
+                ParentPayloadStatus::Empty | ParentPayloadStatus::PreGloas => PayloadStatus::Empty,
+            },
         };
         self.proto_array
-            .should_extend_payload::<E>(&fc_node, proto_node, proposer_boost_root)
+            .should_extend_payload::<E>(&fc_node, proto_node, current_slot, proposer_boost_root)
             .map_err(|e| format!("{e:?}"))
     }
 
-    /// Returns the `block.execution_status` field, if the block is present.
-    pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
-        let block = self.get_proto_node(block_root)?;
-        Some(
-            block
-                .execution_status()
-                .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
-        )
+    /// Execution verdict of a specific fork choice node (root + payload status).
+    pub fn get_node_execution_status(
+        &self,
+        node: ForkChoiceNode,
+    ) -> Result<ExecutionVerdict, Error> {
+        self.proto_array
+            .node_execution_status(node.root(), node.payload_status())
+    }
+
+    /// Execution verdict of a block, assuming its `FULL` node.
+    pub fn get_block_execution_status_assuming_full(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<ExecutionVerdict, Error> {
+        self.proto_array
+            .node_execution_status(*block_root, PayloadStatus::Full)
+    }
+
+    /// Spec's `get_supported_node`.
+    pub fn supported_node(
+        &self,
+        block_root: Hash256,
+        vote_slot: Slot,
+        payload_present: bool,
+    ) -> Option<ForkChoiceNode> {
+        let block_slot = self.get_proto_node(&block_root)?.slot();
+        Some(ForkChoiceNode::new(
+            block_root,
+            PayloadStatus::from_vote(vote_slot, payload_present, block_slot),
+        ))
     }
 
     /// Returns whether the execution payload for a block has been received.
@@ -1086,6 +1263,12 @@ impl ProtoArrayForkChoice {
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
         self.proto_array
             .is_descendant(ancestor_root, descendant_root)
+    }
+
+    /// See `ProtoArray` documentation.
+    pub fn common_ancestor_slot(&self, block_root: Hash256, other_root: Hash256) -> Option<Slot> {
+        self.proto_array
+            .common_ancestor_slot(block_root, other_root)
     }
 
     /// See `ProtoArray` documentation.
@@ -1165,6 +1348,13 @@ impl ProtoArrayForkChoice {
         &mut self.proto_array
     }
 
+    /// Read-only access to the per-validator votes.
+    ///
+    /// Used by the fast confirmation rule to compute attestation support.
+    pub fn votes(&self) -> &[VoteTracker] {
+        &self.votes.0
+    }
+
     /// Returns all nodes that have zero children and are descended from the finalized checkpoint.
     pub fn heads_descended_from_finalization<E: EthSpec>(
         &self,
@@ -1241,7 +1431,7 @@ fn compute_deltas(
                         .checked_sub(old_balance as i64)
                         .ok_or(Error::DeltaOverflow(current_delta_index))?;
 
-                    let status = NodeDelta::payload_status(
+                    let status = PayloadStatus::from_vote(
                         vote.current_slot,
                         vote.current_payload_present,
                         block_slot(current_delta_index)?,
@@ -1289,7 +1479,7 @@ fn compute_deltas(
                     .checked_sub(old_balance as i64)
                     .ok_or(Error::DeltaOverflow(current_delta_index))?;
 
-                let status = NodeDelta::payload_status(
+                let status = PayloadStatus::from_vote(
                     vote.current_slot,
                     vote.current_payload_present,
                     block_slot(current_delta_index)?,
@@ -1308,7 +1498,7 @@ fn compute_deltas(
                     .checked_add(new_balance as i64)
                     .ok_or(Error::DeltaOverflow(next_delta_index))?;
 
-                let status = NodeDelta::payload_status(
+                let status = PayloadStatus::from_vote(
                     vote.next_slot,
                     vote.next_payload_present,
                     block_slot(next_delta_index)?,
@@ -1399,6 +1589,7 @@ mod test_compute_deltas {
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
                     proposer_index: Some(0),
+                    payload_received: false,
                 },
                 genesis_slot + 1,
                 &spec,
@@ -1427,6 +1618,7 @@ mod test_compute_deltas {
                     execution_payload_parent_hash: None,
                     execution_payload_block_hash: None,
                     proposer_index: Some(0),
+                    payload_received: false,
                 },
                 genesis_slot + 1,
                 &spec,
@@ -1563,6 +1755,7 @@ mod test_compute_deltas {
                         execution_payload_parent_hash: None,
                         execution_payload_block_hash: None,
                         proposer_index: Some(0),
+                        payload_received: false,
                     },
                     Slot::from(block.slot),
                     &spec,
@@ -2276,5 +2469,92 @@ mod test_compute_deltas {
         assert_eq!(deltas[0].delta, 0);
         assert_eq!(deltas[0].empty_delta, 0);
         assert_eq!(deltas[0].full_delta, 0);
+    }
+}
+
+#[cfg(test)]
+mod test_find_head {
+    use super::*;
+    use types::MainnetEthSpec;
+
+    #[test]
+    fn justified_balances_updates() {
+        let spec = MainnetEthSpec::default_spec();
+        let checkpoint = Checkpoint {
+            epoch: Epoch::new(0),
+            root: Hash256::from_low_u64_be(1),
+        };
+        let shuffling_id = AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
+        let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Slot::new(0),
+            Hash256::zero(),
+            checkpoint,
+            checkpoint,
+            shuffling_id.clone(),
+            shuffling_id,
+            ExecutionStatus::irrelevant(),
+            None,
+            None,
+            0,
+            &spec,
+        )
+        .unwrap();
+        let mut balances = JustifiedBalances::from_effective_balances(vec![32, 32]).unwrap();
+        let equivocating_indices = BTreeSet::new();
+
+        // Each call adds a vote with the same balances, so skipping the copy must still apply votes.
+        for validator_index in 0..2 {
+            fork_choice
+                .process_attestation(validator_index, checkpoint.root, Slot::new(1), false)
+                .unwrap();
+            let allocation = fork_choice.balances.effective_balances.as_ptr();
+            let head = fork_choice
+                .find_head::<MainnetEthSpec>(
+                    checkpoint,
+                    checkpoint,
+                    &balances,
+                    Hash256::zero(),
+                    &equivocating_indices,
+                    Slot::new(1),
+                    &spec,
+                )
+                .unwrap();
+            assert_eq!(
+                head,
+                ForkChoiceNode::new(checkpoint.root, PayloadStatus::Empty)
+            );
+            assert_eq!(
+                fork_choice.get_weight(&checkpoint.root),
+                Some(32 * (validator_index as u64 + 1))
+            );
+            assert_eq!(fork_choice.balances, balances);
+            if validator_index == 1 {
+                assert_eq!(fork_choice.balances.effective_balances.as_ptr(), allocation);
+            }
+        }
+
+        // Comparing only effective balances would leave stale metadata.
+        for (total_effective_balance, num_active_validators) in [(65, 2), (65, 3)] {
+            balances.total_effective_balance = total_effective_balance;
+            balances.num_active_validators = num_active_validators;
+            let head = fork_choice
+                .find_head::<MainnetEthSpec>(
+                    checkpoint,
+                    checkpoint,
+                    &balances,
+                    Hash256::zero(),
+                    &equivocating_indices,
+                    Slot::new(1),
+                    &spec,
+                )
+                .unwrap();
+            assert_eq!(
+                head,
+                ForkChoiceNode::new(checkpoint.root, PayloadStatus::Empty)
+            );
+            assert_eq!(fork_choice.get_weight(&checkpoint.root), Some(64));
+            assert_eq!(fork_choice.balances, balances);
+        }
     }
 }

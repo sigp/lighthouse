@@ -200,11 +200,11 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
     // Split the state into several disjoint mutable borrows.
     let (
-        validators,
-        balances,
+        mut validators,
+        mut balances,
         previous_epoch_participation,
         current_epoch_participation,
-        inactivity_scores,
+        mut inactivity_scores,
         progressive_balances,
         exit_cache,
         epoch_cache,
@@ -215,9 +215,9 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     // Take a snapshot of the validators and participation before mutating. This is used for
     // informational purposes (e.g. by the validator monitor).
     let summary = ParticipationEpochSummary::new(
-        validators.clone(),
-        previous_epoch_participation.clone(),
-        current_epoch_participation.clone(),
+        validators.as_ref().to_owned_list(),
+        previous_epoch_participation.to_owned_list(),
+        current_epoch_participation.to_owned_list(),
         previous_epoch,
         current_epoch,
     );
@@ -379,16 +379,15 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     // of the `pending_deposits` list. But we may as well preserve the write ordering used
     // by the spec and do this first.
     if let Some(ctxt) = pending_deposits_ctxt {
-        let mut new_balance_deposits = List::try_from_iter(
-            state
-                .pending_deposits()?
-                .iter_from(ctxt.next_deposit_index)?
-                .cloned(),
-        )?;
+        let mut new_balance_deposits: Vec<PendingDeposit> = state
+            .pending_deposits()?
+            .iter_from(ctxt.next_deposit_index)?
+            .cloned()
+            .collect();
         for deposit in ctxt.deposits_to_postpone {
-            new_balance_deposits.push(deposit)?;
+            new_balance_deposits.push(deposit);
         }
-        *state.pending_deposits_mut()? = new_balance_deposits;
+        state.set_pending_deposits_from_iter(new_balance_deposits)?;
         *state.deposit_balance_to_consume_mut()? = ctxt.deposit_balance_to_consume;
 
         // `new_validator_deposits` may contain multiple deposits with the same pubkey where
@@ -422,7 +421,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         if conf.effective_balance_updates {
             // Re-process effective balance updates for validators affected by top-up of new validators.
             let (
-                validators,
+                mut validators,
                 balances,
                 _,
                 current_epoch_participation,
@@ -1105,8 +1104,10 @@ impl PendingDepositsContext {
         let pending_deposits = state.pending_deposits()?;
 
         for deposit in pending_deposits.iter() {
-            // Do not process deposit requests if the Eth1 bridge deposits are not yet applied.
-            if deposit.slot > spec.genesis_slot
+            // Do not process deposit requests if pre-Fulu and the Eth1 bridge deposits are not yet applied.
+            // Support for the former Eth1 bridge deposit mechanism was removed in Fulu.
+            if !state.fork_name_unchecked().fulu_enabled()
+                && deposit.slot > spec.genesis_slot
                 && state.eth1_deposit_index() < state.deposit_requests_start_index()?
             {
                 break;
@@ -1260,9 +1261,9 @@ fn process_pending_consolidations<E: EthSpec>(
 ) -> Result<(), Error> {
     let mut next_pending_consolidation: usize = 0;
     let next_epoch = state.next_epoch()?;
-    let pending_consolidations = state.pending_consolidations()?.clone();
+    let pending_consolidations = state.pending_consolidations()?.to_owned_list();
 
-    for pending_consolidation in &pending_consolidations {
+    for pending_consolidation in pending_consolidations.iter() {
         let source_index = pending_consolidation.source_index as usize;
         let target_index = pending_consolidation.target_index as usize;
         let source_validator = state.get_validator(source_index)?;
@@ -1300,7 +1301,7 @@ fn process_pending_consolidations<E: EthSpec>(
     }
 
     // Re-process effective balance updates for validators affected by consolidations.
-    let (validators, balances, _, current_epoch_participation, _, progressive_balances, _, _) =
+    let (mut validators, balances, _, current_epoch_participation, _, progressive_balances, _, _) =
         state.mutable_validator_fields()?;
     for &validator_index in validators_in_consolidations {
         let balance = *balances

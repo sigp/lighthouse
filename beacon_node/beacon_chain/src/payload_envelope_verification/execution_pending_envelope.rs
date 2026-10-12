@@ -1,23 +1,23 @@
-use std::sync::Arc;
-
+use bls::Hash256;
 use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
-use types::EthSpec;
+use std::sync::Arc;
+use types::{EthSpec, SignedExecutionPayloadEnvelope};
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
     PayloadVerificationOutcome,
     block_verification::PayloadVerificationHandle,
     payload_envelope_verification::{
-        EnvelopeError, EnvelopeImportData, MaybeAvailableEnvelope,
-        gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot_from_state_root,
-        payload_notifier::PayloadNotifier,
+        EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
+        load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
+        verify_envelope_payload_hash,
     },
 };
 
 pub struct ExecutionPendingEnvelope<E: EthSpec> {
-    pub signed_envelope: MaybeAvailableEnvelope<E>,
-    pub import_data: EnvelopeImportData<E>,
+    pub signed_envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+    pub block_root: Hash256,
     pub payload_verification_handle: PayloadVerificationHandle,
 }
 
@@ -29,7 +29,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
     ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError> {
         let signed_envelope = self.signed_envelope;
         let envelope = &signed_envelope.message;
-        let payload = &envelope.payload;
 
         // Define a future that will verify the execution payload with an execution engine.
         //
@@ -86,15 +85,14 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             &chain.spec,
         )?;
 
+        // EIP-8025: execution layer verifications must be done on the CL.
+        if chain.execution_proofs_enabled() && chain.config.verify_envelope_payload_hash_on_cl {
+            verify_envelope_payload_hash(&signed_envelope, &self.block)?;
+        }
+
         Ok(ExecutionPendingEnvelope {
-            signed_envelope: MaybeAvailableEnvelope::AvailabilityPending {
-                block_hash: payload.block_hash,
-                envelope: signed_envelope,
-            },
-            import_data: EnvelopeImportData {
-                block_root,
-                _phantom: Default::default(),
-            },
+            signed_envelope,
+            block_root,
             payload_verification_handle,
         })
     }

@@ -20,8 +20,6 @@ pub struct GossipCache {
     topic_msgs: HashMap<GossipTopic, HashMap<Vec<u8>, Key>>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
-    /// Timeout for blobs.
-    blob_sidecar: Option<Duration>,
     /// Timeout for data columns.
     data_column_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
@@ -48,6 +46,8 @@ pub struct GossipCache {
     payload_attestation: Option<Duration>,
     /// Timeout for proposer preferences.
     proposer_preferences: Option<Duration>,
+    /// Timeout for inclusion lists.
+    inclusion_list: Option<Duration>,
     /// Timeout for light client finality updates.
     light_client_finality_update: Option<Duration>,
     /// Timeout for light client optimistic updates.
@@ -59,8 +59,6 @@ pub struct GossipCacheBuilder {
     default_timeout: Option<Duration>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
-    /// Timeout for blob sidecars.
-    blob_sidecar: Option<Duration>,
     /// Timeout for data column sidecars.
     data_column_sidecar: Option<Duration>,
     /// Timeout for aggregate attestations.
@@ -87,6 +85,8 @@ pub struct GossipCacheBuilder {
     payload_attestation: Option<Duration>,
     /// Timeout for proposer preferences.
     proposer_preferences: Option<Duration>,
+    /// Timeout for inclusion lists.
+    inclusion_list: Option<Duration>,
     /// Timeout for light client finality updates.
     light_client_finality_update: Option<Duration>,
     /// Timeout for light client optimistic updates.
@@ -179,6 +179,12 @@ impl GossipCacheBuilder {
         self
     }
 
+    /// Timeout for inclusion lists.
+    pub fn inclusion_list_timeout(mut self, timeout: Duration) -> Self {
+        self.inclusion_list = Some(timeout);
+        self
+    }
+
     /// Timeout for light client finality update messages.
     pub fn light_client_finality_update_timeout(mut self, timeout: Duration) -> Self {
         self.light_client_finality_update = Some(timeout);
@@ -195,7 +201,6 @@ impl GossipCacheBuilder {
         let GossipCacheBuilder {
             default_timeout,
             beacon_block,
-            blob_sidecar,
             data_column_sidecar,
             aggregates,
             attestation,
@@ -209,6 +214,7 @@ impl GossipCacheBuilder {
             execution_payload_bid,
             payload_attestation,
             proposer_preferences,
+            inclusion_list,
             light_client_finality_update,
             light_client_optimistic_update,
         } = self;
@@ -216,7 +222,6 @@ impl GossipCacheBuilder {
             expirations: DelayQueue::default(),
             topic_msgs: HashMap::default(),
             beacon_block: beacon_block.or(default_timeout),
-            blob_sidecar: blob_sidecar.or(default_timeout),
             data_column_sidecar: data_column_sidecar.or(default_timeout),
             aggregates: aggregates.or(default_timeout),
             attestation: attestation.or(default_timeout),
@@ -230,6 +235,7 @@ impl GossipCacheBuilder {
             execution_payload_bid: execution_payload_bid.or(default_timeout),
             payload_attestation: payload_attestation.or(default_timeout),
             proposer_preferences: proposer_preferences.or(default_timeout),
+            inclusion_list: inclusion_list.or(default_timeout),
             light_client_finality_update: light_client_finality_update.or(default_timeout),
             light_client_optimistic_update: light_client_optimistic_update.or(default_timeout),
         }
@@ -247,7 +253,6 @@ impl GossipCache {
     pub fn insert(&mut self, topic: GossipTopic, data: Vec<u8>) {
         let expire_timeout = match topic.kind() {
             GossipKind::BeaconBlock => self.beacon_block,
-            GossipKind::BlobSidecar(_) => self.blob_sidecar,
             GossipKind::DataColumnSidecar(_) => self.data_column_sidecar,
             GossipKind::BeaconAggregateAndProof => self.aggregates,
             GossipKind::Attestation(_) => self.attestation,
@@ -261,6 +266,9 @@ impl GossipCache {
             GossipKind::ExecutionPayloadBid => self.execution_payload_bid,
             GossipKind::PayloadAttestation => self.payload_attestation,
             GossipKind::ProposerPreferences => self.proposer_preferences,
+            // Relayed proofs are never queued for republication.
+            GossipKind::ExecutionProof => None,
+            GossipKind::InclusionList => self.inclusion_list,
             GossipKind::LightClientFinalityUpdate => self.light_client_finality_update,
             GossipKind::LightClientOptimisticUpdate => self.light_client_optimistic_update,
         };
@@ -284,7 +292,7 @@ impl GossipCache {
     // Get the registered messages for this topic.
     pub fn retrieve(&mut self, topic: &GossipTopic) -> Option<impl Iterator<Item = Vec<u8>> + '_> {
         if let Some(msgs) = self.topic_msgs.remove(topic) {
-            for (_, key) in msgs.iter() {
+            for key in msgs.values() {
                 self.expirations.remove(key);
             }
             Some(msgs.into_keys())

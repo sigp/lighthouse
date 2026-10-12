@@ -9,11 +9,13 @@ use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
+    ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsRef,
+    ProgressiveTransactions,
 };
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -43,46 +45,34 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub execution_payload: &'block ExecutionPayloadFulu<E>,
     #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: &'block ExecutionPayloadGloas<E>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
+    pub execution_payload: &'block ExecutionPayloadHeze<E>,
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub versioned_hashes: Vec<VersionedHash>,
-    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub parent_beacon_block_root: Hash256,
-    #[superstruct(only(Electra, Fulu, Gloas))]
-    pub execution_requests: &'block ExecutionRequests<E>,
+    #[superstruct(
+        only(Electra, Fulu),
+        partial_getter(rename = "execution_requests_electra")
+    )]
+    pub execution_requests: &'block ExecutionRequestsElectra<E>,
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "execution_requests_gloas"))]
+    pub execution_requests: &'block ExecutionRequestsGloas<E>,
+    #[superstruct(only(Heze))]
+    pub inclusion_list_transactions: ProgressiveTransactions,
 }
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     pub fn parent_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Bellatrix(payload) => payload.execution_payload.parent_hash,
-            Self::Capella(payload) => payload.execution_payload.parent_hash,
-            Self::Deneb(payload) => payload.execution_payload.parent_hash,
-            Self::Electra(payload) => payload.execution_payload.parent_hash,
-            Self::Fulu(payload) => payload.execution_payload.parent_hash,
-            Self::Gloas(payload) => payload.execution_payload.parent_hash,
-        }
+        self.execution_payload_ref().parent_hash()
     }
 
     pub fn block_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Bellatrix(payload) => payload.execution_payload.block_hash,
-            Self::Capella(payload) => payload.execution_payload.block_hash,
-            Self::Deneb(payload) => payload.execution_payload.block_hash,
-            Self::Electra(payload) => payload.execution_payload.block_hash,
-            Self::Fulu(payload) => payload.execution_payload.block_hash,
-            Self::Gloas(payload) => payload.execution_payload.block_hash,
-        }
+        self.execution_payload_ref().block_hash()
     }
 
     pub fn block_number(&self) -> u64 {
-        match self {
-            Self::Bellatrix(payload) => payload.execution_payload.block_number,
-            Self::Capella(payload) => payload.execution_payload.block_number,
-            Self::Deneb(payload) => payload.execution_payload.block_number,
-            Self::Electra(payload) => payload.execution_payload.block_number,
-            Self::Fulu(payload) => payload.execution_payload.block_number,
-            Self::Gloas(payload) => payload.execution_payload.block_number,
-        }
+        self.execution_payload_ref().block_number()
     }
 
     pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'block, E> {
@@ -93,20 +83,12 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             Self::Electra(request) => ExecutionPayloadRef::Electra(request.execution_payload),
             Self::Fulu(request) => ExecutionPayloadRef::Fulu(request.execution_payload),
             Self::Gloas(request) => ExecutionPayloadRef::Gloas(request.execution_payload),
+            Self::Heze(request) => ExecutionPayloadRef::Heze(request.execution_payload),
         }
     }
 
     pub fn into_execution_payload(self) -> ExecutionPayload<E> {
-        match self {
-            Self::Bellatrix(request) => {
-                ExecutionPayload::Bellatrix(request.execution_payload.clone())
-            }
-            Self::Capella(request) => ExecutionPayload::Capella(request.execution_payload.clone()),
-            Self::Deneb(request) => ExecutionPayload::Deneb(request.execution_payload.clone()),
-            Self::Electra(request) => ExecutionPayload::Electra(request.execution_payload.clone()),
-            Self::Fulu(request) => ExecutionPayload::Fulu(request.execution_payload.clone()),
-            Self::Gloas(request) => ExecutionPayload::Gloas(request.execution_payload.clone()),
-        }
+        self.execution_payload_ref().clone_from_ref()
     }
 
     /// Performs the required verifications of the payload when the chain is optimistically syncing.
@@ -121,6 +103,16 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
         self.verify_versioned_hashes()?;
 
         Ok(())
+    }
+
+    pub fn execution_requests_ref(&self) -> Option<ExecutionRequestsRef<'block, E>> {
+        match self {
+            Self::Bellatrix(_) | Self::Capella(_) | Self::Deneb(_) => None,
+            Self::Electra(r) => Some(ExecutionRequestsRef::Electra(r.execution_requests)),
+            Self::Fulu(r) => Some(ExecutionRequestsRef::Electra(r.execution_requests)),
+            Self::Gloas(r) => Some(ExecutionRequestsRef::Gloas(r.execution_requests)),
+            Self::Heze(r) => Some(ExecutionRequestsRef::Gloas(r.execution_requests)),
+        }
     }
 
     /// Verify the block hash is consistent locally within Lighthouse.
@@ -143,7 +135,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
         let (header_hash, rlp_transactions_root) = calculate_execution_block_hash(
             payload,
             parent_beacon_block_root,
-            self.execution_requests().ok().copied(),
+            self.execution_requests_ref(),
         );
 
         if header_hash != self.block_hash() {
@@ -222,6 +214,7 @@ impl<'a, E: EthSpec> TryFrom<BeaconBlockRef<'a, E>> for NewPayloadRequest<'a, E>
                 execution_requests: &block_ref.body.execution_requests,
             })),
             BeaconBlockRef::Gloas(_) => Err(Self::Error::IncorrectStateVariant),
+            BeaconBlockRef::Heze(_) => Err(Self::Error::IncorrectStateVariant),
         }
     }
 }
@@ -244,6 +237,7 @@ impl<'a, E: EthSpec> TryFrom<ExecutionPayloadRef<'a, E>> for NewPayloadRequest<'
             ExecutionPayloadRef::Fulu(_) => Err(Self::Error::IncorrectStateVariant),
             //TODO(EIP7732): Probably time to just get rid of this
             ExecutionPayloadRef::Gloas(_) => Err(Self::Error::IncorrectStateVariant),
+            ExecutionPayloadRef::Heze(_) => Err(Self::Error::IncorrectStateVariant),
         }
     }
 }

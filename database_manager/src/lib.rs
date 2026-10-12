@@ -55,7 +55,7 @@ pub fn display_db_version<E: EthSpec>(
     let blobs_path = client_config.get_blobs_db_path();
 
     let mut version = CURRENT_SCHEMA_VERSION;
-    HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
+    HotColdDB::<E, BeaconNodeBackend, BeaconNodeBackend>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -143,13 +143,13 @@ pub fn inspect_db<E: EthSpec>(
     let mut num_keys = 0;
 
     let sub_db = if inspect_config.freezer {
-        BeaconNodeBackend::<E>::open(&client_config.store, &cold_path)
+        BeaconNodeBackend::open(&client_config.store, &cold_path)
             .map_err(|e| format!("Unable to open freezer DB: {e:?}"))?
     } else if inspect_config.blobs_db {
-        BeaconNodeBackend::<E>::open(&client_config.store, &blobs_path)
+        BeaconNodeBackend::open(&client_config.store, &blobs_path)
             .map_err(|e| format!("Unable to open blobs DB: {e:?}"))?
     } else {
-        BeaconNodeBackend::<E>::open(&client_config.store, &hot_path)
+        BeaconNodeBackend::open(&client_config.store, &hot_path)
             .map_err(|e| format!("Unable to open hot DB: {e:?}"))?
     };
 
@@ -264,17 +264,17 @@ pub fn compact_db<E: EthSpec>(
 
     let (sub_db, db_name) = if compact_config.freezer {
         (
-            BeaconNodeBackend::<E>::open(&client_config.store, &cold_path)?,
+            BeaconNodeBackend::open(&client_config.store, &cold_path)?,
             "freezer_db",
         )
     } else if compact_config.blobs_db {
         (
-            BeaconNodeBackend::<E>::open(&client_config.store, &blobs_path)?,
+            BeaconNodeBackend::open(&client_config.store, &blobs_path)?,
             "blobs_db",
         )
     } else {
         (
-            BeaconNodeBackend::<E>::open(&client_config.store, &hot_path)?,
+            BeaconNodeBackend::open(&client_config.store, &hot_path)?,
             "hot_db",
         )
     };
@@ -309,7 +309,7 @@ pub fn migrate_db<E: EthSpec>(
 
     let mut from = CURRENT_SCHEMA_VERSION;
     let to = migrate_config.to;
-    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
+    let db = HotColdDB::<E, BeaconNodeBackend, BeaconNodeBackend>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -339,7 +339,7 @@ pub fn prune_payloads<E: EthSpec>(
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
 
-    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
+    let db = HotColdDB::<E, BeaconNodeBackend, BeaconNodeBackend>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
@@ -363,14 +363,30 @@ pub fn prune_blobs<E: EthSpec>(
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
 
-    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
+    let mut schema_version = CURRENT_SCHEMA_VERSION;
+    let db = HotColdDB::<E, BeaconNodeBackend, BeaconNodeBackend>::open(
         &hot_path,
         &cold_path,
         &blobs_path,
-        |_, _, _| Ok(()),
+        |_, db_initial_version, _| {
+            schema_version = db_initial_version;
+            Ok(())
+        },
         client_config.store,
         spec.clone(),
     )?;
+
+    // Pruning relies on the in-memory `DataInfo` marker, which `open` only loads on schema v32
+    // and later (schema migrations are deliberately not applied here). Refuse to prune with the
+    // uninitialized marker on older schemas.
+    if schema_version < SchemaVersion(32) {
+        return Err(Error::MigrationError(format!(
+            "database schema v{} is too old for blob pruning: run `lighthouse db migrate --to \
+             {}` or start the beacon node to upgrade the database first",
+            schema_version.as_u64(),
+            CURRENT_SCHEMA_VERSION.as_u64(),
+        )));
+    }
 
     // If we're triggering a prune manually then ignore the check on `epochs_per_blob_prune` that
     // bails out early by passing true to the force parameter.
@@ -398,7 +414,7 @@ pub fn prune_states<E: EthSpec>(
     let cold_path = client_config.get_freezer_db_path();
     let blobs_path = client_config.get_blobs_db_path();
 
-    let db = HotColdDB::<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>::open(
+    let db = HotColdDB::<E, BeaconNodeBackend, BeaconNodeBackend>::open(
         &hot_path,
         &cold_path,
         &blobs_path,

@@ -5,6 +5,9 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
@@ -15,14 +18,14 @@ directory = { workspace = true }
 dirs = { workspace = true }
 discv5 = { workspace = true }
 either = { workspace = true }
+enr = { workspace = true }
 eth2 = { workspace = true, features = ["lighthouse"] }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 fixed_bytes = { workspace = true }
 fnv = { workspace = true }
 futures = { workspace = true }
-# Enable partial messages feature
-gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/libp2p/rust-libp2p.git", features = ["partial_messages"] }
+hashlink = { workspace = true }
 hex = { workspace = true }
 if-addrs = "0.14"
 itertools = { workspace = true }
@@ -30,12 +33,11 @@ libp2p = { workspace = true }
 libp2p-mplex = { git = "https://github.com/libp2p/rust-libp2p.git" }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
-lru = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
 network_utils = { workspace = true }
 parking_lot = { workspace = true }
-prometheus-client = "0.24.0"
+prometheus-client = "0.25.1"
 rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }

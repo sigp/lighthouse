@@ -6,18 +6,17 @@ use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValue
 use crate::{KeyValueStoreOp, StoreConfig, config::DatabaseBackend};
 use std::collections::HashSet;
 use std::path::Path;
-use types::EthSpec;
 
-pub enum BeaconNodeBackend<E: EthSpec> {
+pub enum BeaconNodeBackend {
     #[cfg(feature = "leveldb")]
-    LevelDb(leveldb_impl::LevelDB<E>),
+    LevelDb(leveldb_impl::LevelDB),
     #[cfg(feature = "redb")]
-    Redb(redb_impl::Redb<E>),
+    Redb(redb_impl::Redb),
 }
 
-impl<E: EthSpec> ItemStore<E> for BeaconNodeBackend<E> {}
+impl ItemStore for BeaconNodeBackend {}
 
-impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
+impl KeyValueStore for BeaconNodeBackend {
     fn get_bytes(&self, column: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         match self {
             #[cfg(feature = "leveldb")]
@@ -183,7 +182,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
     }
 }
 
-impl<E: EthSpec> BeaconNodeBackend<E> {
+impl BeaconNodeBackend {
     pub fn open(config: &StoreConfig, path: &Path) -> Result<Self, Error> {
         metrics::inc_counter_vec(&metrics::DISK_DB_TYPE, &[&config.backend.to_string()]);
         match config.backend {

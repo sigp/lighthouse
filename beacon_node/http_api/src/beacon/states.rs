@@ -1,4 +1,5 @@
 use crate::StateId;
+use crate::caches::{HistoricalCommitteeCache, HistoricalShufflingId};
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::ResponseFilter;
 use crate::validator::pubkey_to_validator_index;
@@ -8,16 +9,16 @@ use crate::version::{
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::{
-    self as api_types, ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody,
-    ValidatorIndexData, ValidatorsRequestBody,
+    self as api_types, BuildersRequestBody, ValidatorBalancesRequestBody, ValidatorId,
+    ValidatorIdentitiesRequestBody, ValidatorIndexData, ValidatorsRequestBody,
 };
 use ssz::Encode;
 use std::sync::Arc;
-use types::{AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch};
-use warp::filters::BoxedFilter;
-use warp::http::Response;
-use warp::hyper::Body;
-use warp::{Filter, Reply};
+use types::{
+    AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch,
+    RelativeEpochError,
+};
+use warp::{Filter, Reply, filters::BoxedFilter, http::response::Builder};
 use warp_utils::query::multi_key_query;
 
 type BeaconStatesPath<T> = BoxedFilter<(
@@ -26,6 +27,8 @@ type BeaconStatesPath<T> = BoxedFilter<(
     Arc<BeaconChain<T>>,
 )>;
 
+type BeaconStatesCommitteesFilter = BoxedFilter<(Arc<HistoricalCommitteeCache>,)>;
+
 // GET beacon/states/{state_id}/pending_consolidations
 pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
     beacon_states_path: BeaconStatesPath<T>,
@@ -33,10 +36,12 @@ pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
     beacon_states_path
         .and(warp::path("pending_consolidations"))
         .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let (data, execution_optimistic, finalized, fork_name) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
@@ -49,7 +54,7 @@ pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
                                 };
 
                                 Ok((
-                                    consolidations.clone(),
+                                    consolidations.to_owned_list(),
                                     execution_optimistic,
                                     finalized,
                                     state.fork_name_unchecked(),
@@ -57,13 +62,25 @@ pub fn get_beacon_state_pending_consolidations<T: BeaconChainTypes>(
                             },
                         )?;
 
-                    execution_optimistic_finalized_beacon_response(
-                        ResponseIncludesVersion::Yes(fork_name),
-                        execution_optimistic,
-                        finalized,
-                        data,
-                    )
-                    .map(|res| warp::reply::json(&res).into_response())
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(data.to_vec().as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => execution_optimistic_finalized_beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            execution_optimistic,
+                            finalized,
+                            data,
+                        )
+                        .map(|res| warp::reply::json(&res).into_response()),
+                    }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },
@@ -79,10 +96,12 @@ pub fn get_beacon_state_pending_partial_withdrawals<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("pending_partial_withdrawals"))
         .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let (data, execution_optimistic, finalized, fork_name) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
@@ -95,7 +114,7 @@ pub fn get_beacon_state_pending_partial_withdrawals<T: BeaconChainTypes>(
                                 };
 
                                 Ok((
-                                    withdrawals.clone(),
+                                    withdrawals.to_owned_list(),
                                     execution_optimistic,
                                     finalized,
                                     state.fork_name_unchecked(),
@@ -103,13 +122,25 @@ pub fn get_beacon_state_pending_partial_withdrawals<T: BeaconChainTypes>(
                             },
                         )?;
 
-                    execution_optimistic_finalized_beacon_response(
-                        ResponseIncludesVersion::Yes(fork_name),
-                        execution_optimistic,
-                        finalized,
-                        data,
-                    )
-                    .map(|res| warp::reply::json(&res).into_response())
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(data.to_vec().as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => execution_optimistic_finalized_beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            execution_optimistic,
+                            finalized,
+                            data,
+                        )
+                        .map(|res| warp::reply::json(&res).into_response()),
+                    }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },
@@ -125,10 +156,12 @@ pub fn get_beacon_state_pending_deposits<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("pending_deposits"))
         .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>| {
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let (data, execution_optimistic, finalized, fork_name) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
@@ -141,21 +174,32 @@ pub fn get_beacon_state_pending_deposits<T: BeaconChainTypes>(
                                 };
 
                                 Ok((
-                                    deposits.clone(),
+                                    deposits.to_owned_list(),
                                     execution_optimistic,
                                     finalized,
                                     state.fork_name_unchecked(),
                                 ))
                             },
                         )?;
-
-                    execution_optimistic_finalized_beacon_response(
-                        ResponseIncludesVersion::Yes(fork_name),
-                        execution_optimistic,
-                        finalized,
-                        data,
-                    )
-                    .map(|res| warp::reply::json(&res).into_response())
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(data.to_vec().as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => execution_optimistic_finalized_beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            execution_optimistic,
+                            finalized,
+                            data,
+                        )
+                        .map(|res| warp::reply::json(&res).into_response()),
+                    }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },
@@ -199,10 +243,10 @@ pub fn get_beacon_state_proposer_lookahead<T: BeaconChainTypes>(
                         )?;
 
                     match accept_header {
-                        Some(api_types::Accept::Ssz) => Response::builder()
+                        Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
-                            .body(data.as_ssz_bytes().into())
-                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .body(data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "failed to create response: {}",
@@ -337,17 +381,20 @@ pub fn get_beacon_state_sync_committees<T: BeaconChainTypes>(
 // GET beacon/states/{state_id}/committees?slot,index,epoch
 pub fn get_beacon_state_committees<T: BeaconChainTypes>(
     beacon_states_path: BeaconStatesPath<T>,
+    beacon_states_committees_filter: BeaconStatesCommitteesFilter,
 ) -> ResponseFilter {
     beacon_states_path
         .clone()
         .and(warp::path("committees"))
         .and(warp::query::<eth2::types::CommitteesQuery>())
+        .and(beacon_states_committees_filter)
         .and(warp::path::end())
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             query: eth2::types::CommitteesQuery| {
+             query: eth2::types::CommitteesQuery,
+             historical_committee_cache: Arc<HistoricalCommitteeCache>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     let (data, execution_optimistic, finalized) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
@@ -364,97 +411,75 @@ pub fn get_beacon_state_committees<T: BeaconChainTypes>(
                                 let shuffling_id = if let Ok(Some(shuffling_decision_block)) =
                                     chain.block_root_at_slot(decision_slot, WhenSlotSkipped::Prev)
                                 {
-                                    Some(AttestationShufflingId {
-                                        shuffling_epoch: epoch,
-                                        shuffling_decision_block,
-                                    })
+                                    Some(HistoricalShufflingId::ShufflingId(
+                                        AttestationShufflingId {
+                                            shuffling_epoch: epoch,
+                                            shuffling_decision_block,
+                                        },
+                                    ))
+                                } else if epoch < chain.head().finalized_checkpoint().epoch {
+                                    // Use the case for finalized epochs
+                                    Some(HistoricalShufflingId::FinalizedEpoch(epoch))
                                 } else {
                                     None
                                 };
 
                                 // Attempt to read from the chain cache if there exists a
                                 // shuffling_id
-                                let maybe_cached_shuffling = if let Some(shuffling_id) =
-                                    shuffling_id.as_ref()
-                                {
-                                    chain
-                                        .shuffling_cache
-                                        .try_write_for(std::time::Duration::from_secs(1))
-                                        .and_then(|mut cache_write| cache_write.get(shuffling_id))
-                                        .and_then(|cache_item| cache_item.wait().ok())
-                                } else {
-                                    None
-                                };
+                                let maybe_cached_shuffling =
+                                    if let Some(shuffling_id) = shuffling_id.as_ref() {
+                                        historical_committee_cache.get(shuffling_id)
+                                    } else {
+                                        None
+                                    };
 
                                 let committee_cache =
                                     if let Some(shuffling) = maybe_cached_shuffling {
                                         shuffling
                                     } else {
-                                        let possibly_built_cache =
-                                            match RelativeEpoch::from_epoch(current_epoch, epoch) {
-                                                Ok(relative_epoch)
-                                                    if state.committee_cache_is_initialized(
-                                                        relative_epoch,
-                                                    ) =>
-                                                {
-                                                    state.committee_cache(relative_epoch).cloned()
-                                                }
-                                                _ => CommitteeCache::initialized(
+                                        let committee_cache = match RelativeEpoch::from_epoch(
+                                            current_epoch,
+                                            epoch,
+                                        ) {
+                                            Ok(relative_epoch)
+                                                if state.committee_cache_is_initialized(
+                                                    relative_epoch,
+                                                ) =>
+                                            {
+                                                state.committee_cache(relative_epoch).cloned()
+                                            }
+                                            Ok(_) | Err(RelativeEpochError::EpochTooLow { .. }) => {
+                                                CommitteeCache::initialized(
                                                     state,
                                                     epoch,
                                                     &chain.spec,
-                                                ),
+                                                )
                                             }
-                                            .map_err(
-                                                |e| match e {
-                                                    BeaconStateError::EpochOutOfBounds => {
-                                                        let max_sprp =
-                                                            T::EthSpec::slots_per_historical_root()
-                                                                as u64;
-                                                        let first_subsequent_restore_point_slot =
-                                                            ((epoch.start_slot(
-                                                                T::EthSpec::slots_per_epoch(),
-                                                            ) / max_sprp)
-                                                                + 1)
-                                                                * max_sprp;
-                                                        if epoch < current_epoch {
-                                                            warp_utils::reject::custom_bad_request(
-                                                                format!(
-                                                        "epoch out of bounds, \
-                                                                 try state at slot {}",
-                                                        first_subsequent_restore_point_slot,
-                                                    ),
-                                                            )
-                                                        } else {
-                                                            warp_utils::reject::custom_bad_request(
-                                                                "epoch out of bounds, \
-                                                             too far in future"
-                                                                    .into(),
-                                                            )
-                                                        }
-                                                    }
-                                                    _ => warp_utils::reject::unhandled_error(
-                                                        BeaconChainError::from(e),
-                                                    ),
-                                                },
-                                            )?;
+                                            Err(RelativeEpochError::EpochTooHigh { .. }) => {
+                                                Err(BeaconStateError::EpochOutOfBounds)
+                                            }
+                                            Err(RelativeEpochError::ArithError(e)) => {
+                                                Err(BeaconStateError::ArithError(e))
+                                            }
+                                        }
+                                        .map_err(|e| match e {
+                                            BeaconStateError::EpochOutOfBounds => {
+                                                warp_utils::reject::custom_bad_request(format!(
+                                                    "epoch {} out of bounds for state at {}",
+                                                    epoch, current_epoch
+                                                ))
+                                            }
+                                            _ => warp_utils::reject::unhandled_error(
+                                                BeaconChainError::from(e),
+                                            ),
+                                        })?;
 
-                                        // Attempt to write to the beacon cache (only if the cache
-                                        // size is not the default value).
-                                        if chain.config.shuffling_cache_size
-                                            != beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
-                                            && let Some(shuffling_id) = shuffling_id
-                                            && let Some(mut cache_write) = chain
-                                                .shuffling_cache
-                                                .try_write_for(std::time::Duration::from_secs(1))
-                                        {
-                                            cache_write.insert_committee_cache(
-                                                shuffling_id,
-                                                &possibly_built_cache,
-                                            );
+                                        if let Some(shuffling_id) = shuffling_id {
+                                            historical_committee_cache
+                                                .insert(shuffling_id, committee_cache.clone());
                                         }
 
-                                        possibly_built_cache
+                                        committee_cache
                                     };
 
                                 // Use either the supplied slot or all slots in the epoch.
@@ -635,6 +660,33 @@ pub fn post_beacon_state_validators<T: BeaconChainTypes>(
         .boxed()
 }
 
+// POST beacon/states/{state_id}/builders
+pub fn post_beacon_state_builders<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("builders"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json_no_body())
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             query: BuildersRequestBody| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    crate::builders::get_beacon_state_builders(
+                        state_id,
+                        chain,
+                        &query.ids,
+                        &query.statuses,
+                    )
+                })
+            },
+        )
+        .boxed()
+}
+
 // GET beacon/states/{state_id}/validators?id,status
 pub fn get_beacon_state_validators<T: BeaconChainTypes>(
     beacon_states_path: BeaconStatesPath<T>,
@@ -679,11 +731,13 @@ pub fn post_beacon_state_validator_identities<T: BeaconChainTypes>(
         .and(warp::path("validator_identities"))
         .and(warp::path::end())
         .and(warp_utils::json::json_no_body())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .then(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             query: ValidatorIdentitiesRequestBody| {
+             query: ValidatorIdentitiesRequestBody,
+             accept_header: Option<api_types::Accept>| {
                 // Prioritise requests for validators at the head. These should be fast to service
                 // and could be required by the validator client.
                 let priority = if let StateId(eth2::types::StateId::Head) = state_id {
@@ -691,12 +745,25 @@ pub fn post_beacon_state_validator_identities<T: BeaconChainTypes>(
                 } else {
                     Priority::P1
                 };
-                task_spawner.blocking_json_task(priority, move || {
-                    crate::validators::get_beacon_state_validator_identities(
+                task_spawner.blocking_response_task(priority, move || {
+                    let result = crate::validators::get_beacon_state_validator_identities(
                         state_id,
                         chain,
                         Some(&query.ids),
-                    )
+                    )?;
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(result.data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(&result).into_response()),
+                    }
                 })
             },
         )

@@ -338,7 +338,7 @@ fn do_transition<E: EthSpec>(
 
     // Transition the parent state to the block slot.
     let t = Instant::now();
-    complete_state_advance(&mut pre_state, Some(state_root), block.slot(), spec)
+    complete_state_advance(&mut pre_state, Some(state_root), block.slot(), None, spec)
         .map_err(|e| format!("Unable to perform complete advance: {e:?}"))?;
     debug!("Slot processing: {:?}", t.elapsed());
 

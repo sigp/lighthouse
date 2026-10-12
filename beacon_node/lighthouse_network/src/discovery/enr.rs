@@ -1,13 +1,12 @@
 //! Helper functions and an extension trait for Ethereum 2 ENRs.
 
-pub use discv5::enr::CombinedKey;
+pub use enr::{CombinedKey, NodeId};
 
 use super::ENR_FILENAME;
 use crate::NetworkConfig;
 use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use alloy_rlp::bytes::Bytes;
 use libp2p::identity::Keypair;
-use lighthouse_version::{client_name, version};
 use network_utils::enr_ext::CombinedKeyExt;
 use network_utils::enr_ext::{EnrExt, QUIC_ENR_KEY, QUIC6_ENR_KEY};
 use ssz::{Decode, Encode};
@@ -189,7 +188,7 @@ pub fn build_enr<E: EthSpec>(
     next_fork_digest: [u8; 4],
     spec: &ChainSpec,
 ) -> Result<Enr, String> {
-    let mut builder = discv5::enr::Enr::builder();
+    let mut builder = enr::Enr::builder();
     let (maybe_ipv4_address, maybe_ipv6_address) = &config.enr_address;
 
     if let Some(ip) = maybe_ipv4_address {
@@ -218,11 +217,6 @@ pub fn build_enr<E: EthSpec>(
             .and_then(|v6_addr| v6_addr.disc_port.try_into().ok())
     }) {
         builder.udp6(udp6_port.get());
-    }
-
-    // Add EIP 7636 client information
-    if !config.private {
-        builder.client_info(client_name().to_string(), version().to_string(), None);
     }
 
     // Add QUIC fields to the ENR.
@@ -320,11 +314,12 @@ fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
         && (local_enr.udp4().is_none() || local_enr.udp4() == disk_enr.udp4())
         && (local_enr.udp6().is_none() || local_enr.udp6() == disk_enr.udp6())
         // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY and
-        // PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY key to match, otherwise we use a new ENR. This will
-        // likely only be true for non-validating nodes.
+        // PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY and NEXT_FORK_DIGEST_ENR_KEY keys to match,
+        // otherwise we use a new ENR. This will likely only be true for non-validating nodes.
         && local_enr.get_decodable::<Bytes>(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get_decodable(ATTESTATION_BITFIELD_ENR_KEY)
         && local_enr.get_decodable::<Bytes>(SYNC_COMMITTEE_BITFIELD_ENR_KEY) == disk_enr.get_decodable(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
         && local_enr.get_decodable::<Bytes>(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY) == disk_enr.get_decodable(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY)
+        && local_enr.get_decodable::<Bytes>(NEXT_FORK_DIGEST_ENR_KEY) == disk_enr.get_decodable(NEXT_FORK_DIGEST_ENR_KEY)
 }
 
 /// Loads enr from the given directory

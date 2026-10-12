@@ -1,5 +1,6 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
-use bls::{PublicKeyBytes, Signature};
+use bls::{AggregateSignature, PublicKeyBytes, Signature};
+use builder_types::{RequestAuth, SignedRequestAuth};
 use doppelganger_service::DoppelgangerService;
 use eth2::types::PublishBlockRequest;
 use futures::{Stream, future::join_all, stream};
@@ -19,15 +20,15 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use types::{
-    AbstractExecPayload, Address, AggregateAndProof, Attestation, BeaconBlock, BlindedPayload,
-    ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, ExecutionPayloadEnvelope, Fork,
-    FullPayload, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
-    graffiti::GraffitiString,
+    AbstractExecPayload, Address, AggregateAndProof, Attestation, AttestationData, BeaconBlock,
+    BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec,
+    ExecutionPayloadEnvelope, Fork, FullPayload, Graffiti, Hash256, PayloadAttestationData,
+    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
+    SingleAttestation, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    VoluntaryExit, graffiti::GraffitiString,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -58,10 +59,7 @@ pub struct Config {
 /// This acts as a maximum safe-guard against clock drift.
 const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 1;
 
-/// Currently used as the default gas limit in execution clients.
-///
-/// https://ethpandaops.io/posts/gaslimit-scaling/.
-pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
+pub use types::DEFAULT_GAS_LIMIT;
 
 pub struct LighthouseValidatorStore<T, E> {
     validators: Arc<RwLock<InitializedValidators>>,
@@ -328,19 +326,48 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     ///
     /// 1. validator_definitions.yml
     /// 2. process level gas limit
-    /// 3. `DEFAULT_GAS_LIMIT`
+    /// 3. `ChainSpec::default_gas_limit` at the current epoch: the gas limit schedule (EIP-8261)
+    ///    from the Gloas fork, else `DEFAULT_GAS_LIMIT`
     pub fn get_gas_limit(&self, validator_pubkey: &PublicKeyBytes) -> u64 {
-        self.get_gas_limit_defaulting(self.validators.read().gas_limit(validator_pubkey))
+        self.get_gas_limit_defaulting(
+            self.validators.read().gas_limit(validator_pubkey),
+            self.current_epoch(),
+        )
     }
 
-    fn get_gas_limit_defaulting(&self, gas_limit: Option<u64>) -> u64 {
+    fn current_epoch(&self) -> Option<Epoch> {
+        self.slot_clock
+            .now()
+            .map(|slot| slot.epoch(E::slots_per_epoch()))
+    }
+
+    fn get_gas_limit_defaulting(&self, gas_limit: Option<u64>, epoch: Option<Epoch>) -> u64 {
         // If there is a `gas_limit` in the validator definitions yaml
-        // file, use that value.
-        gas_limit
-            // If there's nothing in the file, try the process-level default value.
-            .or(self.gas_limit)
-            // If there's no process-level default, use the `DEFAULT_GAS_LIMIT`.
-            .unwrap_or(DEFAULT_GAS_LIMIT)
+        // file, use that value. If there's nothing in the file, try the
+        // process-level value.
+        gas_limit.or(self.gas_limit).unwrap_or_else(|| {
+            epoch.map_or(DEFAULT_GAS_LIMIT, |epoch| {
+                self.spec.default_gas_limit(epoch)
+            })
+        })
+    }
+
+    fn proposal_data_with_epoch(
+        &self,
+        pubkey: &PublicKeyBytes,
+        epoch: Option<Epoch>,
+    ) -> Option<ProposalData> {
+        self.validators
+            .read()
+            .validator(pubkey)
+            .map(|validator| ProposalData {
+                validator_index: validator.get_index(),
+                fee_recipient: self
+                    .get_fee_recipient_defaulting(validator.get_suggested_fee_recipient()),
+                gas_limit: self.get_gas_limit_defaulting(validator.get_gas_limit(), epoch),
+                builder_proposals: self
+                    .get_builder_proposals_defaulting(validator.get_builder_proposals()),
+            })
     }
 
     /// Returns a `bool` for the given public key that denotes whether this validator should use the
@@ -561,39 +588,35 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         })
     }
 
-    /// Sign an attestation without performing any slashing protection checks.
+    /// Sign AttestationData without performing any slashing protection checks.
     ///
     /// THIS METHOD IS DANGEROUS AND SHOULD ONLY BE USED INTERNALLY IMMEDIATELY PRIOR TO A
     /// SLASHING PROTECTION CHECK. See `slashing_protect_attestations`.
     ///
     /// This method DOES perform doppelganger protection checks.
     #[instrument(level = "debug", skip_all)]
-    async fn sign_attestation_no_slashing_protection(
+    async fn sign_attestation_data_no_slashing_protection(
         &self,
         validator_pubkey: PublicKeyBytes,
-        validator_committee_position: usize,
-        attestation: &mut Attestation<E>,
-    ) -> Result<(), Error> {
+        data: &AttestationData,
+    ) -> Result<AggregateSignature, Error> {
         // Get the signing method and check doppelganger protection.
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
 
-        // Sign the attestation.
-        let signing_epoch = attestation.data().target.epoch;
+        // Sign the attestation data.
+        let signing_epoch = data.target.epoch;
         let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
 
         let signature = signing_method
             .get_signature::<E, BlindedPayload<E>>(
-                SignableMessage::AttestationData(attestation.data()),
+                SignableMessage::AttestationData(data),
                 signing_context,
                 &self.spec,
                 &self.task_executor,
             )
             .await?;
-        attestation
-            .add_signature(&signature, validator_committee_position)
-            .map_err(Error::UnableToSignAttestation)?;
 
-        Ok(())
+        Ok(AggregateSignature::from(&signature))
     }
 
     /// Provide slashing protection for `attestations`, safely updating the slashing protection DB.
@@ -607,8 +630,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     #[instrument(level = "debug", skip_all)]
     fn slashing_protect_attestations(
         &self,
-        attestations: Vec<(u64, Attestation<E>, PublicKeyBytes)>,
-    ) -> Result<Vec<(u64, Attestation<E>)>, Error> {
+        attestations: Vec<(SingleAttestation, PublicKeyBytes)>,
+    ) -> Result<Vec<SingleAttestation>, Error> {
         let mut safe_attestations = Vec::with_capacity(attestations.len());
         let mut attestations_to_check = Vec::with_capacity(attestations.len());
 
@@ -617,9 +640,9 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         //
         // All attestations are added to `attestation_to_check`, with skipped attestations having
         // `CheckSlashability::No`.
-        for (_, attestation, validator_pubkey) in &attestations {
+        for (attestation, validator_pubkey) in &attestations {
             let signing_method = self.doppelganger_checked_signing_method(*validator_pubkey)?;
-            let signing_epoch = attestation.data().target.epoch;
+            let signing_epoch = attestation.data.target.epoch;
             let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
             let domain_hash = signing_context.domain_hash(&self.spec);
 
@@ -631,7 +654,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 CheckSlashability::No
             };
             attestations_to_check.push((
-                attestation.data(),
+                &attestation.data,
                 validator_pubkey,
                 domain_hash,
                 check_slashability,
@@ -647,12 +670,12 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             .check_and_insert_attestations(&attestations_to_check)
             .map_err(Error::Slashable)?;
 
-        for ((validator_index, attestation, validator_pubkey), slashing_status) in
+        for ((attestation, validator_pubkey), slashing_status) in
             attestations.into_iter().zip(results.into_iter())
         {
             match slashing_status {
                 Ok(Safe::Valid) => {
-                    safe_attestations.push((validator_index, attestation));
+                    safe_attestations.push(attestation);
                     validator_metrics::inc_counter_vec(
                         &validator_metrics::SIGNED_ATTESTATIONS_TOTAL,
                         &[validator_metrics::SUCCESS],
@@ -678,8 +701,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 }
                 Err(e) => {
                     warn!(
-                        slot = %attestation.data().slot,
-                        block_root = ?attestation.data().beacon_block_root,
+                        slot = %attestation.data.slot,
+                        block_root = ?attestation.data.beacon_block_root,
                         public_key = ?validator_pubkey,
                         error = ?e,
                         "Skipping signing of slashable attestation"
@@ -942,12 +965,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                     }
                 })
             })
-            .and_then(|factor| {
-                // If builder boost factor is set to 100 it should be treated
-                // as None to prevent unnecessary calculations that could
-                // lead to loss of information.
-                if factor == 100 { None } else { Some(factor) }
-            })
+            // If builder boost factor is set to 100 it should be treated as None
+            // to prevent unnecessary calculations that could lead to loss of information.
+            .filter(|&factor| factor != 100)
     }
 
     async fn randao_reveal(
@@ -981,6 +1001,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         validator_pubkey: PublicKeyBytes,
         block: UnsignedBlock<E>,
         current_slot: Slot,
+        _local_payload_root: Option<Hash256>,
     ) -> Result<SignedBlock<E>, Error> {
         match block {
             UnsignedBlock::Full(block) => {
@@ -1000,32 +1021,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
     fn sign_attestations(
         self: &Arc<Self>,
-        mut attestations: Vec<AttestationToSign<E>>,
-    ) -> impl Stream<Item = Result<Vec<(u64, Attestation<E>)>, Error>> + Send {
+        attestations: Vec<AttestationToSign>,
+    ) -> impl Stream<Item = Result<Vec<SingleAttestation>, Error>> + Send {
         let store = self.clone();
         stream::once(async move {
             // Sign all attestations concurrently.
-            let signing_futures = attestations.iter_mut().map(
-                |AttestationToSign {
-                     pubkey,
-                     validator_committee_index,
-                     attestation,
-                     ..
-                 }| {
-                    let pubkey = *pubkey;
-                    let validator_committee_index = *validator_committee_index;
-                    let store = store.clone();
-                    async move {
-                        store
-                            .sign_attestation_no_slashing_protection(
-                                pubkey,
-                                validator_committee_index,
-                                attestation,
-                            )
-                            .await
-                    }
-                },
-            );
+            let signing_futures =
+                attestations
+                    .iter()
+                    .map(|AttestationToSign { pubkey, data, .. }| {
+                        let pubkey = *pubkey;
+                        let store = store.clone();
+                        async move {
+                            store
+                                .sign_attestation_data_no_slashing_protection(pubkey, data)
+                                .await
+                        }
+                    });
 
             // Execute all signing in parallel.
             let results: Vec<_> = join_all(signing_futures).await;
@@ -1034,10 +1046,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             let mut signed_attestations = Vec::with_capacity(attestations.len());
             for (result, att) in results.into_iter().zip(attestations) {
                 match result {
-                    Ok(()) => {
+                    Ok(signature) => {
                         signed_attestations.push((
-                            att.validator_index,
-                            att.attestation,
+                            SingleAttestation {
+                                committee_index: att.committee_index,
+                                attester_index: att.attester_index,
+                                data: att.data,
+                                signature,
+                            },
                             att.pubkey,
                         ));
                     }
@@ -1412,17 +1428,15 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
     /// `ProposalData` fields include defaulting logic described in `get_fee_recipient_defaulting`,
     /// `get_gas_limit_defaulting`, and `get_builder_proposals_defaulting`.
     fn proposal_data(&self, pubkey: &PublicKeyBytes) -> Option<ProposalData> {
-        self.validators
-            .read()
-            .validator(pubkey)
-            .map(|validator| ProposalData {
-                validator_index: validator.get_index(),
-                fee_recipient: self
-                    .get_fee_recipient_defaulting(validator.get_suggested_fee_recipient()),
-                gas_limit: self.get_gas_limit_defaulting(validator.get_gas_limit()),
-                builder_proposals: self
-                    .get_builder_proposals_defaulting(validator.get_builder_proposals()),
-            })
+        self.proposal_data_with_epoch(pubkey, self.current_epoch())
+    }
+
+    fn proposal_data_at_epoch(
+        &self,
+        pubkey: &PublicKeyBytes,
+        epoch: Epoch,
+    ) -> Option<ProposalData> {
+        self.proposal_data_with_epoch(pubkey, Some(epoch))
     }
 
     async fn sign_payload_attestation(
@@ -1513,5 +1527,185 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             message: preferences,
             signature,
         })
+    }
+
+    async fn sign_request_auth_v1(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        request_auth_v1: RequestAuth,
+    ) -> Result<SignedRequestAuth, Error> {
+        let domain_hash = self.spec.get_request_auth_domain();
+        let signing_root = request_auth_v1.signing_root(domain_hash);
+
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+        let signature = signing_method
+            .get_signature_from_root::<E, BlindedPayload<E>>(
+                SignableMessage::RequestAuth(&request_auth_v1),
+                signing_root,
+                &self.task_executor,
+                None,
+            )
+            .await?;
+
+        Ok(SignedRequestAuth {
+            message: request_auth_v1,
+            signature,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use account_utils::validator_definitions::ValidatorDefinitions;
+    use bls::FixedBytesExtended;
+    use slot_clock::TestingSlotClock;
+    use std::time::Duration;
+    use task_executor::test_utils::TestRuntime;
+    use tempfile::{TempDir, tempdir};
+    use types::{Epoch, GasLimitSchedule, GasLimitScheduleEntry, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+
+    const GLOAS_FORK_EPOCH: u64 = 4;
+    const SCHEDULED_GAS_LIMIT: u64 = 70_000_000;
+    const LATER_SCHEDULED_GAS_LIMIT: u64 = 80_000_000;
+    const LATER_SCHEDULE_EPOCH: u64 = 6;
+
+    fn gloas_spec_with_schedule(schedule: Vec<GasLimitScheduleEntry>) -> ChainSpec {
+        let mut spec = E::default_spec();
+        spec.gloas_fork_epoch = Some(Epoch::new(GLOAS_FORK_EPOCH));
+        spec.gas_limit_schedule = GasLimitSchedule::new(schedule);
+        spec
+    }
+
+    fn default_schedule() -> Vec<GasLimitScheduleEntry> {
+        vec![
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(GLOAS_FORK_EPOCH),
+                gas_limit: SCHEDULED_GAS_LIMIT,
+            },
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(LATER_SCHEDULE_EPOCH),
+                gas_limit: LATER_SCHEDULED_GAS_LIMIT,
+            },
+        ]
+    }
+
+    async fn build_store(
+        spec: ChainSpec,
+        process_gas_limit: Option<u64>,
+        slot_clock: TestingSlotClock,
+    ) -> (LighthouseValidatorStore<TestingSlotClock, E>, TempDir) {
+        let validator_dir = tempdir().unwrap();
+        let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
+        let initialized_validators = InitializedValidators::from_definitions(
+            validator_defs,
+            validator_dir.path().into(),
+            Default::default(),
+        )
+        .await
+        .unwrap();
+        let slashing_protection =
+            SlashingDatabase::open_or_create(&validator_dir.path().join("slashing.sqlite"))
+                .unwrap();
+        let config = Config {
+            gas_limit: process_gas_limit,
+            ..Config::default()
+        };
+        let test_runtime = TestRuntime::default();
+        let store = LighthouseValidatorStore::new(
+            initialized_validators,
+            slashing_protection,
+            Hash256::zero(),
+            Arc::new(spec),
+            None,
+            slot_clock,
+            &config,
+            test_runtime.task_executor.clone(),
+        );
+        (store, validator_dir)
+    }
+
+    fn slot_clock_at_epoch(epoch: u64) -> TestingSlotClock {
+        let clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_secs(12),
+        );
+        clock.set_slot(Epoch::new(epoch).start_slot(E::slots_per_epoch()).as_u64());
+        clock
+    }
+
+    #[tokio::test]
+    async fn gas_limit_schedule_acts_as_default() {
+        let spec = gloas_spec_with_schedule(default_schedule());
+        let clock = slot_clock_at_epoch(0);
+        let (store, _dir) = build_store(spec, None, clock.clone()).await;
+        let pubkey = PublicKeyBytes::empty();
+
+        // Before the Gloas fork the schedule is inactive.
+        assert_eq!(store.get_gas_limit(&pubkey), DEFAULT_GAS_LIMIT);
+
+        // At the Gloas fork the first schedule entry becomes the default.
+        clock.set_slot(
+            Epoch::new(GLOAS_FORK_EPOCH)
+                .start_slot(E::slots_per_epoch())
+                .as_u64(),
+        );
+        assert_eq!(store.get_gas_limit(&pubkey), SCHEDULED_GAS_LIMIT);
+
+        // The default switches at the next entry's epoch without a restart.
+        clock.set_slot(
+            Epoch::new(LATER_SCHEDULE_EPOCH)
+                .start_slot(E::slots_per_epoch())
+                .as_u64(),
+        );
+        assert_eq!(store.get_gas_limit(&pubkey), LATER_SCHEDULED_GAS_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn configured_gas_limit_takes_precedence_over_schedule() {
+        let spec = gloas_spec_with_schedule(default_schedule());
+        let clock = slot_clock_at_epoch(GLOAS_FORK_EPOCH);
+        let process_gas_limit = 100_000_000;
+        let (store, _dir) = build_store(spec, Some(process_gas_limit), clock).await;
+
+        assert_eq!(
+            store.get_gas_limit(&PublicKeyBytes::empty()),
+            process_gas_limit
+        );
+    }
+
+    #[tokio::test]
+    async fn gas_limit_schedule_uses_the_given_epoch_not_the_wall_clock() {
+        let spec = gloas_spec_with_schedule(default_schedule());
+        let clock = slot_clock_at_epoch(GLOAS_FORK_EPOCH - 1);
+        let (store, _dir) = build_store(spec, None, clock).await;
+
+        assert_eq!(
+            store.get_gas_limit(&PublicKeyBytes::empty()),
+            DEFAULT_GAS_LIMIT
+        );
+        assert_eq!(
+            store.get_gas_limit_defaulting(None, Some(Epoch::new(GLOAS_FORK_EPOCH))),
+            SCHEDULED_GAS_LIMIT
+        );
+        assert_eq!(
+            store.get_gas_limit_defaulting(None, Some(Epoch::new(LATER_SCHEDULE_EPOCH))),
+            LATER_SCHEDULED_GAS_LIMIT
+        );
+    }
+
+    #[tokio::test]
+    async fn empty_schedule_falls_back_to_default_gas_limit() {
+        let spec = gloas_spec_with_schedule(vec![]);
+        let clock = slot_clock_at_epoch(GLOAS_FORK_EPOCH);
+        let (store, _dir) = build_store(spec, None, clock).await;
+
+        assert_eq!(
+            store.get_gas_limit(&PublicKeyBytes::empty()),
+            DEFAULT_GAS_LIMIT
+        );
     }
 }

@@ -1,15 +1,10 @@
 use crate::errors::BeaconChainError;
 use crate::{BeaconChainTypes, BeaconStore, metrics};
+use hashlink::lru_cache::LruCache;
 use parking_lot::{Mutex, RwLock};
-use safe_arith::SafeArith;
-use ssz::Decode;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
-use store::DBColumn;
-use store::KeyValueStore;
 use tracing::debug;
 use tree_hash::TreeHash;
-use types::new_non_zero_usize;
 use types::{
     BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, EthSpec, ForkName, Hash256,
     LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
@@ -19,7 +14,7 @@ use types::{
 /// A prev block cache miss requires to re-generate the state of the post-parent block. Items in the
 /// prev block cache are very small 32 * (6 + 1) = 224 bytes. 32 is an arbitrary number that
 /// represents unlikely re-orgs, while keeping the cache very small.
-const PREV_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(32);
+const PREV_BLOCK_CACHE_SIZE: usize = 32;
 
 /// This cache computes light client messages ahead of time, required to satisfy p2p and API
 /// requests. These messages include proofs on historical states, so on-demand computation is
@@ -39,7 +34,7 @@ pub struct LightClientServerCache<T: BeaconChainTypes> {
     /// Caches the current sync committee,
     latest_written_current_sync_committee: RwLock<Option<Arc<SyncCommittee<T::EthSpec>>>>,
     /// Caches state proofs by block root
-    prev_block_cache: Mutex<lru::LruCache<Hash256, LightClientCachedData<T::EthSpec>>>,
+    prev_block_cache: Mutex<LruCache<Hash256, LightClientCachedData<T::EthSpec>>>,
     /// Tracks the latest broadcasted finality update
     latest_broadcasted_finality_update: RwLock<Option<LightClientFinalityUpdate<T::EthSpec>>>,
     /// Tracks the latest broadcasted optimistic update
@@ -55,7 +50,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             latest_written_current_sync_committee: None.into(),
             latest_broadcasted_finality_update: None.into(),
             latest_broadcasted_optimistic_update: None.into(),
-            prev_block_cache: lru::LruCache::new(PREV_BLOCK_CACHE_SIZE).into(),
+            prev_block_cache: LruCache::new(PREV_BLOCK_CACHE_SIZE).into(),
         }
     }
 
@@ -74,7 +69,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         if fork_name.altair_enabled() {
             // Persist in memory cache for a descendent block
             let cached_data = LightClientCachedData::from_state(block_post_state)?;
-            self.prev_block_cache.lock().put(block_root, cached_data);
+            self.prev_block_cache.lock().insert(block_root, cached_data);
         }
 
         Ok(())
@@ -269,41 +264,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         Ok(None)
     }
 
-    pub fn get_light_client_updates(
-        &self,
-        store: &BeaconStore<T>,
-        start_period: u64,
-        count: u64,
-        chain_spec: &ChainSpec,
-    ) -> Result<Vec<LightClientUpdate<T::EthSpec>>, BeaconChainError> {
-        let column = DBColumn::LightClientUpdate;
-        let mut light_client_updates = vec![];
-        for res in store
-            .hot_db
-            .iter_column_from::<Vec<u8>>(column, &start_period.to_le_bytes())
-        {
-            let (sync_committee_bytes, light_client_update_bytes) = res?;
-            let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)
-                .map_err(store::errors::Error::SszDecodeError)?;
-
-            if sync_committee_period >= start_period + count {
-                break;
-            }
-
-            let epoch = sync_committee_period
-                .safe_mul(chain_spec.epochs_per_sync_committee_period.into())?;
-
-            let fork_name = chain_spec.fork_name_at_epoch(epoch.into());
-
-            let light_client_update =
-                LightClientUpdate::from_ssz_bytes(&light_client_update_bytes, &fork_name)
-                    .map_err(store::errors::Error::SszDecodeError)?;
-
-            light_client_updates.push(light_client_update);
-        }
-        Ok(light_client_updates)
-    }
-
     /// Retrieves prev block cached data from cache. If not present re-computes by retrieving the
     /// parent state, and inserts an entry to the cache.
     ///
@@ -335,7 +295,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         // Insert value and return owned
         self.prev_block_cache
             .lock()
-            .put(*block_root, new_value.clone());
+            .insert(*block_root, new_value.clone());
         Ok(new_value)
     }
 

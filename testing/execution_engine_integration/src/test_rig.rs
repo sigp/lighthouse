@@ -320,6 +320,8 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                     Some(vec![]),
                     None,
                     None,
+                    None,
+                    None,
                 ),
             )
             .await;
@@ -337,6 +339,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 Slot::new(0),
                 Hash256::zero(),
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -366,11 +369,13 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Some(vec![]),
             None,
             None,
+            None,
+            None,
         );
 
         let payload_parameters = PayloadParameters {
             parent_hash,
-            parent_gas_limit,
+            parent_gas_limit: Some(parent_gas_limit),
             proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
@@ -417,6 +422,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -459,6 +465,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -527,11 +534,13 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Some(vec![]),
             None,
             None,
+            None,
+            None,
         );
 
         let payload_parameters = PayloadParameters {
             parent_hash,
-            parent_gas_limit,
+            parent_gas_limit: Some(parent_gas_limit),
             proposer_gas_limit: None,
             payload_attributes: &payload_attributes,
             forkchoice_update_params: &forkchoice_update_params,
@@ -588,6 +597,8 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Some(vec![]),
             None,
             None,
+            None,
+            None,
         );
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(100);
@@ -612,6 +623,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -650,6 +662,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -704,6 +717,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -726,9 +740,9 @@ async fn check_payload_reconstruction<E: GenericExecutionEngine>(
         .unwrap();
 
     assert!(
-        // if the engine doesn't have these capabilities, we need to update the client in our tests
-        capabilities.get_payload_bodies_by_hash_v1 && capabilities.get_payload_bodies_by_range_v1,
-        "Testing engine does not support payload bodies methods"
+        // if the engine doesn't have this capability, we need to update the client in our tests
+        capabilities.get_payload_bodies_by_hash_v1,
+        "Testing engine does not support payload bodies by hash"
     );
 
     let mut bodies = ee

@@ -1,3 +1,8 @@
+// Temporary workaround for `NetworkBehaviour` generating unreachable calls now that
+// Rust 1.100 aliases `Infallible` to `!`. Module scope covers the generated implementation.
+// See https://github.com/libp2p/rust-libp2p/issues/6600.
+#![allow(unreachable_code)]
+
 use self::gossip_cache::GossipCache;
 use crate::Eth2Enr;
 use crate::config::{GossipsubConfigParams, NetworkLoad, gossipsub_config};
@@ -16,9 +21,9 @@ use crate::rpc::{
 };
 use crate::service::partial_column_header_tracker::PartialColumnHeaderTracker;
 use crate::types::{
-    GossipEncoding, GossipKind, GossipTopic, OutgoingPartialColumn, SnappyTransform, Subnet,
-    SubnetDiscovery, all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic,
-    subnet_from_topic_hash,
+    GossipEncoding, GossipKind, GossipTopic, OutgoingPartialColumnFulu, OutgoingPartialColumnGloas,
+    PubsubPartialMessage, SnappyTransform, Subnet, SubnetDiscovery, all_topics_at_fork,
+    core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
 };
 use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, decode_partial, metrics};
 use api_types::{AppRequestId, Response};
@@ -31,12 +36,12 @@ use libp2p::gossipsub::{
 use libp2p::identity::Keypair;
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;
-use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent};
+use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent, dial_opts::DialOpts};
 use libp2p::upnp::tokio::Behaviour as Upnp;
 use libp2p::{PeerId, SwarmBuilder, identify};
 use logging::crit;
 use network_utils::enr_ext::EnrExt;
-use std::num::{NonZeroU8, NonZeroUsize};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -44,7 +49,7 @@ use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
 use types::{
     ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, PartialDataColumn,
-    PartialDataColumnHeader, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+    PartialDataColumnRef, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
 };
 use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 
@@ -201,9 +206,7 @@ impl<E: EthSpec> Network<E> {
 
         // set up a collection of variables accessible outside of the network crate
         // Create an ENR or load from disk if appropriate
-        // Per [spec](https://github.com/ethereum/consensus-specs/blob/1baa05e71148b0975e28918ac6022d2256b56f4a/specs/fulu/p2p-interface.md?plain=1#L636-L637)
-        // `nfd` must be zero-valued when no next fork is scheduled.
-        let next_fork_digest = ctx.fork_context.next_fork_digest().unwrap_or_default();
+        let next_fork_digest = ctx.fork_context.next_fork_digest();
 
         let advertised_cgc = config
             .advertise_false_custody_group_count
@@ -311,11 +314,8 @@ impl<E: EthSpec> Network<E> {
                     let fork = ctx.chain_spec.fork_name_at_epoch(epoch);
                     all_topics_at_fork::<E>(fork, &ctx.chain_spec)
                         .into_iter()
-                        .map(|topic| {
-                            Topic::new(GossipTopic::new(topic, GossipEncoding::default(), digest))
-                                .into()
-                        })
-                        .collect::<Vec<TopicHash>>()
+                        .map(|topic| GossipTopic::new(topic, GossipEncoding::default(), digest))
+                        .collect::<Vec<_>>()
                 })
                 .collect::<Vec<_>>();
 
@@ -368,11 +368,20 @@ impl<E: EthSpec> Network<E> {
                 gossipsub.add_explicit_peer(&PeerId::from(explicit_peer.clone()));
             }
 
+            // Register topics with enabled partial messages
+            for topic in all_topics_for_digests.iter().flatten() {
+                if topic.kind().use_partial_messages(&config) {
+                    gossipsub.enable_partials_for_topic(Topic::new(topic.clone()).hash(), true);
+                }
+            }
+
             // If we are using metrics, then register which topics we want to make sure to keep
             // track of
             if ctx.libp2p_registry.is_some() {
                 for topics in all_topics_for_digests {
-                    gossipsub.register_topics_for_metrics(topics);
+                    gossipsub.register_topics_for_metrics(
+                        topics.into_iter().map(|t| Topic::new(t).hash()).collect(),
+                    );
                 }
             }
 
@@ -430,7 +439,7 @@ impl<E: EthSpec> Network<E> {
 
         let connection_limits = {
             let limits = libp2p::connection_limits::ConnectionLimits::default()
-                .with_max_pending_incoming(Some(5))
+                .with_max_pending_incoming_per_source(Some(2))
                 .with_max_pending_outgoing(Some(16))
                 .with_max_established_incoming(Some(
                     (config.target_peers as f32
@@ -466,9 +475,13 @@ impl<E: EthSpec> Network<E> {
             }
         };
 
-        // Set up the transport - tcp/quic with noise and mplex
-        let transport = build_transport(local_keypair.clone(), !config.disable_quic_support)
-            .map_err(|e| format!("Failed to build transport: {:?}", e))?;
+        // Set up the transport - tcp/quic with noise and yamux (mplex optional)
+        let transport = build_transport(
+            local_keypair.clone(),
+            !config.disable_quic_support,
+            config.enable_mplex,
+        )
+        .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
         // use the executor for libp2p
         struct Executor(task_executor::TaskExecutor);
@@ -485,8 +498,7 @@ impl<E: EthSpec> Network<E> {
                 .with_notify_handler_buffer_size(NonZeroUsize::new(7).expect("Not zero"))
                 .with_per_connection_event_buffer_size(4)
                 .with_idle_connection_timeout(Duration::from_secs(10)) // Other clients can timeout
-                // during negotiation
-                .with_dial_concurrency_factor(NonZeroU8::new(1).unwrap());
+                .with_smart_dial();
 
             let builder = SwarmBuilder::with_existing_identity(local_keypair)
                 .with_tokio()
@@ -575,57 +587,33 @@ impl<E: EthSpec> Network<E> {
         }
 
         // helper closure for dialing peers
-        let mut dial = |mut multiaddr: Multiaddr| {
-            // strip the p2p protocol if it exists
-            strip_peer_id(&mut multiaddr);
-            match self.swarm.dial(multiaddr.clone()) {
-                Ok(()) => debug!(address = %multiaddr, "Dialing libp2p peer"),
-                Err(err) => {
-                    debug!(address = %multiaddr, error = ?err, "Could not connect to peer")
-                }
-            };
+        let mut dial = |opts: DialOpts| {
+            debug!(?opts, "Dialing libp2p peer");
+            if let Err(error) = self.swarm.dial(opts) {
+                debug!(%error, "Could not connect to peer");
+            }
         };
-
-        // attempt to connect to user-input libp2p nodes
-        // DEPRECATED: can be removed in v8.2.0./v9.0.0
-        for multiaddr in &config.libp2p_nodes {
-            dial(multiaddr.clone());
-        }
 
         // attempt to connect to any specified boot-nodes
         let mut boot_nodes = config.boot_nodes_enr.clone();
         boot_nodes.dedup();
 
         for bootnode_enr in boot_nodes {
-            // If QUIC is enabled, attempt QUIC connections first
-            if !config.disable_quic_support {
-                for quic_multiaddr in &bootnode_enr.multiaddr_quic() {
-                    if !self
-                        .network_globals
-                        .peers
-                        .read()
-                        .is_connected_or_dialing(&bootnode_enr.peer_id())
-                    {
-                        dial(quic_multiaddr.clone());
-                    }
-                }
-            }
+            // Dial all of the boot node's addresses in a single attempt so smart
+            // dialing can rank them (QUIC first) and apply Happy Eyeballs delays.
+            let mut multiaddrs = if config.disable_quic_support {
+                vec![]
+            } else {
+                bootnode_enr.dialable_multiaddrs_quic()
+            };
+            multiaddrs.extend(bootnode_enr.dialable_multiaddrs_tcp());
 
-            for multiaddr in &bootnode_enr.multiaddr() {
-                // ignore udp multiaddr if it exists
-                let components = multiaddr.iter().collect::<Vec<_>>();
-                if let MProtocol::Udp(_) = components[1] {
-                    continue;
-                }
-
-                if !self
-                    .network_globals
-                    .peers
-                    .read()
-                    .is_connected_or_dialing(&bootnode_enr.peer_id())
-                {
-                    dial(multiaddr.clone());
-                }
+            if !multiaddrs.is_empty() {
+                dial(
+                    DialOpts::peer_id(bootnode_enr.peer_id())
+                        .addresses(multiaddrs)
+                        .build(),
+                );
             }
         }
 
@@ -635,7 +623,10 @@ impl<E: EthSpec> Network<E> {
                 .iter()
                 .any(|proto| matches!(proto, MProtocol::Tcp(_)))
             {
-                dial(multiaddr.clone());
+                let mut multiaddr = multiaddr.clone();
+                // strip the p2p protocol if it exists
+                strip_peer_id(&mut multiaddr);
+                dial(multiaddr.into());
             }
         }
 
@@ -754,12 +745,12 @@ impl<E: EthSpec> Network<E> {
         // Already registered all possible gossipsub topics for metrics
     }
 
-    /// Unsubscribe from all topics that doesn't have the given fork_digest
-    pub fn unsubscribe_from_fork_topics_except(&mut self, except: [u8; 4]) {
+    /// Unsubscribe from all topics whose fork digest is not in `except`.
+    pub fn unsubscribe_from_fork_topics_except(&mut self, except: &[[u8; 4]]) {
         let subscriptions = self.network_globals.gossipsub_subscriptions.read().clone();
         for topic in subscriptions
             .iter()
-            .filter(|topic| topic.fork_digest != except)
+            .filter(|topic| !except.contains(&topic.fork_digest))
             .cloned()
         {
             self.unsubscribe(topic);
@@ -819,18 +810,9 @@ impl<E: EthSpec> Network<E> {
             .write()
             .insert(topic.clone());
 
-        let partial = topic
-            .kind()
-            .use_partial_messages(self.network_globals.config.as_ref());
         let topic: Topic = topic.into();
 
-        let subscribe_result = if partial {
-            self.gossipsub_mut().subscribe_partial(&topic, true)
-        } else {
-            self.gossipsub_mut().subscribe(&topic)
-        };
-
-        match subscribe_result {
+        match self.gossipsub_mut().subscribe(&topic) {
             Err(e) => {
                 warn!(%topic, error = ?e, "Failed to subscribe to topic");
                 false
@@ -921,38 +903,57 @@ impl<E: EthSpec> Network<E> {
     }
 
     /// Publishes partial data column sidecars to the gossipsub network.
-    pub fn publish_partial(
-        &mut self,
-        columns: Vec<Arc<PartialDataColumn<E>>>,
-        header: Arc<PartialDataColumnHeader<E>>,
-    ) {
+    pub fn publish_partial(&mut self, messages: Vec<PubsubPartialMessage<E>>) {
         if !self.network_globals.config.enable_partial_columns {
             return;
         }
 
-        debug!(
-            count = columns.len(),
-            "Sending partial data column sidecars"
-        );
+        debug!(count = messages.len(), "Sending partial messages");
 
-        for column in columns {
+        for message in messages {
+            // Determine topic hash, same logic for both variants.
+            let column: PartialDataColumnRef<E> = match &message {
+                PubsubPartialMessage::DataColumnFulu { column, .. } => column.as_ref().into(),
+                PubsubPartialMessage::DataColumnGloas { column, .. } => column.as_ref().into(),
+            };
             let subnet =
-                DataColumnSubnetId::from_column_index(column.index, &self.fork_context.spec);
+                DataColumnSubnetId::from_column_index(*column.index(), &self.fork_context.spec);
             let topic = GossipTopic::new(
                 GossipKind::DataColumnSidecar(subnet),
                 GossipEncoding::default(),
                 self.enr_fork_id.fork_digest,
             );
-            let header_sent_set = self
-                .partial_column_header_tracker
-                .get_for_block(column.block_root);
-            let partial_message = OutgoingPartialColumn::new(column, &header, header_sent_set);
             let publish_topic: Topic = topic.clone().into();
 
-            if let Err(e) = self
-                .gossipsub_mut()
-                .publish_partial(publish_topic, partial_message)
-            {
+            let result = match message {
+                PubsubPartialMessage::DataColumnFulu {
+                    column,
+                    header,
+                    request_cells,
+                } => {
+                    let header_sent_set = self
+                        .partial_column_header_tracker
+                        .get_for_block(column.block_root);
+                    let partial_message = OutgoingPartialColumnFulu::new(
+                        column,
+                        &header,
+                        header_sent_set,
+                        request_cells,
+                    );
+                    self.gossipsub_mut()
+                        .publish_partial(publish_topic, partial_message)
+                }
+                PubsubPartialMessage::DataColumnGloas {
+                    column,
+                    request_cells,
+                } => {
+                    let partial_message = OutgoingPartialColumnGloas::new(column, request_cells);
+                    self.gossipsub_mut()
+                        .publish_partial(publish_topic, partial_message)
+                }
+            };
+
+            if let Err(e) = result {
                 match e {
                     PublishError::NoPeersSubscribedToTopic => {
                         debug!(
@@ -960,7 +961,7 @@ impl<E: EthSpec> Network<E> {
                             "No peers supporting partial messages"
                         );
                     }
-                    ref e => {
+                    e => {
                         warn!(
                             error = ?e,
                             kind = %topic.kind(),
@@ -970,12 +971,10 @@ impl<E: EthSpec> Network<E> {
                 }
 
                 // add to metrics
-                if let Some(v) = metrics::get_int_gauge(
+                metrics::inc_gauge_vec(
                     &metrics::FAILED_PARTIAL_PUBLISHES_PER_MAIN_TOPIC,
                     &[&format!("{:?}", topic.kind())],
-                ) {
-                    v.inc()
-                };
+                );
             }
         }
     }
@@ -1377,9 +1376,9 @@ impl<E: EthSpec> Network<E> {
     /* Sub-behaviour event handling functions */
 
     /// Handle a gossipsub event.
-    fn inject_gs_event(&mut self, event: gossipsub::Event) -> Option<NetworkEvent<E>> {
+    fn inject_gs_event(&mut self, event: Event) -> Option<NetworkEvent<E>> {
         match event {
-            gossipsub::Event::Message {
+            Event::Message {
                 propagation_source,
                 message_id: id,
                 message: gs_msg,
@@ -1428,7 +1427,7 @@ impl<E: EthSpec> Network<E> {
                     .ok()?;
 
                 if let Some(message) = message {
-                    match decode_partial::<E>(&topic, &group_id, &message) {
+                    match decode_partial::<E>(&topic, &group_id, &message, &self.fork_context) {
                         Err(error) => {
                             debug!(
                                 topic = ?topic_hash,
@@ -1441,10 +1440,10 @@ impl<E: EthSpec> Network<E> {
                         }
                         Ok(column) => {
                             debug!(
-                                block_root = %column.block_root,
-                                index = column.index,
+                                block_root = %column.block_root(),
+                                index = column.index(),
                                 %peer_id,
-                                cells_present = %column.sidecar.cells_present_bitmap,
+                                cells_present = %column.sidecar().cells_present_bitmap(),
                                 "Decoded partial message"
                             );
                             // Notify the network
@@ -1457,13 +1456,19 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
-            gossipsub::Event::Subscribed { peer_id, topic } => {
+            Event::Subscribed {
+                peer_id,
+                topic,
+                supports_partial,
+                ..
+            } => {
                 if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
                     if let Some(subnet_id) = topic.subnet_id() {
-                        self.network_globals
-                            .peers
-                            .write()
-                            .add_subscription(&peer_id, subnet_id);
+                        self.network_globals.peers.write().add_subscription(
+                            &peer_id,
+                            subnet_id,
+                            supports_partial,
+                        );
                     }
                     // Try to send the cached messages for this topic
                     if let Some(msgs) = self.gossip_cache.retrieve(&topic) {
@@ -1509,7 +1514,7 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
-            gossipsub::Event::Unsubscribed { peer_id, topic } => {
+            Event::Unsubscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.network_globals
                         .peers
@@ -1517,7 +1522,7 @@ impl<E: EthSpec> Network<E> {
                         .remove_subscription(&peer_id, &subnet_id);
                 }
             }
-            gossipsub::Event::GossipsubNotSupported { peer_id } => {
+            Event::GossipsubNotSupported { peer_id } => {
                 debug!(%peer_id, "Peer does not support gossipsub");
                 self.peer_manager_mut().report_peer(
                     &peer_id,
@@ -1527,7 +1532,7 @@ impl<E: EthSpec> Network<E> {
                     "does_not_support_gossipsub",
                 );
             }
-            gossipsub::Event::SlowPeer {
+            Event::SlowPeer {
                 peer_id,
                 failed_messages,
             } => {
@@ -2140,10 +2145,10 @@ impl<E: EthSpec> Network<E> {
             } => {
                 match reason {
                     Ok(_) => {
-                        debug!(?addresses, "Listener gracefully closed")
+                        debug!(?addresses, "Listener gracefully closed");
                     }
                     Err(reason) => {
-                        crit!(?addresses, ?reason, "Listener abruptly closed")
+                        crit!(?addresses, ?reason, "Listener abruptly closed");
                     }
                 };
                 if Swarm::listeners(&self.swarm).count() == 0 {

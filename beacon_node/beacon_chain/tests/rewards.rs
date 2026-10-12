@@ -7,7 +7,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{
     BlockError, ChainConfig, StateSkipConfig, WhenSlotSkipped,
     test_utils::{AttestationStrategy, BlockStrategy, RelativeSyncCommittee},
-    types::{Epoch, EthSpec, MinimalEthSpec},
+    types::{Epoch, EthSpec, Spec},
 };
 use bls::Keypair;
 use eth2::types::{StandardAttestationRewards, TotalAttestationRewards, ValidatorId};
@@ -22,7 +22,7 @@ pub const VALIDATOR_COUNT: usize = 64;
 // When set to true, cache any states fetched from the db.
 pub const CACHE_STATE_IN_TESTS: bool = true;
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| generate_deterministic_keypairs(VALIDATOR_COUNT));
@@ -105,11 +105,11 @@ async fn test_sync_committee_rewards() {
 
     // Add block
     let chain = &harness.chain;
-    let (head_state, head_state_root) = harness.get_current_state_and_root();
+    let head_state = harness.get_current_state();
     let target_slot = harness.get_current_slot() + 1;
 
     let (block_root, mut state) = harness
-        .add_attested_block_at_slot(target_slot, head_state, head_state_root, &[])
+        .add_attested_block_at_slot(target_slot, head_state, &[])
         .await
         .unwrap();
 
@@ -138,7 +138,7 @@ async fn test_sync_committee_rewards() {
         .collect::<HashMap<_, _>>();
 
     let proposer_index = state
-        .get_beacon_proposer_index(target_slot, &MinimalEthSpec::default_spec())
+        .get_beacon_proposer_index(target_slot, &Spec::default_spec())
         .unwrap();
 
     let mut mismatches = vec![];
@@ -712,6 +712,91 @@ async fn test_rewards_electra() {
     let balances: Vec<u64> = harness.get_current_state().balances().to_vec();
 
     assert_eq!(expected_balances, balances);
+}
+
+/// Checks that the computed block reward matches the proposer's actual balance change when the
+/// block includes attestations from a skipped slot that vote for an available payload
+/// (`data.index == 1`).
+#[tokio::test]
+async fn test_rewards_gloas_non_same_slot_attestations() {
+    let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+    let harness = get_harness(spec.clone());
+
+    harness.extend_slots(2).await;
+
+    let head = harness.chain.head_snapshot();
+    let head_root = head.beacon_block_root;
+    let head_slot = head.beacon_block.slot();
+
+    // Skip a slot and attest to the head. These attestations are not same-slot, and the
+    // head's payload is available, so `data.index == 1`.
+    harness.advance_slot();
+    let attestation_slot = head_slot + 1;
+    let attestations = harness.make_attestations(
+        &harness.get_all_validators(),
+        &head.beacon_state,
+        head.beacon_state_root(),
+        head_root.into(),
+        attestation_slot,
+    );
+    assert!(
+        attestations
+            .iter()
+            .flat_map(|(unaggregated, _)| unaggregated.iter())
+            .all(|(attestation, _)| attestation.data().index == 1),
+        "attestations for the skipped slot should vote for an available payload"
+    );
+    harness.process_attestations(attestations, &head.beacon_state);
+
+    // Produce the next block, which includes those attestations.
+    harness.advance_slot();
+    let block_slot = head_slot + 2;
+    let ((signed_block, _), mut pre_state) = harness
+        .make_block_return_pre_state(harness.get_current_state(), block_slot)
+        .await;
+    assert!(
+        signed_block
+            .message()
+            .body()
+            .attestations()
+            .any(|attestation| attestation.data().index == 1),
+        "the block should include attestations with data.index == 1"
+    );
+
+    let proposer_index = signed_block.message().proposer_index();
+    let balance_before = *pre_state.balances().get(proposer_index as usize).unwrap();
+
+    let block_reward = harness
+        .chain
+        .compute_beacon_block_reward(signed_block.message(), &mut pre_state)
+        .unwrap();
+    let proposer_sync_reward: i64 = harness
+        .chain
+        .compute_sync_committee_rewards(signed_block.message(), &mut pre_state)
+        .unwrap()
+        .iter()
+        .filter(|reward| reward.validator_index == proposer_index)
+        .map(|reward| reward.reward)
+        .sum();
+
+    harness
+        .process_block(
+            block_slot,
+            signed_block.canonical_root(),
+            (signed_block.clone(), None),
+        )
+        .await
+        .unwrap();
+
+    let balance_after = *harness
+        .get_current_state()
+        .balances()
+        .get(proposer_index as usize)
+        .unwrap();
+    assert_eq!(
+        balance_after as i64 - balance_before as i64,
+        block_reward.total as i64 + proposer_sync_reward
+    );
 }
 
 #[tokio::test]

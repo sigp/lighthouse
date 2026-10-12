@@ -3,10 +3,11 @@
 use super::BootNodeConfig;
 use crate::config::BootNodeConfigSerialization;
 use clap::ArgMatches;
+use enr::NodeId;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::{
     Eth2Enr,
-    discv5::{self, Discv5, enr::NodeId},
+    discv5::{self, Discv5},
 };
 use network_utils::enr_ext::EnrExt;
 use tracing::{info, warn};
@@ -128,7 +129,7 @@ pub async fn run<E: EthSpec>(
                 }
 
                 // display server metrics
-                let metrics = discv5.metrics();
+                let metrics = Discv5::metrics();
                 info!(
                     connected_peers = discv5.connected_peers(),
                     active_sessions = metrics.active_sessions,

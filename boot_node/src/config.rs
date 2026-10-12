@@ -1,8 +1,9 @@
 use beacon_node::{get_data_dir, set_network_config};
 use bytes::Bytes;
 use clap::ArgMatches;
+use enr::CombinedKey;
 use eth2_network_config::Eth2NetworkConfig;
-use lighthouse_network::discv5::{self, Enr, enr::CombinedKey};
+use lighthouse_network::discv5::{self, Enr};
 use lighthouse_network::{
     NetworkConfig,
     discovery::{load_enr_from_disk, use_or_load_enr},
@@ -11,7 +12,7 @@ use lighthouse_network::{
 use network_utils::enr_ext::CombinedKeyExt;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
-use std::net::{SocketAddrV4, SocketAddrV6};
+use std::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::time::Duration;
 use std::{marker::PhantomData, path::PathBuf};
 use tracing::{info, warn};
@@ -217,6 +218,20 @@ impl BootNodeConfigSerialization {
             } => (
                 Some(SocketAddrV4::new(ipv4, ipv4_port)),
                 Some(SocketAddrV6::new(ipv6, ipv6_port, 0, 0)),
+            ),
+            lighthouse_network::discv5::ListenConfig::FromSockets { ref ipv4, ref ipv6 } => (
+                ipv4.as_ref()
+                    .and_then(|socket| socket.local_addr().ok())
+                    .and_then(|addr| match addr {
+                        SocketAddr::V4(addr) => Some(addr),
+                        SocketAddr::V6(_) => None,
+                    }),
+                ipv6.as_ref()
+                    .and_then(|socket| socket.local_addr().ok())
+                    .and_then(|addr| match addr {
+                        SocketAddr::V6(addr) => Some(addr),
+                        SocketAddr::V4(_) => None,
+                    }),
             ),
         };
 

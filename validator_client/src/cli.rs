@@ -107,6 +107,17 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        help = "Fetch proposer duties using the v1 beacon node endpoint instead of v2. The v1 \
+                endpoint reports an incorrect dependent root which causes spurious proposer duty \
+                re-org warnings. Only enable this flag if your beacon node does not serve the v2 \
+                proposer duties endpoint.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub disable_proposer_duties_v2: bool,
+
+    #[clap(
+        long,
         help = "If present, the validator client will use longer timeouts for requests \
                 made to the beacon node. This flag is generally not recommended, \
                 longer timeouts can cause missed duties when fallbacks are used.",
@@ -152,13 +163,14 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
-        requires = "graffiti",
-        help = "When used, client version info will be prepended to user custom graffiti, with a space in between. \
-        This should only be used with a Lighthouse beacon node.",
+        num_args = 0..=1,
+        help = "Client version info will be appended to user custom graffiti, with a space in between. \
+        This should only be set to false when using a Lighthouse beacon node.",
         display_order = 0,
+        default_value = "true",
         help_heading = FLAG_HEADER
     )]
-    pub graffiti_append: bool,
+    pub graffiti_append: Option<bool>,
 
     #[clap(
         long,
@@ -186,6 +198,16 @@ pub struct ValidatorClient {
         help_heading = FLAG_HEADER
     )]
     pub distributed: bool,
+
+    #[clap(
+        long,
+        help = "Request the execution payload with each Gloas block and publish the self-built \
+                payload envelope from that response, so it can be published via any beacon node \
+                rather than only the one that built the block.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub stateless_block_production: bool,
 
     /* REST API related arguments */
     #[clap(
@@ -339,7 +361,7 @@ pub struct ValidatorClient {
         value_name = "ADDRESS",
         help = "Enables the monitoring service for sending system metrics to a remote endpoint. \
                 This can be used to monitor your setup on certain services (e.g. beaconcha.in). \
-                This flag sets the endpoint where the beacon node metrics will be sent. \
+                This flag sets the endpoint where the validator client metrics will be sent. \
                 Note: This will send information to a remote sever which may identify and associate your \
                 validators, IP address and other personal information. Always use a HTTPS connection \
                 and never provide an untrusted URL.",
@@ -398,14 +420,15 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "INTEGER",
-        default_value_t = 60_000_000,
         requires = "builder_proposals",
         help = "The gas limit to be used in all builder proposals for all validators managed \
-                by this validator client. Note this will not necessarily be used if the gas limit \
-                set here moves too far from the previous block's gas limit.",
+                by this validator client. If this value is not set, the gas limit schedule from \
+                the network config is used, falling back to a default of 60,000,000. Note this \
+                will not necessarily be used if the gas limit set here moves too far from the \
+                previous block's gas limit.",
         display_order = 0
     )]
-    pub gas_limit: u64,
+    pub gas_limit: Option<u64>,
 
     #[clap(
         long,
@@ -478,14 +501,26 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
-        help = "Disable the beacon head monitor which tries to attest as soon as any of the \
-                configured beacon nodes sends a head event. Leaving the service enabled is \
+        help = "Disable the beacon head monitor which triggers attestations and sync committee \
+                messages when a configured beacon node sends a head event. Leaving it enabled is \
                 recommended, but disabling it can lead to reduced bandwidth and more predictable \
                 usage of the primary beacon node (rather than the fastest BN).",
         display_order = 0,
         help_heading = FLAG_HEADER
     )]
     pub disable_beacon_head_monitor: bool,
+
+    #[clap(
+        long,
+        help = "Disable the payload available monitor. This monitor listens for notifications from \
+                beacon nodes indicating when a new payload (execution block) is available and attempts \
+                to attest as soon as a notification is received. This monitor is enabled by default. \
+                Keeping it enabled can help your validator produce more timely attestations whenever \
+                payloads become available, by leveraging the fastest of your configured beacon nodes.",
+        display_order = 0,
+        help_heading = FLAG_HEADER
+    )]
+    pub disable_payload_available_monitor: bool,
 
     #[clap(
         long,

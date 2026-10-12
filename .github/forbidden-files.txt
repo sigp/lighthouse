@@ -9,6 +9,7 @@ beacon_node/beacon_chain/src/block_reward.rs
 beacon_node/http_api/src/attestation_performance.rs
 beacon_node/http_api/src/block_packing_efficiency.rs
 beacon_node/http_api/src/block_rewards.rs
+beacon_node/http_api/src/beacon/execution_payload_envelope.rs
 common/eth2/src/lighthouse/attestation_performance.rs
 common/eth2/src/lighthouse/block_packing_efficiency.rs
 common/eth2/src/lighthouse/block_rewards.rs

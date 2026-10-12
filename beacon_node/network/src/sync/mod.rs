@@ -15,4 +15,5 @@ mod range_sync;
 mod tests;
 
 pub use manager::{BatchProcessResult, SyncMessage};
+pub use network_context::{PeerGroup, SyncNetworkContext};
 pub use range_sync::ChainId;

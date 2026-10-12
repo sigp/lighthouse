@@ -16,11 +16,10 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::{
-    Epoch, EthSpec, Hash256, MainnetEthSpec, Slot, SyncContributionData, SyncSelectionProof,
-    SyncSubnetId,
+    Epoch, EthSpec, Hash256, Slot, Spec, SyncContributionData, SyncSelectionProof, SyncSubnetId,
 };
 
-pub type E = MainnetEthSpec;
+pub type E = Spec;
 
 pub const VALIDATOR_COUNT: usize = 256;
 
@@ -35,7 +34,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
@@ -185,7 +184,6 @@ async fn aggregated_gossip_verification() {
     harness
         .add_attested_blocks_at_slots(
             state,
-            Hash256::zero(),
             &[Slot::new(1), Slot::new(2)],
             (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
         )
@@ -495,7 +493,7 @@ async fn aggregated_gossip_verification() {
     );
 
     harness
-        .add_attested_block_at_slot(target_slot, state, Hash256::zero(), &[])
+        .add_attested_block_at_slot(target_slot, state, &[])
         .await
         .expect("should add block");
 
@@ -519,7 +517,6 @@ async fn unaggregated_gossip_verification() {
     harness
         .add_attested_blocks_at_slots(
             state,
-            Hash256::zero(),
             &[Slot::new(1), Slot::new(2)],
             (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
         )
@@ -768,7 +765,14 @@ async fn unaggregated_gossip_verification() {
 
         // Advance the state to simulate a pre-state for block production.
         let slot = valid_sync_committee_message.slot + 1;
-        complete_state_advance(&mut state, Some(block.state_root()), slot, &chain.spec).unwrap();
+        complete_state_advance(
+            &mut state,
+            Some(block.state_root()),
+            slot,
+            None,
+            &chain.spec,
+        )
+        .unwrap();
 
         // Get an aggregate that would be included in a block.
         let aggregate_for_inclusion = chain.op_pool.get_sync_aggregate(&state).unwrap().unwrap();
@@ -801,7 +805,7 @@ async fn unaggregated_gossip_verification() {
     );
 
     harness
-        .add_attested_block_at_slot(target_slot, state, Hash256::zero(), &[])
+        .add_attested_block_at_slot(target_slot, state, &[])
         .await
         .expect("should add block");
 

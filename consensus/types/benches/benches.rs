@@ -1,12 +1,11 @@
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
 use fixed_bytes::FixedBytesExtended;
-use milhouse::List;
 use rayon::prelude::*;
 use ssz::Encode;
 use std::hint::black_box;
 use std::sync::Arc;
 use types::{
-    BeaconState, Epoch, Eth1Data, EthSpec, Hash256, MainnetEthSpec, Validator,
+    BeaconState, Epoch, Eth1Data, EthSpec, Hash256, Spec, Validator,
     test_utils::generate_deterministic_keypair,
 };
 
@@ -27,35 +26,33 @@ fn get_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
             .expect("should add balance");
     }
 
-    *state.validators_mut() = List::new(
-        (0..validator_count)
-            .collect::<Vec<_>>()
-            .par_iter()
-            .map(|&i| Validator {
-                pubkey: generate_deterministic_keypair(i).pk.compress(),
-                withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
-                effective_balance: spec.max_effective_balance,
-                slashed: false,
-                activation_eligibility_epoch: Epoch::new(0),
-                activation_epoch: Epoch::new(0),
-                exit_epoch: Epoch::from(u64::MAX),
-                withdrawable_epoch: Epoch::from(u64::MAX),
-            })
-            .collect(),
-    )
-    .unwrap();
+    let validators: Vec<Validator> = (0..validator_count)
+        .collect::<Vec<_>>()
+        .par_iter()
+        .map(|&i| Validator {
+            pubkey: generate_deterministic_keypair(i).pk.compress(),
+            withdrawal_credentials: Hash256::from_low_u64_le(i as u64),
+            effective_balance: spec.max_effective_balance,
+            slashed: false,
+            activation_eligibility_epoch: Epoch::new(0),
+            activation_epoch: Epoch::new(0),
+            exit_epoch: Epoch::from(u64::MAX),
+            withdrawable_epoch: Epoch::from(u64::MAX),
+        })
+        .collect();
+    state.set_validators_from_iter(validators).unwrap();
 
     state
 }
 
 fn all_benches(c: &mut Criterion) {
     let validator_count = 16_384;
-    let spec = Arc::new(MainnetEthSpec::default_spec());
+    let spec = Arc::new(Spec::default_spec());
 
     let mut g = c.benchmark_group("types");
     g.sample_size(10);
 
-    let mut state = get_state::<MainnetEthSpec>(validator_count);
+    let mut state = get_state::<Spec>(validator_count);
     state.build_caches(&spec).expect("should build caches");
     let state_bytes = state.as_ssz_bytes();
 
@@ -79,7 +76,7 @@ fn all_benches(c: &mut Criterion) {
             b.iter_batched_ref(
                 || (bytes.clone(), spec.clone()),
                 |(bytes, spec)| {
-                    let state: BeaconState<MainnetEthSpec> =
+                    let state: BeaconState<Spec> =
                         BeaconState::from_ssz_bytes(bytes, spec).expect("should decode");
                     black_box(state)
                 },

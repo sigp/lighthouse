@@ -5,22 +5,20 @@ use crate::engine_api::{
     PayloadId,
 };
 use crate::{ClientVersionV1, HttpJsonRpc};
-use lru::LruCache;
+use hashlink::lru_cache::LruCache;
 use std::future::Future;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::{Mutex, RwLock, watch};
 use tokio_stream::wrappers::WatchStream;
 use tracing::{debug, error, info, warn};
-use types::ExecutionBlockHash;
-use types::new_non_zero_usize;
+use types::{ColumnIndex, ExecutionBlockHash};
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
 /// Since the size of each value is small (~800 bytes) a large number is used for safety.
-const PAYLOAD_ID_LRU_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(512);
+const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 const CACHED_RESPONSE_AGE_LIMIT: Duration = Duration::from_secs(900); // 15 minutes
 
 /// Stores the remembered state of a engine.
@@ -117,7 +115,6 @@ struct PayloadIdCacheKey {
 pub enum EngineError {
     Offline,
     Api { error: EngineApiError },
-    BuilderApi { error: EngineApiError },
     Auth,
 }
 
@@ -165,17 +162,22 @@ impl Engine {
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api
-            .forkchoice_updated(forkchoice_state, payload_attributes.clone())
+            .forkchoice_updated(
+                forkchoice_state,
+                payload_attributes.clone(),
+                custody_columns,
+            )
             .await?;
 
         if let Some(payload_id) = response.payload_id {
             if let Some(key) = payload_attributes
                 .map(|pa| PayloadIdCacheKey::new(&forkchoice_state.head_block_hash, &pa))
             {
-                self.payload_id_cache.lock().await.put(key, payload_id);
+                self.payload_id_cache.lock().await.insert(key, payload_id);
             } else {
                 debug!(?payload_id, "Engine returned unexpected payload_id");
             }
@@ -206,9 +208,13 @@ impl Engine {
 
             info!(?forkchoice_state, "Issuing forkchoiceUpdated");
 
-            // For simplicity, payload attributes are never included in this call. It may be
-            // reasonable to include them in the future.
-            if let Err(e) = self.api.forkchoice_updated(forkchoice_state, None).await {
+            // For simplicity, payload attributes and custody columns are never included in this
+            // call. It may be reasonable to include them in the future.
+            if let Err(e) = self
+                .api
+                .forkchoice_updated(forkchoice_state, None, None)
+                .await
+            {
                 debug!(
                     error = ?e,
                     "Failed to issue latest head to engine"

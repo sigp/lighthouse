@@ -1,16 +1,15 @@
+use crate::PayloadStatus;
 use safe_arith::ArithError;
-use types::{Checkpoint, Epoch, ExecutionBlockHash, Hash256, Slot};
+use types::{Epoch, ExecutionBlockHash, Hash256, Slot};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Error {
     FinalizedNodeUnknown(Hash256),
     JustifiedNodeUnknown(Hash256),
     NodeUnknown(Hash256),
+    PayloadHashUnknown(ExecutionBlockHash),
     InvalidFinalizedRootChange,
     InvalidNodeIndex(usize),
-    InvalidParentIndex(usize),
-    InvalidBestChildIndex(usize),
-    InvalidJustifiedIndex(usize),
     InvalidBestDescendant(usize),
     InvalidParentDelta(usize),
     InvalidNodeDelta(usize),
@@ -29,7 +28,6 @@ pub enum Error {
         current_finalized_epoch: Epoch,
         new_finalized_epoch: Epoch,
     },
-    InvalidBestNode(Box<InvalidBestNodeInfo>),
     InvalidAncestorOfValidPayload {
         ancestor_block_root: Hash256,
         ancestor_payload_block_hash: ExecutionBlockHash,
@@ -37,9 +35,6 @@ pub enum Error {
     ValidExecutionStatusBecameInvalid {
         block_root: Hash256,
         payload_block_hash: ExecutionBlockHash,
-    },
-    InvalidJustifiedCheckpointExecutionStatus {
-        justified_root: Hash256,
     },
     UnknownLatestValidAncestorHash {
         block_root: Hash256,
@@ -52,8 +47,8 @@ pub enum Error {
         block_root: Hash256,
         parent_root: Hash256,
     },
-    InvalidEpochOffset(u64),
     Arith(ArithError),
+    Unexpected(String),
     InvalidNodeVariant {
         block_root: Hash256,
     },
@@ -62,21 +57,22 @@ pub enum Error {
     },
     NoViableChildren,
     OnBlockRequiresProposerIndex,
+    InvalidPayloadStatus {
+        block_root: Hash256,
+        payload_status: PayloadStatus,
+    },
+    /// `should_extend_payload` was called for a block whose slot is not the previous slot.
+    ///
+    /// Spec equivalent: `assert store.blocks[root].slot + 1 == get_current_slot(store)`.
+    ShouldExtendPayloadInvalidSlot {
+        block_root: Hash256,
+        block_slot: Slot,
+        current_slot: Slot,
+    },
 }
 
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Self {
         Error::Arith(e)
     }
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub struct InvalidBestNodeInfo {
-    pub current_slot: Slot,
-    pub start_root: Hash256,
-    pub justified_checkpoint: Checkpoint,
-    pub finalized_checkpoint: Checkpoint,
-    pub head_root: Hash256,
-    pub head_justified_checkpoint: Checkpoint,
-    pub head_finalized_checkpoint: Checkpoint,
 }

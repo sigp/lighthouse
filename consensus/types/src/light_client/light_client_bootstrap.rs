@@ -106,7 +106,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Electra => Self::Electra(LightClientBootstrapElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu::from_ssz_bytes(bytes)?),
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas => {
+            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientBootstrap decoding for {fork_name} not implemented"
                 )));
@@ -128,7 +128,9 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Electra => <LightClientBootstrapElectra<E> as Encode>::ssz_fixed_len(),
             ForkName::Fulu => <LightClientBootstrapFulu<E> as Encode>::ssz_fixed_len(),
             // TODO(gloas): implement Gloas light client
-            ForkName::Gloas => <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len(),
+            ForkName::Gloas | ForkName::Heze => {
+                <LightClientBootstrapAltair<E> as Encode>::ssz_fixed_len()
+            }
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
@@ -181,6 +183,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }),
             // TODO(gloas): implement Gloas light client
             ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
+            ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
         };
 
         Ok(light_client_bootstrap)
@@ -236,6 +239,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             }),
             // TODO(gloas): implement Gloas light client
             ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
+            ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
         };
 
         Ok(light_client_bootstrap)
@@ -275,7 +279,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientBootstrap
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Gloas => {
+            ForkName::Gloas | ForkName::Heze => {
                 // TODO(EIP-7732): check if this is correct
                 return Err(serde::de::Error::custom(format!(
                     "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
@@ -291,31 +295,31 @@ mod tests {
     // `ssz_tests!` can only be defined once per namespace
     #[cfg(test)]
     mod altair {
-        use crate::{LightClientBootstrapAltair, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapAltair<MainnetEthSpec>);
+        use crate::{LightClientBootstrapAltair, Spec};
+        ssz_tests!(LightClientBootstrapAltair<Spec>);
     }
 
     #[cfg(test)]
     mod capella {
-        use crate::{LightClientBootstrapCapella, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapCapella<MainnetEthSpec>);
+        use crate::{LightClientBootstrapCapella, Spec};
+        ssz_tests!(LightClientBootstrapCapella<Spec>);
     }
 
     #[cfg(test)]
     mod deneb {
-        use crate::{LightClientBootstrapDeneb, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapDeneb<MainnetEthSpec>);
+        use crate::{LightClientBootstrapDeneb, Spec};
+        ssz_tests!(LightClientBootstrapDeneb<Spec>);
     }
 
     #[cfg(test)]
     mod electra {
-        use crate::{LightClientBootstrapElectra, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapElectra<MainnetEthSpec>);
+        use crate::{LightClientBootstrapElectra, Spec};
+        ssz_tests!(LightClientBootstrapElectra<Spec>);
     }
 
     #[cfg(test)]
     mod fulu {
-        use crate::{LightClientBootstrapFulu, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapFulu<MainnetEthSpec>);
+        use crate::{LightClientBootstrapFulu, Spec};
+        ssz_tests!(LightClientBootstrapFulu<Spec>);
     }
 }

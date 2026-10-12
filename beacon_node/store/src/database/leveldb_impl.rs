@@ -15,15 +15,13 @@ use leveldb::{
     options::{Options, ReadOptions},
 };
 use std::collections::HashSet;
-use std::marker::PhantomData;
 use std::path::Path;
-use types::{EthSpec, Hash256};
+use types::Hash256;
 
 use super::interface::WriteOptions;
 
-pub struct LevelDB<E: EthSpec> {
+pub struct LevelDB {
     db: Database<BytesKey>,
-    _phantom: PhantomData<E>,
 }
 
 impl From<WriteOptions> for leveldb::options::WriteOptions {
@@ -34,7 +32,7 @@ impl From<WriteOptions> for leveldb::options::WriteOptions {
     }
 }
 
-impl<E: EthSpec> LevelDB<E> {
+impl LevelDB {
     pub fn open(path: &Path) -> Result<Self, Error> {
         let mut options = Options::new();
 
@@ -42,10 +40,7 @@ impl<E: EthSpec> LevelDB<E> {
 
         let db = Database::open(path, options)?;
 
-        Ok(Self {
-            db,
-            _phantom: PhantomData,
-        })
+        Ok(Self { db })
     }
 
     pub fn read_options(&self) -> ReadOptions<'_, BytesKey> {

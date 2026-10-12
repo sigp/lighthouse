@@ -26,7 +26,7 @@ use types::{ForkName, Hash256, MinimalEthSpec as E, Slot};
 mod lookups;
 mod range;
 
-type T = Witness<ManualSlotClock, E, MemoryStore<E>, MemoryStore<E>>;
+type T = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
 
 /// This test utility enables integration testing of Lighthouse sync components.
 ///

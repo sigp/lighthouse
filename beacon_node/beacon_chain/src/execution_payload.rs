@@ -9,7 +9,7 @@
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
-    ExecutionPayloadError,
+    ExecutionPayloadError, PayloadVerificationError,
 };
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, NewPayloadRequest, PayloadAttributes,
@@ -104,14 +104,15 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         })
     }
 
-    pub async fn notify_new_payload(self) -> Result<PayloadVerificationStatus, BlockError> {
+    pub async fn notify_new_payload(
+        self,
+    ) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {
             notify_new_payload(
                 &self.chain,
                 self.block.message().slot(),
-                self.block.message().parent_root(),
                 self.block.message().try_into()?,
             )
             .await
@@ -131,15 +132,15 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     slot: Slot,
-    parent_beacon_block_root: Hash256,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
-) -> Result<PayloadVerificationStatus, BlockError> {
+) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
     let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
+    let parent_block_hash = new_payload_request.execution_payload_ref().parent_hash();
     let new_payload_response = execution_layer
         .notify_new_payload(new_payload_request.clone())
         .await;
@@ -179,11 +180,11 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 if let Some(latest_valid_hash) =
                     latest_valid_hash.filter(|hash| *hash != ExecutionBlockHash::zero())
                 {
-                    // This block has not yet been applied to fork choice, so the latest block that was
-                    // imported to fork choice was the parent.
+                    // The rejected payload never reaches fork choice, so invalidate from its parent
+                    // payload. The parent is only condemned when the latest valid hash lies below it.
                     chain
                         .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
-                            head_block_root: parent_beacon_block_root,
+                            head_hash: parent_block_hash,
                             always_invalidate_head: false,
                             latest_valid_ancestor: latest_valid_hash,
                         })
@@ -236,7 +237,8 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             // Parent has valid or optimistic execution status.
             ExecutionStatus::Valid(_) | ExecutionStatus::Optimistic(_) => true,
             // Pre-merge blocks have irrelevant execution status.
-            ExecutionStatus::Irrelevant(_) => false,
+            // A pre-Gloas block cannot have a Gloas parent, so `NotYetRevealed` is unreachable.
+            ExecutionStatus::Irrelevant(_) | ExecutionStatus::NotYetRevealed(_) => false,
             // If the parent has an invalid payload then it's impossible to build a valid block upon
             // it. Reject the block.
             ExecutionStatus::Invalid(_) => {
@@ -342,7 +344,7 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
     Ok(join_handle)
 }
 
-/// Prepares an execution payload for inclusion in a block.
+/// Prepares an execution payload (pre-gloas) for inclusion in a block.
 ///
 /// ## Errors
 ///
@@ -373,6 +375,13 @@ where
 {
     let spec = &chain.spec;
     let fork = spec.fork_name_at_slot::<T::EthSpec>(builder_params.slot);
+
+    if fork.gloas_enabled() {
+        return Err(BlockProductionError::InvalidBlockVariant(
+            "Called pre-gloas prepare_execution_payload on a gloas block".to_string(),
+        ));
+    }
+
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -403,25 +412,21 @@ where
         .get_suggested_fee_recipient(proposer_index)
         .await;
 
-    let slot_number = if fork.gloas_enabled() {
-        Some(builder_params.slot.as_u64())
-    } else {
-        None
-    };
-
     let payload_attributes = PayloadAttributes::new(
         timestamp,
         random,
         suggested_fee_recipient,
         withdrawals,
         parent_beacon_block_root,
-        slot_number,
+        None,
+        None,
+        None,
     );
 
     let target_gas_limit = execution_layer.get_proposer_gas_limit(proposer_index).await;
     let payload_parameters = PayloadParameters {
         parent_hash,
-        parent_gas_limit: latest_execution_payload_header_gas_limit,
+        parent_gas_limit: Some(latest_execution_payload_header_gas_limit),
         proposer_gas_limit: target_gas_limit,
         payload_attributes: &payload_attributes,
         forkchoice_update_params: &forkchoice_update_params,

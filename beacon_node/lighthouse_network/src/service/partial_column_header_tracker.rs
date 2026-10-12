@@ -1,12 +1,11 @@
 use crate::types::HeaderSentSet;
-use lru::LruCache;
+use hashlink::lru_cache::LruCache;
 use parking_lot::Mutex;
 use std::collections::HashSet;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::core::Hash256;
 
-const MAX_BLOCKS: NonZeroUsize = NonZeroUsize::new(4).unwrap();
+const MAX_BLOCKS: usize = 4;
 
 pub struct PartialColumnHeaderTracker {
     blocks: LruCache<Hash256, HeaderSentSet>,
@@ -22,7 +21,8 @@ impl PartialColumnHeaderTracker {
     pub fn get_for_block(&mut self, hash: Hash256) -> HeaderSentSet {
         Arc::clone(
             self.blocks
-                .get_or_insert(hash, || Arc::new(Mutex::new(HashSet::new()))),
+                .entry(hash)
+                .or_insert_with(|| Arc::new(Mutex::new(HashSet::new()))),
         )
     }
 }

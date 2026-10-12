@@ -4,13 +4,15 @@ use beacon_chain::attestation_simulator::produce_unaggregated_attestation;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, fork_name_from_env,
+    generate_data_column_sidecars_from_block,
 };
 use beacon_chain::validator_monitor::UNAGGREGATED_ATTESTATION_LAG_SLOTS;
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped, metrics};
 use bls::{AggregateSignature, Keypair};
+use slot_clock::SlotClock;
 use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
-use types::{Attestation, EthSpec, MainnetEthSpec, RelativeEpoch, Slot};
+use types::{Attestation, EthSpec, ForkName, RelativeEpoch, Slot, Spec};
 
 pub const VALIDATOR_COUNT: usize = 32;
 
@@ -23,9 +25,9 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 #[tokio::test]
 async fn produces_attestations_from_attestation_simulator_service() {
     // Produce 2 epochs, or 64 blocks
-    let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 2;
+    let num_blocks_produced = Spec::slots_per_epoch() * 2;
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
@@ -103,16 +105,163 @@ async fn produces_attestations_from_attestation_simulator_service() {
     });
 }
 
+/// Checks that the attestation simulator reports a head hit for a gloas attestation made on a
+/// skipped slot, which votes for the previous block's payload (`data.index == 1`).
+#[tokio::test]
+async fn gloas_attestation_simulator_head_hit_on_skipped_slot() {
+    let spec = ForkName::Gloas.make_genesis_spec(Spec::default_spec());
+    let harness = BeaconChainHarness::builder(Spec::default())
+        .spec(Arc::new(spec))
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    let chain = &harness.chain;
+
+    // Simulated attestations are scored once the chain is `UNAGGREGATED_ATTESTATION_LAG_SLOTS`
+    // past them, so produce enough blocks after the skipped slot for it to be scored.
+    let skipped_slot = Slot::new(3);
+    let last_slot = skipped_slot + UNAGGREGATED_ATTESTATION_LAG_SLOTS as u64 + 2;
+    for slot in 1..=last_slot.as_u64() {
+        harness.advance_slot();
+        if slot != skipped_slot.as_u64() {
+            harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+        }
+        produce_unaggregated_attestation(chain.clone(), chain.slot().unwrap());
+
+        if slot == skipped_slot.as_u64() {
+            let validator_monitor = chain.validator_monitor.read();
+            let attestation = validator_monitor
+                .get_unaggregated_attestation(skipped_slot)
+                .expect("should get unaggregated attestation");
+            assert_eq!(
+                attestation.data().index,
+                1,
+                "the attestation on the skipped slot should vote for the previous block's payload"
+            );
+        }
+    }
+
+    // Every scored attestation is a head hit, including the one on the skipped slot.
+    let expected_hits = last_slot.as_u64() - UNAGGREGATED_ATTESTATION_LAG_SLOTS as u64 - 1;
+    assert!(expected_hits > skipped_slot.as_u64());
+    metrics::gather().iter().for_each(|mf| {
+        if mf.get_name() == metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL
+        {
+            assert_eq!(
+                mf.get_metric()[0].get_counter().get_value() as u64,
+                expected_hits
+            );
+        }
+        if mf.get_name()
+            == metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL
+        {
+            assert_eq!(mf.get_metric()[0].get_counter().get_value() as u64, 0);
+        }
+    });
+}
+
+/// Checks that the attestation simulator reports a head hit for a gloas attestation made on a
+/// skipped slot when the previous block's payload is unavailable (`data.index == 0`).
+#[tokio::test]
+async fn gloas_attestation_simulator_head_hit_on_skipped_slot_without_payload() {
+    let spec = ForkName::Gloas.make_genesis_spec(Spec::default_spec());
+    let harness = BeaconChainHarness::builder(Spec::default())
+        .spec(Arc::new(spec))
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    let chain = &harness.chain;
+
+    // Build slots 1 and 2 normally, importing their payload envelopes.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Import the block at slot 3 without its payload envelope.
+    harness.advance_slot();
+    let payload_unavailable_slot = Slot::new(3);
+    let (block_contents, _envelope, _new_state) = harness
+        .make_block_with_envelope(harness.get_current_state(), payload_unavailable_slot)
+        .await;
+    let block_root = block_contents.0.canonical_root();
+    harness
+        .process_block(payload_unavailable_slot, block_root, block_contents)
+        .await
+        .expect("block should import without envelope");
+    assert!(
+        !chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&block_root)
+            .expect("block should be in fork choice")
+            .payload_received,
+        "the head block's payload should be unavailable"
+    );
+
+    // Skip slot 4 and simulate an attestation to the payload-unavailable head block.
+    harness.advance_slot();
+    let skipped_slot = Slot::new(4);
+    produce_unaggregated_attestation(chain.clone(), skipped_slot);
+    {
+        let validator_monitor = chain.validator_monitor.read();
+        let attestation = validator_monitor
+            .get_unaggregated_attestation(skipped_slot)
+            .expect("should get unaggregated attestation");
+        assert_eq!(
+            attestation.data().index,
+            0,
+            "the attestation on the skipped slot should vote that the previous block's payload is unavailable"
+        );
+    }
+
+    // Advance far enough for the simulated attestation to be scored.
+    for _ in 0..=UNAGGREGATED_ATTESTATION_LAG_SLOTS {
+        harness.advance_slot();
+        harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+    }
+
+    metrics::gather().iter().for_each(|mf| {
+        if mf.get_name() == metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_HIT_TOTAL
+        {
+            assert_eq!(mf.get_metric()[0].get_counter().get_value() as u64, 1);
+        }
+        if mf.get_name()
+            == metrics::VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_HEAD_ATTESTER_MISS_TOTAL
+        {
+            assert_eq!(mf.get_metric()[0].get_counter().get_value() as u64, 0);
+        }
+    });
+}
+
 /// This test builds a chain that is just long enough to finalize an epoch then it produces an
 /// attestation at each slot from genesis through to three epochs past the head.
 ///
 /// It checks the produced attestation against some locally computed values.
 #[tokio::test]
 async fn produces_attestations() {
-    let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 4;
-    let additional_slots_tested = MainnetEthSpec::slots_per_epoch() * 3;
+    let num_blocks_produced = Spec::slots_per_epoch() * 4;
+    let additional_slots_tested = Spec::slots_per_epoch() * 3;
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
@@ -124,7 +273,7 @@ async fn produces_attestations() {
     let chain = &harness.chain;
 
     // Test all valid committee indices for all slots in the chain.
-    // for slot in 0..=current_slot.as_u64() + MainnetEthSpec::slots_per_epoch() * 3 {
+    // for slot in 0..=current_slot.as_u64() + Spec::slots_per_epoch() * 3 {
     for slot in 0..=num_blocks_produced + additional_slots_tested {
         if slot > 0 && slot <= num_blocks_produced {
             harness.advance_slot();
@@ -159,9 +308,7 @@ async fn produces_attestations() {
             .make_full_block(&block_root, blinded_block)
             .unwrap();
 
-        let epoch_boundary_slot = state
-            .current_epoch()
-            .start_slot(MainnetEthSpec::slots_per_epoch());
+        let epoch_boundary_slot = state.current_epoch().start_slot(Spec::slots_per_epoch());
         let target_root = if state.slot() == epoch_boundary_slot {
             block_root
         } else {
@@ -197,6 +344,9 @@ async fn produces_attestations() {
                 Attestation::Electra(att) => {
                     (att.aggregation_bits.len(), att.aggregation_bits.is_zero())
                 }
+                Attestation::Gloas(att) => {
+                    (att.aggregation_bits.len(), att.aggregation_bits.is_zero())
+                }
             };
             assert_eq!(aggregation_bits_len, committee_len, "bad committee len");
             assert!(aggregation_bits_zero, "some committee bits are set");
@@ -210,7 +360,7 @@ async fn produces_attestations() {
             );
             if harness
                 .spec
-                .fork_name_at_slot::<MainnetEthSpec>(data.slot)
+                .fork_name_at_slot::<Spec>(data.slot)
                 .gloas_enabled()
             {
                 assert!(data.index <= 1, "invalid index");
@@ -234,14 +384,11 @@ async fn produces_attestations() {
 
             let range_sync_block = harness
                 .build_range_sync_block_from_store_blobs(Some(block_root), Arc::new(block.clone()));
-            let available_block = range_sync_block.into_available_block();
+            let (available_block, _envelope) = range_sync_block.into_available_block().unwrap();
 
             // For Gloas non-same-slot attestations, the early attester cache returns None.
             let is_same_slot_attestation = slot == block_slot;
-            let is_gloas = harness
-                .spec
-                .fork_name_at_slot::<MainnetEthSpec>(slot)
-                .gloas_enabled();
+            let is_gloas = harness.spec.fork_name_at_slot::<Spec>(slot).gloas_enabled();
             if !is_gloas || is_same_slot_attestation {
                 let early_attestation = {
                     let proto_block = chain
@@ -273,7 +420,7 @@ async fn produces_attestations() {
 /// the one requested.
 #[tokio::test]
 async fn early_attester_cache_old_request() {
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
@@ -299,12 +446,13 @@ async fn early_attester_cache_old_request() {
         .get_block(&head.beacon_block_root)
         .unwrap();
 
-    let available_block = harness
+    let (available_block, _envelope) = harness
         .build_range_sync_block_from_store_blobs(
             Some(head.beacon_block_root),
             head.beacon_block.clone(),
         )
-        .into_available_block();
+        .into_available_block()
+        .unwrap();
 
     harness
         .chain
@@ -344,7 +492,7 @@ async fn gloas_attestation_index_payload_present() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
@@ -396,7 +544,7 @@ async fn gloas_attestation_index_payload_absent() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
@@ -446,5 +594,139 @@ async fn gloas_attestation_index_payload_absent() {
         attestation.data().index,
         0,
         "gloas attestation to prior slot without payload should have index=0 (payload_absent)"
+    );
+}
+
+/// Verify that `produce_payload_attestation_data` reports `payload_present = true` but
+/// `blob_data_available = false` when the envelope was observed on but not imported
+/// because its data was unavailable.
+///
+/// Setup: build a chain through slot 2, then at slot 3 import only the beacon block (no
+/// envelope) and mark the envelope as observed on time.
+#[tokio::test]
+async fn gloas_payload_attestation_seen_but_data_unavailable() {
+    if fork_name_from_env().is_some_and(|f| !f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(Spec::default())
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let chain = &harness.chain;
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Slot 3: import the beacon block but withhold its envelope.
+    harness.advance_slot();
+    let state = harness.get_current_state();
+    let (block_contents, _envelope, _new_state) =
+        harness.make_block_with_envelope(state, Slot::new(3)).await;
+    let block_root = block_contents.0.canonical_root();
+    harness
+        .process_block(Slot::new(3), block_root, block_contents)
+        .await
+        .expect("block should import without envelope");
+
+    assert_eq!(chain.head_snapshot().beacon_block.slot(), Slot::new(3));
+
+    // Mark the envelope as observed at the start of the slot, before its deadline.
+    let slot_start = chain.slot_clock.start_of(Slot::new(3)).unwrap();
+    chain.envelope_times_cache.write().set_time_observed(
+        block_root,
+        Slot::new(3),
+        slot_start,
+        None,
+    );
+
+    let pa_data = chain
+        .produce_payload_attestation_data(Slot::new(3))
+        .expect("should produce payload attestation data");
+
+    assert!(
+        pa_data.payload_present,
+        "envelope observed before the deadline should vote payload_present=true"
+    );
+    assert!(
+        !pa_data.blob_data_available,
+        "unimported envelope data should vote blob_data_available=false"
+    );
+}
+
+/// Verify that `produce_payload_attestation_data` reports `payload_present = false` but
+/// `blob_data_available = true` when all custody columns were received but the envelope was
+/// withheld.
+/// This is the scenario reported in <https://github.com/sigp/lighthouse/issues/9679>
+#[tokio::test]
+async fn gloas_payload_attestation_blob_data_available_without_payload() {
+    if fork_name_from_env().is_some_and(|f| !f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(Spec::default())
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let chain = &harness.chain;
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Slot 3: import the beacon block but withhold its envelope.
+    harness.advance_slot();
+    let state = harness.get_current_state();
+    let (block_contents, _envelope, _new_state) =
+        harness.make_block_with_envelope(state, Slot::new(3)).await;
+    let block = block_contents.0.clone();
+    let block_root = block.canonical_root();
+    harness
+        .process_block(Slot::new(3), block_root, block_contents)
+        .await
+        .expect("block should import without envelope");
+
+    assert_eq!(chain.head_snapshot().beacon_block.slot(), Slot::new(3));
+
+    // Derive and feed in all custody columns for the block without ever importing the
+    // envelope itself.
+    let columns = generate_data_column_sidecars_from_block(&block, &chain.spec);
+    assert!(
+        !columns.is_empty(),
+        "test block should carry non-zero blob commitments for this test to be meaningful"
+    );
+    chain
+        .process_rpc_custody_columns(columns)
+        .await
+        .expect("columns should be accepted");
+
+    let pa_data = chain
+        .produce_payload_attestation_data(Slot::new(3))
+        .expect("should produce payload attestation data");
+
+    assert!(
+        !pa_data.payload_present,
+        "withheld envelope should vote payload_present=false"
+    );
+    assert!(
+        pa_data.blob_data_available,
+        "fully custodied columns should vote blob_data_available=true, independent of the envelope never having been received"
     );
 }

@@ -112,6 +112,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 signature_slot,
             }),
             ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
+            ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
             ForkName::Base => return Err(LightClientError::AltairForkNotActive),
         };
 
@@ -168,7 +169,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             }
             ForkName::Fulu => Self::Fulu(LightClientOptimisticUpdateFulu::from_ssz_bytes(bytes)?),
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas => {
+            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientOptimisticUpdate decoding for {fork_name} not implemented"
                 )));
@@ -190,7 +191,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             ForkName::Electra => <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len(),
             ForkName::Fulu => <LightClientOptimisticUpdateFulu<E> as Encode>::ssz_fixed_len(),
             // TODO(gloas): implement Gloas light client
-            ForkName::Gloas => 0,
+            ForkName::Gloas | ForkName::Heze => 0,
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
@@ -242,7 +243,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientOptimisti
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Gloas => {
+            ForkName::Gloas | ForkName::Heze => {
                 // TODO(EIP-7732): check if this is correct
                 return Err(serde::de::Error::custom(format!(
                     "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
@@ -258,31 +259,31 @@ mod tests {
     // `ssz_tests!` can only be defined once per namespace
     #[cfg(test)]
     mod altair {
-        use crate::{LightClientOptimisticUpdateAltair, MainnetEthSpec};
-        ssz_tests!(LightClientOptimisticUpdateAltair<MainnetEthSpec>);
+        use crate::{LightClientOptimisticUpdateAltair, Spec};
+        ssz_tests!(LightClientOptimisticUpdateAltair<Spec>);
     }
 
     #[cfg(test)]
     mod capella {
-        use crate::{LightClientOptimisticUpdateCapella, MainnetEthSpec};
-        ssz_tests!(LightClientOptimisticUpdateCapella<MainnetEthSpec>);
+        use crate::{LightClientOptimisticUpdateCapella, Spec};
+        ssz_tests!(LightClientOptimisticUpdateCapella<Spec>);
     }
 
     #[cfg(test)]
     mod deneb {
-        use crate::{LightClientOptimisticUpdateDeneb, MainnetEthSpec};
-        ssz_tests!(LightClientOptimisticUpdateDeneb<MainnetEthSpec>);
+        use crate::{LightClientOptimisticUpdateDeneb, Spec};
+        ssz_tests!(LightClientOptimisticUpdateDeneb<Spec>);
     }
 
     #[cfg(test)]
     mod electra {
-        use crate::{LightClientOptimisticUpdateElectra, MainnetEthSpec};
-        ssz_tests!(LightClientOptimisticUpdateElectra<MainnetEthSpec>);
+        use crate::{LightClientOptimisticUpdateElectra, Spec};
+        ssz_tests!(LightClientOptimisticUpdateElectra<Spec>);
     }
 
     #[cfg(test)]
     mod fulu {
-        use crate::{LightClientOptimisticUpdateFulu, MainnetEthSpec};
-        ssz_tests!(LightClientOptimisticUpdateFulu<MainnetEthSpec>);
+        use crate::{LightClientOptimisticUpdateFulu, Spec};
+        ssz_tests!(LightClientOptimisticUpdateFulu<Spec>);
     }
 }

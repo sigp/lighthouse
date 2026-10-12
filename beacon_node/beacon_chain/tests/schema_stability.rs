@@ -13,14 +13,14 @@ use store::{
     DBColumn, HotColdDB, StoreConfig, StoreItem,
     database::interface::BeaconNodeBackend,
     hot_cold_store::Split,
-    metadata::{DataColumnCustodyInfo, DataColumnInfo},
+    metadata::{BlobInfo, DataColumnCustodyInfo, DataColumnInfo},
 };
 use strum::IntoEnumIterator;
 use tempfile::{TempDir, tempdir};
-use types::{ChainSpec, Hash256, MainnetEthSpec, Slot};
+use types::{ChainSpec, Hash256, Slot, Spec};
 
-type E = MainnetEthSpec;
-type Store<E> = Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
+type E = Spec;
+type Store<E> = Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 
 const VALIDATOR_COUNT: usize = 32;
@@ -74,7 +74,7 @@ async fn schema_stability() {
         ..ChainConfig::default()
     };
 
-    let harness = TestHarness::builder(MainnetEthSpec)
+    let harness = TestHarness::builder(Spec::default())
         .spec(spec)
         .keypairs(KEYPAIRS.to_vec())
         .fresh_disk_store(store.clone())
@@ -106,8 +106,8 @@ fn check_db_columns() {
     let current_columns: Vec<&'static str> = DBColumn::iter().map(|c| c.as_str()).collect();
     let expected_columns = vec![
         "bma", "blk", "blb", "bdc", "bdi", "ste", "hsd", "hsn", "bsn", "bsd", "bss", "bs3", "bcs",
-        "bst", "exp", "pay", "bch", "opo", "etc", "frk", "pkc", "brp", "bsx", "bsr", "bbx", "bbr",
-        "bhr", "brm", "dht", "cus", "otb", "bhs", "olc", "lcu", "scb", "scm", "dmy",
+        "bst", "exp", "pay", "pys", "bch", "opo", "etc", "frk", "pkc", "brp", "bsx", "bsr", "bbx",
+        "bbr", "bhr", "brm", "dht", "cus", "otb", "bhs", "olc", "lcu", "scb", "scm", "dmy",
     ];
     assert_eq!(expected_columns, current_columns);
 }
@@ -126,16 +126,25 @@ fn insert_data_column_custody_info(store: &Store<E>, spec: &ChainSpec) {
 fn check_metadata_sizes(store: &Store<E>) {
     assert_eq!(Split::default().ssz_bytes_len(), 40);
     assert_eq!(store.get_anchor_info().ssz_bytes_len(), 64);
+    assert_eq!(store.get_data_info().ssz_bytes_len(), 8);
+    assert_eq!(DataColumnCustodyInfo::default().ssz_bytes_len(), 5);
     assert_eq!(
-        store.get_blob_info().ssz_bytes_len(),
-        if store.get_chain_spec().deneb_fork_epoch.is_some() {
-            14
-        } else {
-            6
+        BlobInfo {
+            oldest_blob_slot: Some(Slot::new(0)),
+            blobs_db: true,
         }
+        .ssz_bytes_len(),
+        14
+    );
+    assert_eq!(BlobInfo::default().ssz_bytes_len(), 6);
+    assert_eq!(
+        DataColumnInfo {
+            oldest_data_column_slot: Some(Slot::new(0)),
+        }
+        .ssz_bytes_len(),
+        13
     );
     assert_eq!(DataColumnInfo::default().ssz_bytes_len(), 5);
-    assert_eq!(DataColumnCustodyInfo::default().ssz_bytes_len(), 5);
 }
 
 fn check_op_pool(store: &Store<E>) {

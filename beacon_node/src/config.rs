@@ -1,20 +1,18 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
+use axum_utils::tls::TlsConfig;
 use beacon_chain::chain_config::{
-    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
-    DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT, ReOrgThreshold,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, FastConfirmationMode, INVALID_HOLESKY_BLOCK_ROOT,
 };
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use bls::PublicKeyBytes;
 use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
-use clap_utils::{parse_flag, parse_required};
+use clap_utils::{parse_flag, parse_optional, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
-use http_api::TlsConfig;
 use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use network_utils::listen_addr::ListenAddress;
 use sensitive_url::SensitiveUrl;
@@ -110,7 +108,9 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
-    if parse_flag(cli_args, "enable-partial-columns") {
+    let enable_partial_columns = parse_required::<bool>(cli_args, "enable-partial-columns")?;
+
+    if enable_partial_columns {
         // Partial messages assume that each subnet maps to exactly one column.
         // Check this here to avoid weird issues on networks where this is not the case.
         if spec.data_column_sidecar_subnet_count == E::number_of_columns() as u64 {
@@ -207,6 +207,10 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.disable_get_blobs = true;
     }
 
+    if cli_args.get_flag("enable-fast-confirmation") {
+        client_config.chain.fast_confirmation = FastConfirmationMode::Enabled;
+    }
+
     if let Some(sync_tolerance_epochs) =
         clap_utils::parse_optional(cli_args, "sync-tolerance-epochs")?
     {
@@ -215,6 +219,9 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(cache_size) = clap_utils::parse_optional(cli_args, "shuffling-cache-size")? {
         client_config.chain.shuffling_cache_size = cache_size;
+        // Mantain backwards compatibility with users customizing `shuffling_cache_size` to tweak
+        // the behaviour of the HTTP API route `beacon/states/committees`
+        client_config.http_api.historical_committee_cache_size = cache_size;
     }
 
     if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {
@@ -284,41 +291,58 @@ pub fn get_config<E: EthSpec>(
         client_config.http_metrics.allocator_metrics_enabled = false;
     }
 
-    // `--execution-endpoint` is required now.
-    let endpoints: String = clap_utils::parse_required(cli_args, "execution-endpoint")?;
     let mut el_config = execution_layer::Config::default();
 
-    // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
-    let execution_endpoint = parse_only_one_value(
-        endpoints.as_str(),
-        SensitiveUrl::parse,
-        "--execution-endpoint",
-    )?;
+    // Clap requires `--execution-endpoint` unless a proof engine is configured. Absent, the node
+    // runs with no execution layer.
+    if let Some(endpoints) = cli_args.get_one::<String>("execution-endpoint") {
+        // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
+        el_config.execution_endpoint = Some(parse_only_one_value(
+            endpoints.as_str(),
+            SensitiveUrl::parse,
+            "--execution-endpoint",
+        )?);
 
-    // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
-    // file_path or directly as string.
-    let secret_file: PathBuf;
-    // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
-    if let Some(secret_files) = cli_args.get_one::<String>("execution-jwt") {
-        secret_file = parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt")?;
-    // Check if the JWT secret key is passed directly via cli flag and persist it to the default
-    // file location.
-    } else if let Some(jwt_secret_key) = cli_args.get_one::<String>("execution-jwt-secret-key") {
-        use std::fs::File;
-        use std::io::Write;
-        secret_file = client_config.data_dir().join(DEFAULT_JWT_FILE);
-        let mut jwt_secret_key_file = File::create(secret_file.clone())
-            .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
-        jwt_secret_key_file
-            .write_all(jwt_secret_key.as_bytes())
-            .map_err(|e| {
-                format!(
-                    "Error occurred while writing to jwt_secret_key file: {:?}",
-                    e
-                )
-            })?;
-    } else {
-        return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
+        // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
+        // file_path or directly as string.
+        // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
+        if let Some(secret_files) = cli_args.get_one::<String>("execution-jwt") {
+            el_config.secret_file = Some(parse_only_one_value(
+                secret_files,
+                PathBuf::from_str,
+                "--execution-jwt",
+            )?);
+        // Check if the JWT secret key is passed directly via cli flag and persist it to the default
+        // file location.
+        } else if let Some(jwt_secret_key) = cli_args.get_one::<String>("execution-jwt-secret-key")
+        {
+            use std::fs::File;
+            use std::io::Write;
+            let secret_file = client_config.data_dir().join(DEFAULT_JWT_FILE);
+            let mut jwt_secret_key_file = File::create(secret_file.clone())
+                .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
+            jwt_secret_key_file
+                .write_all(jwt_secret_key.as_bytes())
+                .map_err(|e| {
+                    format!(
+                        "Error occurred while writing to jwt_secret_key file: {:?}",
+                        e
+                    )
+                })?;
+            el_config.secret_file = Some(secret_file);
+        } else {
+            return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
+        }
+    }
+
+    // Parse and set the EIP-8025 proof engine, if any.
+    if let Some(endpoint) = cli_args.get_one::<String>("proof-engine-endpoint") {
+        client_config.proof_engine_endpoint = Some(parse_only_one_value(
+            endpoint,
+            SensitiveUrl::parse,
+            "--proof-engine-endpoint",
+        )?);
+        client_config.network.enable_execution_proof = true;
     }
 
     // Parse and set the payload builder, if any.
@@ -336,8 +360,6 @@ pub fn get_config<E: EthSpec>(
     }
 
     // Set config values from parse values.
-    el_config.secret_file = Some(secret_file.clone());
-    el_config.execution_endpoint = Some(execution_endpoint.clone());
     el_config.suggested_fee_recipient =
         clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
     el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
@@ -349,8 +371,13 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
     el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
 
-    // Store the EL config in the client config.
-    client_config.execution_layer = Some(el_config);
+    // With no endpoint there is no execution layer, and every field here is read only through one.
+    if el_config.execution_endpoint.is_some() {
+        client_config.execution_layer = Some(el_config);
+    } else {
+        // No engine to fetch blobs from.
+        client_config.chain.disable_get_blobs = true;
+    }
 
     // Override default trusted setup file if required
     if let Some(trusted_setup_file_path) = cli_args.get_one::<String>("trusted-setup-file-override")
@@ -408,6 +435,10 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(prune_payloads) = clap_utils::parse_optional(cli_args, "prune-payloads")? {
         client_config.store.prune_payloads = prune_payloads;
+    }
+    // No engine to reconstruct a pruned payload from.
+    if client_config.execution_layer.is_none() {
+        client_config.store.prune_payloads = false;
     }
 
     if clap_utils::parse_optional::<u64>(cli_args, "slots-per-restore-point")?.is_some() {
@@ -741,41 +772,30 @@ pub fn get_config<E: EthSpec>(
             .individual_tracking_threshold = count;
     }
 
-    if cli_args.get_flag("disable-proposer-reorgs") {
-        client_config.chain.re_org_head_threshold = None;
-        client_config.chain.re_org_parent_threshold = None;
-    } else {
-        client_config.chain.re_org_head_threshold = Some(
-            clap_utils::parse_optional(cli_args, "proposer-reorg-threshold")?
-                .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_HEAD_THRESHOLD),
-        );
-        client_config.chain.re_org_max_epochs_since_finalization =
-            clap_utils::parse_optional(cli_args, "proposer-reorg-epochs-since-finalization")?
-                .unwrap_or(DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION);
-        client_config.chain.re_org_cutoff_millis =
-            clap_utils::parse_optional(cli_args, "proposer-reorg-cutoff")?;
+    client_config.chain.disable_proposer_reorg = cli_args.get_flag("disable-proposer-reorgs");
 
-        client_config.chain.re_org_parent_threshold = Some(
-            clap_utils::parse_optional(cli_args, "proposer-reorg-parent-threshold")?
-                .map(ReOrgThreshold)
-                .unwrap_or(DEFAULT_RE_ORG_PARENT_THRESHOLD),
-        );
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-threshold")?.is_some() {
+        warn!("The proposer-reorg-threshold flag is deprecated");
+    }
 
-        if let Some(disallowed_offsets_str) =
-            clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
-        {
-            let disallowed_offsets = disallowed_offsets_str
-                .split(',')
-                .map(|s| {
-                    s.parse()
-                        .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))
-                })
-                .collect::<Result<Vec<u64>, _>>()?;
-            client_config.chain.re_org_disallowed_offsets =
-                DisallowedReOrgOffsets::new::<E>(disallowed_offsets)
-                    .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))?;
-        }
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-epochs-since-finalization")?
+        .is_some()
+    {
+        warn!("The proposer-reorg-epochs-since-finalization flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-cutoff")?.is_some() {
+        warn!("The proposer-reorg-cutoff flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<u64>(cli_args, "proposer-reorg-parent-threshold")?.is_some() {
+        warn!("The proposer-reorg-parent-threshold flag is deprecated");
+    }
+
+    if clap_utils::parse_optional::<String>(cli_args, "proposer-reorg-disallowed-offsets")?
+        .is_some()
+    {
+        warn!("The proposer-reorg-disallowed-offsets flag is deprecated");
     }
 
     client_config.chain.prepare_payload_lookahead =
@@ -1433,6 +1453,10 @@ pub fn set_network_config(
 
     if parse_flag(cli_args, "disable-quic") {
         config.disable_quic_support = true;
+    }
+
+    if let Some(enable_mplex) = parse_optional(cli_args, "enable-mplex")? {
+        config.enable_mplex = enable_mplex;
     }
 
     if parse_flag(cli_args, "disable-upnp") {

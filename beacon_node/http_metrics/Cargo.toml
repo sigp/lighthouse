@@ -6,6 +6,8 @@ edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+axum = { workspace = true }
+axum_utils = { workspace = true }
 beacon_chain = { workspace = true }
 health_metrics = { workspace = true }
 lighthouse_network = { workspace = true }
@@ -17,9 +19,8 @@ network_utils = { workspace = true }
 serde = { workspace = true }
 slot_clock = { workspace = true }
 store = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
-warp = { workspace = true }
-warp_utils = { workspace = true }
 
 [dev-dependencies]
 logging = { workspace = true }
