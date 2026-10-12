@@ -5381,5 +5381,23 @@ mod slot_duration_schedule_properties {
                     .is_err()
             );
         }
+
+        #[test]
+        fn slot_duration_lookups_agree(
+            heze_epoch in prop_oneof![Just(0u64), 0u64..200, Just(u64::MAX)],
+            slot_duration_ms in slot_duration_ms(),
+            slot_duration_ms_eip8198 in slot_duration_ms(),
+            epoch in prop_oneof![0u64..400, any::<u64>()],
+        ) {
+            let mut spec = ChainSpec::mainnet();
+            spec.slot_duration_ms = slot_duration_ms;
+            spec.slot_duration_ms_eip8198 = slot_duration_ms_eip8198;
+            spec.heze_fork_epoch = Some(Epoch::new(heze_epoch));
+            let epoch = Epoch::new(epoch);
+            prop_assert_eq!(
+                spec.slot_duration_schedule().slot_duration_ms_for_epoch(epoch),
+                Some(spec.get_slot_duration_ms(epoch))
+            );
+        }
     }
 }
