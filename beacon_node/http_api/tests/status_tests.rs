@@ -11,9 +11,9 @@ use eth2::types::ProposerPreparationData;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use http_api::test_utils::InteractiveTester;
 use reqwest::StatusCode;
-use types::{Address, EthSpec, ExecPayload, MinimalEthSpec, Slot, Uint256};
+use types::{Address, EthSpec, ExecPayload, Slot, Spec, Uint256};
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 /// Create a new test environment that is post-merge with `chain_depth` blocks.
 async fn post_merge_tester(chain_depth: u64, validator_count: u64) -> InteractiveTester<E> {
