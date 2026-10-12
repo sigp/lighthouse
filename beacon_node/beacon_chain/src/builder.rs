@@ -1560,7 +1560,6 @@ mod test {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use ssz::Encode;
-    use std::time::Duration;
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
     use task_executor::test_utils::TestRuntime;
