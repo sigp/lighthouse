@@ -1388,7 +1388,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let confirmed_root = fcr.get_restart_resilient_confirmed_root::<T::EthSpec>(
             head_root,
-            &finalized_cp,
             current_slot,
             proto_array,
         )?;

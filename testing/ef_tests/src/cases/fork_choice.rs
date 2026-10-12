@@ -1398,7 +1398,7 @@ impl<E: EthSpec> Tester<E> {
         let actual = fork_choice
             .proto_array()
             .core_proto_array()
-            .filtered_block_tree_leaves_and_weights::<E>(
+            .filtered_node_tree_leaves_and_weights::<E>(
                 &justified.root,
                 current_slot,
                 justified,
@@ -1409,7 +1409,7 @@ impl<E: EthSpec> Tester<E> {
             )
             .map_err(|e| {
                 Error::InternalError(format!(
-                    "filtered_block_tree_leaves_and_weights failed: {e:?}"
+                    "filtered_node_tree_leaves_and_weights failed: {e:?}"
                 ))
             })?;
         drop(fork_choice);
