@@ -67,3 +67,8 @@ proto_array = { workspace = true }
 [[test]]
 name = "bn_http_api_tests"
 path = "tests/main.rs"
+
+[[test]]
+name = "bn_http_api_spec_minimal_tests"
+path = "tests/spec_minimal.rs"
+required-features = ["spec-minimal"]
