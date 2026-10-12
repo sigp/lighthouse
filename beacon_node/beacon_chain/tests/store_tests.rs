@@ -7750,7 +7750,6 @@ async fn bellatrix_produce_and_store_payloads() {
     use beacon_chain::test_utils::{
         DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME, InteropGenesisBuilder,
     };
-    use safe_arith::SafeArith;
     use state_processing::per_block_processing::is_merge_transition_complete;
     use tree_hash::TreeHash;
 
