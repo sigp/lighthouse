@@ -26,7 +26,7 @@ use crate::{
         load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
         verify_envelope_payload_hash,
     },
-    validator_monitor::is_seen_within_slots,
+    validator_monitor::is_before_slot,
 };
 
 const ENVELOPE_METRICS_CACHE_SLOT_LIMIT: u64 = 64;
@@ -343,10 +343,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let envelope_slot = signed_envelope.slot();
         // Do not write to the cache for envelopes older than 2 epochs, this helps reduce writes
         // to the cache during sync.
-        if is_seen_within_slots(
+        if is_before_slot(
             envelope_time_imported,
-            envelope_slot,
-            ENVELOPE_METRICS_CACHE_SLOT_LIMIT,
+            envelope_slot.saturating_add(ENVELOPE_METRICS_CACHE_SLOT_LIMIT),
             &self.slot_clock,
         ) {
             self.envelope_times_cache.write().set_time_imported(

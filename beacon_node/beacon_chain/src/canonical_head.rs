@@ -45,7 +45,7 @@ use crate::{
     beacon_chain::{BeaconForkChoice, BeaconStore, FORK_CHOICE_DB_KEY, OverrideForkchoiceUpdate},
     block_times_cache::BlockTimesCache,
     metrics,
-    validator_monitor::{get_slot_delay_ms, is_seen_within_slots},
+    validator_monitor::{get_slot_delay_ms, is_before_slot},
 };
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
@@ -2071,7 +2071,11 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
 
     // Do not write to the cache for blocks older than 2 epochs, this helps reduce writes to
     // the cache during sync.
-    if is_seen_within_slots(block_time_set_as_head, head_block_slot, 64, slot_clock) {
+    if is_before_slot(
+        block_time_set_as_head,
+        head_block_slot.saturating_add(64u64),
+        slot_clock,
+    ) {
         block_times_cache.set_time_set_as_head(
             head_block_root,
             head_block_slot,

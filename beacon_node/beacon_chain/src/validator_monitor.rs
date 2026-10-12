@@ -2134,18 +2134,13 @@ pub fn get_slot_delay_ms<S: SlotClock>(
         .unwrap_or_else(|| Duration::from_secs(0))
 }
 
-/// Returns `true` if `seen_timestamp` is before the start of `slot + slots`.
+/// Returns `true` if `timestamp` is before the start of `slot`.
 ///
-/// Counts slots on the slot clock, so it follows slot duration changes.
-pub fn is_seen_within_slots<S: SlotClock>(
-    seen_timestamp: Duration,
-    slot: Slot,
-    slots: u64,
-    slot_clock: &S,
-) -> bool {
+/// Reads the slot start from the slot clock, so it follows slot duration changes.
+pub fn is_before_slot<S: SlotClock>(timestamp: Duration, slot: Slot, slot_clock: &S) -> bool {
     slot_clock
-        .start_of(slot.saturating_add(slots))
-        .is_none_or(|end| seen_timestamp < end)
+        .start_of(slot)
+        .is_none_or(|start| timestamp < start)
 }
 
 /// Returns the duration between when any message could be produced and the `seen_timestamp`.
