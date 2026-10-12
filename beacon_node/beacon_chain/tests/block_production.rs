@@ -1,6 +1,7 @@
 use beacon_chain::{
     BlockProductionError, ProduceBlockVerification,
     graffiti_calculator::GraffitiSettings,
+    inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList,
     observed_operations::ObservationOutcome,
     payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid,
     test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec},
@@ -378,8 +379,8 @@ async fn heze_gossip_bid_missing_a_late_inclusion_list_is_skipped_at_production(
         .chain
         .inclusion_list_store
         .write()
-        .process_inclusion_list(
-            SignedInclusionList {
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: SignedInclusionList {
                 message: InclusionList {
                     slot: inclusion_list_slot,
                     validator_index: late_submitter,
@@ -388,8 +389,8 @@ async fn heze_gossip_bid_missing_a_late_inclusion_list_is_skipped_at_production(
                 },
                 signature: Signature::empty(),
             },
-            false,
-        );
+            is_timely: false,
+        });
 
     rig.observe_bid(rig.signed_builder_bid(BID_VALUE, Some(InclusionListBits::<E>::default())));
     match rig.produce_block().await {
@@ -456,8 +457,8 @@ async fn heze_self_build_bid_claims_held_inclusion_lists() {
             .chain
             .inclusion_list_store
             .write()
-            .process_inclusion_list(
-                SignedInclusionList {
+            .process_inclusion_list(GossipVerifiedInclusionList {
+                signed_inclusion_list: SignedInclusionList {
                     message: InclusionList {
                         slot: inclusion_list_slot,
                         validator_index,
@@ -467,7 +468,7 @@ async fn heze_self_build_bid_claims_held_inclusion_lists() {
                     signature: Signature::empty(),
                 },
                 is_timely,
-            );
+            });
     }
 
     harness.advance_slot();
