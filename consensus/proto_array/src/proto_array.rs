@@ -231,7 +231,7 @@ impl ProtoNode {
             ExecutionStatus::Invalid(_) => true,
             ExecutionStatus::Valid(_)
             | ExecutionStatus::Optimistic(_)
-            | ExecutionStatus::Irrelevant(_)
+            | ExecutionStatus::PreMerge(_)
             | ExecutionStatus::NotYetRevealed(_) => false,
         }
     }
@@ -243,7 +243,7 @@ impl ProtoNode {
                 ExecutionStatus::Valid(hash)
                 | ExecutionStatus::Invalid(hash)
                 | ExecutionStatus::Optimistic(hash) => PayloadBlockHash::Hash(hash),
-                ExecutionStatus::Irrelevant(_) => PayloadBlockHash::PreMerge,
+                ExecutionStatus::PreMerge(_) => PayloadBlockHash::PreMerge,
                 ExecutionStatus::NotYetRevealed(hash) => PayloadBlockHash::Hash(hash),
             },
             ProtoNode::V29(node) => PayloadBlockHash::Hash(node.execution_payload_block_hash),
@@ -879,7 +879,7 @@ impl ProtoArray {
         match v29.execution_status {
             ExecutionStatus::NotYetRevealed(_) | ExecutionStatus::Optimistic(_) => {}
             ExecutionStatus::Valid(_) | ExecutionStatus::Invalid(_) => return Ok(()),
-            ExecutionStatus::Irrelevant(_) => {
+            ExecutionStatus::PreMerge(_) => {
                 return Err(Error::Unexpected(format!(
                     "pre-merge status on a Gloas node: {block_root:?}"
                 )));
@@ -899,7 +899,7 @@ impl ProtoArray {
             }
             // The fork choice wrapper only maps envelope verdicts to `Valid` or `Optimistic`.
             ExecutionStatus::Invalid(_)
-            | ExecutionStatus::Irrelevant(_)
+            | ExecutionStatus::PreMerge(_)
             | ExecutionStatus::NotYetRevealed(_) => Err(Error::Unexpected(format!(
                 "envelope carries no EL verdict: {execution_status:?}"
             ))),
@@ -983,7 +983,7 @@ impl ProtoArray {
                     // We have reached an irrelevant node, this node is prior to a terminal execution
                     // block. There's no need to iterate further, it's impossible for this block to have
                     // any relevant ancestors.
-                    ExecutionStatus::Irrelevant(_) => return Ok(()),
+                    ExecutionStatus::PreMerge(_) => return Ok(()),
                     // The block has an unknown status, set it to valid since any ancestor of a valid
                     // payload can be considered valid.
                     ExecutionStatus::Optimistic(hash) | ExecutionStatus::NotYetRevealed(hash) => {
@@ -1177,7 +1177,7 @@ impl ProtoArray {
                     *node.execution_status_mut() = ExecutionStatus::Invalid(hash);
                 }
                 // A pre-merge descendant of an executed block is a contradiction.
-                ExecutionStatus::Irrelevant(_) => {
+                ExecutionStatus::PreMerge(_) => {
                     return Err(Error::IrrelevantDescendant {
                         block_root: node.root(),
                     });
@@ -1318,7 +1318,7 @@ impl ProtoArray {
                 ExecutionStatus::Invalid(block_hash) => Some(block_hash),
                 ExecutionStatus::Valid(_)
                 | ExecutionStatus::Optimistic(_)
-                | ExecutionStatus::Irrelevant(_)
+                | ExecutionStatus::PreMerge(_)
                 | ExecutionStatus::NotYetRevealed(_) => None,
             })
             .collect();
@@ -1579,7 +1579,7 @@ impl ProtoArray {
             PayloadStatus::Full => {
                 let node = self.get_block(root).ok_or(Error::NodeUnknown(root))?;
                 match node.execution_status() {
-                    ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => {
+                    ExecutionStatus::Valid(_) | ExecutionStatus::PreMerge(_) => {
                         Ok(ExecutionVerdict::Valid)
                     }
                     ExecutionStatus::Invalid(_) => Ok(ExecutionVerdict::Invalid),
@@ -1629,9 +1629,7 @@ impl ProtoArray {
         };
 
         match executed_node.execution_status() {
-            ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => {
-                Ok(ExecutionVerdict::Valid)
-            }
+            ExecutionStatus::Valid(_) | ExecutionStatus::PreMerge(_) => Ok(ExecutionVerdict::Valid),
             ExecutionStatus::Invalid(_) => Ok(ExecutionVerdict::Invalid),
             ExecutionStatus::Optimistic(_) => Ok(ExecutionVerdict::Optimistic),
             // The walk only stops on a node whose payload its branch executed; an unrevealed
@@ -2307,7 +2305,7 @@ impl ProtoArray {
                 ExecutionStatus::Invalid(_) => true,
                 ExecutionStatus::Valid(_)
                 | ExecutionStatus::Optimistic(_)
-                | ExecutionStatus::Irrelevant(_)
+                | ExecutionStatus::PreMerge(_)
                 | ExecutionStatus::NotYetRevealed(_) => false,
             })
     }

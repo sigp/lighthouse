@@ -19,7 +19,7 @@ pub enum GenesisExecutionPayloadStatus {
         expected: Hash256,
     },
     OtherMismatch,
-    Irrelevant,
+    PreMerge,
     AlreadyHappened,
     NoExecutionLayer,
 }
@@ -39,7 +39,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let Ok(latest_execution_payload_header) = genesis_state.latest_execution_payload_header()
         else {
-            return Ok(GenesisExecutionPayloadStatus::Irrelevant);
+            return Ok(GenesisExecutionPayloadStatus::PreMerge);
         };
 
         let Some(execution_layer) = self.execution_layer.as_ref() else {
