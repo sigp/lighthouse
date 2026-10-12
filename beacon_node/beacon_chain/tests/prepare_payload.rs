@@ -822,8 +822,7 @@ async fn prepare_payload_on_fork_boundary(
         return;
     }
     spec.gloas_fork_epoch = Some(gloas_fork_epoch);
-    // This test covers the Gloas transition only,
-    // so Heze must not activate before it
+    // This test covers the Gloas transition only, so Heze must not activate before it
     spec.heze_fork_epoch = None;
     let spec = Arc::new(spec);
 
