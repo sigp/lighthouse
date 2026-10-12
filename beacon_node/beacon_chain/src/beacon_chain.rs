@@ -1385,6 +1385,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return cached_block;
         }
 
+        if let Some((block, source)) = self.pending_payload_cache.get_block(block_root) {
+            return BlockProcessStatus::NotValidated(block, source);
+        }
+
         BlockProcessStatus::Unknown
     }
 
@@ -3930,14 +3934,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let block = execution_pending.block.block_cloned();
             if block.fork_name_unchecked().gloas_enabled() {
-                let bid = Arc::new(
-                    block
-                        .message()
-                        .body()
-                        .signed_execution_payload_bid()?
-                        .clone_as_signed_execution_payload_bid(),
-                );
-                chain.pending_payload_cache.insert_bid(block_root, bid);
+                chain
+                    .pending_payload_cache
+                    .insert_block(block_root, block, block_source);
             }
 
             publish_fn()?;
@@ -6691,7 +6690,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
 
                     let canonical_fcu_params = cached_head.forkchoice_update_parameters();
-                    let fcu_params = if chain
+                    let mut fcu_params = if chain
                         .spec
                         .fork_name_at_slot::<T::EthSpec>(head_slot)
                         .gloas_enabled()
@@ -6714,10 +6713,72 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             &chain.spec,
                         )?;
                     let head_payload_status = cached_head.head_payload_status();
+                    // Use `should_build_on_full` for the proposal slot so prep matches block
+                    // production and bid validation. Canonical head can be Full while PTC votes
+                    // force building on Empty.
+                    let mut build_payload_status = head_payload_status;
+                    if chain
+                        .spec
+                        .fork_name_at_slot::<T::EthSpec>(prepare_slot)
+                        .gloas_enabled()
+                    {
+                        // Keep status and head_hash consistent so cache, withdrawals, SSE, and
+                        // prep FCU share the same build parent.
+                        let fork_choice = chain.canonical_head.fork_choice_read_lock();
+                        if let Some(proto_block) = fork_choice.get_block(&fcu_params.head_root) {
+                            match fork_choice.should_build_on_full(
+                                &fcu_params.head_root,
+                                head_payload_status,
+                                prepare_slot,
+                            ) {
+                                Ok(should_build_on_full) => {
+                                    build_payload_status = if should_build_on_full {
+                                        fork_choice::PayloadStatus::Full
+                                    } else {
+                                        fork_choice::PayloadStatus::Empty
+                                    };
+                                    let PayloadBlockHash::Hash(hash) =
+                                        proto_block.head_payload_block_hash(build_payload_status)
+                                    else {
+                                        return Err(Error::PreMergeBlockHasNoExecutionHash(
+                                            fcu_params.head_root,
+                                        ));
+                                    };
+                                    fcu_params.head_hash = Some(hash);
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        error = ?e,
+                                        head_root = ?fcu_params.head_root,
+                                        ?head_payload_status,
+                                        %prepare_slot,
+                                        "should_build_on_full failed during proposer prep; \
+                                         using canonical payload status"
+                                    );
+                                }
+                            }
+                        } else {
+                            warn!(
+                                head_root = ?fcu_params.head_root,
+                                "Missing proto array block for proposer prep build parent; \
+                                 using canonical payload status"
+                            );
+                        }
+                    }
+                    if build_payload_status != head_payload_status {
+                        debug!(
+                            %prepare_slot,
+                            head_root = ?fcu_params.head_root,
+                            canonical_payload_status = ?head_payload_status,
+                            build_payload_status = ?build_payload_status,
+                            parent_block_hash = ?fcu_params.head_hash,
+                            "Proposer prep build parent differs from canonical head payload status"
+                        );
+                    }
                     Ok::<_, Error>(Some((
                         fcu_params,
                         pre_payload_attributes,
-                        head_payload_status,
+                        build_payload_status,
                         proposer_shuffling_decision_root,
                     )))
                 },
@@ -6728,7 +6789,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let Some((
             forkchoice_update_params,
             Some(pre_payload_attributes),
-            head_payload_status,
+            build_payload_status,
             proposer_shuffling_decision_root,
         )) = maybe_prep_data
         else {
@@ -6754,7 +6815,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let head_root = forkchoice_update_params.head_root;
         let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
         let payload_attributes = if let Some(payload_attributes) = execution_layer
-            .payload_attributes(prepare_slot, head_root, head_payload_status)
+            .payload_attributes(prepare_slot, head_root, build_payload_status)
             .await
         {
             payload_attributes
@@ -6832,7 +6893,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .insert_proposer(
                     prepare_slot,
                     head_root,
-                    head_payload_status,
+                    build_payload_status,
                     proposer,
                     payload_attributes.clone(),
                 )
@@ -6844,7 +6905,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 %prepare_slot,
                 validator = proposer,
                 parent_root = ?head_root,
-                payload_status = ?head_payload_status,
+                payload_status = ?build_payload_status,
                 "Prepared beacon proposer"
             );
             payload_attributes
@@ -6917,7 +6978,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.update_execution_engine_forkchoice(
                 current_slot,
                 forkchoice_update_params,
-                head_payload_status,
+                build_payload_status,
                 OverrideForkchoiceUpdate::AlreadyApplied,
             )
             .await?;
