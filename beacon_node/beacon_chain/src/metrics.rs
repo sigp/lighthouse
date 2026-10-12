@@ -1526,6 +1526,25 @@ pub static PAYLOAD_ATTESTATION_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
             "Full runtime of payload attestation gossip verification",
         )
     });
+pub static INCLUSION_LIST_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_inclusion_list_processing_requests_total",
+        "Count of all inclusion lists submitted for processing",
+    )
+});
+pub static INCLUSION_LIST_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_inclusion_list_processing_successes_total",
+            "Number of inclusion lists verified for gossip",
+        )
+    });
+pub static INCLUSION_LIST_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_inclusion_list_equivocations_total",
+        "Number of validators flagged for sending two different inclusion lists",
+    )
+});
 pub static SYNC_MESSAGE_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "sync_message_equivocations_total",
