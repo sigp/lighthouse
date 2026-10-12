@@ -457,9 +457,11 @@ pub enum Work<E: EthSpec> {
     DataColumnsByRangeRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     GossipExecutionPayload(AsyncFn),
+    GossipExecutionProof(AsyncFn),
     GossipExecutionPayloadBid(BlockingFn),
     GossipPayloadAttestation(BlockingFn),
     GossipProposerPreferences(BlockingFn),
+    GossipInclusionList(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
     LightClientFinalityUpdateRequest(BlockingFn),
@@ -519,9 +521,11 @@ pub enum WorkType {
     DataColumnsByRangeRequest,
     GossipBlsToExecutionChange,
     GossipExecutionPayload,
+    GossipExecutionProof,
     GossipExecutionPayloadBid,
     GossipPayloadAttestation,
     GossipProposerPreferences,
+    GossipInclusionList,
     LightClientBootstrapRequest,
     LightClientOptimisticUpdateRequest,
     LightClientFinalityUpdateRequest,
@@ -559,9 +563,11 @@ impl<E: EthSpec> Work<E> {
             }
             Work::GossipBlsToExecutionChange(_) => WorkType::GossipBlsToExecutionChange,
             Work::GossipExecutionPayload(_) => WorkType::GossipExecutionPayload,
+            Work::GossipExecutionProof(_) => WorkType::GossipExecutionProof,
             Work::GossipExecutionPayloadBid(_) => WorkType::GossipExecutionPayloadBid,
             Work::GossipPayloadAttestation(_) => WorkType::GossipPayloadAttestation,
             Work::GossipProposerPreferences(_) => WorkType::GossipProposerPreferences,
+            Work::GossipInclusionList(_) => WorkType::GossipInclusionList,
             Work::RpcBlock { .. } => WorkType::RpcBlock,
             Work::RpcBlobs { .. } => WorkType::RpcBlobs,
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
@@ -860,6 +866,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) = work_queues.gossip_execution_payload_queue.pop()
                         {
                             Some(item)
+                        } else if let Some(item) = work_queues.gossip_execution_proof_queue.pop() {
+                            Some(item)
                         } else if let Some(item) = work_queues.gossip_data_column_queue.pop() {
                             Some(item)
                         } else if let Some(item) = work_queues.unknown_block_data_column_queue.pop()
@@ -989,6 +997,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) =
                             work_queues.gossip_payload_attestation_queue.pop()
                         {
+                            Some(item)
+                        // Check inclusion lists next, they also influence fork choice.
+                        } else if let Some(item) = work_queues.gossip_inclusion_list_queue.pop() {
                             Some(item)
                         // Check sync committee messages after attestations as their rewards are lesser
                         // and they don't influence fork choice.
@@ -1279,6 +1290,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipExecutionPayload { .. } => work_queues
                                 .gossip_execution_payload_queue
                                 .push(work, work_id),
+                            Work::GossipExecutionProof { .. } => {
+                                work_queues.gossip_execution_proof_queue.push(work, work_id)
+                            }
                             Work::GossipExecutionPayloadBid { .. } => work_queues
                                 .gossip_execution_payload_bid_queue
                                 .push(work, work_id),
@@ -1288,6 +1302,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipProposerPreferences { .. } => work_queues
                                 .gossip_proposer_preferences_queue
                                 .push(work, work_id),
+                            Work::GossipInclusionList { .. } => {
+                                work_queues.gossip_inclusion_list_queue.push(work, work_id)
+                            }
                             Work::BlobsByRootsRequest { .. } => {
                                 work_queues.blob_broots_queue.push(work, work_id)
                             }
@@ -1391,6 +1408,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::GossipExecutionPayload => {
                             work_queues.gossip_execution_payload_queue.len()
                         }
+                        WorkType::GossipExecutionProof => {
+                            work_queues.gossip_execution_proof_queue.len()
+                        }
                         WorkType::GossipExecutionPayloadBid => {
                             work_queues.gossip_execution_payload_bid_queue.len()
                         }
@@ -1399,6 +1419,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         }
                         WorkType::GossipProposerPreferences => {
                             work_queues.gossip_proposer_preferences_queue.len()
+                        }
+                        WorkType::GossipInclusionList => {
+                            work_queues.gossip_inclusion_list_queue.len()
                         }
                         WorkType::LightClientBootstrapRequest => {
                             work_queues.lc_bootstrap_queue.len()
@@ -1566,7 +1589,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             Work::GossipBlock(work)
             | Work::GossipDataColumnSidecar(work)
             | Work::GossipPartialDataColumnSidecar(work)
-            | Work::GossipExecutionPayload(work) => task_spawner.spawn_async(async move {
+            | Work::GossipExecutionPayload(work)
+            | Work::GossipExecutionProof(work) => task_spawner.spawn_async(async move {
                 work.await;
             }),
             Work::BlobsByRangeRequest(process_fn)
@@ -1604,6 +1628,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipExecutionPayloadBid(process_fn)
             | Work::GossipPayloadAttestation(process_fn)
             | Work::GossipProposerPreferences(process_fn)
+            | Work::GossipInclusionList(process_fn)
             | Work::LightClientBootstrapRequest(process_fn)
             | Work::LightClientOptimisticUpdateRequest(process_fn)
             | Work::LightClientFinalityUpdateRequest(process_fn)

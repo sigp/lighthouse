@@ -1,3 +1,4 @@
+use super::common::{load_config, testing_spec_with_config};
 use super::*;
 use crate::bls_setting::BlsSetting;
 use crate::case_result::compare_beacon_state_results_without_caches;
@@ -11,6 +12,7 @@ use state_processing::per_epoch_processing::capella::process_historical_summarie
 use state_processing::per_epoch_processing::effective_balance_updates::{
     process_effective_balance_updates, process_effective_balance_updates_slow,
 };
+use state_processing::per_epoch_processing::process_epoch;
 use state_processing::per_epoch_processing::single_pass::{
     SinglePassConfig, process_epoch_single_pass, process_proposer_lookahead, process_ptc_window,
 };
@@ -35,8 +37,11 @@ pub struct Metadata {
 pub struct EpochProcessing<E: EthSpec, T: EpochTransition<E>> {
     pub path: PathBuf,
     pub metadata: Metadata,
+    pub config: Option<types::Config>,
     pub pre: BeaconState<E>,
     pub post: Option<BeaconState<E>>,
+    pub pre_epoch: Option<BeaconState<E>>,
+    pub post_epoch: Option<BeaconState<E>>,
     #[serde(skip_deserializing)]
     _phantom: PhantomData<T>,
 }
@@ -342,7 +347,8 @@ impl<E: EthSpec> EpochTransition<E> for BuilderPendingPayments {
 
 impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let spec = &testing_spec::<E>(fork_name);
+        let config = load_config(path)?;
+        let spec = &testing_spec_with_config::<E>(fork_name, config.as_ref())?;
         let metadata_path = path.join("meta.yaml");
         let metadata: Metadata = if metadata_path.is_file() {
             yaml_decode_file(&metadata_path)?
@@ -357,11 +363,27 @@ impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
             None
         };
 
+        let pre_epoch_file = path.join("pre_epoch.ssz_snappy");
+        let pre_epoch = if pre_epoch_file.is_file() {
+            Some(ssz_decode_state(&pre_epoch_file, spec)?)
+        } else {
+            None
+        };
+        let post_epoch_file = path.join("post_epoch.ssz_snappy");
+        let post_epoch = if post_epoch_file.is_file() {
+            Some(ssz_decode_state(&post_epoch_file, spec)?)
+        } else {
+            None
+        };
+
         Ok(Self {
             path: path.into(),
             metadata,
+            config,
             pre,
             post,
+            pre_epoch,
+            post_epoch,
             _phantom: PhantomData,
         })
     }
@@ -417,7 +439,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         self.metadata.bls_setting.unwrap_or_default().check()?;
 
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &testing_spec_with_config::<E>(fork_name, self.config.as_ref())?;
         let mut pre_state = self.pre.clone();
 
         // Processing requires the committee caches.
@@ -429,12 +451,38 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        if let Some(post_state) = expected.as_mut() {
-            post_state.build_all_committee_caches(spec).unwrap();
-        }
-
         let mut result = T::run(&mut state, spec).map(|_| state);
 
-        compare_beacon_state_results_without_caches(&mut result, &mut expected)
+        compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
+
+        if let Some(pre_epoch_state) = &self.pre_epoch {
+            // fake_crypto aggregates pubkeys to INFINITY_PUBLIC_KEY, so a transition that rotates
+            // the sync committee can't reproduce `post_epoch`. Covered by the blst run.
+            let rotates_sync_committee = pre_epoch_state.fork_name_unchecked().altair_enabled()
+                && pre_epoch_state.next_epoch().unwrap().as_u64()
+                    % spec.epochs_per_sync_committee_period.as_u64()
+                    == 0;
+
+            let skip_full_epoch_transition =
+                cfg!(feature = "fake_crypto") && rotates_sync_committee;
+
+            if !skip_full_epoch_transition {
+                let mut pre_epoch_state = pre_epoch_state.clone();
+                // No `post_epoch` means the spec expects the transition to abort (the `invalid_*` cases).
+                let mut expected_post_epoch_state = self.post_epoch.clone();
+
+                // Proposer index computation (e.g. proposer lookahead) requires the slashings cache post-Gloas
+                pre_epoch_state.build_slashings_cache().unwrap();
+
+                let mut result = process_epoch(&mut pre_epoch_state, spec).map(|_| pre_epoch_state);
+                compare_beacon_state_results_without_caches(
+                    &mut result,
+                    &mut expected_post_epoch_state,
+                )
+                .map_err(|e| Error::NotEqual(format!("full epoch transition: {e:?}")))?;
+            }
+        }
+
+        Ok(())
     }
 }

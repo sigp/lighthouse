@@ -24,7 +24,8 @@ use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas,
     DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment,
-    KzgProof, MinimalEthSpec, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    KzgProof, LightClientUpdate, LightClientUpdateCapella, MinimalEthSpec, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot, SyncAggregate, SyncCommittee,
 };
 
 type E = MinimalEthSpec;
@@ -292,6 +293,130 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                     }
 
                     _ => {} // Ignore other events
+                }
+            }
+        }
+        .instrument(info_span!("Receiver"));
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                    panic!("Future timed out");
+            }
+        }
+    })
+}
+
+// Tests a streamed LightClientUpdatesByRange RPC Message
+#[test]
+fn test_tcp_light_client_updates_by_range_chunked_rpc() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = false;
+    let _subscriber = build_tracing_subscriber(log_level, enable_logging);
+
+    let messages_to_send = 3;
+
+    let rt = Arc::new(Runtime::new().unwrap());
+
+    let spec = Arc::new(spec_with_all_forks_enabled());
+
+    rt.block_on(async {
+        // get sender/receiver
+        let response_slot = spec
+            .capella_fork_epoch
+            .expect("Capella fork is configured")
+            .start_slot(E::slots_per_epoch());
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            ForkName::Capella,
+            spec.clone(),
+            Protocol::Tcp,
+            false,
+            None,
+        )
+        .await;
+
+        // LightClientUpdatesByRange Request
+        let rpc_request =
+            RequestType::LightClientUpdatesByRange(LightClientUpdatesByRangeRequest {
+                start_period: 0,
+                count: messages_to_send,
+            });
+
+        // LightClientUpdatesByRange Response
+        let mut attested_header = types::LightClientHeaderCapella::default();
+        attested_header.beacon.slot = response_slot;
+        let light_client_update = LightClientUpdate::Capella(LightClientUpdateCapella {
+            attested_header,
+            next_sync_committee: Arc::new(SyncCommittee::temporary()),
+            next_sync_committee_branch: Default::default(),
+            finalized_header: Default::default(),
+            finality_branch: Default::default(),
+            sync_aggregate: SyncAggregate::empty(),
+            signature_slot: response_slot,
+        });
+        let rpc_response = Response::LightClientUpdatesByRange(Some(Arc::new(light_client_update)));
+
+        // keep count of the number of messages received
+        let mut messages_received = 0;
+        // build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        debug!("Sending RPC");
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id: _,
+                        app_request_id: AppRequestId::Router,
+                        response,
+                    } => match response {
+                        Response::LightClientUpdatesByRange(Some(_)) => {
+                            assert_eq!(response, rpc_response);
+                            messages_received += 1;
+                            warn!("Chunk received");
+                        }
+                        Response::LightClientUpdatesByRange(None) => {
+                            // should be exactly `messages_to_send` messages before terminating
+                            assert_eq!(messages_received, messages_to_send);
+                            // end the test
+                            return;
+                        }
+                        _ => panic!("Invalid RPC received"),
+                    },
+                    NetworkEvent::RPCFailed { error, .. } => panic!("RPC failed: {error:?}"),
+                    _ => {} // Ignore other behaviour events
+                }
+            }
+        }
+        .instrument(info_span!("Sender"));
+
+        // build the receiver future
+        let receiver_future = async {
+            loop {
+                if let NetworkEvent::RequestReceived {
+                    peer_id,
+                    inbound_request_id,
+                    request_type,
+                } = receiver.next_event().await
+                    && request_type == rpc_request
+                {
+                    // send the response
+                    warn!("Receiver got request");
+                    for _ in 0..messages_to_send {
+                        receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                    }
+                    // send the stream termination
+                    receiver.send_response(
+                        peer_id,
+                        inbound_request_id,
+                        Response::LightClientUpdatesByRange(None),
+                    );
                 }
             }
         }

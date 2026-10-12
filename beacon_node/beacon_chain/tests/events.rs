@@ -1,5 +1,6 @@
 use arbitrary::Arbitrary;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
@@ -8,11 +9,12 @@ use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::{
     Address, BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain,
-    EthSpec, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerPreferences, SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
+    EthSpec, PayloadAttestationData, PayloadAttestationMessage, ProposerPreferences,
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedProposerPreferences,
+    SignedRoot, Slot, Spec,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 /// Verifies that a data column event is emitted when a gossip verified data column is received via gossip or the publish block API.
 #[tokio::test]
@@ -49,12 +51,12 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
                 .sampling_columns_for_epoch(epoch)[0];
 
             // For gloas, the bid must be known, e.g. in the pending payload cache
-            let mut bid = SignedExecutionPayloadBid::<E>::empty();
+            let mut bid = SignedExecutionPayloadBidGloas::<E>::empty();
             bid.message.slot = Slot::new(10);
-            harness
-                .chain
-                .pending_payload_cache
-                .insert_bid(random_sidecar.beacon_block_root, Arc::new(bid));
+            harness.chain.pending_payload_cache.insert_bid(
+                random_sidecar.beacon_block_root,
+                Arc::new(SignedExecutionPayloadBid::Gloas(bid)),
+            );
 
             DataColumnSidecar::Gloas(random_sidecar)
         } else {
@@ -274,7 +276,7 @@ async fn execution_payload_envelope_events() {
     // Stage 1: gossip verification fires execution_payload_gossip only.
     let gossip_verified = harness
         .chain
-        .verify_envelope_for_gossip(Arc::new(signed_envelope))
+        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
         .await
         .expect("envelope gossip verification should succeed");
 

@@ -322,7 +322,9 @@ impl Protocol {
             Protocol::LightClientBootstrap => None,
             Protocol::LightClientOptimisticUpdate => None,
             Protocol::LightClientFinalityUpdate => None,
-            Protocol::LightClientUpdatesByRange => None,
+            Protocol::LightClientUpdatesByRange => {
+                Some(ResponseTermination::LightClientUpdatesByRange)
+            }
         }
     }
 }
@@ -730,9 +732,19 @@ pub fn rpc_data_column_limits<E: EthSpec>(
     let max_blobs = spec.max_blobs_per_block(current_digest_epoch) as usize;
 
     if fork_name.gloas_enabled() {
+        // We can request for fulu columns in gloas, so we need to check the min
+        // and max across forks
         RpcLimits::new(
-            DataColumnSidecarGloas::<E>::min_size(),
-            DataColumnSidecarFulu::<E>::max_size(max_blobs),
+            std::cmp::min(
+                DataColumnSidecarGloas::<E>::min_size(),
+                DataColumnSidecarFulu::<E>::min_size(),
+            ),
+            std::cmp::max(
+                spec.compute_max_data_column_sidecar_size_gloas::<E>(),
+                DataColumnSidecarFulu::<E>::max_size(
+                    spec.max_blobs_per_block_within_fork(ForkName::Fulu) as usize,
+                ),
+            ),
         )
     } else {
         RpcLimits::new(
@@ -925,7 +937,9 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => unreachable!(),
             RequestType::LightClientFinalityUpdate => unreachable!(),
             RequestType::LightClientOptimisticUpdate => unreachable!(),
-            RequestType::LightClientUpdatesByRange(_) => unreachable!(),
+            RequestType::LightClientUpdatesByRange(_) => {
+                ResponseTermination::LightClientUpdatesByRange
+            }
         }
     }
 
@@ -1022,7 +1036,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::LightClientBootstrap(_) => true,
             RequestType::LightClientOptimisticUpdate => true,
             RequestType::LightClientFinalityUpdate => true,
-            RequestType::LightClientUpdatesByRange(_) => true,
+            RequestType::LightClientUpdatesByRange(_) => false,
         }
     }
 }

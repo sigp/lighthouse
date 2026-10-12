@@ -34,7 +34,8 @@ use execution_layer::{
     test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
 use fixed_bytes::FixedBytesExtended;
-use futures::channel::mpsc::Receiver;
+use fork_choice::PayloadVerificationStatus;
+use futures::channel::mpsc::{Receiver, TryRecvError};
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
 use kzg::Kzg;
@@ -43,6 +44,7 @@ use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::{Mutex, RwLockWriteGuard};
+use proof_engine::ProofEngine;
 use proto_array::PayloadStatus;
 use rand::Rng;
 use rand::SeedableRng;
@@ -51,7 +53,7 @@ use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
-use ssz_types::{RuntimeVariableList, VariableList};
+use ssz_types::{ProgressiveVariableList, RuntimeVariableList, VariableList};
 use state_processing::ConsensusContext;
 use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::per_block_processing::{
@@ -265,6 +267,7 @@ pub struct Builder<T: BeaconChainTypes> {
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
+    proof_engine: Option<Arc<ProofEngine>>,
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
@@ -442,6 +445,7 @@ where
             store_mutator: None,
             execution_layer: None,
             mock_execution_layer: None,
+            proof_engine: None,
             testing_slot_clock: None,
             validator_monitor_config: None,
             genesis_state_builder: None,
@@ -608,6 +612,16 @@ where
         self
     }
 
+    /// Run with an EIP-8025 proof engine, which makes the proofs a payload's validity. The engine
+    /// is never contacted.
+    pub fn proof_engine(mut self) -> Self {
+        let url = SensitiveUrl::parse("http://127.0.0.1:0").expect("valid proof engine url");
+        self.proof_engine = Some(Arc::new(
+            ProofEngine::new(url).expect("build proof engine client"),
+        ));
+        self
+    }
+
     /// Instruct the mock execution engine to always return a "valid" response to any payload it is
     /// asked to execute.
     pub fn mock_execution_layer_all_payloads_valid(self) -> Self {
@@ -645,7 +659,14 @@ where
 
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
 
-        let chain_config = self.chain_config.unwrap_or_default();
+        let chain_config = self.chain_config.unwrap_or_else(|| {
+            // The mock EL produces synthetic execution block hashes, which cannot survive a real
+            // RLP block hash recompute. Tests that want the recompute pass an explicit config.
+            ChainConfig {
+                verify_envelope_payload_hash_on_cl: false,
+                ..ChainConfig::default()
+            }
+        });
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance, kzg.clone())
             .custom_spec(spec.clone())
             .store(self.store.expect("cannot build without store"))
@@ -656,6 +677,7 @@ where
             )
             .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
+            .proof_engine(self.proof_engine)
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .node_custody_type(self.node_custody_type)
@@ -867,7 +889,6 @@ where
         beacon_url: SensitiveUrl,
         strict_registrations: bool,
         apply_operations: bool,
-        broadcast_to_bn: bool,
     ) -> impl futures::Future<Output = ()> + use<E, Hot, Cold> {
         let mock_el = self
             .mock_execution_layer
@@ -882,7 +903,6 @@ where
             beacon_url,
             strict_registrations,
             apply_operations,
-            broadcast_to_bn,
             self.spec.clone(),
             self.runtime.task_executor.clone(),
         );
@@ -947,9 +967,9 @@ where
     pub fn shutdown_reasons(&self) -> Vec<ShutdownReason> {
         let mutex = self.shutdown_receiver.clone();
         let mut receiver = mutex.lock();
-        std::iter::from_fn(move || match receiver.try_next() {
-            Ok(Some(s)) => Some(s),
-            Ok(None) => panic!("shutdown sender dropped"),
+        std::iter::from_fn(move || match receiver.try_recv() {
+            Ok(s) => Some(s),
+            Err(TryRecvError::Closed) => panic!("shutdown sender dropped"),
             Err(_) => None,
         })
         .collect()
@@ -1098,7 +1118,7 @@ where
             return (signed_blinded, pending_state);
         }
 
-        complete_state_advance(&mut state, None, slot, &self.spec)
+        complete_state_advance(&mut state, None, slot, None, &self.spec)
             .expect("should be able to advance state to slot");
 
         state.build_caches(&self.spec).expect("should build caches");
@@ -1164,7 +1184,7 @@ where
             return (block_contents, state);
         }
 
-        complete_state_advance(&mut state, None, slot, &self.spec)
+        complete_state_advance(&mut state, None, slot, None, &self.spec)
             .expect("should be able to advance state to slot");
 
         state.build_caches(&self.spec).expect("should build caches");
@@ -1258,7 +1278,7 @@ where
         if state.fork_name_unchecked().gloas_enabled()
             || self.spec.fork_name_at_slot::<E>(slot).gloas_enabled()
         {
-            complete_state_advance(&mut state, None, slot, &self.spec)
+            complete_state_advance(&mut state, None, slot, None, &self.spec)
                 .expect("should be able to advance state to slot");
             state.build_caches(&self.spec).expect("should build caches");
 
@@ -1269,18 +1289,14 @@ where
                 GraffitiSettings::new(Some(graffiti), Some(GraffitiPolicy::PreserveUserGraffiti));
             let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
+            let parent_root = *state
+                .get_block_root(state.slot() - 1)
+                .expect("should get parent block root");
             let parent_envelope = if parent_payload_status == PayloadStatus::Full {
-                let parent_root = if state.slot() > 0 {
-                    *state
-                        .get_block_root(state.slot() - 1)
-                        .expect("should get parent block root")
-                } else {
-                    state.latest_block_header().canonical_root()
-                };
                 self.chain
                     .store
-                    .get_payload_envelope(&parent_root)
-                    .expect("should load parent payload envelope")
+                    .get_payload_envelope_summary(&parent_root)
+                    .expect("should load parent payload envelope summary")
                     .map(Arc::new)
             } else {
                 None
@@ -1292,18 +1308,20 @@ where
                 _consensus_block_value,
                 _execution_payload_value,
                 _payload_contents,
+                _builder_url,
             ) = self
                 .chain
                 .produce_block_on_state_gloas(
                     state,
                     None,
+                    parent_root,
                     parent_payload_status,
                     parent_envelope,
                     slot,
                     randao_reveal,
                     graffiti_settings,
                     ProduceBlockVerification::VerifyRandao,
-                    None,
+                    eth2::types::BuilderConfig::empty(),
                 )
                 .await
                 .unwrap();
@@ -1360,7 +1378,7 @@ where
         if self.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
             let pre_state = {
                 let mut s = state.clone();
-                complete_state_advance(&mut s, None, slot, &self.spec)
+                complete_state_advance(&mut s, None, slot, None, &self.spec)
                     .expect("should be able to advance state to slot");
                 s.build_caches(&self.spec).expect("should build caches");
                 s
@@ -1370,7 +1388,7 @@ where
             return (block_contents, pre_state);
         }
 
-        complete_state_advance(&mut state, None, slot, &self.spec)
+        complete_state_advance(&mut state, None, slot, None, &self.spec)
             .expect("should be able to advance state to slot");
 
         state.build_caches(&self.spec).expect("should build caches");
@@ -1441,6 +1459,30 @@ where
         sk.sign(message)
     }
 
+    /// Only works for a builder registered from `validator_keypairs[builder_index]`.
+    pub fn sign_payload_bid(
+        &self,
+        bid: ExecutionPayloadBidGloas<E>,
+        state: &BeaconState<E>,
+    ) -> Arc<SignedExecutionPayloadBid<E>> {
+        let domain = self.spec.get_domain(
+            bid.slot.epoch(E::slots_per_epoch()),
+            Domain::BeaconBuilder,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let signature = self.validator_keypairs[bid.builder_index as usize]
+            .sk
+            .sign(ExecutionPayloadBidRef::Gloas(&bid).signing_root(domain));
+
+        Arc::new(SignedExecutionPayloadBid::Gloas(
+            SignedExecutionPayloadBidGloas {
+                message: bid,
+                signature,
+            },
+        ))
+    }
+
     /// Sign a beacon block using the proposer's key.
     pub fn sign_beacon_block(
         &self,
@@ -1476,7 +1518,7 @@ where
         slot: Slot,
         execution_payload: ExecutionPayloadBellatrix<E>,
     ) {
-        complete_state_advance(state, None, slot, &self.spec).expect("should advance state");
+        complete_state_advance(state, None, slot, None, &self.spec).expect("should advance state");
         state.build_caches(&self.spec).expect("should build caches");
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
@@ -1562,6 +1604,7 @@ where
                 mut_state,
                 Some(state_root),
                 epoch.start_slot(E::slots_per_epoch()),
+                None,
                 &self.spec,
             )?;
             mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
@@ -1596,6 +1639,12 @@ where
                     .set(aggregation_bit_index, true)
                     .unwrap();
                 Attestation::Electra(attn)
+            }
+            Attestation::Gloas(mut attn) => {
+                attn.aggregation_bits
+                    .set(aggregation_bit_index, true)
+                    .unwrap();
+                Attestation::Gloas(attn)
             }
             Attestation::Base(mut attn) => {
                 attn.aggregation_bits
@@ -1682,6 +1731,7 @@ where
                 mut_state,
                 Some(state_root),
                 epoch.start_slot(E::slots_per_epoch()),
+                None,
                 &self.spec,
             )?;
             mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
@@ -1928,14 +1978,7 @@ where
                             )
                             .unwrap();
 
-                        match attestation {
-                            Attestation::Base(ref mut att) => {
-                                att.aggregation_bits.set(i, true).unwrap()
-                            }
-                            Attestation::Electra(ref mut att) => {
-                                att.aggregation_bits.set(i, true).unwrap()
-                            }
-                        }
+                        attestation.set_aggregation_bit(i, true).unwrap();
 
                         *attestation.signature_mut() = {
                             let domain = self.spec.get_domain(
@@ -2535,7 +2578,13 @@ where
                 epoch: source1.unwrap_or(Epoch::new(0)),
             },
         };
-        let mut attestation_1 = if fork_name.electra_enabled() {
+        let mut attestation_1 = if fork_name.gloas_enabled() {
+            IndexedAttestation::Gloas(IndexedAttestationGloas {
+                attesting_indices: ProgressiveVariableList::new(validator_indices).unwrap(),
+                data,
+                signature: AggregateSignature::infinity(),
+            })
+        } else if fork_name.electra_enabled() {
             IndexedAttestation::Electra(IndexedAttestationElectra {
                 attesting_indices: VariableList::new(validator_indices).unwrap(),
                 data,
@@ -2555,45 +2604,26 @@ where
         attestation_2.data_mut().target.epoch = target2.unwrap_or(fork.epoch);
 
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
-            match attestation {
-                IndexedAttestation::Base(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
+            let domain = self.chain.spec.get_domain(
+                attestation.data().target.epoch,
+                Domain::BeaconAttester,
+                &fork,
+                self.chain.genesis_validators_root,
+            );
+            let message = attestation.data().signing_root(domain);
 
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
-                IndexedAttestation::Electra(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
-
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
+            for i in attestation.attesting_indices_to_vec() {
+                let sk = &self.validator_keypairs[i as usize].sk;
+                attestation.signature_mut().add_assign(&sk.sign(message));
             }
         }
 
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            AttesterSlashing::Gloas(AttesterSlashingGloas {
+                attestation_1: attestation_1.as_gloas().unwrap().clone(),
+                attestation_2: attestation_2.as_gloas().unwrap().clone(),
+            })
+        } else if fork_name.electra_enabled() {
             AttesterSlashing::Electra(AttesterSlashingElectra {
                 attestation_1: attestation_1.as_electra().unwrap().clone(),
                 attestation_2: attestation_2.as_electra().unwrap().clone(),
@@ -2627,7 +2657,24 @@ where
             },
         };
 
-        let (mut attestation_1, mut attestation_2) = if fork_name.electra_enabled() {
+        let (mut attestation_1, mut attestation_2) = if fork_name.gloas_enabled() {
+            let attestation_1 = IndexedAttestationGloas {
+                attesting_indices: ProgressiveVariableList::new(validator_indices_1).unwrap(),
+                data: data.clone(),
+                signature: AggregateSignature::infinity(),
+            };
+
+            let attestation_2 = IndexedAttestationGloas {
+                attesting_indices: ProgressiveVariableList::new(validator_indices_2).unwrap(),
+                data,
+                signature: AggregateSignature::infinity(),
+            };
+
+            (
+                IndexedAttestation::Gloas(attestation_1),
+                IndexedAttestation::Gloas(attestation_2),
+            )
+        } else if fork_name.electra_enabled() {
             let attestation_1 = IndexedAttestationElectra {
                 attesting_indices: VariableList::new(validator_indices_1).unwrap(),
                 data: data.clone(),
@@ -2667,45 +2714,26 @@ where
 
         let fork = self.chain.canonical_head.cached_head().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
-            match attestation {
-                IndexedAttestation::Base(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
+            let domain = self.chain.spec.get_domain(
+                attestation.data().target.epoch,
+                Domain::BeaconAttester,
+                &fork,
+                self.chain.genesis_validators_root,
+            );
+            let message = attestation.data().signing_root(domain);
 
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
-                IndexedAttestation::Electra(attestation) => {
-                    for i in attestation.attesting_indices.iter() {
-                        let sk = &self.validator_keypairs[*i as usize].sk;
-
-                        let genesis_validators_root = self.chain.genesis_validators_root;
-
-                        let domain = self.chain.spec.get_domain(
-                            attestation.data.target.epoch,
-                            Domain::BeaconAttester,
-                            &fork,
-                            genesis_validators_root,
-                        );
-                        let message = attestation.data.signing_root(domain);
-
-                        attestation.signature.add_assign(&sk.sign(message));
-                    }
-                }
+            for i in attestation.attesting_indices_to_vec() {
+                let sk = &self.validator_keypairs[i as usize].sk;
+                attestation.signature_mut().add_assign(&sk.sign(message));
             }
         }
 
-        if fork_name.electra_enabled() {
+        if fork_name.gloas_enabled() {
+            AttesterSlashing::Gloas(AttesterSlashingGloas {
+                attestation_1: attestation_1.as_gloas().unwrap().clone(),
+                attestation_2: attestation_2.as_gloas().unwrap().clone(),
+            })
+        } else if fork_name.electra_enabled() {
             AttesterSlashing::Electra(AttesterSlashingElectra {
                 attestation_1: attestation_1.as_electra().unwrap().clone(),
                 attestation_2: attestation_2.as_electra().unwrap().clone(),
@@ -2859,7 +2887,7 @@ where
         epoch: Epoch,
     ) {
         let exit = self.make_voluntary_exit(validator_index, epoch);
-        block.body_mut().voluntary_exits_mut().push(exit).unwrap();
+        block.body_mut().voluntary_exits_push(exit).unwrap();
     }
 
     /// Create a new block, apply `block_modifier` to it, sign it and return it.
@@ -3007,30 +3035,28 @@ where
             .is_ok_and(|c| !c.is_empty());
         let is_available = !has_blob_commitments || blob_items.is_some();
         let block_hash: SignedBeaconBlockHash = if !is_available {
-            self.chain
-                .process_block(
-                    block_root,
-                    LookupBlock::new(block),
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::Lookup,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                LookupBlock::new(block),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         } else {
             let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
-            self.chain
-                .process_block(
-                    block_root,
-                    range_sync_block,
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::RangeSync,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                range_sync_block,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         };
 
         self.chain.recompute_head_at_current_slot().await;
@@ -3054,29 +3080,27 @@ where
         let is_available = !has_blob_commitments || blob_items.is_some();
         let block_hash: SignedBeaconBlockHash = if is_available {
             let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
-            self.chain
-                .process_block(
-                    block_root,
-                    range_sync_block,
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::RangeSync,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                range_sync_block,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         } else {
-            self.chain
-                .process_block(
-                    block_root,
-                    LookupBlock::new(block),
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::Lookup,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                LookupBlock::new(block),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         };
 
         self.chain.recompute_head_at_current_slot().await;
@@ -3095,6 +3119,7 @@ where
             slot = %signed_envelope.slot(),
             "Processing execution payload envelope"
         );
+        let payload_block_hash = signed_envelope.message.payload.block_hash;
 
         state_processing::envelope_processing::verify_execution_payload_envelope(
             state,
@@ -3113,15 +3138,15 @@ where
             .expect("should read block from store")
             .expect("block should exist in store");
 
-        let bid = &block
+        let bid = block
             .message()
             .body()
             .signed_execution_payload_bid()
             .expect("Gloas block should have a payload bid")
-            .message;
+            .message();
 
         let versioned_hashes = bid
-            .blob_kzg_commitments
+            .blob_kzg_commitments()
             .iter()
             .map(kzg_commitment_to_versioned_hash)
             .collect();
@@ -3182,7 +3207,11 @@ where
         self.chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_valid_payload_envelope_received(block_root)
+            .on_payload_envelope_received(
+                block_root,
+                PayloadVerificationStatus::Verified,
+                payload_block_hash,
+            )
             .expect("should update fork choice with envelope");
 
         // Run fork choice because the envelope could become the head.
@@ -3426,7 +3455,7 @@ where
     > {
         self.set_current_slot(slot);
         let (block_contents, opt_envelope, new_state) =
-            self.make_block_with_envelope(state, slot).await;
+            Box::pin(self.make_block_with_envelope(state, slot)).await;
 
         let block_hash = self
             .process_block(
@@ -4167,7 +4196,8 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
                 .body
                 .signed_execution_payload_bid
                 .message
-                .blob_kzg_commitments = bundle.commitments.clone();
+                .blob_kzg_commitments = ProgressiveVariableList::new(bundle.commitments.to_vec())
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?;
             return Ok((block, blob_sidecars));
         }
         _ => return Ok((block, blob_sidecars)),
@@ -4222,13 +4252,13 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
     if block.fork_name_unchecked().gloas_enabled() {
-        let kzg_commitments = &block
+        let kzg_commitments = block
             .message()
             .body()
             .signed_execution_payload_bid()
             .expect("Gloas block should have a payload bid")
-            .message
-            .blob_kzg_commitments;
+            .message()
+            .blob_kzg_commitments();
         if kzg_commitments.is_empty() {
             return vec![];
         }
@@ -4248,9 +4278,9 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
                     column, kzg_proofs, ..
                 } = sidecar;
                 // There's only one cell per column for a single blob
-                let cell_bytes: Vec<u8> = column.into_iter().next().unwrap().into();
+                let cell_bytes: Vec<u8> = column.iter().next().unwrap().clone().into();
                 let kzg_cell = cell_bytes.try_into().unwrap();
-                let kzg_proof = kzg_proofs.into_iter().next().unwrap();
+                let kzg_proof = *kzg_proofs.iter().next().unwrap();
                 (kzg_cell, kzg_proof)
             })
             .collect::<(Vec<_>, Vec<_>)>();

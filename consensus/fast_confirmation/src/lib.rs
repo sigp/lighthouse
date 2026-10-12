@@ -48,6 +48,7 @@ use optimizations::{AttestationScoreCache, HonestFfgSupportCache};
 use slot_assignments::{SlotAssignments, WindowEpoch, attestation_shuffling_id};
 
 use proto_array::core::{ProtoArray, ProtoNode, VoteTracker};
+use proto_array::{ParentPayloadStatus, PayloadStatus};
 use safe_arith::{ArithError, SafeArith};
 use std::collections::BTreeSet;
 use tracing::{debug, debug_span};
@@ -75,6 +76,7 @@ pub enum Error {
     AttestationShufflingIdError(BeaconStateError),
     CommitteeCacheError(BeaconStateError),
     ArithError(ArithError),
+    ProtoArrayError(proto_array::Error),
 }
 
 impl From<ArithError> for Error {
@@ -83,14 +85,20 @@ impl From<ArithError> for Error {
     }
 }
 
+impl From<proto_array::Error> for Error {
+    fn from(e: proto_array::Error) -> Self {
+        Error::ProtoArrayError(e)
+    }
+}
+
 /// Rich outcome of `is_one_confirmed` to track metrics in case of `BelowThreshold`..
 enum Confirmation {
     Confirmed,
-    NotConfirmed(Unconfirmed),
+    NotConfirmed(NotConfirmedReason),
 }
 
 /// Why a block failed `is_one_confirmed`.
-enum Unconfirmed {
+enum NotConfirmedReason {
     /// The block's execution status is optimistic or invalid.
     Optimistic,
     /// Attestation support did not exceed the safety threshold.
@@ -112,8 +120,13 @@ const COMMITTEE_WEIGHT_ESTIMATION_ADJUSTMENT_FACTOR: u64 = 5;
 #[derive(Debug)]
 pub struct FastConfirmationRule {
     // === Output ===
-    /// Fed into `safe_block_hash` for the EL.
+    /// The raw output of `get_latest_confirmed`.
     pub confirmed_root: Hash256,
+
+    // === Restart resilience ===
+    /// Spec `get_root_confirmed_before_restart`: loaded from disk by the caller, then fixed for the
+    /// life of the process. `None` when nothing was persisted.
+    root_confirmed_before_restart: Option<Hash256>,
 
     // === Tracking state (spec's 6 new store fields) ===
     /// Spec `previous_epoch_observed_justified_checkpoint` with its `get_previous_balance_source`
@@ -133,7 +146,7 @@ pub struct FastConfirmationRule {
 
     // === Committee data from head state ===
     /// Per-validator committee slot assignments across the last 3 epochs.
-    /// Used by `get_block_support_between_slots` and `compute_adversarial_weight`.
+    /// Used by `get_node_support_between_slots` and `compute_adversarial_weight`.
     slot_assignments: SlotAssignments,
 
     // === FFG data from the head state ===
@@ -169,11 +182,13 @@ impl FastConfirmationRule {
     /// `checkpoint_state` (spec: `store.checkpoint_states[finalized_checkpoint]`); the
     /// head-derived caches come from `head_state`, whose block root is `head_root`.
     /// `byzantine_threshold` is clamped to [0, 25].
+    #[allow(clippy::too_many_arguments)]
     pub fn new<E: EthSpec>(
         head_root: Hash256,
         head_state: &BeaconState<E>,
         finalized_checkpoint: Checkpoint,
         checkpoint_state: &BeaconState<E>,
+        root_confirmed_before_restart: Option<Hash256>,
         byzantine_threshold: u64,
         proposer_score_boost: u64,
         spec: &ChainSpec,
@@ -186,8 +201,12 @@ impl FastConfirmationRule {
         }
         let checkpoint_balance =
             BalanceSourceData::new(checkpoint_state, finalized_checkpoint.root)?;
+        if let Some(root) = root_confirmed_before_restart {
+            debug!(%root, "FCR restored a root confirmed before the restart");
+        }
         Ok(Self {
             confirmed_root: finalized_checkpoint.root,
+            root_confirmed_before_restart,
             previous_epoch_observed_justified: CheckpointAndBalance::new(
                 finalized_checkpoint,
                 checkpoint_balance.clone(),
@@ -399,8 +418,8 @@ impl FastConfirmationRule {
 
         let confirmed_block_epoch_result = get_block_epoch::<E>(confirmed_root, proto_array);
 
-        // Revert to finalized block if either of the following is true:
-        let should_revert_to_finalized_reason = if confirmed_block_epoch_result
+        // Fall back to the finalized block if either of the following is true:
+        let should_fall_back_reason = if confirmed_block_epoch_result
             .as_ref()
             .map_or(true, |block_epoch| {
                 block_epoch.saturating_add(1u64) < current_epoch
@@ -432,16 +451,22 @@ impl FastConfirmationRule {
         } else {
             None
         };
-        if let Some(reason) = should_revert_to_finalized_reason {
-            debug!(
-                prev_confirmed = %confirmed_root,
-                finalized = %finalized_checkpoint.root,
-                slot = %current_slot,
-                reason = reason,
-                "FCR reverted to finalized"
-            );
+        if let Some(reason) = should_fall_back_reason {
+            // Report only a fallback that moves the confirmed root. FCR starts out at the
+            // finalized block, so `epoch_too_old` matches on every run until it first confirms
+            // something, and again whenever it falls back here.
+            if confirmed_root != finalized_checkpoint.root {
+                debug!(
+                    prev_confirmed = %confirmed_root,
+                    finalized = %finalized_checkpoint.root,
+                    slot = %current_slot,
+                    reason = reason,
+                    "FCR fell back to finalized"
+                );
+                metrics::inc_counter(&metrics::FAST_CONFIRMATION_FALLBACKS);
+                metrics::inc_counter_vec(&metrics::FAST_CONFIRMATION_FALLBACK_REASONS, &[reason]);
+            }
             confirmed_root = finalized_checkpoint.root;
-            metrics::inc_counter_vec(&metrics::FCR_REVERT_TO_FINALIZED, &[reason]);
         }
 
         // Restart the confirmation chain if each of the following conditions are true:
@@ -473,7 +498,7 @@ impl FastConfirmationRule {
                 "FCR restarted from observed justified"
             );
             confirmed_root = self.current_epoch_observed_justified.checkpoint().root;
-            metrics::inc_counter(&metrics::FCR_RESTART_FROM_JUSTIFIED);
+            metrics::inc_counter(&metrics::FAST_CONFIRMATION_RESTARTS);
         }
 
         // Attempt to further advance the latest confirmed block
@@ -490,6 +515,57 @@ impl FastConfirmationRule {
         }
 
         Ok(confirmed_root)
+    }
+
+    /// Spec: `get_restart_resilient_confirmed_root`. The root confirmed before the restart, until
+    /// the re-seeded rule catches up with it, it is old enough to have been finalized, or it is no
+    /// longer canonical. Otherwise, returns the current confirmed root.
+    ///
+    /// Call only once the node is fully synced and `on_fast_confirmation` has run.
+    pub fn get_restart_resilient_confirmed_root<E: EthSpec>(
+        &self,
+        head_root: Hash256,
+        current_slot: Slot,
+        proto_array: &ProtoArray,
+    ) -> Result<Hash256, Error> {
+        let confirmed_root = self.confirmed_root;
+        let confirmed_slot = get_block_slot(confirmed_root, proto_array)?;
+
+        let Some(root_before_restart) = self.root_confirmed_before_restart else {
+            return Ok(confirmed_root);
+        };
+
+        // Finality moved past it, or fork choice was rebuilt: the fresh root is all we have.
+        let Some(root_before_restart_slot) = proto_array
+            .get_block(root_before_restart)
+            .map(|node| node.slot())
+        else {
+            return Ok(confirmed_root);
+        };
+
+        // Recent confirmed block has advanced beyond the block that was confirmed before the
+        // node restart.
+        if root_before_restart_slot <= confirmed_slot {
+            return Ok(confirmed_root);
+        }
+
+        // Old enough to be finalized already, or finality is delayed and it cannot be trusted.
+        if block_should_be_finalized::<E>(root_before_restart_slot, current_slot)? {
+            return Ok(confirmed_root);
+        }
+
+        // Not canonical.
+        if !is_ancestor(head_root, root_before_restart, proto_array)? {
+            return Ok(confirmed_root);
+        }
+
+        // DIVERGENCE: the spec's confirmed root is always VALID. `--reset-payload-statuses` makes
+        // ours optimistic again, and `is_one_confirmed` refuses to confirm those.
+        if is_optimistic_or_invalid(root_before_restart, proto_array)? {
+            return Ok(confirmed_root);
+        }
+
+        Ok(root_before_restart)
     }
 
     /// Spec: find_latest_confirmed_descendant
@@ -659,7 +735,7 @@ impl FastConfirmationRule {
                 prev = %latest_confirmed_root,
                 "FCR advanced"
             );
-            metrics::inc_counter(&metrics::FCR_ADVANCE);
+            metrics::inc_counter(&metrics::FAST_CONFIRMATION_ADVANCES);
         }
         Ok(confirmed_root)
     }
@@ -670,7 +746,7 @@ impl FastConfirmationRule {
     /// precomputes scores once and uses `is_one_confirmed_with_score`.
     ///
     /// `Ok(None)` = the confirmed chain is safe (re-confirmable). `Ok(Some(reason))` = it
-    /// isn't, with `reason` naming which check failed (surfaced as the revert metric label).
+    /// isn't, with `reason` naming which check failed (surfaced as the fallback metric label).
     fn is_confirmed_chain_safe<E: EthSpec>(
         &self,
         confirmed_root: Hash256,
@@ -729,7 +805,7 @@ impl FastConfirmationRule {
         )?;
 
         for root in &chain_roots {
-            if let Confirmation::NotConfirmed(unconfirmed) = self.is_one_confirmed::<E>(
+            if let Confirmation::NotConfirmed(reason) = self.is_one_confirmed::<E>(
                 self.get_previous_balance_source(),
                 *root,
                 &attestation_scores,
@@ -738,22 +814,22 @@ impl FastConfirmationRule {
                 votes,
                 equivocating_indices,
             )? {
-                // `root` is not confirmed; surface why for the revert metric.
-                match unconfirmed {
-                    Unconfirmed::BelowThreshold {
+                // `root` is not confirmed; surface why for the fallback metric.
+                match reason {
+                    NotConfirmedReason::BelowThreshold {
                         support,
                         safety_threshold,
                     } => {
                         if safety_threshold > 0 {
                             metrics::observe(
-                                &metrics::FCR_UNCONFIRMED_SUPPORT_RATIO,
+                                &metrics::FAST_CONFIRMATION_FALLBACK_SUPPORT_RATIO,
                                 support as f64 / safety_threshold as f64,
                             );
                         }
-                        return Ok(Some("unconfirmed_below_threshold"));
+                        return Ok(Some("below_safety_threshold"));
                     }
-                    Unconfirmed::Optimistic => {
-                        return Ok(Some("unconfirmed_optimistic"));
+                    NotConfirmedReason::Optimistic => {
+                        return Ok(Some("optimistic_or_invalid"));
                     }
                 }
             }
@@ -765,11 +841,15 @@ impl FastConfirmationRule {
     // LMD-GHOST helpers
     // -----------------------------------------------------------------------
 
-    /// Spec: `get_block_support_between_slots`.
-    fn get_block_support_between_slots(
+    /// Spec: `get_node_support_between_slots`.
+    ///
+    /// The node is `block` with `payload_status`, which is `None` for a pre-Gloas block.
+    #[allow(clippy::too_many_arguments)]
+    fn get_node_support_between_slots(
         &self,
         balance_source: &BalanceSourceData,
-        block_root: Hash256,
+        block: &ProtoNode,
+        payload_status: Option<PayloadStatus>,
         start_slot: Slot,
         end_slot: Slot,
         votes: &[VoteTracker],
@@ -780,7 +860,7 @@ impl FastConfirmationRule {
         // - Are active in `balance_source` tracked here as `balance > 0`
         // - Are not slashed in `balance_source` tracked here as `slashed == false`
         // - Do not belong to the `store.equivocating_indices` set
-        // - Their vote is for exactly `block_root`
+        // - Their vote supports exactly the node
         let mut score = 0u64;
         for (val_idx, balance) in balance_source.unslashed_and_active_indices() {
             let Some(vote) = votes.get(val_idx) else {
@@ -790,7 +870,9 @@ impl FastConfirmationRule {
                 && self
                     .slot_assignments
                     .is_in_range(val_idx, start_slot, end_slot)?
-                && vote.current_root() == block_root
+                && vote.current_root() == block.root()
+                && payload_status
+                    .is_none_or(|status| vote.current_payload_status(block.slot()) == status)
                 && !equivocating_indices.contains(&(val_idx as u64))
             {
                 score = score.safe_add(balance)?;
@@ -830,9 +912,15 @@ impl FastConfirmationRule {
             return Ok(0);
         }
 
-        let parent_support_in_empty_slots = self.get_block_support_between_slots(
+        let parent_payload_status = match block.get_parent_payload_status() {
+            ParentPayloadStatus::Full => Some(PayloadStatus::Full),
+            ParentPayloadStatus::Empty => Some(PayloadStatus::Empty),
+            ParentPayloadStatus::PreGloas => None,
+        };
+        let parent_support_in_empty_slots = self.get_node_support_between_slots(
             balance_source,
-            parent_block.root(),
+            parent_block,
+            parent_payload_status,
             parent_block.slot().safe_add(1)?,
             block.slot().safe_sub(1)?,
             votes,
@@ -1182,7 +1270,7 @@ impl FastConfirmationRule {
     ) -> Result<Confirmation, Error> {
         // Spec MUST: not confirmed if the block's execution status is not VALID.
         if is_optimistic_or_invalid(block_root, proto_array)? {
-            return Ok(Confirmation::NotConfirmed(Unconfirmed::Optimistic));
+            return Ok(Confirmation::NotConfirmed(NotConfirmedReason::Optimistic));
         }
         let support = get_attestation_score(block_root, attestation_scores)?;
         let safety_threshold = self.compute_safety_threshold::<E>(
@@ -1196,10 +1284,12 @@ impl FastConfirmationRule {
         if support > safety_threshold {
             Ok(Confirmation::Confirmed)
         } else {
-            Ok(Confirmation::NotConfirmed(Unconfirmed::BelowThreshold {
-                support,
-                safety_threshold,
-            }))
+            Ok(Confirmation::NotConfirmed(
+                NotConfirmedReason::BelowThreshold {
+                    support,
+                    safety_threshold,
+                },
+            ))
         }
     }
 }
@@ -1239,15 +1329,14 @@ fn parent_node_of<'a>(
         .ok_or(Error::ParentRootNotFound(node.root()))
 }
 
-/// Return `true` if the block's execution payload is `Optimistic` or `Invalid`.
-/// Pre-bellatrix `Irrelevant` payloads and missing nodes are treated as not
-/// optimistic (the spec MUST applies post-merge). A missing node will be
-/// rejected later by `get_block_slot`, so this returning `false` here is safe.
+/// Return `true` if the most recently applied payload on `root`'s branch is `Optimistic` or
+/// `Invalid`. Pre-bellatrix `Irrelevant` payloads are treated as not optimistic (the spec MUST
+/// applies post-merge).
 fn is_optimistic_or_invalid(root: Hash256, proto_array: &ProtoArray) -> Result<bool, Error> {
-    Ok(get_block(root, proto_array)?
-        .execution_status()
-        .ok()
-        .is_some_and(|s| s.is_optimistic_or_invalid()))
+    // Spec: `get_node_for_root` resolves to `PAYLOAD_STATUS_PENDING`, which inherits.
+    Ok(proto_array
+        .inherited_execution_status(root)?
+        .is_optimistic_or_invalid())
 }
 
 /// Spec: `is_ancestor`.
@@ -1392,6 +1481,18 @@ fn compute_start_slot_at_epoch<E: EthSpec>(epoch: Epoch) -> Slot {
     epoch.start_slot(E::slots_per_epoch())
 }
 
+/// Spec: `block_should_be_finalized`.
+fn block_should_be_finalized<E: EthSpec>(
+    block_slot: Slot,
+    current_slot: Slot,
+) -> Result<bool, Error> {
+    let spe = E::slots_per_epoch();
+    let next_checkpoint_epoch = block_slot.safe_add(spe.safe_sub(1)?)?.epoch(spe);
+    let earliest_finality_slot =
+        compute_start_slot_at_epoch::<E>(next_checkpoint_epoch.safe_add(2)?);
+    Ok(earliest_finality_slot <= current_slot)
+}
+
 /// Spec: `is_full_validator_set_covered`.
 fn is_full_validator_set_covered<E: EthSpec>(
     start_slot: Slot,
@@ -1478,6 +1579,31 @@ mod tests {
     type E = MainnetEthSpec;
 
     #[test]
+    fn test_block_should_be_finalized() {
+        fn check<E: EthSpec>() {
+            let slots_per_epoch = E::slots_per_epoch();
+            for offset in 0..slots_per_epoch {
+                let block_slot = Slot::new(slots_per_epoch.safe_add(offset).unwrap());
+                // A boundary block can finalize two epochs later; other blocks must wait
+                // for the next checkpoint and can finalize three epochs later.
+                let finality_epoch = if offset == 0 { 3 } else { 4 };
+                let finality_slot = Epoch::new(finality_epoch).start_slot(slots_per_epoch);
+                assert!(
+                    !block_should_be_finalized::<E>(
+                        block_slot,
+                        finality_slot.safe_sub(1).unwrap(),
+                    )
+                    .unwrap()
+                );
+                assert!(block_should_be_finalized::<E>(block_slot, finality_slot).unwrap());
+            }
+        }
+
+        check::<MainnetEthSpec>();
+        check::<types::MinimalEthSpec>();
+    }
+
+    #[test]
     fn test_is_start_slot_at_epoch() {
         assert!(is_start_slot_at_epoch::<E>(Slot::new(0)));
         assert!(is_start_slot_at_epoch::<E>(Slot::new(32)));
@@ -1487,27 +1613,42 @@ mod tests {
 
     #[test]
     fn test_is_full_validator_set_covered() {
-        // 32 slots = full epoch
-        assert!(is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(31)).unwrap());
-        // 33 slots crossing boundary
-        assert!(is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(32)).unwrap());
+        let slots_per_epoch = E::slots_per_epoch();
+        // Full epoch
+        assert!(
+            is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(slots_per_epoch - 1))
+                .unwrap()
+        );
+        // Crossing an epoch boundary
+        assert!(
+            is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(slots_per_epoch)).unwrap()
+        );
         // Single slot — not full
         assert!(!is_full_validator_set_covered::<E>(Slot::new(0), Slot::new(0)).unwrap());
-        // 31 slots — not full
-        assert!(!is_full_validator_set_covered::<E>(Slot::new(1), Slot::new(31)).unwrap());
+        // One slot short — not full
+        assert!(
+            !is_full_validator_set_covered::<E>(Slot::new(1), Slot::new(slots_per_epoch - 1))
+                .unwrap()
+        );
     }
 
     #[test]
     fn test_estimate_committee_weight_same_epoch() {
-        let total = 32_000_000_000u64; // 32B gwei
-        // 1 slot out of 32 => total/32 = 1B
+        let slots_per_epoch = E::slots_per_epoch();
+        // The total should divide evenly across the epoch. 32B gwei on Mainnet, 1B per slot.
+        let total = slots_per_epoch * 1_000_000_000;
+
         let w = estimate_committee_weight_between_slots::<E>(total, Slot::new(0), Slot::new(0))
             .unwrap();
-        assert_eq!(w, 1_000_000_000);
+        assert_eq!(w, total / slots_per_epoch);
 
         // Full epoch => total
-        let w = estimate_committee_weight_between_slots::<E>(total, Slot::new(0), Slot::new(31))
-            .unwrap();
+        let w = estimate_committee_weight_between_slots::<E>(
+            total,
+            Slot::new(0),
+            Slot::new(slots_per_epoch - 1),
+        )
+        .unwrap();
         assert_eq!(w, total);
     }
 
@@ -1551,7 +1692,7 @@ mod tests {
     /// of the unrealized-checkpoints bug fixed in sigp/lighthouse#9471).
     #[test]
     fn head_balance_source_rebuilt_after_intra_epoch_slashing() {
-        use state_processing::per_slot_processing;
+        use state_processing::{GloasVerificationContext, per_slot_processing};
         use types::MinimalEthSpec;
         type E = MinimalEthSpec;
 
@@ -1582,7 +1723,13 @@ mod tests {
         // rebuild the source regardless, masking the bug.
         let mid_epoch_slot = Slot::new(E::slots_per_epoch() + 4);
         while state.slot() < mid_epoch_slot {
-            per_slot_processing(&mut state, None, &spec).expect("should advance slot");
+            per_slot_processing(
+                &mut state,
+                None,
+                GloasVerificationContext::FullVerification,
+                &spec,
+            )
+            .expect("should advance slot");
         }
         state
             .build_all_committee_caches(&spec)
@@ -1593,9 +1740,17 @@ mod tests {
             root: Hash256::repeat_byte(1),
         };
         let head_root_a = Hash256::repeat_byte(2);
-        let mut fcr =
-            FastConfirmationRule::new::<E>(head_root_a, &state, checkpoint, &state, 25, 40, &spec)
-                .expect("fcr initialization");
+        let mut fcr = FastConfirmationRule::new::<E>(
+            head_root_a,
+            &state,
+            checkpoint,
+            &state,
+            None,
+            25,
+            40,
+            &spec,
+        )
+        .expect("fcr initialization");
 
         assert!(matches!(
             fcr.head_balance_source.key,

@@ -1249,8 +1249,15 @@ impl TestRig {
         let mut columns = range_sync_block.data_columns().expect("no columns");
         let first = columns.first_mut().expect("empty columns");
         let column = Arc::make_mut(first);
-        let proof = column.kzg_proofs_mut().first_mut().expect("no kzg proofs");
-        *proof = kzg::KzgProof::empty();
+        match column {
+            DataColumnSidecar::Fulu(sidecar) => {
+                let proof = sidecar.kzg_proofs.first_mut().expect("no kzg proofs");
+                *proof = kzg::KzgProof::empty();
+            }
+            DataColumnSidecar::Gloas(sidecar) => {
+                *sidecar.kzg_proofs.get_mut(0).expect("no kzg proofs") = kzg::KzgProof::empty();
+            }
+        }
         self.upsert_block(block, blobs, Some(columns));
     }
 
@@ -1861,7 +1868,11 @@ impl TestRig {
     }
 
     fn determinstic_key(&mut self) -> CombinedKey {
-        k256::ecdsa::SigningKey::random(&mut self.rng_08).into()
+        let mut key_bytes = [0u8; 32];
+        rand_08::RngCore::fill_bytes(&mut self.rng_08, &mut key_bytes);
+        enr::k256::ecdsa::SigningKey::from_slice(&key_bytes)
+            .expect("32 bytes is a valid secp256k1 key")
+            .into()
     }
 
     pub fn new_connected_peers_for_peerdas(&mut self) -> Vec<PeerId> {

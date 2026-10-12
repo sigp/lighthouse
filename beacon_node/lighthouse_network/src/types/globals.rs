@@ -231,6 +231,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
     pub fn as_topic_config(&self) -> TopicConfig {
         TopicConfig {
             enable_light_client_server: self.config.enable_light_client_server,
+            enable_execution_proof: self.config.enable_execution_proof,
             subscribe_all_subnets: self.config.subscribe_all_subnets,
             sampling_subnets: self.sampling_subnets.read().clone(),
         }
@@ -263,8 +264,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
     ) -> NetworkGlobals<E> {
         use network_utils::enr_ext::CombinedKeyExt;
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
-        let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
-        let enr = discv5::enr::Enr::builder().build(&enr_key).unwrap();
+        let enr_key: enr::CombinedKey = enr::CombinedKey::from_secp256k1(&keypair);
+        let enr = enr::Enr::builder().build(&enr_key).unwrap();
         NetworkGlobals::new(enr, metadata, trusted_peers, false, config, spec)
     }
 }

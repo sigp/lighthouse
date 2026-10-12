@@ -2,6 +2,7 @@
 
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    fork_name_from_env,
 };
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
@@ -14,6 +15,7 @@ use fork_choice::{
     InvalidPayloadAttestation, PayloadVerificationStatus, QueuedAttestation,
 };
 use state_processing::state_advance::complete_state_advance;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -60,8 +62,10 @@ impl ForkChoiceTest {
 
     /// Creates a new tester with a custom chain config.
     pub fn new_with_chain_config(chain_config: ChainConfig) -> Self {
-        // Run fork choice tests against the latest fork.
-        let spec = ForkName::latest_stable().make_genesis_spec(ChainSpec::default());
+        // Run fork choice tests against the fork named by `FORK_NAME` when the `fork_from_env`
+        // feature is enabled, otherwise against the latest stable fork.
+        let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest_stable);
+        let spec = fork_name.make_genesis_spec(ChainSpec::default());
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec.into())
             .chain_config(chain_config)
@@ -122,8 +126,7 @@ impl ForkChoiceTest {
         let mut shutdown_receiver = mutex.lock();
 
         shutdown_receiver.close();
-        let msg = shutdown_receiver.try_next().unwrap();
-        msg.is_some()
+        shutdown_receiver.try_recv().is_ok()
     }
 
     /// Assert there was a shutdown signal sent by the beacon chain.
@@ -178,6 +181,10 @@ impl ForkChoiceTest {
     }
 
     /// Build the chain whilst `predicate` returns `true` and `process_block_result` does not error.
+    ///
+    /// Both variants intentionally carry the whole test harness (`Ok` to continue, `Err` to stop
+    /// with the state at that point), so boxing only the error would not shrink anything useful.
+    #[allow(clippy::result_large_err)]
     pub async fn apply_blocks_while<F>(self, mut predicate: F) -> Result<Self, Self>
     where
         F: FnMut(BeaconBlockRef<'_, E>, &BeaconState<E>) -> bool,
@@ -191,7 +198,7 @@ impl ForkChoiceTest {
             // Skip slashed proposers, as we expect validators to get slashed in these tests.
             // Presently `make_block` will panic if the proposer is slashed, so we just avoid
             // calling it in this case.
-            complete_state_advance(&mut state, None, slot, &self.harness.spec).unwrap();
+            complete_state_advance(&mut state, None, slot, None, &self.harness.spec).unwrap();
             state.build_caches(&self.harness.spec).unwrap();
             let proposer_index = state
                 .get_beacon_proposer_index(slot, &self.harness.chain.spec)
@@ -390,27 +397,41 @@ impl ForkChoiceTest {
             .get_state(&state_root, None, CACHE_STATE_IN_TESTS)
             .unwrap()
             .unwrap();
+        let current_epoch = state.current_epoch();
+        let mut num_active_validators = 0u64;
+        let mut slashed_balances = BTreeMap::new();
         let balances = state
             .validators()
             .into_iter()
-            .map(|v| {
-                if v.is_active_at(state.current_epoch()) {
+            .enumerate()
+            .map(|(i, v)| {
+                if !v.slashed && v.is_active_at(current_epoch) {
+                    num_active_validators += 1;
                     v.effective_balance
                 } else {
+                    if v.slashed && v.is_active_at(current_epoch) {
+                        slashed_balances.insert(i as u64, v.effective_balance);
+                    }
                     0
                 }
             })
             .collect::<Vec<_>>();
 
+        let justified_balances = fc.fc_store().justified_balances();
         assert_eq!(
             &balances[..],
-            &fc.fc_store().justified_balances().effective_balances,
+            &justified_balances.effective_balances,
             "balances should match"
         );
         assert_eq!(
             balances.iter().sum::<u64>(),
-            fc.fc_store().justified_balances().total_effective_balance
+            justified_balances.total_effective_balance
         );
+        assert_eq!(
+            num_active_validators,
+            justified_balances.num_active_validators
+        );
+        assert_eq!(slashed_balances, justified_balances.slashed_balances);
     }
 
     /// Returns an attestation that is valid for some slot in the given `chain`.
@@ -624,6 +645,56 @@ async fn justified_balances() {
         .check_justified_balances()
 }
 
+/// Check that the balances are obtained correctly when the justified state contains a slashed
+/// validator.
+///
+/// The slashing is included two epochs before the head so that it is present in the justified
+/// checkpoint state.
+#[tokio::test]
+async fn justified_balances_with_attester_slashing() {
+    let test = ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_attester_slashing()
+        .await
+        .apply_blocks(1)
+        .await
+        .apply_blocks(2 * E::slots_per_epoch() as usize)
+        .await;
+
+    let slashed_balances =
+        test.get(|fc_store| fc_store.justified_balances().slashed_balances.clone());
+    assert_eq!(slashed_balances.len(), 1, "one attester was slashed");
+    test.check_justified_balances();
+}
+
+/// Regression test for a slashing included just after a skipped epoch boundary slot (#9691).
+///
+/// The slashing postdates the justified checkpoint state, so it must not appear in the justified
+/// balances even though it is present in the state that populates the balances cache entry.
+#[tokio::test]
+async fn justified_balances_with_slashing_after_skipped_boundary() {
+    let test = ForkChoiceTest::new()
+        .apply_blocks_while(|_, state| state.finalized_checkpoint().epoch == 0)
+        .await
+        .unwrap()
+        .add_previous_epoch_attester_slashing()
+        .await
+        .apply_blocks(1)
+        .await
+        .apply_blocks(E::slots_per_epoch() as usize)
+        .await;
+
+    let slashed_balances =
+        test.get(|fc_store| fc_store.justified_balances().slashed_balances.clone());
+    assert!(
+        slashed_balances.is_empty(),
+        "the slashing postdates the justified checkpoint state"
+    );
+    test.check_justified_balances();
+}
+
 macro_rules! assert_invalid_block {
     ($err: tt, $($error: pat_param) |+ $( if $guard: expr )?) => {
         assert!(
@@ -783,6 +854,9 @@ async fn invalid_attestation_empty_bitfield() {
                 }
                 IndexedAttestation::Electra(att) => {
                     att.attesting_indices = vec![].try_into().unwrap();
+                }
+                IndexedAttestation::Gloas(att) => {
+                    att.attesting_indices = Default::default();
                 }
             },
             |result| {

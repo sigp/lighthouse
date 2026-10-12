@@ -537,6 +537,16 @@ impl<T: BeaconChainTypes> Router<T> {
                     ),
                 )
             }
+            PubsubMessage::ExecutionProof(execution_proof) => {
+                trace!(%peer_id, "Received an execution proof");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_execution_proof(
+                        message_id,
+                        peer_id,
+                        execution_proof,
+                    ),
+                )
+            }
             PubsubMessage::PayloadAttestation(payload_attestation_message) => {
                 trace!(%peer_id, "Received a payload attestation message");
                 self.handle_beacon_processor_send_result(
@@ -568,6 +578,16 @@ impl<T: BeaconChainTypes> Router<T> {
                             peer_id,
                             proposer_preferences,
                         ),
+                )
+            }
+            PubsubMessage::InclusionList(inclusion_list) => {
+                trace!(%peer_id, "Received a signed inclusion list");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_inclusion_list(
+                        message_id,
+                        peer_id,
+                        inclusion_list,
+                    ),
                 )
             }
         }

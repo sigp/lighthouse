@@ -4,13 +4,15 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
+use crate::json_structures::{
+    BlobAndProofV2, BlobAndProofV3, CustodyColumnsBitArray, GetBlobsV4List,
+};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
 use auth::{Auth, JwtKey, strip_prefix};
 pub use block_hash::calculate_execution_block_hash;
 use bls::{PublicKeyBytes, Signature};
-use builder_client::BuilderHttpClient;
+use builder_client::PreGloasBuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
@@ -45,17 +47,15 @@ use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::builder::BuilderBid;
 use types::execution::BlockProductionVersion;
-use types::kzg_ext::KzgCommitments;
+use types::kzg_ext::{KzgCommitments, ProgressiveKzgCommitments};
 use types::{
-    AbstractExecPayload, BlobsList, ExecutionPayloadDeneb, ExecutionRequests, KzgProofs,
-    SignedBlindedBeaconBlock,
+    AbstractExecPayload, BlobsList, ExecutionRequests, ExecutionRequestsElectra,
+    ExecutionRequestsGloas, KzgProofs, ProgressiveTransactions, SignedBlindedBeaconBlock,
 };
 use types::{
-    BeaconStateError, BlindedPayload, ChainSpec, Epoch, ExecPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadElectra, ExecutionPayloadFulu, FullPayload,
-    ProposerPreparationData, Slot,
+    BeaconStateError, BlindedPayload, ChainSpec, ColumnIndex, Epoch, ExecutionPayloadGloas,
+    FullPayload, ProposerPreparationData, Slot,
 };
-use types::{ExecutionPayloadGloas, ExecutionRequestsGloas};
 
 mod block_hash;
 mod engine_api;
@@ -73,7 +73,7 @@ pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
 
-pub const DEFAULT_GAS_LIMIT: u64 = 60_000_000;
+pub use types::DEFAULT_GAS_LIMIT;
 
 /// A fee recipient address for use during block production. Only used as a very last resort if
 /// there is no address provided by the user.
@@ -118,14 +118,14 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests.into()),
+                requests: Some(builder_bid.execution_requests),
             },
             BuilderBid::Fulu(builder_bid) => BlockProposalContents::PayloadAndBlobs {
                 payload: ExecutionPayloadHeader::Fulu(builder_bid.header).into(),
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                requests: Some(builder_bid.execution_requests.into()),
+                requests: Some(builder_bid.execution_requests),
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -139,7 +139,8 @@ pub enum Error {
     NoEngine,
     NoPayloadBuilder,
     ApiError(ApiError),
-    Builder(builder_client::Error),
+    // The pre-Gloas builder client uses the beacon-node API client's error type.
+    Builder(eth2::Error),
     NoHeaderFromBuilder,
     CannotProduceHeader,
     EngineError(Box<EngineError>),
@@ -153,8 +154,10 @@ pub enum Error {
         transactions_root: Hash256,
     },
     ZeroLengthTransaction,
-    PayloadBodiesByRangeNotSupported,
+    PayloadBodiesByHashV2NotSupported,
+    PayloadBodiesByHashNotSupported,
     GetBlobsNotSupported,
+    GetInclusionListNotSupported,
     InvalidJWTSecret(String),
     InvalidForkForPayload,
     InvalidPayloadBody(String),
@@ -204,26 +207,30 @@ pub enum BlockProposalContentsType<E: EthSpec> {
 pub struct BlockProposalContentsGloas<E: EthSpec> {
     pub payload: ExecutionPayloadGloas<E>,
     pub payload_value: Uint256,
-    pub blob_kzg_commitments: KzgCommitments<E>,
+    pub blob_kzg_commitments: ProgressiveKzgCommitments<E>,
     pub blobs_and_proofs: (BlobsList<E>, KzgProofs<E>),
     pub execution_requests: ExecutionRequestsGloas<E>,
     pub should_override_builder: bool,
 }
 
-impl<E: EthSpec> From<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
-    fn from(response: GetPayloadResponseGloas<E>) -> Self {
-        Self {
+impl<E: EthSpec> TryFrom<GetPayloadResponseGloas<E>> for BlockProposalContentsGloas<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(response: GetPayloadResponseGloas<E>) -> Result<Self, Self::Error> {
+        Ok(Self {
             payload: response.execution_payload,
             payload_value: response.block_value,
-            blob_kzg_commitments: response.blobs_bundle.commitments,
+            // Convert the EL blob commitments to the progressive list type used from Gloas
+            // onwards (EIP-7688).
+            blob_kzg_commitments: ProgressiveKzgCommitments::<E>::new(
+                response.blobs_bundle.commitments.into(),
+            )?,
             blobs_and_proofs: (response.blobs_bundle.blobs, response.blobs_bundle.proofs),
             execution_requests: response.requests,
             should_override_builder: response.should_override_builder,
-        }
+        })
     }
 }
-
-// TODO(heze): add a `BlockProposalContentsHeze` here once Heze block production is wired up.
 
 pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
     Payload {
@@ -238,7 +245,7 @@ pub enum BlockProposalContents<E: EthSpec, Payload: AbstractExecPayload<E>> {
         blobs_and_proofs: Option<(BlobsList<E>, KzgProofs<E>)>,
         // TODO(electra): this should probably be a separate variant/superstruct
         // See: https://github.com/sigp/lighthouse/issues/6981
-        requests: Option<ExecutionRequests<E>>,
+        requests: Option<ExecutionRequestsElectra<E>>,
     },
 }
 
@@ -284,7 +291,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
                 block_value,
                 kzg_commitments: bundle.commitments,
                 blobs_and_proofs: Some((bundle.blobs, bundle.proofs)),
-                requests: maybe_requests,
+                // Gloas payloads are handled via `BlockProposalContentsGloas`, not this path.
+                requests: match maybe_requests {
+                    Some(ExecutionRequests::Electra(requests)) => Some(requests),
+                    Some(ExecutionRequests::Gloas(_)) => {
+                        return Err(Error::InvalidPayloadConversion);
+                    }
+                    None => None,
+                },
             }),
             None => Ok(Self::Payload {
                 payload: execution_payload.into(),
@@ -313,7 +327,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BlockProposalContents<E, Paylo
         Payload,
         Option<KzgCommitments<E>>,
         Option<(BlobsList<E>, KzgProofs<E>)>,
-        Option<ExecutionRequests<E>>,
+        Option<ExecutionRequestsElectra<E>>,
         Uint256,
     ) {
         match self {
@@ -447,16 +461,11 @@ pub enum FailedCondition {
     EpochsSinceFinalization,
 }
 
-pub enum SubmitBlindedBlockResponse<E: EthSpec> {
-    V1(Box<FullPayloadContents<E>>),
-    V2,
-}
-
 type PayloadContentsRefTuple<'a, E> = (ExecutionPayloadRef<'a, E>, Option<&'a BlobsBundle<E>>);
 
 struct Inner<E: EthSpec> {
     engine: Arc<Engine>,
-    builder: ArcSwapOption<BuilderHttpClient>,
+    builder: ArcSwapOption<PreGloasBuilderHttpClient>,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
@@ -595,7 +604,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self.inner.engine
     }
 
-    pub fn builder(&self) -> Option<Arc<BuilderHttpClient>> {
+    pub fn builder(&self) -> Option<Arc<PreGloasBuilderHttpClient>> {
         self.inner.builder.load_full()
     }
 
@@ -610,7 +619,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         builder_header_timeout: Option<Duration>,
         disable_ssz: bool,
     ) -> Result<(), Error> {
-        let builder_client = BuilderHttpClient::new(
+        let builder_client = PreGloasBuilderHttpClient::new(
             builder_url.clone(),
             builder_user_agent,
             builder_header_timeout,
@@ -940,10 +949,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
             &[metrics::LOCAL],
         );
 
-        Ok(payload_response.into())
+        Ok(payload_response.try_into()?)
     }
-
-    // TODO(heze): add a `get_payload_heze` here once Heze block production is wired up.
 
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///
@@ -1037,11 +1044,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
     /// Fetches local and builder paylaods concurrently, Logs and returns results.
     async fn fetch_builder_and_local_payloads(
         &self,
-        builder: &BuilderHttpClient,
+        builder: &PreGloasBuilderHttpClient,
         builder_params: &BuilderParams,
         payload_parameters: PayloadParameters<'_>,
     ) -> (
-        Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, builder_client::Error>,
+        Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, eth2::Error>,
         Result<GetPayloadResponse<E>, Error>,
     ) {
         let slot = builder_params.slot;
@@ -1352,6 +1359,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         .notify_forkchoice_updated(
                             fork_choice_state,
                             Some(payload_attributes.clone()),
+                            None,
                         )
                         .await?;
 
@@ -1531,6 +1539,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
+    #[allow(clippy::too_many_arguments)]
     pub async fn notify_forkchoice_updated(
         &self,
         head_block_hash: ExecutionBlockHash,
@@ -1539,6 +1548,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         current_slot: Slot,
         head_block_root: Hash256,
         head_payload_status: fork_choice::PayloadStatus,
+        custody_columns: &[ColumnIndex],
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
@@ -1588,7 +1598,11 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .engine()
             .request(|engine| async move {
                 engine
-                    .notify_forkchoice_updated(forkchoice_state, payload_attributes)
+                    .notify_forkchoice_updated(
+                        forkchoice_state,
+                        payload_attributes,
+                        Some(custody_columns),
+                    )
                     .await
             })
             .await;
@@ -1663,18 +1677,19 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .map_err(Error::EngineError)
     }
 
-    pub async fn get_payload_bodies_by_range(
+    /// Fetch execution payload bodies using the Gloas V2 response format.
+    pub async fn get_payload_bodies_by_hash_v2(
         &self,
-        start: u64,
-        count: u64,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV1<E>>>, Error> {
-        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE);
+        hashes: Vec<ExecutionBlockHash>,
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2<E>>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+        if !capabilities.get_payload_bodies_by_hash_v2 {
+            return Err(Error::PayloadBodiesByHashV2NotSupported);
+        }
+
         self.engine()
             .request(|engine: &Engine| async move {
-                engine
-                    .api
-                    .get_payload_bodies_by_range_v1(start, count)
-                    .await
+                engine.api.get_payload_bodies_by_hash_v2(hashes).await
             })
             .await
             .map_err(Box::new)
@@ -1683,39 +1698,25 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
     /// Fetch a full payload from the execution node.
     ///
-    /// This will fail if the payload is not from the finalized portion of the chain.
+    /// Returns `Ok(None)` if the execution engine does not have the body.
     pub async fn get_payload_for_header(
         &self,
         header: &ExecutionPayloadHeader<E>,
         fork: ForkName,
     ) -> Result<Option<ExecutionPayload<E>>, Error> {
-        let block_number = header.block_number();
-
         // Handle default payload body.
         if header.block_hash() == ExecutionBlockHash::zero() {
-            let payload = match fork {
-                ForkName::Bellatrix => ExecutionPayloadBellatrix::default().into(),
-                ForkName::Capella => ExecutionPayloadCapella::default().into(),
-                ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
-                ForkName::Electra => ExecutionPayloadElectra::default().into(),
-                ForkName::Fulu => ExecutionPayloadFulu::default().into(),
-                ForkName::Base | ForkName::Altair => {
-                    return Err(Error::InvalidForkForPayload);
-                }
-                ForkName::Gloas => {
-                    return Err(Error::InvalidForkForPayload);
-                }
-                ForkName::Heze => {
-                    return Err(Error::InvalidForkForPayload);
-                }
-            };
+            let payload = FullPayload::<E>::default_at_fork(fork)
+                .map_err(|_| Error::InvalidForkForPayload)?
+                .execution_payload();
             return Ok(Some(payload));
         }
 
-        // Use efficient payload bodies by range method if supported.
         let capabilities = self.get_engine_capabilities(None).await?;
-        if capabilities.get_payload_bodies_by_range_v1 {
-            let mut payload_bodies = self.get_payload_bodies_by_range(block_number, 1).await?;
+        if capabilities.get_payload_bodies_by_hash_v1 {
+            let mut payload_bodies = self
+                .get_payload_bodies_by_hash(vec![header.block_hash()])
+                .await?;
 
             if payload_bodies.len() != 1 {
                 return Ok(None);
@@ -1729,7 +1730,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 })
                 .transpose()
         } else {
-            Err(Error::PayloadBodiesByRangeNotSupported)
+            Err(Error::PayloadBodiesByHashNotSupported)
         }
     }
 
@@ -1767,6 +1768,40 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
+    pub async fn get_blobs_v4(
+        &self,
+        query: Vec<Hash256>,
+        custody_columns: CustodyColumnsBitArray,
+    ) -> Result<Option<GetBlobsV4List<E>>, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_blobs_v4 {
+            self.engine()
+                .request(
+                    |engine| async move { engine.api.get_blobs_v4(query, custody_columns).await },
+                )
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Err(Error::GetBlobsNotSupported)
+        }
+    }
+
+    pub async fn get_inclusion_list_v1(&self) -> Result<ProgressiveTransactions, Error> {
+        let capabilities = self.get_engine_capabilities(None).await?;
+
+        if capabilities.get_inclusion_list_v1 {
+            self.engine()
+                .request(|engine| async move { engine.api.get_inclusion_list_v1().await })
+                .await
+                .map_err(Box::new)
+                .map_err(Error::EngineError)
+        } else {
+            Err(Error::GetInclusionListNotSupported)
+        }
+    }
+
     pub async fn get_block_by_number(
         &self,
         query: BlockByNumberQuery<'_>,
@@ -1782,99 +1817,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         block_root: Hash256,
         block: &SignedBlindedBeaconBlock<E>,
-        spec: &ChainSpec,
-    ) -> Result<SubmitBlindedBlockResponse<E>, Error> {
+    ) -> Result<(), Error> {
         debug!(?block_root, "Sending block to builder");
-        if spec.is_fulu_scheduled() {
-            let resp = self
-                .post_builder_blinded_blocks_v2(block_root, block)
-                .await
-                .map(|()| SubmitBlindedBlockResponse::V2);
-            // Fallback to v1 if v2 fails because the relay doesn't support it.
-            // Note: we should remove the fallback post fulu when all relays have support for v2.
-            if resp.is_err() {
-                self.post_builder_blinded_blocks_v1(block_root, block)
-                    .await
-                    .map(|full_payload| SubmitBlindedBlockResponse::V1(Box::new(full_payload)))
-            } else {
-                resp
-            }
-        } else {
-            self.post_builder_blinded_blocks_v1(block_root, block)
-                .await
-                .map(|full_payload| SubmitBlindedBlockResponse::V1(Box::new(full_payload)))
-        }
-    }
-
-    async fn post_builder_blinded_blocks_v1(
-        &self,
-        block_root: Hash256,
-        block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<FullPayloadContents<E>, Error> {
-        if let Some(builder) = self.builder() {
-            let (payload_result, duration) =
-                timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
-                    let ssz_enabled = builder.is_ssz_available();
-                    debug!(
-                        ?block_root,
-                        ssz = ssz_enabled,
-                        "Calling submit_blinded_block v1 on builder"
-                    );
-                    if ssz_enabled {
-                        builder
-                            .post_builder_blinded_blocks_v1_ssz(block)
-                            .await
-                            .map_err(Error::Builder)
-                    } else {
-                        builder
-                            .post_builder_blinded_blocks_v1(block)
-                            .await
-                            .map_err(Error::Builder)
-                            .map(|d| d.data)
-                    }
-                })
-                .await;
-
-            match &payload_result {
-                Ok(unblinded_response) => {
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
-                        &[metrics::SUCCESS],
-                    );
-                    let payload = unblinded_response.payload_ref();
-                    info!(
-                        relay_response_ms = duration.as_millis(),
-                        ?block_root,
-                        fee_recipient = ?payload.fee_recipient(),
-                        block_hash = ?payload.block_hash(),
-                        parent_hash = ?payload.parent_hash(),
-                        "Builder successfully revealed payload"
-                    )
-                }
-                Err(e) => {
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
-                        &[metrics::FAILURE],
-                    );
-                    warn!(
-                        info = "this is common behaviour for some builders and may not indicate an issue",
-                        error = ?e,
-                        relay_response_ms = duration.as_millis(),
-                        ?block_root,
-                        parent_hash = ?block
-                            .message()
-                            .execution_payload()
-                            .map(|payload| format!("{}", payload.parent_hash()))
-                            .unwrap_or_else(|_| "unknown".to_string()),
-                        "Builder failed to reveal payload"
-                    )
-                }
-            }
-
-            payload_result
-        } else {
-            Err(Error::NoPayloadBuilder)
-        }
+        self.post_builder_blinded_blocks_v2(block_root, block).await
     }
 
     async fn post_builder_blinded_blocks_v2(
@@ -2150,7 +2095,7 @@ fn noop<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::MockExecutionLayer as GenericMockExecutionLayer;
+    use crate::test_utils::{Block, MockExecutionLayer as GenericMockExecutionLayer};
     use task_executor::test_utils::TestRuntime;
     use types::MainnetEthSpec;
 
@@ -2169,8 +2114,59 @@ mod test {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // This is a test, so it should be fine.
+    async fn get_gloas_payload_bodies_v2() {
+        let runtime = TestRuntime::default();
+        let mock = MockExecutionLayer::default_params(runtime.task_executor.clone());
+        let block_hash = ExecutionBlockHash::repeat_byte(0x42);
+        let block_number = 42;
+        let payload = ExecutionPayloadGloas {
+            block_hash,
+            block_number,
+            transactions: ProgressiveTransactions::new(vec![
+                ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]).unwrap(),
+            ])
+            .unwrap(),
+            withdrawals: types::ProgressiveWithdrawals::<MainnetEthSpec>::new(vec![Withdrawal {
+                index: 1,
+                validator_index: 2,
+                address: Address::from([0x33; 20]),
+                amount: 3,
+            }])
+            .unwrap(),
+            block_access_list: BlockAccessList::new(vec![0x04, 0x05, 0x06]).unwrap(),
+            ..Default::default()
+        };
+        let expected_body = ExecutionPayloadBodyV2 {
+            transactions: payload.transactions.clone(),
+            withdrawals: Some(payload.withdrawals.clone()),
+            block_access_list: Some(payload.block_access_list.clone()),
+        };
+        let mut block_generator = mock.server.execution_block_generator();
+        block_generator.insert_block_without_checks(Block::PoS(payload.into()));
+        block_generator
+            .forkchoice_updated(
+                ForkchoiceState {
+                    head_block_hash: block_hash,
+                    safe_block_hash: block_hash,
+                    finalized_block_hash: block_hash,
+                },
+                None,
+            )
+            .expect("block should become the mock execution head");
+        drop(block_generator);
+
+        let bodies_by_hash = mock
+            .el
+            .get_payload_bodies_by_hash_v2(vec![block_hash, ExecutionBlockHash::zero()])
+            .await
+            .expect("payload body request by hash should succeed");
+        assert_eq!(bodies_by_hash, vec![Some(expected_body.clone()), None]);
+    }
+
+    #[tokio::test]
     async fn test_expected_gas_limit() {
-        let spec = ChainSpec::mainnet();
+        let spec = MainnetEthSpec::default_spec();
         assert_eq!(
             expected_gas_limit(30_000_000, 30_000_000, &spec),
             Some(30_000_000)

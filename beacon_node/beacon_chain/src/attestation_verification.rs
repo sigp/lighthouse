@@ -48,6 +48,7 @@ use state_processing::{
     common::{
         attesting_indices_base,
         attesting_indices_electra::{self, get_committee_indices},
+        attesting_indices_gloas,
     },
     per_block_processing::errors::{AttestationValidationError, BlockOperationError},
     signature_sets::{
@@ -688,6 +689,16 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                         signed_aggregate.message.selection_proof.clone(),
                         signed_aggregate.message.aggregate.data.clone(),
                     ),
+                    SignedAggregateAndProof::Gloas(signed_aggregate) => (
+                        signed_aggregate
+                            .message
+                            .aggregate
+                            .committee_index()
+                            .ok_or(Error::NotExactlyOneCommitteeBitSet(0))?,
+                        signed_aggregate.message.aggregator_index,
+                        signed_aggregate.message.selection_proof.clone(),
+                        signed_aggregate.message.aggregate.data.clone(),
+                    ),
                 };
                 let slot = data.slot;
 
@@ -719,6 +730,13 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                     }
                     SignedAggregateAndProof::Electra(signed_aggregate) => {
                         attesting_indices_electra::get_indexed_attestation(
+                            &committees,
+                            &signed_aggregate.message.aggregate,
+                        )
+                        .map_err(|e| BeaconChainError::from(e).into())
+                    }
+                    SignedAggregateAndProof::Gloas(signed_aggregate) => {
+                        attesting_indices_gloas::get_indexed_attestation(
                             &committees,
                             &signed_aggregate.message.aggregate,
                         )
@@ -1550,6 +1568,20 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
             }
             AttestationRef::Electra(att) => {
                 attesting_indices_electra::get_indexed_attestation(&committees, att)
+                    .map(|attestation| (attestation, committees_per_slot))
+                    .map_err(|e| {
+                        if let BlockOperationError::BeaconStateError(NoCommitteeFound(index)) = e {
+                            Error::NoCommitteeForSlotAndIndex {
+                                slot: att.data.slot,
+                                index,
+                            }
+                        } else {
+                            Error::Invalid(e)
+                        }
+                    })
+            }
+            AttestationRef::Gloas(att) => {
+                attesting_indices_gloas::get_indexed_attestation(&committees, att)
                     .map(|attestation| (attestation, committees_per_slot))
                     .map_err(|e| {
                         if let BlockOperationError::BeaconStateError(NoCommitteeFound(index)) = e {

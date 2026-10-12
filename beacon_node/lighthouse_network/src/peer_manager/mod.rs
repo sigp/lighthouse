@@ -537,7 +537,7 @@ impl<E: EthSpec> PeerManager<E> {
         direction: ConnectionDirection,
     ) {
         let client = self.network_globals.client(peer_id);
-        let score = self.network_globals.peers.read().score(peer_id);
+        let score = format!("{:.2}", self.network_globals.peers.read().score(peer_id));
         debug!(%protocol, %err, %client, %peer_id, %score, ?direction, "RPC Error");
         metrics::inc_counter_vec(
             &metrics::TOTAL_RPC_ERRORS_PER_CLIENT,
@@ -1777,7 +1777,7 @@ mod tests {
     }
 
     fn enr_with_tcp4_port(port: u16) -> Enr {
-        let key = discv5::enr::CombinedKey::generate_secp256k1();
+        let key = enr::CombinedKey::generate_secp256k1();
         Enr::builder()
             .ip4(std::net::Ipv4Addr::LOCALHOST)
             .tcp4(port)

@@ -185,7 +185,6 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                 .unique()
                 .collect::<Vec<_>>();
 
-            // TODO(gloas) no block signatures to check post-gloas, double check what to do here
             let column_block_signatures = columns
                 .iter()
                 .filter_map(|column| match column.as_ref() {
@@ -225,8 +224,10 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
 
             let column_block_signature = match column_block_signatures.as_slice() {
                 // We expect a single unique block signature
-                [block_signature] => block_signature,
-                // If there are no block signatures, penalize all peers
+                [block_signature] => Some(block_signature),
+                // Gloas columns do not contain a signed block header.
+                [] if block.fork_name_unchecked().gloas_enabled() => None,
+                // Fulu columns must contain a signed block header.
                 [] => {
                     for column in &columns {
                         if let Some(naughty_peer) = column_to_peer.get(column.index()) {
@@ -261,8 +262,10 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                 }
             }
 
-            // If the block signature doesn't match the columns block signature, penalize the peers
-            if block.signature() != column_block_signature {
+            // Fulu columns must match the block signature.
+            if let Some(column_block_signature) = column_block_signature
+                && block.signature() != column_block_signature
+            {
                 for column in &columns {
                     if let Some(naughty_peer) = column_to_peer.get(column.index()) {
                         naughty_peers.push((*column.index(), *naughty_peer));
@@ -297,5 +300,86 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
         }
 
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beacon_chain::custody_context::NodeCustodyType;
+    use beacon_chain::test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    };
+    use lighthouse_network::service::api_types::{
+        CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequester,
+    };
+    use types::{ForkName, MinimalEthSpec};
+
+    type E = MinimalEthSpec;
+
+    #[tokio::test]
+    async fn valid_gloas_batch_completes_without_peer_failure() {
+        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(MinimalEthSpec)
+            .spec(spec)
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .node_custody_type(NodeCustodyType::Supernode)
+            .build();
+        harness.execution_block_generator().set_min_blob_count(1);
+        harness.advance_slot();
+        let block_root = harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+
+        let epoch = Epoch::new(0);
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, ForkName::Gloas)
+            .expect("should read data columns")
+            .expect("should store data columns");
+
+        assert!(!data_columns.is_empty());
+        assert!(
+            data_columns
+                .iter()
+                .all(|column| matches!(column.as_ref(), DataColumnSidecar::Gloas(_)))
+        );
+
+        let requested_columns = data_columns
+            .iter()
+            .map(|column| *column.index())
+            .unique()
+            .collect::<Vec<_>>();
+        let peer = PeerId::random();
+        let request_id = DataColumnsByRangeRequestId {
+            id: 0,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
+                CustodyBackFillBatchRequestId {
+                    id: 0,
+                    batch_id: CustodyBackfillBatchId { epoch, run_id: 0 },
+                },
+            ),
+            peer,
+        };
+        let mut request = RangeDataColumnBatchRequest::new(
+            vec![(request_id, requested_columns)],
+            harness.chain.clone(),
+            epoch,
+        );
+        request
+            .add_custody_columns(request_id, data_columns.clone())
+            .expect("should complete request");
+
+        match request.responses() {
+            Some(Ok(received_columns)) => assert_eq!(received_columns, data_columns),
+            response => panic!("expected valid Gloas columns, got {response:?}"),
+        }
     }
 }

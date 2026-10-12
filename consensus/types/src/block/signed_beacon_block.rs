@@ -300,6 +300,14 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         ),
         BeaconStateError,
     > {
+        // [Modified in Gloas:EIP7688] the body is a progressive container, so the binary
+        // merkleization below would produce an incorrect body root and proof. The body also no
+        // longer contains `blob_kzg_commitments`, which moved to the execution payload bid
+        // (EIP-7732).
+        if self.message().body().fork_name().gloas_enabled() {
+            return Err(BeaconStateError::ProgressiveMerkleProofNotSupported);
+        }
+
         // Create the block body merkle tree
         let body_leaves = self.message().body().body_merkle_leaves();
         let beacon_block_body_depth = body_leaves.len().next_power_of_two().ilog2() as usize;
@@ -356,13 +364,13 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         self.message()
             .body()
             .blob_kzg_commitments()
+            .map(|c| c.len())
             .or_else(|_| {
                 self.message()
                     .body()
                     .signed_execution_payload_bid()
-                    .map(|bid| &bid.message.blob_kzg_commitments)
+                    .map(|bid| bid.message().blob_kzg_commitments().len())
             })
-            .map(|c| c.len())
             .unwrap_or(0)
     }
 
@@ -382,7 +390,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         self.message()
             .body()
             .signed_execution_payload_bid()
-            .map(|bid| bid.message.block_hash)
+            .map(|bid| bid.message().block_hash())
     }
 
     /// Convenience accessor for the block's bid's `parent_block_hash`.
@@ -392,7 +400,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         self.message()
             .body()
             .signed_execution_payload_bid()
-            .map(|bid| bid.message.parent_block_hash)
+            .map(|bid| bid.message().parent_block_hash())
     }
 
     /// Check if the `parent_hash` in this block's `signed_payload_bid` matches `parent_block_hash`.
@@ -408,7 +416,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             // Prior to Gloas.
             return false;
         };
-        signed_payload_bid.message.parent_block_hash == parent_block_hash
+        signed_payload_bid.message().parent_block_hash() == parent_block_hash
     }
 }
 
@@ -701,35 +709,7 @@ pub mod ssz_tagged_signed_beacon_block {
                 .get(1..)
                 .ok_or(DecodeError::OutOfBoundsByte { i: 1 })?;
 
-            match ForkName::from_ssz_bytes(&[fork_byte])? {
-                ForkName::Base => Ok(SignedBeaconBlock::Base(
-                    SignedBeaconBlockBase::from_ssz_bytes(body)?,
-                )),
-                ForkName::Altair => Ok(SignedBeaconBlock::Altair(
-                    SignedBeaconBlockAltair::from_ssz_bytes(body)?,
-                )),
-                ForkName::Bellatrix => Ok(SignedBeaconBlock::Bellatrix(
-                    SignedBeaconBlockBellatrix::from_ssz_bytes(body)?,
-                )),
-                ForkName::Capella => Ok(SignedBeaconBlock::Capella(
-                    SignedBeaconBlockCapella::from_ssz_bytes(body)?,
-                )),
-                ForkName::Deneb => Ok(SignedBeaconBlock::Deneb(
-                    SignedBeaconBlockDeneb::from_ssz_bytes(body)?,
-                )),
-                ForkName::Electra => Ok(SignedBeaconBlock::Electra(
-                    SignedBeaconBlockElectra::from_ssz_bytes(body)?,
-                )),
-                ForkName::Fulu => Ok(SignedBeaconBlock::Fulu(
-                    SignedBeaconBlockFulu::from_ssz_bytes(body)?,
-                )),
-                ForkName::Gloas => Ok(SignedBeaconBlock::Gloas(
-                    SignedBeaconBlockGloas::from_ssz_bytes(body)?,
-                )),
-                ForkName::Heze => Ok(SignedBeaconBlock::Heze(
-                    SignedBeaconBlockHeze::from_ssz_bytes(body)?,
-                )),
-            }
+            SignedBeaconBlock::from_ssz_bytes_by_fork(body, ForkName::from_ssz_bytes(&[fork_byte])?)
         }
     }
 }
@@ -758,13 +738,13 @@ pub mod ssz_tagged_signed_beacon_block_arc {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{block::EmptyBlock, core::MainnetEthSpec};
+    use crate::{block::EmptyBlock, core::Spec};
 
     #[test]
     fn add_remove_payload_roundtrip() {
-        type E = MainnetEthSpec;
+        type E = Spec;
 
-        let spec = &E::default_spec();
+        let spec = &ForkName::Bellatrix.make_genesis_spec(E::default_spec());
         let sig = Signature::empty();
         let blocks = vec![
             SignedBeaconBlock::<E>::from_block(
@@ -819,7 +799,7 @@ mod test {
 
     #[test]
     fn test_ssz_tagged_signed_beacon_block() {
-        type E = MainnetEthSpec;
+        type E = Spec;
 
         let spec = &spec_with_all_forks_enabled::<E>();
         let sig = Signature::empty();

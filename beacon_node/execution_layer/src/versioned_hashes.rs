@@ -38,14 +38,14 @@ pub fn verify_versioned_hashes<E: EthSpec>(
 }
 
 pub fn extract_versioned_hashes_from_transactions<E: EthSpec>(
-    transactions: &types::Transactions<E>,
+    transactions: types::TransactionsRef<E>,
 ) -> Result<Vec<VersionedHash>, Error> {
     let mut versioned_hashes = Vec::new();
 
-    for tx in transactions {
+    for tx in transactions.iter() {
         // TxEnvelope is non-exhaustive so unforunately we can (no longer) write an exhaustive
         // match here.
-        if let TxEnvelope::Eip4844(signed_tx_eip4844) = beacon_tx_to_tx_envelope(tx)? {
+        if let TxEnvelope::Eip4844(signed_tx_eip4844) = tx_bytes_to_tx_envelope(tx)? {
             versioned_hashes.extend(
                 signed_tx_eip4844
                     .tx()
@@ -63,9 +63,11 @@ pub fn extract_versioned_hashes_from_transactions<E: EthSpec>(
 pub fn beacon_tx_to_tx_envelope<N: Unsigned>(
     tx: &types::Transaction<N>,
 ) -> Result<TxEnvelope, Error> {
-    let tx_bytes = Vec::from(tx.clone());
-    TxEnvelope::decode(&mut tx_bytes.as_slice())
-        .map_err(|e| Error::DecodingTransaction(e.to_string()))
+    tx_bytes_to_tx_envelope(tx)
+}
+
+pub fn tx_bytes_to_tx_envelope(mut tx_bytes: &[u8]) -> Result<TxEnvelope, Error> {
+    TxEnvelope::decode(&mut tx_bytes).map_err(|e| Error::DecodingTransaction(e.to_string()))
 }
 
 #[cfg(test)]
@@ -123,8 +125,9 @@ mod test {
         .map(|tx| Hash256::from_slice(&hex::decode(&tx[2..]).expect("should decode hex")))
         .collect::<Vec<_>>();
 
-        let versioned_hashes = extract_versioned_hashes_from_transactions::<E>(&raw_transactions)
-            .expect("should get versioned hashes");
+        let versioned_hashes =
+            extract_versioned_hashes_from_transactions::<E>((&raw_transactions).into())
+                .expect("should get versioned hashes");
         assert_eq!(versioned_hashes, expected_versioned_hashes);
     }
 }

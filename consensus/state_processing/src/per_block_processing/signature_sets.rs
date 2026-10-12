@@ -12,9 +12,9 @@ use types::{
     BuilderIndex, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork,
     IndexedAttestation, IndexedAttestationRef, IndexedPayloadAttestation, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBid,
-    SignedProposerPreferences, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
-    SyncAggregatorSelectionData, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBidRef,
+    SignedInclusionList, SignedProposerPreferences, SignedRoot, SignedVoluntaryExit, SigningData,
+    Slot, SyncAggregate, SyncAggregatorSelectionData, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -439,15 +439,15 @@ where
 pub fn execution_payload_bid_signature_set<'a, E, F>(
     state: &'a BeaconState<E>,
     get_builder_pubkey: F,
-    signed_execution_payload_bid: &'a SignedExecutionPayloadBid<E>,
+    signed_execution_payload_bid: SignedExecutionPayloadBidRef<'a, E>,
     spec: &'a ChainSpec,
 ) -> Result<Option<SignatureSet<'a>>>
 where
     E: EthSpec,
     F: Fn(BuilderIndex) -> Option<Cow<'a, PublicKey>>,
 {
-    let execution_payload_bid = &signed_execution_payload_bid.message;
-    let builder_index = execution_payload_bid.builder_index;
+    let execution_payload_bid = signed_execution_payload_bid.message();
+    let builder_index = execution_payload_bid.builder_index();
     if builder_index == BUILDER_INDEX_SELF_BUILD {
         // No signatures to verify in case of a self-build, but consensus code MUST check that
         // the signature is the point at infinity.
@@ -456,8 +456,8 @@ where
     }
 
     let bid_epoch = signed_execution_payload_bid
-        .message
-        .slot
+        .message()
+        .slot()
         .epoch(E::slots_per_epoch());
     let bid_fork = spec.fork_at_epoch(bid_epoch);
     let domain = spec.get_domain(
@@ -471,10 +471,45 @@ where
     let message = execution_payload_bid.signing_root(domain);
 
     Ok(Some(SignatureSet::single_pubkey(
-        &signed_execution_payload_bid.signature,
+        signed_execution_payload_bid.signature(),
         pubkey,
         message,
     )))
+}
+
+/// A signature set that is valid if the `SignedInclusionList` was signed by the inclusion list
+/// committee member at `message.validator_index` ([New in Heze:EIP7805]).
+///
+/// The domain is computed at the inclusion list's own slot epoch, not the state's current epoch.
+pub fn inclusion_list_signature_set<'a, E, F>(
+    state: &'a BeaconState<E>,
+    get_pubkey: F,
+    signed_inclusion_list: &'a SignedInclusionList,
+    spec: &'a ChainSpec,
+) -> Result<SignatureSet<'a>>
+where
+    E: EthSpec,
+    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
+{
+    let message = &signed_inclusion_list.message;
+    let validator_index = message.validator_index;
+
+    let epoch = message.slot.epoch(E::slots_per_epoch());
+    let fork = spec.fork_at_epoch(epoch);
+    let domain = spec.get_domain(
+        epoch,
+        Domain::InclusionListCommittee,
+        &fork,
+        state.genesis_validators_root(),
+    );
+
+    let signing_root = message.signing_root(domain);
+
+    Ok(SignatureSet::single_pubkey(
+        &signed_inclusion_list.signature,
+        get_pubkey(validator_index as usize).ok_or(Error::ValidatorUnknown(validator_index))?,
+        signing_root,
+    ))
 }
 
 /// Returns the signature set for the given `attester_slashing` and corresponding `pubkeys`.
@@ -813,4 +848,96 @@ where
         participant_pubkeys,
         message,
     )))
+}
+
+#[cfg(all(test, not(feature = "fake_crypto")))]
+mod inclusion_list_signature_tests {
+    use super::{get_pubkey_from_state, inclusion_list_signature_set};
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use types::{
+        Domain, EthSpec, Hash256, InclusionList, MinimalEthSpec, SignedInclusionList, SignedRoot,
+    };
+
+    type E = MinimalEthSpec;
+    const VALIDATOR_COUNT: usize = 16;
+
+    fn harness() -> BeaconChainHarness<EphemeralHarnessType<E>> {
+        BeaconChainHarness::builder(E::default())
+            .default_spec()
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build()
+    }
+
+    #[test]
+    fn verifies_a_valid_signature() {
+        let harness = harness();
+        let state = harness.get_current_state();
+        let spec = harness.spec.clone();
+        let validator_index = 3usize;
+
+        let message = InclusionList {
+            slot: state.slot(),
+            validator_index: validator_index as u64,
+            dependent_root: Hash256::ZERO,
+            transactions: Default::default(),
+        };
+        let epoch = message.slot.epoch(E::slots_per_epoch());
+        let domain = spec.get_domain(
+            epoch,
+            Domain::InclusionListCommittee,
+            &spec.fork_at_epoch(epoch),
+            state.genesis_validators_root(),
+        );
+        let signature = harness.validator_keypairs[validator_index]
+            .sk
+            .sign(message.signing_root(domain));
+        let signed = SignedInclusionList { message, signature };
+
+        let set = inclusion_list_signature_set(
+            &state,
+            |i| get_pubkey_from_state(&state, i),
+            &signed,
+            &spec,
+        )
+        .unwrap();
+        assert!(set.verify());
+    }
+
+    #[test]
+    fn rejects_a_signature_from_another_validator() {
+        let harness = harness();
+        let state = harness.get_current_state();
+        let spec = harness.spec.clone();
+        let claimed_index = 3usize;
+        let signer_index = 4usize;
+
+        let message = InclusionList {
+            slot: state.slot(),
+            validator_index: claimed_index as u64,
+            dependent_root: Hash256::ZERO,
+            transactions: Default::default(),
+        };
+        let epoch = message.slot.epoch(E::slots_per_epoch());
+        let domain = spec.get_domain(
+            epoch,
+            Domain::InclusionListCommittee,
+            &spec.fork_at_epoch(epoch),
+            state.genesis_validators_root(),
+        );
+        let signature = harness.validator_keypairs[signer_index]
+            .sk
+            .sign(message.signing_root(domain));
+        let signed = SignedInclusionList { message, signature };
+
+        let set = inclusion_list_signature_set(
+            &state,
+            |i| get_pubkey_from_state(&state, i),
+            &signed,
+            &spec,
+        )
+        .unwrap();
+        assert!(!set.verify());
+    }
 }

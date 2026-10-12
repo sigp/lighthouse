@@ -201,7 +201,7 @@ fn assigned_slot(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use state_processing::per_slot_processing;
+    use state_processing::{GloasVerificationContext, per_slot_processing};
     use types::{MinimalEthSpec, Validator};
 
     type E = MinimalEthSpec;
@@ -233,7 +233,13 @@ mod tests {
 
     fn advance_state(state: &mut BeaconState<E>, target: Slot, spec: &types::ChainSpec) {
         while state.slot() < target {
-            per_slot_processing(state, None, spec).expect("advance slot");
+            per_slot_processing(
+                state,
+                None,
+                GloasVerificationContext::FullVerification,
+                spec,
+            )
+            .expect("advance slot");
         }
         state
             .build_all_committee_caches(spec)

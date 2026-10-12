@@ -18,7 +18,7 @@ from subprocess import Popen, PIPE, STDOUT
 NUM_VALIDATORS=3
 TEST_MNEMONIC = "test test test test test test test test test test test waste"
 WALLET_NAME="test_wallet"
-
+ETHSTAKER_CLI_VERSION="v1.3.0"
 
 tmp_dir = os.path.join(".", "tmp")
 mnemonic_path = os.path.join(tmp_dir, "mnemonic.txt")
@@ -58,6 +58,8 @@ def setup_sdc():
     result = subprocess.run([
         "git",
         "clone",
+        "--branch",
+        ETHSTAKER_CLI_VERSION,
         "--single-branch",
         "https://github.com/eth-educators/ethstaker-deposit-cli.git",
         str(sdc_git_dir)
@@ -78,16 +80,29 @@ def setup_sdc():
     assert(result.returncode == 0)
 
 
-def sdc_generate(network, first_index, count, eth1_withdrawal_address=None):
+def sdc_generate(network, first_index, count, prefix, eth1_withdrawal_address=None):
     if eth1_withdrawal_address is not None:
-        eth1_flags = ['--eth1_withdrawal_address', eth1_withdrawal_address]
+        eth1_flags = ['--withdrawal_address', eth1_withdrawal_address]
         uses_eth1 = True
     else:
-        eth1_flags = []
+        eth1_flags = ["--withdrawal_address", ""]
         uses_eth1 = False
 
-    test_name = "{}_first_{}_count_{}_eth1_{}".format(network, first_index, count,
-                                                      str(uses_eth1).lower())
+    if prefix == "0x00":
+        assert(eth1_withdrawal_address is None)
+    elif prefix == "0x01":
+        eth1_flags.append("--regular-withdrawal")
+    elif prefix == "0x02":
+        eth1_flags += [
+            "--compounding",
+            "--amount",
+            "32"
+        ]
+    else:
+        raise Exception("Unsupported prefix {}".format(prefix))
+
+    test_name = "{}_first_{}_count_{}_prefix_{}_eth1_{}".format(network, first_index, count,
+                                                      prefix, str(uses_eth1).lower())
     output_dir = os.path.join(vectors_dir, test_name)
     os.mkdir(output_dir)
 
@@ -101,8 +116,6 @@ def sdc_generate(network, first_index, count, eth1_withdrawal_address=None):
         '--mnemonic', TEST_MNEMONIC,
         '--chain', network,
         '--keystore_password', 'MyPassword1234', # minimum 12 characters for password
-        '--withdrawal_address', '', # no withdrawal address set so it maintains 0x00 withdrawal credentials
-        '--regular-withdrawal', # no compounding
         '--folder', os.path.abspath(output_dir),
     ] + eth1_flags
 
@@ -112,16 +125,18 @@ def sdc_generate(network, first_index, count, eth1_withdrawal_address=None):
 
 
 def test_network(network):
-    sdc_generate(network, first_index=0, count=1)
-    sdc_generate(network, first_index=0, count=2)
-    sdc_generate(network, first_index=12, count=1)
-    sdc_generate(network, first_index=99, count=2)
-    sdc_generate(network, first_index=1024, count=3)
-    sdc_generate(network, first_index=0, count=2,
+    sdc_generate(network, first_index=0, count=1, prefix="0x00")
+    sdc_generate(network, first_index=0, count=2, prefix="0x00")
+    sdc_generate(network, first_index=12, count=1, prefix="0x00")
+    sdc_generate(network, first_index=99, count=2, prefix="0x00")
+    sdc_generate(network, first_index=1024, count=3, prefix="0x00")
+    sdc_generate(network, first_index=0, count=2, prefix="0x01",
+                 eth1_withdrawal_address="0x0f51bb10119727a7e5eA3538074fb341F56B09Ad")
+    sdc_generate(network, first_index=0, count=2, prefix="0x02",
                  eth1_withdrawal_address="0x0f51bb10119727a7e5eA3538074fb341F56B09Ad")
 
 
 setup()
 test_network("mainnet")
-test_network("holesky")
+test_network("hoodi")
 cleanup()

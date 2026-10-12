@@ -1,21 +1,23 @@
 //! This module exposes a superset of the `types` crate. It adds additional types that are only
 //! required for the HTTP API.
 
+pub use builder_types::*;
 pub use types::*;
 
 use crate::{
-    CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
-    EXECUTION_PAYLOAD_INCLUDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
+    BUILDER_URL_HEADER, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
+    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_INCLUDED_HEADER,
+    EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
 use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
 use context_deserialize::{ContextDeserialize, context_deserialize};
 #[cfg(feature = "network")]
 use enr::{CombinedKey, Enr};
 use fork_choice::PayloadStatus;
+#[cfg(feature = "network")]
+use libp2p::multiaddr::Multiaddr;
 use lighthouse_version::{COMMIT_PREFIX, VERSION, client_name};
 use mediatype::{MediaType, MediaTypeList, names};
-#[cfg(feature = "network")]
-use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
@@ -25,7 +27,6 @@ use ssz_derive::{Decode, Encode};
 use std::fmt::{self, Display};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 use superstruct::superstruct;
 
 // TODO(mac): Temporary module and re-export hack to expose old `consensus/types` via `eth2/types`.
@@ -302,6 +303,53 @@ impl From<ValidatorId> for String {
     }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[serde(into = "String")]
+#[serde(try_from = "std::borrow::Cow<str>")]
+pub enum BuilderId {
+    PublicKey(PublicKeyBytes),
+    Index(u64),
+}
+
+impl TryFrom<std::borrow::Cow<'_, str>> for BuilderId {
+    type Error = String;
+
+    fn try_from(s: std::borrow::Cow<str>) -> Result<Self, Self::Error> {
+        Self::from_str(&s)
+    }
+}
+
+impl FromStr for BuilderId {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.starts_with("0x") {
+            PublicKeyBytes::from_str(s)
+                .map(BuilderId::PublicKey)
+                .map_err(|e| format!("{} cannot be parsed as a public key: {}", s, e))
+        } else {
+            u64::from_str(s)
+                .map(BuilderId::Index)
+                .map_err(|e| format!("{} cannot be parsed as a builder index: {}", s, e))
+        }
+    }
+}
+
+impl fmt::Display for BuilderId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BuilderId::PublicKey(pubkey) => write!(f, "{:?}", pubkey),
+            BuilderId::Index(index) => write!(f, "{}", index),
+        }
+    }
+}
+
+impl From<BuilderId> for String {
+    fn from(id: BuilderId) -> String {
+        id.to_string()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorData {
     #[serde(with = "serde_utils::quoted_u64")]
@@ -320,12 +368,44 @@ pub struct ValidatorBalanceData {
     pub balance: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ValidatorIdentityData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
     pub pubkey: PublicKeyBytes,
     pub activation_epoch: Epoch,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BuilderData {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    pub status: BuilderStatus,
+    pub builder: Builder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuilderStatus {
+    Pending,
+    Active,
+    Exited,
+}
+
+impl BuilderStatus {
+    pub fn from_builder(
+        builder: &Builder,
+        finalized_epoch: Epoch,
+        far_future_epoch: Epoch,
+    ) -> Self {
+        if builder.withdrawable_epoch != far_future_epoch {
+            Self::Exited
+        } else if builder.deposit_epoch < finalized_epoch {
+            Self::Active
+        } else {
+            Self::Pending
+        }
+    }
 }
 
 // Implemented according to what is described here:
@@ -492,6 +572,15 @@ pub struct ValidatorsRequestBody {
     pub ids: Option<Vec<ValidatorId>>,
     #[serde(default)]
     pub statuses: Option<Vec<ValidatorStatus>>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildersRequestBody {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ids: Option<Vec<BuilderId>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statuses: Option<Vec<BuilderStatus>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -809,6 +898,14 @@ pub struct PtcDuty {
     pub slot: Slot,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InclusionListDuty {
+    pub pubkey: PublicKeyBytes,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    pub slot: Slot,
+}
+
 #[derive(Clone, Deserialize)]
 pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
@@ -846,6 +943,11 @@ impl TryFrom<Option<String>> for SkipRandaoVerification {
 pub struct ValidatorAttestationDataQuery {
     pub slot: Slot,
     pub committee_index: CommitteeIndex,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ValidatorPayloadAttestationDataQuery {
+    pub slot: Slot,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1155,21 +1257,6 @@ pub struct SseChainReorg {
     pub execution_optimistic: bool,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
-pub struct SseLateHead {
-    pub slot: Slot,
-    pub block: Hash256,
-    pub proposer_index: u64,
-    pub peer_id: Option<String>,
-    pub peer_client: Option<String>,
-    pub proposer_graffiti: String,
-    pub block_delay: Duration,
-    pub observed_delay: Option<Duration>,
-    pub imported_delay: Option<Duration>,
-    pub set_as_head_delay: Option<Duration>,
-    pub execution_optimistic: bool,
-}
-
 #[superstruct(
     variants(V1, V2, V3),
     variant_attributes(derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize))
@@ -1201,6 +1288,10 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_block_number: Option<Quoted<u64>>,
     pub parent_block_hash: ExecutionBlockHash,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_block_hash: Option<ExecutionBlockHash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finalized_block_hash: Option<ExecutionBlockHash>,
     pub payload_attributes: T,
 }
 
@@ -1260,6 +1351,8 @@ impl<'de> ContextDeserialize<'de, ForkName> for SseExtendedPayloadAttributes {
             parent_block_root: helper.parent_block_root,
             parent_block_number: helper.parent_block_number,
             parent_block_hash: helper.parent_block_hash,
+            safe_block_hash: helper.safe_block_hash,
+            finalized_block_hash: helper.finalized_block_hash,
             payload_attributes: SsePayloadAttributes::context_deserialize(
                 helper.payload_attributes,
                 context,
@@ -1283,7 +1376,6 @@ pub enum EventKind<E: EthSpec> {
     VoluntaryExit(SignedVoluntaryExit),
     ChainReorg(SseChainReorg),
     ContributionAndProof(Box<SignedContributionAndProof<E>>),
-    LateHead(SseLateHead),
     LightClientFinalityUpdate(Box<BeaconResponse<LightClientFinalityUpdate<E>>>),
     LightClientOptimisticUpdate(Box<BeaconResponse<LightClientOptimisticUpdate<E>>>),
     PayloadAttributes(VersionedSsePayloadAttributes),
@@ -1315,7 +1407,6 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::ChainReorg(_) => "chain_reorg",
             EventKind::ContributionAndProof(_) => "contribution_and_proof",
             EventKind::PayloadAttributes(_) => "payload_attributes",
-            EventKind::LateHead(_) => "late_head",
             EventKind::LightClientFinalityUpdate(_) => "light_client_finality_update",
             EventKind::LightClientOptimisticUpdate(_) => "light_client_optimistic_update",
             EventKind::ProposerSlashing(_) => "proposer_slashing",
@@ -1368,9 +1459,6 @@ impl<E: EthSpec> EventKind<E> {
                 serde_json::from_str(data)
                     .map_err(|e| ServerError::InvalidServerSentEvent(format!("Head: {:?}", e)))?,
             ))),
-            "late_head" => Ok(EventKind::LateHead(serde_json::from_str(data).map_err(
-                |e| ServerError::InvalidServerSentEvent(format!("Late Head: {:?}", e)),
-            )?)),
             "voluntary_exit" => Ok(EventKind::VoluntaryExit(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Voluntary Exit: {:?}", e))
@@ -1494,7 +1582,6 @@ pub enum EventTopic {
     FinalizedCheckpoint,
     ChainReorg,
     ContributionAndProof,
-    LateHead,
     PayloadAttributes,
     LightClientFinalityUpdate,
     LightClientOptimisticUpdate,
@@ -1528,7 +1615,6 @@ impl FromStr for EventTopic {
             "chain_reorg" => Ok(EventTopic::ChainReorg),
             "contribution_and_proof" => Ok(EventTopic::ContributionAndProof),
             "payload_attributes" => Ok(EventTopic::PayloadAttributes),
-            "late_head" => Ok(EventTopic::LateHead),
             "light_client_finality_update" => Ok(EventTopic::LightClientFinalityUpdate),
             "light_client_optimistic_update" => Ok(EventTopic::LightClientOptimisticUpdate),
             "attester_slashing" => Ok(EventTopic::AttesterSlashing),
@@ -1562,7 +1648,6 @@ impl fmt::Display for EventTopic {
             EventTopic::ChainReorg => write!(f, "chain_reorg"),
             EventTopic::ContributionAndProof => write!(f, "contribution_and_proof"),
             EventTopic::PayloadAttributes => write!(f, "payload_attributes"),
-            EventTopic::LateHead => write!(f, "late_head"),
             EventTopic::LightClientFinalityUpdate => write!(f, "light_client_finality_update"),
             EventTopic::LightClientOptimisticUpdate => write!(f, "light_client_optimistic_update"),
             EventTopic::AttesterSlashing => write!(f, "attester_slashing"),
@@ -1930,6 +2015,11 @@ pub struct ProduceBlockV4Metadata {
     #[serde(with = "serde_utils::u256_dec")]
     pub execution_payload_value: Uint256,
     pub execution_payload_included: bool,
+    /// The URL of the winning builder when the payload bid came through the builder-API channel
+    /// (the `Eth-Builder-Url` response header). `None` for a self-built block or a p2p bid. Carried
+    /// only in the header, never the JSON body, so it's skipped by serde.
+    #[serde(skip_serializing, skip_deserializing, default)]
+    pub builder_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Encode)]
@@ -2215,12 +2305,19 @@ impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
                 s.parse::<bool>()
                     .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_INCLUDED_HEADER}: {e:?}"))
             })?;
+        // Optional; an empty or absent value means the block was self-built or a p2p bid won.
+        let builder_url = headers
+            .get(BUILDER_URL_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned)
+            .filter(|s| !s.is_empty());
 
         Ok(ProduceBlockV4Metadata {
             consensus_version,
             consensus_block_value,
             execution_payload_value,
             execution_payload_included,
+            builder_url,
         })
     }
 }

@@ -10,6 +10,7 @@ bls = { workspace = true }
 eth2 = { workspace = true }
 eth2_keystore = { workspace = true }
 ethereum_ssz = { workspace = true }
+futures = { workspace = true }
 initialized_validators = { workspace = true }
 lighthouse_validator_store = { workspace = true }
 mockito = { workspace = true }

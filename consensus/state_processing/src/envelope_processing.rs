@@ -150,16 +150,16 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     // Verify consistency with the committed bid
     let committed_bid = state.latest_execution_payload_bid()?;
     envelope_verify!(
-        envelope.builder_index == committed_bid.builder_index,
+        envelope.builder_index == committed_bid.builder_index(),
         EnvelopeProcessingError::BuilderIndexMismatch {
-            committed_bid: committed_bid.builder_index,
+            committed_bid: committed_bid.builder_index(),
             envelope: envelope.builder_index,
         }
     );
     envelope_verify!(
-        committed_bid.prev_randao == payload.prev_randao,
+        committed_bid.prev_randao() == payload.prev_randao,
         EnvelopeProcessingError::PrevRandaoMismatch {
-            committed_bid: committed_bid.prev_randao,
+            committed_bid: committed_bid.prev_randao(),
             envelope: payload.prev_randao,
         }
     );
@@ -183,18 +183,18 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
 
     // Verify the gas limit
     envelope_verify!(
-        committed_bid.gas_limit == payload.gas_limit,
+        committed_bid.gas_limit() == payload.gas_limit,
         EnvelopeProcessingError::GasLimitMismatch {
-            committed_bid: committed_bid.gas_limit,
+            committed_bid: committed_bid.gas_limit(),
             envelope: payload.gas_limit,
         }
     );
 
     // Verify the block hash
     envelope_verify!(
-        committed_bid.block_hash == payload.block_hash,
+        committed_bid.block_hash() == payload.block_hash,
         EnvelopeProcessingError::BlockHashMismatch {
-            committed_bid: committed_bid.block_hash,
+            committed_bid: committed_bid.block_hash(),
             envelope: payload.block_hash,
         }
     );
@@ -221,9 +221,9 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     // Verify execution requests root matches committed bid
     let execution_requests_root = envelope.execution_requests.tree_hash_root();
     envelope_verify!(
-        execution_requests_root == committed_bid.execution_requests_root,
+        execution_requests_root == committed_bid.execution_requests_root(),
         EnvelopeProcessingError::ExecutionRequestsRootMismatch {
-            committed_bid: committed_bid.execution_requests_root,
+            committed_bid: committed_bid.execution_requests_root(),
             envelope: execution_requests_root,
         }
     );
@@ -231,4 +231,99 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     // TODO(gloas): newPayload happens here in the spec, ensure we wire that up correctly
 
     Ok(())
+}
+
+#[cfg(not(debug_assertions))]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+    use fixed_bytes::FixedBytesExtended;
+    use std::sync::LazyLock;
+    use types::test_utils::generate_deterministic_keypairs;
+    use types::{ForkName, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+
+    const VALIDATOR_COUNT: usize = 32;
+
+    static KEYPAIRS: LazyLock<Vec<bls::Keypair>> =
+        LazyLock::new(|| generate_deterministic_keypairs(VALIDATOR_COUNT));
+
+    fn get_harness() -> BeaconChainHarness<EphemeralHarnessType<E>> {
+        let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        BeaconChainHarness::builder(E::default())
+            .spec(spec.into())
+            .keypairs(KEYPAIRS.to_vec())
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build()
+    }
+
+    #[tokio::test]
+    async fn reject_envelope_with_mismatched_beacon_block_root() {
+        let harness = get_harness();
+        harness.advance_slot();
+
+        let state = harness.get_current_state();
+        let slot = harness.get_current_slot();
+        let ((block, _blob), envelope, post_state) =
+            harness.make_block_with_envelope(state, slot).await;
+        let mut envelope = envelope.unwrap();
+
+        // Manually modify the beacon_block_root to make it invalid.
+        envelope.message.beacon_block_root = Hash256::zero();
+
+        let block_state_root = block.state_root();
+
+        // Skip the signature verification
+        let result = verify_execution_payload_envelope(
+            &post_state,
+            &envelope,
+            VerifySignatures::False,
+            block_state_root,
+            &harness.spec,
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(EnvelopeProcessingError::LatestBlockHeaderMismatch { .. })
+            ),
+            "expected LatestBlockHeaderMismatch, got: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reject_envelope_with_mismatched_parent_beacon_block_root() {
+        let harness = get_harness();
+        harness.advance_slot();
+
+        let state = harness.get_current_state();
+        let slot = harness.get_current_slot();
+        let ((block, _blob), envelope, post_state) =
+            harness.make_block_with_envelope(state, slot).await;
+        let mut envelope = envelope.unwrap();
+
+        // Manually modify the parent beacon_block_root to make it invalid.
+        envelope.message.parent_beacon_block_root = Hash256::zero();
+
+        let block_state_root = block.state_root();
+
+        let result = verify_execution_payload_envelope(
+            &post_state,
+            &envelope,
+            VerifySignatures::False,
+            block_state_root,
+            &harness.spec,
+        );
+
+        assert!(
+            matches!(
+                result,
+                Err(EnvelopeProcessingError::ParentBeaconBlockRootMismatch { .. })
+            ),
+            "expected ParentBeaconBlockRootMismatch, got: {result:?}"
+        );
+    }
 }

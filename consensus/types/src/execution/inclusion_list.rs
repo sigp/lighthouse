@@ -1,35 +1,32 @@
-use crate::{EthSpec, ForkName, Hash256, SignedRoot, Slot, Transactions};
+use crate::{EthSpec, ForkName, Hash256, ProgressiveTransactions, SignedRoot, Slot};
 use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use ssz_types::FixedVector;
 use tree_hash_derive::TreeHash;
 
+/// The inclusion list committee, ordered by committee position.
+pub type InclusionListCommittee<E> = FixedVector<u64, <E as EthSpec>::InclusionListCommitteeSize>;
+
 #[derive(Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
-#[cfg_attr(
-    feature = "arbitrary",
-    derive(arbitrary::Arbitrary),
-    arbitrary(bound = "E: EthSpec")
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[educe(PartialEq, Hash)]
-#[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
-pub struct InclusionList<E: EthSpec> {
+pub struct InclusionList {
     pub slot: Slot,
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
-    pub inclusion_list_committee_root: Hash256,
-    // TODO(heze): switch to using `ProgressiveList` once the support for EIP-7916 is added.
-    #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions: Transactions<E>,
+    pub dependent_root: Hash256,
+    #[serde(with = "ssz_types::serde_utils::prog_list_of_hex_prog_var_list")]
+    pub transactions: ProgressiveTransactions,
 }
 
-impl<E: EthSpec> SignedRoot for InclusionList<E> {}
+impl SignedRoot for InclusionList {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
 
-    ssz_and_tree_hash_tests!(InclusionList<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(InclusionList);
 }

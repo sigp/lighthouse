@@ -27,11 +27,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, Hash256, MinimalEthSpec,
-    ProposerPreparationData, Slot,
+    Address, BeaconBlockRef, EthSpec, ExecutionBlockHash, ForkName, Hash256,
+    ProposerPreparationData, Slot, Spec,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 // Must be at least PTC size to simplify PTC reasoning (unique PTC members per slot).
 const ATTESTERS_PER_SLOT: usize = 20;
@@ -715,7 +715,7 @@ pub async fn proposer_boost_re_org_test(
         .unwrap()
         .withdrawals()
         .to_vec();
-    complete_state_advance(&mut state_b, None, slot_c, &harness.chain.spec).unwrap();
+    complete_state_advance(&mut state_b, None, slot_c, None, &harness.chain.spec).unwrap();
 
     let proposer_index = state_b
         .get_beacon_proposer_index(slot_c, &harness.chain.spec)
@@ -727,7 +727,15 @@ pub async fn proposer_boost_re_org_test(
     let (block_c, block_c_blobs) = {
         let (response, _) = tester
             .client
-            .get_validator_blocks_v4::<E>(slot_c, &randao_reveal, None, false, None, None)
+            .post_validator_blocks_v4::<E>(
+                slot_c,
+                &randao_reveal,
+                None,
+                false,
+                &eth2::types::BuilderConfig::empty(),
+                None,
+                ForkName::Gloas,
+            )
             .await
             .unwrap();
         (
@@ -743,16 +751,16 @@ pub async fn proposer_boost_re_org_test(
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .block_hash
+            .message()
+            .block_hash()
     };
     let exec_parent_hash = |block: BeaconBlockRef<E>| -> ExecutionBlockHash {
         block
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .parent_block_hash
+            .message()
+            .parent_block_hash()
     };
 
     let block_a_exec_hash = exec_block_hash(block_a.0.message());
@@ -828,16 +836,12 @@ pub async fn proposer_boost_re_org_test(
     // by the path that produced the matching fcU.
     let parent_state_advanced = if should_re_org {
         let mut state = state_a.clone();
-        complete_state_advance(&mut state, None, slot_c, &harness.chain.spec).unwrap();
+        complete_state_advance(&mut state, None, slot_c, None, &harness.chain.spec).unwrap();
         state
     } else {
         state_b.clone()
     };
-    let expected_withdrawals = if matches!(
-        expected_first_update_lookahead,
-        ExpectedFirstUpdateLookahead::BlockProduction
-    ) && expected_parent_payload_status == PayloadStatus::Empty
-    {
+    let expected_withdrawals = if expected_parent_payload_status == PayloadStatus::Empty {
         parent_state_advanced
             .payload_expected_withdrawals()
             .unwrap()
