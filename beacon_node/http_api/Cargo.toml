@@ -74,3 +74,7 @@ path = "tests/main.rs"
 name = "bn_http_api_spec_minimal_tests"
 path = "tests/spec_minimal.rs"
 required-features = ["spec-minimal"]
+
+[[bench]]
+name = "bench"
+harness = false
