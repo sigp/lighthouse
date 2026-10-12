@@ -1616,7 +1616,8 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
         ));
     }
 
-    match chain.verify_inclusion_list_for_gossip(signed_inclusion_list) {
+    let seen_timestamp = chain.slot_clock.now_duration().unwrap_or_default();
+    match chain.verify_inclusion_list_for_gossip(signed_inclusion_list, seen_timestamp) {
         Ok(verified_inclusion_list) => {
             // The import decides whether this is the first or second valid list from the validator,
             // so only publish based on its outcome.
@@ -1663,8 +1664,6 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
                 "internal error verifying inclusion list: {e}"
             )))
         }
-        // TODO(heze): remove once the IL gossip verification errors are added to InclusionListVerificationError
-        #[allow(unreachable_patterns)]
         Err(e) => {
             warn!(
                 %slot,
