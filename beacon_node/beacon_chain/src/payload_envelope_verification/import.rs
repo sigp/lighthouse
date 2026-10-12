@@ -326,7 +326,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.import_envelope_update_metrics_and_events(
             signed_envelope,
             block_root,
-            payload_verification_status,
             envelope_time_imported,
         );
 
@@ -337,7 +336,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
         block_root: Hash256,
-        payload_verification_status: PayloadVerificationStatus,
         envelope_time_imported: Duration,
     ) {
         let envelope_slot = signed_envelope.slot();
@@ -362,12 +360,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_execution_payload_subscribers()
         {
+            // The verdict for this payload is the one recorded against the block's `FULL` node.
+            let execution_optimistic = match self
+                .canonical_head
+                .fork_choice_read_lock()
+                .get_block_execution_status_assuming_full(&block_root)
+            {
+                Ok(Some(verdict)) => verdict.is_optimistic_or_invalid(),
+                // The envelope just reached fork choice, so neither of these is reachable. Report
+                // optimistic rather than claim a verification we could not read.
+                Ok(None) => true,
+                Err(e) => {
+                    warn!(error = ?e, "Unable to read execution status for payload event");
+                    true
+                }
+            };
+
             event_handler.register(EventKind::ExecutionPayload(SseExecutionPayload {
                 slot: envelope_slot,
                 builder_index: signed_envelope.message.builder_index,
                 block_hash: signed_envelope.block_hash(),
                 block_root,
-                execution_optimistic: payload_verification_status.is_optimistic(),
+                execution_optimistic,
             }));
         }
 
