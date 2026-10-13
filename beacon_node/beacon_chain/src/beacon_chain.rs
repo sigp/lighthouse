@@ -3931,6 +3931,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_slot = unverified_block.block().slot();
 
+        // Reject future blocks before writing to the block_time_cache
+        if let Ok(present_slot) = self.slot()
+            && block_slot > present_slot
+        {
+            return Err(BlockError::FutureSlot {
+                present_slot,
+                block_slot,
+            });
+        }
+
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
         if let Some(seen_timestamp) = self.slot_clock.now_duration() {
@@ -5131,10 +5141,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_block_subscribers()
         {
+            // The bid is present on Gloas and later blocks, but not on earlier forks.
+            let bid = block.body().signed_execution_payload_bid().ok();
             event_handler.register(EventKind::Block(SseBlock {
                 slot: block.slot(),
                 block: block_root,
                 execution_optimistic: payload_verification_status.is_optimistic(),
+                builder_index: bid.as_ref().map(|bid| Quoted {
+                    value: bid.message().builder_index(),
+                }),
+                block_hash: bid.map(|bid| bid.message().block_hash()),
             }));
         }
 
