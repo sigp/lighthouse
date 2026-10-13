@@ -653,7 +653,7 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         };
         // Only cache the header if the block data is not already imported. This avoids
         // reintroducing (and regossiping) headers of already available blocks.
-        let newly_cached = if !chain.is_block_data_imported(group_id, column_slot) {
+        let newly_cached = if !chain.is_block_data_imported(group_id) {
             assembler.init(group_id, header.clone())
         } else {
             false
