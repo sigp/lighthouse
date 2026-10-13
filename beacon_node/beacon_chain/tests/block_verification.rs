@@ -36,9 +36,9 @@ use tempfile::tempdir;
 use types::ExecutionBlockHash;
 use types::{test_utils::generate_deterministic_keypair, *};
 
-type E = MainnetEthSpec;
+type E = Spec;
 
-// Gloas requires >= 1 validator per slot for PTC committee computation, so >= 32 for MainnetEthSpec.
+// Gloas requires >= 1 validator per slot for PTC committee computation, so >= 32 under the mainnet preset.
 const VALIDATOR_COUNT: usize = 32;
 const CHAIN_SEGMENT_LENGTH: usize = 32 * 6;
 const BLOCK_INDICES: &[usize] = &[1, 32, 64];
@@ -154,7 +154,7 @@ fn get_harness(
     validator_count: usize,
     node_custody_type: NodeCustodyType,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .chain_config(ChainConfig {
             archive: true,
@@ -1655,7 +1655,7 @@ async fn verify_block_for_gossip_slashing_detection() {
     );
 
     let inner_slasher = slasher.clone();
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS.to_vec())
         .fresh_ephemeral_store()
@@ -1780,13 +1780,13 @@ async fn verify_block_for_gossip_doppelganger_detection() {
 
 #[tokio::test]
 async fn add_base_block_to_altair_chain() {
-    let mut spec = MainnetEthSpec::default_spec();
-    let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+    let mut spec = Spec::default_spec();
+    let slots_per_epoch = Spec::slots_per_epoch();
 
     // The Altair fork happens at epoch 1.
     spec.altair_fork_epoch = Some(Epoch::new(1));
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
@@ -1935,12 +1935,12 @@ async fn add_base_block_to_altair_chain() {
 
 #[tokio::test]
 async fn add_altair_block_to_base_chain() {
-    let mut spec = MainnetEthSpec::default_spec();
+    let mut spec = Spec::default_spec();
 
     // Altair never happens.
     spec.altair_fork_epoch = None;
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
@@ -2085,20 +2085,20 @@ async fn add_altair_block_to_base_chain() {
 
 // This is a regression test for the bogus `InvalidBestNode` error which was reachable in Gloas
 // networks. Previously Lighthouse would return an `InvalidBestNode` error from `get_head` in
-// contradiction to the spec, which states that the justified root should be returned when no leaf
-// node is viable.
+// contradiction to the spec.
 //
 // The chain construction in this test is contrived but not impossible: the justified block's full
-// branch is what contained the evidence to justify it, but the empty branch is more weighty and
-// wins out.
+// branch is what contained the evidence to justify it, but the empty branch is more weighty. The
+// justified block's `EMPTY` node has no children and a stale voting source, so it is not viable and
+// the head is on the full branch.
 #[tokio::test]
-async fn gloas_get_head_can_return_justified_empty_payload_branch() {
+async fn gloas_get_head_prunes_stale_justified_empty_payload_branch() {
     let spec = test_spec::<E>();
     if !spec.fork_name_at_epoch(Epoch::new(0)).gloas_enabled() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.clone().into())
         .chain_config(ChainConfig {
             archive: true,
@@ -2134,6 +2134,7 @@ async fn gloas_get_head_can_return_justified_empty_payload_branch() {
         )
         .await;
 
+    let full_branch_head_root = harness.head_block_root();
     let current_slot = harness.get_current_slot();
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     assert_eq!(
@@ -2225,23 +2226,22 @@ async fn gloas_get_head_can_return_justified_empty_payload_branch() {
         "all validators should have a latest regular attestation to the justified root"
     );
 
-    let (head_root, payload_status) = harness
+    let head_root = harness
         .chain
         .canonical_head
         .fork_choice_write_lock()
         .get_head(current_slot, &spec)
-        .expect("fork choice should return the justified root on the empty payload branch")
-        .as_pair();
+        .expect("fork choice should return the head of the full payload branch")
+        .root();
 
-    assert_eq!(head_root, justified_root);
-    assert_eq!(payload_status, PayloadStatus::Empty);
+    assert_eq!(head_root, full_branch_head_root);
 }
 
 // This is a regression test for this bug:
 // https://github.com/sigp/lighthouse/issues/4332#issuecomment-1565092279
 #[tokio::test]
 async fn import_duplicate_block_unrealized_justification() {
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
@@ -2381,7 +2381,7 @@ async fn make_gloas_range_sync_block_inputs() -> Option<(
         return None;
     }
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
         .node_custody_type(NodeCustodyType::Supernode)
@@ -2559,7 +2559,7 @@ async fn process_chain_segment_imports_missing_envelope_for_duplicate_gloas_bloc
         return;
     }
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
         .node_custody_type(NodeCustodyType::Supernode)
@@ -2642,7 +2642,7 @@ async fn process_chain_segment_ignores_duplicate_gloas_block_when_payload_receiv
         return;
     }
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
         .node_custody_type(NodeCustodyType::Supernode)
@@ -2698,7 +2698,7 @@ async fn filter_chain_segment_keeps_checkpoint_gloas_block_by_split_root() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
         .node_custody_type(NodeCustodyType::Supernode)
@@ -2804,7 +2804,7 @@ async fn range_sync_block_construction_fails_with_wrong_blob_count() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
         .node_custody_type(NodeCustodyType::Fullnode)
@@ -2879,7 +2879,7 @@ async fn range_sync_block_rejects_missing_custody_columns() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
         .node_custody_type(NodeCustodyType::Fullnode)
@@ -2959,7 +2959,7 @@ async fn rpc_block_allows_construction_past_da_boundary() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
         .node_custody_type(NodeCustodyType::Fullnode)
@@ -3041,7 +3041,7 @@ async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
         return;
     }
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
         .node_custody_type(NodeCustodyType::Supernode)
@@ -3066,7 +3066,6 @@ async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
         .body()
         .signed_execution_payload_bid()
         .unwrap();
-
     let available_envelope = AvailableEnvelope::new(
         Arc::new(envelope),
         columns,

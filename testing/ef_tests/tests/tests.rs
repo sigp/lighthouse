@@ -257,11 +257,10 @@ mod ssz_static {
     use types::state::HistoricalSummary;
     use types::{
         AttesterSlashingBase, AttesterSlashingElectra, Builder, BuilderPendingPayment,
-        BuilderPendingWithdrawal, ConsolidationRequest, DepositRequest, ExecutionPayloadBid,
-        ExecutionPayloadEnvelope, IndexedPayloadAttestation, LightClientBootstrapAltair,
-        PayloadAttestation, PayloadAttestationData, PayloadAttestationMessage, PendingDeposit,
-        PendingPartialWithdrawal, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-        WithdrawalRequest, *,
+        BuilderPendingWithdrawal, ConsolidationRequest, DepositRequest, ExecutionPayloadEnvelope,
+        IndexedPayloadAttestation, LightClientBootstrapAltair, PayloadAttestation,
+        PayloadAttestationData, PayloadAttestationMessage, PendingDeposit,
+        PendingPartialWithdrawal, SignedExecutionPayloadEnvelope, WithdrawalRequest, *,
     };
 
     ssz_static_test!(attestation_data, AttestationData);
@@ -470,12 +469,14 @@ mod ssz_static {
 
     #[test]
     fn execution_payload_bid() {
-        SszStaticHandler::<ExecutionPayloadBid<Spec>, Spec>::gloas_and_later().run();
+        SszStaticHandler::<ExecutionPayloadBidGloas<Spec>, Spec>::gloas_only().run();
+        SszStaticHandler::<ExecutionPayloadBidHeze<Spec>, Spec>::heze_only().run();
     }
 
     #[test]
     fn signed_execution_payload_bid() {
-        SszStaticHandler::<SignedExecutionPayloadBid<Spec>, Spec>::gloas_and_later().run();
+        SszStaticHandler::<SignedExecutionPayloadBidGloas<Spec>, Spec>::gloas_only().run();
+        SszStaticHandler::<SignedExecutionPayloadBidHeze<Spec>, Spec>::heze_only().run();
     }
 
     #[test]
@@ -844,6 +845,13 @@ fn fork_choice_payload_data_availability() {
 #[cfg(feature = "spec-minimal")]
 fn fork_choice_should_apply_proposer_boost() {
     ForkChoiceHandler::<Spec>::new("should_apply_proposer_boost").run();
+    // There is no mainnet variant for this test.
+}
+
+#[test]
+#[cfg(feature = "spec-minimal")]
+fn fork_choice_filter_node_tree_variants() {
+    ForkChoiceHandler::<Spec>::new("filter_node_tree_variants").run();
     // There is no mainnet variant for this test.
 }
 

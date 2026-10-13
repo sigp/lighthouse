@@ -98,3 +98,8 @@ harness = false
 [[test]]
 name = "beacon_chain_tests"
 path = "tests/main.rs"
+
+[[test]]
+name = "beacon_chain_spec_minimal_tests"
+path = "tests/spec_minimal.rs"
+required-features = ["spec-minimal"]
