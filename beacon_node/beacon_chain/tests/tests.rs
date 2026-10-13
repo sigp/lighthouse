@@ -610,11 +610,20 @@ async fn gloas_packs_attestations_voting_for_available_payload() {
     );
 }
 
+/// Returns the `full_payload_weight` of a block's Gloas proto-array node.
+fn full_payload_weight(proto: &proto_array::core::ProtoArray, root: Hash256) -> u64 {
+    let index = *proto.indices.get(&root).expect("block in proto-array");
+    proto.nodes[index]
+        .as_v29()
+        .expect("gloas node")
+        .full_payload_weight
+}
+
 /// Regression for #10088: block-carried index-1 votes are applied after a late envelope.
 ///
-/// Withhold an envelope, include index-1 attestations for that block in a later block, then
-/// import the envelope. Votes should be parked until import, after which full payload weight
-/// becomes non-zero.
+/// Withholds an envelope, includes index-1 attestations for that block in a later block, then
+/// imports the envelope. Votes are parked in fork choice until the envelope arrives, after
+/// which full payload weight becomes non-zero.
 #[tokio::test]
 async fn gloas_block_carried_payload_votes_applied_after_envelope() {
     let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
@@ -629,9 +638,9 @@ async fn gloas_block_carried_payload_votes_applied_after_envelope() {
 
     // Slot 2: import a block but withhold its envelope.
     harness.advance_slot();
-    let state = harness.get_current_state();
-    let (block_contents, envelope, post_state) =
-        harness.make_block_with_envelope(state, Slot::new(2)).await;
+    let (block_contents, envelope, post_state) = harness
+        .make_block_with_envelope(harness.get_current_state(), Slot::new(2))
+        .await;
     let payload_less_root = block_contents.0.canonical_root();
     let block_state_root = block_contents.0.state_root();
     let envelope = envelope.expect("gloas block should produce an envelope");
@@ -711,29 +720,22 @@ async fn gloas_block_carried_payload_votes_applied_after_envelope() {
         .await
         .expect("containing block should import");
 
-    assert!(
-        harness
-            .chain
-            .pending_block_payload_attestations
-            .lock()
-            .count_for_root(&payload_less_root)
-            > 0,
-        "PayloadNotReceived block-carried votes should have been parked"
-    );
-
     {
         let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
-        let proto = fork_choice.proto_array().core_proto_array();
-        let index = *proto
-            .indices
-            .get(&payload_less_root)
-            .expect("payload-less block in proto-array");
-        let full_weight = proto.nodes[index]
-            .as_v29()
-            .expect("gloas node")
-            .full_payload_weight;
         assert_eq!(
-            full_weight, 0,
+            fork_choice
+                .attestations_awaiting_payload()
+                .get(&payload_less_root)
+                .map(Vec::len),
+            Some(index_one_in_block),
+            "every index-1 vote in the block should be awaiting the payload"
+        );
+        assert_eq!(
+            full_payload_weight(
+                fork_choice.proto_array().core_proto_array(),
+                payload_less_root
+            ),
+            0,
             "full payload weight must stay zero until the envelope arrives and votes are applied"
         );
     }
@@ -750,35 +752,19 @@ async fn gloas_block_carried_payload_votes_applied_after_envelope() {
     harness
         .process_envelope(payload_less_root, envelope, &post_state, block_state_root)
         .await;
-    assert!(
-        harness
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .is_payload_received(&payload_less_root),
-        "envelope should now be recorded"
-    );
-    assert!(
-        !harness
-            .chain
-            .pending_block_payload_attestations
-            .lock()
-            .contains_root(&payload_less_root),
-        "parked votes for the payload-less block should have been drained on envelope import"
-    );
 
     let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
-    let proto = fork_choice.proto_array().core_proto_array();
-    let index = *proto
-        .indices
-        .get(&payload_less_root)
-        .expect("payload-less block in proto-array");
-    let full_weight = proto.nodes[index]
-        .as_v29()
-        .expect("gloas node")
-        .full_payload_weight;
     assert!(
-        full_weight > 0,
+        !fork_choice
+            .attestations_awaiting_payload()
+            .contains_key(&payload_less_root),
+        "parked votes should have been applied on envelope import"
+    );
+    assert!(
+        full_payload_weight(
+            fork_choice.proto_array().core_proto_array(),
+            payload_less_root
+        ) > 0,
         "full payload weight should be non-zero after applying parked block-carried votes"
     );
 }

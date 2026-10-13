@@ -12,7 +12,7 @@ use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
 };
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::marker::PhantomData;
 use std::time::Duration;
 use superstruct::superstruct;
@@ -380,6 +380,9 @@ pub struct ForkChoice<T, E> {
     /// Attestations that arrived at the current slot and must be queued for later processing,
     /// keyed by their slot.
     queued_attestations: BTreeMap<Slot, Vec<QueuedAttestation>>,
+    /// Block-carried `payload_present` attestations awaiting a payload envelope, keyed by the
+    /// block root they attest to.
+    attestations_awaiting_payload: HashMap<Hash256, Vec<QueuedAttestation>>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
     /// Rejects attestations from the current or a future slot instead of queueing them, as the
@@ -397,6 +400,7 @@ where
         self.fc_store == other.fc_store
             && self.proto_array == other.proto_array
             && self.queued_attestations == other.queued_attestations
+            && self.attestations_awaiting_payload == other.attestations_awaiting_payload
     }
 }
 
@@ -479,6 +483,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: BTreeMap::new(),
+            attestations_awaiting_payload: HashMap::new(),
             spec_test_mode: false,
             // This will be updated during the next call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
@@ -738,6 +743,15 @@ where
         self.proto_array
             .on_payload_envelope_received(block_root, execution_status)
             .map_err(Error::FailedToProcessValidExecutionPayload)?;
+
+        // Apply any attestations that were waiting for this payload.
+        for attestation in self
+            .attestations_awaiting_payload
+            .remove(&block_root)
+            .unwrap_or_default()
+        {
+            self.apply_or_queue_attestation(attestation)?;
+        }
 
         Ok(())
     }
@@ -1361,7 +1375,23 @@ where
             return Ok(());
         }
 
-        self.validate_on_attestation(attestation, is_from_block, spec)?;
+        match self.validate_on_attestation(attestation, is_from_block, spec) {
+            Ok(()) => (),
+            Err(invalid @ InvalidAttestation::PayloadNotReceived { beacon_block_root }) => {
+                match is_from_block {
+                    // Defer until `on_payload_envelope_received`.
+                    AttestationFromBlock::True => {
+                        self.attestations_awaiting_payload
+                            .entry(beacon_block_root)
+                            .or_default()
+                            .push(QueuedAttestation::from(attestation));
+                        return Ok(());
+                    }
+                    AttestationFromBlock::False => return Err(invalid.into()),
+                }
+            }
+            Err(invalid) => return Err(invalid.into()),
+        }
 
         // Per Gloas spec: `payload_present = attestation.data.index == 1`.
         let payload_present = spec
@@ -1586,6 +1616,39 @@ where
         )
     }
 
+    /// Applies an already-validated attestation to the proto-array.
+    fn apply_queued_attestation(
+        &mut self,
+        attestation: &QueuedAttestation,
+    ) -> Result<(), Error<T::Error>> {
+        for validator_index in attestation.attesting_indices.iter() {
+            self.proto_array.process_attestation(
+                *validator_index as usize,
+                attestation.block_root,
+                attestation.slot,
+                attestation.payload_present,
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Applies an attestation, or queues it if its slot has not yet passed.
+    fn apply_or_queue_attestation(
+        &mut self,
+        attestation: QueuedAttestation,
+    ) -> Result<(), Error<T::Error>> {
+        if attestation.slot < self.fc_store.get_current_slot() {
+            self.apply_queued_attestation(&attestation)
+        } else {
+            self.queued_attestations
+                .entry(attestation.slot)
+                .or_default()
+                .push(attestation);
+            Ok(())
+        }
+    }
+
     /// Processes and removes from the queue any queued attestations which may now be eligible for
     /// processing due to the slot clock incrementing.
     fn process_attestation_queue(&mut self) -> Result<(), Error<T::Error>> {
@@ -1594,14 +1657,7 @@ where
             &mut self.queued_attestations,
         );
         for attestation in dequeued.into_values().flatten() {
-            for validator_index in attestation.attesting_indices.iter() {
-                self.proto_array.process_attestation(
-                    *validator_index as usize,
-                    attestation.block_root,
-                    attestation.slot,
-                    attestation.payload_present,
-                )?;
-            }
+            self.apply_queued_attestation(&attestation)?;
         }
 
         Ok(())
@@ -1937,6 +1993,11 @@ where
         &self.queued_attestations
     }
 
+    /// Returns a reference to the attestations awaiting a payload envelope, keyed by block root.
+    pub fn attestations_awaiting_payload(&self) -> &HashMap<Hash256, Vec<QueuedAttestation>> {
+        &self.attestations_awaiting_payload
+    }
+
     /// Reject current and future slot attestations when running abstract specification tests.
     pub fn set_spec_test_mode(&mut self, enabled: bool) {
         self.spec_test_mode = enabled;
@@ -1951,9 +2012,13 @@ where
     pub fn prune(&mut self) -> Result<(), Error<T::Error>> {
         let finalized_root = self.fc_store.finalized_checkpoint().root;
 
-        self.proto_array
-            .maybe_prune(finalized_root)
-            .map_err(Into::into)
+        self.proto_array.maybe_prune(finalized_root)?;
+
+        // Drop entries for blocks pruned from the DAG.
+        self.attestations_awaiting_payload
+            .retain(|block_root, _| self.proto_array.contains_block(block_root));
+
+        Ok(())
     }
 
     /// Instantiate `Self` from some `PersistedForkChoice` generated by a earlier call to
@@ -2026,6 +2091,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: BTreeMap::new(),
+            attestations_awaiting_payload: HashMap::new(),
             spec_test_mode: false,
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
