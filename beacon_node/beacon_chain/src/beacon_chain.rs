@@ -3931,6 +3931,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_slot = unverified_block.block().slot();
 
+        // Reject future blocks before writing to the block_time_cache
+        if let Ok(present_slot) = self.slot()
+            && block_slot > present_slot
+        {
+            return Err(BlockError::FutureSlot {
+                present_slot,
+                block_slot,
+            });
+        }
+
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
         if let Some(seen_timestamp) = self.slot_clock.now_duration() {
