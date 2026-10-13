@@ -72,7 +72,9 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     pub hot_db: Hot,
     /// LRU cache of deserialized blocks and blobs. Updated whenever a block or blob is loaded.
     block_cache: Option<Mutex<BlockCache<E>>>,
-    /// Cache of the `DataColumnCustodyInfo` DB item.
+    /// Cache of the `DataColumnCustodyInfo` DB item (`None` if absent from the DB).
+    ///
+    /// This is set on startup, so should always be `Some` for blob enabled networks.
     data_column_custody_info_cache: RwLock<Option<DataColumnCustodyInfo>>,
     /// Cache of beacon states.
     ///
@@ -2586,9 +2588,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             })
     }
 
-    /// Fetch custody info from the cache.
-    /// If custody info hasn't been loaded into the cache yet, fetch it from the DB and prime the
-    /// cache (including caching the absence of a DB entry).
+    /// Fetch custody info from the `data_column_custody_info_cache`.
     pub fn get_data_column_custody_info(&self) -> Option<DataColumnCustodyInfo> {
         self.data_column_custody_info_cache.read().clone()
     }
