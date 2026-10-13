@@ -2723,7 +2723,10 @@ mod release_tests {
         .unwrap();
 
         // Set the parent slot payload availability
-        let parent_slot = advanced_state.latest_execution_payload_bid().unwrap().slot;
+        let parent_slot = advanced_state
+            .latest_execution_payload_bid()
+            .unwrap()
+            .slot();
         let availability_index =
             parent_slot.as_usize() % MinimalEthSpec::slots_per_historical_root();
         advanced_state

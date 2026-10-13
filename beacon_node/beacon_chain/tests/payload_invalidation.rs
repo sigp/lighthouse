@@ -25,7 +25,7 @@ use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
 
-type E = MainnetEthSpec;
+type E = Spec;
 
 #[derive(PartialEq, Clone, Copy)]
 enum Payload {
@@ -49,7 +49,7 @@ impl InvalidPayloadRig {
     }
 
     fn new_with_spec(spec: ChainSpec) -> Self {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let harness = BeaconChainHarness::builder(Spec::default())
             .spec(spec.into())
             .chain_config(ChainConfig {
                 archive: true,
@@ -96,8 +96,8 @@ impl InvalidPayloadRig {
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .block_hash
+            .message()
+            .block_hash()
     }
 
     fn execution_status(&self, block_root: Hash256) -> ExecutionStatus {
@@ -1468,7 +1468,7 @@ async fn recover_from_invalid_head_after_persist_and_reboot() {
     // Forcefully persist fork choice.
     rig.harness.chain.persist_fork_choice().unwrap();
 
-    let resumed = BeaconChainHarness::builder(MainnetEthSpec)
+    let resumed = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .deterministic_keypairs(VALIDATOR_COUNT)
         .resumed_ephemeral_store(rig.harness.chain.store.clone())
@@ -1563,8 +1563,9 @@ async fn weights_after_resetting_optimistic_status() {
             .validators()
             .get(0)
             .unwrap()
-            .effective_balance,
-        "proposer boost should be removed from the head block and the vote of a single validator applied"
+            .effective_balance
+            * (VALIDATOR_COUNT as u64 / E::slots_per_epoch()),
+        "proposer boost should be removed from the head block and the votes of the head slot's committee applied"
     );
 
     // Import a length of chain to ensure the chain can be built atop.

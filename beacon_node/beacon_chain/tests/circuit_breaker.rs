@@ -79,8 +79,8 @@ fn block_builder_index(block: &SignedBeaconBlock<E>) -> BuilderIndex {
         .body()
         .signed_execution_payload_bid()
         .unwrap()
-        .message
-        .builder_index
+        .message()
+        .builder_index()
 }
 
 fn always_canonical(_: &BanEntry) -> bool {
@@ -147,7 +147,7 @@ fn empty_parent_block_hash(state: &BeaconState<E>) -> ExecutionBlockHash {
     state
         .latest_execution_payload_bid()
         .expect("Gloas state should have a bid")
-        .parent_block_hash
+        .parent_block_hash()
 }
 
 /// What `import_builder_block` produced: the block at `slot`, the state after it, and the head
@@ -372,7 +372,7 @@ async fn revealed_payload_is_not_banned() {
                 .post_state
                 .latest_execution_payload_bid()
                 .unwrap()
-                .block_hash,
+                .block_hash(),
         )
         .unwrap();
 

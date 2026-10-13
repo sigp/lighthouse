@@ -460,6 +460,12 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE` constant for this specification.
     fn max_signed_execution_payload_bid_size() -> usize;
 
+    /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE_HEZE` constant for this specification.
+    fn max_signed_execution_payload_bid_size_heze() -> usize;
+
+    /// Returns the `MAX_SIGNED_INCLUSION_LIST_SIZE` constant for this specification.
+    fn max_signed_inclusion_list_size() -> usize;
+
     /// Returns the `PAYLOAD_TIMELY_THRESHOLD` constant (PTC_SIZE / 2).
     fn payload_timely_threshold() -> usize {
         Self::PTCSize::to_usize() / 2
@@ -571,6 +577,14 @@ impl EthSpec for MainnetEthSpec {
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
     }
+
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
+    }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
+    }
 }
 
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
@@ -663,6 +677,14 @@ impl EthSpec for MinimalEthSpec {
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
     }
+
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
+    }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
+    }
 }
 
 /// Gnosis Beacon Chain specifications.
@@ -752,11 +774,19 @@ impl EthSpec for GnosisEthSpec {
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
     }
+
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
+    }
+
+    fn max_signed_inclusion_list_size() -> usize {
+        41112
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+    use crate::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec, Spec};
     use typenum::Unsigned;
 
     fn assert_valid_spec<E: EthSpec>() {
@@ -786,5 +816,11 @@ mod test {
     #[test]
     fn gnosis_spec() {
         assert_valid_spec::<GnosisEthSpec>();
+    }
+
+    /// Whichever preset was compiled in must be a valid one.
+    #[test]
+    fn compiled_spec() {
+        assert_valid_spec::<Spec>();
     }
 }

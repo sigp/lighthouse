@@ -36,7 +36,7 @@ use execution_layer::{
 };
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::PayloadVerificationStatus;
-use futures::channel::mpsc::Receiver;
+use futures::channel::mpsc::{Receiver, TryRecvError};
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
 use kzg::Kzg;
@@ -45,6 +45,7 @@ use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::{Mutex, RwLockWriteGuard};
+use proof_engine::ProofEngine;
 use proto_array::PayloadStatus;
 use rand::Rng;
 use rand::SeedableRng;
@@ -53,7 +54,7 @@ use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
-use ssz::Encode;
+use ssz::{BitVector, Encode};
 use ssz_types::{ProgressiveVariableList, RuntimeVariableList, VariableList};
 use state_processing::ConsensusContext;
 use state_processing::per_block_processing::compute_timestamp_at_slot;
@@ -279,6 +280,7 @@ pub struct Builder<T: BeaconChainTypes> {
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
+    proof_engine: Option<Arc<ProofEngine>>,
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
@@ -473,6 +475,7 @@ where
             store_mutator: None,
             execution_layer: None,
             mock_execution_layer: None,
+            proof_engine: None,
             testing_slot_clock: None,
             validator_monitor_config: None,
             genesis_state_builder: None,
@@ -652,6 +655,16 @@ where
         self
     }
 
+    /// Run with an EIP-8025 proof engine, which makes the proofs a payload's validity. The engine
+    /// is never contacted.
+    pub fn proof_engine(mut self) -> Self {
+        let url = SensitiveUrl::parse("http://127.0.0.1:0").expect("valid proof engine url");
+        self.proof_engine = Some(Arc::new(
+            ProofEngine::new(url).expect("build proof engine client"),
+        ));
+        self
+    }
+
     /// Instruct the mock execution engine to always return a "valid" response to any payload it is
     /// asked to execute.
     pub fn mock_execution_layer_all_payloads_valid(self) -> Self {
@@ -693,7 +706,7 @@ where
             // The mock EL produces synthetic execution block hashes, which cannot survive a real
             // RLP block hash recompute. Tests that want the recompute pass an explicit config.
             ChainConfig {
-                verify_envelope_payload_hash_in_backfill: false,
+                verify_envelope_payload_hash_on_cl: false,
                 ..ChainConfig::default()
             }
         });
@@ -707,6 +720,7 @@ where
             )
             .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
+            .proof_engine(self.proof_engine)
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .node_custody_type(self.node_custody_type)
@@ -924,7 +938,6 @@ where
         beacon_url: SensitiveUrl,
         strict_registrations: bool,
         apply_operations: bool,
-        broadcast_to_bn: bool,
     ) -> impl futures::Future<Output = ()> + use<E, Hot, Cold> {
         let mock_el = self
             .mock_execution_layer
@@ -939,7 +952,6 @@ where
             beacon_url,
             strict_registrations,
             apply_operations,
-            broadcast_to_bn,
             self.spec.clone(),
             self.runtime.task_executor.clone(),
         );
@@ -1004,9 +1016,9 @@ where
     pub fn shutdown_reasons(&self) -> Vec<ShutdownReason> {
         let mutex = self.shutdown_receiver.clone();
         let mut receiver = mutex.lock();
-        std::iter::from_fn(move || match receiver.try_next() {
-            Ok(Some(s)) => Some(s),
-            Ok(None) => panic!("shutdown sender dropped"),
+        std::iter::from_fn(move || match receiver.try_recv() {
+            Ok(s) => Some(s),
+            Err(TryRecvError::Closed) => panic!("shutdown sender dropped"),
             Err(_) => None,
         })
         .collect()
@@ -1293,9 +1305,9 @@ where
             .latest_execution_payload_bid()
             .expect("gossip bids require a Gloas state");
         let parent_block_hash = if parent_payload_status == PayloadStatus::Full {
-            parent_bid.block_hash
+            parent_bid.block_hash()
         } else {
-            parent_bid.parent_block_hash
+            parent_bid.parent_block_hash()
         };
         let parent_block_root = *state
             .get_block_root(slot - 1)
@@ -1307,20 +1319,37 @@ where
             &self.rng.lock().random::<[u8; 32]>(),
         ));
 
-        let bid = ExecutionPayloadBid {
-            parent_block_hash,
-            parent_block_root,
-            block_hash,
-            prev_randao,
-            fee_recipient: Address::zero(),
-            gas_limit: 30_000_000,
-            builder_index,
-            slot,
-            value,
-            execution_payment: 0,
-            blob_kzg_commitments: Default::default(),
-            // Commit to empty execution requests so an envelope answering this bid can exist.
-            execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
+        let bid = match &state {
+            BeaconState::Heze(_) => ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
+                parent_block_hash,
+                parent_block_root,
+                block_hash,
+                prev_randao,
+                fee_recipient: Address::zero(),
+                gas_limit: 30_000_000,
+                builder_index,
+                slot,
+                value,
+                execution_payment: 0,
+                blob_kzg_commitments: Default::default(),
+                // Commit to empty execution requests so an envelope answering this bid can exist.
+                execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
+                inclusion_list_bits: BitVector::new(),
+            }),
+            _ => ExecutionPayloadBid::Gloas(ExecutionPayloadBidGloas {
+                parent_block_hash,
+                parent_block_root,
+                block_hash,
+                prev_randao,
+                fee_recipient: Address::zero(),
+                gas_limit: 30_000_000,
+                builder_index,
+                slot,
+                value,
+                execution_payment: 0,
+                blob_kzg_commitments: Default::default(),
+                execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
+            }),
         };
 
         let builder_pubkey = state
@@ -1340,9 +1369,19 @@ where
             state.genesis_validators_root(),
         );
         let signature = keypair.sk.sign(bid.signing_root(domain));
-        SignedExecutionPayloadBid {
-            message: bid,
-            signature,
+        match bid {
+            ExecutionPayloadBid::Gloas(message) => {
+                SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                    message,
+                    signature,
+                })
+            }
+            ExecutionPayloadBid::Heze(message) => {
+                SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
+                    message,
+                    signature,
+                })
+            }
         }
     }
 
@@ -1357,8 +1396,7 @@ where
     ) -> SignedExecutionPayloadEnvelope<E> {
         let bid = post_state
             .latest_execution_payload_bid()
-            .expect("envelopes require a Gloas state")
-            .clone();
+            .expect("envelopes require a Gloas state");
         let withdrawals = ProgressiveVariableList::new(
             post_state
                 .payload_expected_withdrawals()
@@ -1373,24 +1411,24 @@ where
             parent_hash: *post_state
                 .latest_block_hash()
                 .expect("Gloas state should have a latest block hash"),
-            prev_randao: bid.prev_randao,
-            gas_limit: bid.gas_limit,
+            prev_randao: bid.prev_randao(),
+            gas_limit: bid.gas_limit(),
             timestamp,
             withdrawals,
-            block_hash: bid.block_hash,
+            block_hash: bid.block_hash(),
             slot_number: post_state.slot(),
             ..Default::default()
         };
         let envelope = ExecutionPayloadEnvelope {
             payload,
             execution_requests: ExecutionRequestsGloas::default(),
-            builder_index: bid.builder_index,
+            builder_index: bid.builder_index(),
             beacon_block_root: block.canonical_root(),
             parent_beacon_block_root: post_state.latest_block_header().parent_root,
         };
 
         let builder_pubkey = post_state
-            .get_builder(bid.builder_index)
+            .get_builder(bid.builder_index())
             .expect("builder should be registered")
             .pubkey;
         let keypair = self
@@ -1443,8 +1481,8 @@ where
                 .body()
                 .signed_execution_payload_bid()
                 .expect("Gloas block should carry a bid")
-                .message
-                .builder_index,
+                .message()
+                .builder_index(),
             builder_index,
             "the external bid should have won block production"
         );
@@ -1533,8 +1571,8 @@ where
         let parent_envelope = if parent_payload_status == PayloadStatus::Full {
             self.chain
                 .store
-                .get_signed_payload_envelope(&parent_root)
-                .expect("should load parent payload envelope")
+                .get_payload_envelope_summary(&parent_root)
+                .expect("should load parent payload envelope summary")
                 .map(Arc::new)
         } else {
             None
@@ -1690,6 +1728,30 @@ where
         let message = epoch.signing_root(domain);
         let sk = &self.validator_keypairs[proposer_index].sk;
         sk.sign(message)
+    }
+
+    /// Only works for a builder registered from `validator_keypairs[builder_index]`.
+    pub fn sign_payload_bid(
+        &self,
+        bid: ExecutionPayloadBidGloas<E>,
+        state: &BeaconState<E>,
+    ) -> Arc<SignedExecutionPayloadBid<E>> {
+        let domain = self.spec.get_domain(
+            bid.slot.epoch(E::slots_per_epoch()),
+            Domain::BeaconBuilder,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let signature = self.validator_keypairs[bid.builder_index as usize]
+            .sk
+            .sign(ExecutionPayloadBidRef::Gloas(&bid).signing_root(domain));
+
+        Arc::new(SignedExecutionPayloadBid::Gloas(
+            SignedExecutionPayloadBidGloas {
+                message: bid,
+                signature,
+            },
+        ))
     }
 
     /// Sign a beacon block using the proposer's key.
@@ -3244,30 +3306,28 @@ where
             .is_ok_and(|c| !c.is_empty());
         let is_available = !has_blob_commitments || blob_items.is_some();
         let block_hash: SignedBeaconBlockHash = if !is_available {
-            self.chain
-                .process_block(
-                    block_root,
-                    LookupBlock::new(block),
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::Lookup,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                LookupBlock::new(block),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         } else {
             let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
-            self.chain
-                .process_block(
-                    block_root,
-                    range_sync_block,
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::RangeSync,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                range_sync_block,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         };
 
         self.chain.recompute_head_at_current_slot().await;
@@ -3291,29 +3351,27 @@ where
         let is_available = !has_blob_commitments || blob_items.is_some();
         let block_hash: SignedBeaconBlockHash = if is_available {
             let range_sync_block = self.build_range_sync_block_from_blobs(block, blob_items)?;
-            self.chain
-                .process_block(
-                    block_root,
-                    range_sync_block,
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::RangeSync,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                range_sync_block,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::RangeSync,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         } else {
-            self.chain
-                .process_block(
-                    block_root,
-                    LookupBlock::new(block),
-                    NotifyExecutionLayer::Yes,
-                    BlockImportSource::Lookup,
-                    || Ok(()),
-                )
-                .await?
-                .try_into()
-                .expect("block blobs are available")
+            Box::pin(self.chain.process_block(
+                block_root,
+                LookupBlock::new(block),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            ))
+            .await?
+            .try_into()
+            .expect("block blobs are available")
         };
 
         self.chain.recompute_head_at_current_slot().await;
@@ -3351,15 +3409,15 @@ where
             .expect("should read block from store")
             .expect("block should exist in store");
 
-        let bid = &block
+        let bid = block
             .message()
             .body()
             .signed_execution_payload_bid()
             .expect("Gloas block should have a payload bid")
-            .message;
+            .message();
 
         let versioned_hashes = bid
-            .blob_kzg_commitments
+            .blob_kzg_commitments()
             .iter()
             .map(kzg_commitment_to_versioned_hash)
             .collect();
@@ -3668,7 +3726,7 @@ where
     > {
         self.set_current_slot(slot);
         let (block_contents, opt_envelope, new_state) =
-            self.make_block_with_envelope(state, slot).await;
+            Box::pin(self.make_block_with_envelope(state, slot)).await;
 
         let block_hash = self
             .process_block(
@@ -4465,13 +4523,13 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     // Load the precomputed column sidecar to avoid computing them for every block in the tests.
     // Then repeat the cells and proofs for every blob
     if block.fork_name_unchecked().gloas_enabled() {
-        let kzg_commitments = &block
+        let kzg_commitments = block
             .message()
             .body()
             .signed_execution_payload_bid()
             .expect("Gloas block should have a payload bid")
-            .message
-            .blob_kzg_commitments;
+            .message()
+            .blob_kzg_commitments();
         if kzg_commitments.is_empty() {
             return vec![];
         }

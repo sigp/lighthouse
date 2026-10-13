@@ -3,7 +3,7 @@
 //! These checks verify the consistency of data stored in the database. They are designed to be
 //! called from the HTTP API and from tests to detect data corruption or bugs in the store logic.
 //!
-//! See the `check_invariants` and `check_database_invariants` methods for the full list.
+//! See the `check_invariants` method for the full list.
 
 use crate::hdiff::StorageStrategy;
 use crate::hot_cold_store::{ColdStateSummary, HotStateSummary};
@@ -50,9 +50,13 @@ impl Default for InvariantCheckResult {
 
 /// Context data from the beacon chain needed for invariant checks.
 ///
-/// This allows all invariant checks to live in the store crate while still checking
+/// This allows store-level invariant checks to live in the store crate while still checking
 /// invariants that depend on fork choice, state cache, and custody context.
 pub struct InvariantContext {
+    /// Split snapshot, read before persisted fork choice to avoid racing with migration.
+    pub split: Split,
+    /// Finalized checkpoint from persisted fork choice (invariant 14).
+    pub persisted_fork_choice_finalized_checkpoint: Option<Checkpoint>,
     /// Block roots tracked by fork choice (invariant 1).
     pub fork_choice_blocks: Vec<(Hash256, Slot)>,
     /// Unfinalized descendants of the finalized checkpoint whose Gloas payloads have been
@@ -146,6 +150,7 @@ pub enum InvariantViolation {
     ///
     /// ```text
     /// block in hot_db && num_blob_commitments > 0
+    ///   && (pre-Gloas || payload_summary in hot_db)
     ///   && block.slot >= earliest_available_slot
     ///   && data_column_idx in custody_columns
     ///   -> (block_root, data_column_idx) in hot_db
@@ -257,18 +262,28 @@ pub enum InvariantViolation {
     /// payload_body in hot_db -> payload_summary in hot_db
     /// ```
     PayloadBodyMissingSummary { block_root: Hash256 },
+    /// Invariant 14: persisted fork choice must not lag behind the split.
+    ///
+    /// ```text
+    /// persisted_fork_choice.finalized_checkpoint.epoch.start_slot() >= split.slot
+    /// ```
+    ForkChoiceFinalizedCheckpointBehindSplit {
+        finalized_checkpoint: Checkpoint,
+        split_slot: Slot,
+    },
 }
 
 impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     /// Run all database invariant checks.
     ///
     /// The `ctx` parameter provides data from the beacon chain layer (fork choice, state cache,
-    /// custody columns, pubkey cache) so that all invariant checks can live in this single file.
+    /// custody columns, pubkey cache) needed for the store-level checks.
     pub fn check_invariants(&self, ctx: &InvariantContext) -> Result<InvariantCheckResult, Error> {
         let mut result = InvariantCheckResult::new();
-        let split = self.get_split_info();
+        let split = ctx.split;
 
         result.merge(self.check_fork_choice_block_consistency(ctx)?);
+        result.merge(self.check_persisted_fork_choice_consistency(ctx));
         result.merge(self.check_payload_body_summary_consistency()?);
         result.merge(self.check_hot_block_invariants(&split, ctx)?);
         result.merge(self.check_hot_state_summary_diff_consistency()?);
@@ -319,6 +334,25 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         }
 
         Ok(result)
+    }
+
+    /// Invariant 14: Persisted fork choice's finalized checkpoint must not lag behind the split.
+    fn check_persisted_fork_choice_consistency(
+        &self,
+        ctx: &InvariantContext,
+    ) -> InvariantCheckResult {
+        let mut result = InvariantCheckResult::new();
+        if let Some(finalized_checkpoint) = ctx.persisted_fork_choice_finalized_checkpoint
+            && finalized_checkpoint.epoch.start_slot(E::slots_per_epoch()) < ctx.split.slot
+        {
+            result.add_violation(
+                InvariantViolation::ForkChoiceFinalizedCheckpointBehindSplit {
+                    finalized_checkpoint,
+                    split_slot: ctx.split.slot,
+                },
+            );
+        }
+        result
     }
 
     /// Invariant 13 (Hot DB): Every stored payload body has a summary.
@@ -373,8 +407,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             .spec
             .gloas_fork_epoch
             .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
-        let oldest_blob_slot = self.get_blob_info().oldest_blob_slot;
-        let oldest_data_column_slot = self.get_data_column_info().oldest_data_column_slot;
+        let oldest_data_slot = self.get_data_info().oldest_data_slot;
 
         for res in self.hot_db.iter_column::<Hash256>(DBColumn::BeaconBlock) {
             let (block_root, block_bytes) = res?;
@@ -413,9 +446,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             // Only check blocks that actually have blob KZG commitments — blocks with 0
             // commitments legitimately have no blob sidecars stored.
             if let Some(deneb_slot) = deneb_fork_slot
-                && let Some(oldest_blob) = oldest_blob_slot
                 && slot >= deneb_slot
-                && slot >= oldest_blob
+                && slot >= oldest_data_slot
                 && fulu_fork_slot.is_none_or(|fulu_slot| slot < fulu_slot)
                 && block.num_expected_blobs() > 0
             {
@@ -430,14 +462,15 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
 
             // Invariant 7: data column consistency.
             // Only check blocks that actually have blob KZG commitments.
-            // TODO(gloas): reconsider this invariant — non-canonical payloads won't have
-            // their data column sidecars stored.
+            // Gloas columns are stored with envelopes. Without a summary, the payload may
+            // never have arrived or may have been pruned after finalizing as EMPTY.
             if !ctx.custody_columns.is_empty()
                 && let Some(fulu_slot) = fulu_fork_slot
-                && let Some(oldest_dc) = oldest_data_column_slot
                 && slot >= fulu_slot
-                && slot >= oldest_dc
+                && slot >= oldest_data_slot
                 && block.num_expected_blobs() > 0
+                && (!block.fork_name_unchecked().gloas_enabled()
+                    || self.payload_envelope_summary_exists(&block_root)?)
             {
                 let stored_columns = self.get_data_column_keys(block_root)?;
                 for col_idx in &ctx.custody_columns {

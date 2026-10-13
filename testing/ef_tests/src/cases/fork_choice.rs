@@ -20,7 +20,7 @@ use bls::AggregateSignature;
 use execution_layer::{
     PayloadStatusV1, PayloadStatusV1Status, json_structures::JsonPayloadStatusV1Status,
 };
-use proto_array::{PayloadBlockHash, ReOrgThreshold};
+use proto_array::PayloadBlockHash;
 use serde::Deserialize;
 use ssz_derive::Decode;
 use ssz_types::VariableList;
@@ -40,9 +40,9 @@ use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
-    DataColumnSidecarList, DataColumnSubnetId, Epoch, ExecutionBlockHash, Hash256,
-    IndexedAttestation, IndexedPayloadAttestation, KzgProof, PayloadAttestationMessage,
-    ProposerPreparationData, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Uint256,
+    DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
+    IndexedPayloadAttestation, KzgProof, PayloadAttestationMessage, ProposerPreparationData,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -733,7 +733,7 @@ impl<E: EthSpec> Tester<E> {
         // not on every block/attestation import. We trigger confirmation
         // explicitly in `check_confirmed_root` instead.
         if let Some(ref fcr_mutex) = harness.chain.canonical_head.fast_confirmation {
-            fcr_mutex.lock().set_spec_test_mode(true);
+            fcr_mutex.lock().fcr.set_spec_test_mode(true);
         }
 
         Ok(Self {
@@ -1252,13 +1252,7 @@ impl<E: EthSpec> Tester<E> {
         let mut fc = self.harness.chain.canonical_head.fork_choice_write_lock();
         let slot = self.harness.chain.slot().unwrap();
         let canonical_head = fc.get_head(slot, &self.harness.spec).unwrap().root();
-        let proposer_head_result = fc.get_proposer_head(
-            slot,
-            canonical_head,
-            ReOrgThreshold(self.spec.reorg_head_weight_threshold),
-            ReOrgThreshold(self.spec.reorg_parent_weight_threshold),
-            Epoch::new(self.spec.reorg_max_epochs_since_finalization),
-        );
+        let proposer_head_result = fc.get_proposer_head(slot, canonical_head, &self.spec);
         let proposer_head = match proposer_head_result {
             Ok(head) => head.parent_node.root(),
             Err(ProposerHeadError::DoNotReOrg(_)) => canonical_head,
@@ -1398,7 +1392,7 @@ impl<E: EthSpec> Tester<E> {
         let actual = fork_choice
             .proto_array()
             .core_proto_array()
-            .filtered_block_tree_leaves_and_weights::<E>(
+            .filtered_node_tree_leaves_and_weights::<E>(
                 &justified.root,
                 current_slot,
                 justified,
@@ -1409,7 +1403,7 @@ impl<E: EthSpec> Tester<E> {
             )
             .map_err(|e| {
                 Error::InternalError(format!(
-                    "filtered_block_tree_leaves_and_weights failed: {e:?}"
+                    "filtered_node_tree_leaves_and_weights failed: {e:?}"
                 ))
             })?;
         drop(fork_choice);
@@ -1509,7 +1503,7 @@ impl<E: EthSpec> Tester<E> {
                 Error::InternalError(format!("FCR is disabled, cannot check {field_name}"))
             })?;
         let guard = fcr_mutex.lock();
-        Ok(f(&guard))
+        Ok(f(&guard.fcr))
     }
 
     pub fn check_confirmed_root(&self, expected: Hash256) -> Result<(), Error> {
@@ -1534,8 +1528,9 @@ impl<E: EthSpec> Tester<E> {
         let equivocating_indices = fork_choice_lock.fc_store().equivocating_indices();
 
         if let Some(ref fcr_mutex) = self.harness.chain.canonical_head.fast_confirmation {
-            let mut fcr = fcr_mutex.lock();
-            fcr.confirmed_root = fcr
+            let mut guard = fcr_mutex.lock();
+            let confirmed_root = guard
+                .fcr
                 .get_latest_confirmed::<E>(
                     head_root,
                     &finalized_cp,
@@ -1548,6 +1543,7 @@ impl<E: EthSpec> Tester<E> {
                 .map_err(|e| {
                     Error::InternalError(format!("FCR get_latest_confirmed failed: {e:?}"))
                 })?;
+            guard.fcr.confirmed_root = confirmed_root;
         }
         drop(fork_choice_lock);
 

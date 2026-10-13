@@ -34,7 +34,7 @@ use futures::Stream;
 #[cfg(feature = "events")]
 use futures_util::StreamExt;
 #[cfg(feature = "network")]
-use libp2p_identity::PeerId;
+use libp2p::PeerId;
 use reqwest::{
     Body, IntoUrl, RequestBuilder, Response, StatusCode, Url,
     header::{HeaderMap, HeaderValue},
@@ -46,6 +46,7 @@ use ssz::{Decode, Encode};
 use std::fmt;
 use std::future::Future;
 use std::time::Duration;
+use types::execution::SignedExecutionProofEnvelope;
 use types::{
     PayloadAttestationData, PayloadAttestationMessage, SignedExecutionPayloadBid,
     SignedProposerPreferences,
@@ -82,6 +83,7 @@ const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_AGGREGATOR_TIMEOUT_QUOTIENT: u32 = 24; // For DVT involving middleware only
 // TODO(EIP-7732): Determine what this quotient should be
 const HTTP_PTC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_INCLUSION_LIST_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
@@ -104,6 +106,7 @@ pub struct Timeouts {
     pub sync_duties: Duration,
     pub sync_aggregators: Duration,
     pub ptc_duties: Duration,
+    pub inclusion_list_duties: Duration,
     pub get_beacon_blocks_ssz: Duration,
     pub get_debug_beacon_states: Duration,
     pub get_deposit_snapshot: Duration,
@@ -126,6 +129,7 @@ impl Timeouts {
             sync_duties: timeout,
             sync_aggregators: timeout,
             ptc_duties: timeout,
+            inclusion_list_duties: timeout,
             get_beacon_blocks_ssz: timeout,
             get_debug_beacon_states: timeout,
             get_deposit_snapshot: timeout,
@@ -150,6 +154,7 @@ impl Timeouts {
             sync_duties: base_timeout / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
             sync_aggregators: base_timeout / HTTP_SYNC_AGGREGATOR_TIMEOUT_QUOTIENT,
             ptc_duties: base_timeout / HTTP_PTC_DUTIES_TIMEOUT_QUOTIENT,
+            inclusion_list_duties: base_timeout / HTTP_INCLUSION_LIST_DUTIES_TIMEOUT_QUOTIENT,
             get_beacon_blocks_ssz: base_timeout / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
             get_debug_beacon_states: base_timeout / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
             get_deposit_snapshot: base_timeout / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
@@ -3255,6 +3260,33 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST beacon/execution_proofs` (SSZ)
+    ///
+    /// Takes the proofs by value because each can be megabytes.
+    pub async fn post_beacon_execution_proofs(
+        &self,
+        proofs: Vec<SignedExecutionProofEnvelope>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("execution_proofs");
+
+        let response = self
+            .client
+            .post(path)
+            .timeout(self.timeouts.default)
+            .header("Content-Type", "application/octet-stream")
+            .body(proofs.as_ssz_bytes())
+            .send()
+            .await?;
+        success_or_error(response).await?;
+
+        Ok(())
+    }
+
     /// Path for `v1/beacon/execution_payload_envelopes/{block_id}`
     pub fn get_beacon_execution_payload_envelopes_path(
         &self,
@@ -3961,6 +3993,29 @@ impl BeaconNodeHttpClient {
             path,
             &ValidatorIndexDataRef(indices),
             self.timeouts.ptc_duties,
+        )
+        .await
+    }
+
+    /// `POST validator/duties/inclusion_list/{epoch}`
+    pub async fn post_validator_duties_inclusion_list(
+        &self,
+        epoch: Epoch,
+        indices: &[u64],
+    ) -> Result<DutiesResponse<Vec<InclusionListDuty>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("duties")
+            .push("inclusion_list")
+            .push(&epoch.to_string());
+
+        self.post_with_timeout_and_response(
+            path,
+            &ValidatorIndexDataRef(indices),
+            self.timeouts.inclusion_list_duties,
         )
         .await
     }
