@@ -410,9 +410,9 @@ pub struct PersistedForkChoiceStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{MinimalEthSpec, Validator};
+    use types::{Spec, Validator};
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     #[test]
     fn balances_cache_hit_matches_justified_state() {

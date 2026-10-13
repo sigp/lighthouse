@@ -424,15 +424,15 @@ mod tests {
         BuilderExitRequest, ConsolidationRequest, Eth1Data, EthSpec, ExecutionBlockHash,
         ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidRef,
         ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, Graffiti, Hash256,
-        MinimalEthSpec, SignedBeaconBlock, SignedExecutionPayloadBidGloas, Slot, SyncAggregate,
-        Withdrawal, WithdrawalRequest,
+        SignedBeaconBlock, SignedExecutionPayloadBidGloas, Slot, Spec, SyncAggregate, Withdrawal,
+        WithdrawalRequest,
     };
 
     use super::verify_envelope_consistency;
     use crate::payload_envelope_verification::EnvelopeError;
     use tree_hash::TreeHash;
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_envelope(
         slot: Slot,

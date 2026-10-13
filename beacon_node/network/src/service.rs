@@ -1617,6 +1617,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         message_id,
                         peer_id,
                         inclusion_list,
+                        seen_timestamp,
                     ),
                 )
             }

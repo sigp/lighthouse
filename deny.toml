@@ -14,12 +14,20 @@ deny = [
     { crate = "c-kzg", reason = "non-Rust dependency, use rust_eth_kzg instead" },
     { crate = "serde_yaml", reason = "deprecated, use yaml_serde instead" },
     { crate = "strum", deny-multiple-versions = true, reason = "takes a long time to compile" },
-    { crate = "reqwest", deny-multiple-versions = true, reason = "takes a long time to compile" },
-    { crate = "aes", deny-multiple-versions = true, reason = "takes a long time to compile" },
-    { crate = "sha2", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    # TODO: uncomment when reqwest-eventsource (eth2 events, ^0.12, unmaintained since 2024)
+    # is replaced and the workspace (incl. opentelemetry 0.33) is on reqwest 0.13 with alloy.
+    # { crate = "reqwest", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    # TODO: uncomment when eth2_keystore is on aes 0.9 (cipher 0.5, ctr 0.10) and
+    # initialized_validators uses p12-keystore 0.3 (pkcs5 0.8 uses aes ^0.9).
+    # { crate = "aes", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    # TODO: uncomment when alloy moves off sha2 ^0.10 (we'd also need to move our
+    # sha2 = "0.10" pin to 0.11 alongside k256 0.14 / ed25519-dalek 3 / libp2p).
+    # { crate = "sha2", deny-multiple-versions = true, reason = "takes a long time to compile" },
     { crate = "pbkdf2", deny-multiple-versions = true, reason = "takes a long time to compile" },
     { crate = "scrypt", deny-multiple-versions = true, reason = "takes a long time to compile" },
-    { crate = "syn", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    # TODO: uncomment when the syn 2 holdouts (alloy macros, bindgen, strum_macros, educe,
+    # sigp derive crates) migrate to syn 3.
+    # { crate = "syn", deny-multiple-versions = true, reason = "takes a long time to compile" },
     { crate = "uuid", deny-multiple-versions = true, reason = "dependency hygiene" },
     { crate = "lru", deny-multiple-versions = true, reason = "use hashlink instead" },
 ]
