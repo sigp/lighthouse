@@ -2,7 +2,10 @@
 use crate::per_epoch_processing::process_epoch;
 use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::types::{EthSpec, MinimalEthSpec};
-use types::Slot;
+use bls::SignatureBytes;
+use std::sync::Arc;
+use types::test_utils::generate_deterministic_keypair;
+use types::{DepositData, ForkName, Hash256, PendingDeposit, Slot};
 
 #[tokio::test]
 async fn runs_without_error() {
@@ -31,6 +34,75 @@ async fn runs_without_error() {
     let mut new_head_state = harness.get_current_state();
 
     process_epoch(&mut new_head_state, &harness.spec).unwrap();
+}
+
+/// Returns whether each new validator deposit created a validator, first for BLS withdrawal
+/// credentials and then for execution withdrawal credentials.
+async fn new_validators_from_deposits(fork_name: ForkName) -> (bool, bool) {
+    let spec = Arc::new(fork_name.make_genesis_spec(MinimalEthSpec::default_spec()));
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .spec(spec.clone())
+        .deterministic_keypairs(8)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    harness
+        .extend_to_slot(Slot::new(MinimalEthSpec::slots_per_epoch() - 1))
+        .await;
+    let mut state = harness.get_current_state();
+
+    let deposits = [
+        (100, spec.bls_withdrawal_prefix_byte),
+        (101, spec.eth1_address_withdrawal_prefix_byte),
+    ]
+    .map(|(index, prefix)| {
+        let keypair = generate_deterministic_keypair(index);
+        let mut withdrawal_credentials = Hash256::repeat_byte(0xaa);
+        withdrawal_credentials.as_mut_slice()[0] = prefix;
+        let mut deposit_data = DepositData {
+            pubkey: keypair.pk.compress(),
+            withdrawal_credentials,
+            amount: spec.min_activation_balance,
+            signature: SignatureBytes::empty(),
+        };
+        deposit_data.signature = deposit_data.create_signature(&keypair.sk, &spec);
+        PendingDeposit {
+            pubkey: deposit_data.pubkey,
+            withdrawal_credentials: deposit_data.withdrawal_credentials,
+            amount: deposit_data.amount,
+            signature: deposit_data.signature,
+            slot: Slot::new(0),
+        }
+    });
+    for deposit in &deposits {
+        state
+            .pending_deposits_mut()
+            .unwrap()
+            .push(deposit.clone())
+            .unwrap();
+    }
+
+    process_epoch(&mut state, &spec).unwrap();
+
+    let [bls, execution] = deposits.map(|deposit| {
+        state
+            .get_validator_index(&deposit.pubkey)
+            .unwrap()
+            .is_some()
+    });
+    (bls, execution)
+}
+
+#[tokio::test]
+async fn new_validators_with_bls_withdrawal_credentials_are_not_created_from_heze() {
+    assert_eq!(
+        new_validators_from_deposits(ForkName::Gloas).await,
+        (true, true)
+    );
+    assert_eq!(
+        new_validators_from_deposits(ForkName::Heze).await,
+        (false, true)
+    );
 }
 
 #[cfg(not(debug_assertions))]
