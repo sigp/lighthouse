@@ -15,8 +15,10 @@ use bls::PublicKeyBytes;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use fork_choice::PayloadVerificationStatus;
 use proto_array::PayloadStatus;
+use slot_clock::SlotClock;
 use state_processing::state_advance::complete_state_advance;
 use std::sync::Arc;
+use std::time::Duration;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     BeaconState, BlockImportSource, BuilderIndex, EthSpec, ExecutionBlockHash, Hash256,
@@ -208,6 +210,20 @@ async fn import_builder_block(harness: &Harness, attest: bool) -> BuilderBlock {
     }
 }
 
+/// Record that `block`'s envelope was first seen on gossip `into_slot` after its slot started.
+fn observe_envelope(harness: &Harness, block: &BuilderBlock, into_slot: Duration) {
+    let slot_start = harness
+        .chain
+        .slot_clock
+        .start_of(block.slot)
+        .expect("slot clock should know the slot start");
+    harness
+        .chain
+        .envelope_times_cache
+        .write()
+        .set_time_observed(block.root, block.slot, slot_start + into_slot, None);
+}
+
 /// Build the builder's signed envelope answering `block`'s bid and run it through the full
 /// envelope pipeline: consensus verification, then the mock EL's `newPayload` verdict.
 async fn process_builder_envelope(
@@ -360,7 +376,31 @@ async fn revealed_payload_is_not_banned() {
     Box::pin(finalize(&harness)).await;
     let block = Box::pin(import_builder_block(&harness, true)).await;
 
-    // Stand in for envelope import: fork choice learns the payload was received.
+    // The envelope was seen on gossip exactly at the PTC deadline. Whether it was imported by the
+    // next slot tick is irrelevant.
+    observe_envelope(&harness, &block, harness.spec.get_payload_attestation_due());
+
+    harness.advance_slot();
+    harness.chain.per_slot_task().await;
+    assert_eq!(harness.chain.circuit_breaker.num_ban_entries(), 0);
+}
+
+#[tokio::test]
+async fn late_revealed_payload_is_banned() {
+    let Some(harness) = gloas_harness(ChainConfig::default()) else {
+        return;
+    };
+    Box::pin(finalize(&harness)).await;
+    let block = Box::pin(import_builder_block(&harness, true)).await;
+    let pubkey = builder_pubkey(&block.post_state, BUILDER_A);
+
+    // The envelope arrived just after the PTC deadline and was then fully imported: a late reveal
+    // is the offence, and importing it is no excuse.
+    observe_envelope(
+        &harness,
+        &block,
+        harness.spec.get_payload_attestation_due() + Duration::from_millis(1),
+    );
     harness
         .chain
         .canonical_head
@@ -378,7 +418,9 @@ async fn revealed_payload_is_not_banned() {
 
     harness.advance_slot();
     harness.chain.per_slot_task().await;
-    assert_eq!(harness.chain.circuit_breaker.num_ban_entries(), 0);
+    let breaker = &harness.chain.circuit_breaker;
+    assert_eq!(breaker.num_ban_entries(), 1);
+    assert!(breaker.is_banned_with(&pubkey, block.slot + 1, always_canonical));
 }
 
 #[tokio::test]

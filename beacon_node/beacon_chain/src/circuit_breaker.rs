@@ -400,9 +400,13 @@ pub fn builder_payment_quorum<E: EthSpec>(
 
 /// Decide whether a builder should be banned for the block whose bid it won.
 ///
-/// A ban requires an external builder, no payload received locally, no PTC majority saying the
-/// payload was healthy, and enough attestation weight on the block that the builder is charged
-/// for it.
+/// A ban requires an external builder, no envelope observed by this node by the PTC deadline, no
+/// PTC majority saying the payload was healthy, and enough attestation weight on the block that
+/// the builder is charged for it.
+///
+/// The local excuse applies the same deadline the PTC does: an envelope that reached this node
+/// in time counts even if importing it took longer. One that arrived after the deadline does not,
+/// however quickly it was imported; a late reveal is the offence.
 ///
 /// The PTC excuse requires *both* a timely-reveal majority and a data-available majority — the
 /// same conjunction fork choice's `should_extend_payload` uses. A payload revealed on time whose
@@ -410,14 +414,14 @@ pub fn builder_payment_quorum<E: EthSpec>(
 /// empty and the builder is charged, exactly as if the envelope had never been revealed.
 pub fn should_ban_for_missed_reveal(
     builder_index: BuilderIndex,
-    payload_received: bool,
+    envelope_observed_timely: bool,
     ptc_votes_timely: bool,
     ptc_votes_data_available: bool,
     block_weight: Option<u64>,
     quorum: u64,
 ) -> bool {
     builder_index != BUILDER_INDEX_SELF_BUILD
-        && !payload_received
+        && !envelope_observed_timely
         && !(ptc_votes_timely && ptc_votes_data_available)
         && block_weight.is_some_and(|weight| weight >= quorum)
 }
@@ -992,7 +996,7 @@ mod tests {
         assert!(!should_ban_for_missed_reveal(
             7, false, false, false, None, quorum
         ));
-        // Payload was received.
+        // The envelope reached this node by the PTC deadline.
         assert!(!should_ban_for_missed_reveal(
             7,
             true,

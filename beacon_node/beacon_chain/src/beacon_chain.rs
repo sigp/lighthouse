@@ -7979,16 +7979,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_root = head.head_block_root();
         let block_slot = head.head_slot();
 
-        let (
-            payload_received,
-            ptc_votes_timely,
-            ptc_votes_data_available,
-            block_weight,
-            total_effective_balance,
-        ) = {
+        // Whether the envelope reached this node by the PTC deadline of its slot. Observation is
+        // recorded on gossip receipt, before import, so a slow EL does not turn a timely reveal
+        // into an offence; a reveal after the deadline is one even if it was then imported.
+        let envelope_observed_timely = {
+            let observed = self.envelope_times_cache.read().time_observed(block_root);
+            let deadline = self
+                .slot_clock
+                .start_of(block_slot)
+                .map(|slot_start| slot_start + self.spec.get_payload_attestation_due());
+            observed
+                .zip(deadline)
+                .is_some_and(|(observed, deadline)| observed <= deadline)
+        };
+
+        let (ptc_votes_timely, ptc_votes_data_available, block_weight, total_effective_balance) = {
             let fork_choice = self.canonical_head.fork_choice_read_lock();
             (
-                fork_choice.is_payload_received(&block_root),
                 fork_choice.ptc_votes_payload_timely(&block_root),
                 fork_choice.ptc_votes_data_available(&block_root),
                 fork_choice.get_block_weight(&block_root),
@@ -8007,7 +8014,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if !should_ban_for_missed_reveal(
             bid.builder_index(),
-            payload_received,
+            envelope_observed_timely,
             ptc_votes_timely,
             ptc_votes_data_available,
             block_weight,
