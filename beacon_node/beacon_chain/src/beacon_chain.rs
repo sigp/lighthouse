@@ -7742,11 +7742,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn earliest_custodied_data_column_epoch(&self) -> Option<Epoch> {
         self.store
             .get_data_column_custody_info()
-            .inspect_err(
-                |e| error!(error=?e, "Failed to get data column custody info from the store"),
-            )
-            .ok()
-            .flatten()
             .and_then(|info| info.earliest_data_column_slot)
             .map(|slot| {
                 let mut epoch = slot.epoch(T::EthSpec::slots_per_epoch());

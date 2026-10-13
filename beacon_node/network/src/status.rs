@@ -34,8 +34,6 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
     let earliest_available_data_column_slot = beacon_chain
         .store
         .get_data_column_custody_info()
-        .ok()
-        .flatten()
         .and_then(|info| info.earliest_data_column_slot);
 
     // If data_column_custody_info.earliest_data_column_slot is `None`,

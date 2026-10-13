@@ -44,17 +44,6 @@ use types::data::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
 use zstd::{Decoder, Encoder};
 
-/// The cached value of the `DataColumnCustodyInfo` DB item.
-#[derive(Debug, Clone)]
-enum CachedDataColumnCustodyInfo {
-    /// The value has not been loaded from the database yet.
-    Uninitialized,
-    /// No `DataColumnCustodyInfo` is present in the database.
-    Absent,
-    /// A `DataColumnCustodyInfo` is present in the database.
-    Present(DataColumnCustodyInfo),
-}
-
 /// On-disk database that stores finalized states efficiently.
 ///
 /// Stores vector fields like the `block_roots` and `state_roots` separately, and only stores
@@ -84,7 +73,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     /// LRU cache of deserialized blocks and blobs. Updated whenever a block or blob is loaded.
     block_cache: Option<Mutex<BlockCache<E>>>,
     /// Cache of the `DataColumnCustodyInfo` DB item.
-    data_column_custody_info_cache: RwLock<CachedDataColumnCustodyInfo>,
+    data_column_custody_info_cache: RwLock<Option<DataColumnCustodyInfo>>,
     /// Cache of beacon states.
     ///
     /// LOCK ORDERING: this lock must always be locked *after* the `split` if both are required.
@@ -237,7 +226,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore, MemoryStore> {
             hot_db: MemoryStore::open(),
             block_cache: (config.block_cache_size > 0)
                 .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
-            data_column_custody_info_cache: RwLock::new(CachedDataColumnCustodyInfo::Uninitialized),
+            data_column_custody_info_cache: RwLock::new(None),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
@@ -281,16 +270,20 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend> {
         let anchor_info = RwLock::new(Self::load_anchor_info(&hot_db)?);
         debug!(?anchor_info, "Loaded anchor info");
 
+        let blobs_db = BeaconNodeBackend::open(&config, blobs_db_path)?;
+        let data_column_custody_info =
+            blobs_db.get::<DataColumnCustodyInfo>(&DATA_COLUMN_CUSTODY_INFO_KEY)?;
+
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
             anchor_info,
             data_info: RwLock::new(DataInfo::default()),
-            blobs_db: BeaconNodeBackend::open(&config, blobs_db_path)?,
+            blobs_db,
             cold_db: BeaconNodeBackend::open(&config, cold_path)?,
             hot_db,
             block_cache: (config.block_cache_size > 0)
                 .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
-            data_column_custody_info_cache: RwLock::new(CachedDataColumnCustodyInfo::Uninitialized),
+            data_column_custody_info_cache: RwLock::new(data_column_custody_info),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
@@ -982,8 +975,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         self.blobs_db
             .put(&DATA_COLUMN_CUSTODY_INFO_KEY, &data_column_custody_info)?;
 
-        *self.data_column_custody_info_cache.write() =
-            CachedDataColumnCustodyInfo::Present(data_column_custody_info);
+        *self.data_column_custody_info_cache.write() = Some(data_column_custody_info);
 
         Ok(())
     }
@@ -2597,27 +2589,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     /// Fetch custody info from the cache.
     /// If custody info hasn't been loaded into the cache yet, fetch it from the DB and prime the
     /// cache (including caching the absence of a DB entry).
-    pub fn get_data_column_custody_info(&self) -> Result<Option<DataColumnCustodyInfo>, Error> {
-        match &*self.data_column_custody_info_cache.read() {
-            CachedDataColumnCustodyInfo::Present(data_column_custody_info) => {
-                return Ok(Some(data_column_custody_info.clone()));
-            }
-            CachedDataColumnCustodyInfo::Absent => return Ok(None),
-            CachedDataColumnCustodyInfo::Uninitialized => {}
-        }
-
-        let data_column_custody_info = self
-            .blobs_db
-            .get::<DataColumnCustodyInfo>(&DATA_COLUMN_CUSTODY_INFO_KEY)?;
-
-        *self.data_column_custody_info_cache.write() = match &data_column_custody_info {
-            Some(data_column_custody_info) => {
-                CachedDataColumnCustodyInfo::Present(data_column_custody_info.clone())
-            }
-            None => CachedDataColumnCustodyInfo::Absent,
-        };
-
-        Ok(data_column_custody_info)
+    pub fn get_data_column_custody_info(&self) -> Option<DataColumnCustodyInfo> {
+        self.data_column_custody_info_cache.read().clone()
     }
 
     /// Fetch all columns for a given block from the store.
