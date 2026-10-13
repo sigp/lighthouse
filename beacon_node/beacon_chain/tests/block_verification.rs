@@ -2085,14 +2085,14 @@ async fn add_altair_block_to_base_chain() {
 
 // This is a regression test for the bogus `InvalidBestNode` error which was reachable in Gloas
 // networks. Previously Lighthouse would return an `InvalidBestNode` error from `get_head` in
-// contradiction to the spec, which states that the justified root should be returned when no leaf
-// node is viable.
+// contradiction to the spec.
 //
 // The chain construction in this test is contrived but not impossible: the justified block's full
-// branch is what contained the evidence to justify it, but the empty branch is more weighty and
-// wins out.
+// branch is what contained the evidence to justify it, but the empty branch is more weighty. The
+// justified block's `EMPTY` node has no children and a stale voting source, so it is not viable and
+// the head is on the full branch.
 #[tokio::test]
-async fn gloas_get_head_can_return_justified_empty_payload_branch() {
+async fn gloas_get_head_prunes_stale_justified_empty_payload_branch() {
     let spec = test_spec::<E>();
     if !spec.fork_name_at_epoch(Epoch::new(0)).gloas_enabled() {
         return;
@@ -2134,6 +2134,7 @@ async fn gloas_get_head_can_return_justified_empty_payload_branch() {
         )
         .await;
 
+    let full_branch_head_root = harness.head_block_root();
     let current_slot = harness.get_current_slot();
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     assert_eq!(
@@ -2225,16 +2226,15 @@ async fn gloas_get_head_can_return_justified_empty_payload_branch() {
         "all validators should have a latest regular attestation to the justified root"
     );
 
-    let (head_root, payload_status) = harness
+    let head_root = harness
         .chain
         .canonical_head
         .fork_choice_write_lock()
         .get_head(current_slot, &spec)
-        .expect("fork choice should return the justified root on the empty payload branch")
-        .as_pair();
+        .expect("fork choice should return the head of the full payload branch")
+        .root();
 
-    assert_eq!(head_root, justified_root);
-    assert_eq!(payload_status, PayloadStatus::Empty);
+    assert_eq!(head_root, full_branch_head_root);
 }
 
 // This is a regression test for this bug:
