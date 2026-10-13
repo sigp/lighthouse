@@ -39,6 +39,7 @@ use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::{ExecutionStatus, PayloadBlockHash, core::ProtoNode};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
+use serde_utils::quoted_u64::Quoted;
 use slot_clock::SlotClock;
 use ssz::{BitList, Decode};
 use state_processing::GloasVerificationContext;
@@ -8936,6 +8937,8 @@ impl ApiTester {
             block: block_root,
             slot: next_slot,
             execution_optimistic: false,
+            builder_index: None,
+            block_hash: None,
         });
 
         let expected_head = EventKind::Head(SseHead {
@@ -9226,19 +9229,29 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let block_root = self.next_block.signed_block().canonical_root();
-        let next_slot = self.next_block.signed_block().slot();
+        let signed_block = self.next_block.signed_block();
+        let block_root = signed_block.canonical_root();
+        let next_slot = signed_block.slot();
+        let bid = signed_block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .ok();
 
         let expected_block = EventKind::Block(SseBlock {
             block: block_root,
             slot: next_slot,
             execution_optimistic: false,
+            builder_index: bid.as_ref().map(|bid| Quoted {
+                value: bid.message().builder_index(),
+            }),
+            block_hash: bid.map(|bid| bid.message().block_hash()),
         });
 
         let expected_head = EventKind::Head(SseHead {
             block: block_root,
             slot: next_slot,
-            state: self.next_block.signed_block().state_root(),
+            state: signed_block.state_root(),
             current_duty_dependent_root: self.chain.genesis_block_root,
             previous_duty_dependent_root: self.chain.genesis_block_root,
             epoch_transition: false,
@@ -9315,12 +9328,16 @@ impl ApiTester {
             .unwrap()
             .data;
 
+        let signed_bid = block.body().signed_execution_payload_bid().unwrap();
+        let expected_builder_index = signed_bid.message().builder_index();
+        let expected_block_hash = signed_bid.message().block_hash();
+        assert_eq!(expected_builder_index, BUILDER_INDEX_SELF_BUILD);
         let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
         let block_root = signed_block.canonical_root();
         let state_root = signed_block.state_root();
         let signed_block_request = PublishBlockRequest::try_from(Arc::new(signed_block)).unwrap();
 
-        let topics = vec![EventTopic::HeadV2];
+        let topics = vec![EventTopic::HeadV2, EventTopic::Block];
         let mut events_future = self
             .client
             .get_events::<E>(topics.as_slice())
@@ -9332,8 +9349,22 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let head_v2_events_first_emission =
-            poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+        let initial_events = poll_events(&mut events_future, 2, Duration::from_millis(10000)).await;
+
+        let block_event = initial_events
+            .iter()
+            .find_map(|event| match event {
+                EventKind::Block(data) => Some(data),
+                _ => None,
+            })
+            .expect("Gloas block event");
+        assert_eq!(block_event.block, block_root);
+        assert_eq!(block_event.slot, slot);
+        assert_eq!(
+            block_event.builder_index.as_ref().map(|index| index.value),
+            Some(expected_builder_index)
+        );
+        assert_eq!(block_event.block_hash, Some(expected_block_hash));
 
         let expected_fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
 
@@ -9353,14 +9384,14 @@ impl ApiTester {
             },
         }));
 
-        assert_eq!(
-            head_v2_events_first_emission.as_slice(),
-            &[expected_head_v2]
-        );
+        assert!(initial_events.contains(&expected_head_v2));
 
-        let result_fork_name = match &head_v2_events_first_emission[0] {
+        let result_fork_name = match initial_events
+            .iter()
+            .find(|event| matches!(event, EventKind::HeadV2(_)))
+        {
             // head_v2 event should have a version field
-            EventKind::HeadV2(result) => result.version,
+            Some(EventKind::HeadV2(result)) => result.version,
             _ => panic!("Should have a version in response"),
         };
 
