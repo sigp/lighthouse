@@ -602,6 +602,27 @@ mod tests {
     }
 
     #[test]
+    fn demoted_direct_bid_ranks_like_a_demoted_gossip_bid() {
+        // A tripped breaker demotes direct bids too: any local build beats one...
+        let mut direct_bid = direct(1_000, 0, NEUTRAL_BOOST, 0);
+        direct_bid.demote_for_circuit_breaker();
+        let winner = select_payload_bid(vec![direct_bid, local(1, false)]).unwrap();
+        assert!(winner.is_local());
+
+        // ...but with the local build failed it still saves the slot, ranked by value against
+        // the demoted gossip bid.
+        let mut direct_bid = direct(1_000, 0, NEUTRAL_BOOST, 0);
+        direct_bid.demote_for_circuit_breaker();
+        let mut gossip_bid = gossip(10, NEUTRAL_BOOST);
+        gossip_bid.demote_for_circuit_breaker();
+        let winner = select_payload_bid(vec![gossip_bid, direct_bid]).unwrap();
+        assert_eq!(
+            outcome(winner),
+            (DIRECT_BUILDER, false, gwei(1_000), "direct")
+        );
+    }
+
+    #[test]
     fn demoted_externals_still_rank_by_value_among_themselves() {
         let mut low = gossip(10, NEUTRAL_BOOST);
         let mut high = gossip(1_000, NEUTRAL_BOOST);
