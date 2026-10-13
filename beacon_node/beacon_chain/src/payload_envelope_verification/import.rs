@@ -427,19 +427,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Import directly — we already have all components (envelope + columns).
         let chain = self.clone();
-        let _ = self
-            .spawn_blocking_handle(
-                move || {
-                    chain.import_execution_payload_envelope(
-                        available_envelope,
-                        block_root,
-                        payload_verification_status,
-                    )
-                },
-                "range_sync_envelope_import",
-            )
-            .await
-            .map_err(|e| EnvelopeError::BeaconChainError(Box::new(e)))?;
+        // Propagate both the spawn_blocking_handle (outer `?`) and the import_execution_payload_envelope error (inner `?`).
+        // So a failed envelope import returns Err(EnvelopeError) and retried
+        self.spawn_blocking_handle(
+            move || {
+                chain.import_execution_payload_envelope(
+                    available_envelope,
+                    block_root,
+                    payload_verification_status,
+                )
+            },
+            "range_sync_envelope_import",
+        )
+        .await
+        .map_err(|e| EnvelopeError::BeaconChainError(Box::new(e)))??;
 
         Ok(())
     }
