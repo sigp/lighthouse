@@ -114,7 +114,7 @@ pub struct ChainConfig {
     /// Verify the recomputed execution block hash of Gloas payload envelopes during historical
     /// backfill, where the EL cannot be consulted. Disabled in test harnesses whose mock EL
     /// produces synthetic block hashes.
-    pub verify_envelope_payload_hash_in_backfill: bool,
+    pub verify_envelope_payload_hash_on_cl: bool,
 }
 
 /// Whether the Fast Confirmation Rule (FCR) is enabled.
@@ -175,7 +175,7 @@ impl Default for ChainConfig {
             node_custody_type: NodeCustodyType::Fullnode,
             fast_confirmation: FastConfirmationMode::Disabled,
             disable_proposer_reorg: false,
-            verify_envelope_payload_hash_in_backfill: true,
+            verify_envelope_payload_hash_on_cl: true,
         }
     }
 }

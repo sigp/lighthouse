@@ -1868,7 +1868,11 @@ impl TestRig {
     }
 
     fn determinstic_key(&mut self) -> CombinedKey {
-        k256::ecdsa::SigningKey::random(&mut self.rng_08).into()
+        let mut key_bytes = [0u8; 32];
+        rand_08::RngCore::fill_bytes(&mut self.rng_08, &mut key_bytes);
+        enr::k256::ecdsa::SigningKey::from_slice(&key_bytes)
+            .expect("32 bytes is a valid secp256k1 key")
+            .into()
     }
 
     pub fn new_connected_peers_for_peerdas(&mut self) -> Vec<PeerId> {

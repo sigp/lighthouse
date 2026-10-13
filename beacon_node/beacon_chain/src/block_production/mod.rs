@@ -1,10 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
 use fork_choice::PayloadStatus;
-use proto_array::{ParentPayloadStatus, ProposerHeadError, ReOrgThreshold};
+use proto_array::{ParentPayloadStatus, ProposerHeadError};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
-use types::{BeaconState, Epoch, EthSpec, Hash256, SignedExecutionPayloadEnvelope, Slot};
+use types::{BeaconState, EthSpec, Hash256, SignedExecutionPayloadEnvelopeSummary, Slot};
 
 use crate::{
     BeaconChain, BeaconChainTypes, BlockProductionError, StateSkipConfig,
@@ -22,7 +22,7 @@ pub(crate) struct BlockProductionState<E: EthSpec> {
     pub state_root: Option<Hash256>,
     pub parent_root: Hash256,
     pub parent_payload_status: PayloadStatus,
-    pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    pub parent_envelope: Option<Arc<SignedExecutionPayloadEnvelopeSummary<E>>>,
 }
 
 /// Inputs assembled for producing a block via a proposer re-org.
@@ -31,7 +31,7 @@ struct ReOrgInputs<E: EthSpec> {
     state_root: Hash256,
     parent_root: Hash256,
     parent_payload_status: PayloadStatus,
-    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    parent_envelope: Option<Arc<SignedExecutionPayloadEnvelopeSummary<E>>>,
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -188,14 +188,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return None;
         }
 
-        let re_org_head_threshold = ReOrgThreshold(self.spec.reorg_head_weight_threshold);
-        let re_org_parent_threshold = ReOrgThreshold(self.spec.reorg_parent_weight_threshold);
-        let re_org_max_epochs_since_finalization =
-            Epoch::new(self.spec.reorg_max_epochs_since_finalization);
-
+        // Read the clock at millisecond precision, as the re-org cutoff need not fall on a whole
+        // second (it is 833ms for 5s slots).
         let slot_delay = self
             .slot_clock
-            .seconds_from_current_slot_start()
+            .millis_from_current_slot_start()
             .or_else(|| {
                 warn!(error = "unable to read slot clock", "Not attempting re-org");
                 None
@@ -229,13 +226,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let proposer_head = self
             .canonical_head
             .fork_choice_read_lock()
-            .get_proposer_head(
-                slot,
-                canonical_head,
-                re_org_head_threshold,
-                re_org_parent_threshold,
-                re_org_max_epochs_since_finalization,
-            )
+            .get_proposer_head(slot, canonical_head, &self.spec)
             .map_err(|e| match e {
                 ProposerHeadError::DoNotReOrg(reason) => {
                     debug!(
@@ -274,7 +265,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_envelope = if parent_payload_status == PayloadStatus::Full {
             let envelope = self
                 .store
-                .get_signed_payload_envelope(&re_org_parent_block)
+                .get_payload_envelope_summary(&re_org_parent_block)
                 .ok()
                 .flatten()
                 .map(Arc::new)
