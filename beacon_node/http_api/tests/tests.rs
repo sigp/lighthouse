@@ -39,6 +39,7 @@ use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::{ExecutionStatus, PayloadBlockHash, core::ProtoNode};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
+use serde_utils::quoted_u64::Quoted;
 use slot_clock::SlotClock;
 use ssz::{BitList, Decode};
 use state_processing::GloasVerificationContext;
@@ -9228,21 +9229,29 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let block_root = self.next_block.signed_block().canonical_root();
-        let next_slot = self.next_block.signed_block().slot();
+        let signed_block = self.next_block.signed_block();
+        let block_root = signed_block.canonical_root();
+        let next_slot = signed_block.slot();
+        let bid = signed_block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .ok();
 
         let expected_block = EventKind::Block(SseBlock {
             block: block_root,
             slot: next_slot,
             execution_optimistic: false,
-            builder_index: None,
-            block_hash: None,
+            builder_index: bid.as_ref().map(|bid| Quoted {
+                value: bid.message().builder_index(),
+            }),
+            block_hash: bid.map(|bid| bid.message().block_hash()),
         });
 
         let expected_head = EventKind::Head(SseHead {
             block: block_root,
             slot: next_slot,
-            state: self.next_block.signed_block().state_root(),
+            state: signed_block.state_root(),
             current_duty_dependent_root: self.chain.genesis_block_root,
             previous_duty_dependent_root: self.chain.genesis_block_root,
             epoch_transition: false,
