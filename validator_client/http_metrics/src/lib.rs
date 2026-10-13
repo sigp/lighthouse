@@ -9,7 +9,7 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
-use axum_utils::{Server, cors::build_cors_layer, middleware::add_server_header};
+use axum_utils::{CompressionLayer, Server, cors::build_cors_layer, middleware::add_server_header};
 use lighthouse_validator_store::LighthouseValidatorStore;
 use logging::crit;
 use malloc_utils::scrape_allocator_metrics;
@@ -125,6 +125,7 @@ pub async fn serve<E: EthSpec>(
         .route("/metrics", get(metrics_handler::<E>))
         .with_state(ctx.clone())
         .layer(add_server_header(server_header))
+        .layer(CompressionLayer::new())
         .layer(cors_layer);
 
     let address = SocketAddr::new(config.listen_addr, config.listen_port);
