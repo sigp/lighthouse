@@ -360,20 +360,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_execution_payload_subscribers()
         {
-            // The verdict for this payload is the one recorded against the block's `FULL` node.
             let execution_optimistic = match self
                 .canonical_head
                 .fork_choice_read_lock()
                 .get_block_execution_status_assuming_full(&block_root)
             {
                 Ok(Some(verdict)) => verdict.is_optimistic_or_invalid(),
-                // The envelope just reached fork choice, so neither of these is reachable. Report
-                // optimistic rather than claim a verification we could not read.
-                Ok(None) => true,
-                Err(e) => {
-                    warn!(error = ?e, "Unable to read execution status for payload event");
-                    true
-                }
+                // Unreachable: never claim a verification we could not read.
+                Ok(None) | Err(_) => true,
             };
 
             event_handler.register(EventKind::ExecutionPayload(SseExecutionPayload {

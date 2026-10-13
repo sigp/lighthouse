@@ -5080,22 +5080,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_block_subscribers()
         {
-            // A Gloas block carries no payload of its own, so the verdict is that of the payload
-            // its branch ran.
+            // A Gloas block runs no payload of its own; the verdict is its branch's.
             let execution_optimistic = match self
                 .canonical_head
                 .fork_choice_read_lock()
                 .inherited_execution_status(&block_root)
             {
                 Ok(Some(verdict)) => verdict.is_optimistic_or_invalid(),
-                // The block was admitted as a finalized descendant under the fork choice write
-                // lock, so neither of these is reachable. Report optimistic rather than claim a
-                // verification we could not read.
-                Ok(None) => true,
-                Err(e) => {
-                    warn!(error = ?e, "Unable to read execution status for head event");
-                    true
-                }
+                // Unreachable: never claim a verification we could not read.
+                Ok(None) | Err(_) => true,
             };
 
             event_handler.register(EventKind::Block(SseBlock {
