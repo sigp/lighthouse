@@ -44,6 +44,17 @@ use types::data::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
 use zstd::{Decoder, Encoder};
 
+/// The cached value of the `DataColumnCustodyInfo` DB item.
+#[derive(Debug, Clone)]
+enum CachedDataColumnCustodyInfo {
+    /// The value has not been loaded from the database yet.
+    Uninitialized,
+    /// No `DataColumnCustodyInfo` is present in the database.
+    Absent,
+    /// A `DataColumnCustodyInfo` is present in the database.
+    Present(DataColumnCustodyInfo),
+}
+
 /// On-disk database that stores finalized states efficiently.
 ///
 /// Stores vector fields like the `block_roots` and `state_roots` separately, and only stores
@@ -72,6 +83,11 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     pub hot_db: Hot,
     /// LRU cache of deserialized blocks and blobs. Updated whenever a block or blob is loaded.
     block_cache: Option<Mutex<BlockCache<E>>>,
+    /// Cache of the `DataColumnCustodyInfo` DB item.
+    ///
+    /// Kept independent of the (optional) block cache so that it is effective on default
+    /// config.
+    data_column_custody_info_cache: RwLock<CachedDataColumnCustodyInfo>,
     /// Cache of beacon states.
     ///
     /// LOCK ORDERING: this lock must always be locked *after* the `split` if both are required.
@@ -92,7 +108,6 @@ struct BlockCache<E: EthSpec> {
     block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
     blob_cache: LruCache<Hash256, BlobSidecarList<E>>,
     data_column_cache: LruCache<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>,
-    data_column_custody_info_cache: Option<DataColumnCustodyInfo>,
 }
 
 impl<E: EthSpec> BlockCache<E> {
@@ -101,7 +116,6 @@ impl<E: EthSpec> BlockCache<E> {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
             data_column_cache: LruCache::new(size),
-            data_column_custody_info_cache: None,
         }
     }
     pub fn put_block(&mut self, block_root: Hash256, block: SignedBeaconBlock<E>) {
@@ -115,12 +129,6 @@ impl<E: EthSpec> BlockCache<E> {
             .entry(block_root)
             .or_insert_with(Default::default)
             .insert(*data_column.index(), data_column);
-    }
-    pub fn put_data_column_custody_info(
-        &mut self,
-        data_column_custody_info: Option<DataColumnCustodyInfo>,
-    ) {
-        self.data_column_custody_info_cache = data_column_custody_info;
     }
     pub fn get_block<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a SignedBeaconBlock<E>> {
         self.block_cache.get(block_root)
@@ -138,9 +146,6 @@ impl<E: EthSpec> BlockCache<E> {
         self.data_column_cache
             .get(block_root)
             .and_then(|map| map.get(column_index).cloned())
-    }
-    pub fn get_data_column_custody_info(&self) -> Option<DataColumnCustodyInfo> {
-        self.data_column_custody_info_cache.clone()
     }
     pub fn delete_block(&mut self, block_root: &Hash256) {
         let _ = self.block_cache.remove(block_root);
@@ -235,6 +240,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore, MemoryStore> {
             hot_db: MemoryStore::open(),
             block_cache: (config.block_cache_size > 0)
                 .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
+            data_column_custody_info_cache: RwLock::new(CachedDataColumnCustodyInfo::Uninitialized),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
@@ -287,6 +293,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend> {
             hot_db,
             block_cache: (config.block_cache_size > 0)
                 .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
+            data_column_custody_info_cache: RwLock::new(CachedDataColumnCustodyInfo::Uninitialized),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
@@ -978,11 +985,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         self.blobs_db
             .put(&DATA_COLUMN_CUSTODY_INFO_KEY, &data_column_custody_info)?;
 
-        self.block_cache.as_ref().inspect(|cache| {
-            cache
-                .lock()
-                .put_data_column_custody_info(Some(data_column_custody_info))
-        });
+        *self.data_column_custody_info_cache.write() =
+            CachedDataColumnCustodyInfo::Present(data_column_custody_info);
 
         Ok(())
     }
@@ -2594,24 +2598,27 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     }
 
     /// Fetch custody info from the cache.
-    /// If custody info doesn't exist in the cache,
-    /// try to fetch from the DB and prime the cache.
+    /// If custody info hasn't been loaded into the cache yet, fetch it from the DB and prime the
+    /// cache (including caching the absence of a DB entry).
     pub fn get_data_column_custody_info(&self) -> Result<Option<DataColumnCustodyInfo>, Error> {
-        if let Some(cache) = &self.block_cache
-            && let Some(data_column_custody_info) = cache.lock().get_data_column_custody_info()
-        {
-            return Ok(Some(data_column_custody_info));
+        match &*self.data_column_custody_info_cache.read() {
+            CachedDataColumnCustodyInfo::Present(data_column_custody_info) => {
+                return Ok(Some(data_column_custody_info.clone()));
+            }
+            CachedDataColumnCustodyInfo::Absent => return Ok(None),
+            CachedDataColumnCustodyInfo::Uninitialized => {}
         }
+
         let data_column_custody_info = self
             .blobs_db
             .get::<DataColumnCustodyInfo>(&DATA_COLUMN_CUSTODY_INFO_KEY)?;
 
-        // Update the cache
-        self.block_cache.as_ref().inspect(|cache| {
-            cache
-                .lock()
-                .put_data_column_custody_info(data_column_custody_info.clone())
-        });
+        *self.data_column_custody_info_cache.write() = match &data_column_custody_info {
+            Some(data_column_custody_info) => {
+                CachedDataColumnCustodyInfo::Present(data_column_custody_info.clone())
+            }
+            None => CachedDataColumnCustodyInfo::Absent,
+        };
 
         Ok(data_column_custody_info)
     }
