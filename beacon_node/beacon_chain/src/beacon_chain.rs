@@ -5141,10 +5141,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_block_subscribers()
         {
+            // The bid is present on Gloas and later blocks, but not on earlier forks.
+            let bid = block.body().signed_execution_payload_bid().ok();
             event_handler.register(EventKind::Block(SseBlock {
                 slot: block.slot(),
                 block: block_root,
                 execution_optimistic: payload_verification_status.is_optimistic(),
+                builder_index: bid.as_ref().map(|bid| Quoted {
+                    value: bid.message().builder_index(),
+                }),
+                block_hash: bid.map(|bid| bid.message().block_hash()),
             }));
         }
 
