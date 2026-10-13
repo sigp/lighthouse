@@ -150,6 +150,7 @@ pub enum InvariantViolation {
     ///
     /// ```text
     /// block in hot_db && num_blob_commitments > 0
+    ///   && (pre-Gloas || payload_summary in hot_db)
     ///   && block.slot >= earliest_available_slot
     ///   && data_column_idx in custody_columns
     ///   -> (block_root, data_column_idx) in hot_db
@@ -461,13 +462,15 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
 
             // Invariant 7: data column consistency.
             // Only check blocks that actually have blob KZG commitments.
-            // TODO(gloas): reconsider this invariant — non-canonical payloads won't have
-            // their data column sidecars stored.
+            // Gloas columns are stored with envelopes. Without a summary, the payload may
+            // never have arrived or may have been pruned after finalizing as EMPTY.
             if !ctx.custody_columns.is_empty()
                 && let Some(fulu_slot) = fulu_fork_slot
                 && slot >= fulu_slot
                 && slot >= oldest_data_slot
                 && block.num_expected_blobs() > 0
+                && (!block.fork_name_unchecked().gloas_enabled()
+                    || self.payload_envelope_summary_exists(&block_root)?)
             {
                 let stored_columns = self.get_data_column_keys(block_root)?;
                 for col_idx in &ctx.custody_columns {
