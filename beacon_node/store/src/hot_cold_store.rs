@@ -84,9 +84,6 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     /// LRU cache of deserialized blocks and blobs. Updated whenever a block or blob is loaded.
     block_cache: Option<Mutex<BlockCache<E>>>,
     /// Cache of the `DataColumnCustodyInfo` DB item.
-    ///
-    /// Kept independent of the (optional) block cache so that it is effective on default
-    /// config.
     data_column_custody_info_cache: RwLock<CachedDataColumnCustodyInfo>,
     /// Cache of beacon states.
     ///
