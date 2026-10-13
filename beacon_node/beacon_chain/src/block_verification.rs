@@ -102,9 +102,10 @@ use strum::{AsRefStr, IntoStaticStr};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
-    Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
-    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, ColumnIndex,
+    DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256,
+    InconsistentFork, KzgProofs, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    data::DataColumnSidecarError,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -332,6 +333,16 @@ pub enum BlockError {
     BidParentRootMismatch {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
+    },
+    /// The slot of a Gloas data column sidecar does not match the slot of its bid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The column is invalid and the peer that served `column_index` should be penalized.
+    DataColumnSlotMismatch {
+        column_index: ColumnIndex,
+        block_slot: Slot,
+        data_column_slot: Slot,
     },
     EnvelopeError(Box<EnvelopeError>),
 }
@@ -953,10 +964,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
         if let Ok(bid) = block.message().body().signed_execution_payload_bid()
-            && bid.message.parent_block_root != block.message().parent_root()
+            && bid.message().parent_block_root() != block.message().parent_root()
         {
             return Err(BlockError::BidParentRootMismatch {
-                bid_parent_root: bid.message.parent_block_root,
+                bid_parent_root: bid.message().parent_block_root(),
                 block_parent_root: block.message().parent_root(),
             });
         }

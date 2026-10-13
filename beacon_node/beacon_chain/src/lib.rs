@@ -31,6 +31,7 @@ pub mod graffiti_calculator;
 pub mod historical_blocks;
 pub mod historical_data_columns;
 pub mod inclusion_list_store;
+pub mod inclusion_list_verification;
 pub mod invariants;
 pub mod kzg_utils;
 pub mod light_client_finality_update_verification;
@@ -78,7 +79,7 @@ pub use self::beacon_chain::{
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, LightClientProducerEvent, OverrideForkchoiceUpdate,
     ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
 };
-pub use self::beacon_snapshot::BeaconSnapshot;
+pub use self::beacon_snapshot::{BeaconSnapshot, ChainDumpSnapshot};
 pub use self::block_production::PayloadEnvelopeContents;
 pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};

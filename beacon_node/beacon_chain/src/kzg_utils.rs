@@ -465,7 +465,7 @@ pub fn blobs_to_partial_data_columns<E: EthSpec>(
         }
         PartialHeaderOrBid::Bid(bid) => build_partial_data_columns_gloas(
             block_root,
-            bid.message.slot,
+            bid.slot(),
             blob_cells_and_proofs_vec,
             spec,
         )
@@ -957,11 +957,10 @@ mod test {
     use kzg::{Kzg, KzgCommitment, trusted_setup::get_trusted_setup};
     use types::{
         BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec, EmptyBlock, EthSpec, ForkName,
-        FullPayload, Hash256, KzgProofs, MainnetEthSpec, SignedBeaconBlock, Slot,
-        kzg_ext::KzgCommitments,
+        FullPayload, Hash256, KzgProofs, SignedBeaconBlock, Slot, Spec, kzg_ext::KzgCommitments,
     };
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     // Loading and initializing PeerDAS KZG is expensive and slow, so we group the tests together
     // only load it once.

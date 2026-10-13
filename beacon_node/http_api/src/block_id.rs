@@ -413,7 +413,7 @@ impl BlockId {
         })?;
 
         let blob_indices_opt = query.versioned_hashes.map(|versioned_hashes| {
-            versioned_hashes
+            let mut blob_indices = versioned_hashes
                 .iter()
                 .flat_map(|versioned_hash| {
                     blob_kzg_commitments.iter().position(|commitment| {
@@ -422,7 +422,11 @@ impl BlockId {
                     })
                 })
                 .map(|index| index as u64)
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>();
+            // Blobs must be returned in the order of their KZG commitments in the block,
+            // regardless of the order of the requested versioned hashes
+            blob_indices.sort_unstable();
+            blob_indices
         });
 
         let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
@@ -558,25 +562,30 @@ mod tests {
         },
     };
     use std::time::Duration;
-    use types::MinimalEthSpec;
+    use types::Spec;
 
-    type TestHarness = BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>>;
+    type TestHarness = BeaconChainHarness<EphemeralHarnessType<Spec>>;
+
+    // Gloas genesis needs at least one validator per slot.
+    fn validator_count() -> usize {
+        Spec::slots_per_epoch() as usize
+    }
 
     fn harness() -> TestHarness {
-        BeaconChainHarness::builder(MinimalEthSpec)
+        BeaconChainHarness::builder(Spec::default())
             .default_spec()
-            .deterministic_keypairs(8)
+            .deterministic_keypairs(validator_count())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .build()
     }
 
     fn gloas_supernode_harness() -> TestHarness {
-        BeaconChainHarness::builder(MinimalEthSpec)
+        BeaconChainHarness::builder(Spec::default())
             .spec(Arc::new(
-                ForkName::Gloas.make_genesis_spec(MinimalEthSpec::default_spec()),
+                ForkName::Gloas.make_genesis_spec(Spec::default_spec()),
             ))
-            .deterministic_keypairs(8)
+            .deterministic_keypairs(validator_count())
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .node_custody_type(NodeCustodyType::Supernode)
@@ -615,8 +624,8 @@ mod tests {
             .body()
             .signed_execution_payload_bid()
             .expect("Gloas block should contain an execution payload bid")
-            .message
-            .blob_kzg_commitments
+            .message()
+            .blob_kzg_commitments()
             .get(1)
             .expect("test block should contain at least two blob commitments")
             .calculate_versioned_hash();
@@ -646,6 +655,68 @@ mod tests {
             BlockId(CoreBlockId::Head).root(&harness.chain).unwrap().0,
             block_root
         );
+    }
+
+    #[tokio::test]
+    async fn get_blobs_follow_commitment_order_post_gloas() {
+        let harness = gloas_supernode_harness();
+        harness.execution_block_generator().set_min_blob_count(2);
+        harness.advance_slot();
+
+        let slot = harness.get_current_slot();
+        let (_, (block, _), _) = harness
+            .add_block_at_slot(slot, harness.get_current_state())
+            .await
+            .expect("Gloas block should import");
+
+        assert_eq!(block.fork_name_unchecked(), ForkName::Gloas);
+        assert!(block.num_expected_blobs() >= 2);
+
+        // The unfiltered response is in commitment order
+        let all_blobs_response = BlockId(CoreBlockId::Head)
+            .get_blobs_by_versioned_hashes(
+                BlobsVersionedHashesQuery {
+                    versioned_hashes: None,
+                },
+                &harness.chain,
+            )
+            .expect("Gloas head blobs should be retrievable");
+        assert_eq!(all_blobs_response.data.len(), block.num_expected_blobs());
+
+        // Blobs must be returned in the order of their KZG commitments in the block,
+        // regardless of the order of the requested versioned hashes
+        let reversed_versioned_hashes = block
+            .message()
+            .blob_kzg_commitments()
+            .expect("Gloas block should have blob KZG commitments")
+            .iter()
+            .rev()
+            .map(|commitment| commitment.calculate_versioned_hash())
+            .collect::<Vec<_>>();
+        let reversed_request_response = BlockId(CoreBlockId::Head)
+            .get_blobs_by_versioned_hashes(
+                BlobsVersionedHashesQuery {
+                    versioned_hashes: Some(reversed_versioned_hashes),
+                },
+                &harness.chain,
+            )
+            .expect("Gloas head blobs should be retrievable with reversed versioned hashes");
+
+        assert_eq!(
+            reversed_request_response.data.len(),
+            all_blobs_response.data.len()
+        );
+        for (index, (returned, expected)) in reversed_request_response
+            .data
+            .iter()
+            .zip(&all_blobs_response.data)
+            .enumerate()
+        {
+            assert_eq!(
+                returned.blob, expected.blob,
+                "blob at position {index} does not follow commitment order"
+            );
+        }
     }
 
     #[tokio::test]
