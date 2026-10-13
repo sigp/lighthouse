@@ -427,8 +427,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Import directly — we already have all components (envelope + columns).
         let chain = self.clone();
-        // Propagate both the join error (outer `?`) and the import_execution_payload_envelope error (inner `?`).
-        // So a failed envelope import returns Err(EnvelopeError), and the batch is marked failed and retried
+        // Propagate both the spawn_blocking_handle (outer `?`) and the import_execution_payload_envelope error (inner `?`).
+        // So a failed envelope import returns Err(EnvelopeError) and retried
         self.spawn_blocking_handle(
             move || {
                 chain.import_execution_payload_envelope(
