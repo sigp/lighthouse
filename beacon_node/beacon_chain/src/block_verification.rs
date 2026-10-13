@@ -917,7 +917,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 .map_err(BlockError::PerBlockProcessingError)?;
             verify_execution_request_list_lengths(parent_execution_requests)
                 .map_err(BlockError::PerBlockProcessingError)?;
-            let deposits_len = block.message().body().deposits().len();
+            let deposits_len = block
+                .message()
+                .body()
+                .deposits()
+                .map_or(0, |deposits| deposits.len());
             if deposits_len > 0 {
                 return Err(BlockError::PerBlockProcessingError(
                     BlockProcessingError::OperationListTooLong {

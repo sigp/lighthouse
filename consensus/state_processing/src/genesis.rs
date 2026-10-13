@@ -40,7 +40,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         deposit_tree
             .push_leaf(deposit.data.tree_hash_root())
             .map_err(BlockProcessingError::MerkleTreeError)?;
-        state.eth1_data_mut().deposit_root = deposit_tree.root();
+        state.eth1_data_mut()?.deposit_root = deposit_tree.root();
         let Deposit { proof, data } = deposit;
         apply_deposit(&mut state, data, Some(proof), true, spec)?;
     }
@@ -183,6 +183,9 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         .heze_fork_epoch
         .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
     {
+        // All genesis deposits have been applied, so the EIP-6110 transition is complete.
+        let deposit_index = state.eth1_deposit_index()?;
+        *state.deposit_requests_start_index_mut()? = deposit_index;
         upgrade_to_heze(&mut state, spec)?;
 
         // Remove intermediate Gloas fork from `state.fork`.

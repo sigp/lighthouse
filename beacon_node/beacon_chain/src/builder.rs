@@ -1663,7 +1663,7 @@ mod test {
         .expect("should build state");
 
         assert_eq!(
-            state.eth1_data().block_hash,
+            state.eth1_data().unwrap().block_hash,
             Hash256::from_slice(&[0x42; 32]),
             "eth1 block hash should be co-ordinated junk"
         );

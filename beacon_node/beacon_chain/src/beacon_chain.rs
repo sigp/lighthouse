@@ -5893,7 +5893,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
         drop(slashings_and_exits_span);
 
-        let eth1_data = state.eth1_data().clone();
+        let eth1_data = state.eth1_data()?.clone();
 
         let deposits = vec![];
 

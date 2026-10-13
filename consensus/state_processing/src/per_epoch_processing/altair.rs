@@ -54,8 +54,10 @@ pub fn process_epoch<E: EthSpec>(
     let epoch_result = process_epoch_single_pass(state, spec, SinglePassConfig::default())?;
     let participation_summary = epoch_result.summary;
 
-    // Reset eth1 data votes.
-    process_eth1_data_reset(state)?;
+    // EIP-8015 removes Eth1 data votes from Heze states.
+    if !state.fork_name_unchecked().heze_enabled() {
+        process_eth1_data_reset(state)?;
+    }
 
     // Reset slashings
     process_slashings_reset(state)?;
