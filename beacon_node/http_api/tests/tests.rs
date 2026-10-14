@@ -1477,6 +1477,38 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_beacon_states_builder_pending_pre_gloas(self) -> Self {
+        let error = self
+            .client
+            .get_beacon_states_builder_pending_withdrawals(CoreStateId::Head)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
+
+        let error = self
+            .client
+            .get_beacon_states_builder_pending_withdrawals_ssz(CoreStateId::Head)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
+
+        let error = self
+            .client
+            .get_beacon_states_builder_pending_payments(CoreStateId::Head)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
+
+        let error = self
+            .client
+            .get_beacon_states_builder_pending_payments_ssz(CoreStateId::Head)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
+
+        self
+    }
+
     pub async fn test_beacon_states_validator_id(self) -> Self {
         for state_id in self.interesting_state_ids() {
             let state_opt = state_id
@@ -1892,6 +1924,35 @@ impl ApiTester {
         // Check that the version header is returned in the response
         assert_eq!(response.version(), Some(ForkName::Gloas));
 
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = match self
+                .client
+                .get_beacon_states_builder_pending_withdrawals(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("result should be none");
+            let expected = state.builder_pending_withdrawals().unwrap();
+
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec(), "{:?}", state_id);
+
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name));
+        }
+
         self
     }
 
@@ -1970,6 +2031,34 @@ impl ApiTester {
             .expect("should decode SSZ builder pending withdrawals");
         assert_eq!(decoded, fixture.withdrawals);
 
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let ssz_response = match self
+                .client
+                .get_beacon_states_builder_pending_withdrawals_ssz(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if ssz_response.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("state should exist");
+            let expected = state.builder_pending_withdrawals().unwrap();
+
+            let response = ssz_response.expect("response should exist");
+            let decoded = Vec::<types::BuilderPendingWithdrawal>::from_ssz_bytes(&response)
+                .expect("should decode SSZ builder pending withdrawals");
+            assert_eq!(decoded, expected.to_vec(), "{:?}", state_id);
+        }
+
         self
     }
 
@@ -1990,6 +2079,35 @@ impl ApiTester {
         // Check that the version header is returned in the response
         assert_eq!(response.version(), Some(ForkName::Gloas));
 
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = match self
+                .client
+                .get_beacon_states_builder_pending_payments(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("result should be none");
+            let expected = state.builder_pending_payments().unwrap();
+
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec(), "{:?}", state_id);
+
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name));
+        }
+
         self
     }
 
@@ -2006,6 +2124,34 @@ impl ApiTester {
         let decoded = Vec::<types::BuilderPendingPayment>::from_ssz_bytes(&ssz_bytes)
             .expect("should decode SSZ builder pending payments");
         assert_eq!(decoded, fixture.payments);
+
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let ssz_response = match self
+                .client
+                .get_beacon_states_builder_pending_payments_ssz(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if ssz_response.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("state should exist");
+            let expected = state.builder_pending_payments().unwrap();
+
+            let response = ssz_response.expect("response should exist");
+            let decoded = Vec::<types::BuilderPendingPayment>::from_ssz_bytes(&response)
+                .expect("should decode SSZ builder pending payments");
+            assert_eq!(decoded, expected.to_vec(), "{:?}", state_id);
+        }
 
         self
     }
@@ -10185,6 +10331,8 @@ async fn beacon_state_builders_pre_gloas() {
     ApiTester::new()
         .await
         .test_beacon_state_builders_pre_gloas()
+        .await
+        .test_beacon_states_builder_pending_pre_gloas()
         .await;
 }
 
