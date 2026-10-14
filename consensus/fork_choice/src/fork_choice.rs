@@ -5,7 +5,7 @@ use logging::crit;
 use proto_array::{
     Block as ProtoBlock, ExecutionStatus, ExecutionVerdict, ForkChoiceNode, JustifiedBalances,
     LatestMessage, PayloadBlockHash, PayloadStatus, ProposerHeadError, ProposerHeadInfo,
-    ProtoArrayForkChoice, ReOrgThreshold,
+    ProtoArrayForkChoice,
 };
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -247,17 +247,6 @@ pub enum PayloadVerificationStatus {
     Optimistic,
     /// The block is either pre-merge-fork, or prior to the terminal PoW block.
     Irrelevant,
-}
-
-impl PayloadVerificationStatus {
-    /// Returns `true` if the payload was optimistically imported.
-    pub fn is_optimistic(&self) -> bool {
-        match self {
-            PayloadVerificationStatus::Verified => false,
-            PayloadVerificationStatus::Optimistic => true,
-            PayloadVerificationStatus::Irrelevant => false,
-        }
-    }
 }
 
 /// Calculate how far `slot` lies from the start of its epoch.
@@ -639,9 +628,7 @@ where
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
-        re_org_head_threshold: ReOrgThreshold,
-        re_org_parent_threshold: ReOrgThreshold,
-        max_epochs_since_finalization: Epoch,
+        spec: &ChainSpec,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         // Ensure that fork choice has already been updated for the current slot. This prevents
         // us from having to take a write lock or do any dequeueing of attestations in this
@@ -671,9 +658,7 @@ where
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
-                re_org_head_threshold,
-                re_org_parent_threshold,
-                max_epochs_since_finalization,
+                spec,
             )
             .map_err(ProposerHeadError::convert_inner_error)
     }
@@ -681,9 +666,7 @@ where
     pub fn get_preliminary_proposer_head(
         &self,
         canonical_head: Hash256,
-        re_org_head_threshold: ReOrgThreshold,
-        re_org_parent_threshold: ReOrgThreshold,
-        max_epochs_since_finalization: Epoch,
+        spec: &ChainSpec,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         let current_slot = self.fc_store.get_current_slot();
         self.proto_array
@@ -691,9 +674,7 @@ where
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
-                re_org_head_threshold,
-                re_org_parent_threshold,
-                max_epochs_since_finalization,
+                spec,
             )
             .map_err(ProposerHeadError::convert_inner_error)
     }
