@@ -984,6 +984,11 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
     ) -> Result<u64, Error> {
         let validator_index = attestation.attester_index;
 
+        // If the attester_index at or above the pubkey cache length, reject it
+        if validator_index as usize >= chain.validator_pubkey_cache.read().len() {
+            return Err(Error::ValidatorIndexTooHigh(validator_index as usize));
+        }
+
         /*
          * The attestation is the first valid attestation received for the participating validator
          * for the slot, attestation.data.slot.
