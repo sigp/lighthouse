@@ -9,8 +9,8 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use state_processing::AllCaches;
 use store::{HotColdDB, MemoryStore, StoreConfig};
 use types::{
-    Address, BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec,
-    ProposerPreferences, SignedBeaconBlock, SignedProposerPreferences, Slot,
+    Address, BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, Hash256, ProposerPreferences,
+    SignedBeaconBlock, SignedProposerPreferences, Slot, Spec,
 };
 
 use crate::{
@@ -31,7 +31,7 @@ use crate::{
     validator_pubkey_cache::ValidatorPubkeyCache,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
 const NUM_VALIDATORS: usize = 64;

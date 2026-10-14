@@ -249,11 +249,11 @@ mod tests {
     use bls::{FixedBytesExtended, Signature};
     use std::sync::Arc;
     use types::{
-        BeaconBlockHeader, DataColumnSidecarFulu, DataColumnSidecarGloas, ForkName, MainnetEthSpec,
-        SignedBeaconBlockHeader,
+        BeaconBlockHeader, DataColumnSidecarFulu, DataColumnSidecarGloas, ForkName,
+        SignedBeaconBlockHeader, Spec,
     };
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     /// Creates a Fulu DataColumnSidecar for testing.
     /// Keyed by (proposer_index, slot) in the observation cache.

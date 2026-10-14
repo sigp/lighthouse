@@ -27,7 +27,7 @@ use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 fn incompatible_fork() -> bool {
     fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled() || f.gloas_enabled())
@@ -48,7 +48,7 @@ struct WedgedChain {
 /// The import adds the block to fork choice, then fails the database write. The returned
 /// chain has a fork choice containing `phantom_root` while the store does not.
 async fn wedged_chain() -> WedgedChain {
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
@@ -204,7 +204,7 @@ async fn restart_after_db_write_failure_recovers() {
 
     // Rebooting from the same database succeeds, resolving the head from the last
     // consistent fork choice on disk.
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .deterministic_keypairs(VALIDATOR_COUNT)
         .resumed_ephemeral_store(store)

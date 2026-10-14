@@ -36,12 +36,12 @@ use libp2p::gossipsub::{
 use libp2p::identity::Keypair;
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;
-use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent};
+use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent, dial_opts::DialOpts};
 use libp2p::upnp::tokio::Behaviour as Upnp;
 use libp2p::{PeerId, SwarmBuilder, identify};
 use logging::crit;
 use network_utils::enr_ext::EnrExt;
-use std::num::{NonZeroU8, NonZeroUsize};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -439,7 +439,7 @@ impl<E: EthSpec> Network<E> {
 
         let connection_limits = {
             let limits = libp2p::connection_limits::ConnectionLimits::default()
-                .with_max_pending_incoming(Some(5))
+                .with_max_pending_incoming_per_source(Some(2))
                 .with_max_pending_outgoing(Some(16))
                 .with_max_established_incoming(Some(
                     (config.target_peers as f32
@@ -498,8 +498,7 @@ impl<E: EthSpec> Network<E> {
                 .with_notify_handler_buffer_size(NonZeroUsize::new(7).expect("Not zero"))
                 .with_per_connection_event_buffer_size(4)
                 .with_idle_connection_timeout(Duration::from_secs(10)) // Other clients can timeout
-                // during negotiation
-                .with_dial_concurrency_factor(NonZeroU8::new(1).unwrap());
+                .with_smart_dial();
 
             let builder = SwarmBuilder::with_existing_identity(local_keypair)
                 .with_tokio()
@@ -588,51 +587,33 @@ impl<E: EthSpec> Network<E> {
         }
 
         // helper closure for dialing peers
-        let mut dial = |mut multiaddr: Multiaddr| {
-            // strip the p2p protocol if it exists
-            strip_peer_id(&mut multiaddr);
-            match self.swarm.dial(multiaddr.clone()) {
-                Ok(()) => debug!(address = %multiaddr, "Dialing libp2p peer"),
-                Err(err) => {
-                    debug!(address = %multiaddr, error = ?err, "Could not connect to peer")
-                }
-            };
+        let mut dial = |opts: DialOpts| {
+            debug!(?opts, "Dialing libp2p peer");
+            if let Err(error) = self.swarm.dial(opts) {
+                debug!(%error, "Could not connect to peer");
+            }
         };
-
-        // attempt to connect to user-input libp2p nodes
-        // DEPRECATED: can be removed in v8.2.0./v9.0.0
-        for multiaddr in &config.libp2p_nodes {
-            dial(multiaddr.clone());
-        }
 
         // attempt to connect to any specified boot-nodes
         let mut boot_nodes = config.boot_nodes_enr.clone();
         boot_nodes.dedup();
 
         for bootnode_enr in boot_nodes {
-            // If QUIC is enabled, attempt QUIC connections first
-            if !config.disable_quic_support {
-                for quic_multiaddr in &bootnode_enr.dialable_multiaddrs_quic() {
-                    if !self
-                        .network_globals
-                        .peers
-                        .read()
-                        .is_connected_or_dialing(&bootnode_enr.peer_id())
-                    {
-                        dial(quic_multiaddr.clone());
-                    }
-                }
-            }
+            // Dial all of the boot node's addresses in a single attempt so smart
+            // dialing can rank them (QUIC first) and apply Happy Eyeballs delays.
+            let mut multiaddrs = if config.disable_quic_support {
+                vec![]
+            } else {
+                bootnode_enr.dialable_multiaddrs_quic()
+            };
+            multiaddrs.extend(bootnode_enr.dialable_multiaddrs_tcp());
 
-            for multiaddr in &bootnode_enr.dialable_multiaddrs_tcp() {
-                if !self
-                    .network_globals
-                    .peers
-                    .read()
-                    .is_connected_or_dialing(&bootnode_enr.peer_id())
-                {
-                    dial(multiaddr.clone());
-                }
+            if !multiaddrs.is_empty() {
+                dial(
+                    DialOpts::peer_id(bootnode_enr.peer_id())
+                        .addresses(multiaddrs)
+                        .build(),
+                );
             }
         }
 
@@ -642,7 +623,10 @@ impl<E: EthSpec> Network<E> {
                 .iter()
                 .any(|proto| matches!(proto, MProtocol::Tcp(_)))
             {
-                dial(multiaddr.clone());
+                let mut multiaddr = multiaddr.clone();
+                // strip the p2p protocol if it exists
+                strip_peer_id(&mut multiaddr);
+                dial(multiaddr.into());
             }
         }
 
@@ -820,17 +804,21 @@ impl<E: EthSpec> Network<E> {
     ///
     /// Returns `true` if the subscription was successful and `false` otherwise.
     pub fn subscribe(&mut self, topic: GossipTopic) -> bool {
-        match self.gossipsub_mut().subscribe(&topic.clone().into()) {
+        // update the network globals
+        self.network_globals
+            .gossipsub_subscriptions
+            .write()
+            .insert(topic.clone());
+
+        let topic: Topic = topic.into();
+
+        match self.gossipsub_mut().subscribe(&topic) {
             Err(e) => {
                 warn!(%topic, error = ?e, "Failed to subscribe to topic");
                 false
             }
             Ok(_) => {
                 debug!(%topic, "Subscribed to topic");
-                self.network_globals
-                    .gossipsub_subscriptions
-                    .write()
-                    .insert(topic);
                 true
             }
         }
@@ -854,9 +842,7 @@ impl<E: EthSpec> Network<E> {
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
     pub fn publish(&mut self, messages: Vec<PubsubMessage<E>>) {
         for message in messages {
-            let fork_digest =
-                publish_fork_digest(&message, &self.fork_context, self.enr_fork_id.fork_digest);
-            for topic in message.topics(GossipEncoding::default(), fork_digest) {
+            for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 let message_data = message.encode(GossipEncoding::default());
                 if let Err(e) = self
                     .gossipsub_mut()
@@ -2181,100 +2167,5 @@ impl<E: EthSpec> Network<E> {
                 None
             }
         }
-    }
-}
-
-/// Returns the fork digest to publish `message` on. Proposer preferences use the digest of their
-/// proposal epoch, and bids the digest of their epoch. All other messages use the current digest.
-fn publish_fork_digest<E: EthSpec>(
-    message: &PubsubMessage<E>,
-    fork_context: &ForkContext,
-    current_digest: [u8; 4],
-) -> [u8; 4] {
-    match message {
-        PubsubMessage::ProposerPreferences(preferences) => fork_context.context_bytes(
-            preferences
-                .message
-                .proposal_slot
-                .epoch(E::slots_per_epoch()),
-        ),
-        PubsubMessage::ExecutionPayloadBid(bid) => fork_context.context_bytes(bid.epoch()),
-        _ => current_digest,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bls::Signature;
-    use types::{
-        Epoch, ExecutionPayloadBidHeze, Hash256, MinimalEthSpec, ProposerPreferences,
-        SignedExecutionPayloadBid, SignedExecutionPayloadBidHeze, SignedProposerPreferences,
-        SignedVoluntaryExit, VoluntaryExit,
-    };
-
-    type E = MinimalEthSpec;
-
-    #[test]
-    fn publish_fork_digest_uses_proposal_epoch_for_proposer_preferences() {
-        let gloas_epoch = Epoch::new(2);
-        let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
-        spec.gloas_fork_epoch = Some(gloas_epoch);
-        let fork_context = ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec);
-        let current_digest = fork_context.current_fork_digest();
-        let gloas_digest = fork_context.context_bytes(gloas_epoch);
-
-        let preferences =
-            PubsubMessage::<E>::ProposerPreferences(Arc::new(SignedProposerPreferences {
-                message: ProposerPreferences {
-                    dependent_root: Hash256::ZERO,
-                    proposal_slot: gloas_epoch.start_slot(E::slots_per_epoch()),
-                    validator_index: 0,
-                    fee_recipient: Default::default(),
-                    target_gas_limit: 0,
-                },
-                signature: Signature::empty(),
-            }));
-        let exit = PubsubMessage::<E>::VoluntaryExit(Box::new(SignedVoluntaryExit {
-            message: VoluntaryExit {
-                epoch: Epoch::new(0),
-                validator_index: 0,
-            },
-            signature: Signature::empty(),
-        }));
-
-        assert_eq!(
-            publish_fork_digest(&preferences, &fork_context, current_digest),
-            gloas_digest
-        );
-        assert_eq!(
-            publish_fork_digest(&exit, &fork_context, current_digest),
-            current_digest
-        );
-    }
-
-    #[test]
-    fn publish_fork_digest_uses_bid_epoch_for_bids() {
-        let heze_epoch = Epoch::new(2);
-        let mut spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
-        spec.heze_fork_epoch = Some(heze_epoch);
-        let fork_context = ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec);
-        let current_digest = fork_context.current_fork_digest();
-        let heze_digest = fork_context.context_bytes(heze_epoch);
-
-        let bid = PubsubMessage::<E>::ExecutionPayloadBid(Box::new(
-            SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
-                message: ExecutionPayloadBidHeze {
-                    slot: heze_epoch.start_slot(E::slots_per_epoch()),
-                    ..ExecutionPayloadBidHeze::default()
-                },
-                signature: Signature::empty(),
-            }),
-        ));
-
-        assert_eq!(
-            publish_fork_digest(&bid, &fork_context, current_digest),
-            heze_digest
-        );
     }
 }
