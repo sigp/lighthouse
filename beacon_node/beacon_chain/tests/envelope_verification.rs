@@ -4,13 +4,13 @@ use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource}
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
-use bls::PublicKeyBytes;
+use bls::{PublicKeyBytes, Signature};
 use eth2::types::EventKind;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, Slot, Spec,
-    WithdrawalRequest,
+    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256,
+    SignedExecutionPayloadEnvelope, Slot, Spec, WithdrawalRequest,
 };
 
 type E = Spec;
@@ -593,11 +593,12 @@ fn gloas_harness() -> BeaconChainHarness<beacon_chain::test_utils::EphemeralHarn
         .build()
 }
 
-/// Helper: produce the block and envelope for `slot`, import both, and return the block root.
+/// Helper: produce the block and envelope for `slot`, import both, and return the block root
+/// and the envelope.
 async fn import_block_and_envelope(
     harness: &BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>>,
     slot: Slot,
-) -> Hash256 {
+) -> (Hash256, Arc<SignedExecutionPayloadEnvelope<E>>) {
     let state = harness.get_current_state();
     harness.advance_slot();
     let (block_contents, opt_envelope, _) = harness.make_block_with_envelope(state, slot).await;
@@ -612,10 +613,10 @@ async fn import_block_and_envelope(
     // Without its custody columns the envelope never reaches fork choice.
     harness.process_gossip_columns(&block, None).await;
 
-    let signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
+    let signed_envelope = Arc::new(opt_envelope.expect("Gloas block should produce an envelope"));
     let gossip_verified = harness
         .chain
-        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(signed_envelope.clone(), EnvelopeSource::Gossip)
         .await
         .expect("envelope gossip verification should succeed");
 
@@ -643,7 +644,7 @@ async fn import_block_and_envelope(
     // here, every block extends the `EMPTY` variant of its parent.
     harness.chain.recompute_head_at_current_slot().await;
 
-    block_root
+    (block_root, signed_envelope)
 }
 
 /// Helper: the execution status that fork choice holds for the payload of a block.
@@ -678,7 +679,7 @@ async fn syncing_execution_layer_imports_payload_optimistically() {
         .server
         .all_payloads_syncing(true);
 
-    let block_root = import_block_and_envelope(&harness, Slot::new(2)).await;
+    let (block_root, _) = import_block_and_envelope(&harness, Slot::new(2)).await;
 
     assert!(
         is_optimistic(execution_status(&harness, block_root)),
@@ -704,15 +705,15 @@ async fn a_later_valid_payload_promotes_its_optimistic_ancestors() {
 
     // The node imports two slots while the execution layer answers `SYNCING`.
     mock.server.all_payloads_syncing(true);
-    let first_root = import_block_and_envelope(&harness, Slot::new(2)).await;
-    let second_root = import_block_and_envelope(&harness, Slot::new(3)).await;
+    let (first_root, _) = import_block_and_envelope(&harness, Slot::new(2)).await;
+    let (second_root, _) = import_block_and_envelope(&harness, Slot::new(3)).await;
 
     assert!(is_optimistic(execution_status(&harness, first_root)));
     assert!(is_optimistic(execution_status(&harness, second_root)));
 
     // The execution layer catches up and validates the next payload.
     mock.server.all_payloads_valid();
-    let third_root = import_block_and_envelope(&harness, Slot::new(4)).await;
+    let (third_root, _) = import_block_and_envelope(&harness, Slot::new(4)).await;
 
     assert!(
         is_valid_and_post_bellatrix(execution_status(&harness, third_root)),
@@ -734,4 +735,93 @@ fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
 
 fn is_optimistic(status: ExecutionStatus) -> bool {
     matches!(status, ExecutionStatus::Optimistic(_))
+}
+
+/// A forged envelope for a block whose payload we already imported must still be deduplicated
+/// after a restart, before the signing-root and signature work.
+#[tokio::test]
+async fn restart_deduplicates_forged_envelope_for_an_imported_block() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+
+    let spec = Arc::new(test_spec::<E>());
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let target_slot = Slot::new(2);
+    let (block_root, signed_envelope) = import_block_and_envelope(&harness, target_slot).await;
+
+    // Every field the bid commits to is unchanged, so the consistency checks pass and only the
+    // signature can reject it.
+    let mut forged = (*signed_envelope).clone();
+    forged.signature = Signature::empty();
+    let forged = Arc::new(forged);
+
+    match harness
+        .chain
+        .verify_envelope_for_gossip(forged.clone(), EnvelopeSource::Gossip)
+        .await
+    {
+        Err(EnvelopeError::EnvelopeAlreadySeen { .. }) => {}
+        Err(other) => panic!("expected EnvelopeAlreadySeen before the restart, got {other:?}"),
+        Ok(_) => panic!("the forged envelope should be rejected before the restart"),
+    }
+
+    harness
+        .chain
+        .persist_fork_choice()
+        .expect("fork choice should persist");
+    let store = harness.chain.store.clone();
+    let slot_clock = harness.chain.slot_clock.clone();
+    drop(harness);
+
+    let resumed = BeaconChainHarness::builder(E::default())
+        .spec(spec)
+        .deterministic_keypairs(64)
+        .resumed_ephemeral_store(store)
+        .mock_execution_layer()
+        .testing_slot_clock(slot_clock)
+        .build();
+
+    assert!(
+        resumed
+            .chain
+            .store
+            .get_signed_payload_envelope(&block_root)
+            .expect("the store read should succeed")
+            .is_some(),
+        "the verified envelope is still on disk after the restart",
+    );
+    assert!(
+        !resumed
+            .chain
+            .observed_payload_envelopes
+            .envelope_has_been_observed(target_slot, block_root, forged.message.builder_index,),
+        "the in-memory deduplication cache starts empty after the restart",
+    );
+    assert!(
+        resumed
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .is_payload_received(&block_root),
+        "fork choice is restored from disk and still records the payload",
+    );
+
+    match resumed
+        .chain
+        .verify_envelope_for_gossip(forged, EnvelopeSource::Gossip)
+        .await
+    {
+        Err(EnvelopeError::EnvelopeAlreadySeen { .. }) => {}
+        Err(other) => panic!("expected EnvelopeAlreadySeen after the restart, got {other:?}"),
+        Ok(_) => panic!("the forged envelope should be rejected after the restart"),
+    }
 }
