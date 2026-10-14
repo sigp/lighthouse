@@ -122,6 +122,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // genesis, or they are ahead. In all cases, we should allow this peer to connect to us
             // so we can sync from them.
             None
+        } else if remote.finalized_epoch() == local.finalized_epoch() {
+            // Both roots are nonzero and differ, so no database lookup is needed.
+            Some("Different finalized chain".to_string())
         } else {
             // Remote finalized epoch is less than ours.
             let remote_finalized_slot = start_slot(*remote.finalized_epoch());
