@@ -24,6 +24,7 @@ use crate::{
     payload_envelope_verification::{
         AvailabilityPendingExecutedEnvelope, ExecutionPendingEnvelope,
         load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
+        verify_envelope_payload_hash,
     },
     validator_monitor::get_slot_delay_ms,
 };
@@ -61,7 +62,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .message()
                 .body()
                 .signed_execution_payload_bid()?
-                .clone(),
+                .clone_as_signed_execution_payload_bid(),
         );
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
@@ -325,7 +326,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.import_envelope_update_metrics_and_events(
             signed_envelope,
             block_root,
-            payload_verification_status,
             envelope_time_imported,
         );
 
@@ -336,7 +336,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
         block_root: Hash256,
-        payload_verification_status: PayloadVerificationStatus,
         envelope_time_imported: Duration,
     ) {
         let envelope_slot = signed_envelope.slot();
@@ -361,12 +360,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_execution_payload_subscribers()
         {
+            let execution_optimistic = match self
+                .canonical_head
+                .fork_choice_read_lock()
+                .get_block_execution_status_assuming_full(&block_root)
+            {
+                Ok(Some(verdict)) => verdict.is_optimistic_or_invalid(),
+                // Unreachable: never claim a verification we could not read.
+                Ok(None) | Err(_) => true,
+            };
+
             event_handler.register(EventKind::ExecutionPayload(SseExecutionPayload {
                 slot: envelope_slot,
                 builder_index: signed_envelope.message.builder_index,
                 block_hash: signed_envelope.block_hash(),
                 block_root,
-                execution_optimistic: payload_verification_status.is_optimistic(),
+                execution_optimistic,
             }));
         }
 
@@ -409,6 +418,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.spec,
         )?;
 
+        // EIP-8025: execution layer verifications must be done on the CL.
+        if self.execution_proofs_enabled() && self.config.verify_envelope_payload_hash_on_cl {
+            verify_envelope_payload_hash(&signed_envelope, &block)?;
+        }
+
         // Send to EL for verification
         let payload_notifier = PayloadNotifier::new(
             self.clone(),
@@ -421,19 +435,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Import directly — we already have all components (envelope + columns).
         let chain = self.clone();
-        let _ = self
-            .spawn_blocking_handle(
-                move || {
-                    chain.import_execution_payload_envelope(
-                        available_envelope,
-                        block_root,
-                        payload_verification_status,
-                    )
-                },
-                "range_sync_envelope_import",
-            )
-            .await
-            .map_err(|e| EnvelopeError::BeaconChainError(Box::new(e)))?;
+        // Propagate both the spawn_blocking_handle (outer `?`) and the import_execution_payload_envelope error (inner `?`).
+        // So a failed envelope import returns Err(EnvelopeError) and retried
+        self.spawn_blocking_handle(
+            move || {
+                chain.import_execution_payload_envelope(
+                    available_envelope,
+                    block_root,
+                    payload_verification_status,
+                )
+            },
+            "range_sync_envelope_import",
+        )
+        .await
+        .map_err(|e| EnvelopeError::BeaconChainError(Box::new(e)))??;
 
         Ok(())
     }

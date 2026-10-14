@@ -144,12 +144,12 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         envelope: Option<AvailableEnvelope<E>>,
     ) -> Result<Self, String> {
         if let Some(envelope) = envelope.as_ref() {
-            let execution_bid = &block
+            let execution_bid = block
                 .message()
                 .body()
                 .signed_execution_payload_bid()
                 .map_err(|e| format!("missing signed_execution_payload_bid: {e:?}"))?
-                .message;
+                .message();
             // Skip the finalized-slot check; range sync imports historical (finalized) blocks.
             let latest_finalized_slot = Slot::new(0);
             verify_envelope_consistency(
@@ -551,15 +551,15 @@ mod tests {
     use crate::custody_context::NodeCustodyType;
     use crate::test_utils::test_custody_context;
     use bls::Signature;
-    use types::{BeaconBlockGloas, EmptyBlock, MainnetEthSpec};
+    use types::{BeaconBlockGloas, EmptyBlock, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     /// Test that calling the pre-gloas constructor `RangeSyncBlock::new` with a gloas block
     /// is rejected, because gloas blocks need to use `RangeSyncBlock::new_gloas``.
     #[test]
     fn range_sync_block_new_rejects_gloas_block() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(Spec::default_spec());
         let block = Arc::new(SignedBeaconBlock::from_block(
             BeaconBlockGloas::empty(&spec).into(),
             Signature::empty(),

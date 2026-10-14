@@ -10,11 +10,11 @@ use task_executor::test_utils::TestRuntime;
 use types::{
     BlockAccessList, ExecutionBlockHash, ExecutionPayloadBody, ExecutionPayloadEnvelope,
     ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-    ForkName, Hash256, MinimalEthSpec, SignedExecutionPayloadEnvelope,
-    SignedExecutionPayloadEnvelopeSummary, Slot,
+    ForkName, Hash256, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot,
+    Spec,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
 const MAX_PAYLOAD_BODIES_PER_REQUEST: usize = 32;

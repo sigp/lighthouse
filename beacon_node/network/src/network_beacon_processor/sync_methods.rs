@@ -347,12 +347,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(e) => Err(e.into()),
         };
 
-        // TODO(gloas): structured penalty classification arrives with the envelope lookup state
-        // machine; for now, fold the EnvelopeError into BlockError::InternalError so it flows
-        // through the existing `BlockProcessingResult::Err` path.
-        let result: Result<AvailabilityProcessingStatus, BlockError> =
-            result.map_err(|e| BlockError::InternalError(format!("envelope: {e}")));
-
         // The payload envelope is imported; release any attestations awaiting this block's payload
         // so they can be re-processed (parity with the gossip import path).
         if let Ok(AvailabilityProcessingStatus::Imported(_, block_root)) = &result {
@@ -1040,6 +1034,11 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                             None
                         }
                     }
+                    BlockError::DataColumnSlotMismatch { column_index, .. } => Some((
+                        PeerAction::MidToleranceError,
+                        WhichPeerToPenalize::CustodyPeerForColumn(*column_index),
+                        (&e).into(),
+                    )),
                     // Remaining invalid blocks: penalize the block peer. Listed explicitly so a
                     // new `BlockError` variant forces a compile error here.
                     BlockError::FutureSlot { .. }

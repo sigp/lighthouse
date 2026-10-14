@@ -9,7 +9,7 @@ use logging::create_test_tracing_subscriber;
 use std::sync::{Arc, LazyLock};
 use types::{data::FixedBlobSidecarList, *};
 
-type E = MainnetEthSpec;
+type E = Spec;
 
 // Should ideally be divisible by 3.
 const VALIDATOR_COUNT: usize = 24;
@@ -23,7 +23,7 @@ fn get_harness(
     spec: Arc<ChainSpec>,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     create_test_tracing_subscriber();
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec)
         .chain_config(ChainConfig {
             archive: true,

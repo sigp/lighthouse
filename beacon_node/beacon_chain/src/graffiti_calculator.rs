@@ -110,11 +110,8 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
             GraffitiOrigin::UserSpecified(graffiti) => graffiti,
             GraffitiOrigin::Calculated(default_graffiti) => {
                 let Some(execution_layer) = self.execution_layer.as_ref() else {
-                    // Return default graffiti if there is no execution layer. This
-                    // shouldn't occur if we're actually producing blocks.
-                    crit!(
-                        "No execution layer available for graffiti calculation during block production!"
-                    );
+                    // No engine, so no engine version to advertise.
+                    debug!("No execution layer to take a graffiti engine version from");
                     return default_graffiti;
                 };
 
@@ -261,7 +258,7 @@ mod tests {
     use std::sync::LazyLock;
     use std::time::Duration;
     use tracing::info;
-    use types::{ChainSpec, GRAFFITI_BYTES_LEN, Graffiti, MinimalEthSpec};
+    use types::{ChainSpec, GRAFFITI_BYTES_LEN, Graffiti, Spec};
 
     const VALIDATOR_COUNT: usize = 48;
     /// A cached set of keys.
@@ -272,8 +269,8 @@ mod tests {
         validator_count: usize,
         spec: Arc<ChainSpec>,
         chain_config: Option<ChainConfig>,
-    ) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    ) -> BeaconChainHarness<EphemeralHarnessType<Spec>> {
+        let harness = BeaconChainHarness::builder(Spec::default())
             .spec(spec)
             .chain_config(chain_config.unwrap_or_default())
             .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -288,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_graffiti_without_el_version_support() {
-        let spec = Arc::new(test_spec::<MinimalEthSpec>());
+        let spec = Arc::new(test_spec::<Spec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
         // modify execution engine so it doesn't support engine_getClientVersionV1 method
         let mock_execution_layer = harness.mock_execution_layer.as_ref().unwrap();
@@ -328,7 +325,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_graffiti_with_el_version_support() {
-        let spec = Arc::new(test_spec::<MinimalEthSpec>());
+        let spec = Arc::new(test_spec::<Spec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
         let found_graffiti_bytes = harness
@@ -375,7 +372,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_graffiti_with_validator_specified_value() {
-        let spec = Arc::new(test_spec::<MinimalEthSpec>());
+        let spec = Arc::new(test_spec::<Spec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
         let graffiti_str = "nice graffiti bro";
@@ -399,7 +396,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_append_el_version_graffiti_various_length() {
-        let spec = Arc::new(test_spec::<MinimalEthSpec>());
+        let spec = Arc::new(test_spec::<Spec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
 
         let graffiti_vec = vec![

@@ -282,6 +282,7 @@ fn build_chain_inner(
         &seed_state,
         finalized_checkpoint,
         &seed_state,
+        None,
         25,
         40,
         &spec,
