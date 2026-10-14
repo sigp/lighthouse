@@ -16,6 +16,7 @@ pub mod block_verification_types;
 pub mod builder;
 pub mod canonical_head;
 pub mod chain_config;
+pub mod circuit_breaker;
 pub mod custody_context;
 pub mod data_availability_checker;
 pub mod data_column_verification;
