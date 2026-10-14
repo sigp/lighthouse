@@ -13,6 +13,7 @@ use eth2::types::{
     ValidatorIdentitiesRequestBody, ValidatorIndexData, ValidatorsRequestBody,
 };
 use ssz::Encode;
+use ssz_types::FixedVector;
 use std::sync::Arc;
 use types::{
     AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch,
@@ -372,6 +373,90 @@ pub fn get_beacon_state_sync_committees<T: BeaconChainTypes>(
 
                     Ok(eth2::types::GenericResponse::from(response)
                         .add_execution_optimistic_finalized(execution_optimistic, finalized))
+                })
+            },
+        )
+        .boxed()
+}
+
+// `GET /eth/v1/beacon/states/{state_id}/ptc`
+pub fn get_beacon_state_ptc<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("ptc"))
+        .and(warp::query::<eth2::types::PtcQuery>())
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             query: eth2::types::PtcQuery,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let slot = query.slot.unwrap_or(state.slot());
+                                let ptc =
+                                    state.get_ptc(slot, &chain.spec).map_err(|e| match e {
+                                        BeaconStateError::IncorrectStateVariant => {
+                                            warp_utils::reject::custom_bad_request(format!(
+                                                "state at slot {} is pre-Gloas",
+                                                state.slot()
+                                            ))
+                                        }
+                                        BeaconStateError::SlotOutOfBounds => {
+                                            warp_utils::reject::custom_bad_request(format!(
+                                                "slot {} is pre-Gloas or outside the PTC window \
+                                             of the state at epoch {}",
+                                                slot,
+                                                state.current_epoch()
+                                            ))
+                                        }
+                                        e => warp_utils::reject::beacon_state_error(e),
+                                    })?;
+
+                                let validators =
+                                    FixedVector::new(ptc.0.iter().map(|&i| i as u64).collect())
+                                        .map_err(|e| {
+                                            warp_utils::reject::custom_server_error(format!(
+                                                "invalid PTC size: {:?}",
+                                                e
+                                            ))
+                                        })?;
+
+                                Ok((
+                                    eth2::types::PtcData::<T::EthSpec> { slot, validators },
+                                    execution_optimistic,
+                                    finalized,
+                                ))
+                            },
+                        )?;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(
+                            &eth2::types::GenericResponse::from(data)
+                                .add_execution_optimistic_finalized(
+                                    execution_optimistic,
+                                    finalized,
+                                ),
+                        )
+                        .into_response()),
+                    }
                 })
             },
         )
