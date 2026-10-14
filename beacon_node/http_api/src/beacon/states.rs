@@ -913,3 +913,57 @@ pub fn get_beacon_state_root<T: BeaconChainTypes>(
         )
         .boxed()
 }
+
+// GET beacon/states/{state_id}/leaves
+pub fn get_beacon_state_leaves<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .and(warp::path("leaves"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (mut state, execution_optimistic, finalized) = state_id.state(&chain)?;
+                    let fork_name = state.fork_name_unchecked();
+                    if !fork_name.gloas_enabled() {
+                        return Err(warp_utils::reject::custom_bad_request(
+                            "State leaves are not supported before the Gloas fork".into(),
+                        ));
+                    }
+
+                    // Hashing a tree list with unapplied mutations panics.
+                    state
+                        .apply_pending_mutations()
+                        .map_err(warp_utils::reject::unhandled_error)?;
+                    let data = state.get_beacon_state_leaves();
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => execution_optimistic_finalized_beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            execution_optimistic,
+                            finalized,
+                            api_types::StateLeavesData(data),
+                        )
+                        .map(|res| warp::reply::json(&res).into_response()),
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        )
+        .boxed()
+}
