@@ -113,6 +113,16 @@ struct BuilderStateTestFixture {
     pending_id: BuilderId,
 }
 
+struct BuilderPendingWithdrawalsTestFixture {
+    state_id: CoreStateId,
+    withdrawals: Vec<types::BuilderPendingWithdrawal>,
+}
+
+struct BuilderPendingPaymentsTestFixture {
+    state_id: CoreStateId,
+    payments: Vec<types::BuilderPendingPayment>,
+}
+
 impl Default for ApiTesterConfig {
     fn default() -> Self {
         let mut spec = E::default_spec();
@@ -1309,6 +1319,63 @@ impl ApiTester {
         }
     }
 
+    fn builder_pending_withdrawals_test_fixture(&self) -> BuilderPendingWithdrawalsTestFixture {
+        let mut state = self.chain.head_snapshot().beacon_state.clone();
+
+        let withdrawals = (0..3u64)
+            .map(|i| types::BuilderPendingWithdrawal {
+                fee_recipient: Address::repeat_byte(i as u8 + 1),
+                amount: self.chain.spec.min_deposit_amount * (i + 1),
+                builder_index: i,
+            })
+            .collect::<Vec<_>>();
+
+        let pending_withdrawals = state.builder_pending_withdrawals_mut().unwrap();
+        assert!(pending_withdrawals.is_empty());
+        for withdrawal in &withdrawals {
+            pending_withdrawals.push(withdrawal.clone()).unwrap();
+        }
+
+        let state_root = state.update_tree_hash_cache().unwrap();
+        self.chain.store.put_state(&state_root, &state).unwrap();
+
+        BuilderPendingWithdrawalsTestFixture {
+            state_id: CoreStateId::Root(state_root),
+            withdrawals,
+        }
+    }
+
+    fn builder_pending_payments_test_fixture(&self) -> BuilderPendingPaymentsTestFixture {
+        let mut state = self.chain.head_snapshot().beacon_state.clone();
+
+        // Give every slot of the fixed-length vector a distinct, non-default payment.
+        let payments = (0..E::builder_pending_payments_limit() as u64)
+            .map(|i| types::BuilderPendingPayment {
+                weight: self.chain.spec.min_deposit_amount * (i + 1),
+                withdrawal: types::BuilderPendingWithdrawal {
+                    fee_recipient: Address::repeat_byte(i as u8 + 1),
+                    amount: self.chain.spec.min_deposit_amount * (i + 2),
+                    builder_index: i,
+                },
+                proposer_index: i + 10,
+            })
+            .collect::<Vec<_>>();
+
+        let pending_payments = state.builder_pending_payments_mut().unwrap();
+        assert_eq!(pending_payments.len(), payments.len());
+        for (index, payment) in payments.iter().enumerate() {
+            *pending_payments.get_mut(index).unwrap() = payment.clone();
+        }
+
+        let state_root = state.update_tree_hash_cache().unwrap();
+        self.chain.store.put_state(&state_root, &state).unwrap();
+
+        BuilderPendingPaymentsTestFixture {
+            state_id: CoreStateId::Root(state_root),
+            payments,
+        }
+    }
+
     pub async fn test_beacon_state_builders_filters(self) -> Self {
         let fixture = self.builder_state_test_fixture();
         let all_builders = self
@@ -1407,6 +1474,38 @@ impl ApiTester {
             .await
             .unwrap_err();
         assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
+        self
+    }
+
+    pub async fn test_beacon_states_builder_pending_pre_gloas(self) -> Self {
+        let error = self
+            .client
+            .get_beacon_states_builder_pending_withdrawals(CoreStateId::Head)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
+
+        let error = self
+            .client
+            .get_beacon_states_builder_pending_withdrawals_ssz(CoreStateId::Head)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
+
+        let error = self
+            .client
+            .get_beacon_states_builder_pending_payments(CoreStateId::Head)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
+
+        let error = self
+            .client
+            .get_beacon_states_builder_pending_payments_ssz(CoreStateId::Head)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status(), Some(StatusCode::BAD_REQUEST));
+
         self
     }
 
@@ -1803,6 +1902,319 @@ impl ApiTester {
             let decoded = Vec::<u64>::from_ssz_bytes(&ssz_bytes)
                 .expect("should decode SSZ proposer lookahead");
             assert_eq!(decoded, expected.to_vec());
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_builder_pending_withdrawals(self) -> Self {
+        let fixture = self.builder_pending_withdrawals_test_fixture();
+
+        let response = self
+            .client
+            .get_beacon_states_builder_pending_withdrawals(fixture.state_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(response.data(), &fixture.withdrawals);
+        assert_eq!(response.metadata().execution_optimistic, Some(false));
+        assert_eq!(response.metadata().finalized, Some(false));
+
+        // Check that the version header is returned in the response
+        assert_eq!(response.version(), Some(ForkName::Gloas));
+
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = match self
+                .client
+                .get_beacon_states_builder_pending_withdrawals(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("result should be none");
+            let expected = state.builder_pending_withdrawals().unwrap();
+
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec(), "{:?}", state_id);
+
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name));
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_ptc(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = self
+                .client
+                .get_beacon_states_ptc::<E>(state_id.0, None)
+                .await
+                .unwrap()
+                .map(|res| res.data);
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("result should be none");
+
+            // Without a `slot` query the committee for the state's own slot is returned.
+            let expected_ptc = state.get_ptc(state.slot(), &self.chain.spec).unwrap();
+            let result = result.unwrap();
+            assert_eq!(result.slot, state.slot(), "{}", state_id);
+            assert_eq!(
+                result
+                    .validators
+                    .iter()
+                    .map(|&i| i as usize)
+                    .collect::<Vec<_>>(),
+                expected_ptc.0.to_vec(),
+                "{}",
+                state_id
+            );
+
+            // A slot in the next epoch is within the state's PTC window.
+            let next_epoch_slot = state.slot() + E::slots_per_epoch();
+            let result = self
+                .client
+                .get_beacon_states_ptc::<E>(state_id.0, Some(next_epoch_slot))
+                .await
+                .unwrap()
+                .unwrap()
+                .data;
+            let expected_ptc = state.get_ptc(next_epoch_slot, &self.chain.spec).unwrap();
+            assert_eq!(result.slot, next_epoch_slot, "{}", state_id);
+            assert_eq!(
+                result
+                    .validators
+                    .iter()
+                    .map(|&i| i as usize)
+                    .collect::<Vec<_>>(),
+                expected_ptc.0.to_vec(),
+                "{}",
+                state_id
+            );
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_builder_pending_withdrawals_ssz(self) -> Self {
+        let fixture = self.builder_pending_withdrawals_test_fixture();
+
+        let ssz_bytes = self
+            .client
+            .get_beacon_states_builder_pending_withdrawals_ssz(fixture.state_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let decoded = Vec::<types::BuilderPendingWithdrawal>::from_ssz_bytes(&ssz_bytes)
+            .expect("should decode SSZ builder pending withdrawals");
+        assert_eq!(decoded, fixture.withdrawals);
+
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let ssz_response = match self
+                .client
+                .get_beacon_states_builder_pending_withdrawals_ssz(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if ssz_response.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("state should exist");
+            let expected = state.builder_pending_withdrawals().unwrap();
+
+            let response = ssz_response.expect("response should exist");
+            let decoded = Vec::<types::BuilderPendingWithdrawal>::from_ssz_bytes(&response)
+                .expect("should decode SSZ builder pending withdrawals");
+            assert_eq!(decoded, expected.to_vec(), "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_builder_pending_payments(self) -> Self {
+        let fixture = self.builder_pending_payments_test_fixture();
+
+        let response = self
+            .client
+            .get_beacon_states_builder_pending_payments(fixture.state_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(response.data(), &fixture.payments);
+        assert_eq!(response.metadata().execution_optimistic, Some(false));
+        assert_eq!(response.metadata().finalized, Some(false));
+
+        // Check that the version header is returned in the response
+        assert_eq!(response.version(), Some(ForkName::Gloas));
+
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = match self
+                .client
+                .get_beacon_states_builder_pending_payments(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("result should be none");
+            let expected = state.builder_pending_payments().unwrap();
+
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec(), "{:?}", state_id);
+
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name));
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_builder_pending_payments_ssz(self) -> Self {
+        let fixture = self.builder_pending_payments_test_fixture();
+
+        let ssz_bytes = self
+            .client
+            .get_beacon_states_builder_pending_payments_ssz(fixture.state_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let decoded = Vec::<types::BuilderPendingPayment>::from_ssz_bytes(&ssz_bytes)
+            .expect("should decode SSZ builder pending payments");
+        assert_eq!(decoded, fixture.payments);
+
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let ssz_response = match self
+                .client
+                .get_beacon_states_builder_pending_payments_ssz(state_id.0)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if ssz_response.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("state should exist");
+            let expected = state.builder_pending_payments().unwrap();
+
+            let response = ssz_response.expect("response should exist");
+            let decoded = Vec::<types::BuilderPendingPayment>::from_ssz_bytes(&response)
+                .expect("should decode SSZ builder pending payments");
+            assert_eq!(decoded, expected.to_vec(), "{:?}", state_id);
+        }
+
+        self
+    }
+
+    pub async fn test_beacon_states_ptc_ssz(self) -> Self {
+        for state_id in self.interesting_state_ids() {
+            let state_opt = state_id
+                .state(&self.chain)
+                .ok()
+                .map(|(state, _execution_optimistic, _finalized)| state);
+
+            let result = match self
+                .client
+                .get_beacon_states_ptc_ssz(state_id.0, None)
+                .await
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
+
+            if result.is_none() && state_opt.is_none() {
+                continue;
+            }
+
+            let state = state_opt.as_ref().expect("result should be none");
+
+            // Without a `slot` query the committee for the state's own slot is returned.
+            let expected_ptc = state.get_ptc(state.slot(), &self.chain.spec).unwrap();
+            let decoded =
+                PtcData::<E>::from_ssz_bytes(&result.unwrap()).expect("should decode SSZ PTC");
+            assert_eq!(decoded.slot, state.slot(), "{}", state_id);
+            assert_eq!(
+                decoded
+                    .validators
+                    .iter()
+                    .map(|&i| i as usize)
+                    .collect::<Vec<_>>(),
+                expected_ptc.0.to_vec(),
+                "{}",
+                state_id
+            );
+
+            // A slot in the next epoch is within the state's PTC window.
+            let next_epoch_slot = state.slot() + E::slots_per_epoch();
+            let ssz_bytes = self
+                .client
+                .get_beacon_states_ptc_ssz(state_id.0, Some(next_epoch_slot))
+                .await
+                .unwrap()
+                .expect("response should exist");
+            let decoded = PtcData::<E>::from_ssz_bytes(&ssz_bytes).expect("should decode SSZ PTC");
+            let expected_ptc = state.get_ptc(next_epoch_slot, &self.chain.spec).unwrap();
+            assert_eq!(decoded.slot, next_epoch_slot, "{}", state_id);
+            assert_eq!(
+                decoded
+                    .validators
+                    .iter()
+                    .map(|&i| i as usize)
+                    .collect::<Vec<_>>(),
+                expected_ptc.0.to_vec(),
+                "{}",
+                state_id
+            );
         }
 
         self
@@ -9873,6 +10285,32 @@ async fn beacon_get_state_info_fulu() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_get_state_info_gloas() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    config.spec.gloas_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_beacon_states_builder_pending_withdrawals()
+        .await
+        .test_beacon_states_builder_pending_withdrawals_ssz()
+        .await
+        .test_beacon_states_builder_pending_payments()
+        .await
+        .test_beacon_states_builder_pending_payments_ssz()
+        .await
+        .test_beacon_states_ptc()
+        .await
+        .test_beacon_states_ptc_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_state_builders_gloas() {
     let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
@@ -9893,6 +10331,8 @@ async fn beacon_state_builders_pre_gloas() {
     ApiTester::new()
         .await
         .test_beacon_state_builders_pre_gloas()
+        .await
+        .test_beacon_states_builder_pending_pre_gloas()
         .await;
 }
 
