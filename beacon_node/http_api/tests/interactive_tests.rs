@@ -133,13 +133,14 @@ pub struct ReOrgTest {
 impl Default for ReOrgTest {
     /// Default config represents a regular easy re-org.
     fn default() -> Self {
+        let spec = E::default_spec();
         Self {
             head_slot: Slot::new(E::slots_per_epoch() - 2),
             parent_distance: 1,
             head_distance: 1,
-            reorg_head_weight_threshold: 20,
-            reorg_parent_weight_threshold: 160,
-            reorg_max_epochs_since_finalization: 2,
+            reorg_head_weight_threshold: spec.reorg_head_weight_threshold,
+            reorg_parent_weight_threshold: spec.reorg_parent_weight_threshold,
+            reorg_max_epochs_since_finalization: spec.reorg_max_epochs_since_finalization,
             percent_parent_votes: 100,
             percent_empty_votes: 100,
             percent_head_votes: 0,
