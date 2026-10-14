@@ -15,9 +15,9 @@ use types::{
     Address, BuilderExitRequest, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
     ExecutionPayloadEnvelope, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName,
-    Hash256, MinimalEthSpec, ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
+    Hash256, ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
     SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedRoot, Slot, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    SignedProposerPreferences, SignedRoot, Slot, Spec, consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
@@ -44,10 +44,10 @@ use crate::{
     test_utils::{EphemeralHarnessType, fork_name_from_env, test_spec},
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
-/// Number of regular validators (must be >= min_genesis_active_validator_count for MinimalEthSpec).
+/// Number of regular validators (must be >= min_genesis_active_validator_count for the minimal preset).
 const NUM_VALIDATORS: usize = 64;
 /// Number of builders to register.
 const NUM_BUILDERS: usize = 4;

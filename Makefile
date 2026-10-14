@@ -222,8 +222,10 @@ run-ef-tests-minimal:
 # Run the tests in the `beacon_chain` crate for all known forks.
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
 
+# Run beacon chain tests on each preset.
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast --lib --test beacon_chain_tests
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,spec-minimal,$(TEST_FEATURES)" -p beacon_chain --no-fail-fast --lib --test beacon_chain_spec_minimal_tests
 
 # Run the tests in the `fork_choice` crate for all known forks.
 test-fork-choice: $(patsubst %,test-fork-choice-%,$(RECENT_FORKS))
@@ -234,8 +236,10 @@ test-fork-choice-%:
 # Run the tests in the `http_api` crate for recent forks.
 test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
 
+# Run http api tests on each preset.
 test-http-api-%:
-	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env" -p http_api
+	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env" -p http_api --lib --test bn_http_api_tests
+	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env,spec-minimal" -p http_api --lib --test bn_http_api_spec_minimal_tests
 
 
 # Run the tests in the `operation_pool` crate for all known forks.

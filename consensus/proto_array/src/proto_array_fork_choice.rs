@@ -52,6 +52,11 @@ impl VoteTracker {
     pub fn current_slot(&self) -> Slot {
         self.current_slot
     }
+
+    /// The payload status of this validator's latest message for a block at `block_slot`.
+    pub fn current_payload_status(&self, block_slot: Slot) -> PayloadStatus {
+        PayloadStatus::from_vote(self.current_slot, self.current_payload_present, block_slot)
+    }
 }
 
 // This impl is only used upon upgrade from pre-Gloas to Gloas with all pre-Gloas nodes.
@@ -573,11 +578,6 @@ impl std::fmt::Display for DoNotReOrg {
     }
 }
 
-/// New-type for the re-org threshold percentage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct ReOrgThreshold(pub u64);
-
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
@@ -821,23 +821,18 @@ impl ProtoArrayForkChoice {
     /// Get the block to propose on during `current_slot`.
     ///
     /// This function returns a *definitive* result which should be acted on.
-    #[allow(clippy::too_many_arguments)]
     pub fn get_proposer_head<E: EthSpec>(
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
-        re_org_head_threshold: ReOrgThreshold,
-        re_org_parent_threshold: ReOrgThreshold,
-        max_epochs_since_finalization: Epoch,
+        spec: &ChainSpec,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
             current_slot,
             canonical_head,
             justified_balances,
-            re_org_head_threshold,
-            re_org_parent_threshold,
-            max_epochs_since_finalization,
+            spec,
         )?;
 
         // Only re-org a single slot. This prevents cascading failures during asynchrony.
@@ -878,15 +873,12 @@ impl ProtoArrayForkChoice {
     /// Get information about the block to propose on during `current_slot`.
     ///
     /// This function returns a *partial* result which must be processed further.
-    #[allow(clippy::too_many_arguments)]
     pub fn get_proposer_head_info<E: EthSpec>(
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
-        re_org_head_threshold: ReOrgThreshold,
-        re_org_parent_threshold: ReOrgThreshold,
-        max_epochs_since_finalization: Epoch,
+        spec: &ChainSpec,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
             .proto_array
@@ -909,7 +901,7 @@ impl ProtoArrayForkChoice {
             .ok_or(DoNotReOrg::MissingHeadFinalizedCheckpoint)?
             .epoch;
         let epochs_since_finalization = proposal_epoch.saturating_sub(finalized_epoch).as_u64();
-        if epochs_since_finalization > max_epochs_since_finalization.as_u64() {
+        if epochs_since_finalization > spec.reorg_max_epochs_since_finalization {
             return Err(DoNotReOrg::ChainNotFinalizing {
                 epochs_since_finalization,
             }
@@ -935,12 +927,14 @@ impl ProtoArrayForkChoice {
 
         // Compute re-org weight thresholds for head and parent.
         let re_org_head_weight_threshold =
-            calculate_committee_fraction::<E>(justified_balances, re_org_head_threshold.0)
+            calculate_committee_fraction::<E>(justified_balances, spec.reorg_head_weight_threshold)
                 .ok_or(Error::ReOrgThresholdOverflow)?;
 
-        let re_org_parent_weight_threshold =
-            calculate_committee_fraction::<E>(justified_balances, re_org_parent_threshold.0)
-                .ok_or(Error::ReOrgThresholdOverflow)?;
+        let re_org_parent_weight_threshold = calculate_committee_fraction::<E>(
+            justified_balances,
+            spec.reorg_parent_weight_threshold,
+        )
+        .ok_or(Error::ReOrgThresholdOverflow)?;
 
         Ok(ProposerHeadInfo {
             head_node,
