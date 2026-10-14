@@ -72,6 +72,10 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore, Cold: ItemStore> {
     pub hot_db: Hot,
     /// LRU cache of deserialized blocks and blobs. Updated whenever a block or blob is loaded.
     block_cache: Option<Mutex<BlockCache<E>>>,
+    /// Cache of the `DataColumnCustodyInfo` DB item (`None` if absent from the DB).
+    ///
+    /// This is set on startup, so should always be `Some` for blob enabled networks.
+    data_column_custody_info_cache: RwLock<Option<DataColumnCustodyInfo>>,
     /// Cache of beacon states.
     ///
     /// LOCK ORDERING: this lock must always be locked *after* the `split` if both are required.
@@ -92,7 +96,6 @@ struct BlockCache<E: EthSpec> {
     block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
     blob_cache: LruCache<Hash256, BlobSidecarList<E>>,
     data_column_cache: LruCache<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>,
-    data_column_custody_info_cache: Option<DataColumnCustodyInfo>,
 }
 
 impl<E: EthSpec> BlockCache<E> {
@@ -101,7 +104,6 @@ impl<E: EthSpec> BlockCache<E> {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
             data_column_cache: LruCache::new(size),
-            data_column_custody_info_cache: None,
         }
     }
     pub fn put_block(&mut self, block_root: Hash256, block: SignedBeaconBlock<E>) {
@@ -115,12 +117,6 @@ impl<E: EthSpec> BlockCache<E> {
             .entry(block_root)
             .or_insert_with(Default::default)
             .insert(*data_column.index(), data_column);
-    }
-    pub fn put_data_column_custody_info(
-        &mut self,
-        data_column_custody_info: Option<DataColumnCustodyInfo>,
-    ) {
-        self.data_column_custody_info_cache = data_column_custody_info;
     }
     pub fn get_block<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a SignedBeaconBlock<E>> {
         self.block_cache.get(block_root)
@@ -138,9 +134,6 @@ impl<E: EthSpec> BlockCache<E> {
         self.data_column_cache
             .get(block_root)
             .and_then(|map| map.get(column_index).cloned())
-    }
-    pub fn get_data_column_custody_info(&self) -> Option<DataColumnCustodyInfo> {
-        self.data_column_custody_info_cache.clone()
     }
     pub fn delete_block(&mut self, block_root: &Hash256) {
         let _ = self.block_cache.remove(block_root);
@@ -235,6 +228,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore, MemoryStore> {
             hot_db: MemoryStore::open(),
             block_cache: (config.block_cache_size > 0)
                 .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
+            data_column_custody_info_cache: RwLock::new(None),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
@@ -278,15 +272,20 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend> {
         let anchor_info = RwLock::new(Self::load_anchor_info(&hot_db)?);
         debug!(?anchor_info, "Loaded anchor info");
 
+        let blobs_db = BeaconNodeBackend::open(&config, blobs_db_path)?;
+        let data_column_custody_info =
+            blobs_db.get::<DataColumnCustodyInfo>(&DATA_COLUMN_CUSTODY_INFO_KEY)?;
+
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
             anchor_info,
             data_info: RwLock::new(DataInfo::default()),
-            blobs_db: BeaconNodeBackend::open(&config, blobs_db_path)?,
+            blobs_db,
             cold_db: BeaconNodeBackend::open(&config, cold_path)?,
             hot_db,
             block_cache: (config.block_cache_size > 0)
                 .then(|| Mutex::new(BlockCache::new(config.block_cache_size))),
+            data_column_custody_info_cache: RwLock::new(data_column_custody_info),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
@@ -978,11 +977,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         self.blobs_db
             .put(&DATA_COLUMN_CUSTODY_INFO_KEY, &data_column_custody_info)?;
 
-        self.block_cache.as_ref().inspect(|cache| {
-            cache
-                .lock()
-                .put_data_column_custody_info(Some(data_column_custody_info))
-        });
+        *self.data_column_custody_info_cache.write() = Some(data_column_custody_info);
 
         Ok(())
     }
@@ -1645,6 +1640,10 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
 
                     StoreOp::DeleteBlobs(block_root) => {
                         guard.delete_blobs(&block_root);
+                    }
+
+                    StoreOp::DeleteDataColumns(block_root, _, _) => {
+                        guard.delete_data_columns(&block_root);
                     }
 
                     _ => (),
@@ -2589,27 +2588,9 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             })
     }
 
-    /// Fetch custody info from the cache.
-    /// If custody info doesn't exist in the cache,
-    /// try to fetch from the DB and prime the cache.
-    pub fn get_data_column_custody_info(&self) -> Result<Option<DataColumnCustodyInfo>, Error> {
-        if let Some(cache) = &self.block_cache
-            && let Some(data_column_custody_info) = cache.lock().get_data_column_custody_info()
-        {
-            return Ok(Some(data_column_custody_info));
-        }
-        let data_column_custody_info = self
-            .blobs_db
-            .get::<DataColumnCustodyInfo>(&DATA_COLUMN_CUSTODY_INFO_KEY)?;
-
-        // Update the cache
-        self.block_cache.as_ref().inspect(|cache| {
-            cache
-                .lock()
-                .put_data_column_custody_info(data_column_custody_info.clone())
-        });
-
-        Ok(data_column_custody_info)
+    /// Fetch custody info from the `data_column_custody_info_cache`.
+    pub fn get_data_column_custody_info(&self) -> Option<DataColumnCustodyInfo> {
+        self.data_column_custody_info_cache.read().clone()
     }
 
     /// Fetch all columns for a given block from the store.
@@ -3380,19 +3361,31 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
 
         // Iterate blocks backwards until we reach a block for which we've already pruned
         // blobs/columns.
+        let mut child_block: Option<SignedBlindedBeaconBlock<E>> = None;
         for tuple in ParentRootBlockIterator::new(self, end_block_root) {
             let (block_root, blinded_block) = tuple?;
             let slot = blinded_block.slot();
+            let fork_name = blinded_block.fork_name_unchecked();
+            let num_expected_blobs = blinded_block.num_expected_blobs();
+
+            // From Gloas the columns are stored with the payload envelope, so a block whose payload
+            // was never received has no columns even though its bid commits to blobs. The payload
+            // status of a block is recorded by its child, which was the previous block iterated.
+            let payload_received = match (&child_block, blinded_block.payload_bid_block_hash()) {
+                (Some(child), Ok(block_hash)) => child.is_parent_block_full(block_hash),
+                _ => false,
+            };
+            child_block = Some(blinded_block);
 
             // If the block has no blobs we can't tell if they've been pruned, and there is nothing
             // to prune, so we just skip.
-            if !blinded_block.message().body().has_blobs() {
+            if num_expected_blobs == 0 {
                 continue;
             }
 
             // Check if we have blobs or columns stored. If not, we assume pruning has already
             // reached this point.
-            let (db_column, db_keys) = if blinded_block.fork_name_unchecked().fulu_enabled() {
+            let (db_column, db_keys) = if fork_name.fulu_enabled() {
                 (
                     DBColumn::BeaconDataColumn,
                     self.get_all_data_column_keys(block_root),
@@ -3420,6 +3413,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     "Pruning blobs or columns for block"
                 );
                 removed_block_roots.push(block_root);
+            } else if fork_name.gloas_enabled() && !payload_received {
+                continue;
             } else {
                 debug!(
                     %slot,
