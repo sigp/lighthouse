@@ -4079,7 +4079,7 @@ async fn reproduction_unaligned_checkpoint_sync_pruned_payload() {
 #[tokio::test]
 async fn checkpoint_sync_unaligned_anchor_full_child_imports() {
     let spec = test_spec::<E>();
-    if !spec.fork_name_at_slot::<E>(Slot::new(1)).gloas_enabled() {
+    if !spec.is_gloas_scheduled() {
         return;
     }
 
