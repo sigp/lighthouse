@@ -99,9 +99,22 @@ fn get_harness_generic(
     chain_config: ChainConfig,
     node_custody_type: NodeCustodyType,
 ) -> TestHarness {
-    let harness = TestHarness::builder(Spec::default())
-        .spec(store.get_chain_spec().clone())
-        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+    let spec = store.get_chain_spec().clone();
+    let mut builder = TestHarness::builder(Spec::default())
+        .spec(spec.clone())
+        .keypairs(KEYPAIRS[0..validator_count].to_vec());
+    if spec
+        .heze_fork_epoch
+        .is_some_and(|epoch| epoch > E::genesis_epoch())
+        && spec.fork_name_at_slot::<E>(Slot::new(0)).electra_enabled()
+    {
+        builder = builder.with_genesis_state_builder(|genesis_builder| {
+            genesis_builder
+                .set_alternating_eth1_withdrawal_credentials()
+                .set_deposit_requests_start_index(validator_count as u64)
+        });
+    }
+    let harness = builder
         .fresh_disk_store(store)
         .mock_execution_layer()
         .chain_config(chain_config)
