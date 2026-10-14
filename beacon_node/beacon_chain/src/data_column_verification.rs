@@ -32,7 +32,7 @@ use types::data::{
     PartialDataColumnSidecarFulu, PartialDataColumnSidecarRef,
 };
 use types::{
-    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
+    BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, Epoch, EthSpec, Hash256,
     KzgCommitment, PartialDataColumnView, SignedBeaconBlockHeader, SignedExecutionPayloadBid, Slot,
 };
 
@@ -625,6 +625,11 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         if header.kzg_commitments.is_empty() {
             return Err(GossipDataColumnError::UnexpectedDataColumn.into());
         }
+        verify_commitments_len_within_max_blobs(
+            header.kzg_commitments.len(),
+            column_slot.epoch(E::slots_per_epoch()),
+            &chain.spec,
+        )?;
 
         let header_hash = header.signed_block_header.message.canonical_root();
         if group_id != header_hash {
@@ -653,7 +658,7 @@ impl<E: EthSpec> GossipVerifiedPartialDataColumnHeader<E> {
         };
         // Only cache the header if the block data is not already imported. This avoids
         // reintroducing (and regossiping) headers of already available blocks.
-        let newly_cached = if !chain.is_block_data_imported(group_id, column_slot) {
+        let newly_cached = if !chain.is_block_data_imported(group_id) {
             assembler.init(group_id, header.clone())
         } else {
             false
@@ -1505,6 +1510,21 @@ pub enum PartialColumnVerificationResult<E: EthSpec> {
     Err(GossipPartialDataColumnError),
 }
 
+fn verify_commitments_len_within_max_blobs(
+    commitments_len: usize,
+    epoch: Epoch,
+    spec: &ChainSpec,
+) -> Result<(), GossipDataColumnError> {
+    let max_blobs_per_block = spec.max_blobs_per_block(epoch) as usize;
+    if commitments_len > max_blobs_per_block {
+        return Err(GossipDataColumnError::MaxBlobsPerBlockExceeded {
+            max_blobs_per_block,
+            commitments_len,
+        });
+    }
+    Ok(())
+}
+
 fn verify_data_column_sidecar_with_commitments_len<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
     commitments_len: usize,
@@ -1522,14 +1542,7 @@ fn verify_data_column_sidecar_with_commitments_len<E: EthSpec>(
 
     let cells_len = data_column.column().len();
     let proofs_len = data_column.kzg_proofs().len();
-    let max_blobs_per_block = spec.max_blobs_per_block(data_column.epoch()) as usize;
-
-    if commitments_len > max_blobs_per_block {
-        return Err(GossipDataColumnError::MaxBlobsPerBlockExceeded {
-            max_blobs_per_block,
-            commitments_len,
-        });
-    }
+    verify_commitments_len_within_max_blobs(commitments_len, data_column.epoch(), spec)?;
 
     if cells_len != commitments_len {
         return Err(GossipDataColumnError::InconsistentCommitmentsLength {
@@ -1893,13 +1906,13 @@ mod test {
     use std::time::UNIX_EPOCH;
     use types::{
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSubnetId, EthSpec,
-        ForkName, Hash256, MainnetEthSpec, PartialDataColumn, PartialDataColumnFulu,
-        PartialDataColumnGloas, PartialDataColumnHeader, PartialDataColumnSidecarFulu,
-        PartialDataColumnSidecarGloas, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-        Slot, test_utils::test_unstructured,
+        ForkName, Hash256, PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas,
+        PartialDataColumnHeader, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas,
+        SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, Slot, Spec,
+        test_utils::test_unstructured,
     };
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     // TODO(gloas) make this generic over gloas/fulu
     #[tokio::test]

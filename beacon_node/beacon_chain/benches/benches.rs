@@ -9,7 +9,7 @@ use bls::Signature;
 use kzg::{KzgCommitment, KzgProof};
 use types::{
     BeaconBlock, BeaconBlockFulu, Blob, BlobsList, ChainSpec, EmptyBlock, EthSpec, KzgProofs,
-    MainnetEthSpec, SignedBeaconBlock, kzg_ext::KzgCommitments,
+    SignedBeaconBlock, Spec, kzg_ext::KzgCommitments,
 };
 
 fn create_test_block_and_blobs<E: EthSpec>(
@@ -37,7 +37,7 @@ fn create_test_block_and_blobs<E: EthSpec>(
 }
 
 fn all_benches(c: &mut Criterion) {
-    type E = MainnetEthSpec;
+    type E = Spec;
     let spec = Arc::new(E::default_spec());
 
     let kzg = get_kzg(&spec);
