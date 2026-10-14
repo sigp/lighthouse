@@ -4534,20 +4534,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
         }
 
-        // If the block is recent enough and it was not optimistically imported, check to see if it
-        // becomes the head block. If so, apply it to the early attester cache. This will allow
-        // attestations to the block without waiting for the block and state to be inserted to the
-        // database.
+        // If the block is recent enough, check to see if it becomes the head block. If so, apply it
+        // to the early attester cache. This will allow attestations to the block without waiting
+        // for the block and state to be inserted to the database.
         //
         // Only performing this check on recent blocks avoids slowing down sync with lots of calls
         // to fork choice `get_head`.
         //
-        // Optimistically imported blocks are not added to the cache since the cache is only useful
-        // for a small window of time and the complexity of keeping track of the optimistic status
-        // is not worth it.
-        if !payload_verification_status.is_optimistic()
-            && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
-        {
+        // A head whose payload an EL has not judged is not added to the cache, since the cache
+        // answers attestation requests without reaching `filter_optimistic_attestation`.
+        if block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot {
             let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE);
             match fork_choice.get_head(current_slot, &self.spec) {
                 // This block became the head, add it to the early attester cache.
@@ -4564,24 +4560,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             })?
                             .is_some_and(|status| status.is_optimistic_or_invalid());
 
-                        if let Err(e) = self.early_attester_cache.add_head_block(
-                            block_root,
-                            &signed_block,
-                            proto_block,
-                            &state,
-                        ) {
-                            warn!(
-                                error = ?e,
-                                "Early attester cache insert failed"
-                            );
-                        } else {
-                            let attestable_timestamp =
-                                self.slot_clock.now_duration().unwrap_or_default();
-                            self.block_times_cache.write().set_time_attestable(
+                        if !new_head_is_optimistic {
+                            if let Err(e) = self.early_attester_cache.add_head_block(
                                 block_root,
-                                signed_block.slot(),
-                                attestable_timestamp,
-                            )
+                                &signed_block,
+                                proto_block,
+                                &state,
+                            ) {
+                                warn!(
+                                    error = ?e,
+                                    "Early attester cache insert failed"
+                                );
+                            } else {
+                                let attestable_timestamp =
+                                    self.slot_clock.now_duration().unwrap_or_default();
+                                self.block_times_cache.write().set_time_attestable(
+                                    block_root,
+                                    signed_block.slot(),
+                                    attestable_timestamp,
+                                )
+                            }
                         }
 
                         // Register a server-sent-event for a new head.
@@ -4798,7 +4796,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block,
             block_root,
             block_time_imported,
-            payload_verification_status,
             current_slot,
         );
 
@@ -5104,7 +5101,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<T::EthSpec>,
         block_root: Hash256,
         block_time_imported: Duration,
-        payload_verification_status: PayloadVerificationStatus,
         current_slot: Slot,
     ) {
         // Only present some metrics for blocks from the previous epoch or later.
@@ -5141,12 +5137,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_block_subscribers()
         {
+            // A Gloas block runs no payload of its own; the verdict is its branch's.
+            let execution_optimistic = match self
+                .canonical_head
+                .fork_choice_read_lock()
+                .inherited_execution_status(&block_root)
+            {
+                Ok(Some(verdict)) => verdict.is_optimistic_or_invalid(),
+                // Unreachable: never claim a verification we could not read.
+                Ok(None) | Err(_) => true,
+            };
+
             // The bid is present on Gloas and later blocks, but not on earlier forks.
             let bid = block.body().signed_execution_payload_bid().ok();
             event_handler.register(EventKind::Block(SseBlock {
                 slot: block.slot(),
                 block: block_root,
-                execution_optimistic: payload_verification_status.is_optimistic(),
+                execution_optimistic,
                 builder_index: bid.as_ref().map(|bid| Quoted {
                     value: bid.message().builder_index(),
                 }),
