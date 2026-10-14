@@ -1328,7 +1328,7 @@ async fn attesting_to_optimistic_head() {
     get_aggregated_by_slot_and_root().unwrap();
 }
 
-/// `import_block` sees `PayloadVerificationStatus::Irrelevant` for a Gloas block, so only the
+/// `import_block` sees `PayloadVerificationStatus::PreMerge` for a Gloas block, so only the
 /// inherited verdict can keep an optimistic head out of the early attester cache, which answers an
 /// attestation request without reaching the optimistic filter.
 #[tokio::test]
