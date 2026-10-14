@@ -4,12 +4,17 @@ use std::time::Duration;
 use eth2::types::{EventKind, SseExecutionPayload, SseExecutionPayloadAvailable};
 use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
-use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
+use state_processing::{
+    VerifySignatures,
+    envelope_processing::{
+        verify_execution_payload_envelope, verify_execution_payload_envelope_at_slot,
+    },
+};
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
 use types::{
     BlockImportSource, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    SignedExecutionPayloadEnvelope,
 };
 
 use super::{
@@ -398,8 +403,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let split = self.store.get_split_info();
         if block_root == split.block_root && block.slot() < split.slot {
-            // The anchor's post-state isn't stored, so verify against the split state at its slot.
-            let mut state = self
+            // The anchor's post-state isn't stored, so verify against the split state.
+            let state = self
                 .store
                 .get_hot_state(&split.state_root, false)?
                 .ok_or_else(|| {
@@ -408,34 +413,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         split.state_root
                     ))
                 })?;
-            *state.slot_mut() = block.slot();
-            verify_execution_payload_envelope(
+            verify_execution_payload_envelope_at_slot(
                 &state,
                 &signed_envelope,
-                VerifySignatures::False,
+                VerifySignatures::True,
                 block.state_root(),
+                block.slot(),
                 &self.spec,
             )?;
-
-            let builder_index = signed_envelope.message.builder_index;
-            let pubkey = if builder_index == BUILDER_INDEX_SELF_BUILD {
-                state
-                    .get_validator(block.message().proposer_index() as usize)?
-                    .pubkey
-            } else {
-                state.get_builder(builder_index)?.pubkey
-            };
-            let pubkey = pubkey
-                .decompress()
-                .map_err(|_| EnvelopeError::BadSignature)?;
-            if !signed_envelope.verify_signature(
-                &pubkey,
-                &self.spec.fork_at_epoch(signed_envelope.epoch()),
-                state.genesis_validators_root(),
-                &self.spec,
-            ) {
-                return Err(EnvelopeError::BadSignature);
-            }
         } else {
             // Load the state snapshot for envelope processing
             let snapshot =

@@ -43,7 +43,10 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use ssz::Encode;
 use ssz_types::{ProgressiveVariableList, VariableList};
 use state_processing::{
-    BlockReplayer, VerifySignatures, envelope_processing::verify_execution_payload_envelope,
+    BlockReplayer, VerifySignatures,
+    envelope_processing::{
+        verify_execution_payload_envelope, verify_execution_payload_envelope_at_slot,
+    },
     state_advance::complete_state_advance,
 };
 use std::collections::HashMap;
@@ -4123,8 +4126,7 @@ async fn checkpoint_sync_unaligned_anchor_full_child_imports() {
         .get_state(&wss_block.state_root(), Some(wss_block.slot()), false)
         .unwrap()
         .unwrap();
-    let mut split_state = wss_state.clone();
-    *split_state.slot_mut() = wss_block.slot();
+    let split_state = &wss_state;
     let mut anchor_header = anchor_state.latest_block_header().clone();
     anchor_header.state_root = wss_block.state_root();
     assert_eq!(&anchor_header, split_state.latest_block_header());
@@ -4163,11 +4165,12 @@ async fn checkpoint_sync_unaligned_anchor_full_child_imports() {
         &spec,
     )
     .unwrap();
-    verify_execution_payload_envelope(
-        &split_state,
+    verify_execution_payload_envelope_at_slot(
+        split_state,
         &wss_envelope,
-        VerifySignatures::False,
+        VerifySignatures::True,
         wss_block.state_root(),
+        wss_block.slot(),
         &spec,
     )
     .unwrap();
