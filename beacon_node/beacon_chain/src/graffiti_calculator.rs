@@ -1,7 +1,9 @@
 use crate::BeaconChain;
 use crate::BeaconChainTypes;
 use eth2::types::GraffitiPolicy;
-use execution_layer::{CommitPrefix, ExecutionLayer, http::ENGINE_GET_CLIENT_VERSION_V1};
+use execution_layer::{
+    ClientCode, ClientVersionV1, CommitPrefix, ExecutionLayer, http::ENGINE_GET_CLIENT_VERSION_V1,
+};
 use logging::crit;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -13,6 +15,17 @@ use types::{EthSpec, GRAFFITI_BYTES_LEN, Graffiti};
 const ENGINE_VERSION_AGE_LIMIT_EPOCH_MULTIPLE: u32 = 6; // 6 epochs
 const ENGINE_VERSION_CACHE_REFRESH_EPOCH_MULTIPLE: u32 = 2; // 2 epochs
 const ENGINE_VERSION_CACHE_PRELOAD_STARTUP_DELAY: Duration = Duration::from_secs(60);
+
+/// Filters `engine_getClientVersionV1` results to execution-client versions.
+///
+/// Some ELs echo the caller's `ClientVersionV1` (e.g. Nethermind returns `[NM, LH]`).
+/// Ignoring those avoids treating a single EL as a multiplexer.
+fn el_versions_for_graffiti(versions: &[ClientVersionV1]) -> Vec<&ClientVersionV1> {
+    versions
+        .iter()
+        .filter(|version| version.code != ClientCode::Lighthouse)
+        .collect()
+}
 
 /// Represents the source and content of graffiti for block production, excluding
 /// inputs from the validator client and execution engine. Graffiti is categorized
@@ -112,7 +125,7 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                 let Some(execution_layer) = self.execution_layer.as_ref() else {
                     // No engine, so no engine version to advertise.
                     debug!("No execution layer to take a graffiti engine version from");
-                    return default_graffiti;
+                    return validator_graffiti.unwrap_or(default_graffiti);
                 };
 
                 // The engine version cache refresh service ensures this will almost always retrieve this data from the
@@ -127,25 +140,31 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                     Ok(engine_versions) => engine_versions,
                     Err(el_error) => {
                         warn!(error = ?el_error, "Failed to determine execution engine version for graffiti");
-                        return default_graffiti;
+                        return validator_graffiti.unwrap_or(default_graffiti);
                     }
                 };
 
-                let Some(engine_version) = engine_versions.first() else {
-                    // Got an empty array which indicates the EL doesn't support the method
-                    debug!(
-                        "Using default lighthouse graffiti: EL does not support {} method",
-                        ENGINE_GET_CLIENT_VERSION_V1
-                    );
-                    return default_graffiti;
+                let el_versions = el_versions_for_graffiti(&engine_versions);
+                let engine_version = match el_versions.as_slice() {
+                    [engine_version] => *engine_version,
+                    [] => {
+                        // Unsupported method, empty response, or only an echoed CL version.
+                        debug!(
+                            method = ENGINE_GET_CLIENT_VERSION_V1,
+                            "No usable execution engine version for graffiti"
+                        );
+                        return validator_graffiti.unwrap_or(default_graffiti);
+                    }
+                    _ => {
+                        // More than one EL version implies lighthouse is connected to
+                        // an EL multiplexer. We don't support modifying the graffiti
+                        // with these configurations.
+                        warn!(
+                            "Execution Engine multiplexer detected, not appending client versions"
+                        );
+                        return validator_graffiti.unwrap_or(default_graffiti);
+                    }
                 };
-                if engine_versions.len() != 1 {
-                    // More than one version implies lighthouse is connected to
-                    // an EL multiplexer. We don't support modifying the graffiti
-                    // with these configurations.
-                    warn!("Execution Engine multiplexer detected, using default graffiti");
-                    return default_graffiti;
-                }
 
                 let lighthouse_commit_prefix =
                     CommitPrefix::try_from(lighthouse_version::COMMIT_PREFIX.to_string())
@@ -248,13 +267,16 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
 
 #[cfg(test)]
 mod tests {
+    use super::el_versions_for_graffiti;
     use crate::ChainConfig;
     use crate::graffiti_calculator::GraffitiSettings;
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
     use bls::Keypair;
     use eth2::types::GraffitiPolicy;
-    use execution_layer::EngineCapabilities;
-    use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
+    use execution_layer::{
+        ClientCode, ClientVersionV1, CommitPrefix, EngineCapabilities,
+        test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES},
+    };
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::time::Duration;
@@ -265,6 +287,15 @@ mod tests {
     /// A cached set of keys.
     static KEYPAIRS: LazyLock<Vec<Keypair>> =
         LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
+
+    fn client_version(code: ClientCode, commit: &str) -> ClientVersionV1 {
+        ClientVersionV1 {
+            code,
+            name: "test".to_string(),
+            version: "0.1.0".to_string(),
+            commit: CommitPrefix::try_from(commit.to_string()).expect("valid commit prefix"),
+        }
+    }
 
     fn get_harness(
         validator_count: usize,
@@ -282,6 +313,36 @@ mod tests {
         harness.advance_slot();
 
         harness
+    }
+
+    #[test]
+    fn el_versions_for_graffiti_selection() {
+        let nethermind = client_version(ClientCode::Nethermind, "b3e7e84c");
+        let lighthouse = client_version(ClientCode::Lighthouse, "6db6ae9a");
+        let geth = client_version(ClientCode::GoEthereum, "abcdef01");
+        let besu = client_version(ClientCode::Besu, "12345678");
+
+        // Nethermind echoes the caller's ClientVersionV1.
+        let versions = [nethermind.clone(), lighthouse.clone()];
+        let el_versions = el_versions_for_graffiti(&versions);
+        assert_eq!(el_versions.len(), 1);
+        assert_eq!(el_versions[0].code, ClientCode::Nethermind);
+        let versions = [lighthouse.clone(), nethermind];
+        let el_versions = el_versions_for_graffiti(&versions);
+        assert_eq!(el_versions.len(), 1);
+        assert_eq!(el_versions[0].code, ClientCode::Nethermind);
+
+        let versions = [geth.clone()];
+        let el_versions = el_versions_for_graffiti(&versions);
+        assert_eq!(el_versions.len(), 1);
+        assert_eq!(el_versions[0].code, ClientCode::GoEthereum);
+        assert!(el_versions_for_graffiti(&[]).is_empty());
+        let versions = [lighthouse.clone()];
+        assert!(el_versions_for_graffiti(&versions).is_empty());
+        let versions = [geth.clone(), besu.clone()];
+        assert_eq!(el_versions_for_graffiti(&versions).len(), 2);
+        let versions = [geth, besu, lighthouse];
+        assert_eq!(el_versions_for_graffiti(&versions).len(), 2);
     }
 
     #[tokio::test]
@@ -327,6 +388,43 @@ mod tests {
         println!("graffiti_str:       '{}'", graffiti_str);
 
         assert!(lighthouse_version::VERSION.starts_with(graffiti_str));
+    }
+
+    #[tokio::test]
+    async fn append_policy_preserves_validator_graffiti_without_el_version_support() {
+        let spec = Arc::new(test_spec::<Spec>());
+        let harness = get_harness(VALIDATOR_COUNT, spec, None);
+        let mock_execution_layer = harness.mock_execution_layer.as_ref().unwrap();
+        mock_execution_layer
+            .server
+            .set_engine_capabilities(EngineCapabilities {
+                get_client_version_v1: false,
+                ..DEFAULT_ENGINE_CAPABILITIES
+            });
+        harness
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_engine_capabilities(Some(Duration::ZERO))
+            .await
+            .unwrap();
+
+        let graffiti_str = "keep my graffiti";
+        let mut graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
+        graffiti_bytes[..graffiti_str.len()].copy_from_slice(graffiti_str.as_bytes());
+        let validator_graffiti = Graffiti::from(graffiti_bytes);
+
+        let found_graffiti = harness
+            .chain
+            .graffiti_calculator
+            .get_graffiti(GraffitiSettings::Specified {
+                graffiti: validator_graffiti,
+                policy: GraffitiPolicy::AppendClientVersions,
+            })
+            .await;
+
+        assert_eq!(found_graffiti, validator_graffiti);
     }
 
     #[tokio::test]
