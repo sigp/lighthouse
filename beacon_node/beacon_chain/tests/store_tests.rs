@@ -264,7 +264,6 @@ fn make_light_client_update<E: EthSpec>(
     }
 }
 
-// TODO(EIP-7732) Extend to support gloas
 #[tokio::test]
 async fn light_client_bootstrap_test() {
     let spec = test_spec::<E>();
@@ -272,10 +271,6 @@ async fn light_client_bootstrap_test() {
         // No-op prior to Altair.
         return;
     };
-    // TODO(EIP-7732): Light client not yet implemented for Gloas.
-    if spec.is_gloas_scheduled() {
-        return;
-    }
 
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
@@ -331,10 +326,6 @@ async fn light_client_updates_test() {
         // No-op prior to Altair.
         return;
     };
-    // TODO(EIP-7732): Light client not yet implemented for Gloas.
-    if spec.is_gloas_scheduled() {
-        return;
-    }
 
     let num_final_blocks = E::slots_per_epoch() * 2;
     let db_path = tempdir().unwrap();
@@ -405,10 +396,6 @@ async fn get_light_client_updates_crosses_256_period_boundary() {
     let spec = test_spec::<E>();
     if spec.altair_fork_epoch.is_none() {
         // No-op prior to Altair.
-        return;
-    }
-
-    if spec.is_gloas_scheduled() {
         return;
     }
 
@@ -5699,9 +5686,6 @@ async fn light_client_update_schema_v30_migration() {
     let spec = test_spec::<E>();
     if spec.altair_fork_epoch.is_none() {
         // No-op prior to Altair.
-        return;
-    }
-    if spec.is_gloas_scheduled() {
         return;
     }
 
