@@ -150,6 +150,7 @@ pub enum InvariantViolation {
     ///
     /// ```text
     /// block in hot_db && num_blob_commitments > 0
+    ///   && (pre-Gloas || payload_summary in hot_db)
     ///   && block.slot >= earliest_available_slot
     ///   && data_column_idx in custody_columns
     ///   -> (block_root, data_column_idx) in hot_db
@@ -406,8 +407,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             .spec
             .gloas_fork_epoch
             .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
-        let oldest_blob_slot = self.get_blob_info().oldest_blob_slot;
-        let oldest_data_column_slot = self.get_data_column_info().oldest_data_column_slot;
+        let oldest_data_slot = self.get_data_info().oldest_data_slot;
 
         for res in self.hot_db.iter_column::<Hash256>(DBColumn::BeaconBlock) {
             let (block_root, block_bytes) = res?;
@@ -446,9 +446,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             // Only check blocks that actually have blob KZG commitments — blocks with 0
             // commitments legitimately have no blob sidecars stored.
             if let Some(deneb_slot) = deneb_fork_slot
-                && let Some(oldest_blob) = oldest_blob_slot
                 && slot >= deneb_slot
-                && slot >= oldest_blob
+                && slot >= oldest_data_slot
                 && fulu_fork_slot.is_none_or(|fulu_slot| slot < fulu_slot)
                 && block.num_expected_blobs() > 0
             {
@@ -463,14 +462,15 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
 
             // Invariant 7: data column consistency.
             // Only check blocks that actually have blob KZG commitments.
-            // TODO(gloas): reconsider this invariant — non-canonical payloads won't have
-            // their data column sidecars stored.
+            // Gloas columns are stored with envelopes. Without a summary, the payload may
+            // never have arrived or may have been pruned after finalizing as EMPTY.
             if !ctx.custody_columns.is_empty()
                 && let Some(fulu_slot) = fulu_fork_slot
-                && let Some(oldest_dc) = oldest_data_column_slot
                 && slot >= fulu_slot
-                && slot >= oldest_dc
+                && slot >= oldest_data_slot
                 && block.num_expected_blobs() > 0
+                && (!block.fork_name_unchecked().gloas_enabled()
+                    || self.payload_envelope_summary_exists(&block_root)?)
             {
                 let stored_columns = self.get_data_column_keys(block_root)?;
                 for col_idx in &ctx.custody_columns {
