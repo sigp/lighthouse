@@ -1,4 +1,5 @@
 use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
@@ -3495,11 +3496,7 @@ impl ApiTester {
 
         assert_eq!(response.data(), &vec![signed]);
 
-        let current_slot = self.chain.slot().unwrap();
-        assert_eq!(
-            response.version(),
-            Some(self.chain.spec.fork_name_at_slot::<E>(current_slot))
-        );
+        assert_eq!(response.version(), Some(ForkName::Gloas));
 
         self
     }
@@ -11387,6 +11384,41 @@ async fn get_beacon_proposer_preferences() {
         .await
         .test_get_beacon_proposer_preferences_ssz()
         .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_proposer_preferences_before_gloas() {
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(Epoch::new(6));
+    let config = ApiTesterConfig {
+        spec,
+        ..<_>::default()
+    };
+    let tester = ApiTester::new_from_config(config).await;
+
+    assert_eq!(
+        tester
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(tester.chain.slot().unwrap()),
+        ForkName::Fulu
+    );
+    let mut signed = SignedProposerPreferences::empty();
+    signed.message.proposal_slot = Epoch::new(6).start_slot(E::slots_per_epoch());
+    tester
+        .chain
+        .gossip_verified_proposer_preferences_cache
+        .insert_preferences(GossipVerifiedProposerPreferences {
+            signed_preferences: Arc::new(signed.clone()),
+        });
+
+    let response = tester
+        .client
+        .get_beacon_proposer_preferences(Some(signed.message.proposal_slot), None)
+        .await
+        .unwrap();
+    assert_eq!(response.data(), &vec![signed]);
+    assert_eq!(response.version(), Some(ForkName::Gloas));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
