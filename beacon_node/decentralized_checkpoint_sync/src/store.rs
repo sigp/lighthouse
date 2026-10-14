@@ -15,6 +15,8 @@ use types::{
 ///
 /// Initialization and processing may retain older wire variants within a newer schema ceiling.
 /// [`upgrade_light_client_store`] explicitly normalizes stored objects to a chosen data format.
+/// Strict checkpoint callers recover from stalled synchronization by reinitializing from an
+/// independently trusted recent finalized block root, without invoking force updates.
 /// The checkpoint header is tracked separately because the spec permits force updates to change
 /// `finalized_header` without establishing supermajority finality.
 #[derive(Debug)]
@@ -24,8 +26,9 @@ pub struct LightClientStore<E: EthSpec> {
     optimistic_header: LightClientHeader<E>,
     current_sync_committee: Arc<SyncCommittee<E>>,
     next_sync_committee: Option<Arc<SyncCommittee<E>>>,
-    // Separate from spec state: a committee learned through force update cannot authenticate
-    // checkpoints, even if a subsequent signature has supermajority participation.
+    // Track provenance when the spec force-update primitive is exercised (e.g. by conformance
+    // tests). Strict checkpoint callers do not force-update; these flags keep fallback state
+    // from granting checkpoint trust if the primitive is explicitly invoked.
     current_sync_committee_authenticated: bool,
     next_sync_committee_authenticated: bool,
     best_valid_update: Option<LightClientUpdate<E>>,
@@ -284,8 +287,9 @@ pub fn process_light_client_update<E: EthSpec>(
         store.optimistic_header = view.attested_header;
     }
 
-    // An independently authenticated proof can confirm a committee previously learned by force.
-    // Do not let that committee authenticate itself via a next-period signature.
+    // Preserve provenance for spec fallback: only an independently authenticated proof can
+    // confirm a force-learned committee. Its own next-period signature cannot do so.
+    // Strict checkpoint callers recover by reinitializing from a trusted root, without forcing.
     if has_authenticated_supermajority
         && has_finality
         && has_next_committee
@@ -321,11 +325,15 @@ pub fn process_light_client_update<E: EthSpec>(
 
 /// Apply the best validated update after strictly more than one committee period without finality.
 ///
-/// This optional liveness fallback follows [consensus-specs v1.7.0-alpha.14 force update]. It may
-/// promote the cached attested header into the spec's finalized field, but never into the verified
-/// checkpoint. Committees newly learned here remain unauthenticated for checkpoint purposes.
-/// A later supermajority from an unauthenticated committee cannot repair that trust chain; use an
-/// independent proof from an authenticated committee or reinitialize from a trusted bootstrap.
+/// This primitive follows [consensus-specs v1.7.0-alpha.14 force update] and is retained for
+/// conformance testing. Strict checkpoint callers must not invoke it: if synchronization stalls,
+/// obtain a recent finalized block root from an independent trusted source and reinitialize with
+/// [`crate::initialize_light_client_store`]. Recovery is scheduled by the caller.
+///
+/// Exercising this primitive may promote the cached attested header into the spec's finalized
+/// field, but never into the verified checkpoint. Newly learned committees remain unauthenticated
+/// for checkpoint purposes, so this API does not provide a lax checkpoint mode. A subsequent
+/// supermajority from such a committee is insufficient to advance the verified checkpoint.
 ///
 /// `current_slot` must come from the local clock, and `spec` must be the same trusted configuration
 /// used to validate updates. No cached update or an unexpired timeout leaves every field unchanged.
