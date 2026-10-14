@@ -3295,6 +3295,21 @@ where
         block_root: Hash256,
         block_contents: SignedBlockContentsTuple<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError> {
+        let block_hash = self
+            .process_block_without_recomputing_head(slot, block_root, block_contents)
+            .await?;
+        self.chain.recompute_head_at_current_slot().await;
+        Ok(block_hash)
+    }
+
+    /// `Self::process_block` without the head recomputation, which leaves the block in the early
+    /// attester cache.
+    pub async fn process_block_without_recomputing_head(
+        &self,
+        slot: Slot,
+        block_root: Hash256,
+        block_contents: SignedBlockContentsTuple<E>,
+    ) -> Result<SignedBeaconBlockHash, BlockError> {
         self.set_current_slot(slot);
         let (block, blob_items) = block_contents;
         // Determine if block is available: it's available if it doesn't require blobs,
@@ -3330,7 +3345,6 @@ where
             .expect("block blobs are available")
         };
 
-        self.chain.recompute_head_at_current_slot().await;
         Ok(block_hash)
     }
 

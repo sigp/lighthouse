@@ -249,17 +249,6 @@ pub enum PayloadVerificationStatus {
     Irrelevant,
 }
 
-impl PayloadVerificationStatus {
-    /// Returns `true` if the payload was optimistically imported.
-    pub fn is_optimistic(&self) -> bool {
-        match self {
-            PayloadVerificationStatus::Verified => false,
-            PayloadVerificationStatus::Optimistic => true,
-            PayloadVerificationStatus::Irrelevant => false,
-        }
-    }
-}
-
 /// Calculate how far `slot` lies from the start of its epoch.
 ///
 /// ## Specification
