@@ -10,7 +10,7 @@ use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    AbstractExecPayload, ExecutionBlockHash,
+    AbstractExecPayload, BeaconBlockBodyRef, ExecutionBlockHash,
     block::{BeaconBlockBody, BeaconBlockHeader, SignedBlindedBeaconBlock},
     core::{ChainSpec, EthSpec, Hash256},
     execution::{
@@ -367,8 +367,7 @@ impl<E: EthSpec> LightClientHeaderGloas<E> {
             .message
             .parent_block_hash;
 
-        let beacon_block_body = BeaconBlockBody::from(body_gloas.to_owned());
-        let execution_branch = Self::execution_block_hash_merkle_proof(&beacon_block_body)?;
+        let execution_branch = Self::execution_block_hash_merkle_proof(block.message().body())?;
 
         Ok(LightClientHeaderGloas {
             beacon: block.message().block_header(),
@@ -379,11 +378,9 @@ impl<E: EthSpec> LightClientHeaderGloas<E> {
     }
 
     fn execution_block_hash_merkle_proof<Payload: AbstractExecPayload<E>>(
-        beacon_block_body: &BeaconBlockBody<E, Payload>,
+        beacon_block_body: BeaconBlockBodyRef<'_, E, Payload>,
     ) -> Result<Vec<Hash256>, LightClientError> {
-        Ok(beacon_block_body
-            .to_ref()
-            .block_body_merkle_proof(EXECUTION_BLOCK_HASH_INDEX_GLOAS)?)
+        Ok(beacon_block_body.block_body_merkle_proof(EXECUTION_BLOCK_HASH_INDEX_GLOAS)?)
     }
 }
 
