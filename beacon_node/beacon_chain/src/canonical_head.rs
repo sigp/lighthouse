@@ -365,7 +365,7 @@ impl<E: EthSpec> CachedHead<E> {
             self.snapshot
                 .beacon_state
                 .latest_execution_payload_bid()
-                .map(|bid| bid.prev_randao)
+                .map(|bid| bid.prev_randao())
         } else {
             block.body().execution_payload().map(|p| p.prev_randao())
         }
@@ -1388,7 +1388,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let confirmed_root = fcr.get_restart_resilient_confirmed_root::<T::EthSpec>(
             head_root,
-            &finalized_cp,
             current_slot,
             proto_array,
         )?;

@@ -486,38 +486,6 @@ pub fn process_proposer_slashings<E: EthSpec>(
             verify_proposer_slashing(proposer_slashing, state, verify_signatures, spec)
                 .map_err(|e| e.into_with_index(i))?;
 
-            // [New in Gloas:EIP7732]
-            // Remove the BuilderPendingPayment corresponding to this proposal
-            // if it is still in the 2-epoch window. Only clear it when the slashed validator is
-            // the proposer associated with the payment; otherwise an unrelated same-slot
-            // equivocation could grief an honest proposer's payment.
-            if state.fork_name_unchecked().gloas_enabled() {
-                let slot = proposer_slashing.signed_header_1.message.slot;
-                let proposal_epoch = slot.epoch(E::slots_per_epoch());
-                let slot_in_epoch = slot.as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?;
-
-                let payment_index = if proposal_epoch == state.current_epoch() {
-                    Some(E::SlotsPerEpoch::to_usize().safe_add(slot_in_epoch)?)
-                } else if proposal_epoch == state.previous_epoch() {
-                    Some(slot_in_epoch)
-                } else {
-                    None
-                };
-
-                if let Some(index) = payment_index {
-                    let payment = state
-                        .builder_pending_payments_mut()?
-                        .get_mut(index)
-                        .ok_or(BlockProcessingError::BuilderPaymentIndexOutOfBounds(index))?;
-
-                    if payment.proposer_index
-                        == proposer_slashing.signed_header_1.message.proposer_index
-                    {
-                        *payment = BuilderPendingPayment::default();
-                    }
-                }
-            }
-
             slash_validator(
                 state,
                 proposer_slashing.signed_header_1.message.proposer_index as usize,

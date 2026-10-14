@@ -106,11 +106,7 @@ fn get_subnet_service() -> SubnetService<TestBeaconChainType> {
 
     let beacon_chain = CHAIN.chain.clone();
 
-    SubnetService::new(
-        beacon_chain,
-        lighthouse_network::discv5::enr::NodeId::random(),
-        &config,
-    )
+    SubnetService::new(beacon_chain, enr::NodeId::random(), &config)
 }
 
 // gets a number of events from the subscription service, or returns none if it times out after a

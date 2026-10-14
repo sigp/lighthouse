@@ -262,7 +262,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     .body()
                     .signed_execution_payload_bid()
                     .ok()
-                    .map(|bid| bid.message.block_hash)
+                    .map(|bid| bid.message().block_hash())
             })
     }
 
