@@ -60,6 +60,11 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
     pub async fn notify_new_payload(
         self,
     ) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
+        // EIP-8025: the proofs are this payload's validity, so the execution layer is not asked.
+        if self.chain.execution_proofs_enabled() {
+            return Ok(PayloadVerificationStatus::Optimistic);
+        }
+
         if let Some(precomputed_status) = self.payload_verification_status {
             Ok(precomputed_status)
         } else {

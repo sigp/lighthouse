@@ -1,5 +1,5 @@
-FROM rust:1.88.0-bookworm AS builder
-RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev
+FROM rust:1.91.0-bookworm AS builder
+RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev clang
 ARG FEATURES
 ARG PROFILE=release
 ARG CARGO_USE_GIT_CLI=true
