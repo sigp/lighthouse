@@ -930,11 +930,6 @@ pub fn get_beacon_state_leaves<T: BeaconChainTypes>(
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let (mut state, execution_optimistic, finalized) = state_id.state(&chain)?;
                     let fork_name = state.fork_name_unchecked();
-                    if !fork_name.gloas_enabled() {
-                        return Err(warp_utils::reject::custom_bad_request(
-                            "State leaves are not supported before the Gloas fork".into(),
-                        ));
-                    }
 
                     // Hashing a tree list with unapplied mutations panics.
                     state
