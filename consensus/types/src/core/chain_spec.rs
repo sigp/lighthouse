@@ -5210,19 +5210,20 @@ mod slot_duration_schedule_properties {
     }
 
     fn to_schedule(entries: &[(u64, u64)]) -> SlotDurationSchedule {
-        SlotDurationSchedule::new(
+        ChainSpec::slot_duration_schedule_from(
             entries
                 .iter()
-                .map(|&(epoch, slot_duration_ms)| SlotDurationScheduleEntry {
-                    epoch: Epoch::new(epoch),
-                    slot_duration_ms,
-                })
-                .collect(),
+                .map(|&(epoch, slot_duration_ms)| (Epoch::new(epoch), slot_duration_ms)),
         )
     }
 
     fn epoch() -> impl Strategy<Value = u64> {
-        prop_oneof![1u64..200, 1u64..u64::MAX / SLOTS_PER_EPOCH, Just(u64::MAX)]
+        prop_oneof![
+            0u64..4,
+            1u64..200,
+            1u64..u64::MAX / SLOTS_PER_EPOCH,
+            Just(u64::MAX)
+        ]
     }
 
     fn slot_duration_ms() -> impl Strategy<Value = u64> {
@@ -5238,7 +5239,6 @@ mod slot_duration_schedule_properties {
                 let mut entries = vec![(0, genesis_slot_duration_ms)];
                 entries.extend(later);
                 entries.sort_by_key(|&(epoch, _)| epoch);
-                entries.dedup_by_key(|&mut (epoch, _)| epoch);
                 entries
             })
     }
