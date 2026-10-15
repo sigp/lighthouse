@@ -3873,7 +3873,7 @@ where
         .await
     }
 
-    fn update_light_client_server_cache(
+    pub fn update_light_client_server_cache(
         &self,
         state: &BeaconState<E>,
         slot: Slot,
