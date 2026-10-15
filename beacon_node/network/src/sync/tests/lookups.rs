@@ -90,6 +90,14 @@ pub struct SimulateConfig {
     range_non_faulty_failures: usize,
     /// Number of BlocksByRange requests that return empty (no blocks)
     return_no_range_blocks_n_times: usize,
+    /// Number of BlocksByRange responses that drop a block from the middle, so the segment's
+    /// parent roots do not chain. Only the first batch requested is gapped.
+    return_gapped_range_blocks_n_times: usize,
+    /// Start slot of the batch picked by `return_gapped_range_blocks_n_times`.
+    gapped_range_start_slot: Option<u64>,
+    /// Slots dropped above. Their blobs are dropped too, so the batch fails on processing
+    /// rather than on coupling.
+    gapped_range_slots: HashSet<Slot>,
     /// Number of DataColumnsByRange requests that return empty (no columns)
     return_no_range_columns_n_times: usize,
     /// Number of DataColumnsByRange requests that return columns with unrequested indices
@@ -195,6 +203,11 @@ impl SimulateConfig {
 
     pub(super) fn with_no_range_blocks_n_times(mut self, n: usize) -> Self {
         self.return_no_range_blocks_n_times = n;
+        self
+    }
+
+    pub(super) fn with_gapped_range_blocks_n_times(mut self, n: usize) -> Self {
+        self.return_gapped_range_blocks_n_times = n;
         self
     }
 
@@ -710,13 +723,29 @@ impl TestRig {
                     self.complete_strategy.return_no_range_blocks_n_times -= 1;
                     self.send_rpc_blocks_response(req_id, peer_id, &[]);
                 } else {
-                    let blocks = (*req.start_slot()..req.start_slot() + req.count())
+                    let mut blocks = (*req.start_slot()..req.start_slot() + req.count())
                         .filter_map(|slot| {
                             self.network_blocks_by_slot
                                 .get(&Slot::new(slot))
                                 .map(|block| block.block_cloned())
                         })
                         .collect::<Vec<_>>();
+                    // Drop the second block, so the third block's parent root no longer matches
+                    // its predecessor.
+                    if self.complete_strategy.return_gapped_range_blocks_n_times > 0
+                        && blocks.len() > 2
+                    {
+                        let gapped_start_slot = *self
+                            .complete_strategy
+                            .gapped_range_start_slot
+                            .get_or_insert(*req.start_slot());
+                        if gapped_start_slot == *req.start_slot() {
+                            self.complete_strategy.return_gapped_range_blocks_n_times -= 1;
+                            self.complete_strategy
+                                .gapped_range_slots
+                                .insert(blocks.remove(1).slot());
+                        }
+                    }
                     self.send_rpc_blocks_response(req_id, peer_id, &blocks);
                 }
 
@@ -744,6 +773,12 @@ impl TestRig {
                 // - The genesis block never has blobs
                 // - Some blocks may not have blobs as the blob count is random
                 let blobs = (req.start_slot..req.start_slot + req.count)
+                    .filter(|slot| {
+                        !self
+                            .complete_strategy
+                            .gapped_range_slots
+                            .contains(&Slot::new(*slot))
+                    })
                     .filter_map(|slot| self.network_blocks_by_slot.get(&Slot::new(slot)))
                     .filter_map(|block| block.block_data().blobs())
                     .flat_map(|blobs| blobs.into_iter())
