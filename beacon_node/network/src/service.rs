@@ -898,11 +898,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             self.next_digest_update = Box::pin(next_digest_delay(&self.beacon_chain).into());
 
             // Set the next_unsubscribe delay.
-            let unsubscribe_delay = Duration::from_secs(
-                UNSUBSCRIBE_DELAY_EPOCHS
-                    * self.beacon_chain.spec.get_slot_duration().as_secs()
-                    * T::EthSpec::slots_per_epoch(),
-            );
+            let unsubscribe_delay = self.beacon_chain.slot_clock.current_slot_duration()
+                * (UNSUBSCRIBE_DELAY_EPOCHS * T::EthSpec::slots_per_epoch()) as u32;
 
             // Update the `next_topic_subscriptions` timer if the next change in the fork digest is known.
             // A zero delay subscribes right away.
@@ -1657,10 +1654,17 @@ fn next_digest_delay<T: BeaconChainTypes>(
 fn duration_to_next_topic_subscriptions<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Option<Duration> {
-    let (_, duration_to_digest) = beacon_chain.duration_to_next_digest()?;
-    let subscribe_delay = beacon_chain.spec.get_slot_duration()
-        * (SUBSCRIBE_DELAY_EPOCHS * T::EthSpec::slots_per_epoch()) as u32;
-    Some(duration_to_digest.saturating_sub(subscribe_delay))
+    let (digest_epoch, _) = beacon_chain.duration_to_next_digest()?;
+    let subscription_slot = digest_epoch
+        .start_slot(T::EthSpec::slots_per_epoch())
+        .saturating_sub(SUBSCRIBE_DELAY_EPOCHS * T::EthSpec::slots_per_epoch());
+    // `duration_to_slot` is `None` when the subscription slot has passed.
+    Some(
+        beacon_chain
+            .slot_clock
+            .duration_to_slot(subscription_slot)
+            .unwrap_or_default(),
+    )
 }
 
 impl<T: BeaconChainTypes> Drop for NetworkService<T> {

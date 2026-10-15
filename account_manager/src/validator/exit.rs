@@ -102,7 +102,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let client = BeaconNodeHttpClient::new(
         SensitiveUrl::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
-        Timeouts::set_all(env.eth2_config.spec.get_slot_duration()),
+        Timeouts::set_all(env.eth2_config.spec.genesis_slot_duration()),
     );
 
     let eth2_network_config = env
@@ -227,10 +227,12 @@ async fn publish_voluntary_exit<E: EthSpec>(
         return Ok(());
     }
 
+    let slot_clock =
+        SystemTimeSlotClock::from_spec::<E>(Duration::from_secs(genesis_data.genesis_time), spec);
     loop {
         // Sleep for a slot duration and then check if voluntary exit was processed
         // by checking the validator status.
-        sleep(spec.get_slot_duration()).await;
+        sleep(slot_clock.current_slot_duration()).await;
 
         let validator_data = get_validator_data(client, &keypair.pk).await?;
         match validator_data.status {
@@ -251,9 +253,15 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 eprintln!("Please keep your validator running till exit epoch");
                 eprintln!(
                     "Exit epoch in approximately {} secs",
-                    (exit_epoch - current_epoch)
-                        * spec.get_slot_duration().as_secs()
-                        * E::slots_per_epoch()
+                    spec.compute_time_at_slot::<E>(0, exit_epoch.start_slot(E::slots_per_epoch()))
+                        .unwrap_or(u64::MAX)
+                        .saturating_sub(
+                            spec.compute_time_at_slot::<E>(
+                                0,
+                                current_epoch.start_slot(E::slots_per_epoch())
+                            )
+                            .unwrap_or(0)
+                        )
                 );
                 break;
             }

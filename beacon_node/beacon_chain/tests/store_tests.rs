@@ -7413,7 +7413,11 @@ async fn test_safely_backfill_data_column_custody_info() {
 
     let epoch_before_increase = Epoch::new(start_epochs);
     let effective_delay_slots = CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS
-        / harness.chain.spec.get_slot_duration().as_secs();
+        / (harness
+            .chain
+            .spec
+            .get_slot_duration_ms(epoch_before_increase)
+            / 1000);
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
 
@@ -7974,7 +7978,6 @@ async fn bellatrix_produce_and_store_payloads() {
     use beacon_chain::test_utils::{
         DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME, InteropGenesisBuilder,
     };
-    use safe_arith::SafeArith;
     use state_processing::per_block_processing::is_merge_transition_complete;
     use tree_hash::TreeHash;
 
@@ -8065,13 +8068,9 @@ async fn bellatrix_produce_and_store_payloads() {
             .build_caches(&harness.spec)
             .expect("should build caches");
 
-        let timestamp = pre_state
-            .genesis_time()
-            .safe_add(
-                slot.as_u64()
-                    .safe_mul(harness.spec.get_slot_duration().as_secs())
-                    .unwrap(),
-            )
+        let timestamp = harness
+            .spec
+            .compute_time_at_slot::<E>(pre_state.genesis_time(), slot)
             .unwrap();
         let prev_randao = *pre_state.get_randao_mix(pre_state.current_epoch()).unwrap();
 

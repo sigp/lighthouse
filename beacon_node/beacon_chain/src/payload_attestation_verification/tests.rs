@@ -51,7 +51,7 @@ impl TestContext {
         harness
             .chain
             .slot_clock
-            .set_current_time(harness.spec.get_slot_duration());
+            .set_current_time(harness.spec.genesis_slot_duration());
         let genesis_block_root = harness.chain.genesis_block_root;
 
         Self {

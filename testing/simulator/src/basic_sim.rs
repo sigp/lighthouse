@@ -174,7 +174,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let latest_fork_version = spec.gloas_fork_version;
     let latest_fork_start_epoch = GLOAS_FORK_EPOCH;
 
-    let mut slot_duration_ms = spec.get_slot_duration().as_millis() as u64;
+    let mut slot_duration_ms = spec.genesis_slot_duration().as_millis() as u64;
     slot_duration_ms /= speed_up_factor;
     slot_duration_ms = max(1_000, slot_duration_ms);
     spec = spec.set_slot_duration_ms::<MinimalEthSpec>(slot_duration_ms);
@@ -192,7 +192,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
-    let slot_duration = spec.get_slot_duration();
+    let slot_duration = spec.genesis_slot_duration();
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
 

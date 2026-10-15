@@ -43,7 +43,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network: Arc<NetworkGlobals<T::EthSpec>>,
-    slot_duration: Duration,
 ) -> Result<(), String> {
     let speedo = Mutex::new(Speedo::default());
 
@@ -60,6 +59,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     let interval_future = async move {
         // Perform pre-genesis logging.
         loop {
+            let slot_duration = beacon_chain.slot_clock.current_slot_duration();
             match beacon_chain.slot_clock.duration_to_next_slot() {
                 // If the duration to the next slot is greater than the slot duration, then we are
                 // waiting for genesis.
@@ -82,12 +82,19 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
         let mut last_custody_backfill_log_slot = None;
 
         loop {
+            let slot_clock = &beacon_chain.slot_clock;
+            let slot_duration = slot_clock.current_slot_duration();
             // Run the notifier half way through each slot.
             //
             // Keep remeasuring the offset rather than using an interval, so that we can correct
             // for system time clock adjustments.
-            let wait = match beacon_chain.slot_clock.duration_to_next_slot() {
-                Some(duration) => duration + slot_duration / 2,
+            let wait = match slot_clock.duration_to_next_slot() {
+                Some(duration) => {
+                    let next_slot_duration = slot_clock
+                        .now()
+                        .map_or(slot_duration, |slot| slot_clock.slot_duration_at(slot + 1));
+                    duration + next_slot_duration / 2
+                }
                 None => {
                     warn!("Unable to read current slot");
                     sleep(slot_duration).await;
@@ -497,7 +504,7 @@ fn find_next_fork_to_prepare<T: BeaconChainTypes>(
         if let Some(fork_epoch) = fork_epoch {
             let fork_slot = fork_epoch.start_slot(T::EthSpec::slots_per_epoch());
             let preparation_slots = FORK_READINESS_PREPARATION_SECONDS
-                / beacon_chain.spec.get_slot_duration().as_secs();
+                / beacon_chain.slot_clock.current_slot_duration().as_secs();
             let in_fork_preparation_period = current_slot + preparation_slots > fork_slot;
             if in_fork_preparation_period {
                 return Some(*fork);
