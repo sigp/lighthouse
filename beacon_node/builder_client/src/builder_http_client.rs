@@ -321,11 +321,11 @@ mod tests {
     use super::*;
     use arbitrary::Arbitrary;
     use eth2::types::beacon_response::EmptyMetadata;
-    use eth2::types::{ForkName, MainnetEthSpec, SignedExecutionPayloadBidGloas};
+    use eth2::types::{ForkName, SignedExecutionPayloadBidGloas, Spec};
     use mockito::{Matcher, Server, ServerGuard};
     use std::str::FromStr;
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn client_for() -> BuilderHttpClient {
         BuilderHttpClient::new(None, false).unwrap()
