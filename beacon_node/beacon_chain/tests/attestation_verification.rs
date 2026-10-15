@@ -2322,3 +2322,87 @@ async fn unaggregated_attestation_bogus_attester_index_not_sent_to_slasher() {
         "slasher queue length must not change — bogus attestation must not be forwarded"
     );
 }
+
+/// Regression test for https://github.com/sigp/lighthouse/issues/10086:
+/// mutating only `SingleAttestation.committee_index` must not grow the slasher ingress queue
+/// after the original indexed attestation was accepted.
+#[tokio::test]
+async fn unaggregated_attestation_committee_index_replay_does_not_grow_slasher_queue() {
+    let slasher_dir = tempdir().unwrap();
+    let spec = Arc::new(test_spec::<E>());
+    let slasher = Arc::new(
+        Slasher::<E>::open(SlasherConfig::new(slasher_dir.path().into()), spec.clone()).unwrap(),
+    );
+
+    let inner_slasher = slasher.clone();
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
+        .fresh_ephemeral_store()
+        .initial_mutator(Box::new(move |builder| builder.slasher(inner_slasher)))
+        .mock_execution_layer()
+        .build();
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    // Drain any attestations already queued from block production.
+    slasher
+        .process_queued(harness.get_current_slot().epoch(E::slots_per_epoch()))
+        .unwrap();
+    assert_eq!(slasher.attestation_queue_len(), 0);
+
+    let (valid_attestation, _, subnet_id) = get_valid_unaggregated_attestation(&harness.chain);
+    harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(&valid_attestation, Some(subnet_id))
+        .expect("valid attestation should verify");
+
+    let queue_len_after_valid = slasher.attestation_queue_len();
+    assert!(
+        queue_len_after_valid >= 1,
+        "valid attestation must be forwarded to the slasher"
+    );
+
+    let mut replay = valid_attestation.clone();
+    replay.committee_index = replay.committee_index.saturating_add(1);
+
+    let result = harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(&replay, Some(subnet_id));
+    assert!(
+        matches!(
+            result,
+            Err(Error::PriorAttestationKnown { validator_index, epoch })
+                if validator_index == valid_attestation.attester_index
+                    && epoch == valid_attestation.data.target.epoch
+        ),
+        "committee_index-only replay should be PriorAttestationKnown, got {:?}",
+        result.err()
+    );
+
+    assert_eq!(
+        slasher.attestation_queue_len(),
+        queue_len_after_valid,
+        "committee_index-only replay must not grow the slasher ingress queue"
+    );
+    assert!(
+        slasher.is_redundant_attestation(
+            &valid_attestation
+                .to_indexed(
+                    harness
+                        .chain
+                        .spec
+                        .fork_name_at_slot::<E>(valid_attestation.data.slot)
+                )
+                .expect("single attestation converts to indexed")
+        ),
+        "original indexed attestation should still be marked redundant in the ingress queue"
+    );
+}
