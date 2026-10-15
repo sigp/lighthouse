@@ -8001,10 +8001,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // into an offence; a reveal after the deadline is one even if it was then imported.
         let envelope_observed_timely = {
             let observed = self.envelope_times_cache.read().time_observed(block_root);
-            let deadline = self
-                .slot_clock
-                .start_of(block_slot)
-                .map(|slot_start| slot_start + self.spec.get_payload_attestation_due());
+            let deadline = self.slot_clock.start_of(block_slot).map(|slot_start| {
+                slot_start
+                    + self
+                        .spec
+                        .get_payload_attestation_due::<T::EthSpec>(block_slot)
+            });
             observed
                 .zip(deadline)
                 .is_some_and(|(observed, deadline)| observed <= deadline)
