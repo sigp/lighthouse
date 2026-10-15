@@ -15,7 +15,7 @@ use execution_layer::{
     json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
-use proto_array::{Error as ProtoArrayError, ExecutionStatus, ExecutionVerdict};
+use proto_array::{Error as ProtoArrayError, ExecutionStatus, ExecutionVerdict, PayloadStatus};
 use slot_clock::SlotClock;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -178,6 +178,23 @@ impl InvalidPayloadRig {
             )
         })
         .await
+    }
+
+    /// Import a block on the head's `FULL` payload and leave the head where it is. This is the
+    /// window in which the early attester cache answers attestation requests on its own.
+    async fn import_block_without_recomputing_head(&self) -> Hash256 {
+        let state = self.harness.chain.head_beacon_state_cloned();
+        let slot = state.slot() + 1;
+        let (contents, _, _) = self
+            .harness
+            .make_block_with_envelope_on(state, slot, PayloadStatus::Full)
+            .await;
+        let block_root = contents.0.canonical_root();
+        self.harness
+            .process_block_without_recomputing_head(slot, block_root, contents)
+            .await
+            .unwrap();
+        block_root
     }
 
     fn block_root_at_slot(&self, slot: Slot) -> Option<Hash256> {
@@ -1309,6 +1326,52 @@ async fn attesting_to_optimistic_head() {
     produce_unaggregated().unwrap();
     get_aggregated().unwrap();
     get_aggregated_by_slot_and_root().unwrap();
+}
+
+/// `import_block` sees `PayloadVerificationStatus::Irrelevant` for a Gloas block, so only the
+/// inherited verdict can keep an optimistic head out of the early attester cache, which answers an
+/// attestation request without reaching the optimistic filter.
+#[tokio::test]
+async fn gloas_optimistic_head_not_in_early_attester_cache() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new();
+    rig.import_block(Payload::Valid).await;
+    rig.import_block(Payload::Syncing).await;
+    let head_root = rig.import_block_without_recomputing_head().await;
+
+    let chain = &rig.harness.chain;
+    assert!(!chain.early_attester_cache.contains_block(head_root));
+
+    // The request falls through to the canonical head, which is the optimistic parent.
+    let slot = chain.slot().unwrap();
+    match chain.produce_unaggregated_attestation(slot, 0) {
+        Err(BeaconChainError::HeadBlockNotFullyVerified {
+            execution_status, ..
+        }) => assert_eq!(execution_status, ExecutionVerdict::Optimistic),
+        other => panic!("an optimistic head must not be attestable: {other:?}"),
+    }
+}
+
+/// Control for `gloas_optimistic_head_not_in_early_attester_cache`: a head whose branch
+/// ran a valid payload is still served from the early attester cache.
+#[tokio::test]
+async fn gloas_verified_head_in_early_attester_cache() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new();
+    rig.import_block(Payload::Valid).await;
+    rig.import_block(Payload::Valid).await;
+    let head_root = rig.import_block_without_recomputing_head().await;
+
+    let chain = &rig.harness.chain;
+    assert!(chain.early_attester_cache.contains_block(head_root));
+
+    let slot = chain.slot().unwrap();
+    let attestation = chain.produce_unaggregated_attestation(slot, 0).unwrap();
+    assert_eq!(attestation.data().beacon_block_root, head_root);
 }
 
 /// Helper for running tests where we generate a chain with an invalid head and then a

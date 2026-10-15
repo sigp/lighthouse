@@ -603,26 +603,26 @@ impl<E: EthSpec> PeerManager<E> {
                 RpcErrorResponse::ServerError => PeerAction::MidToleranceError,
                 RpcErrorResponse::InvalidRequest => PeerAction::LowToleranceError,
                 RpcErrorResponse::RateLimited => match protocol {
-                    Protocol::Ping => PeerAction::MidToleranceError,
-                    Protocol::BlocksByRange => PeerAction::MidToleranceError,
-                    Protocol::BlocksByRoot => PeerAction::MidToleranceError,
-                    Protocol::BlocksByHead => PeerAction::MidToleranceError,
-                    Protocol::BlobsByRange => PeerAction::MidToleranceError,
-                    Protocol::PayloadEnvelopesByRange => PeerAction::MidToleranceError,
-                    Protocol::PayloadEnvelopesByRoot => PeerAction::MidToleranceError,
+                    Protocol::Ping
+                    | Protocol::BlocksByRange
+                    | Protocol::BlocksByRoot
+                    | Protocol::BlocksByHead
+                    | Protocol::BlobsByRange
+                    | Protocol::BlobsByRoot
+                    | Protocol::PayloadEnvelopesByRange
+                    | Protocol::PayloadEnvelopesByRoot
+                    | Protocol::DataColumnsByRoot
+                    | Protocol::DataColumnsByRange
+                    | Protocol::InclusionListsByIndices => PeerAction::MidToleranceError,
                     // Lighthouse does not currently make light client requests; therefore, this
                     // is an unexpected scenario. We do not ban the peer for rate limiting.
-                    Protocol::LightClientBootstrap => return,
-                    Protocol::LightClientOptimisticUpdate => return,
-                    Protocol::LightClientFinalityUpdate => return,
-                    Protocol::LightClientUpdatesByRange => return,
-                    Protocol::BlobsByRoot => PeerAction::MidToleranceError,
-                    Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
-                    Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
-                    Protocol::InclusionListsByIndices => PeerAction::MidToleranceError,
-                    Protocol::Goodbye => PeerAction::LowToleranceError,
-                    Protocol::MetaData => PeerAction::LowToleranceError,
-                    Protocol::Status => PeerAction::LowToleranceError,
+                    Protocol::LightClientBootstrap
+                    | Protocol::LightClientOptimisticUpdate
+                    | Protocol::LightClientFinalityUpdate
+                    | Protocol::LightClientUpdatesByRange => return,
+                    Protocol::Goodbye | Protocol::MetaData | Protocol::Status => {
+                        PeerAction::LowToleranceError
+                    }
                 },
                 RpcErrorResponse::BlobsNotFoundForBlock => PeerAction::LowToleranceError,
             },
@@ -633,24 +633,22 @@ impl<E: EthSpec> PeerManager<E> {
                 // communicating.
 
                 match protocol {
-                    Protocol::Ping => PeerAction::Fatal,
-                    Protocol::BlocksByRange => return,
-                    Protocol::BlocksByRoot => return,
-                    Protocol::BlocksByHead => return,
-                    Protocol::PayloadEnvelopesByRange => return,
-                    Protocol::PayloadEnvelopesByRoot => return,
-                    Protocol::BlobsByRange => return,
-                    Protocol::BlobsByRoot => return,
-                    Protocol::DataColumnsByRoot => return,
-                    Protocol::DataColumnsByRange => return,
-                    Protocol::InclusionListsByIndices => return,
-                    Protocol::Goodbye => return,
-                    Protocol::LightClientBootstrap => return,
-                    Protocol::LightClientOptimisticUpdate => return,
-                    Protocol::LightClientFinalityUpdate => return,
-                    Protocol::LightClientUpdatesByRange => return,
-                    Protocol::MetaData => PeerAction::Fatal,
-                    Protocol::Status => PeerAction::Fatal,
+                    Protocol::Ping | Protocol::MetaData | Protocol::Status => PeerAction::Fatal,
+                    Protocol::BlocksByRange
+                    | Protocol::BlocksByRoot
+                    | Protocol::BlocksByHead
+                    | Protocol::PayloadEnvelopesByRange
+                    | Protocol::PayloadEnvelopesByRoot
+                    | Protocol::BlobsByRange
+                    | Protocol::BlobsByRoot
+                    | Protocol::DataColumnsByRoot
+                    | Protocol::DataColumnsByRange
+                    | Protocol::InclusionListsByIndices
+                    | Protocol::Goodbye
+                    | Protocol::LightClientBootstrap
+                    | Protocol::LightClientOptimisticUpdate
+                    | Protocol::LightClientFinalityUpdate
+                    | Protocol::LightClientUpdatesByRange => return,
                 }
             }
             RPCError::StreamTimeout => match direction {
@@ -661,23 +659,23 @@ impl<E: EthSpec> PeerManager<E> {
                 }
                 ConnectionDirection::Outgoing => match protocol {
                     Protocol::Ping => PeerAction::LowToleranceError,
-                    Protocol::BlocksByRange => PeerAction::MidToleranceError,
-                    Protocol::BlocksByRoot => PeerAction::MidToleranceError,
-                    Protocol::BlocksByHead => PeerAction::MidToleranceError,
-                    Protocol::PayloadEnvelopesByRange => PeerAction::MidToleranceError,
-                    Protocol::PayloadEnvelopesByRoot => PeerAction::MidToleranceError,
-                    Protocol::BlobsByRange => PeerAction::MidToleranceError,
-                    Protocol::BlobsByRoot => PeerAction::MidToleranceError,
-                    Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
-                    Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
-                    Protocol::InclusionListsByIndices => PeerAction::MidToleranceError,
-                    Protocol::LightClientBootstrap => return,
-                    Protocol::LightClientOptimisticUpdate => return,
-                    Protocol::LightClientFinalityUpdate => return,
-                    Protocol::LightClientUpdatesByRange => return,
-                    Protocol::Goodbye => return,
-                    Protocol::MetaData => return,
-                    Protocol::Status => return,
+                    Protocol::BlocksByRange
+                    | Protocol::BlocksByRoot
+                    | Protocol::BlocksByHead
+                    | Protocol::PayloadEnvelopesByRange
+                    | Protocol::PayloadEnvelopesByRoot
+                    | Protocol::BlobsByRange
+                    | Protocol::BlobsByRoot
+                    | Protocol::DataColumnsByRoot
+                    | Protocol::DataColumnsByRange
+                    | Protocol::InclusionListsByIndices => PeerAction::MidToleranceError,
+                    Protocol::LightClientBootstrap
+                    | Protocol::LightClientOptimisticUpdate
+                    | Protocol::LightClientFinalityUpdate
+                    | Protocol::LightClientUpdatesByRange
+                    | Protocol::Goodbye
+                    | Protocol::MetaData
+                    | Protocol::Status => return,
                 },
             },
             RPCError::NegotiationTimeout => PeerAction::LowToleranceError,
@@ -851,29 +849,31 @@ impl<E: EthSpec> PeerManager<E> {
     /* Internal functions */
 
     /// Sets a peer as connected as long as their reputation allows it
-    /// Informs if the peer was accepted
-    fn inject_connect_ingoing(
+    fn inject_connect_incoming(
         &mut self,
         peer_id: &PeerId,
         multiaddr: Multiaddr,
         enr: Option<Enr>,
-    ) -> bool {
-        self.inject_peer_connection(peer_id, ConnectingType::IngoingConnected { multiaddr }, enr)
+    ) {
+        self.inject_peer_connection(
+            peer_id,
+            ConnectingType::IncomingConnected { multiaddr },
+            enr,
+        );
     }
 
     /// Sets a peer as connected as long as their reputation allows it
-    /// Informs if the peer was accepted
     fn inject_connect_outgoing(
         &mut self,
         peer_id: &PeerId,
         multiaddr: Multiaddr,
         enr: Option<Enr>,
-    ) -> bool {
+    ) {
         self.inject_peer_connection(
             peer_id,
             ConnectingType::OutgoingConnected { multiaddr },
             enr,
-        )
+        );
     }
 
     /// Updates the state of the peer as disconnected.
@@ -902,18 +902,16 @@ impl<E: EthSpec> PeerManager<E> {
         );
     }
 
-    /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
+    /// Registers a peer as connected. The `connection` parameter determines if the peer is being
     /// dialed or connecting to us.
     ///
-    /// This is called by `connect_ingoing` and `connect_outgoing`.
-    ///
-    /// Informs if the peer was accepted in to the db or not.
+    /// This is called by `inject_connect_incoming` and `inject_connect_outgoing`.
     fn inject_peer_connection(
         &mut self,
         peer_id: &PeerId,
         connection: ConnectingType,
         enr: Option<Enr>,
-    ) -> bool {
+    ) {
         {
             let mut peerdb = self.network_globals.peers.write();
             if peerdb.ban_status(peer_id).is_some() {
@@ -924,10 +922,10 @@ impl<E: EthSpec> PeerManager<E> {
             match connection {
                 ConnectingType::Dialing => {
                     peerdb.dialing_peer(peer_id, enr);
-                    return true;
+                    return;
                 }
-                ConnectingType::IngoingConnected { multiaddr } => {
-                    peerdb.connect_ingoing(peer_id, multiaddr, enr);
+                ConnectingType::IncomingConnected { multiaddr } => {
+                    peerdb.connect_incoming(peer_id, multiaddr, enr);
                     // start a timer to ping inbound peers.
                     self.inbound_ping_peers.insert(*peer_id);
                 }
@@ -941,8 +939,6 @@ impl<E: EthSpec> PeerManager<E> {
 
         // start a ping and status timer for the peer
         self.status_peers.insert(*peer_id);
-
-        true
     }
 
     // Gracefully disconnects a peer without banning them.
@@ -1715,7 +1711,7 @@ enum ConnectingType {
     /// We are in the process of dialing this peer.
     Dialing,
     /// A peer has dialed us.
-    IngoingConnected {
+    IncomingConnected {
         // The multiaddr the peer connected to us on.
         multiaddr: Multiaddr,
     },
@@ -1731,7 +1727,7 @@ mod tests {
     use super::*;
     use crate::NetworkConfig;
     use crate::rpc::MetaDataV3;
-    use types::{ChainSpec, ForkName, MainnetEthSpec as E};
+    use types::{ChainSpec, ForkName, Spec as E};
 
     async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
         build_peer_manager_with_trusted_peers(vec![], target_peer_count).await
@@ -1804,10 +1800,10 @@ mod tests {
         // Create 6 peers to connect to with a target of 3.
         // 2 will be outbound-only, and have the lowest score.
         // 1 will be a trusted peer.
-        // The other 3 will be ingoing peers.
+        // The other 3 will be incoming peers.
 
         // We expect this test to disconnect from 3 peers. 1 from the outbound peer (the other must
-        // remain due to the outbound peer limit) and 2 from the ingoing peers (the trusted peer
+        // remain due to the outbound peer limit) and 2 from the incoming peers (the trusted peer
         // should remain connected).
         let peer0 = PeerId::random();
         let peer1 = PeerId::random();
@@ -1818,10 +1814,10 @@ mod tests {
 
         let mut peer_manager = build_peer_manager_with_trusted_peers(vec![trusted_peer], 3).await;
 
-        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
         peer_manager.inject_connect_outgoing(
             &outbound_only_peer1,
             "/ip4/0.0.0.0".parse().unwrap(),
@@ -1902,16 +1898,16 @@ mod tests {
     async fn test_peer_manager_not_enough_outbound_peers_no_panic_during_heartbeat() {
         let mut peer_manager = build_peer_manager(20).await;
 
-        // Connect to 20 ingoing-only peers.
+        // Connect to 20 incoming-only peers.
         for _i in 0..19 {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
         }
 
         // Connect an outbound-only peer.
         // Give it the lowest score so that it is evaluated first in the disconnect list iterator.
         let outbound_only_peer = PeerId::random();
-        peer_manager.inject_connect_ingoing(
+        peer_manager.inject_connect_incoming(
             &outbound_only_peer,
             "/ip4/0.0.0.0".parse().unwrap(),
             None,
@@ -1943,11 +1939,19 @@ mod tests {
         let inbound_only_peer1 = PeerId::random();
         let outbound_only_peer1 = PeerId::random();
 
-        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0/tcp/8000".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0/tcp/8000".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(
+            &peer0,
+            "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
+            None,
+        );
+        peer_manager.inject_connect_incoming(
+            &peer1,
+            "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
+            None,
+        );
 
         // Connect to two peers that are on the threshold of being disconnected.
-        peer_manager.inject_connect_ingoing(
+        peer_manager.inject_connect_incoming(
             &inbound_only_peer1,
             "/ip4/0.0.0.0/tcp/8000".parse().unwrap(),
             None,
@@ -2003,16 +2007,16 @@ mod tests {
         let inbound_only_peer1 = PeerId::random();
         let outbound_only_peer1 = PeerId::random();
 
-        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
         peer_manager.inject_connect_outgoing(
             &outbound_only_peer1,
             "/ip4/0.0.0.0".parse().unwrap(),
             None,
         );
         // Have one peer be on the verge of disconnection.
-        peer_manager.inject_connect_ingoing(
+        peer_manager.inject_connect_incoming(
             &inbound_only_peer1,
             "/ip4/0.0.0.0".parse().unwrap(),
             None,
@@ -2058,11 +2062,11 @@ mod tests {
         println!("{}", peer3);
         println!("{}", peer4);
 
-        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer3, "/ip4/0.0.0.0".parse().unwrap(), None);
-        peer_manager.inject_connect_ingoing(&peer4, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer3, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_incoming(&peer4, "/ip4/0.0.0.0".parse().unwrap(), None);
 
         // Have some of the peers be on a long-lived subnet
         let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
@@ -2165,7 +2169,7 @@ mod tests {
         let mut peer_manager = build_peer_manager_with_opts(vec![], 1, spec).await;
         let pubkey = Keypair::generate_secp256k1().public();
         let peer_id = PeerId::from_public_key(&pubkey);
-        peer_manager.inject_connect_ingoing(
+        peer_manager.inject_connect_incoming(
             &peer_id,
             Multiaddr::empty().with_p2p(peer_id).unwrap(),
             None,
@@ -2213,7 +2217,7 @@ mod tests {
             let subnet: u64 = { if x < 15 { x % 4 } else { x } };
 
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             // Have some of the peers be on a long-lived subnet
             {
@@ -2307,7 +2311,7 @@ mod tests {
         let mut peers = Vec::new();
         for x in 0..6 {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             // Have some of the peers be on a long-lived subnet
             let custody_subnets = match x {
@@ -2397,7 +2401,7 @@ mod tests {
         let mut peers = Vec::new();
         for x in 0..6 {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             // Have some of the peers be on a long-lived subnet
             let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
@@ -2508,7 +2512,7 @@ mod tests {
         let mut peers = Vec::new();
         for peer_idx in 0..8 {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             // Have some of the peers be on a long-lived subnet
             let custody_subnets = match peer_idx {
@@ -2672,7 +2676,7 @@ mod tests {
                     HashSet::from([DataColumnSubnetId::new(3)])
                 }
                 6 => {
-                    peer_manager.inject_connect_ingoing(
+                    peer_manager.inject_connect_incoming(
                         &peer,
                         "/ip4/0.0.0.0".parse().unwrap(),
                         None,
@@ -2680,7 +2684,7 @@ mod tests {
                     HashSet::from([DataColumnSubnetId::new(4)])
                 }
                 7 => {
-                    peer_manager.inject_connect_ingoing(
+                    peer_manager.inject_connect_incoming(
                         &peer,
                         "/ip4/0.0.0.0".parse().unwrap(),
                         None,
@@ -2767,7 +2771,7 @@ mod tests {
 
         for &subnet in subnet_assignments.iter() {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
             attnets.set(subnet, true).unwrap();
@@ -2854,7 +2858,7 @@ mod tests {
         let current_peer_count = 6;
         for i in 0..current_peer_count {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             let sync_status = match i {
                 0 => SyncStatus::Behind {
@@ -2948,7 +2952,7 @@ mod tests {
         let mut peers = Vec::new();
         for i in 0..12 {
             let peer = PeerId::random();
-            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            peer_manager.inject_connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
             let custody_subnet = match i {
                 ..4 => 0,
@@ -3027,7 +3031,7 @@ mod tests {
         use tokio::runtime::Runtime;
         use typenum::Unsigned;
         use types::DataColumnSubnetId;
-        use types::{EthSpec, MainnetEthSpec as E};
+        use types::{EthSpec, Spec as E};
 
         #[derive(Clone, Debug)]
         struct PeerCondition {
@@ -3165,7 +3169,7 @@ mod tests {
                                 None,
                             );
                         } else {
-                            peer_manager.inject_connect_ingoing(
+                            peer_manager.inject_connect_incoming(
                                 &condition.peer_id,
                                 "/ip4/0.0.0.0".parse().unwrap(),
                                 None,

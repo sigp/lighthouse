@@ -11,6 +11,7 @@ use crate::{
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
 use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas};
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
@@ -30,7 +31,7 @@ use lighthouse_network::rpc::methods::{
     PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::{
-    Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
+    Client, MessageId, NetworkConfig, NetworkGlobals, PeerAction, PeerId, Response,
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
 };
@@ -44,13 +45,13 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch, EthSpec,
-    Hash256, InclusionList, InclusionListBits, MainnetEthSpec, PayloadAttestationData,
-    PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, SignedInclusionList, SignedRoot, SignedVoluntaryExit,
-    SingleAttestation, Slot, SubnetId, data::BlobIdentifier,
+    Hash256, InclusionList, InclusionListBits, PayloadAttestationData, PayloadAttestationMessage,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    SignedInclusionList, SignedRoot, SignedVoluntaryExit, SingleAttestation, Slot, Spec, SubnetId,
+    data::BlobIdentifier,
 };
 
-type E = MainnetEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
 const SLOTS_PER_EPOCH: u64 = 32;
@@ -78,6 +79,7 @@ struct TestRig {
     beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    sync_rx: mpsc::UnboundedReceiver<crate::sync::SyncMessage<E>>,
     duplicate_cache: DuplicateCache,
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     _harness: BeaconChainHarness<T>,
@@ -143,7 +145,7 @@ impl TestRig {
     ) -> Self {
         let spec = Arc::new(spec);
         let beacon_processor_config = BeaconProcessorConfig::default();
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -190,7 +192,7 @@ impl TestRig {
         } = params;
 
         let spec = Arc::new(spec);
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -305,21 +307,21 @@ impl TestRig {
             beacon_processor_rx,
         } = BeaconProcessorChannels::new(&beacon_processor_config);
 
-        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
+        let (sync_tx, sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
         let meta_data = if spec.is_peer_das_scheduled() {
             MetaData::V3(MetaDataV3 {
                 seq_number: SEQ_NUMBER,
-                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+                attnets: EnrAttestationBitfield::<E>::default(),
+                syncnets: EnrSyncCommitteeBitfield::<E>::default(),
                 custody_group_count: spec.custody_requirement,
             })
         } else {
             MetaData::V2(MetaDataV2 {
                 seq_number: SEQ_NUMBER,
-                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+                attnets: EnrAttestationBitfield::<E>::default(),
+                syncnets: EnrSyncCommitteeBitfield::<E>::default(),
             })
         };
 
@@ -411,6 +413,7 @@ impl TestRig {
             beacon_processor_tx,
             work_journal_rx,
             network_rx,
+            sync_rx,
             duplicate_cache,
             network_beacon_processor,
             _harness: harness,
@@ -976,6 +979,100 @@ fn junk_peer_id() -> PeerId {
 
 fn junk_message_id() -> MessageId {
     MessageId::new(&[])
+}
+
+#[tokio::test]
+async fn status_finalized_checkpoint_relevance() {
+    use crate::status::ToStatusMessage;
+    use crate::sync::SyncMessage;
+    use lighthouse_network::rpc::{GoodbyeReason, StatusMessage};
+
+    let mut rig = TestRig::new(SLOTS_PER_EPOCH * 4).await;
+    let local = rig.chain.status_message().status_v2();
+    assert!(local.finalized_epoch > Epoch::new(0));
+    assert!(!local.finalized_root.is_zero());
+    // At the split boundary, the historical freezer lookup cannot catch a conflict.
+    assert_eq!(
+        rig.chain.store.get_split_slot(),
+        local.finalized_epoch.start_slot(E::slots_per_epoch())
+    );
+
+    let mut conflicting = local.clone();
+    conflicting.finalized_root = Hash256::repeat_byte(0x42);
+    assert_ne!(conflicting.finalized_root, local.finalized_root);
+
+    let mut genesis = local.clone();
+    genesis.finalized_epoch = Epoch::new(0);
+    genesis.finalized_root = Hash256::ZERO;
+
+    let mut ahead = conflicting.clone();
+    ahead.finalized_epoch += 1;
+
+    let mut wrong_fork = local.clone();
+    wrong_fork.fork_digest[0] ^= 1;
+
+    for (status, admitted) in [
+        (local, true),
+        (conflicting, false),
+        (genesis, true),
+        (ahead, true),
+        (wrong_fork, false),
+    ] {
+        let status = StatusMessage::V2(status);
+        for status in [StatusMessage::V1(status.status_v1()), status] {
+            let peer = junk_peer_id();
+            rig.network_beacon_processor
+                .process_status(peer, status.clone());
+            if admitted {
+                assert_matches!(
+                    rig.sync_rx.try_recv(),
+                    Ok(SyncMessage::AddPeer(id, info))
+                        if id == peer
+                            && info.finalized_epoch == *status.finalized_epoch()
+                            && info.finalized_root == *status.finalized_root()
+                );
+                assert_matches!(
+                    rig.network_rx.try_recv(),
+                    Err(mpsc::error::TryRecvError::Empty)
+                );
+            } else {
+                assert_matches!(
+                    rig.network_rx.try_recv(),
+                    Ok(NetworkMessage::GoodbyePeer {
+                        peer_id, reason: GoodbyeReason::IrrelevantNetwork, ..
+                    }) if peer_id == peer
+                );
+                assert_matches!(
+                    rig.sync_rx.try_recv(),
+                    Err(mpsc::error::TryRecvError::Empty)
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn status_unfinalized_local_chain_allows_peer() {
+    use crate::status::ToStatusMessage;
+    use crate::sync::SyncMessage;
+    use lighthouse_network::rpc::StatusMessage;
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut remote = rig.chain.status_message().status_v2();
+    assert_eq!(remote.finalized_epoch, Epoch::new(0));
+    assert!(remote.finalized_root.is_zero());
+    remote.finalized_root = Hash256::repeat_byte(0x42);
+
+    let status = StatusMessage::V2(remote);
+    for status in [StatusMessage::V1(status.status_v1()), status] {
+        let peer = junk_peer_id();
+        rig.network_beacon_processor.process_status(peer, status);
+        assert_matches!(rig.sync_rx.try_recv(), Ok(SyncMessage::AddPeer(id, _)) if id == peer);
+        assert_matches!(
+            rig.network_rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        );
+    }
 }
 
 // Test that column reconstruction is delayed for columns that arrive
@@ -3108,10 +3205,15 @@ async fn test_inclusion_lists_by_indices_serves_only_requested_positions() {
     {
         let mut store = rig.chain.inclusion_list_store.write();
         for validator_index in committee.iter().collect::<HashSet<_>>() {
-            store.process_inclusion_list(
-                signed_inclusion_list(slot, *validator_index, dependent_root, 0xaa),
-                true,
-            );
+            store.process_inclusion_list(GossipVerifiedInclusionList {
+                signed_inclusion_list: signed_inclusion_list(
+                    slot,
+                    *validator_index,
+                    dependent_root,
+                    0xaa,
+                ),
+                is_timely: true,
+            });
         }
     }
 
@@ -3140,10 +3242,10 @@ async fn test_inclusion_lists_by_indices_ignores_unknown_dependent_root() {
     rig.chain
         .inclusion_list_store
         .write()
-        .process_inclusion_list(
-            signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
-            true,
-        );
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
+            is_timely: true,
+        });
 
     enqueue_inclusion_lists_by_indices_request(&rig, slot, Hash256::repeat_byte(0xff), &[0]);
 
@@ -3168,4 +3270,110 @@ async fn test_inclusion_lists_by_indices_rejects_slots_outside_the_window() {
         }
         other => panic!("expected SendErrorResponse, got {:?}", other),
     }
+}
+
+/// A signed inclusion list from the first committee member for the current slot.
+fn inclusion_list_for_current_slot(rig: &TestRig, tx: u8) -> SignedInclusionList {
+    let slot = rig.chain.slot().unwrap();
+    let (committee, dependent_root) = rig
+        .chain
+        .inclusion_list_committee(rig.chain.head_beacon_block_root(), slot)
+        .unwrap();
+    let validator_index = committee[0];
+
+    let message = InclusionList {
+        slot,
+        validator_index,
+        dependent_root,
+        transactions: vec![vec![tx].try_into().unwrap()].try_into().unwrap(),
+    };
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let domain = rig.chain.spec.get_domain(
+        epoch,
+        Domain::InclusionListCommittee,
+        &rig.chain.spec.fork_at_epoch(epoch),
+        rig.chain.genesis_validators_root,
+    );
+    let signature = rig._harness.validator_keypairs[validator_index as usize]
+        .sk
+        .sign(message.signing_root(domain));
+    SignedInclusionList { message, signature }
+}
+
+async fn send_gossip_inclusion_list(
+    rig: &mut TestRig,
+    inclusion_list: SignedInclusionList,
+    expected_messages: usize,
+) -> Vec<NetworkMessage<E>> {
+    rig.network_beacon_processor
+        .send_gossip_inclusion_list(
+            junk_message_id(),
+            junk_peer_id(),
+            Box::new(inclusion_list),
+            rig.chain.slot_clock.now_duration().unwrap(),
+        )
+        .unwrap();
+    rig.receive_network_messages_with_timeout(Duration::from_secs(1), Some(expected_messages))
+        .await
+        .expect("should receive network messages")
+}
+
+fn assert_validation_result(network_message: &NetworkMessage<E>, expected: MessageAcceptance) {
+    match network_message {
+        NetworkMessage::ValidationResult {
+            validation_result, ..
+        } => assert_eq!(*validation_result, expected),
+        other => panic!("expected ValidationResult, got {:?}", other),
+    }
+}
+
+// A verified list that the store has already seen is ignored rather than propagated.
+#[tokio::test]
+async fn test_gossip_inclusion_list_propagation_follows_the_store_outcome() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let inclusion_list = inclusion_list_for_current_slot(&rig, 0xaa);
+
+    for expected in [MessageAcceptance::Accept, MessageAcceptance::Ignore] {
+        let messages = send_gossip_inclusion_list(&mut rig, inclusion_list.clone(), 1).await;
+        assert_validation_result(&messages[0], expected);
+    }
+}
+
+// A second, different list from the same validator is propagated, but not a third.
+#[tokio::test]
+async fn test_gossip_inclusion_list_equivocation_is_propagated_once() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    for (tx, expected) in [
+        (0xaa, MessageAcceptance::Accept),
+        (0xbb, MessageAcceptance::Accept),
+        (0xcc, MessageAcceptance::Ignore),
+    ] {
+        let inclusion_list = inclusion_list_for_current_slot(&rig, tx);
+        let messages = send_gossip_inclusion_list(&mut rig, inclusion_list, 1).await;
+        assert_validation_result(&messages[0], expected);
+    }
+}
+
+// An invalid list is rejected and the peer that sent it is penalised.
+#[tokio::test]
+async fn test_gossip_inclusion_list_rejection_penalises_the_peer() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    // Signatures always verify with the `fake_crypto` feature, so use an empty transaction instead.
+    let mut inclusion_list = inclusion_list_for_current_slot(&rig, 0xaa);
+    inclusion_list.message.transactions =
+        vec![vec![0xaa].try_into().unwrap(), vec![].try_into().unwrap()]
+            .try_into()
+            .unwrap();
+
+    let messages = send_gossip_inclusion_list(&mut rig, inclusion_list, 2).await;
+    assert_validation_result(&messages[0], MessageAcceptance::Reject);
+    assert_matches!(
+        messages[1],
+        NetworkMessage::ReportPeer {
+            action: PeerAction::LowToleranceError,
+            msg: "invalid_gossip_inclusion_list",
+            ..
+        }
+    );
 }
