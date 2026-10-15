@@ -125,17 +125,7 @@ pub struct ChainSpec {
     /*
      * Derived time values (computed at startup via `compute_derived_values()`)
      */
-    unaggregated_attestation_due: Duration,
-    unaggregated_attestation_due_gloas: Duration,
-    pub payload_due: Duration,
-    pub payload_attestation_due: Duration,
-    aggregate_attestation_due: Duration,
-    aggregate_attestation_due_gloas: Duration,
-    sync_message_due: Duration,
-    sync_message_due_gloas: Duration,
-    contribution_and_proof_due: Duration,
-    contribution_and_proof_due_gloas: Duration,
-    inclusion_list_due: Duration,
+    slot_component_durations: Vec<SlotComponentDurations>,
 
     /*
      * Reward and penalty quotients
@@ -982,65 +972,122 @@ impl ChainSpec {
 
     /// Spec: `get_attestation_due_ms`. Returns the epoch-appropriate threshold.
     pub fn get_attestation_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        let durations = self.slot_component_durations_at::<E>(slot);
         if self.fork_name_at_slot::<E>(slot).gloas_enabled() {
-            self.unaggregated_attestation_due_gloas
+            durations.attestation_due_gloas
         } else {
-            self.unaggregated_attestation_due
+            durations.attestation_due
         }
     }
 
     /// Spec: `get_payload_due_ms`.
-    pub fn get_payload_due(&self) -> Duration {
-        self.payload_due
+    pub fn get_payload_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        self.slot_component_durations_at::<E>(slot).payload_due
     }
 
     /// Spec: `get_payload_attestation_due_ms`.
-    pub fn get_payload_attestation_due(&self) -> Duration {
-        self.payload_attestation_due
+    pub fn get_payload_attestation_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        self.slot_component_durations_at::<E>(slot)
+            .payload_attestation_due
     }
 
     /// Spec: `get_aggregate_attestation_due_ms`. Returns the epoch-appropriate threshold.
     pub fn get_aggregate_attestation_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        let durations = self.slot_component_durations_at::<E>(slot);
         if self.fork_name_at_slot::<E>(slot).gloas_enabled() {
-            self.aggregate_attestation_due_gloas
+            durations.aggregate_attestation_due_gloas
         } else {
-            self.aggregate_attestation_due
+            durations.aggregate_attestation_due
         }
     }
 
     /// Spec: `get_contribution_due_ms`. Returns the epoch-appropriate threshold.
     pub fn get_contribution_message_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        let durations = self.slot_component_durations_at::<E>(slot);
         if self.fork_name_at_slot::<E>(slot).gloas_enabled() {
-            self.contribution_and_proof_due_gloas
+            durations.contribution_and_proof_due_gloas
         } else {
-            self.contribution_and_proof_due
+            durations.contribution_and_proof_due
         }
     }
 
     /// Spec: `get_sync_message_due_ms`. Returns the epoch-appropriate threshold.
     pub fn get_sync_message_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        let durations = self.slot_component_durations_at::<E>(slot);
         if self.fork_name_at_slot::<E>(slot).gloas_enabled() {
-            self.sync_message_due_gloas
+            durations.sync_message_due_gloas
         } else {
-            self.sync_message_due
+            durations.sync_message_due
         }
     }
 
     /// Spec: `get_inclusion_list_due_ms`.
-    pub fn get_inclusion_list_due(&self) -> Duration {
-        self.inclusion_list_due
+    pub fn get_inclusion_list_due<E: EthSpec>(&self, slot: Slot) -> Duration {
+        self.slot_component_durations_at::<E>(slot)
+            .inclusion_list_due
     }
 
-    /// Calculate the duration into a slot for a given slot component
-    pub fn compute_slot_component_duration(
-        &self,
+    /// Spec: `get_proposer_reorg_cutoff_ms`.
+    pub fn get_proposer_reorg_cutoff<E: EthSpec>(&self, slot: Slot) -> Duration {
+        self.slot_component_durations_at::<E>(slot)
+            .proposer_reorg_cutoff
+    }
+
+    fn slot_component_durations_at<E: EthSpec>(&self, slot: Slot) -> SlotComponentDurations {
+        let epoch = slot.epoch(E::slots_per_epoch());
+        self.slot_component_durations
+            .iter()
+            .take_while(|durations| epoch >= durations.epoch)
+            .last()
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Spec: `get_slot_component_duration_ms`.
+    fn compute_slot_component_duration(
         component_basis_points: u64,
+        slot_duration_ms: u64,
     ) -> Result<Duration, ArithError> {
         Ok(Duration::from_millis(
             component_basis_points
-                .safe_mul(self.slot_duration_ms)?
+                .safe_mul(slot_duration_ms)?
                 .safe_div(BASIS_POINTS)?,
         ))
+    }
+
+    fn with_slot_component_durations(mut self) -> Self {
+        self.slot_component_durations =
+            self.compute_slot_component_durations(self.get_slot_durations());
+        self
+    }
+
+    fn compute_slot_component_durations(
+        &self,
+        slot_durations: impl Iterator<Item = (Epoch, u64)>,
+    ) -> Vec<SlotComponentDurations> {
+        slot_durations
+            .map(|(epoch, slot_duration_ms)| {
+                let due = |component_basis_points| {
+                    Self::compute_slot_component_duration(component_basis_points, slot_duration_ms)
+                        .expect("invalid chain spec: cannot compute slot component duration")
+                };
+                SlotComponentDurations {
+                    epoch,
+                    attestation_due: due(self.attestation_due_bps),
+                    attestation_due_gloas: due(self.attestation_due_bps_gloas),
+                    payload_due: due(self.payload_due_bps),
+                    payload_attestation_due: due(self.payload_attestation_due_bps),
+                    aggregate_attestation_due: due(self.aggregate_due_bps),
+                    aggregate_attestation_due_gloas: due(self.aggregate_due_bps_gloas),
+                    sync_message_due: due(self.sync_message_due_bps),
+                    sync_message_due_gloas: due(self.sync_message_due_bps_gloas),
+                    contribution_and_proof_due: due(self.contribution_due_bps),
+                    contribution_and_proof_due_gloas: due(self.contribution_due_bps_gloas),
+                    inclusion_list_due: due(self.inclusion_list_due_bps),
+                    proposer_reorg_cutoff: due(self.proposer_reorg_cutoff_bps),
+                }
+            })
+            .collect()
     }
 
     /// Get the duration of a slot
@@ -1053,6 +1100,39 @@ impl ChainSpec {
         self.slot_duration_ms = slot_duration_ms;
         self.seconds_per_slot = slot_duration_ms.saturating_div(1000);
         self.compute_derived_values::<E>()
+    }
+
+    /// Spec: `get_slot_durations`. Returns `(epoch, slot_duration_ms)` pairs in epoch order.
+    fn get_slot_durations(&self) -> impl Iterator<Item = (Epoch, u64)> {
+        std::iter::once((Epoch::new(0), self.slot_duration_ms))
+    }
+
+    /// Spec: `get_slot_duration_ms`.
+    pub fn get_slot_duration_ms(&self, epoch: Epoch) -> u64 {
+        self.get_slot_durations()
+            .take_while(|&(fork_epoch, _)| epoch >= fork_epoch)
+            .last()
+            .map_or(self.slot_duration_ms, |(_, slot_duration_ms)| {
+                slot_duration_ms
+            })
+    }
+
+    pub fn slot_duration_schedule(&self) -> SlotDurationSchedule {
+        Self::slot_duration_schedule_from(self.get_slot_durations())
+    }
+
+    fn slot_duration_schedule_from(
+        slot_durations: impl Iterator<Item = (Epoch, u64)>,
+    ) -> SlotDurationSchedule {
+        let mut entries = slot_durations
+            .map(|(epoch, slot_duration_ms)| SlotDurationScheduleEntry {
+                epoch,
+                slot_duration_ms,
+            })
+            .collect::<Vec<_>>();
+        entries.reverse();
+        entries.dedup_by_key(|entry| entry.epoch);
+        SlotDurationSchedule::new(entries)
     }
 
     /// Compute values that are derived from other config values.
@@ -1116,40 +1196,13 @@ impl ChainSpec {
             "invalid chain spec: inclusion_list_due_bps ({}) exceeds slot duration",
             self.inclusion_list_due_bps
         );
+        assert!(
+            self.proposer_reorg_cutoff_bps <= BASIS_POINTS,
+            "invalid chain spec: proposer_reorg_cutoff_bps ({}) exceeds slot duration",
+            self.proposer_reorg_cutoff_bps
+        );
 
-        self.unaggregated_attestation_due = self
-            .compute_slot_component_duration(self.attestation_due_bps)
-            .expect("invalid chain spec: cannot compute unaggregated_attestation_due");
-        self.unaggregated_attestation_due_gloas = self
-            .compute_slot_component_duration(self.attestation_due_bps_gloas)
-            .expect("invalid chain spec: cannot compute unaggregated_attestation_due_gloas");
-        self.payload_due = self
-            .compute_slot_component_duration(self.payload_due_bps)
-            .expect("invalid chain spec: cannot compute payload_due");
-        self.payload_attestation_due = self
-            .compute_slot_component_duration(self.payload_attestation_due_bps)
-            .expect("invalid chain spec: cannot compute payload_attestation_due");
-        self.aggregate_attestation_due = self
-            .compute_slot_component_duration(self.aggregate_due_bps)
-            .expect("invalid chain spec: cannot compute aggregate_attestation_due");
-        self.aggregate_attestation_due_gloas = self
-            .compute_slot_component_duration(self.aggregate_due_bps_gloas)
-            .expect("invalid chain spec: cannot compute aggregate_attestation_due_gloas");
-        self.sync_message_due = self
-            .compute_slot_component_duration(self.sync_message_due_bps)
-            .expect("invalid chain spec: cannot compute sync_message_due");
-        self.sync_message_due_gloas = self
-            .compute_slot_component_duration(self.sync_message_due_bps_gloas)
-            .expect("invalid chain spec: cannot compute sync_message_due_gloas");
-        self.contribution_and_proof_due = self
-            .compute_slot_component_duration(self.contribution_due_bps)
-            .expect("invalid chain spec: cannot compute contribution_and_proof_due");
-        self.contribution_and_proof_due_gloas = self
-            .compute_slot_component_duration(self.contribution_due_bps_gloas)
-            .expect("invalid chain spec: cannot compute contribution_and_proof_due_gloas");
-        self.inclusion_list_due = self
-            .compute_slot_component_duration(self.inclusion_list_due_bps)
-            .expect("invalid chain spec: cannot compute inclusion_list_due");
+        self = self.with_slot_component_durations();
 
         self.attestation_subnet_prefix_bits = compute_attestation_subnet_prefix_bits(
             self.attestation_subnet_count,
@@ -1281,21 +1334,7 @@ impl ChainSpec {
             contribution_due_bps: 6667,
             contribution_due_bps_gloas: 5000,
             inclusion_list_due_bps: 6667,
-
-            /*
-             * Derived time values (set by `compute_derived_values()`)
-             */
-            unaggregated_attestation_due: Duration::from_millis(3999),
-            unaggregated_attestation_due_gloas: Duration::from_millis(3000),
-            payload_due: Duration::from_millis(6000),
-            payload_attestation_due: Duration::from_millis(9000),
-            aggregate_attestation_due: Duration::from_millis(8000),
-            aggregate_attestation_due_gloas: Duration::from_millis(6000),
-            sync_message_due: Duration::from_millis(3999),
-            sync_message_due_gloas: Duration::from_millis(3000),
-            contribution_and_proof_due: Duration::from_millis(8000),
-            contribution_and_proof_due_gloas: Duration::from_millis(6000),
-            inclusion_list_due: Duration::from_millis(8000),
+            slot_component_durations: vec![],
 
             /*
              * Reward and penalty quotients
@@ -1549,6 +1588,7 @@ impl ChainSpec {
              */
             domain_bls_to_execution_change: 10,
         }
+        .with_slot_component_durations()
     }
 
     /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
@@ -1630,22 +1670,6 @@ impl ChainSpec {
             heze_fork_version: [0x08, 0x00, 0x00, 0x01],
             heze_fork_epoch: None,
 
-            /*
-             * Derived time values (set by `compute_derived_values()`)
-             * Precomputed for 6000ms slot: 3333 bps = 1999ms, 6667 bps = 4000ms
-             */
-            unaggregated_attestation_due: Duration::from_millis(1999),
-            unaggregated_attestation_due_gloas: Duration::from_millis(1500),
-            payload_due: Duration::from_millis(3000),
-            payload_attestation_due: Duration::from_millis(4500),
-            aggregate_attestation_due: Duration::from_millis(4000),
-            aggregate_attestation_due_gloas: Duration::from_millis(3000),
-            sync_message_due: Duration::from_millis(1999),
-            sync_message_due_gloas: Duration::from_millis(1500),
-            contribution_and_proof_due: Duration::from_millis(4000),
-            contribution_and_proof_due_gloas: Duration::from_millis(3000),
-            inclusion_list_due: Duration::from_millis(4000),
-
             // Networking Fulu
             blob_schedule: BlobSchedule::default(),
 
@@ -1659,6 +1683,7 @@ impl ChainSpec {
             boot_nodes,
             ..ChainSpec::mainnet()
         }
+        .with_slot_component_durations()
     }
 
     /// Returns a `ChainSpec` compatible with the Gnosis Beacon Chain specification.
@@ -1736,22 +1761,6 @@ impl ChainSpec {
             payload_attestation_due_bps: 7500,
             aggregate_due_bps: 6667,
             aggregate_due_bps_gloas: 5000,
-
-            /*
-             * Derived time values (set by `compute_derived_values()`)
-             * Precomputed for 5000ms slot: 3333 bps = 1666ms, 6667 bps = 3333ms
-             */
-            unaggregated_attestation_due: Duration::from_millis(1666),
-            unaggregated_attestation_due_gloas: Duration::from_millis(1250),
-            payload_due: Duration::from_millis(2500),
-            payload_attestation_due: Duration::from_millis(3750),
-            aggregate_attestation_due: Duration::from_millis(3333),
-            aggregate_attestation_due_gloas: Duration::from_millis(2500),
-            sync_message_due: Duration::from_millis(1666),
-            sync_message_due_gloas: Duration::from_millis(1250),
-            contribution_and_proof_due: Duration::from_millis(3333),
-            contribution_and_proof_due_gloas: Duration::from_millis(2500),
-            inclusion_list_due: Duration::from_millis(3333),
 
             /*
              * Reward and penalty quotients
@@ -1834,6 +1843,7 @@ impl ChainSpec {
             contribution_due_bps: 6667,
             contribution_due_bps_gloas: 5000,
             inclusion_list_due_bps: 6667,
+            slot_component_durations: vec![],
 
             /*
              * Bellatrix hard fork params
@@ -1999,6 +2009,7 @@ impl ChainSpec {
              */
             domain_bls_to_execution_change: 10,
         }
+        .with_slot_component_durations()
     }
 }
 
@@ -2048,8 +2059,39 @@ impl ScheduleEntry for GasLimitScheduleEntry {
     }
 }
 
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(PartialEq, Debug, Clone, Copy, Default)]
+struct SlotComponentDurations {
+    epoch: Epoch,
+    attestation_due: Duration,
+    attestation_due_gloas: Duration,
+    payload_due: Duration,
+    payload_attestation_due: Duration,
+    aggregate_attestation_due: Duration,
+    aggregate_attestation_due_gloas: Duration,
+    sync_message_due: Duration,
+    sync_message_due_gloas: Duration,
+    contribution_and_proof_due: Duration,
+    contribution_and_proof_due_gloas: Duration,
+    inclusion_list_due: Duration,
+    proposer_reorg_cutoff: Duration,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct SlotDurationScheduleEntry {
+    pub epoch: Epoch,
+    pub slot_duration_ms: u64,
+}
+
+impl ScheduleEntry for SlotDurationScheduleEntry {
+    fn epoch(&self) -> Epoch {
+        self.epoch
+    }
+}
+
 pub type BlobSchedule = EpochSchedule<BlobParameters>;
 pub type GasLimitSchedule = EpochSchedule<GasLimitScheduleEntry>;
+pub type SlotDurationSchedule = EpochSchedule<SlotDurationScheduleEntry>;
 
 // A wrapper around a vector of schedule entries to ensure that the vector is reverse sorted by
 // epoch.
@@ -2126,6 +2168,81 @@ impl BlobSchedule {
 impl GasLimitSchedule {
     pub fn gas_limit_for_epoch(&self, epoch: Epoch) -> Option<u64> {
         self.entry_for_epoch(epoch).map(|entry| entry.gas_limit)
+    }
+}
+
+impl SlotDurationSchedule {
+    pub fn slot_duration_ms_for_epoch(&self, epoch: Epoch) -> Option<u64> {
+        self.entry_for_epoch(epoch)
+            .map(|entry| entry.slot_duration_ms)
+    }
+
+    /// Spec: `compute_time_at_slot_ms`. Returns `ArithError::Overflow` for an empty schedule.
+    pub fn compute_time_at_slot_ms(
+        &self,
+        slots_per_epoch: u64,
+        genesis_time_ms: u64,
+        slot: Slot,
+    ) -> Result<u64, ArithError> {
+        let mut entries = self.as_vec().iter().rev();
+        let genesis = entries.next().ok_or(ArithError::Overflow)?;
+        let mut start_slot = genesis.epoch.start_slot(slots_per_epoch);
+        let mut start_time_ms = genesis_time_ms;
+        let mut slot_duration_ms = genesis.slot_duration_ms;
+        for entry in entries {
+            let entry_slot = entry.epoch.start_slot(slots_per_epoch);
+            if slot <= entry_slot {
+                break;
+            }
+            start_time_ms.safe_add_assign(
+                entry_slot
+                    .safe_sub(start_slot)?
+                    .as_u64()
+                    .safe_mul(slot_duration_ms)?,
+            )?;
+            start_slot = entry_slot;
+            slot_duration_ms = entry.slot_duration_ms;
+        }
+        start_time_ms.safe_add(
+            slot.safe_sub(start_slot)?
+                .as_u64()
+                .safe_mul(slot_duration_ms)?,
+        )
+    }
+
+    /// Spec: `compute_slot_at_time_ms`. Returns `ArithError::Overflow` for an empty schedule.
+    pub fn compute_slot_at_time_ms(
+        &self,
+        slots_per_epoch: u64,
+        genesis_time_ms: u64,
+        time_ms: u64,
+    ) -> Result<Slot, ArithError> {
+        let mut entries = self.as_vec().iter().rev();
+        let genesis = entries.next().ok_or(ArithError::Overflow)?;
+        let mut start_slot = genesis.epoch.start_slot(slots_per_epoch);
+        let mut start_time_ms = genesis_time_ms;
+        let mut slot_duration_ms = genesis.slot_duration_ms;
+        for entry in entries {
+            let entry_slot = entry.epoch.start_slot(slots_per_epoch);
+            let Some(entry_time_ms) = entry_slot
+                .as_u64()
+                .checked_sub(start_slot.as_u64())
+                .and_then(|slots| slots.checked_mul(slot_duration_ms))
+                .and_then(|duration_ms| start_time_ms.checked_add(duration_ms))
+            else {
+                break;
+            };
+            if time_ms < entry_time_ms {
+                break;
+            }
+            start_slot = entry_slot;
+            start_time_ms = entry_time_ms;
+            slot_duration_ms = entry.slot_duration_ms;
+        }
+        let slots = time_ms
+            .safe_sub(start_time_ms)?
+            .safe_div(slot_duration_ms)?;
+        start_slot.safe_add(slots)
     }
 }
 
@@ -4335,12 +4452,53 @@ mod yaml_tests {
         }
     }
 
+    /// Pins the deadline getters to the values `compute_derived_values` used to cache.
+    #[test]
+    fn deadlines_match_the_previously_cached_values() {
+        fn check<E: EthSpec>(spec: ChainSpec, pre_gloas: [u64; 7], gloas: [u64; 7]) {
+            let mut spec = spec.compute_derived_values::<E>();
+            spec.gloas_fork_epoch = Some(Epoch::new(1));
+            let deadlines = |slot: Slot| {
+                [
+                    spec.get_attestation_due::<E>(slot),
+                    spec.get_aggregate_attestation_due::<E>(slot),
+                    spec.get_sync_message_due::<E>(slot),
+                    spec.get_contribution_message_due::<E>(slot),
+                    spec.get_payload_due::<E>(slot),
+                    spec.get_payload_attestation_due::<E>(slot),
+                    spec.get_proposer_reorg_cutoff::<E>(slot),
+                ]
+                .map(|due| due.as_millis() as u64)
+            };
+            assert_eq!(deadlines(Slot::new(0)), pre_gloas);
+            assert_eq!(
+                deadlines(Epoch::new(1).start_slot(E::slots_per_epoch())),
+                gloas
+            );
+        }
+        check::<MainnetEthSpec>(
+            ChainSpec::mainnet(),
+            [3999, 8000, 3999, 8000, 6000, 9000, 2000],
+            [3000, 6000, 3000, 6000, 6000, 9000, 2000],
+        );
+        check::<MinimalEthSpec>(
+            ChainSpec::minimal(),
+            [1999, 4000, 1999, 4000, 3000, 4500, 1000],
+            [1500, 3000, 1500, 3000, 3000, 4500, 1000],
+        );
+        check::<crate::core::GnosisEthSpec>(
+            ChainSpec::gnosis(),
+            [1666, 3333, 1666, 3333, 2500, 3750, 833],
+            [1250, 2500, 1250, 2500, 2500, 3750, 833],
+        );
+    }
+
     #[test]
     fn test_slot_component_duration_calculations() {
         let spec = ChainSpec::mainnet().compute_derived_values::<MainnetEthSpec>();
 
         // Test unaggregated attestation (3333 bps = 33.33% of 12s = 4s)
-        let unagg_due = spec.unaggregated_attestation_due;
+        let unagg_due = spec.get_attestation_due::<MainnetEthSpec>(Slot::new(0));
         assert_eq!(unagg_due, Duration::from_millis(3999)); // 12000 * 3333 / 10000
 
         // Test aggregate attestation (6667 bps = 66.67% of 12s = 8s)
@@ -4365,21 +4523,21 @@ mod yaml_tests {
         // Edge case: 0 bps should give 0 duration
         custom_spec.attestation_due_bps = 0;
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let zero_due = custom_spec.unaggregated_attestation_due;
+        let zero_due = custom_spec.get_attestation_due::<MainnetEthSpec>(Slot::new(0));
         assert_eq!(zero_due, Duration::from_millis(0));
 
         // Edge case: 10000 bps (100%) should give full slot duration
         let mut custom_spec = custom_spec;
         custom_spec.attestation_due_bps = 10_000;
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let full_due = custom_spec.unaggregated_attestation_due;
+        let full_due = custom_spec.get_attestation_due::<MainnetEthSpec>(Slot::new(0));
         assert_eq!(full_due, Duration::from_millis(12000));
 
         // Edge case: 5000 bps (50%) should give half slot duration
         let mut custom_spec = custom_spec;
         custom_spec.attestation_due_bps = 5_000;
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let half_due = custom_spec.unaggregated_attestation_due;
+        let half_due = custom_spec.get_attestation_due::<MainnetEthSpec>(Slot::new(0));
         assert_eq!(half_due, Duration::from_millis(6000));
 
         // Test with different slot duration (Gnosis: 5s slots)
@@ -4387,7 +4545,7 @@ mod yaml_tests {
         custom_spec.slot_duration_ms = 5000;
         custom_spec.attestation_due_bps = 3333;
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let gnosis_due = custom_spec.unaggregated_attestation_due;
+        let gnosis_due = custom_spec.get_attestation_due::<MainnetEthSpec>(Slot::new(0));
         assert_eq!(gnosis_due, Duration::from_millis(1666)); // 5000 * 3333 / 10000
 
         // Test with very small slot duration
@@ -4395,7 +4553,7 @@ mod yaml_tests {
         custom_spec.slot_duration_ms = 1000; // 1 second
         custom_spec.attestation_due_bps = 3333;
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let small_due = custom_spec.unaggregated_attestation_due;
+        let small_due = custom_spec.get_attestation_due::<MainnetEthSpec>(Slot::new(0));
         assert_eq!(small_due, Duration::from_millis(333)); // 1000 * 3333 / 10000
 
         // Test rounding behavior with non-divisible values
@@ -4403,21 +4561,25 @@ mod yaml_tests {
         custom_spec.slot_duration_ms = 12000;
         custom_spec.attestation_due_bps = 1; // 0.01%
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
-        let tiny_due = custom_spec.unaggregated_attestation_due;
+        let tiny_due = custom_spec.get_attestation_due::<MainnetEthSpec>(Slot::new(0));
         assert_eq!(tiny_due, Duration::from_millis(1)); // 12000 * 1 / 10000 = 1.2 -> 1
 
         // Test payload due (5000 bps = 50% of 12s = 6s)
         let spec = ChainSpec::mainnet().compute_derived_values::<MainnetEthSpec>();
-        let payload_due = spec.get_payload_due();
+        let payload_due = spec.get_payload_due::<MainnetEthSpec>(Slot::new(0));
         assert_eq!(payload_due, Duration::from_millis(6000)); // 12000 * 5000 / 10000
 
         // Test payload attestation due (7500 bps = 75% of 12s = 9s)
-        let payload_att_due = spec.get_payload_attestation_due();
+        let payload_att_due = spec.get_payload_attestation_due::<MainnetEthSpec>(Slot::new(0));
         assert_eq!(payload_att_due, Duration::from_millis(9000)); // 12000 * 7500 / 10000
 
         // Test gloas attestation due (2500 bps = 25% of 12s = 3s)
         assert_eq!(
-            spec.unaggregated_attestation_due_gloas,
+            ChainSpec::compute_slot_component_duration(
+                spec.attestation_due_bps_gloas,
+                spec.slot_duration_ms
+            )
+            .expect("valid slot component duration"),
             Duration::from_millis(3000)
         ); // 12000 * 2500 / 10000
 
@@ -4426,7 +4588,11 @@ mod yaml_tests {
         custom_spec.attestation_due_bps_gloas = 5000;
         let custom_spec = custom_spec.compute_derived_values::<MainnetEthSpec>();
         assert_eq!(
-            custom_spec.unaggregated_attestation_due_gloas,
+            ChainSpec::compute_slot_component_duration(
+                custom_spec.attestation_due_bps_gloas,
+                custom_spec.slot_duration_ms
+            )
+            .expect("valid slot component duration"),
             Duration::from_millis(6000)
         ); // 12000 * 5000 / 10000
 
@@ -4557,7 +4723,7 @@ mod yaml_tests {
         // without needing to call compute_derived_values()
         let mainnet = ChainSpec::mainnet();
         assert_eq!(
-            mainnet.unaggregated_attestation_due,
+            mainnet.get_attestation_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(3999)
         );
         assert_eq!(
@@ -4574,15 +4740,22 @@ mod yaml_tests {
         );
 
         // Mainnet payload due: 12000ms slots, 5000 bps = 6000ms
-        assert_eq!(mainnet.get_payload_due(), Duration::from_millis(6000));
         assert_eq!(
-            mainnet.get_payload_attestation_due(),
+            mainnet.get_payload_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(6000)
+        );
+        assert_eq!(
+            mainnet.get_payload_attestation_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(9000)
         );
 
         // Mainnet gloas: 12000ms slots, 2500 bps = 3000ms
         assert_eq!(
-            mainnet.unaggregated_attestation_due_gloas,
+            ChainSpec::compute_slot_component_duration(
+                mainnet.attestation_due_bps_gloas,
+                mainnet.slot_duration_ms
+            )
+            .expect("valid slot component duration"),
             Duration::from_millis(3000)
         );
         let mut mainnet_gloas = mainnet.clone();
@@ -4603,7 +4776,7 @@ mod yaml_tests {
         // Minimal spec: 6000ms slots, 3333 bps = 1999ms, 6667 bps = 4000ms
         let minimal = ChainSpec::minimal();
         assert_eq!(
-            minimal.unaggregated_attestation_due,
+            minimal.get_attestation_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(1999)
         );
         assert_eq!(
@@ -4619,15 +4792,22 @@ mod yaml_tests {
             Duration::from_millis(4000)
         );
         // Minimal payload due: 6000ms slots, 5000 bps = 3000ms
-        assert_eq!(minimal.get_payload_due(), Duration::from_millis(3000));
         assert_eq!(
-            minimal.get_payload_attestation_due(),
+            minimal.get_payload_due::<MinimalEthSpec>(Slot::new(0)),
+            Duration::from_millis(3000)
+        );
+        assert_eq!(
+            minimal.get_payload_attestation_due::<MinimalEthSpec>(Slot::new(0)),
             Duration::from_millis(4500)
         );
 
         // Minimal gloas: 6000ms slots, 2500 bps = 1500ms
         assert_eq!(
-            minimal.unaggregated_attestation_due_gloas,
+            ChainSpec::compute_slot_component_duration(
+                minimal.attestation_due_bps_gloas,
+                minimal.slot_duration_ms
+            )
+            .expect("valid slot component duration"),
             Duration::from_millis(1500)
         );
         let mut minimal_gloas = minimal.clone();
@@ -4648,7 +4828,7 @@ mod yaml_tests {
         // Gnosis spec: 5000ms slots, 3333 bps = 1666ms, 6667 bps = 3333ms
         let gnosis = ChainSpec::gnosis();
         assert_eq!(
-            gnosis.unaggregated_attestation_due,
+            gnosis.get_attestation_due::<MainnetEthSpec>(Slot::new(0)),
             Duration::from_millis(1666)
         );
         assert_eq!(
@@ -4664,15 +4844,22 @@ mod yaml_tests {
             Duration::from_millis(3333)
         );
         // Gnosis payload due: 5000ms slots, 5000 bps = 2500ms
-        assert_eq!(gnosis.get_payload_due(), Duration::from_millis(2500));
         assert_eq!(
-            gnosis.get_payload_attestation_due(),
+            gnosis.get_payload_due::<crate::core::GnosisEthSpec>(Slot::new(0)),
+            Duration::from_millis(2500)
+        );
+        assert_eq!(
+            gnosis.get_payload_attestation_due::<crate::core::GnosisEthSpec>(Slot::new(0)),
             Duration::from_millis(3750)
         );
 
         // Gnosis gloas: 5000ms slots, 2500 bps = 1250ms
         assert_eq!(
-            gnosis.unaggregated_attestation_due_gloas,
+            ChainSpec::compute_slot_component_duration(
+                gnosis.attestation_due_bps_gloas,
+                gnosis.slot_duration_ms
+            )
+            .expect("valid slot component duration"),
             Duration::from_millis(1250)
         );
         let mut gnosis_gloas = gnosis.clone();
@@ -4698,6 +4885,177 @@ mod yaml_tests {
         // 15000 bps = 150% of slot duration, which is invalid
         spec.attestation_due_bps = 15000;
         spec.compute_derived_values::<MainnetEthSpec>();
+    }
+
+    fn slot_duration_schedule(entries: &[(u64, u64)]) -> SlotDurationSchedule {
+        SlotDurationSchedule::new(
+            entries
+                .iter()
+                .map(|&(epoch, slot_duration_ms)| SlotDurationScheduleEntry {
+                    epoch: Epoch::new(epoch),
+                    slot_duration_ms,
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn later_slot_duration_wins_on_duplicate_epoch() {
+        let slot_durations = [
+            (Epoch::new(0), 12000),
+            (Epoch::new(0), 6000),
+            (Epoch::new(2), 4000),
+            (Epoch::new(2), 2000),
+        ];
+        let schedule = ChainSpec::slot_duration_schedule_from(slot_durations.into_iter());
+        assert_eq!(schedule, slot_duration_schedule(&[(0, 6000), (2, 2000)]));
+        assert_eq!(
+            schedule.slot_duration_ms_for_epoch(Epoch::new(0)),
+            Some(6000)
+        );
+        assert_eq!(
+            schedule.slot_duration_ms_for_epoch(Epoch::new(2)),
+            Some(2000)
+        );
+
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        let fork_slot = Epoch::new(2).start_slot(slots_per_epoch);
+        let fork_time_ms = fork_slot.as_u64() * 6000;
+        assert_eq!(
+            schedule.compute_time_at_slot_ms(slots_per_epoch, 0, fork_slot + 1),
+            Ok(fork_time_ms + 2000)
+        );
+        assert_eq!(
+            schedule.compute_slot_at_time_ms(slots_per_epoch, 0, fork_time_ms + 2000),
+            Ok(fork_slot + 1)
+        );
+
+        let mut spec = ChainSpec::mainnet();
+        spec.slot_component_durations =
+            spec.compute_slot_component_durations(slot_durations.into_iter());
+        assert_eq!(
+            spec.get_payload_due::<MainnetEthSpec>(Slot::new(0)),
+            Duration::from_millis(3000)
+        );
+        assert_eq!(
+            spec.get_payload_due::<MainnetEthSpec>(fork_slot),
+            Duration::from_millis(1000)
+        );
+    }
+
+    #[test]
+    fn slot_durations_start_at_genesis() {
+        let spec = ChainSpec::mainnet();
+        assert_eq!(
+            spec.get_slot_durations().collect::<Vec<_>>(),
+            vec![(Epoch::new(0), 12000)]
+        );
+        assert_eq!(
+            spec.slot_duration_schedule(),
+            slot_duration_schedule(&[(0, 12000)])
+        );
+        assert_eq!(spec.get_slot_duration_ms(Epoch::new(0)), 12000);
+        assert_eq!(spec.get_slot_duration_ms(Epoch::new(1_000_000)), 12000);
+    }
+
+    #[test]
+    fn slot_time_mapping_matches_linear_mapping_without_schedule() {
+        let spec = ChainSpec::mainnet();
+        let genesis_time_ms = 1_606_824_023_000;
+        for slot in [0, 1, 31, 32, 12_345, 10_000_000] {
+            assert_eq!(
+                spec.slot_duration_schedule().compute_time_at_slot_ms(
+                    MainnetEthSpec::slots_per_epoch(),
+                    genesis_time_ms,
+                    Slot::new(slot)
+                ),
+                Ok(genesis_time_ms + slot * 12000)
+            );
+        }
+        for offset_ms in [0, 1, 11_999, 12_000, 123_456_789] {
+            assert_eq!(
+                spec.slot_duration_schedule().compute_slot_at_time_ms(
+                    MainnetEthSpec::slots_per_epoch(),
+                    genesis_time_ms,
+                    genesis_time_ms + offset_ms
+                ),
+                Ok(Slot::new(offset_ms / 12000))
+            );
+        }
+        assert!(
+            spec.slot_duration_schedule()
+                .compute_slot_at_time_ms(
+                    MainnetEthSpec::slots_per_epoch(),
+                    genesis_time_ms,
+                    genesis_time_ms - 1
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn slot_time_mapping_ignores_unreachable_entries() {
+        let schedule = slot_duration_schedule(&[(0, 12000), (u64::MAX, 6000)]);
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        assert_eq!(
+            schedule.compute_slot_at_time_ms(slots_per_epoch, 0, 120_000),
+            Ok(Slot::new(10))
+        );
+        assert_eq!(
+            schedule.compute_time_at_slot_ms(slots_per_epoch, 0, Slot::new(10)),
+            Ok(120_000)
+        );
+    }
+
+    #[test]
+    fn slot_time_mapping_across_slot_duration_changes() {
+        let schedule = slot_duration_schedule(&[(0, 12000), (10, 10000), (20, 6000)]);
+        let genesis_time_ms = 1_000_000;
+        let time_at = |slot: u64| {
+            schedule
+                .compute_time_at_slot_ms(
+                    MainnetEthSpec::slots_per_epoch(),
+                    genesis_time_ms,
+                    Slot::new(slot),
+                )
+                .unwrap()
+        };
+        let slot_at = |time_ms: u64| {
+            schedule
+                .compute_slot_at_time_ms(
+                    MainnetEthSpec::slots_per_epoch(),
+                    genesis_time_ms,
+                    time_ms,
+                )
+                .unwrap()
+                .as_u64()
+        };
+        let slot_duration_ms_at = |epoch: u64| {
+            schedule
+                .slot_duration_ms_for_epoch(Epoch::new(epoch))
+                .unwrap()
+        };
+
+        assert_eq!(slot_duration_ms_at(9), 12000);
+        assert_eq!(slot_duration_ms_at(10), 10000);
+        assert_eq!(slot_duration_ms_at(19), 10000);
+        assert_eq!(slot_duration_ms_at(20), 6000);
+
+        assert_eq!(time_at(320), genesis_time_ms + 320 * 12000);
+        assert_eq!(time_at(321), time_at(320) + 10000);
+        assert_eq!(time_at(640), time_at(320) + 320 * 10000);
+        assert_eq!(time_at(641), time_at(640) + 6000);
+
+        for slot in 0..1024 {
+            let epoch = slot / 32;
+            assert_eq!(
+                time_at(slot + 1) - time_at(slot),
+                slot_duration_ms_at(epoch),
+                "slot {slot}"
+            );
+            assert_eq!(slot_at(time_at(slot)), slot, "slot {slot}");
+            assert_eq!(slot_at(time_at(slot + 1) - 1), slot, "slot {slot}");
+        }
     }
 
     fn configs_base_path() -> PathBuf {
@@ -4808,5 +5166,152 @@ mod yaml_tests {
     fn minimal_config_consistent() {
         let spec = ChainSpec::minimal();
         config_test::<MinimalEthSpec>(&spec, "minimal");
+    }
+}
+
+#[cfg(test)]
+mod slot_duration_schedule_properties {
+    use super::*;
+    use proptest::prelude::*;
+
+    const SLOTS_PER_EPOCH: u64 = 32;
+
+    fn spec_time_at_slot(schedule: &[(u64, u64)], genesis_time_ms: u128, slot: u128) -> u128 {
+        let mut end_slot = slot;
+        let mut time_ms = genesis_time_ms;
+        for &(fork_epoch, slot_duration_ms) in schedule.iter().rev() {
+            let fork_slot = u128::from(fork_epoch) * u128::from(SLOTS_PER_EPOCH);
+            if fork_slot < end_slot {
+                let slots = end_slot - fork_slot;
+                time_ms += slots * u128::from(slot_duration_ms);
+                end_slot = fork_slot;
+            }
+        }
+        time_ms
+    }
+
+    fn spec_slot_at_time(
+        schedule: &[(u64, u64)],
+        genesis_time_ms: u128,
+        time_ms: u128,
+    ) -> Option<u128> {
+        let mut start = None;
+        for &(fork_epoch, fork_slot_duration_ms) in schedule {
+            let fork_slot = u128::from(fork_epoch) * u128::from(SLOTS_PER_EPOCH);
+            let fork_time_ms = spec_time_at_slot(schedule, genesis_time_ms, fork_slot);
+            if time_ms >= fork_time_ms {
+                start = Some((fork_slot, fork_time_ms, u128::from(fork_slot_duration_ms)));
+            }
+        }
+        let (start_slot, start_time_ms, slot_duration_ms) = start?;
+        let time_diff_ms = time_ms - start_time_ms;
+        let slots = time_diff_ms / slot_duration_ms;
+        Some(start_slot + slots)
+    }
+
+    fn to_schedule(entries: &[(u64, u64)]) -> SlotDurationSchedule {
+        ChainSpec::slot_duration_schedule_from(
+            entries
+                .iter()
+                .map(|&(epoch, slot_duration_ms)| (Epoch::new(epoch), slot_duration_ms)),
+        )
+    }
+
+    fn epoch() -> impl Strategy<Value = u64> {
+        prop_oneof![
+            0u64..4,
+            1u64..200,
+            1u64..u64::MAX / SLOTS_PER_EPOCH,
+            Just(u64::MAX)
+        ]
+    }
+
+    fn slot_duration_ms() -> impl Strategy<Value = u64> {
+        (1u64..=24).prop_map(|seconds| seconds * 1000)
+    }
+
+    fn schedule() -> impl Strategy<Value = Vec<(u64, u64)>> {
+        (
+            slot_duration_ms(),
+            proptest::collection::vec((epoch(), slot_duration_ms()), 0..4),
+        )
+            .prop_map(|(genesis_slot_duration_ms, later)| {
+                let mut entries = vec![(0, genesis_slot_duration_ms)];
+                entries.extend(later);
+                entries.sort_by_key(|&(epoch, _)| epoch);
+                entries
+            })
+    }
+
+    proptest! {
+        #[test]
+        fn time_at_slot_matches_spec(
+            entries in schedule(),
+            genesis_time_ms in 0u64..1 << 44,
+            slot in prop_oneof![0u64..20_000, any::<u64>()],
+        ) {
+            let expected = spec_time_at_slot(&entries, u128::from(genesis_time_ms), u128::from(slot));
+            match to_schedule(&entries).compute_time_at_slot_ms(SLOTS_PER_EPOCH, genesis_time_ms, Slot::new(slot)) {
+                Ok(time_ms) => prop_assert_eq!(u128::from(time_ms), expected),
+                Err(_) => prop_assert!(expected > u128::from(u64::MAX)),
+            }
+        }
+
+        #[test]
+        fn slot_at_time_matches_spec(
+            entries in schedule(),
+            genesis_time_ms in 0u64..1 << 44,
+            offset_ms in prop_oneof![0u64..1 << 30, 0u64..1 << 50],
+        ) {
+            let time_ms = genesis_time_ms + offset_ms;
+            let expected =
+                spec_slot_at_time(&entries, u128::from(genesis_time_ms), u128::from(time_ms));
+            let slot = to_schedule(&entries)
+                .compute_slot_at_time_ms(SLOTS_PER_EPOCH, genesis_time_ms, time_ms);
+            prop_assert_eq!(slot.map(|slot| u128::from(slot.as_u64())).ok(), expected);
+        }
+
+        #[test]
+        fn slot_at_time_inverts_time_at_slot(
+            entries in schedule(),
+            genesis_time_ms in 0u64..1 << 44,
+            slot in 0u64..20_000,
+        ) {
+            let schedule = to_schedule(&entries);
+            let time_at = |slot: u64| {
+                schedule
+                    .compute_time_at_slot_ms(SLOTS_PER_EPOCH, genesis_time_ms, Slot::new(slot))
+                    .unwrap()
+            };
+            let slot_at = |time_ms: u64| {
+                schedule
+                    .compute_slot_at_time_ms(SLOTS_PER_EPOCH, genesis_time_ms, time_ms)
+                    .unwrap()
+                    .as_u64()
+            };
+            prop_assert!(time_at(slot) < time_at(slot + 1));
+            prop_assert_eq!(slot_at(time_at(slot)), slot);
+            prop_assert_eq!(slot_at(time_at(slot + 1) - 1), slot);
+        }
+
+        #[test]
+        fn slot_at_time_is_total_after_genesis(
+            entries in schedule(),
+            genesis_time_ms in 1u64..1 << 44,
+            offset_ms in any::<u64>(),
+        ) {
+            let schedule = to_schedule(&entries);
+            let time_ms = genesis_time_ms.saturating_add(offset_ms);
+            prop_assert!(
+                schedule
+                    .compute_slot_at_time_ms(SLOTS_PER_EPOCH, genesis_time_ms, time_ms)
+                    .is_ok()
+            );
+            prop_assert!(
+                schedule
+                    .compute_slot_at_time_ms(SLOTS_PER_EPOCH, genesis_time_ms, genesis_time_ms - 1)
+                    .is_err()
+            );
+        }
     }
 }

@@ -2239,7 +2239,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // the envelopes_times_cache internally?
         // The payload is considered present only if it was observed before
         // the payload due deadline (PAYLOAD_DUE_BPS into the slot).
-        let payload_due = self.spec.get_payload_due();
+        let payload_due = self.spec.get_payload_due::<T::EthSpec>(request_slot);
         let payload_present = self
             .envelope_times_cache
             .read()
@@ -5553,8 +5553,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot_delay = now.saturating_sub(slot_start);
                     let re_org_cutoff_duration = self
                         .spec
-                        .compute_slot_component_duration(self.spec.proposer_reorg_cutoff_bps)
-                        .ok()?;
+                        .get_proposer_reorg_cutoff::<T::EthSpec>(re_org_block_slot);
 
                     Some(slot_delay <= re_org_cutoff_duration)
                 })
@@ -8002,10 +8001,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // into an offence; a reveal after the deadline is one even if it was then imported.
         let envelope_observed_timely = {
             let observed = self.envelope_times_cache.read().time_observed(block_root);
-            let deadline = self
-                .slot_clock
-                .start_of(block_slot)
-                .map(|slot_start| slot_start + self.spec.get_payload_attestation_due());
+            let deadline = self.slot_clock.start_of(block_slot).map(|slot_start| {
+                slot_start
+                    + self
+                        .spec
+                        .get_payload_attestation_due::<T::EthSpec>(block_slot)
+            });
             observed
                 .zip(deadline)
                 .is_some_and(|(observed, deadline)| observed <= deadline)

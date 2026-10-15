@@ -92,7 +92,10 @@ where
 
     pub fn start_update_service(self) -> Result<(), String> {
         info!(
-            payload_attestation_due_ms = self.chain_spec.get_payload_attestation_due().as_millis(),
+            payload_attestation_due_ms = self
+                .chain_spec
+                .get_payload_attestation_due::<S::E>(self.slot_clock.now().unwrap_or_default())
+                .as_millis(),
             "Payload attestation service started"
         );
 
@@ -178,7 +181,12 @@ where
             let deadline = self
                 .slot_clock
                 .duration_to_slot(attestation_slot + 1)
-                .and_then(|d| d.checked_add(self.chain_spec.get_payload_attestation_due()))
+                .and_then(|d| {
+                    d.checked_add(
+                        self.chain_spec
+                            .get_payload_attestation_due::<S::E>(attestation_slot),
+                    )
+                })
                 .map(|d| d.saturating_sub(self.chain_spec.get_slot_duration()))
                 .unwrap_or_default();
             sleep(deadline).await;
@@ -211,7 +219,6 @@ where
 
     async fn wait_for_attestation_slot(&self) -> Option<Slot> {
         let slot_duration = self.chain_spec.get_slot_duration();
-        let payload_attestation_due = self.chain_spec.get_payload_attestation_due();
 
         let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() else {
             error!("Failed to read slot clock");
@@ -249,6 +256,9 @@ where
             return None;
         }
 
+        let payload_attestation_due = self
+            .chain_spec
+            .get_payload_attestation_due::<S::E>(attestation_slot);
         sleep(duration_to_next_slot + payload_attestation_due).await;
 
         let Some(post_sleep_slot) = self.slot_clock.now() else {
@@ -579,7 +589,12 @@ mod tests {
         assert!(service_wait.as_mut().now_or_never().is_none());
 
         let duration_to_next_slot = harness.service.slot_clock.duration_to_next_slot().unwrap();
-        let payload_attestation_due = harness.service.chain_spec.get_payload_attestation_due();
+        let payload_attestation_due = harness
+            .service
+            .chain_spec
+            .get_payload_attestation_due::<types::MainnetEthSpec>(
+                harness.service.slot_clock.now().unwrap() + 1,
+            );
         let duration_to_wait = duration_to_next_slot + payload_attestation_due;
         // Advance both slot_clock and tokio::time to 21s (the sleep deadline)
         // The timer hasn't fired yet because tokio requires time to be strictly past the deadline.
@@ -1317,7 +1332,7 @@ mod tests {
         let payload_attestation_due = test_harness
             .service
             .chain_spec
-            .get_payload_attestation_due();
+            .get_payload_attestation_due::<types::MainnetEthSpec>(attestation_slot);
         advance_time(&test_harness.service.slot_clock, slot_duration).await;
         assert_eq!(
             test_harness.service.slot_clock.now().unwrap(),
