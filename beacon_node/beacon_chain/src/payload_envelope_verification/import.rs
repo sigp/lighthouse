@@ -5,7 +5,12 @@ use eth2::types::{EventKind, SseExecutionPayload, SseExecutionPayloadAvailable};
 use execution_layer::PayloadStatus;
 use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
-use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
+use state_processing::{
+    VerifySignatures,
+    envelope_processing::{
+        verify_execution_payload_envelope, verify_execution_payload_envelope_at_slot,
+    },
+};
 use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
 use types::{
@@ -425,18 +430,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<(), EnvelopeError> {
         let signed_envelope = available_envelope.envelope().clone();
 
-        // Load the state snapshot for envelope processing
-        let state_root = block.state_root();
-        let snapshot = load_snapshot_from_state_root::<T>(block_root, state_root, &self.store)?;
+        let split = self.store.get_split_info();
+        if block_root == split.block_root && block.slot() < split.slot {
+            // The anchor's post-state isn't stored, so verify against the split state.
+            let state = self
+                .store
+                .get_hot_state(&split.state_root, false)?
+                .ok_or_else(|| {
+                    BeaconChainError::DBInconsistent(format!(
+                        "Missing split state {:?}",
+                        split.state_root
+                    ))
+                })?;
+            verify_execution_payload_envelope_at_slot(
+                &state,
+                &signed_envelope,
+                VerifySignatures::True,
+                block.state_root(),
+                block.slot(),
+                &self.spec,
+            )?;
+        } else {
+            // Load the state snapshot for envelope processing
+            let snapshot =
+                load_snapshot_from_state_root::<T>(block_root, block.state_root(), &self.store)?;
 
-        // Verify envelope signature and state processing
-        verify_execution_payload_envelope(
-            &snapshot.pre_state,
-            &signed_envelope,
-            VerifySignatures::True,
-            snapshot.state_root,
-            &self.spec,
-        )?;
+            // Verify envelope signature and state processing
+            verify_execution_payload_envelope(
+                &snapshot.pre_state,
+                &signed_envelope,
+                VerifySignatures::True,
+                snapshot.state_root,
+                &self.spec,
+            )?;
+        }
 
         // EIP-8025: execution layer verifications must be done on the CL.
         if self.execution_proofs_enabled() && self.config.verify_envelope_payload_hash_on_cl {
