@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{core::EthSpec, beacon_state_summary::BeaconStateSummary};
+use crate::{beacon_state_summary::BeaconStateSummary, core::EthSpec};
 
 /// The `List`/`ProgressiveList` fields of `BeaconStateSummary` that get split into
 /// [`BeaconStatePart`](super::BeaconStatePart) chunks, in the same order they're declared on
@@ -53,27 +53,89 @@ impl ChunkedField {
     /// same way and hasn't been independently confirmed with Etan.
     pub const fn items_per_chunk(self) -> usize {
         match self {
-            ChunkedField::HistoricalRoots => 1 << 14,           // Hash256, 32B
-            ChunkedField::Eth1DataVotes => 1 << 12,             // Eth1Data, 72B
-            ChunkedField::Validators => 1 << 12,                // Validator, 121B
-            ChunkedField::Balances => 1 << 16,                  // u64, 8B
+            ChunkedField::HistoricalRoots => 1 << 14, // Hash256, 32B
+            ChunkedField::Eth1DataVotes => 1 << 12,   // Eth1Data, 72B
+            ChunkedField::Validators => 1 << 12,      // Validator, 121B
+            ChunkedField::Balances => 1 << 16,        // u64, 8B
             ChunkedField::PreviousEpochParticipation => 1 << 19, // ParticipationFlags, 1B
-            ChunkedField::CurrentEpochParticipation => 1 << 19,  // ParticipationFlags, 1B
-            ChunkedField::InactivityScores => 1 << 16,          // u64, 8B
-            ChunkedField::HistoricalSummaries => 1 << 13,       // HistoricalSummary, 64B
-            ChunkedField::PendingDeposits => 1 << 11,           // PendingDeposit, 192B
+            ChunkedField::CurrentEpochParticipation => 1 << 19, // ParticipationFlags, 1B
+            ChunkedField::InactivityScores => 1 << 16, // u64, 8B
+            ChunkedField::HistoricalSummaries => 1 << 13, // HistoricalSummary, 64B
+            ChunkedField::PendingDeposits => 1 << 11, // PendingDeposit, 192B
             ChunkedField::PendingPartialWithdrawals => 1 << 14, // PendingPartialWithdrawal, 24B
-            ChunkedField::PendingConsolidations => 1 << 15,     // PendingConsolidation, 16B
-            ChunkedField::Builders => 1 << 12,                  // Builder, 93B
+            ChunkedField::PendingConsolidations => 1 << 15, // PendingConsolidation, 16B
+            ChunkedField::Builders => 1 << 12,        // Builder, 93B
             ChunkedField::BuilderPendingWithdrawals => 1 << 13, // BuilderPendingWithdrawal, 36B
             ChunkedField::PayloadExpectedWithdrawals => 1 << 13, // Withdrawal, 44B
         }
     }
 
-    /// Number of chunks a field with `len` items splits into (0 items → 0 chunks).
-    pub fn num_chunks(self, len: usize) -> usize {
-        len.div_ceil(self.items_per_chunk())
+    /// Number of items in this field's first chunk.
+    ///
+    /// A `ProgressiveList`'s tree is a chain of perfectly-balanced binary subtrees, one per
+    /// level, with level `i` holding `4^i` items (1, 4, 16, 64, 256, ...). A uniform
+    /// `items_per_chunk`-sized stride only produces valid single-subtree chunks once it's
+    /// aligned to these level boundaries, so the first chunk is special: it folds together every
+    /// level that fits completely within `items_per_chunk` (e.g. for `items_per_chunk = 32`,
+    /// levels 0-2 sum to `1 + 4 + 16 = 21`), and is exactly that folded subtree's root. Every
+    /// level from there on is itself at least as large as `items_per_chunk` and an exact
+    /// power-of-two multiple of it, so every later chunk can just be a plain, round
+    /// `items_per_chunk`-sized slice, no further special-casing needed. Confirmed directly with
+    /// Etan Kissling (2026-10-06), who gave this exact rule.
+    pub const fn first_chunk_size(self) -> usize {
+        first_chunk_size_for(self.items_per_chunk())
     }
+
+    /// Number of chunks a field with `len` items splits into (0 items → 0 chunks).
+    ///
+    /// The first chunk covers `0..first_chunk_size()` (or the whole field, if it's shorter than
+    /// that); every chunk after that is a plain `items_per_chunk()`-sized slice.
+    pub fn num_chunks(self, len: usize) -> usize {
+        if len == 0 {
+            return 0;
+        }
+        let first_chunk_size = self.first_chunk_size();
+        if len <= first_chunk_size {
+            1
+        } else {
+            1_usize.saturating_add(
+                len.saturating_sub(first_chunk_size)
+                    .div_ceil(self.items_per_chunk()),
+            )
+        }
+    }
+
+    /// Item-index range covered by the given 0-based chunk index within this field, given the
+    /// field's actual `len`. Returns `None` if `local_chunk_index >= num_chunks(len)`.
+    pub fn chunk_range(self, len: usize, local_chunk_index: usize) -> Option<Range<usize>> {
+        if local_chunk_index >= self.num_chunks(len) {
+            return None;
+        }
+        let first_chunk_size = self.first_chunk_size();
+        if local_chunk_index == 0 {
+            Some(0..first_chunk_size.min(len))
+        } else {
+            let items_per_chunk = self.items_per_chunk();
+            let start = first_chunk_size.saturating_add(
+                local_chunk_index
+                    .saturating_sub(1)
+                    .saturating_mul(items_per_chunk),
+            );
+            let end = start.saturating_add(items_per_chunk).min(len);
+            Some(start..end)
+        }
+    }
+}
+
+/// The largest `k` such that `4^0 + 4^1 + ... + 4^(k-1) <= items_per_chunk`, returning that sum.
+const fn first_chunk_size_for(items_per_chunk: usize) -> usize {
+    let mut cumulative = 0usize;
+    let mut level_size = 1usize;
+    while cumulative.saturating_add(level_size) <= items_per_chunk {
+        cumulative = cumulative.saturating_add(level_size);
+        level_size = level_size.saturating_mul(4);
+    }
+    cumulative
 }
 
 /// Maps a flat, global `chunk_index` (as used by `beacon_state_parts_by_range`) to the specific
@@ -81,11 +143,14 @@ impl ChunkedField {
 /// every chunked field (from a [`BeaconStateSummary`]'s `ListSummary`s).
 ///
 /// Chunks are laid out as a flat concatenation of each field's chunks, in [`ChunkedField::ALL`]
-/// order: all of `historical_roots`'s chunks, then all of `eth1_data_votes`'s, and so on.
+/// order: all of `historical_roots`'s chunks, then all of `eth1_data_votes`'s, and so on. Within
+/// a single field, the first chunk is the irregular [`ChunkedField::first_chunk_size`]-sized one
+/// and every chunk after that is a round [`ChunkedField::items_per_chunk`]-sized slice.
 #[derive(Debug, Clone)]
 pub struct ChunkLayout {
-    /// `(field, num_chunks, first_global_index)` for each chunked field, in declaration order.
-    per_field: Vec<(ChunkedField, usize, u64)>,
+    /// `(field, len, num_chunks, first_global_index)` for each chunked field, in declaration
+    /// order. `len` is kept so `locate` can clip the last chunk to the field's actual length.
+    per_field: Vec<(ChunkedField, usize, usize, u64)>,
     total_chunks: u64,
 }
 
@@ -96,7 +161,7 @@ impl ChunkLayout {
         let mut next_chunk_index: u64 = 0;
         for (field, len) in ChunkedField::ALL.into_iter().zip(lengths) {
             let num_chunks = field.num_chunks(len);
-            per_field.push((field, num_chunks, next_chunk_index));
+            per_field.push((field, len, num_chunks, next_chunk_index));
             next_chunk_index = next_chunk_index.saturating_add(num_chunks as u64);
         }
         Self {
@@ -133,14 +198,13 @@ impl ChunkLayout {
     /// Resolve a global `chunk_index` to the field it belongs to and the item-index range within
     /// that field this chunk covers. Returns `None` if `chunk_index >= total_chunks()`.
     pub fn locate(&self, chunk_index: u64) -> Option<(ChunkedField, Range<usize>)> {
-        for &(field, num_chunks, first_global_index) in &self.per_field {
+        for &(field, len, num_chunks, first_global_index) in &self.per_field {
             let num_chunks = num_chunks as u64;
             if chunk_index < first_global_index.saturating_add(num_chunks) {
                 let local_chunk_index = chunk_index.saturating_sub(first_global_index) as usize;
-                let items_per_chunk = field.items_per_chunk();
-                let start = local_chunk_index.saturating_mul(items_per_chunk);
-                let end = start.saturating_add(items_per_chunk);
-                return Some((field, start..end));
+                return field
+                    .chunk_range(len, local_chunk_index)
+                    .map(|range| (field, range));
             }
         }
         None
@@ -167,51 +231,59 @@ mod tests {
     }
 
     #[test]
-    fn num_chunks_rounds_up() {
+    fn first_chunk_size_matches_etans_example() {
+        // Etan's own example (2026-10-06): items_per_chunk = 32 folds levels 0-2
+        // (1 + 4 + 16 = 21) into the first chunk, since level 3 (64 items) doesn't fit.
+        assert_eq!(first_chunk_size_for(32), 21);
+    }
+
+    #[test]
+    fn first_chunk_size_for_validators() {
+        // P = 4096: levels 0-5 (1+4+16+64+256+1024 = 1365) fit; level 6 (4096) doesn't.
+        assert_eq!(ChunkedField::Validators.first_chunk_size(), 1365);
+    }
+
+    #[test]
+    fn num_chunks_accounts_for_irregular_first_chunk() {
+        let fc = ChunkedField::Validators.first_chunk_size();
         let per_chunk = ChunkedField::Validators.items_per_chunk();
-        assert_eq!(ChunkedField::Validators.num_chunks(per_chunk), 1);
-        assert_eq!(ChunkedField::Validators.num_chunks(per_chunk + 1), 2);
-        assert_eq!(ChunkedField::Validators.num_chunks(per_chunk - 1), 1);
+        assert_eq!(ChunkedField::Validators.num_chunks(fc), 1);
+        assert_eq!(ChunkedField::Validators.num_chunks(fc + 1), 2);
+        assert_eq!(ChunkedField::Validators.num_chunks(fc + per_chunk), 2);
+        assert_eq!(ChunkedField::Validators.num_chunks(fc + per_chunk + 1), 3);
     }
 
     #[test]
     fn layout_locates_chunks_across_fields() {
         // historical_roots: 0 items -> 0 chunks.
-        // eth1_data_votes: 1 item -> 1 chunk, global index 0.
-        // validators: 2 * items_per_chunk items -> 2 chunks, global indices 1 and 2.
+        // eth1_data_votes: 1 item -> 1 chunk, global index 0, entirely within the first chunk.
+        // validators: first_chunk_size + items_per_chunk + 1 items -> 3 chunks, global indices
+        // 1, 2, 3: the irregular first chunk, one full round chunk, and one trailing 1-item
+        // chunk clipped to the field's actual length.
         // everything else: 0 items -> 0 chunks.
-        let validators_per_chunk = ChunkedField::Validators.items_per_chunk();
-        let lengths = [
-            0,
-            1,
-            validators_per_chunk * 2,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-        ];
+        let fc = ChunkedField::Validators.first_chunk_size();
+        let per_chunk = ChunkedField::Validators.items_per_chunk();
+        let validators_len = fc + per_chunk + 1;
+        let lengths = [0, 1, validators_len, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let layout = ChunkLayout::new(lengths);
-        assert_eq!(layout.total_chunks(), 3);
+        assert_eq!(layout.total_chunks(), 4);
 
         let (field, range) = layout.locate(0).unwrap();
         assert_eq!(field, ChunkedField::Eth1DataVotes);
-        assert_eq!(range, 0..ChunkedField::Eth1DataVotes.items_per_chunk());
+        assert_eq!(range, 0..1);
 
         let (field, range) = layout.locate(1).unwrap();
         assert_eq!(field, ChunkedField::Validators);
-        assert_eq!(range, 0..validators_per_chunk);
+        assert_eq!(range, 0..fc);
 
         let (field, range) = layout.locate(2).unwrap();
         assert_eq!(field, ChunkedField::Validators);
-        assert_eq!(range, validators_per_chunk..(validators_per_chunk * 2));
+        assert_eq!(range, fc..(fc + per_chunk));
 
-        assert!(layout.locate(3).is_none());
+        let (field, range) = layout.locate(3).unwrap();
+        assert_eq!(field, ChunkedField::Validators);
+        assert_eq!(range, (fc + per_chunk)..validators_len);
+
+        assert!(layout.locate(4).is_none());
     }
 }
