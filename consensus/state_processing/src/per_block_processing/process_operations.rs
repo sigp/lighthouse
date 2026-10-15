@@ -276,8 +276,11 @@ pub mod altair_deneb {
 
                     if !validator_participation.has_flag(flag_index)? {
                         validator_participation.add_flag(flag_index)?;
-                        proposer_reward_numerator
-                            .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
+                        proposer_reward_numerator.safe_add_assign(
+                            state
+                                .get_base_reward_for_epoch(index, data.target.epoch)?
+                                .safe_mul(weight)?,
+                        )?;
 
                         update_progressive_balances_on_attestation(
                             state,
@@ -417,8 +420,11 @@ pub mod gloas {
 
                     if !validator_participation.has_flag(flag_index)? {
                         validator_participation.add_flag(flag_index)?;
-                        proposer_reward_numerator
-                            .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
+                        proposer_reward_numerator.safe_add_assign(
+                            state
+                                .get_base_reward_for_epoch(index, data.target.epoch)?
+                                .safe_mul(weight)?,
+                        )?;
                         will_set_new_flag = true;
 
                         update_progressive_balances_on_attestation(

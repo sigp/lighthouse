@@ -179,7 +179,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 total_active_balance.safe_div(spec.effective_balance_increment)?;
 
             let base_reward_per_increment =
-                BaseRewardPerIncrement::new(total_active_balance, spec)?;
+                BaseRewardPerIncrement::new(total_active_balance, previous_epoch, spec)?;
 
             for effective_balance_eth in
                 1..=self.max_effective_balance_increment_steps(previous_epoch)?
@@ -268,9 +268,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                         let penalty_numerator = effective_balance
                             .safe_mul(state.get_inactivity_score(validator_index)?)?;
-                        let penalty_denominator = spec.inactivity_score_bias.safe_mul(
-                            spec.inactivity_penalty_quotient_for_fork(state.fork_name_unchecked()),
-                        )?;
+                        let genesis_slot_duration_ms = spec.get_slot_duration_ms(Epoch::new(0));
+                        let previous_slot_duration_ms = spec.get_slot_duration_ms(previous_epoch);
+                        let penalty_denominator = spec
+                            .inactivity_score_bias
+                            .safe_mul(
+                                spec.inactivity_penalty_quotient_for_fork(
+                                    state.fork_name_unchecked(),
+                                ),
+                            )?
+                            .safe_mul(genesis_slot_duration_ms.safe_mul(genesis_slot_duration_ms)?)?
+                            .safe_div(
+                                previous_slot_duration_ms.safe_mul(previous_slot_duration_ms)?,
+                            )?;
                         inactivity_penalty =
                             -(penalty_numerator.safe_div(penalty_denominator)? as i64);
                     } else if flag_index == TIMELY_SOURCE_FLAG_INDEX {

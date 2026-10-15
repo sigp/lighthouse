@@ -35,6 +35,10 @@ struct Inner {
     ///
     /// Keyed by `effective_balance / effective_balance_increment`.
     base_rewards: Vec<u64>,
+    /// Base rewards priced at the slot duration of the previous epoch.
+    ///
+    /// Keyed by `effective_balance / effective_balance_increment`.
+    previous_epoch_base_rewards: Vec<u64>,
     /// Validator activation queue.
     activation_queue: ActivationQueue,
     /// Effective balance increment.
@@ -77,6 +81,7 @@ impl EpochCache {
         key: EpochCacheKey,
         effective_balances: Vec<u64>,
         base_rewards: Vec<u64>,
+        previous_epoch_base_rewards: Vec<u64>,
         activation_queue: ActivationQueue,
         spec: &ChainSpec,
     ) -> EpochCache {
@@ -85,6 +90,7 @@ impl EpochCache {
                 key,
                 effective_balances,
                 base_rewards,
+                previous_epoch_base_rewards,
                 activation_queue,
                 effective_balance_increment: spec.effective_balance_increment,
             })),
@@ -132,16 +138,40 @@ impl EpochCache {
             .inner
             .as_ref()
             .ok_or(EpochCacheError::CacheNotInitialized)?;
+        self.get_base_reward_for_epoch(validator_index, inner.key.epoch)
+    }
+
+    /// Returns the base reward of `validator_index` priced at the slot duration of `epoch`.
+    ///
+    /// `epoch` must be the epoch of the cache or the epoch before it.
+    #[inline]
+    pub fn get_base_reward_for_epoch(
+        &self,
+        validator_index: usize,
+        epoch: Epoch,
+    ) -> Result<u64, EpochCacheError> {
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or(EpochCacheError::CacheNotInitialized)?;
+        let base_rewards = if epoch == inner.key.epoch {
+            &inner.base_rewards
+        } else if epoch.safe_add(1)? == inner.key.epoch {
+            &inner.previous_epoch_base_rewards
+        } else {
+            return Err(EpochCacheError::IncorrectEpoch {
+                cache: inner.key.epoch,
+                state: epoch,
+            });
+        };
         let effective_balance = self.get_effective_balance(validator_index)?;
         let effective_balance_eth =
             effective_balance.safe_div(inner.effective_balance_increment)? as usize;
-        inner
-            .base_rewards
-            .get(effective_balance_eth)
-            .copied()
-            .ok_or(EpochCacheError::EffectiveBalanceOutOfBounds {
+        base_rewards.get(effective_balance_eth).copied().ok_or(
+            EpochCacheError::EffectiveBalanceOutOfBounds {
                 effective_balance_eth,
-            })
+            },
+        )
     }
 
     pub fn activation_queue(&self) -> Result<&ActivationQueue, EpochCacheError> {
