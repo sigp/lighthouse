@@ -18,6 +18,24 @@ use types::{
     SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlindedBeaconBlock, Slot,
 };
 
+#[cfg(test)]
+pub(crate) mod test_full_column_kzg_calls {
+    use std::cell::RefCell;
+
+    thread_local! {
+        // The DA test brackets a synchronous KZG call with `take` on its own test thread.
+        static CALLS: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    pub fn record(columns: usize, cells: usize) {
+        CALLS.with(|calls| calls.borrow_mut().push((columns, cells)));
+    }
+
+    pub fn take() -> Vec<(usize, usize)> {
+        CALLS.with(|calls| std::mem::take(&mut *calls.borrow_mut()))
+    }
+}
+
 /// Converts a blob ssz FixedVector to a reference to a fixed-size array
 /// to be used with `rust_eth_kzg`.
 fn ssz_blob_to_kzg_blob_ref<E: EthSpec>(blob: &Blob<E>) -> Result<KzgBlobRef<'_>, KzgError> {
@@ -61,7 +79,13 @@ pub fn validate_full_data_columns<'a, E: EthSpec>(
     let mut column_indices = Vec::new();
     let mut commitments = Vec::new();
 
+    #[cfg(test)]
+    let mut input_count = 0;
     for data_column in data_column_iter {
+        #[cfg(test)]
+        {
+            input_count += 1;
+        }
         let col_index = *data_column.index();
 
         if data_column.column().is_empty() {
@@ -109,7 +133,12 @@ pub fn validate_full_data_columns<'a, E: EthSpec>(
         }
     }
 
-    kzg.verify_cell_proof_batch(&cells, &proofs, column_indices, &commitments)
+    #[cfg(test)]
+    let cell_count = cells.len();
+    let result = kzg.verify_cell_proof_batch(&cells, &proofs, column_indices, &commitments);
+    #[cfg(test)]
+    test_full_column_kzg_calls::record(input_count, cell_count);
+    result
 }
 
 /// Validate a batch of full `DataColumnSidecar`s against commitments supplied out-of-band.

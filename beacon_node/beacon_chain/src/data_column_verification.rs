@@ -484,6 +484,8 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
 pub struct KzgVerifiedDataColumn<E: EthSpec> {
     data: Arc<DataColumnSidecar<E>>,
     seen_timestamp: Duration,
+    // EL-produced and assembled columns rely on upstream guarantees, not a full local KZG check.
+    kzg_verified_locally: bool,
 }
 
 impl<E: EthSpec> KzgVerifiedDataColumn<E> {
@@ -493,6 +495,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         Self {
             data: data_column,
             seen_timestamp: timestamp_now(),
+            kzg_verified_locally: false,
         }
     }
 
@@ -501,6 +504,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         Self {
             data: data_column,
             seen_timestamp: timestamp_now(),
+            kzg_verified_locally: false,
         }
     }
 
@@ -508,13 +512,22 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         kzg: &Kzg,
     ) -> Result<Vec<Self>, (Option<ColumnIndex>, KzgError)> {
-        let seen_timestamp = timestamp_now();
+        Self::from_batch_with_scoring_at(data_columns, kzg, timestamp_now())
+    }
+
+    /// Share the RPC observation time with columns whose verification is reused.
+    pub(crate) fn from_batch_with_scoring_at(
+        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
+        kzg: &Kzg,
+        seen_timestamp: Duration,
+    ) -> Result<Vec<Self>, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
         Ok(data_columns
             .into_iter()
             .map(|column| Self {
                 data: column,
                 seen_timestamp,
+                kzg_verified_locally: true,
             })
             .collect())
     }
@@ -530,6 +543,12 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         Ok(data_columns
             .into_iter()
             .map(|column| Self {
+                kzg_verified_locally: match column.as_ref() {
+                    DataColumnSidecar::Fulu(full) => {
+                        full.kzg_commitments.iter().eq(kzg_commitments.iter())
+                    }
+                    DataColumnSidecar::Gloas(_) => true,
+                },
                 data: column,
                 seen_timestamp,
             })
@@ -742,6 +761,7 @@ impl<E: EthSpec> CustodyDataColumn<E> {
 pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
     data: Arc<DataColumnSidecar<E>>,
     seen_timestamp: Duration,
+    kzg_verified_locally: bool,
 }
 
 impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
@@ -750,6 +770,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     pub fn from_asserted_custody(kzg_verified: KzgVerifiedDataColumn<E>) -> Self {
         Self {
             seen_timestamp: kzg_verified.seen_timestamp,
+            kzg_verified_locally: kzg_verified.kzg_verified_locally,
             data: kzg_verified.to_data_column(),
         }
     }
@@ -771,6 +792,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
                 KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn {
                     data,
                     seen_timestamp,
+                    kzg_verified_locally: false,
                 })
             })
             .collect::<Vec<_>>())
@@ -792,6 +814,16 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 
     pub fn seen_timestamp(&self) -> Duration {
         self.seen_timestamp
+    }
+
+    pub(crate) fn kzg_verified_locally(&self) -> bool {
+        self.kzg_verified_locally
+    }
+
+    /// Reuse verification, not the previous ingress timestamp if the cache entry was evicted.
+    pub(crate) fn with_seen_timestamp(mut self, seen_timestamp: Duration) -> Self {
+        self.seen_timestamp = seen_timestamp;
+        self
     }
 }
 
@@ -973,6 +1005,7 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnFulu<E> {
             .map(|data| KzgVerifiedCustodyDataColumn {
                 data: Arc::new(data),
                 seen_timestamp: self.latest_cell_timestamp,
+                kzg_verified_locally: false,
             })
     }
 
@@ -990,6 +1023,7 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnFulu<E> {
         .map(|data| KzgVerifiedCustodyDataColumn {
             data: Arc::new(data),
             seen_timestamp: self.latest_cell_timestamp,
+            kzg_verified_locally: false,
         })
     }
 }
@@ -1025,6 +1059,34 @@ impl<E: EthSpec> KzgVerifiedCustodyPartialDataColumnGloas<E> {
     }
 }
 
+fn full_fulu_view_matches_sidecar<E: EthSpec>(
+    data_column: &DataColumnSidecar<E>,
+    view: &PartialDataColumnView<'_, E>,
+    commitments: &[KzgCommitment],
+) -> bool {
+    let DataColumnSidecar::Fulu(full) = data_column else {
+        return false;
+    };
+    let cells = data_column.column();
+    let proofs = data_column.kzg_proofs();
+    view.cells_present_bitmap().num_set_bits() == view.cells_present_bitmap().len()
+        && full.kzg_commitments.iter().eq(commitments.iter())
+        && full.kzg_commitments.len() == cells.len()
+        && view.column().len() == cells.len()
+        && view.kzg_proofs().len() == proofs.len()
+        // A same-length view from another sidecar proves nothing about this stored value.
+        && view
+            .column()
+            .iter()
+            .zip(cells.iter())
+            .all(|(verified, stored)| std::ptr::eq(*verified, stored))
+        && view
+            .kzg_proofs()
+            .iter()
+            .zip(proofs.iter())
+            .all(|(verified, stored)| std::ptr::eq(*verified, stored))
+}
+
 /// Complete kzg verification for a `DataColumnSidecar`.
 ///
 /// Returns an error if the kzg verification check fails.
@@ -1042,6 +1104,8 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
             KzgError::InconsistentArrayLength("todo(gloas)".to_string()),
         ));
     };
+    let kzg_verified_locally =
+        full_fulu_view_matches_sidecar(&data_column, &cells_to_verify, kzg_commitments);
     validate_partial_data_columns(
         kzg,
         iter::once((*data_column.index(), cells_to_verify)),
@@ -1050,6 +1114,7 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
     Ok(KzgVerifiedDataColumn {
         data: data_column,
         seen_timestamp,
+        kzg_verified_locally,
     })
 }
 
@@ -1062,6 +1127,8 @@ pub fn verify_kzg_for_data_column_with_commitments<E: EthSpec>(
     seen_timestamp: Duration,
 ) -> Result<KzgVerifiedDataColumn<E>, (Option<ColumnIndex>, KzgError)> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
+    let kzg_verified_locally =
+        full_fulu_view_matches_sidecar(&data_column, &cells_to_verify, kzg_commitments);
     validate_partial_data_columns(
         kzg,
         iter::once((*data_column.index(), cells_to_verify)),
@@ -1070,6 +1137,7 @@ pub fn verify_kzg_for_data_column_with_commitments<E: EthSpec>(
     Ok(KzgVerifiedDataColumn {
         data: data_column,
         seen_timestamp,
+        kzg_verified_locally,
     })
 }
 
