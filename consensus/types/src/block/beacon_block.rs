@@ -749,16 +749,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockHeze
             state_root: Hash256::zero(),
             body: BeaconBlockBodyHeze {
                 randao_reveal: Signature::empty(),
-                eth1_data: Eth1Data {
-                    deposit_root: Hash256::zero(),
-                    block_hash: Hash256::zero(),
-                    deposit_count: 0,
-                },
                 graffiti: Graffiti::default(),
                 proposer_slashings: ProgressiveVariableList::empty(),
                 attester_slashings: ProgressiveVariableList::empty(),
                 attestations: ProgressiveVariableList::empty(),
-                deposits: ProgressiveVariableList::empty(),
                 voluntary_exits: ProgressiveVariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: ProgressiveVariableList::empty(),

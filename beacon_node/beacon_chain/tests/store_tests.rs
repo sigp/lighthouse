@@ -1700,7 +1700,7 @@ async fn proposer_shuffling_changing_with_lookahead() {
     // XXX: This is a really nasty way to do this, but we need better test facilities in
     // MockExecutionLayer to address this.
     let deposit_request: DepositRequest = DepositRequest {
-        index: pre_deposit_state.eth1_deposit_index(),
+        index: pre_deposit_state.eth1_deposit_index().unwrap(),
         pubkey: validator_to_topup.pubkey,
         withdrawal_credentials: validator_to_topup.withdrawal_credentials,
         amount: 63_000_000_000,
@@ -2088,20 +2088,72 @@ async fn heze_block_production_across_boundary() {
     let harness = TestHarness::builder(E::default())
         .spec(spec.into())
         .keypairs(validators_keypairs)
+        .with_genesis_state_builder(|builder| {
+            builder
+                .set_alternating_eth1_withdrawal_credentials()
+                .set_deposit_requests_start_index(LOW_VALIDATOR_COUNT as u64)
+        })
         .fresh_disk_store(store)
         .mock_execution_layer()
         .build();
     let all_validators = harness.get_all_validators();
 
-    // Build through the first Heze epoch, ending at the first slot of the next epoch
-    let last_slot = (heze_fork_epoch + 1).start_slot(E::slots_per_epoch());
-    let slots: Vec<Slot> = (1..=last_slot.as_u64()).map(Into::into).collect();
+    // Stop in Gloas to verify the EIP-8015 activation condition.
+    let pre_heze_slot = heze_fork_epoch.start_slot(E::slots_per_epoch()) - 1;
+    let pre_heze_slots: Vec<Slot> = (1..=pre_heze_slot.as_u64()).map(Into::into).collect();
     let state = harness.get_current_state();
+    let (_, _, _, pre_heze_state) = harness
+        .add_attested_blocks_at_slots(state, &pre_heze_slots, &all_validators)
+        .await;
+    assert!(matches!(pre_heze_state, BeaconState::Gloas(_)));
+    assert_eq!(
+        pre_heze_state.eth1_deposit_index().unwrap(),
+        pre_heze_state.deposit_requests_start_index().unwrap()
+    );
+    let mut invalid_state = pre_heze_state.clone();
+    let request_start_index = invalid_state.deposit_requests_start_index().unwrap();
+    *invalid_state.deposit_requests_start_index_mut().unwrap() =
+        request_start_index.saturating_add(1);
+    assert!(matches!(
+        state_processing::upgrade::heze::upgrade_state_to_heze(
+            &mut invalid_state,
+            &harness.chain.spec
+        ),
+        Err(BeaconStateError::LegacyDepositMigrationIncomplete { .. })
+    ));
+
+    // Build through the first Heze epoch, ending at the first slot of the next epoch.
+    let last_slot = (heze_fork_epoch + 1).start_slot(E::slots_per_epoch());
+    let slots: Vec<Slot> = ((pre_heze_slot.as_u64() + 1)..=last_slot.as_u64())
+        .map(Into::into)
+        .collect();
     let (_, _, head_block_root, head_state) = harness
-        .add_attested_blocks_at_slots(state, &slots, &all_validators)
+        .add_attested_blocks_at_slots(pre_heze_state, &slots, &all_validators)
         .await;
 
     assert_eq!(head_state.current_epoch(), heze_fork_epoch + 1);
+    let state_json = serde_json::to_value(&head_state).unwrap();
+    for field in [
+        "eth1_data",
+        "eth1_data_votes",
+        "eth1_deposit_index",
+        "deposit_requests_start_index",
+    ] {
+        assert!(
+            state_json.get(field).is_none(),
+            "Heze state contains {field}"
+        );
+    }
+    assert_eq!(head_state.get_beacon_state_leaves().len(), 42);
+    let mut active_fields = [0u8; 32];
+    active_fields[..6].copy_from_slice(&[0xff, 0xf8, 0xff, 0xef, 0xff, 0x3f]);
+    assert_eq!(
+        head_state
+            .compute_current_sync_committee_proof()
+            .unwrap()
+            .last(),
+        Some(&Hash256::from(active_fields))
+    );
 
     let head_block_root: Hash256 = head_block_root.into();
     let head_block = harness

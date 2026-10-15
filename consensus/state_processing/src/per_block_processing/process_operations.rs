@@ -47,7 +47,9 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
         ctxt,
         spec,
     )?;
-    process_deposits(state, &block_body.deposits().to_cow_slice(), spec)?;
+    if !state.fork_name_unchecked().heze_enabled() {
+        process_deposits(state, &block_body.deposits()?.to_cow_slice(), spec)?;
+    }
     process_exits(
         state,
         &block_body.voluntary_exits().to_cow_slice(),
@@ -659,13 +661,13 @@ pub fn process_deposits<E: EthSpec>(
     let deposit_requests_start_index = state.deposit_requests_start_index().unwrap_or(u64::MAX);
     let eth1_deposit_index_limit = std::cmp::min(
         deposit_requests_start_index,
-        state.eth1_data().deposit_count,
+        state.eth1_data()?.deposit_count,
     );
 
-    if state.eth1_deposit_index() < eth1_deposit_index_limit {
+    if state.eth1_deposit_index()? < eth1_deposit_index_limit {
         let expected_deposit_len = std::cmp::min(
             E::MaxDeposits::to_u64(),
-            eth1_deposit_index_limit.safe_sub(state.eth1_deposit_index())?,
+            eth1_deposit_index_limit.safe_sub(state.eth1_deposit_index()?)?,
         );
         block_verify!(
             deposits.len() as u64 == expected_deposit_len,
@@ -692,7 +694,7 @@ pub fn process_deposits<E: EthSpec>(
             verify_deposit_merkle_proof(
                 state,
                 deposit,
-                state.eth1_deposit_index().safe_add(i as u64)?,
+                state.eth1_deposit_index()?.safe_add(i as u64)?,
                 spec,
             )
             .map_err(|e| e.into_with_index(i))
@@ -714,18 +716,18 @@ pub fn apply_deposit<E: EthSpec>(
     increment_eth1_deposit_index: bool,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    let deposit_index = state.eth1_deposit_index() as usize;
+    let deposit_index = state.eth1_deposit_index()? as usize;
     if let Some(proof) = proof {
         let deposit = Deposit {
             proof,
             data: deposit_data.clone(),
         };
-        verify_deposit_merkle_proof(state, &deposit, state.eth1_deposit_index(), spec)
+        verify_deposit_merkle_proof(state, &deposit, state.eth1_deposit_index()?, spec)
             .map_err(|e| e.into_with_index(deposit_index))?;
     }
 
     if increment_eth1_deposit_index {
-        state.eth1_deposit_index_mut().safe_add_assign(1)?;
+        state.eth1_deposit_index_mut()?.safe_add_assign(1)?;
     }
 
     // Get an `Option<u64>` where `u64` is the validator index if this deposit public key
