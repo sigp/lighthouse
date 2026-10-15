@@ -873,9 +873,9 @@ mod tests {
 
     #[test]
     fn payload_body_summary_consistency_checks_keys_only() {
-        let store = HotColdDB::<MinimalEthSpec, MemoryStore, MemoryStore>::open_ephemeral(
+        let store = HotColdDB::<Spec, MemoryStore, MemoryStore>::open_ephemeral(
             StoreConfig::default(),
-            MinimalEthSpec::default_spec().into(),
+            Spec::default_spec().into(),
         )
         .unwrap();
         let block_root = Hash256::repeat_byte(0x42);
