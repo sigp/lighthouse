@@ -11,7 +11,7 @@ use crate::{
     payload_envelope_verification::{
         EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
         load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
-        verify_envelope_payload_hash,
+        perform_optimistic_sync_verifications,
     },
 };
 
@@ -85,9 +85,9 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             &chain.spec,
         )?;
 
-        // EIP-8025: execution layer verifications must be done on the CL.
-        if chain.execution_proofs_enabled() && chain.config.verify_envelope_payload_hash_on_cl {
-            verify_envelope_payload_hash(&signed_envelope, &self.block)?;
+        // No execution layer to check the payload hash, so check it here.
+        if chain.execution_layer.is_none() {
+            perform_optimistic_sync_verifications(&signed_envelope, &self.block)?;
         }
 
         Ok(ExecutionPendingEnvelope {

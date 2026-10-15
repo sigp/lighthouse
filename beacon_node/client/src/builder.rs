@@ -199,6 +199,16 @@ where
             })
             .transpose()?;
 
+        // Clap enforces this on the CLI, but `ClientConfig` is also built directly.
+        if execution_layer.is_none() && proof_engine.is_none() {
+            return Err(
+                "A beacon node needs something to verify execution payloads with. Set \
+                 --execution-endpoint, or --proof-engine-endpoint to let EIP-8025 proofs decide \
+                 payload validity."
+                    .to_string(),
+            );
+        }
+
         // Construct the Gloas builder handle (Builder API client) when the Gloas fork is scheduled.
         // The client is stateless w.r.t. the target builder — each request carries its own URL — but
         // still honors the same `--builder-user-agent` / `--builder-disable-ssz` flags as the
@@ -875,7 +885,7 @@ where
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
 
-        if chain.execution_layer.is_none() && chain.execution_proofs_enabled() {
+        if chain.execution_layer.is_none() {
             // Blocks at or below finality are never imported.
             let finalized_epoch = chain
                 .canonical_head

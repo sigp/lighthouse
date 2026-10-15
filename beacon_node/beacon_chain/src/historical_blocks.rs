@@ -1,6 +1,6 @@
 use crate::block_verification_types::RangeSyncBlock;
 use crate::data_availability_checker::AvailableBlockData;
-use crate::payload_envelope_verification::verify_envelope_payload_hash;
+use crate::payload_envelope_verification::perform_optimistic_sync_verifications;
 use crate::{BeaconChain, BeaconChainTypes, WhenSlotSkipped, metrics};
 use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
@@ -258,12 +258,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // accepted from the network here, so a mismatch is attributable to the
                     // sending peer.
                     if self.config.verify_envelope_payload_hash_on_cl {
-                        verify_envelope_payload_hash(envelope.envelope(), &block).map_err(|e| {
-                            HistoricalBlockError::InvalidEnvelope {
+                        perform_optimistic_sync_verifications(envelope.envelope(), &block)
+                            .map_err(|e| HistoricalBlockError::InvalidEnvelope {
                                 block_root,
                                 reason: format!("{e:?}"),
-                            }
-                        })?;
+                            })?;
                     }
                     if envelope.envelope().message.builder_index == BUILDER_INDEX_SELF_BUILD {
                         envelopes_to_verify.push((
