@@ -949,6 +949,57 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
+    /// `GET /eth/v1/beacon/states/{state_id}/ptc`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_ptc<E: EthSpec>(
+        &self,
+        state_id: StateId,
+        slot: Option<Slot>,
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<PtcData<E>>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("ptc");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        self.get_opt(path).await
+    }
+
+    /// `GET /eth/v1/beacon/states/{state_id}/ptc`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_ptc_ssz(
+        &self,
+        state_id: StateId,
+        slot: Option<Slot>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("ptc");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
+    }
+
     /// `GET beacon/states/{state_id}/randao?epoch`
     pub async fn get_beacon_states_randao(
         &self,
@@ -1074,6 +1125,92 @@ impl BeaconNodeHttpClient {
             .push("states")
             .push(&state_id.to_string())
             .push("pending_partial_withdrawals");
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
+    }
+
+    /// `GET beacon/states/{state_id}/builder_pending_withdrawals`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_builder_pending_withdrawals(
+        &self,
+        state_id: StateId,
+    ) -> Result<
+        Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<BuilderPendingWithdrawal>>>,
+        Error,
+    > {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("builder_pending_withdrawals");
+
+        self.get_fork_contextual(path, |fork| fork)
+            .await
+            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET beacon/states/{state_id}/builder_pending_withdrawals`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_builder_pending_withdrawals_ssz(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("builder_pending_withdrawals");
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
+    }
+
+    /// `GET beacon/states/{state_id}/builder_pending_payments`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_builder_pending_payments(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<BuilderPendingPayment>>>, Error>
+    {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("builder_pending_payments");
+
+        self.get_fork_contextual(path, |fork| fork)
+            .await
+            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET beacon/states/{state_id}/builder_pending_payments`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_builder_pending_payments_ssz(
+        &self,
+        state_id: StateId,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("builder_pending_payments");
 
         self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
             .await
@@ -2066,6 +2203,59 @@ impl BeaconNodeHttpClient {
         self.post(path, &address_changes).await?;
 
         Ok(())
+    }
+
+    /// `GET beacon/proposer_preferences?slot,dependent_root`
+    pub async fn get_beacon_proposer_preferences(
+        &self,
+        slot: Option<Slot>,
+        dependent_root: Option<Hash256>,
+    ) -> Result<BeaconResponse<Vec<SignedProposerPreferences>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("proposer_preferences");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        if let Some(root) = dependent_root {
+            path.query_pairs_mut()
+                .append_pair("dependent_root", &format!("{:?}", root));
+        }
+
+        self.get(path).await.map(BeaconResponse::ForkVersioned)
+    }
+
+    /// `GET beacon/proposer_preferences?slot,dependent_root` (SSZ)
+    pub async fn get_beacon_proposer_preferences_ssz(
+        &self,
+        slot: Option<Slot>,
+        dependent_root: Option<Hash256>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("proposer_preferences");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        if let Some(root) = dependent_root {
+            path.query_pairs_mut()
+                .append_pair("dependent_root", &format!("{:?}", root));
+        }
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
     }
 
     /// `POST validator/proposer_preferences`
