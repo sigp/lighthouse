@@ -964,7 +964,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 Err(ChainSegmentFailed {
                     message: format!("Peer sent invalid block. Reason: {:?}", err),
-                    peer_action: range_sync_block_error_penalty(err),
+                    peer_action: block_error_penalty(err).and_then(|(action, whom, _msg)| {
+                        match whom {
+                            WhichPeerToPenalize::BlockPeer => Some(action),
+                            // Range sync tracks one peer per batch and drops the column
+                            // `PeerGroup` while coupling, so a column fault cannot be charged to
+                            // the peer that served it.
+                            WhichPeerToPenalize::CustodyPeerForColumn(_) => None,
+                        }
+                    }),
                 })
             }
         }
@@ -1092,18 +1100,6 @@ fn block_error_penalty(e: &BlockError) -> Option<(PeerAction, WhichPeerToPenaliz
         | BlockError::Slashable
         | BlockError::InvalidBlobCount { .. }
         | BlockError::BidParentRootMismatch { .. } => block_peer_penalty(e),
-    }
-}
-
-/// The penalty range sync should apply for a `BlockError`, or `None` if no peer can be charged.
-///
-/// Range sync tracks one peer per batch and drops the column `PeerGroup` while coupling, so a
-/// fault belonging to the peer that served one column cannot be attributed here.
-fn range_sync_block_error_penalty(e: &BlockError) -> Option<PeerAction> {
-    let (action, whom, _msg) = block_error_penalty(e)?;
-    match whom {
-        WhichPeerToPenalize::BlockPeer => Some(action),
-        WhichPeerToPenalize::CustodyPeerForColumn(_) => None,
     }
 }
 
