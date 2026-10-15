@@ -270,6 +270,7 @@ impl<E: EthSpec> Network<E> {
                 // .signed_contribution_and_proof_timeout(timeout) // Do not retry
                 // .sync_committee_message_timeout(timeout) // Do not retry
                 .bls_to_execution_change_timeout(half_epoch * 2)
+                .execution_proof_timeout(ctx.chain_spec.get_slot_duration())
                 .build()
         };
 
