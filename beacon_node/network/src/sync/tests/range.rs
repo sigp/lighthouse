@@ -37,9 +37,9 @@ use lighthouse_network::{
     },
 };
 use std::collections::{HashMap, HashSet};
-use types::{DataColumnSubnetId, Epoch, EthSpec, ForkName, Hash256, MinimalEthSpec as E, Slot};
+use types::{DataColumnSubnetId, Epoch, EthSpec, ForkName, Hash256, Slot, Spec as E};
 
-/// MinimalEthSpec has 8 slots per epoch
+/// The minimal preset has 8 slots per epoch
 const SLOTS_PER_EPOCH: usize = 8;
 
 impl TestRig {
@@ -250,14 +250,18 @@ impl TestRig {
         self.assert_no_chains_exist();
     }
 
-    /// Assert a new peer with a blacklisted root gets disconnected
-    fn assert_peer_blacklisted(&mut self, remote_info: SyncInfo) {
+    /// Assert a new peer with a blacklisted root is ignored, without being disconnected
+    fn assert_peer_ignored(&mut self, remote_info: SyncInfo) {
         let new_peer = self.add_supernode_peer(remote_info);
-        self.pop_received_network_event(|ev| match ev {
-            NetworkMessage::GoodbyePeer { peer_id, .. } if *peer_id == new_peer => Some(()),
-            _ => None,
-        })
-        .expect("Peer with blacklisted root should receive Goodbye");
+        assert!(
+            self.pop_received_network_event(|ev| match ev {
+                NetworkMessage::GoodbyePeer { peer_id, .. } if *peer_id == new_peer => Some(()),
+                _ => None,
+            })
+            .is_err(),
+            "Peer with blacklisted root should not be disconnected"
+        );
+        self.assert_no_chains_exist();
     }
 
     async fn assert_custody_backfill_peer_failure_cleans_up_request(&mut self) {
@@ -662,7 +666,7 @@ async fn batch_max_failures_removes_chain() {
 }
 
 /// Chain fails via max faulty retries → finalized root added to failed_chains LRU.
-/// A new peer advertising the same finalized root gets disconnected with GoodbyeReason.
+/// A new peer advertising the same finalized root does not start a chain, and stays connected.
 #[tokio::test]
 async fn failed_chain_blacklisted() {
     let mut r = TestRig::default();
@@ -670,7 +674,7 @@ async fn failed_chain_blacklisted() {
     r.simulate(SimulateConfig::happy_path().with_range_faulty_failures(3))
         .await;
     r.assert_range_sync_chain_failed();
-    r.assert_peer_blacklisted(remote_info);
+    r.assert_peer_ignored(remote_info);
 }
 
 /// All peers disconnect before any request is fulfilled → chain removed (EmptyPeerPool).
