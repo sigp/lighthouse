@@ -856,6 +856,17 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("execution-proofs-required")
+                .long("execution-proofs-required")
+                .requires("proof-engine-endpoint")
+                .value_name("COUNT")
+                .help("Distinct EIP-8025 proof types a payload needs before it is valid. \
+                       Defaults to 2. Experimental.")
+                .default_value_if("proof-engine-endpoint", ArgPredicate::IsPresent, "2")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("execution-jwt")
                 .long("execution-jwt")
                 .value_name("EXECUTION-JWT")
