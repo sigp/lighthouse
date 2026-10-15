@@ -935,12 +935,10 @@ mod tests {
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
         DataColumnsByRootIdentifier, EmptyBlock, Epoch, FullPayload, KzgCommitment, KzgProof,
-        SignedBeaconBlockHeader, Slot,
+        SignedBeaconBlockHeader, Slot, Spec,
         data::{BlobIdentifier, Cell},
     };
     use types::{BlobSidecar, DataColumnSidecarFulu};
-
-    type Spec = types::MainnetEthSpec;
 
     fn spec_with_all_forks_enabled() -> ChainSpec {
         let mut chain_spec = Spec::default_spec();
@@ -2163,14 +2161,13 @@ mod tests {
         // byte 1,2,3 are chunk length (little endian)
         let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
 
-        // Full altair block is 157916 bytes uncompressed. `max_compressed_len` is 32 + 157916 + 157916/6 = 184267.
         let block_message_bytes = altair_block(&fork_context.spec).as_ssz_bytes();
+        let max_compressed_len = snap::raw::max_compress_len(block_message_bytes.len());
 
-        assert_eq!(block_message_bytes.len(), 157916);
-        assert_eq!(
-            snap::raw::max_compress_len(block_message_bytes.len()),
-            184267
-        );
+        let mut writer = FrameEncoder::new(Vec::new());
+        writer.write_all(&block_message_bytes).unwrap();
+        writer.flush().unwrap();
+        let compressed_payload = writer.get_ref();
 
         let mut uvi_codec: Uvi<usize> = Uvi::default();
         let mut dst = BytesMut::with_capacity(1024);
@@ -2187,21 +2184,18 @@ mod tests {
         // Insert snappy stream identifier
         dst.extend_from_slice(stream_identifier);
 
-        // Insert malicious padding of 176156 bytes.
-        for _ in 0..44039 {
+        // Insert just enough malicious padding to push the message past `max_compressed_len`.
+        let padding_len = max_compressed_len - stream_identifier.len() - compressed_payload.len();
+        for _ in 0..padding_len / malicious_padding.len() + 1 {
             dst.extend_from_slice(malicious_padding);
         }
 
-        // Insert payload (8102 bytes compressed)
-        let mut writer = FrameEncoder::new(Vec::new());
-        writer.write_all(&block_message_bytes).unwrap();
-        writer.flush().unwrap();
-        assert_eq!(writer.get_ref().len(), 8102);
-        dst.extend_from_slice(writer.get_ref());
+        // Insert payload
+        dst.extend_from_slice(compressed_payload);
 
         let chain_spec = spec_with_all_forks_enabled();
 
-        // 10 (for stream identifier) + 176156 + 8103 = 184269 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
+        // The message is longer than `max_compressed_len`, so decoding should fail with `InvalidData`.
         assert!(matches!(
             decode_response(
                 SupportedProtocol::BlocksByRangeV2,

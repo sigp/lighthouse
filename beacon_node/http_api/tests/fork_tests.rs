@@ -235,6 +235,102 @@ async fn ptc_duties_across_fork() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ptc_state_endpoint_bad_requests_across_fork() {
+    let validator_count = E::sync_committee_size();
+    let fork_epoch = Epoch::new(2);
+    let spec = gloas_spec(fork_epoch);
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let harness = &tester.harness;
+    let client = &tester.client;
+
+    let all_validators = harness.get_all_validators();
+    let fork_slot = fork_epoch.start_slot(E::slots_per_epoch());
+
+    // Pre-Gloas head state: rejected for its own slot and for a post-fork slot.
+    let genesis_state = harness.get_current_state();
+    let (_, pre_fork_state) = harness
+        .add_attested_block_at_slot(fork_slot - 1, genesis_state, &all_validators)
+        .await
+        .unwrap();
+    assert_eq!(
+        client
+            .get_beacon_states_ptc::<E>(StateId::Head, None)
+            .await
+            .unwrap_err()
+            .status()
+            .unwrap(),
+        400
+    );
+    assert_eq!(
+        client
+            .get_beacon_states_ptc::<E>(StateId::Head, Some(fork_slot))
+            .await
+            .unwrap_err()
+            .status()
+            .unwrap(),
+        400
+    );
+
+    // Head state at the first Gloas slot: its PTC window starts in the pre-Gloas epoch.
+    let (_, mut state) = harness
+        .add_attested_block_at_slot(fork_slot, pre_fork_state, &all_validators)
+        .await
+        .unwrap();
+    assert!(
+        client
+            .get_beacon_states_ptc::<E>(StateId::Head, Some(fork_slot))
+            .await
+            .unwrap()
+            .is_some()
+    );
+    // Pre-Gloas slot within the window range of a Gloas state.
+    assert_eq!(
+        client
+            .get_beacon_states_ptc::<E>(StateId::Head, Some(fork_slot - 1))
+            .await
+            .unwrap_err()
+            .status()
+            .unwrap(),
+        400
+    );
+
+    // Advance the head to epoch `fork_epoch + 2` so that the fork epoch falls below the window.
+    let head_epoch = fork_epoch + 2;
+    for slot in (fork_slot.as_u64() + 1..=head_epoch.start_slot(E::slots_per_epoch()).as_u64())
+        .map(Slot::new)
+    {
+        (_, state) = harness
+            .add_attested_block_at_slot(slot, state, &all_validators)
+            .await
+            .unwrap();
+    }
+
+    // Post-Gloas slot below the window: epoch `current_epoch - 2`.
+    assert_eq!(
+        client
+            .get_beacon_states_ptc::<E>(StateId::Head, Some(fork_slot))
+            .await
+            .unwrap_err()
+            .status()
+            .unwrap(),
+        400
+    );
+
+    // Slot above the window: epoch `current_epoch + MIN_SEED_LOOKAHEAD + 1`.
+    let above_window_slot =
+        (head_epoch + spec.min_seed_lookahead + 1).start_slot(E::slots_per_epoch());
+    assert_eq!(
+        client
+            .get_beacon_states_ptc::<E>(StateId::Head, Some(above_window_slot))
+            .await
+            .unwrap_err()
+            .status()
+            .unwrap(),
+        400
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn attestations_across_fork_with_skip_slots() {
     let validator_count = E::sync_committee_size();
     let fork_epoch = Epoch::new(8);
