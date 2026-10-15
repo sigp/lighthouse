@@ -9,7 +9,7 @@ use crate::partial_data_column_assembler::{AssemblyColumn, PartialDataColumnAsse
 use crate::{BeaconChain, BeaconChainTypes, BlockProcessStatus, CustodyContext, metrics};
 use educe::Educe;
 use kzg::Kzg;
-use slot_clock::SlotClock;
+use slot_clock::{SlotClock, timestamp_now};
 use std::collections::HashSet;
 use std::fmt;
 use std::fmt::Debug;
@@ -353,10 +353,32 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot: Slot,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        // Reused verification must not resurrect an old ingress timestamp after cache eviction.
+        let seen_timestamp = timestamp_now();
+        let mut reused_columns = Vec::new();
+        let mut columns_to_verify = Vec::new();
+        let cached_matches = self
+            .availability_cache
+            .matching_verified_columns(block_root, &custody_columns);
+        for (column, cached_match) in custody_columns.into_iter().zip(cached_matches) {
+            if let Some(cached) = cached_match {
+                reused_columns.push(cached.with_seen_timestamp(seen_timestamp));
+            } else {
+                columns_to_verify.push(column);
+            }
+        }
+
         // Attributes fault to the specific peer that sent an invalid column
-        let kzg_verified_columns =
-            KzgVerifiedDataColumn::from_batch_with_scoring(custody_columns, &self.kzg)
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
+        let kzg_verified_columns = if columns_to_verify.is_empty() {
+            Vec::new()
+        } else {
+            KzgVerifiedDataColumn::from_batch_with_scoring_at(
+                columns_to_verify,
+                &self.kzg,
+                seen_timestamp,
+            )
+            .map_err(AvailabilityCheckError::InvalidColumn)?
+        };
 
         // Filter out columns that aren't required for custody for this slot
         // This is required because `data_columns_by_root` requests the **latest** CGC that _may_
@@ -364,11 +386,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // a new epoch.
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self.custody_context().sampling_columns_for_epoch(epoch);
-        let verified_custody_columns = kzg_verified_columns
+        let mut verified_custody_columns = kzg_verified_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
             .map(KzgVerifiedCustodyDataColumn::from_asserted_custody)
             .collect::<Vec<_>>();
+        reused_columns.retain(|col| sampling_columns.contains(&col.index()));
+        verified_custody_columns.extend(reused_columns);
 
         self.availability_cache
             .put_kzg_verified_data_columns(block_root, verified_custody_columns)
@@ -1027,11 +1051,297 @@ mod test {
     use std::time::Duration;
     use types::data::DataColumn;
     use types::{
-        ChainSpec, ColumnIndex, DataColumnSidecarFulu, Epoch, EthSpec, ForkName, Slot, Spec,
+        ChainSpec, ColumnIndex, DataColumnSidecarFulu, Epoch, EthSpec, ForkName, KzgCommitment,
+        Slot, Spec,
     };
 
     type E = Spec;
     type T = EphemeralHarnessType<E>;
+
+    #[test]
+    fn full_length_view_from_another_sidecar_is_not_reusable() {
+        let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+        let checker = new_da_checker(spec.clone());
+        let mut input = types::test_utils::test_unstructured();
+        let (_, columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut input,
+            &spec,
+        )
+        .expect("valid Fulu fixture");
+        let original = columns[0].clone();
+        let mut altered = original.as_ref().clone();
+        let DataColumnSidecar::Fulu(ref mut fulu) = altered else {
+            unreachable!("Fulu fixture")
+        };
+        fulu.kzg_proofs = vec![kzg::KzgProof::empty()].try_into().expect("one proof");
+        let altered = Arc::new(altered);
+        assert!(
+            KzgVerifiedDataColumn::from_batch_with_scoring(vec![altered.clone()], &checker.kzg)
+                .is_err()
+        );
+        let original_view = original
+            .try_filter_to_partial_view(|_, _, _| Ok::<_, PartialDataColumnSidecarError>(true))
+            .expect("valid view")
+            .expect("one cell");
+        let verified = crate::data_column_verification::verify_kzg_for_data_column(
+            altered,
+            original_view,
+            &checker.kzg,
+            Duration::ZERO,
+        )
+        .expect("view proof is valid, but not the returned sidecar proof");
+        assert!(
+            !KzgVerifiedCustodyDataColumn::from_asserted_custody(verified).kzg_verified_locally()
+        );
+        let matching_view = checker
+            .missing_cells_for_column_sidecar(&original)
+            .unwrap_or_else(|_| panic!("production missing-cell lookup"))
+            .expect("full view when cache is empty");
+        let verified = crate::data_column_verification::verify_kzg_for_data_column(
+            original.clone(),
+            matching_view,
+            &checker.kzg,
+            Duration::ZERO,
+        )
+        .expect("same-sidecar full view must verify");
+        assert!(
+            KzgVerifiedCustodyDataColumn::from_asserted_custody(verified).kzg_verified_locally()
+        );
+
+        let commitments = original
+            .kzg_commitments()
+            .expect("Fulu commitments")
+            .to_vec();
+        let mut altered_commitment = original.as_ref().clone();
+        let DataColumnSidecar::Fulu(ref mut fulu) = altered_commitment else {
+            unreachable!("Fulu fixture")
+        };
+        *fulu.kzg_commitments.get_mut(0).expect("one commitment") =
+            KzgCommitment::empty_for_testing();
+        let verified = KzgVerifiedDataColumn::from_batch_with_scoring_and_commitments(
+            vec![Arc::new(altered_commitment)],
+            &commitments,
+            &checker.kzg,
+        )
+        .expect("external commitments validate the original proof");
+        assert!(
+            !KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                verified.into_iter().next().unwrap()
+            )
+            .kzg_verified_locally()
+        );
+    }
+
+    #[test]
+    fn cached_fulu_column_reuse_requires_identical_verified_sidecar() {
+        let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+        let checker = new_da_checker(spec.clone());
+        let mut input = types::test_utils::test_unstructured();
+        let (_, columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut input,
+            &spec,
+        )
+        .expect("valid Fulu fixture");
+        let column = columns[0].clone();
+        let root = column.block_root();
+        let verified =
+            KzgVerifiedDataColumn::from_batch_with_scoring(vec![column.clone()], &checker.kzg)
+                .expect("real KZG verification");
+        checker
+            .availability_cache
+            .put_kzg_verified_data_columns(
+                root,
+                verified
+                    .into_iter()
+                    .map(KzgVerifiedCustodyDataColumn::from_asserted_custody),
+            )
+            .expect("cache verified column");
+
+        let equal_copy = Arc::new(column.as_ref().clone());
+        assert!(
+            checker
+                .availability_cache
+                .matching_verified_columns(root, std::slice::from_ref(&equal_copy))[0]
+                .is_some()
+        );
+
+        let mut different = column.as_ref().clone();
+        let DataColumnSidecar::Fulu(ref mut fulu) = different else {
+            unreachable!("Fulu fixture")
+        };
+        fulu.kzg_proofs = vec![kzg::KzgProof::empty()].try_into().expect("one proof");
+        let different = Arc::new(different);
+        assert_eq!(different.block_root(), root);
+        assert_eq!(different.index(), column.index());
+        assert!(
+            checker
+                .availability_cache
+                .matching_verified_columns(root, std::slice::from_ref(&different))[0]
+                .is_none()
+        );
+        assert!(matches!(
+            checker.put_rpc_custody_columns(root, column.slot(), vec![different]),
+            Err(AvailabilityCheckError::InvalidColumn((Some(index), _))) if index == *column.index()
+        ));
+
+        // The public EL constructor asserts provenance but performs no local KZG call.
+        let asserted_checker = new_da_checker(spec);
+        asserted_checker
+            .availability_cache
+            .put_kzg_verified_data_columns(
+                root,
+                [KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::from_execution_verified(equal_copy.clone()),
+                )],
+            )
+            .expect("cache EL-asserted column");
+        assert!(
+            asserted_checker
+                .availability_cache
+                .matching_verified_columns(root, &[equal_copy])[0]
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn rpc_reuses_only_identical_column_and_verifies_mixed_batch() {
+        let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+        let checker = new_da_checker(spec.clone());
+        let mut input = types::test_utils::test_unstructured();
+        let (_, all_columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut input,
+            &spec,
+        )
+        .expect("valid Fulu fixture");
+        let sampled = checker
+            .custody_context()
+            .sampling_columns_for_epoch(Epoch::new(0));
+        let columns = all_columns
+            .into_iter()
+            .filter(|column| sampled.contains(column.index()))
+            .take(2)
+            .collect::<Vec<_>>();
+        assert_eq!(columns.len(), 2);
+        let root = columns[0].block_root();
+        let verified =
+            KzgVerifiedDataColumn::from_batch_with_scoring(vec![columns[0].clone()], &checker.kzg)
+                .expect("real KZG verification");
+        checker
+            .availability_cache
+            .put_kzg_verified_data_columns(
+                root,
+                verified
+                    .into_iter()
+                    .map(KzgVerifiedCustodyDataColumn::from_asserted_custody),
+            )
+            .expect("cache one column");
+
+        let result = checker.put_rpc_custody_columns(root, columns[0].slot(), columns.clone());
+        assert!(matches!(result, Ok(Availability::MissingComponents(_))));
+        let cached = checker
+            .cached_data_column_indexes(&root)
+            .expect("cached columns");
+        assert!(cached.contains(columns[0].index()));
+        assert!(cached.contains(columns[1].index()));
+
+        let mut different = columns[1].as_ref().clone();
+        let DataColumnSidecar::Fulu(ref mut fulu) = different else {
+            unreachable!("Fulu fixture")
+        };
+        fulu.kzg_proofs = vec![kzg::KzgProof::empty()].try_into().expect("one proof");
+        let different = Arc::new(different);
+        let baseline = KzgVerifiedDataColumn::from_batch_with_scoring(
+            vec![columns[0].clone(), different.clone()],
+            &checker.kzg,
+        )
+        .expect_err("bad proof must fail original mixed-batch KZG path");
+        let candidate = checker
+            .put_rpc_custody_columns(root, columns[0].slot(), vec![columns[0].clone(), different])
+            .expect_err("bad proof must fail despite a cached matching column");
+        let AvailabilityCheckError::InvalidColumn((index, error)) = candidate else {
+            panic!("expected the original invalid-column error")
+        };
+        assert_eq!(index, baseline.0);
+        assert_eq!(format!("{error:?}"), format!("{:?}", baseline.1));
+    }
+
+    #[test]
+    fn partial_kzg_check_and_pruned_column_do_not_qualify_for_reuse() {
+        let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+        let checker = new_da_checker(spec.clone());
+        let mut input = types::test_utils::test_unstructured();
+        let (_, columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(2),
+            &mut input,
+            &spec,
+        )
+        .expect("valid two-blob fixture");
+        let column = columns[0].clone();
+        let root = column.block_root();
+        let first_cell_only = column
+            .try_filter_to_partial_view(|blob_index, _, _| {
+                Ok::<_, PartialDataColumnSidecarError>(blob_index == 0)
+            })
+            .expect("valid partial view")
+            .expect("first cell exists");
+        let partially_checked = crate::data_column_verification::verify_kzg_for_data_column(
+            column.clone(),
+            first_cell_only,
+            &checker.kzg,
+            Duration::ZERO,
+        )
+        .expect("real KZG check of first cell");
+        let partially_checked =
+            KzgVerifiedCustodyDataColumn::from_asserted_custody(partially_checked);
+        assert!(!partially_checked.kzg_verified_locally());
+        checker
+            .availability_cache
+            .put_kzg_verified_data_columns(root, [partially_checked])
+            .expect("cache partially checked column");
+        assert!(
+            checker
+                .availability_cache
+                .matching_verified_columns(root, std::slice::from_ref(&column))[0]
+                .is_none()
+        );
+
+        let small_cache = overflow_lru_cache::DataAvailabilityCheckerInner::<T>::new(
+            1,
+            checker.custody_context().clone(),
+            spec,
+        )
+        .expect("one-entry cache");
+        let verified =
+            KzgVerifiedDataColumn::from_batch_with_scoring(vec![column.clone()], &checker.kzg)
+                .expect("full real KZG check");
+        small_cache
+            .put_kzg_verified_data_columns(
+                root,
+                verified
+                    .into_iter()
+                    .map(KzgVerifiedCustodyDataColumn::from_asserted_custody),
+            )
+            .expect("cache full column");
+        let held = small_cache.matching_verified_columns(root, std::slice::from_ref(&column))[0]
+            .clone()
+            .expect("owned verified value");
+
+        small_cache
+            .do_maintenance(Epoch::new(column.epoch().as_u64().saturating_add(1)))
+            .expect("prune finalized-epoch entry");
+        assert_eq!(held.as_data_column(), column.as_ref());
+        assert!(
+            small_cache.matching_verified_columns(root, std::slice::from_ref(&column))[0].is_none()
+        );
+        assert!(KzgVerifiedDataColumn::from_batch_with_scoring(vec![column], &checker.kzg).is_ok());
+    }
 
     /// Test to verify any extra RPC columns received that are not part of the "effective" CGC for
     /// the slot are excluded from import.

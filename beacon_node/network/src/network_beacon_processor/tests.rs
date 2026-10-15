@@ -1970,6 +1970,158 @@ async fn rpc_columns_notify_after_deferred_block_import() {
     );
 }
 
+/// Cached, verified columns do not bypass context checks or change fault attribution for new input.
+#[tokio::test]
+async fn mixed_cached_rpc_columns_preserve_context_and_peer_fault() {
+    use super::sync_methods::{BlockProcessingResult, WhichPeerToPenalize};
+    use crate::sync::manager::SyncMessage;
+    use crate::sync::{PeerGroup, SyncNetworkContext};
+    use beacon_chain::{
+        AvailabilityProcessingStatus, BlockError, InvalidSignature, NotifyExecutionLayer,
+    };
+    use bls::Signature;
+    use std::collections::HashMap;
+    use types::{BlockImportSource, DataColumnSidecar, ForkContext, ForkName};
+
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.shard_committee_period = 2;
+    let rig = TestRig::new_parametric(TestRigParams {
+        chain_length: SMALL_CHAIN,
+        beacon_processor_config: BeaconProcessorConfig::default(),
+        node_custody_type: NodeCustodyType::Fullnode,
+        generate_blobs: true,
+        spec,
+    })
+    .await;
+    let root = rig.next_block.canonical_root();
+    assert_matches!(rig.chain.process_block(
+        root, LookupBlock::new(rig.next_block.clone()), NotifyExecutionLayer::Yes,
+        BlockImportSource::Lookup, || Ok(()),
+    ).await, Ok(AvailabilityProcessingStatus::MissingComponents(_, r)) if r == root);
+    let sampling = rig
+        .chain
+        .custody_context
+        .sampling_columns_for_epoch(rig.next_block.epoch());
+    let columns = rig
+        .next_data_columns
+        .clone()
+        .unwrap()
+        .into_iter()
+        .filter(|column| sampling.contains(column.index()))
+        .collect::<Vec<_>>();
+    assert_eq!(columns.len(), 8);
+    let cached = columns[0].clone();
+    let new = columns[1].clone();
+    let verified = GossipVerifiedDataColumn::new(
+        cached.clone(),
+        DataColumnSubnetId::from_column_index(*cached.index(), &rig.chain.spec),
+        &rig.chain,
+    )
+    .unwrap();
+    assert_matches!(rig.chain.process_gossip_data_columns(vec![verified], || Ok(())).await,
+        Ok(AvailabilityProcessingStatus::MissingComponents(_, r)) if r == root);
+    assert_eq!(
+        rig.chain
+            .data_availability_checker
+            .cached_data_column_indexes(&root)
+            .unwrap(),
+        vec![*cached.index()]
+    );
+
+    // A cached valid column must not bypass the other RPC column's header check.
+    let mut invalid_header = new.as_ref().clone();
+    let DataColumnSidecar::Fulu(ref mut fulu) = invalid_header else {
+        unreachable!()
+    };
+    fulu.signed_block_header.signature = Signature::infinity().unwrap();
+    assert_matches!(
+        rig.chain
+            .process_rpc_custody_columns(vec![cached.clone(), Arc::new(invalid_header)])
+            .await,
+        Err(BlockError::InvalidSignature(
+            InvalidSignature::ProposerSignature
+        ))
+    );
+
+    let (network_tx, mut network_rx) = mpsc::unbounded_channel();
+    let (sync_tx, mut sync_rx) = mpsc::unbounded_channel();
+    let (work_tx, _work_rx) = mpsc::channel(8);
+    let processor = Arc::new(NetworkBeaconProcessor {
+        beacon_processor_send: BeaconProcessorSend(work_tx),
+        duplicate_cache: DuplicateCache::default(),
+        chain: rig.chain.clone(),
+        network_tx: network_tx.clone(),
+        sync_tx,
+        network_globals: rig.network_beacon_processor.network_globals.clone(),
+        invalid_block_storage: InvalidBlockStorage::Disabled,
+        executor: rig.network_beacon_processor.executor.clone(),
+    });
+    let fork_context = Arc::new(ForkContext::new::<E>(
+        rig.next_block.slot(),
+        rig.chain.genesis_validators_root,
+        &rig.chain.spec,
+    ));
+    let mut context = SyncNetworkContext::new(
+        network_tx,
+        processor.clone(),
+        rig.chain.clone(),
+        fork_context,
+    );
+    let good_peer = PeerId::random();
+    let bad_peer = PeerId::random();
+    let peers = PeerGroup::from_set(HashMap::from([
+        (good_peer, vec![*cached.index() as usize]),
+        (bad_peer, vec![*new.index() as usize]),
+    ]));
+    let mut invalid_proof = new.as_ref().clone();
+    let DataColumnSidecar::Fulu(ref mut fulu) = invalid_proof else {
+        unreachable!()
+    };
+    *fulu.kzg_proofs.get_mut(0).unwrap() = kzg::KzgProof::empty();
+    processor
+        .clone()
+        .process_rpc_custody_columns(
+            root,
+            vec![cached, Arc::new(invalid_proof)],
+            BlockProcessType::SingleCustodyColumn(42),
+        )
+        .await;
+    let SyncMessage::BlockComponentProcessed {
+        process_type: BlockProcessType::SingleCustodyColumn(42),
+        result,
+    } = sync_rx.try_recv().unwrap()
+    else {
+        panic!("RPC processor must deliver its classified result to sync");
+    };
+    let BlockProcessingResult::Error {
+        penalty: Some((action, selector, message)),
+        ..
+    } = result
+    else {
+        panic!("invalid KZG proof must produce an attributable error");
+    };
+    assert_matches!(action, PeerAction::MidToleranceError);
+    assert_matches!(selector, WhichPeerToPenalize::CustodyPeerForColumn(index) if index == *new.index());
+    selector.apply(action, &peers, message, &mut context);
+    assert_matches!(network_rx.try_recv().unwrap(), NetworkMessage::ReportPeer { peer_id, action: PeerAction::MidToleranceError, .. } if peer_id == bad_peer);
+    assert!(
+        network_rx.try_recv().is_err(),
+        "the cached column's peer must not be penalized"
+    );
+    assert_eq!(
+        rig.chain
+            .data_availability_checker
+            .cached_data_column_indexes(&root)
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // The same cached input plus valid new inputs can still complete the block.
+    assert_matches!(rig.chain.process_rpc_custody_columns(columns).await,
+        Ok(AvailabilityProcessingStatus::Imported(_, r)) if r == root);
+}
+
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
 #[tokio::test]
