@@ -689,6 +689,9 @@ pub async fn serve<T: BeaconChainTypes>(
     // `GET /beacon/states/{state_id}/ptc`
     let get_beacon_state_ptc = states::get_beacon_state_ptc(beacon_states_path.clone());
 
+    // GET beacon/states/{state_id}/leaves
+    let get_beacon_state_leaves = states::get_beacon_state_leaves(beacon_states_path.clone());
+
     // GET beacon/headers
     //
     // Note: this endpoint only returns information about blocks in the canonical chain. Given that
@@ -3502,6 +3505,7 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_state_builder_pending_withdrawals)
                 .uor(get_beacon_state_builder_pending_payments)
                 .uor(get_beacon_state_ptc)
+                .uor(get_beacon_state_leaves)
                 .uor(get_beacon_headers)
                 .uor(get_beacon_headers_block_id)
                 .uor(get_beacon_block)

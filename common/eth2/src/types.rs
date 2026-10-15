@@ -248,6 +248,20 @@ impl From<Hash256> for RootData {
     }
 }
 
+/// The `tree_hash_root` of every active field of a `BeaconState`, in field order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct StateLeavesData(pub Vec<Hash256>);
+
+impl<'de, T> ContextDeserialize<'de, T> for StateLeavesData {
+    fn context_deserialize<D>(deserializer: D, _context: T) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::deserialize(deserializer)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FinalityCheckpointsData {
     pub previous_justified: Checkpoint,
