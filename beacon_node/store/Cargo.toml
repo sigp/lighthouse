@@ -8,6 +8,7 @@ edition = { workspace = true }
 default = ["leveldb"]
 leveldb = ["dep:leveldb"]
 redb = ["dep:redb"]
+spec-minimal = ["types/spec-minimal"]
 
 [dependencies]
 bls = { workspace = true }

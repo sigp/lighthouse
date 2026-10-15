@@ -1034,6 +1034,11 @@ impl From<Result<AvailabilityProcessingStatus, BlockError>> for BlockProcessingR
                             None
                         }
                     }
+                    BlockError::DataColumnSlotMismatch { column_index, .. } => Some((
+                        PeerAction::MidToleranceError,
+                        WhichPeerToPenalize::CustodyPeerForColumn(*column_index),
+                        (&e).into(),
+                    )),
                     // Remaining invalid blocks: penalize the block peer. Listed explicitly so a
                     // new `BlockError` variant forces a compile error here.
                     BlockError::FutureSlot { .. }
