@@ -1,9 +1,7 @@
 use crate::BeaconChain;
 use crate::BeaconChainTypes;
 use eth2::types::GraffitiPolicy;
-use execution_layer::{
-    ClientCode, ClientVersionV1, CommitPrefix, ExecutionLayer, http::ENGINE_GET_CLIENT_VERSION_V1,
-};
+use execution_layer::{CommitPrefix, ExecutionLayer, http::ENGINE_GET_CLIENT_VERSION_V1};
 use logging::crit;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -15,17 +13,6 @@ use types::{EthSpec, GRAFFITI_BYTES_LEN, Graffiti};
 const ENGINE_VERSION_AGE_LIMIT_EPOCH_MULTIPLE: u32 = 6; // 6 epochs
 const ENGINE_VERSION_CACHE_REFRESH_EPOCH_MULTIPLE: u32 = 2; // 2 epochs
 const ENGINE_VERSION_CACHE_PRELOAD_STARTUP_DELAY: Duration = Duration::from_secs(60);
-
-/// Filters `engine_getClientVersionV1` results to execution-client versions.
-///
-/// Some ELs echo the caller's `ClientVersionV1` (e.g. Nethermind returns `[NM, LH]`).
-/// Ignoring those avoids treating a single EL as a multiplexer.
-fn el_versions_for_graffiti(versions: &[ClientVersionV1]) -> Vec<&ClientVersionV1> {
-    versions
-        .iter()
-        .filter(|version| version.code != ClientCode::Lighthouse)
-        .collect()
-}
 
 /// Represents the source and content of graffiti for block production, excluding
 /// inputs from the validator client and execution engine. Graffiti is categorized
@@ -144,27 +131,21 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                     }
                 };
 
-                let el_versions = el_versions_for_graffiti(&engine_versions);
-                let engine_version = match el_versions.as_slice() {
-                    [engine_version] => *engine_version,
-                    [] => {
-                        // Unsupported method, empty response, or only an echoed CL version.
-                        debug!(
-                            method = ENGINE_GET_CLIENT_VERSION_V1,
-                            "No usable execution engine version for graffiti"
-                        );
-                        return validator_graffiti.unwrap_or(default_graffiti);
-                    }
-                    _ => {
-                        // More than one EL version implies lighthouse is connected to
-                        // an EL multiplexer. We don't support modifying the graffiti
-                        // with these configurations.
-                        warn!(
-                            "Execution Engine multiplexer detected, not appending client versions"
-                        );
-                        return validator_graffiti.unwrap_or(default_graffiti);
-                    }
+                let Some(engine_version) = engine_versions.first() else {
+                    // Got an empty array which indicates the EL doesn't support the method
+                    debug!(
+                        "EL does not support {} method, not appending client versions",
+                        ENGINE_GET_CLIENT_VERSION_V1
+                    );
+                    return validator_graffiti.unwrap_or(default_graffiti);
                 };
+                if engine_versions.len() != 1 {
+                    // More than one version implies lighthouse is connected to
+                    // an EL multiplexer. We don't support modifying the graffiti
+                    // with these configurations.
+                    warn!("Execution Engine multiplexer detected, not appending client versions");
+                    return validator_graffiti.unwrap_or(default_graffiti);
+                }
 
                 let lighthouse_commit_prefix =
                     CommitPrefix::try_from(lighthouse_version::COMMIT_PREFIX.to_string())
@@ -267,16 +248,13 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
 
 #[cfg(test)]
 mod tests {
-    use super::el_versions_for_graffiti;
     use crate::ChainConfig;
     use crate::graffiti_calculator::GraffitiSettings;
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
     use bls::Keypair;
     use eth2::types::GraffitiPolicy;
-    use execution_layer::{
-        ClientCode, ClientVersionV1, CommitPrefix, EngineCapabilities,
-        test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES},
-    };
+    use execution_layer::EngineCapabilities;
+    use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::time::Duration;
@@ -287,15 +265,6 @@ mod tests {
     /// A cached set of keys.
     static KEYPAIRS: LazyLock<Vec<Keypair>> =
         LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
-
-    fn client_version(code: ClientCode, commit: &str) -> ClientVersionV1 {
-        ClientVersionV1 {
-            code,
-            name: "test".to_string(),
-            version: "0.1.0".to_string(),
-            commit: CommitPrefix::try_from(commit.to_string()).expect("valid commit prefix"),
-        }
-    }
 
     fn get_harness(
         validator_count: usize,
@@ -313,36 +282,6 @@ mod tests {
         harness.advance_slot();
 
         harness
-    }
-
-    #[test]
-    fn el_versions_for_graffiti_selection() {
-        let nethermind = client_version(ClientCode::Nethermind, "b3e7e84c");
-        let lighthouse = client_version(ClientCode::Lighthouse, "6db6ae9a");
-        let geth = client_version(ClientCode::GoEthereum, "abcdef01");
-        let besu = client_version(ClientCode::Besu, "12345678");
-
-        // Nethermind echoes the caller's ClientVersionV1.
-        let versions = [nethermind.clone(), lighthouse.clone()];
-        let el_versions = el_versions_for_graffiti(&versions);
-        assert_eq!(el_versions.len(), 1);
-        assert_eq!(el_versions[0].code, ClientCode::Nethermind);
-        let versions = [lighthouse.clone(), nethermind];
-        let el_versions = el_versions_for_graffiti(&versions);
-        assert_eq!(el_versions.len(), 1);
-        assert_eq!(el_versions[0].code, ClientCode::Nethermind);
-
-        let versions = [geth.clone()];
-        let el_versions = el_versions_for_graffiti(&versions);
-        assert_eq!(el_versions.len(), 1);
-        assert_eq!(el_versions[0].code, ClientCode::GoEthereum);
-        assert!(el_versions_for_graffiti(&[]).is_empty());
-        let versions = [lighthouse.clone()];
-        assert!(el_versions_for_graffiti(&versions).is_empty());
-        let versions = [geth.clone(), besu.clone()];
-        assert_eq!(el_versions_for_graffiti(&versions).len(), 2);
-        let versions = [geth, besu, lighthouse];
-        assert_eq!(el_versions_for_graffiti(&versions).len(), 2);
     }
 
     #[tokio::test]
