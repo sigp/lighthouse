@@ -1750,7 +1750,7 @@ async fn fill_in_selection_proofs_selections_endpoint<
                     // If fails, retry at the next slot.
                     let duration_to_next_slot = slot_clock
                         .duration_to_next_slot()
-                        .unwrap_or_else(|| slot_clock.slot_duration());
+                        .unwrap_or_else(|| slot_clock.current_slot_duration());
                     sleep(duration_to_next_slot).await;
                     continue;
                 }
@@ -1813,7 +1813,7 @@ async fn fill_in_selection_proofs_selections_endpoint<
         // Wait until the next epoch such that the next epoch becomes the current epoch
         let duration_to_next_epoch = slot_clock
             .duration_to_slot(epoch_start_slot)
-            .unwrap_or_else(|| slot_clock.slot_duration());
+            .unwrap_or_else(|| slot_clock.current_slot_duration());
         sleep(duration_to_next_epoch).await;
     }
 }
