@@ -708,11 +708,7 @@ mod data_availability_checker_tests {
         create_test_tracing_subscriber();
         let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
         let kzg = get_kzg(&spec);
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        );
+        let slot_clock = TestingSlotClock::from_spec::<E>(Duration::from_secs(0), &spec);
         let complete_blob_backfill = false;
         let custody_context = Arc::new(CustodyContext::<T>::new(
             node_custody,

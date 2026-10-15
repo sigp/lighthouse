@@ -181,11 +181,7 @@ impl TestContext {
         observed_execution_payloads
             .insert(genesis_bid.parent_block_hash(), genesis_bid.gas_limit());
 
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        );
+        let slot_clock = TestingSlotClock::from_spec::<E>(Duration::from_secs(0), &spec);
 
         Self {
             canonical_head,

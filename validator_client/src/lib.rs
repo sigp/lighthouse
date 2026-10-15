@@ -407,10 +407,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             ctx.shared.write().genesis_time = Some(genesis_time);
         }
 
-        let slot_clock = SystemTimeSlotClock::new(
-            context.eth2_config.spec.genesis_slot,
+        let slot_clock = SystemTimeSlotClock::from_spec::<E>(
             Duration::from_secs(genesis_time),
-            context.eth2_config.spec.get_slot_duration(),
+            &context.eth2_config.spec,
         );
 
         beacon_nodes.set_slot_clock(slot_clock.clone());
@@ -482,14 +481,16 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let attestation_selection_proof_config = if config.distributed {
             SelectionProofConfig {
                 lookahead_slot: SELECTION_PROOF_SLOT_LOOKAHEAD_DVT,
-                computation_offset: slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM,
+                computation_offset: slot_clock.current_slot_duration()
+                    / SELECTION_PROOF_SCHEDULE_DENOM,
                 selections_endpoint: true,
                 parallel_sign: true,
             }
         } else {
             SelectionProofConfig {
                 lookahead_slot: SELECTION_PROOF_SLOT_LOOKAHEAD,
-                computation_offset: slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM,
+                computation_offset: slot_clock.current_slot_duration()
+                    / SELECTION_PROOF_SCHEDULE_DENOM,
                 selections_endpoint: false,
                 parallel_sign: false,
             }

@@ -969,11 +969,8 @@ where
             .clone()
             .ok_or("system_time_slot_clock requires a chain spec")?;
 
-        let slot_clock = SystemTimeSlotClock::new(
-            spec.genesis_slot,
-            Duration::from_secs(genesis_time),
-            spec.get_slot_duration(),
-        );
+        let slot_clock =
+            SystemTimeSlotClock::from_spec::<E>(Duration::from_secs(genesis_time), &spec);
 
         self.slot_clock = Some(slot_clock);
         Ok(self)

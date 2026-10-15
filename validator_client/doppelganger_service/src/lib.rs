@@ -248,7 +248,7 @@ impl DoppelgangerService {
         context.executor.spawn(
             async move {
                 loop {
-                    let slot_duration = slot_clock.slot_duration();
+                    let slot_duration = slot_clock.current_slot_duration();
 
                     if let Some(duration_to_next_slot) = slot_clock.duration_to_next_slot() {
                         // Run the doppelganger protection check 75% through each epoch. This

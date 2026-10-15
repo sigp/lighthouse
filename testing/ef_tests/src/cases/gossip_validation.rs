@@ -267,11 +267,8 @@ impl<E: EthSpec> GossipTester<E> {
                 .build()
         } else if spec_synthetic_anchor || case.meta.topic.requires_synthetic_anchor() {
             let (state, block) = synthetic_anchor(case.state.clone(), &spec)?;
-            let slot_clock = TestingSlotClock::new(
-                spec.genesis_slot,
-                Duration::from_secs(genesis_time),
-                spec.get_slot_duration(),
-            );
+            let slot_clock =
+                TestingSlotClock::from_spec::<E>(Duration::from_secs(genesis_time), &spec);
             let state_time_ms = slot_time_ms(state.slot(), &spec)?;
             let build_time = Duration::from_secs(genesis_time)
                 .checked_add(Duration::from_millis(current_time_ms.max(state_time_ms)))

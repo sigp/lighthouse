@@ -367,7 +367,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if envelope_delay_total
             < self
                 .slot_clock
-                .slot_duration()
+                .current_slot_duration()
                 .saturating_mul(ENVELOPE_METRICS_CACHE_SLOT_LIMIT)
         {
             self.envelope_times_cache.write().set_time_imported(

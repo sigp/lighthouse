@@ -349,11 +349,7 @@ async fn is_syncing(client: &BeaconNodeHttpClient) -> Result<bool, String> {
 
 /// Calculates the current epoch from the genesis time and current time.
 fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<Epoch> {
-    let slot_clock = SystemTimeSlotClock::new(
-        spec.genesis_slot,
-        Duration::from_secs(genesis_time),
-        spec.get_slot_duration(),
-    );
+    let slot_clock = SystemTimeSlotClock::from_spec::<E>(Duration::from_secs(genesis_time), spec);
     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
 }
 
