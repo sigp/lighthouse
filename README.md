@@ -75,7 +75,6 @@ key](https://keybase.io/sigp/pgp_keys.asc?fingerprint=15e66d941f697e28f49381f426
 ## Donations
 
 Lighthouse is an open-source project and a public good. Funding public goods is
-hard and we're grateful for the donations we receive from the community via:
+hard and we're grateful for the donations we receive from the community:
 
-- [Gitcoin Grants](https://gitcoin.co/grants/25/lighthouse-ethereum-20-client).
 - Ethereum address: `0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b` (donation.sigmaprime.eth).
