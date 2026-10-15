@@ -561,6 +561,12 @@ pub struct AttestationPoolQuery {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct ProposerPreferencesQuery {
+    pub slot: Option<Slot>,
+    pub dependent_root: Option<Hash256>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct PayloadAttestationPoolQuery {
     pub slot: Option<Slot>,
 }
