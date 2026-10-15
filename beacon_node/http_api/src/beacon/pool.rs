@@ -586,14 +586,7 @@ pub fn get_beacon_pool_payload_attestations<T: BeaconChainTypes>(
                         query.slot.is_none_or(|slot| data.slot == slot)
                     });
 
-                    let current_slot =
-                        chain
-                            .slot_clock
-                            .now()
-                            .ok_or(warp_utils::reject::custom_server_error(
-                                "unable to read slot clock".to_string(),
-                            ))?;
-                    let fork_name = chain.spec.fork_name_at_slot::<T::EthSpec>(current_slot);
+                    let fork_name = ForkName::Gloas;
 
                     match accept_header {
                         Some(Accept::Ssz) => Builder::new()
