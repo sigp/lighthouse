@@ -17,15 +17,15 @@ use store::{HotColdDB, MemoryStore};
 use task_executor::test_utils::TestRuntime;
 use tracing_subscriber::EnvFilter;
 use types::{
-    CommitteeIndex, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot, SubnetId,
-    SyncCommitteeSubscription, SyncSubnetId, ValidatorSubscription,
+    CommitteeIndex, Epoch, EthSpec, Hash256, Slot, Spec, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, ValidatorSubscription,
 };
 
 const SLOT_DURATION_MILLIS: u64 = 400;
 
 const TEST_LOG_LEVEL: Option<&str> = None;
 
-type TestBeaconChainType = Witness<SystemTimeSlotClock, MainnetEthSpec, MemoryStore, MemoryStore>;
+type TestBeaconChainType = Witness<SystemTimeSlotClock, Spec, MemoryStore, MemoryStore>;
 
 pub struct TestBeaconChain {
     chain: Arc<BeaconChain<TestBeaconChainType>>,
@@ -34,7 +34,7 @@ pub struct TestBeaconChain {
 
 impl TestBeaconChain {
     pub fn new_with_system_clock() -> Self {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(Spec::default_spec());
 
         get_tracing_subscriber(TEST_LOG_LEVEL);
 
@@ -49,12 +49,12 @@ impl TestBeaconChain {
         let test_runtime = TestRuntime::default();
 
         let chain = Arc::new(
-            BeaconChainBuilder::new(MainnetEthSpec, kzg.clone())
+            BeaconChainBuilder::new(Spec::default(), kzg.clone())
                 .custom_spec(spec.clone())
                 .store(Arc::new(store))
                 .task_executor(test_runtime.task_executor.clone())
                 .genesis_state(
-                    interop_genesis_state::<MainnetEthSpec>(
+                    interop_genesis_state::<Spec>(
                         &keypairs,
                         0,
                         Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
@@ -69,9 +69,7 @@ impl TestBeaconChain {
                     Duration::from_secs(recent_genesis_time()),
                     Duration::from_millis(SLOT_DURATION_MILLIS),
                 ))
-                .ordered_custody_column_indices(generate_data_column_indices_rand_order::<
-                    MainnetEthSpec,
-                >())
+                .ordered_custody_column_indices(generate_data_column_indices_rand_order::<Spec>())
                 .shutdown_sender(shutdown_tx)
                 .rng(Box::new(StdRng::seed_from_u64(42)))
                 .build()
@@ -193,7 +191,7 @@ mod test {
     async fn subscribe_current_slot_wait_for_unsubscribe() {
         // subscription config
         let committee_index = 1;
-        let subnets_per_node = MainnetEthSpec::default_spec().subnets_per_node as usize;
+        let subnets_per_node = Spec::default_spec().subnets_per_node as usize;
 
         // create the attestation service and subscriptions
         let mut subnet_service = get_subnet_service();
@@ -209,7 +207,7 @@ mod test {
         let subscription_slot = current_slot + 1;
         let mut committee_count = 1;
         let mut subnet = Subnet::Attestation(
-            SubnetId::compute_subnet::<MainnetEthSpec>(
+            SubnetId::compute_subnet::<Spec>(
                 subscription_slot,
                 committee_index,
                 committee_count,
@@ -223,7 +221,7 @@ mod test {
         {
             committee_count += 1;
             subnet = Subnet::Attestation(
-                SubnetId::compute_subnet::<MainnetEthSpec>(
+                SubnetId::compute_subnet::<Spec>(
                     subscription_slot,
                     committee_index,
                     committee_count,
@@ -253,7 +251,7 @@ mod test {
         let events = get_events_until_num_slots(
             &mut subnet_service,
             Some(2),
-            (MainnetEthSpec::slots_per_epoch()) as u32,
+            (Spec::slots_per_epoch()) as u32,
         )
         .await;
         assert_eq!(events, expected);
@@ -303,7 +301,7 @@ mod test {
             true,
         );
 
-        let subnet_id1 = SubnetId::compute_subnet::<MainnetEthSpec>(
+        let subnet_id1 = SubnetId::compute_subnet::<Spec>(
             current_slot + Slot::new(subscription_slot1),
             com1,
             committee_count,
@@ -311,7 +309,7 @@ mod test {
         )
         .unwrap();
 
-        let subnet_id2 = SubnetId::compute_subnet::<MainnetEthSpec>(
+        let subnet_id2 = SubnetId::compute_subnet::<Spec>(
             current_slot + Slot::new(subscription_slot2),
             com2,
             committee_count,
@@ -351,11 +349,11 @@ mod test {
 
     #[tokio::test]
     async fn subscribe_all_subnets() {
-        let attestation_subnet_count = MainnetEthSpec::default_spec().attestation_subnet_count;
+        let attestation_subnet_count = Spec::default_spec().attestation_subnet_count;
         let subscription_slot = 3;
         let subscriptions_count = attestation_subnet_count;
         let committee_count = 1;
-        let subnets_per_node = MainnetEthSpec::default_spec().subnets_per_node as usize;
+        let subnets_per_node = Spec::default_spec().subnets_per_node as usize;
 
         // create the attestation service and subscriptions
         let mut subnet_service = get_subnet_service();
@@ -418,9 +416,9 @@ mod test {
 
     #[tokio::test]
     async fn subscribe_correct_number_of_subnets() {
-        let attestation_subnet_count = MainnetEthSpec::default_spec().attestation_subnet_count;
+        let attestation_subnet_count = Spec::default_spec().attestation_subnet_count;
         let subscription_slot = 10;
-        let subnets_per_node = MainnetEthSpec::default_spec().subnets_per_node as usize;
+        let subnets_per_node = Spec::default_spec().subnets_per_node as usize;
 
         // the 65th subscription should result in no more messages than the previous scenario
         let subscriptions_count = attestation_subnet_count + 1;
@@ -523,7 +521,7 @@ mod test {
             true,
         );
 
-        let subnet_id1 = SubnetId::compute_subnet::<MainnetEthSpec>(
+        let subnet_id1 = SubnetId::compute_subnet::<Spec>(
             current_slot + Slot::new(subscription_slot1),
             com1,
             committee_count,
@@ -531,7 +529,7 @@ mod test {
         )
         .unwrap();
 
-        let subnet_id2 = SubnetId::compute_subnet::<MainnetEthSpec>(
+        let subnet_id2 = SubnetId::compute_subnet::<Spec>(
             current_slot + Slot::new(subscription_slot2),
             com2,
             committee_count,
@@ -539,7 +537,7 @@ mod test {
         )
         .unwrap();
 
-        let subnet_id3 = SubnetId::compute_subnet::<MainnetEthSpec>(
+        let subnet_id3 = SubnetId::compute_subnet::<Spec>(
             current_slot + Slot::new(subscription_slot3),
             com3,
             committee_count,
@@ -661,17 +659,16 @@ mod test {
 
         // Remove permanent subscription events
 
-        let subnet_ids = SyncSubnetId::compute_subnets_for_sync_committee::<MainnetEthSpec>(
-            &sync_committee_indices,
-        )
-        .unwrap();
+        let subnet_ids =
+            SyncSubnetId::compute_subnets_for_sync_committee::<Spec>(&sync_committee_indices)
+                .unwrap();
         let subnet_id = subnet_ids.iter().next().unwrap();
 
         // Note: the unsubscription event takes 2 epochs (8 * 2 * 0.4 secs = 3.2 secs)
         let events = get_events_until_num_slots(
             &mut subnet_service,
             Some(5),
-            (MainnetEthSpec::slots_per_epoch() * 3) as u32, // Have some buffer time before getting 5 events
+            (Spec::slots_per_epoch() * 3) as u32, // Have some buffer time before getting 5 events
         )
         .await;
         assert_eq!(
