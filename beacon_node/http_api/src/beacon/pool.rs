@@ -586,6 +586,9 @@ pub fn get_beacon_pool_payload_attestations<T: BeaconChainTypes>(
                         query.slot.is_none_or(|slot| data.slot == slot)
                     });
 
+                    // Hardcode Gloas: using the current slot's fork would return Fulu before the
+                    // Gloas fork, and the response fork becomes ambiguous once the pool holds
+                    // payload attestations from multiple forks. Revisit when Heze is added.
                     let fork_name = ForkName::Gloas;
 
                     match accept_header {
