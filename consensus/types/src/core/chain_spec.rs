@@ -103,6 +103,7 @@ pub struct ChainSpec {
     seconds_per_slot: u64,
     // Private so that this value can't get changed except via the `set_slot_duration_ms` function.
     slot_duration_ms: u64,
+    pub slot_duration_ms_eip8198: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub max_seed_lookahead: Epoch,
@@ -1106,7 +1107,12 @@ impl ChainSpec {
 
     /// Spec: `get_slot_durations`. Returns `(epoch, slot_duration_ms)` pairs in epoch order.
     fn get_slot_durations(&self) -> impl Iterator<Item = (Epoch, u64)> {
-        std::iter::once((Epoch::new(0), self.slot_duration_ms))
+        // EIP-8198 activates at the Heze fork.
+        let eip8198 = self
+            .heze_fork_epoch
+            .filter(|&fork_epoch| fork_epoch != self.far_future_epoch)
+            .map(|fork_epoch| (fork_epoch, self.slot_duration_ms_eip8198));
+        std::iter::once((Epoch::new(0), self.slot_duration_ms)).chain(eip8198)
     }
 
     /// Spec: `get_slot_duration_ms`.
@@ -1156,6 +1162,7 @@ impl ChainSpec {
                 slot_duration_ms,
             })
             .collect::<Vec<_>>();
+        // Keep the last entry at each epoch, as the spec does for a fork at genesis.
         entries.reverse();
         entries.dedup_by_key(|entry| entry.epoch);
         SlotDurationSchedule::new(entries)
@@ -1342,6 +1349,7 @@ impl ChainSpec {
             genesis_delay: 604800, // 7 days
             seconds_per_slot: 12,
             slot_duration_ms: 12000,
+            slot_duration_ms_eip8198: 10000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
@@ -1638,6 +1646,7 @@ impl ChainSpec {
             genesis_delay: 300,
             seconds_per_slot: 6,
             slot_duration_ms: 6000,
+            slot_duration_ms_eip8198: 5000,
             inactivity_penalty_quotient: u64::checked_pow(2, 25).expect("pow does not overflow"),
             min_slashing_penalty_quotient: 64,
             proportional_slashing_multiplier: 2,
@@ -1774,6 +1783,7 @@ impl ChainSpec {
             genesis_delay: 6000, // 100 minutes
             seconds_per_slot: 5,
             slot_duration_ms: 5000,
+            slot_duration_ms_eip8198: 5000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
@@ -2402,6 +2412,9 @@ pub struct Config {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     slot_duration_ms: Option<MaybeQuoted<u64>>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    slot_duration_ms_eip8198: Option<MaybeQuoted<u64>>,
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_eth1_block: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -3100,6 +3113,9 @@ impl Config {
             slot_duration_ms: Some(MaybeQuoted {
                 value: spec.slot_duration_ms,
             }),
+            slot_duration_ms_eip8198: Some(MaybeQuoted {
+                value: spec.slot_duration_ms_eip8198,
+            }),
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
             shard_committee_period: spec.shard_committee_period,
@@ -3229,6 +3245,7 @@ impl Config {
             heze_fork_epoch,
             seconds_per_slot,
             slot_duration_ms,
+            slot_duration_ms_eip8198,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
@@ -3316,6 +3333,29 @@ impl Config {
             return None;
         }
 
+        let slot_duration_ms = slot_duration_ms
+            .map(|q| q.value)
+            .or_else(|| seconds_per_slot.map(|q| q.value.saturating_mul(1000)))?;
+        let seconds_per_slot = seconds_per_slot
+            .map(|q| q.value)
+            .or_else(|| slot_duration_ms.checked_div(1000))?;
+        // Networks that do not set it keep their slot duration at the fork.
+        let slot_duration_ms_eip8198 = match slot_duration_ms_eip8198 {
+            Some(q)
+                if q.value == 0
+                    || q.value % 1000 != 0
+                    || q.value.checked_mul(BASIS_POINTS).is_none() =>
+            {
+                error!(
+                    slot_duration_ms_eip8198 = q.value,
+                    "Invalid SLOT_DURATION_MS_EIP8198"
+                );
+                return None;
+            }
+            Some(q) => q.value,
+            None => slot_duration_ms,
+        };
+
         // Entries must be at or after the Gloas fork epoch and must not share an epoch.
         let min_gas_limit_schedule_epoch = gloas_fork_epoch
             .map(|q| q.value)
@@ -3366,12 +3406,9 @@ impl Config {
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
             heze_fork_version,
             heze_fork_epoch: heze_fork_epoch.map(|q| q.value),
-            seconds_per_slot: seconds_per_slot
-                .map(|q| q.value)
-                .or_else(|| slot_duration_ms.and_then(|q| q.value.checked_div(1000)))?,
-            slot_duration_ms: slot_duration_ms
-                .map(|q| q.value)
-                .or_else(|| seconds_per_slot.map(|q| q.value.saturating_mul(1000)))?,
+            seconds_per_slot,
+            slot_duration_ms,
+            slot_duration_ms_eip8198,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
@@ -4720,6 +4757,127 @@ mod yaml_tests {
     }
 
     #[test]
+    fn slot_duration_changes_at_the_heze_fork_epoch() {
+        let mut spec = ChainSpec::mainnet();
+        assert_eq!(
+            spec.slot_duration_schedule(),
+            slot_duration_schedule(&[(0, 12000)])
+        );
+        spec.heze_fork_epoch = Some(spec.far_future_epoch);
+        assert_eq!(
+            spec.slot_duration_schedule(),
+            slot_duration_schedule(&[(0, 12000)])
+        );
+
+        spec.heze_fork_epoch = Some(Epoch::new(10));
+        assert_eq!(
+            spec.get_slot_durations().collect::<Vec<_>>(),
+            vec![(Epoch::new(0), 12000), (Epoch::new(10), 10000)]
+        );
+        assert_eq!(
+            spec.slot_duration_schedule(),
+            slot_duration_schedule(&[(0, 12000), (10, 10000)])
+        );
+        assert_eq!(spec.get_slot_duration_ms(Epoch::new(9)), 12000);
+        assert_eq!(spec.get_slot_duration_ms(Epoch::new(10)), 10000);
+    }
+
+    #[test]
+    fn heze_at_genesis_uses_the_eip8198_slot_duration_from_genesis() {
+        let mut spec = ChainSpec::mainnet();
+        spec.heze_fork_epoch = Some(Epoch::new(0));
+        assert_eq!(spec.get_slot_duration_ms(Epoch::new(0)), 10000);
+        let schedule = spec.slot_duration_schedule();
+        assert_eq!(schedule, slot_duration_schedule(&[(0, 10000)]));
+        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        assert_eq!(
+            schedule.compute_time_at_slot_ms(slots_per_epoch, 0, Slot::new(3)),
+            Ok(30000)
+        );
+        assert_eq!(
+            schedule.compute_slot_at_time_ms(slots_per_epoch, 0, 30000),
+            Ok(Slot::new(3))
+        );
+    }
+
+    #[test]
+    fn slot_duration_ms_eip8198_config() {
+        let mut config = Config::from_chain_spec::<MainnetEthSpec>(&ChainSpec::mainnet());
+        config.heze_fork_epoch = Some(MaybeQuoted {
+            value: Epoch::new(10),
+        });
+        let spec = ChainSpec::from_config::<MainnetEthSpec>(&config).expect("valid config");
+        assert_eq!(spec.slot_duration_ms_eip8198, 10000);
+        assert_eq!(spec.get_slot_duration_ms(Epoch::new(10)), 10000);
+
+        config.slot_duration_ms_eip8198 = None;
+        let spec = ChainSpec::from_config::<MainnetEthSpec>(&config).expect("valid config");
+        assert_eq!(spec.get_slot_duration_ms(Epoch::new(10)), 12000);
+
+        for invalid in [0, 10500, u64::MAX / 1000 * 1000] {
+            config.slot_duration_ms_eip8198 = Some(MaybeQuoted { value: invalid });
+            assert!(ChainSpec::from_config::<MainnetEthSpec>(&config).is_none());
+        }
+
+        // Without the key, a slot duration that is not a whole second still loads.
+        config.slot_duration_ms_eip8198 = None;
+        config.seconds_per_slot = None;
+        config.slot_duration_ms = Some(MaybeQuoted { value: 1500 });
+        let spec = ChainSpec::from_config::<MainnetEthSpec>(&config).expect("valid config");
+        assert_eq!(spec.get_slot_duration_ms(Epoch::new(10)), 1500);
+    }
+
+    #[test]
+    fn deadlines_use_the_slot_duration_at_the_heze_fork() {
+        let mut spec = ChainSpec::mainnet();
+        spec.heze_fork_epoch = Some(Epoch::new(10));
+        let pre_fork_slot = Slot::new(319);
+        let fork_slot = Slot::new(320);
+        let later_slot = Slot::new(700);
+        let at_fork = |bps: u64| Duration::from_millis(bps * 10000 / BASIS_POINTS);
+        let at_genesis = |bps: u64| Duration::from_millis(bps * 12000 / BASIS_POINTS);
+
+        assert_eq!(
+            spec.get_attestation_due::<MainnetEthSpec>(pre_fork_slot),
+            at_genesis(spec.attestation_due_bps)
+        );
+        assert_eq!(
+            spec.get_proposer_reorg_cutoff::<MainnetEthSpec>(pre_fork_slot),
+            at_genesis(spec.proposer_reorg_cutoff_bps)
+        );
+        for slot in [fork_slot, later_slot] {
+            assert_eq!(
+                spec.get_attestation_due::<MainnetEthSpec>(slot),
+                at_fork(spec.attestation_due_bps_gloas)
+            );
+            assert_eq!(
+                spec.get_aggregate_attestation_due::<MainnetEthSpec>(slot),
+                at_fork(spec.aggregate_due_bps_gloas)
+            );
+            assert_eq!(
+                spec.get_sync_message_due::<MainnetEthSpec>(slot),
+                at_fork(spec.sync_message_due_bps_gloas)
+            );
+            assert_eq!(
+                spec.get_contribution_message_due::<MainnetEthSpec>(slot),
+                at_fork(spec.contribution_due_bps_gloas)
+            );
+            assert_eq!(
+                spec.get_payload_due::<MainnetEthSpec>(slot),
+                at_fork(spec.payload_due_bps)
+            );
+            assert_eq!(
+                spec.get_payload_attestation_due::<MainnetEthSpec>(slot),
+                at_fork(spec.payload_attestation_due_bps)
+            );
+            assert_eq!(
+                spec.get_proposer_reorg_cutoff::<MainnetEthSpec>(slot),
+                at_fork(spec.proposer_reorg_cutoff_bps)
+            );
+        }
+    }
+
+    #[test]
     fn test_contribution_message_due_is_fork_aware() {
         type E = MainnetEthSpec;
 
@@ -5347,6 +5505,24 @@ mod slot_duration_schedule_properties {
                 schedule
                     .compute_slot_at_time_ms(SLOTS_PER_EPOCH, genesis_time_ms, genesis_time_ms - 1)
                     .is_err()
+            );
+        }
+
+        #[test]
+        fn slot_duration_lookups_agree(
+            heze_epoch in prop_oneof![Just(0u64), 0u64..200, Just(u64::MAX)],
+            slot_duration_ms in slot_duration_ms(),
+            slot_duration_ms_eip8198 in slot_duration_ms(),
+            epoch in prop_oneof![0u64..400, any::<u64>()],
+        ) {
+            let mut spec = ChainSpec::mainnet();
+            spec.slot_duration_ms = slot_duration_ms;
+            spec.slot_duration_ms_eip8198 = slot_duration_ms_eip8198;
+            spec.heze_fork_epoch = Some(Epoch::new(heze_epoch));
+            let epoch = Epoch::new(epoch);
+            prop_assert_eq!(
+                spec.slot_duration_schedule().slot_duration_ms_for_epoch(epoch),
+                Some(spec.get_slot_duration_ms(epoch))
             );
         }
     }

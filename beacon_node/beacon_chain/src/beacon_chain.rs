@@ -90,7 +90,7 @@ use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
 use crate::validator_monitor::{
-    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, get_slot_delay_ms,
+    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, is_before_slot,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -5127,12 +5127,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let block_delay_total =
-            get_slot_delay_ms(block_time_imported, block.slot(), &self.slot_clock);
-
         // Do not write to the cache for blocks older than 2 epochs, this helps reduce writes to
         // the cache during sync.
-        if block_delay_total < self.slot_clock.current_slot_duration() * 64 {
+        if is_before_slot(
+            block_time_imported,
+            block.slot().saturating_add(64u64),
+            &self.slot_clock,
+        ) {
             // Store the timestamp of the block being imported into the cache.
             self.block_times_cache.write().set_time_imported(
                 block_root,
@@ -5171,7 +5172,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Do not trigger light_client server update producer for old blocks, to extra work
         // during sync.
         if self.config.enable_light_client_server
-            && block_delay_total < self.slot_clock.current_slot_duration() * 32
+            && is_before_slot(
+                block_time_imported,
+                block.slot().saturating_add(32u64),
+                &self.slot_clock,
+            )
             && let Some(mut light_client_server_tx) = self.light_client_server_tx.clone()
             && let Ok(sync_aggregate) = block.body().sync_aggregate()
             && let Err(e) = light_client_server_tx.try_send((

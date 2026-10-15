@@ -20,9 +20,12 @@ pub(super) fn testing_spec_with_config<E: EthSpec>(
 ) -> Result<ChainSpec, Error> {
     let spec = testing_spec::<E>(fork_name);
     match config {
-        Some(config) => config.apply_to_chain_spec::<E>(&spec).ok_or_else(|| {
-            Error::FailedToParseTest("config does not match the preset or slot duration".into())
-        }),
+        Some(config) => config
+            .apply_to_chain_spec::<E>(&spec)
+            .map(crate::without_eip8198)
+            .ok_or_else(|| {
+                Error::FailedToParseTest("config does not match the preset or slot duration".into())
+            }),
         None => Ok(spec),
     }
 }
