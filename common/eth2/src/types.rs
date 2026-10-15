@@ -545,6 +545,11 @@ pub struct SyncCommitteesQuery {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct PtcQuery {
+    pub slot: Option<Slot>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct RandaoQuery {
     pub epoch: Option<Epoch>,
 }
@@ -553,6 +558,12 @@ pub struct RandaoQuery {
 pub struct AttestationPoolQuery {
     pub slot: Option<Slot>,
     pub committee_index: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ProposerPreferencesQuery {
+    pub slot: Option<Slot>,
+    pub dependent_root: Option<Hash256>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -596,6 +607,14 @@ pub struct SyncCommitteeByValidatorIndices {
     #[serde(with = "serde_utils::quoted_u64_vec")]
     pub validators: Vec<u64>,
     pub validator_aggregates: Vec<SyncSubcommittee>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[serde(bound = "E: EthSpec")]
+pub struct PtcData<E: EthSpec> {
+    pub slot: Slot,
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
+    pub validators: ssz_types::FixedVector<u64, E::PTCSize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
