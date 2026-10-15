@@ -603,25 +603,25 @@ impl<E: EthSpec> PeerManager<E> {
                 RpcErrorResponse::ServerError => PeerAction::MidToleranceError,
                 RpcErrorResponse::InvalidRequest => PeerAction::LowToleranceError,
                 RpcErrorResponse::RateLimited => match protocol {
-                    Protocol::Ping => PeerAction::MidToleranceError,
-                    Protocol::BlocksByRange => PeerAction::MidToleranceError,
-                    Protocol::BlocksByRoot => PeerAction::MidToleranceError,
-                    Protocol::BlocksByHead => PeerAction::MidToleranceError,
-                    Protocol::BlobsByRange => PeerAction::MidToleranceError,
-                    Protocol::PayloadEnvelopesByRange => PeerAction::MidToleranceError,
-                    Protocol::PayloadEnvelopesByRoot => PeerAction::MidToleranceError,
+                    Protocol::Ping
+                    | Protocol::BlocksByRange
+                    | Protocol::BlocksByRoot
+                    | Protocol::BlocksByHead
+                    | Protocol::BlobsByRange
+                    | Protocol::BlobsByRoot
+                    | Protocol::PayloadEnvelopesByRange
+                    | Protocol::PayloadEnvelopesByRoot
+                    | Protocol::DataColumnsByRoot
+                    | Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
                     // Lighthouse does not currently make light client requests; therefore, this
                     // is an unexpected scenario. We do not ban the peer for rate limiting.
-                    Protocol::LightClientBootstrap => return,
-                    Protocol::LightClientOptimisticUpdate => return,
-                    Protocol::LightClientFinalityUpdate => return,
-                    Protocol::LightClientUpdatesByRange => return,
-                    Protocol::BlobsByRoot => PeerAction::MidToleranceError,
-                    Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
-                    Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
-                    Protocol::Goodbye => PeerAction::LowToleranceError,
-                    Protocol::MetaData => PeerAction::LowToleranceError,
-                    Protocol::Status => PeerAction::LowToleranceError,
+                    Protocol::LightClientBootstrap
+                    | Protocol::LightClientOptimisticUpdate
+                    | Protocol::LightClientFinalityUpdate
+                    | Protocol::LightClientUpdatesByRange => return,
+                    Protocol::Goodbye | Protocol::MetaData | Protocol::Status => {
+                        PeerAction::LowToleranceError
+                    }
                 },
                 RpcErrorResponse::BlobsNotFoundForBlock => PeerAction::LowToleranceError,
             },
@@ -632,23 +632,21 @@ impl<E: EthSpec> PeerManager<E> {
                 // communicating.
 
                 match protocol {
-                    Protocol::Ping => PeerAction::Fatal,
-                    Protocol::BlocksByRange => return,
-                    Protocol::BlocksByRoot => return,
-                    Protocol::BlocksByHead => return,
-                    Protocol::PayloadEnvelopesByRange => return,
-                    Protocol::PayloadEnvelopesByRoot => return,
-                    Protocol::BlobsByRange => return,
-                    Protocol::BlobsByRoot => return,
-                    Protocol::DataColumnsByRoot => return,
-                    Protocol::DataColumnsByRange => return,
-                    Protocol::Goodbye => return,
-                    Protocol::LightClientBootstrap => return,
-                    Protocol::LightClientOptimisticUpdate => return,
-                    Protocol::LightClientFinalityUpdate => return,
-                    Protocol::LightClientUpdatesByRange => return,
-                    Protocol::MetaData => PeerAction::Fatal,
-                    Protocol::Status => PeerAction::Fatal,
+                    Protocol::Ping | Protocol::MetaData | Protocol::Status => PeerAction::Fatal,
+                    Protocol::BlocksByRange
+                    | Protocol::BlocksByRoot
+                    | Protocol::BlocksByHead
+                    | Protocol::PayloadEnvelopesByRange
+                    | Protocol::PayloadEnvelopesByRoot
+                    | Protocol::BlobsByRange
+                    | Protocol::BlobsByRoot
+                    | Protocol::DataColumnsByRoot
+                    | Protocol::DataColumnsByRange
+                    | Protocol::Goodbye
+                    | Protocol::LightClientBootstrap
+                    | Protocol::LightClientOptimisticUpdate
+                    | Protocol::LightClientFinalityUpdate
+                    | Protocol::LightClientUpdatesByRange => return,
                 }
             }
             RPCError::StreamTimeout => match direction {
@@ -659,22 +657,22 @@ impl<E: EthSpec> PeerManager<E> {
                 }
                 ConnectionDirection::Outgoing => match protocol {
                     Protocol::Ping => PeerAction::LowToleranceError,
-                    Protocol::BlocksByRange => PeerAction::MidToleranceError,
-                    Protocol::BlocksByRoot => PeerAction::MidToleranceError,
-                    Protocol::BlocksByHead => PeerAction::MidToleranceError,
-                    Protocol::PayloadEnvelopesByRange => PeerAction::MidToleranceError,
-                    Protocol::PayloadEnvelopesByRoot => PeerAction::MidToleranceError,
-                    Protocol::BlobsByRange => PeerAction::MidToleranceError,
-                    Protocol::BlobsByRoot => PeerAction::MidToleranceError,
-                    Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
-                    Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
-                    Protocol::LightClientBootstrap => return,
-                    Protocol::LightClientOptimisticUpdate => return,
-                    Protocol::LightClientFinalityUpdate => return,
-                    Protocol::LightClientUpdatesByRange => return,
-                    Protocol::Goodbye => return,
-                    Protocol::MetaData => return,
-                    Protocol::Status => return,
+                    Protocol::BlocksByRange
+                    | Protocol::BlocksByRoot
+                    | Protocol::BlocksByHead
+                    | Protocol::PayloadEnvelopesByRange
+                    | Protocol::PayloadEnvelopesByRoot
+                    | Protocol::BlobsByRange
+                    | Protocol::BlobsByRoot
+                    | Protocol::DataColumnsByRoot
+                    | Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
+                    Protocol::LightClientBootstrap
+                    | Protocol::LightClientOptimisticUpdate
+                    | Protocol::LightClientFinalityUpdate
+                    | Protocol::LightClientUpdatesByRange
+                    | Protocol::Goodbye
+                    | Protocol::MetaData
+                    | Protocol::Status => return,
                 },
             },
             RPCError::NegotiationTimeout => PeerAction::LowToleranceError,
@@ -1726,7 +1724,7 @@ mod tests {
     use super::*;
     use crate::NetworkConfig;
     use crate::rpc::MetaDataV3;
-    use types::{ChainSpec, ForkName, MainnetEthSpec as E};
+    use types::{ChainSpec, ForkName, Spec as E};
 
     async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
         build_peer_manager_with_trusted_peers(vec![], target_peer_count).await
@@ -3030,7 +3028,7 @@ mod tests {
         use tokio::runtime::Runtime;
         use typenum::Unsigned;
         use types::DataColumnSubnetId;
-        use types::{EthSpec, MainnetEthSpec as E};
+        use types::{EthSpec, Spec as E};
 
         #[derive(Clone, Debug)]
         struct PeerCondition {

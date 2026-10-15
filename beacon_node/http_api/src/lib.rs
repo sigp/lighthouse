@@ -678,6 +678,17 @@ pub async fn serve<T: BeaconChainTypes>(
     let get_beacon_state_proposer_lookahead =
         states::get_beacon_state_proposer_lookahead(beacon_states_path.clone());
 
+    // GET beacon/states/{state_id}/builder_pending_withdrawals
+    let get_beacon_state_builder_pending_withdrawals =
+        states::get_beacon_state_builder_pending_withdrawals(beacon_states_path.clone());
+
+    // GET beacon/states/{state_id}/builder_pending_payments
+    let get_beacon_state_builder_pending_payments =
+        states::get_beacon_state_builder_pending_payments(beacon_states_path.clone());
+
+    // `GET /beacon/states/{state_id}/ptc`
+    let get_beacon_state_ptc = states::get_beacon_state_ptc(beacon_states_path.clone());
+
     // GET beacon/headers
     //
     // Note: this endpoint only returns information about blocks in the canonical chain. Given that
@@ -1457,6 +1468,54 @@ pub async fn serve<T: BeaconChainTypes>(
                             Ok(warp::reply::json(&res).into_response())
                         }
                     }
+                })
+            },
+        );
+
+    // GET beacon/proposer_preferences?slot,dependent_root
+    let get_beacon_proposer_preferences = eth_v1
+        .clone()
+        .and(warp::path("beacon"))
+        .and(warp::path("proposer_preferences"))
+        .and(warp::path::end())
+        .and(warp::query::<api_types::ProposerPreferencesQuery>())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |query: api_types::ProposerPreferencesQuery,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let preferences = chain
+                        .gossip_verified_proposer_preferences_cache
+                        .get_filtered_preferences(query.slot, query.dependent_root);
+
+                    // The Beacon API currently defines this response as Gloas, including
+                    // when preferences for an upcoming Gloas slot are read before the fork.
+                    let fork_name = ForkName::Gloas;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(preferences.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => {
+                            let res = beacon_response(
+                                ResponseIncludesVersion::Yes(fork_name),
+                                &preferences,
+                            );
+                            Ok(warp::reply::json(&res).into_response())
+                        }
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },
         );
@@ -3440,6 +3499,9 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_state_pending_partial_withdrawals)
                 .uor(get_beacon_state_pending_consolidations)
                 .uor(get_beacon_state_proposer_lookahead)
+                .uor(get_beacon_state_builder_pending_withdrawals)
+                .uor(get_beacon_state_builder_pending_payments)
+                .uor(get_beacon_state_ptc)
                 .uor(get_beacon_headers)
                 .uor(get_beacon_headers_block_id)
                 .uor(get_beacon_block)
@@ -3448,6 +3510,7 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_block_root)
                 .uor(get_blob_sidecars)
                 .uor(get_blobs)
+                .uor(get_beacon_proposer_preferences)
                 .uor(get_beacon_execution_payload_envelopes)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)
