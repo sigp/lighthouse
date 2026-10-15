@@ -362,7 +362,7 @@ mod test {
     use super::*;
     use crate::{MemoryStore, StoreConfig as Config};
     use beacon_chain::test_utils::BeaconChainHarness;
-    use beacon_chain::types::MainnetEthSpec;
+    use beacon_chain::types::Spec;
     use fixed_bytes::FixedBytesExtended;
     use std::sync::Arc;
 
@@ -399,12 +399,12 @@ mod test {
 
     #[test]
     fn block_root_iter() {
-        let store = get_store::<MainnetEthSpec>();
+        let store = get_store::<Spec>();
 
-        let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
+        let slots_per_historical_root = Spec::slots_per_historical_root();
 
-        let mut state_a: BeaconState<MainnetEthSpec> = get_state();
-        let mut state_b: BeaconState<MainnetEthSpec> = get_state();
+        let mut state_a: BeaconState<Spec> = get_state();
+        let mut state_b: BeaconState<Spec> = get_state();
 
         *state_a.slot_mut() = Slot::from(slots_per_historical_root);
         *state_b.slot_mut() = Slot::from(slots_per_historical_root * 2);
@@ -435,7 +435,7 @@ mod test {
         let mut collected: Vec<(Hash256, Slot)> = iter.collect::<Result<Vec<_>, _>>().unwrap();
         collected.reverse();
 
-        let expected_len = 2 * MainnetEthSpec::slots_per_historical_root();
+        let expected_len = 2 * Spec::slots_per_historical_root();
 
         assert_eq!(collected.len(), expected_len);
 
@@ -446,12 +446,12 @@ mod test {
 
     #[test]
     fn state_root_iter() {
-        let store = get_store::<MainnetEthSpec>();
+        let store = get_store::<Spec>();
 
-        let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
+        let slots_per_historical_root = Spec::slots_per_historical_root();
 
-        let mut state_a: BeaconState<MainnetEthSpec> = get_state();
-        let mut state_b: BeaconState<MainnetEthSpec> = get_state();
+        let mut state_a: BeaconState<Spec> = get_state();
+        let mut state_b: BeaconState<Spec> = get_state();
 
         *state_a.slot_mut() = Slot::from(slots_per_historical_root);
         *state_b.slot_mut() = Slot::from(slots_per_historical_root * 2);
@@ -489,7 +489,7 @@ mod test {
         let mut collected: Vec<(Hash256, Slot)> = iter.collect::<Result<Vec<_>, _>>().unwrap();
         collected.reverse();
 
-        let expected_len = MainnetEthSpec::slots_per_historical_root() * 2;
+        let expected_len = Spec::slots_per_historical_root() * 2;
 
         assert_eq!(collected.len(), expected_len, "collection length incorrect");
 
