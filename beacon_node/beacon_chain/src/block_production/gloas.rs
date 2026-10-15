@@ -1526,10 +1526,8 @@ where
         let transactions = chain
             .spawn_blocking_handle(
                 move || {
-                    inner_chain.proposer_inclusion_list_transactions(
-                        parent_beacon_block_root,
-                        builder_params.slot - 1,
-                    )
+                    inner_chain
+                        .proposer_inclusion_list_transactions(parent_beacon_block_root, slot - 1)
                 },
                 "prepare_execution_payload_inclusion_list_transactions",
             )
