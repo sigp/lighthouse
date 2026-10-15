@@ -1,4 +1,5 @@
 use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
@@ -3876,6 +3877,73 @@ impl ApiTester {
             .post_validator_proposer_preferences(&[signed], fork_name)
             .await
             .unwrap();
+
+        self
+    }
+
+    pub async fn test_get_beacon_proposer_preferences(mut self) -> Self {
+        let signed = self.make_valid_signed_proposer_preferences(6);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(signed.message.proposal_slot);
+
+        self.client
+            .post_validator_proposer_preferences(std::slice::from_ref(&signed), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid proposer preferences should be sent to network"
+        );
+
+        let response = self
+            .client
+            .get_beacon_proposer_preferences(
+                Some(signed.message.proposal_slot),
+                Some(signed.message.dependent_root),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.data(), &vec![signed]);
+
+        assert_eq!(response.version(), Some(ForkName::Gloas));
+
+        self
+    }
+
+    pub async fn test_get_beacon_proposer_preferences_ssz(mut self) -> Self {
+        let signed = self.make_valid_signed_proposer_preferences(7);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(signed.message.proposal_slot);
+
+        self.client
+            .post_validator_proposer_preferences(std::slice::from_ref(&signed), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid proposer preferences should be sent to network"
+        );
+
+        let ssz_bytes = self
+            .client
+            .get_beacon_proposer_preferences_ssz(
+                Some(signed.message.proposal_slot),
+                Some(signed.message.dependent_root),
+            )
+            .await
+            .unwrap()
+            .expect("SSZ response should be present");
+
+        let decoded = Vec::<SignedProposerPreferences>::from_ssz_bytes(&ssz_bytes)
+            .expect("should decode SSZ proposer preferences");
+        assert_eq!(decoded, vec![signed]);
 
         self
     }
@@ -11774,6 +11842,54 @@ async fn post_validator_proposer_preferences() {
         .await
         .test_post_validator_proposer_preferences_duplicate()
         .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_proposer_preferences() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_proposer_preferences()
+        .await
+        .test_get_beacon_proposer_preferences_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_proposer_preferences_before_gloas() {
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(Epoch::new(6));
+    let config = ApiTesterConfig {
+        spec,
+        ..<_>::default()
+    };
+    let tester = ApiTester::new_from_config(config).await;
+
+    assert_eq!(
+        tester
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(tester.chain.slot().unwrap()),
+        ForkName::Fulu
+    );
+    let mut signed = SignedProposerPreferences::empty();
+    signed.message.proposal_slot = Epoch::new(6).start_slot(E::slots_per_epoch());
+    tester
+        .chain
+        .gossip_verified_proposer_preferences_cache
+        .insert_preferences(GossipVerifiedProposerPreferences {
+            signed_preferences: Arc::new(signed.clone()),
+        });
+
+    let response = tester
+        .client
+        .get_beacon_proposer_preferences(Some(signed.message.proposal_slot), None)
+        .await
+        .unwrap();
+    assert_eq!(response.data(), &vec![signed]);
+    assert_eq!(response.version(), Some(ForkName::Gloas));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
