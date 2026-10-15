@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use eth2::types::{EventKind, SseExecutionPayload, SseExecutionPayloadAvailable};
+use execution_layer::PayloadStatus;
 use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
@@ -18,7 +19,7 @@ use super::{
 };
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
-    NotifyExecutionLayer,
+    ExecutionPayloadError, NotifyExecutionLayer,
     block_verification_types::AvailableBlockData,
     metrics,
     payload_envelope_verification::{
@@ -64,6 +65,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .signed_execution_payload_bid()?
                 .clone_as_signed_execution_payload_bid(),
         );
+        let builder_index = bid.message().builder_index();
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
@@ -140,6 +142,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(status)
             }
             Err(err) => {
+                // A definitive EL rejection is attributable to the builder: the envelope's
+                // signature was verified at gossip and its payload is hash-bound to the committed
+                // bid, so no peer could have forged it and no other payload satisfies the bid.
+                // Transient failures (EL unreachable, syncing) never take this error path.
+                if let BlockError::EnvelopeError(envelope_error) = &err
+                    && let EnvelopeError::ExecutionPayloadError(
+                        ExecutionPayloadError::RejectedByExecutionEngine {
+                            status:
+                                PayloadStatus::Invalid { .. } | PayloadStatus::InvalidBlockHash { .. },
+                        },
+                    ) = envelope_error.as_ref()
+                {
+                    self.record_builder_ban_for_invalid_payload(
+                        builder_index,
+                        block_root,
+                        block_slot,
+                    );
+                }
                 warn!(
                     reason = err.to_string(),
                     "Execution payload envelope rejected"
@@ -326,7 +346,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.import_envelope_update_metrics_and_events(
             signed_envelope,
             block_root,
-            payload_verification_status,
             envelope_time_imported,
         );
 
@@ -337,7 +356,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
         block_root: Hash256,
-        payload_verification_status: PayloadVerificationStatus,
         envelope_time_imported: Duration,
     ) {
         let envelope_slot = signed_envelope.slot();
@@ -362,12 +380,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_execution_payload_subscribers()
         {
+            let execution_optimistic = match self
+                .canonical_head
+                .fork_choice_read_lock()
+                .get_block_execution_status_assuming_full(&block_root)
+            {
+                Ok(Some(verdict)) => verdict.is_optimistic_or_invalid(),
+                // Unreachable: never claim a verification we could not read.
+                Ok(None) | Err(_) => true,
+            };
+
             event_handler.register(EventKind::ExecutionPayload(SseExecutionPayload {
                 slot: envelope_slot,
                 builder_index: signed_envelope.message.builder_index,
                 block_hash: signed_envelope.block_hash(),
                 block_root,
-                execution_optimistic: payload_verification_status.is_optimistic(),
+                execution_optimistic,
             }));
         }
 
@@ -427,19 +455,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Import directly — we already have all components (envelope + columns).
         let chain = self.clone();
-        let _ = self
-            .spawn_blocking_handle(
-                move || {
-                    chain.import_execution_payload_envelope(
-                        available_envelope,
-                        block_root,
-                        payload_verification_status,
-                    )
-                },
-                "range_sync_envelope_import",
-            )
-            .await
-            .map_err(|e| EnvelopeError::BeaconChainError(Box::new(e)))?;
+        // Propagate both the spawn_blocking_handle (outer `?`) and the import_execution_payload_envelope error (inner `?`).
+        // So a failed envelope import returns Err(EnvelopeError) and retried
+        self.spawn_blocking_handle(
+            move || {
+                chain.import_execution_payload_envelope(
+                    available_envelope,
+                    block_root,
+                    payload_verification_status,
+                )
+            },
+            "range_sync_envelope_import",
+        )
+        .await
+        .map_err(|e| EnvelopeError::BeaconChainError(Box::new(e)))??;
 
         Ok(())
     }
