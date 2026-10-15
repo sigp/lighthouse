@@ -368,6 +368,7 @@ mod ssz_static {
         SszStaticHandler::<LightClientBootstrapDeneb<Spec>, Spec>::deneb_only().run();
         SszStaticHandler::<LightClientBootstrapElectra<Spec>, Spec>::electra_only().run();
         SszStaticHandler::<LightClientBootstrapFulu<Spec>, Spec>::fulu_only().run();
+        SszStaticHandler::<LightClientBootstrapGloas<Spec>, Spec>::gloas_only().run();
     }
 
     // LightClientHeader has no internal indicator of which fork it is for, so we test it separately.
@@ -381,6 +382,7 @@ mod ssz_static {
         SszStaticHandler::<LightClientHeaderDeneb<Spec>, Spec>::deneb_only().run();
         SszStaticHandler::<LightClientHeaderElectra<Spec>, Spec>::electra_only().run();
         SszStaticHandler::<LightClientHeaderFulu<Spec>, Spec>::fulu_only().run();
+        SszStaticHandler::<LightClientHeaderGloas<Spec>, Spec>::gloas_only().run();
     }
 
     // LightClientOptimisticUpdate has no internal indicator of which fork it is for, so we test it separately.
@@ -392,6 +394,7 @@ mod ssz_static {
         SszStaticHandler::<LightClientOptimisticUpdateDeneb<Spec>, Spec>::deneb_only().run();
         SszStaticHandler::<LightClientOptimisticUpdateElectra<Spec>, Spec>::electra_only().run();
         SszStaticHandler::<LightClientOptimisticUpdateFulu<Spec>, Spec>::fulu_only().run();
+        SszStaticHandler::<LightClientOptimisticUpdateGloas<Spec>, Spec>::gloas_only().run();
     }
 
     // LightClientFinalityUpdate has no internal indicator of which fork it is for, so we test it separately.
@@ -403,6 +406,7 @@ mod ssz_static {
         SszStaticHandler::<LightClientFinalityUpdateDeneb<Spec>, Spec>::deneb_only().run();
         SszStaticHandler::<LightClientFinalityUpdateElectra<Spec>, Spec>::electra_only().run();
         SszStaticHandler::<LightClientFinalityUpdateFulu<Spec>, Spec>::fulu_only().run();
+        SszStaticHandler::<LightClientFinalityUpdateGloas<Spec>, Spec>::gloas_only().run();
     }
 
     // LightClientUpdate has no internal indicator of which fork it is for, so we test it separately.
@@ -414,6 +418,7 @@ mod ssz_static {
         SszStaticHandler::<LightClientUpdateDeneb<Spec>, Spec>::deneb_only().run();
         SszStaticHandler::<LightClientUpdateElectra<Spec>, Spec>::electra_only().run();
         SszStaticHandler::<LightClientUpdateFulu<Spec>, Spec>::fulu_only().run();
+        SszStaticHandler::<LightClientUpdateGloas<Spec>, Spec>::gloas_only().run();
     }
 
     #[test]
