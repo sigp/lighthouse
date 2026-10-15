@@ -287,7 +287,8 @@ impl<E: EthSpec> Network<E> {
                 score_settings.get_peer_score_params(
                     active_validators,
                     &thresholds,
-                    &enr_fork_id,
+                    &ctx.fork_context,
+                    &ctx.chain_spec,
                     current_slot,
                 )?
             };
@@ -1045,11 +1046,6 @@ impl<E: EthSpec> Network<E> {
             self.score_settings
                 .get_dynamic_topic_params(active_validators, current_slot)?;
 
-        let fork_digest = self.enr_fork_id.fork_digest;
-        let get_topic = |kind: GossipKind| -> Topic {
-            GossipTopic::new(kind, GossipEncoding::default(), fork_digest).into()
-        };
-
         debug!(active_validators, "Updating gossipsub score parameters");
         trace!(
             ?beacon_block_params,
@@ -1058,19 +1054,29 @@ impl<E: EthSpec> Network<E> {
             "Updated gossipsub score parameters"
         );
 
-        self.gossipsub_mut()
-            .set_topic_params(get_topic(GossipKind::BeaconBlock), beacon_block_params)?;
+        // Update the dynamic topic params under every known fork digest, so that the params
+        // registered for future digests at startup stay current as well.
+        for fork_digest in self.fork_context.all_fork_digests() {
+            let get_topic = |kind: GossipKind| -> Topic {
+                GossipTopic::new(kind, GossipEncoding::default(), fork_digest).into()
+            };
 
-        self.gossipsub_mut().set_topic_params(
-            get_topic(GossipKind::BeaconAggregateAndProof),
-            beacon_aggregate_proof_params,
-        )?;
-
-        for i in 0..self.score_settings.attestation_subnet_count() {
             self.gossipsub_mut().set_topic_params(
-                get_topic(GossipKind::Attestation(SubnetId::new(i))),
-                beacon_attestation_subnet_params.clone(),
+                get_topic(GossipKind::BeaconBlock),
+                beacon_block_params.clone(),
             )?;
+
+            self.gossipsub_mut().set_topic_params(
+                get_topic(GossipKind::BeaconAggregateAndProof),
+                beacon_aggregate_proof_params.clone(),
+            )?;
+
+            for i in 0..self.score_settings.attestation_subnet_count() {
+                self.gossipsub_mut().set_topic_params(
+                    get_topic(GossipKind::Attestation(SubnetId::new(i))),
+                    beacon_attestation_subnet_params.clone(),
+                )?;
+            }
         }
 
         Ok(())
