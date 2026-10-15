@@ -1784,6 +1784,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 crit!(error = %e, "Internal block gossip validation error. Envelope error during gossip validation");
                 return None;
             }
+            // This error variant cannot be reached when doing gossip block validation: it is only
+            // produced by `process_rpc_custody_columns`.
+            Err(e @ BlockError::DataColumnSlotMismatch { .. }) => {
+                crit!(error = %e, "Internal block gossip validation error. Data column slot mismatch during gossip validation");
+                return None;
+            }
             Err(e @ BlockError::InternalError(_)) => {
                 error!(error = %e, "Internal block gossip validation error");
                 return None;
