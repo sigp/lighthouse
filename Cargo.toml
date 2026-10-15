@@ -157,6 +157,7 @@ execution_layer = { path = "beacon_node/execution_layer" }
 fast_confirmation = { path = "consensus/fast_confirmation" }
 filesystem = { path = "common/filesystem" }
 fixed_bytes = { path = "consensus/fixed_bytes" }
+flate2 = "1"
 fnv = "1"
 fork_choice = { path = "consensus/fork_choice" }
 fs2 = "0.4"

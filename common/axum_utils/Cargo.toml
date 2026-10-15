@@ -11,7 +11,7 @@ http = "1"
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-tower-http = { version = "0.6", features = ["cors", "set-header"] }
+tower-http = { version = "0.6", features = ["compression-gzip", "cors", "set-header"] }
 
 [dev-dependencies]
 tower = { workspace = true }
