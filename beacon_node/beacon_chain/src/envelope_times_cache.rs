@@ -177,6 +177,13 @@ impl EnvelopeTimesCache {
         )
     }
 
+    /// When the envelope for `block_root` was first observed, if it has been.
+    pub fn time_observed(&self, block_root: BlockRoot) -> Option<Duration> {
+        self.cache
+            .get(&block_root)
+            .and_then(|entry| entry.timestamps.observed)
+    }
+
     pub fn get_envelope_delays(
         &self,
         block_root: BlockRoot,
