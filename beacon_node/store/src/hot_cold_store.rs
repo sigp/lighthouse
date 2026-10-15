@@ -3254,7 +3254,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
         let Some(min_data_availability_boundary) = self
             .spec
-            .min_epoch_data_availability_boundary(min_current_epoch)
+            .min_epoch_data_availability_boundary::<E>(min_current_epoch)
         else {
             debug!("Deneb fork is disabled");
             return Ok(());

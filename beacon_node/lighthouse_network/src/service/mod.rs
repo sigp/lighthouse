@@ -253,8 +253,9 @@ impl<E: EthSpec> Network<E> {
             config.network_load,
             ctx.fork_context.clone(),
             gossipsub_config_params,
-            slot_duration,
-            E::slots_per_epoch(),
+            // Fixed at startup. A node that starts before EIP-8198 keeps the longer pre-fork value.
+            ctx.chain_spec
+                .gossip_seen_ttl::<E>(ctx.fork_context.current_fork_epoch()),
             config.idontwant_message_size_threshold,
         );
 
