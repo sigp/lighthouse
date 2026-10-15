@@ -712,7 +712,7 @@ async fn latest_valid_hash_will_not_validate() {
             if fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
                 assert!(is_not_yet_revealed(execution_status))
             } else {
-                assert!(is_irrelevant(execution_status))
+                assert!(is_pre_merge(execution_status))
             }
         } else if slot == 1 {
             assert!(is_valid_and_post_bellatrix(execution_status))
@@ -856,7 +856,7 @@ async fn invalidates_all_descendants() {
         let execution_status = rig.execution_status(root);
         if slot == 0 {
             // Genesis block is pre-bellatrix.
-            assert!(is_irrelevant(execution_status));
+            assert!(is_pre_merge(execution_status));
         } else if slot == 1 {
             // First slot was imported as valid.
             assert!(is_valid_and_post_bellatrix(execution_status));
@@ -955,7 +955,7 @@ async fn switches_heads() {
         let execution_status = rig.execution_status(root);
         if slot == 0 {
             // Genesis block is pre-bellatrix.
-            assert!(is_irrelevant(execution_status));
+            assert!(is_pre_merge(execution_status));
         } else if slot == 1 {
             // First slot was imported as valid.
             assert!(is_valid_and_post_bellatrix(execution_status));
@@ -1328,7 +1328,7 @@ async fn attesting_to_optimistic_head() {
     get_aggregated_by_slot_and_root().unwrap();
 }
 
-/// `import_block` sees `PayloadVerificationStatus::Irrelevant` for a Gloas block, so only the
+/// `import_block` sees `PayloadVerificationStatus::PreMerge` for a Gloas block, so only the
 /// inherited verdict can keep an optimistic head out of the early attester cache, which answers an
 /// attestation request without reaching the optimistic filter.
 #[tokio::test]
@@ -1962,8 +1962,8 @@ fn is_optimistic(status: ExecutionStatus) -> bool {
     matches!(status, ExecutionStatus::Optimistic(_))
 }
 
-fn is_irrelevant(status: ExecutionStatus) -> bool {
-    matches!(status, ExecutionStatus::Irrelevant(_))
+fn is_pre_merge(status: ExecutionStatus) -> bool {
+    matches!(status, ExecutionStatus::PreMerge(_))
 }
 
 fn is_not_yet_revealed(status: ExecutionStatus) -> bool {

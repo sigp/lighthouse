@@ -57,7 +57,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
     ) -> Result<Self, BlockError> {
         let payload_verification_status = if block.fork_name_unchecked().gloas_enabled() {
             // Gloas blocks don't contain an execution payload.
-            Some(PayloadVerificationStatus::Irrelevant)
+            Some(PayloadVerificationStatus::PreMerge)
         } else if is_execution_enabled(state, block.message().body()) {
             // Perform the initial stages of payload verification.
             //
@@ -94,7 +94,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                 _ => None,
             }
         } else {
-            Some(PayloadVerificationStatus::Irrelevant)
+            Some(PayloadVerificationStatus::PreMerge)
         };
 
         Ok(Self {
@@ -238,7 +238,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             ExecutionStatus::Valid(_) | ExecutionStatus::Optimistic(_) => true,
             // Pre-merge blocks have irrelevant execution status.
             // A pre-Gloas block cannot have a Gloas parent, so `NotYetRevealed` is unreachable.
-            ExecutionStatus::Irrelevant(_) | ExecutionStatus::NotYetRevealed(_) => false,
+            ExecutionStatus::PreMerge(_) | ExecutionStatus::NotYetRevealed(_) => false,
             // If the parent has an invalid payload then it's impossible to build a valid block upon
             // it. Reject the block.
             ExecutionStatus::Invalid(_) => {

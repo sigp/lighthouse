@@ -1330,8 +1330,8 @@ fn parent_node_of<'a>(
 }
 
 /// Return `true` if the most recently applied payload on `root`'s branch is `Optimistic` or
-/// `Invalid`. Pre-bellatrix `Irrelevant` payloads are treated as not optimistic (the spec MUST
-/// applies post-merge).
+/// `Invalid`. `PreMerge` payloads are treated as not optimistic (the spec MUST applies
+/// post-merge).
 fn is_optimistic_or_invalid(root: Hash256, proto_array: &ProtoArray) -> Result<bool, Error> {
     // Spec: `get_node_for_root` resolves to `PAYLOAD_STATUS_PENDING`, which inherits.
     Ok(proto_array

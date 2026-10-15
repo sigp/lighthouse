@@ -123,9 +123,9 @@ pub enum ExecutionStatus {
     ///
     /// This `bool` only exists to satisfy our SSZ implementation which requires all variants
     /// to have a value. It can be set to anything.
-    Irrelevant(bool),
+    PreMerge(bool),
     /// The Gloas envelope carrying this block's committed payload has not arrived yet, so no EL
-    /// has been asked about it. Unlike `Irrelevant`, the payload exists and is unverified.
+    /// has been asked about it. Unlike `PreMerge`, the payload exists and is unverified.
     ///
     /// The `ExecutionBlockHash` is the bid's committed block hash.
     NotYetRevealed(ExecutionBlockHash),
@@ -222,11 +222,11 @@ pub enum PayloadBlockHash {
 
 impl ExecutionStatus {
     pub fn is_execution_enabled(&self) -> bool {
-        !matches!(self, ExecutionStatus::Irrelevant(_))
+        !matches!(self, ExecutionStatus::PreMerge(_))
     }
 
-    pub fn irrelevant() -> Self {
-        ExecutionStatus::Irrelevant(false)
+    pub fn pre_merge() -> Self {
+        ExecutionStatus::PreMerge(false)
     }
 
     /// Returns `true` if the block:
@@ -244,7 +244,7 @@ impl fmt::Display for ExecutionStatus {
             ExecutionStatus::Valid(_) => write!(f, "valid"),
             ExecutionStatus::Invalid(_) => write!(f, "invalid"),
             ExecutionStatus::Optimistic(_) => write!(f, "optimistic"),
-            ExecutionStatus::Irrelevant(_) => write!(f, "irrelevant"),
+            ExecutionStatus::PreMerge(_) => write!(f, "pre_merge"),
             ExecutionStatus::NotYetRevealed(_) => write!(f, "not_yet_revealed"),
         }
     }
@@ -340,7 +340,7 @@ impl Block {
                 ExecutionStatus::Valid(hash)
                 | ExecutionStatus::Invalid(hash)
                 | ExecutionStatus::Optimistic(hash) => PayloadBlockHash::Hash(hash),
-                ExecutionStatus::Irrelevant(_) => PayloadBlockHash::PreMerge,
+                ExecutionStatus::PreMerge(_) => PayloadBlockHash::PreMerge,
                 ExecutionStatus::NotYetRevealed(hash) => PayloadBlockHash::Hash(hash),
             }
         }
@@ -991,7 +991,7 @@ impl ProtoArrayForkChoice {
                 )
             })?;
 
-        // Clear every `VALID`/`INVALID` verdict. `Irrelevant` and `NotYetRevealed` have no verdict
+        // Clear every `VALID`/`INVALID` verdict. `PreMerge` and `NotYetRevealed` have no verdict
         // to reset. This must happen before the replay below: `apply_score_changes` discards
         // deltas aimed at invalid nodes.
         for node in self.proto_array.nodes.iter_mut() {
@@ -1001,7 +1001,7 @@ impl ProtoArrayForkChoice {
                 | ExecutionStatus::Optimistic(hash) => {
                     *node.execution_status_mut() = ExecutionStatus::Optimistic(hash);
                 }
-                ExecutionStatus::Irrelevant(_) | ExecutionStatus::NotYetRevealed(_) => (),
+                ExecutionStatus::PreMerge(_) | ExecutionStatus::NotYetRevealed(_) => (),
             }
         }
 
@@ -1552,7 +1552,7 @@ mod test_compute_deltas {
         let unknown = Hash256::from_low_u64_be(4);
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let execution_status = ExecutionStatus::irrelevant();
+        let execution_status = ExecutionStatus::pre_merge();
 
         let genesis_checkpoint = Checkpoint {
             epoch: genesis_epoch,
@@ -1713,7 +1713,7 @@ mod test_compute_deltas {
         let junk_state_root = Hash256::zero();
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let execution_status = ExecutionStatus::irrelevant();
+        let execution_status = ExecutionStatus::pre_merge();
 
         let genesis_checkpoint = Checkpoint {
             epoch: Epoch::new(0),
@@ -2502,7 +2502,7 @@ mod test_find_head {
             checkpoint,
             shuffling_id.clone(),
             shuffling_id,
-            ExecutionStatus::irrelevant(),
+            ExecutionStatus::pre_merge(),
             None,
             None,
             0,
