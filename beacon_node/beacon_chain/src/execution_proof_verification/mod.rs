@@ -1,8 +1,12 @@
 //! Gossip verification for the EIP-8025 `execution_proof` topic.
 
+use crate::metrics;
+use crate::validator_monitor::get_slot_delay_ms;
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockError};
 use proof_engine::ProofEngineError;
+use slot_clock::timestamp_now;
 use std::sync::Arc;
+use strum::{AsRefStr, IntoStaticStr};
 use tracing::debug;
 use types::{Hash256, Slot};
 
@@ -22,13 +26,13 @@ use observed_execution_proofs::Error as ObservationError;
 pub const REQUIRED_EXECUTION_PROOFS: usize = 2;
 
 /// How a proof reached us, which decides whether deduplication rejects it.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, AsRefStr)]
 pub enum ProofSource {
     Gossip,
     Http,
 }
 
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum Error {
     /// The proof has already been seen (IGNORE).
     ProofAlreadySeen,
@@ -108,6 +112,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn promote_payload_if_proven(
         self: &Arc<Self>,
         block_root: Hash256,
+        block_slot: Slot,
     ) -> Result<(), BlockError> {
         if !self.execution_proofs_satisfied(&block_root) {
             return Ok(());
@@ -125,6 +130,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
             "validate_proven_payload",
         )
-        .await?
+        .await??;
+        // TODO(9658): overcounts, every proof past the threshold promotes a valid payload again.
+        // https://github.com/sigp/lighthouse/issues/9658
+        metrics::inc_counter(&metrics::EXECUTION_PROOF_PROMOTIONS);
+        metrics::observe(
+            &metrics::EXECUTION_PROOF_PROMOTION_LAG,
+            get_slot_delay_ms(timestamp_now(), block_slot, &self.slot_clock).as_secs_f64(),
+        );
+        Ok(())
     }
 }
