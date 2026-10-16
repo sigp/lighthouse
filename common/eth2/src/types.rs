@@ -566,6 +566,11 @@ pub struct ProposerPreferencesQuery {
     pub dependent_root: Option<Hash256>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct PayloadAttestationPoolQuery {
+    pub slot: Option<Slot>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ValidatorsQuery {
