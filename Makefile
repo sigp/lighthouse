@@ -56,6 +56,24 @@ install-lcli:
 		--profile "$(PROFILE)" \
 		$(CARGO_INSTALL_EXTRA_FLAGS)
 
+# Build Lighthouse with dial9 profiling support.
+# Requires RUSTFLAGS for tokio_unstable and frame pointers (for CPU profiling).
+# On Linux, CPU profiling also requires: sudo sysctl kernel.perf_event_paranoid=1
+build-dial9:
+	RUSTFLAGS="--cfg tokio_unstable -C force-frame-pointers=yes" \
+		cargo build --bin lighthouse --release --features "dial9,$(FEATURES)"
+
+# Build Lighthouse with dial9 profiling support and portable BLS.
+build-dial9-portable:
+	RUSTFLAGS="--cfg tokio_unstable -C force-frame-pointers=yes" \
+		cargo build --bin lighthouse --release --features "dial9,portable,$(FEATURES)"
+
+# Install Lighthouse with dial9 profiling support.
+install-dial9:
+	RUSTFLAGS="--cfg tokio_unstable -C force-frame-pointers=yes" \
+		cargo install --path lighthouse --force --features "dial9,$(FEATURES)" \
+		--profile "$(PROFILE)" $(CARGO_INSTALL_EXTRA_FLAGS)
+
 # The following commands use `cross` to build a cross-compile.
 #
 # These commands require that:

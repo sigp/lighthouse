@@ -18,7 +18,9 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
-use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
+#[cfg(not(feature = "dial9"))]
+use tokio::runtime::Builder as RuntimeBuilder;
+use tokio::runtime::Runtime;
 use tracing::{error, info, warn};
 use tracing_subscriber::filter::LevelFilter;
 use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
@@ -118,6 +120,8 @@ impl<E: EthSpec> RuntimeContext<E> {
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
     runtime: Option<Arc<Runtime>>,
+    #[cfg(feature = "dial9")]
+    dial9_recorder: Option<dial9::Recorder>,
     sse_logging_components: Option<SSELoggingComponents>,
     eth_spec_instance: E,
     eth2_config: Eth2Config,
@@ -129,6 +133,8 @@ impl EnvironmentBuilder<MinimalEthSpec> {
     pub fn minimal() -> Self {
         Self {
             runtime: None,
+            #[cfg(feature = "dial9")]
+            dial9_recorder: None,
             sse_logging_components: None,
             eth_spec_instance: MinimalEthSpec,
             eth2_config: Eth2Config::minimal(),
@@ -142,6 +148,8 @@ impl EnvironmentBuilder<MainnetEthSpec> {
     pub fn mainnet() -> Self {
         Self {
             runtime: None,
+            #[cfg(feature = "dial9")]
+            dial9_recorder: None,
             sse_logging_components: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
@@ -155,6 +163,8 @@ impl EnvironmentBuilder<GnosisEthSpec> {
     pub fn gnosis() -> Self {
         Self {
             runtime: None,
+            #[cfg(feature = "dial9")]
+            dial9_recorder: None,
             sse_logging_components: None,
             eth_spec_instance: GnosisEthSpec,
             eth2_config: Eth2Config::gnosis(),
@@ -167,13 +177,35 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
     /// Specifies that a multi-threaded tokio runtime should be used. Ideal for production uses.
     ///
     /// The `Runtime` used is just the standard tokio runtime.
+    ///
+    /// When the `dial9` feature is enabled, this also attaches a dial9 recorder to the runtime
+    /// for async profiling and telemetry collection. The recorder is configured via `DIAL9_*`
+    /// environment variables and is disabled by default (set `DIAL9_ENABLED=true` to enable).
     pub fn multi_threaded_tokio_runtime(mut self) -> Result<Self, String> {
-        self.runtime = Some(Arc::new(
-            RuntimeBuilder::new_multi_thread()
-                .enable_all()
-                .build()
-                .map_err(|e| format!("Failed to start runtime: {:?}", e))?,
-        ));
+        #[cfg(feature = "dial9")]
+        {
+            // Create dial9 recorder and runtime from environment variables.
+            // Returns a disabled recorder if DIAL9_ENABLED is not "true".
+            // The closure configures the Tokio runtime builder.
+            let (recorder, runtime) = dial9::recorder_from_env_with(|builder| {
+                builder.enable_all();
+            })
+            .map_err(|e| format!("Failed to create dial9 runtime: {:?}", e))?;
+
+            self.runtime = Some(Arc::new(runtime));
+            self.dial9_recorder = Some(recorder);
+        }
+
+        #[cfg(not(feature = "dial9"))]
+        {
+            self.runtime = Some(Arc::new(
+                RuntimeBuilder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|e| format!("Failed to start runtime: {:?}", e))?,
+            ));
+        }
+
         Ok(self)
     }
 
@@ -292,6 +324,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
             runtime: self
                 .runtime
                 .ok_or("Cannot build environment without runtime")?,
+            #[cfg(feature = "dial9")]
+            dial9_recorder: self.dial9_recorder,
             signal_tx,
             signal_rx: Some(signal_rx),
             signal: Some(signal),
@@ -308,6 +342,8 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 /// validator client, or to run tests that involve logging and async task execution.
 pub struct Environment<E: EthSpec> {
     runtime: Arc<Runtime>,
+    #[cfg(feature = "dial9")]
+    dial9_recorder: Option<dial9::Recorder>,
     /// Receiver side of an internal shutdown signal.
     signal_rx: Option<Receiver<ShutdownReason>>,
     /// Sender to request shutting down.
@@ -449,7 +485,15 @@ impl<E: EthSpec> Environment<E> {
     }
 
     /// Shutdown the `tokio` runtime when all tasks are idle.
-    pub fn shutdown_on_idle(self) {
+    #[cfg_attr(not(feature = "dial9"), allow(unused_mut))]
+    pub fn shutdown_on_idle(mut self) {
+        // Gracefully shutdown dial9 first to flush any remaining trace data.
+        #[cfg(feature = "dial9")]
+        if let Some(recorder) = self.dial9_recorder.take() {
+            info!("Shutting down dial9 recorder, flushing trace data...");
+            recorder.graceful_shutdown(std::time::Duration::from_secs(10));
+        }
+
         match Arc::try_unwrap(self.runtime) {
             Ok(runtime) => {
                 runtime.shutdown_timeout(std::time::Duration::from_secs(MAXIMUM_SHUTDOWN_TIME))

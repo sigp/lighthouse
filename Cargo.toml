@@ -134,6 +134,12 @@ context_deserialize = "0.2"
 criterion = "0.8"
 delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
+dial9 = { version = "0.5", default-features = false, features = [
+    "tokio",
+    "cpu-profiling",
+    "process-resource",
+    "worker-s3",
+] }
 directory = { path = "common/directory" }
 dirs = "3"
 discv5 = { version = "0.12.0", features = ["libp2p"] }
@@ -141,7 +147,7 @@ doppelganger_service = { path = "validator_client/doppelganger_service" }
 educe = "0.6"
 eip_3076 = { path = "common/eip_3076" }
 either = "1.9"
-enr = "0.14.0"
+enr = { version = "0.14.0", features = ["ed25519", "k256"] }
 environment = { path = "lighthouse/environment" }
 eth2 = { path = "common/eth2" }
 eth2_config = { path = "common/eth2_config" }
@@ -243,7 +249,7 @@ system_health = { path = "common/system_health" }
 task_executor = { path = "common/task_executor" }
 tempfile = "3"
 thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "signal", "macros", "tracing"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "time"] }
 tower = "0.5"
