@@ -2255,10 +2255,8 @@ mod release_tests {
     }
 
     /// Build a chain to slot 1 and return the head state's PTC for that slot.
-    async fn payload_attestation_test_harness() -> (
-        BeaconChainHarness<EphemeralHarnessType<Spec>>,
-        ChainSpec,
-    ) {
+    async fn payload_attestation_test_harness()
+    -> (BeaconChainHarness<EphemeralHarnessType<Spec>>, ChainSpec) {
         let spec = test_spec::<Spec>();
         let num_validators = 64;
         let harness = get_harness::<Spec>(num_validators, Some(spec.clone()));
