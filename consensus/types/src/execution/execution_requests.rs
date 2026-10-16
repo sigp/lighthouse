@@ -306,15 +306,15 @@ impl RequestType {
 #[cfg(test)]
 mod electra_tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
 
-    ssz_and_tree_hash_tests!(ExecutionRequestsElectra<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(ExecutionRequestsElectra<Spec>);
 }
 
 #[cfg(test)]
 mod gloas_tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
 
-    ssz_and_tree_hash_tests!(ExecutionRequestsGloas<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(ExecutionRequestsGloas<Spec>);
 }

@@ -83,6 +83,10 @@ pub struct BidCandidate<E: EthSpec> {
     /// build: the floor is a policy on builder payments, and the proposer's own block has none,
     /// so it always ranks in the meets-floor tier.
     min_bid: u64,
+    /// Set when the circuit breaker has tripped. A demoted candidate only wins when no undemoted
+    /// candidate exists, which in practice means the local build failed. Never set on the local
+    /// build.
+    demoted: bool,
     pub source: BidSource<E>,
 }
 
@@ -99,6 +103,7 @@ impl<E: EthSpec> BidCandidate<E> {
             signed_bid: Arc::new(signed_bid),
             builder_boost_factor: NEUTRAL_BOOST_FACTOR,
             min_bid: 0,
+            demoted: false,
             source: BidSource::Local {
                 payload_data: Box::new(payload_data),
                 should_override_builder,
@@ -117,6 +122,7 @@ impl<E: EthSpec> BidCandidate<E> {
             signed_bid,
             builder_boost_factor,
             min_bid,
+            demoted: false,
             source: BidSource::Gossip,
         }
     }
@@ -140,11 +146,18 @@ impl<E: EthSpec> BidCandidate<E> {
             signed_bid,
             builder_boost_factor,
             min_bid,
+            demoted: false,
             source: BidSource::Direct {
                 builder_url,
                 max_execution_payment,
             },
         }
+    }
+
+    /// Rank this candidate below every undemoted one. Used for external bids when the circuit
+    /// breaker trips, so the local build is preferred but an external bid can still save the slot.
+    pub fn demote_for_circuit_breaker(&mut self) {
+        self.demoted = true;
     }
 
     /// The trusted value ranking is based on, in **wei**: the local EL block value, or a bid's
@@ -153,21 +166,21 @@ impl<E: EthSpec> BidCandidate<E> {
     /// terms are far below `Uint256::MAX`, so it is exact (a u64 gwei sum could saturate under a
     /// hostile `execution_payment` with the cap disabled).
     fn trusted_value(&self) -> Uint256 {
-        let bid = &self.signed_bid.message;
+        let bid = self.signed_bid.message();
         match &self.source {
             BidSource::Local { block_value, .. } => *block_value,
-            BidSource::Gossip => gwei_to_wei(bid.value), // gossip `execution_payment` is zero
+            BidSource::Gossip => gwei_to_wei(bid.value()), // gossip `execution_payment` is zero
             BidSource::Direct {
                 max_execution_payment,
                 ..
-            } => gwei_to_wei(bid.value).saturating_add(gwei_to_wei(
-                bid.execution_payment.min(*max_execution_payment),
+            } => gwei_to_wei(bid.value()).saturating_add(gwei_to_wei(
+                bid.execution_payment().min(*max_execution_payment),
             )),
         }
     }
 
-    /// Lexicographic selection key (greater = better): `shouldOverrideBuilder`, then whether the bid
-    /// clears its `min_bid` floor, then the boosted value (`trusted_value × builder_boost_factor`, in
+    /// Lexicographic selection key (greater = better): whether the candidate is undemoted by the
+    /// circuit breaker, then `shouldOverrideBuilder`, then whether the bid clears its `min_bid` floor, then the boosted value (`trusted_value × builder_boost_factor`, in
     /// wei — `u64::MAX` multiplies through rather than acting as an absolute override, so a
     /// zero-value bid ranks 0 and loses to any non-zero local build), then the local build wins ties
     /// over externals.
@@ -176,8 +189,13 @@ impl<E: EthSpec> BidCandidate<E> {
     /// viable option — the local build failed and every bid is under the floor — instead of missing
     /// the slot. Whenever *any* candidate clears the floor (the local build always does), the
     /// below-floor ones lose regardless of value, exactly as a hard filter would.
-    fn rank_key(&self) -> (bool, bool, Uint256, bool) {
+    ///
+    /// Circuit-breaker demotion is ranked rather than filtered for the same reason: when the breaker
+    /// trips the local build always wins if it exists, but a demoted external bid still beats
+    /// missing the slot when the local build fails.
+    fn rank_key(&self) -> (bool, bool, bool, Uint256, bool) {
         (
+            !self.demoted,
             self.overrides_builder(),
             self.meets_min_bid(),
             self.trusted_value()
@@ -197,10 +215,10 @@ impl<E: EthSpec> BidCandidate<E> {
     /// or the **unclamped** `value + execution_payment` (the proposer's real revenue; the clamp is a
     /// ranking-only trust bound).
     pub fn payload_value(&self) -> Uint256 {
-        let bid = &self.signed_bid.message;
+        let bid = self.signed_bid.message();
         match &self.source {
             BidSource::Local { block_value, .. } => *block_value,
-            _ => gwei_to_wei(bid.value.saturating_add(bid.execution_payment)),
+            _ => gwei_to_wei(bid.value().saturating_add(bid.execution_payment())),
         }
     }
 
@@ -252,9 +270,9 @@ mod tests {
     use super::*;
     use bls::Signature;
     use ssz_types::VariableList;
-    use types::{ExecutionPayloadBid, MainnetEthSpec};
+    use types::{ExecutionPayloadBidGloas, SignedExecutionPayloadBidGloas, Spec};
 
-    type TestSpec = MainnetEthSpec;
+    type TestSpec = Spec;
 
     const GOSSIP_BUILDER: u64 = 111;
     const DIRECT_BUILDER: u64 = 222;
@@ -277,15 +295,17 @@ mod tests {
         value_gwei: u64,
         payment_gwei: u64,
     ) -> Arc<SignedExecutionPayloadBid<TestSpec>> {
-        Arc::new(SignedExecutionPayloadBid {
-            message: ExecutionPayloadBid {
-                builder_index,
-                value: value_gwei,
-                execution_payment: payment_gwei,
-                ..Default::default()
+        Arc::new(SignedExecutionPayloadBid::Gloas(
+            SignedExecutionPayloadBidGloas {
+                message: ExecutionPayloadBidGloas {
+                    builder_index,
+                    value: value_gwei,
+                    execution_payment: payment_gwei,
+                    ..Default::default()
+                },
+                signature: Signature::empty(),
             },
-            signature: Signature::empty(),
-        })
+        ))
     }
 
     fn gossip(value_gwei: u64, boost: u64) -> BidCandidate<TestSpec> {
@@ -327,13 +347,13 @@ mod tests {
 
     fn local(block_value_gwei: u64, should_override_builder: bool) -> BidCandidate<TestSpec> {
         BidCandidate::local(
-            SignedExecutionPayloadBid {
-                message: ExecutionPayloadBid {
+            SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                message: ExecutionPayloadBidGloas {
                     builder_index: LOCAL_BUILDER,
                     ..Default::default()
                 },
                 signature: Signature::empty(),
-            },
+            }),
             ExecutionPayloadData {
                 payload: ExecutionPayloadGloas::default(),
                 execution_requests: ExecutionRequestsGloas::default(),
@@ -354,7 +374,7 @@ mod tests {
             BidSource::Direct { .. } => "direct",
         };
         (
-            win.signed_bid.message.builder_index,
+            win.signed_bid.message().builder_index(),
             win.is_local(),
             win.payload_value(),
             source,
@@ -563,5 +583,52 @@ mod tests {
         ])
         .unwrap();
         assert_eq!(outcome(win), (DIRECT_BUILDER, false, gwei(1), "direct"));
+    }
+
+    #[test]
+    fn demoted_external_loses_to_cheaper_local() {
+        let mut bid = gossip(1_000, NEUTRAL_BOOST);
+        bid.demote_for_circuit_breaker();
+        let winner = select_payload_bid(vec![bid, local(1, false)]).unwrap();
+        assert!(winner.is_local());
+    }
+
+    #[test]
+    fn demoted_external_wins_when_local_build_failed() {
+        let mut bid = gossip(1_000, NEUTRAL_BOOST);
+        bid.demote_for_circuit_breaker();
+        let winner = select_payload_bid(vec![bid]).unwrap();
+        assert!(!winner.is_local());
+    }
+
+    #[test]
+    fn demoted_direct_bid_ranks_like_a_demoted_gossip_bid() {
+        // A tripped breaker demotes direct bids too: any local build beats one...
+        let mut direct_bid = direct(1_000, 0, NEUTRAL_BOOST, 0);
+        direct_bid.demote_for_circuit_breaker();
+        let winner = select_payload_bid(vec![direct_bid, local(1, false)]).unwrap();
+        assert!(winner.is_local());
+
+        // ...but with the local build failed it still saves the slot, ranked by value against
+        // the demoted gossip bid.
+        let mut direct_bid = direct(1_000, 0, NEUTRAL_BOOST, 0);
+        direct_bid.demote_for_circuit_breaker();
+        let mut gossip_bid = gossip(10, NEUTRAL_BOOST);
+        gossip_bid.demote_for_circuit_breaker();
+        let winner = select_payload_bid(vec![gossip_bid, direct_bid]).unwrap();
+        assert_eq!(
+            outcome(winner),
+            (DIRECT_BUILDER, false, gwei(1_000), "direct")
+        );
+    }
+
+    #[test]
+    fn demoted_externals_still_rank_by_value_among_themselves() {
+        let mut low = gossip(10, NEUTRAL_BOOST);
+        let mut high = gossip(1_000, NEUTRAL_BOOST);
+        low.demote_for_circuit_breaker();
+        high.demote_for_circuit_breaker();
+        let winner = select_payload_bid(vec![low, high]).unwrap();
+        assert_eq!(winner.signed_bid.message().value(), 1_000);
     }
 }

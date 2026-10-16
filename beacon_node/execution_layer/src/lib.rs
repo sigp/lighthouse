@@ -53,8 +53,8 @@ use types::{
     ExecutionRequestsGloas, KzgProofs, ProgressiveTransactions, SignedBlindedBeaconBlock,
 };
 use types::{
-    BeaconStateError, BlindedPayload, ChainSpec, ColumnIndex, Epoch, ExecPayload,
-    ExecutionPayloadGloas, FullPayload, ProposerPreparationData, Slot,
+    BeaconStateError, BlindedPayload, ChainSpec, ColumnIndex, Epoch, ExecutionPayloadGloas,
+    FullPayload, ProposerPreparationData, Slot,
 };
 
 mod block_hash;
@@ -454,16 +454,22 @@ pub enum ChainHealth {
     PreMerge,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailedCondition {
     Skips,
     SkipsPerEpoch,
     EpochsSinceFinalization,
 }
 
-pub enum SubmitBlindedBlockResponse<E: EthSpec> {
-    V1(Box<FullPayloadContents<E>>),
-    V2,
+impl FailedCondition {
+    /// A stable label for metrics.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FailedCondition::Skips => "skips",
+            FailedCondition::SkipsPerEpoch => "skips_per_epoch",
+            FailedCondition::EpochsSinceFinalization => "epochs_since_finalization",
+        }
+    }
 }
 
 type PayloadContentsRefTuple<'a, E> = (ExecutionPayloadRef<'a, E>, Option<&'a BlobsBundle<E>>);
@@ -1822,99 +1828,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         block_root: Hash256,
         block: &SignedBlindedBeaconBlock<E>,
-        spec: &ChainSpec,
-    ) -> Result<SubmitBlindedBlockResponse<E>, Error> {
+    ) -> Result<(), Error> {
         debug!(?block_root, "Sending block to builder");
-        if spec.is_fulu_scheduled() {
-            let resp = self
-                .post_builder_blinded_blocks_v2(block_root, block)
-                .await
-                .map(|()| SubmitBlindedBlockResponse::V2);
-            // Fallback to v1 if v2 fails because the relay doesn't support it.
-            // Note: we should remove the fallback post fulu when all relays have support for v2.
-            if resp.is_err() {
-                self.post_builder_blinded_blocks_v1(block_root, block)
-                    .await
-                    .map(|full_payload| SubmitBlindedBlockResponse::V1(Box::new(full_payload)))
-            } else {
-                resp
-            }
-        } else {
-            self.post_builder_blinded_blocks_v1(block_root, block)
-                .await
-                .map(|full_payload| SubmitBlindedBlockResponse::V1(Box::new(full_payload)))
-        }
-    }
-
-    async fn post_builder_blinded_blocks_v1(
-        &self,
-        block_root: Hash256,
-        block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<FullPayloadContents<E>, Error> {
-        if let Some(builder) = self.builder() {
-            let (payload_result, duration) =
-                timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
-                    let ssz_enabled = builder.is_ssz_available();
-                    debug!(
-                        ?block_root,
-                        ssz = ssz_enabled,
-                        "Calling submit_blinded_block v1 on builder"
-                    );
-                    if ssz_enabled {
-                        builder
-                            .post_builder_blinded_blocks_v1_ssz(block)
-                            .await
-                            .map_err(Error::Builder)
-                    } else {
-                        builder
-                            .post_builder_blinded_blocks_v1(block)
-                            .await
-                            .map_err(Error::Builder)
-                            .map(|d| d.data)
-                    }
-                })
-                .await;
-
-            match &payload_result {
-                Ok(unblinded_response) => {
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
-                        &[metrics::SUCCESS],
-                    );
-                    let payload = unblinded_response.payload_ref();
-                    info!(
-                        relay_response_ms = duration.as_millis(),
-                        ?block_root,
-                        fee_recipient = ?payload.fee_recipient(),
-                        block_hash = ?payload.block_hash(),
-                        parent_hash = ?payload.parent_hash(),
-                        "Builder successfully revealed payload"
-                    )
-                }
-                Err(e) => {
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
-                        &[metrics::FAILURE],
-                    );
-                    warn!(
-                        info = "this is common behaviour for some builders and may not indicate an issue",
-                        error = ?e,
-                        relay_response_ms = duration.as_millis(),
-                        ?block_root,
-                        parent_hash = ?block
-                            .message()
-                            .execution_payload()
-                            .map(|payload| format!("{}", payload.parent_hash()))
-                            .unwrap_or_else(|_| "unknown".to_string()),
-                        "Builder failed to reveal payload"
-                    )
-                }
-            }
-
-            payload_result
-        } else {
-            Err(Error::NoPayloadBuilder)
-        }
+        self.post_builder_blinded_blocks_v2(block_root, block).await
     }
 
     async fn post_builder_blinded_blocks_v2(
@@ -2192,9 +2108,9 @@ mod test {
     use super::*;
     use crate::test_utils::{Block, MockExecutionLayer as GenericMockExecutionLayer};
     use task_executor::test_utils::TestRuntime;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
-    type MockExecutionLayer = GenericMockExecutionLayer<MainnetEthSpec>;
+    type MockExecutionLayer = GenericMockExecutionLayer<Spec>;
 
     #[tokio::test]
     async fn produce_three_valid_pos_execution_blocks() {
@@ -2222,7 +2138,7 @@ mod test {
                 ssz_types::ProgressiveVariableList::new(vec![0x01, 0x02, 0x03]).unwrap(),
             ])
             .unwrap(),
-            withdrawals: types::ProgressiveWithdrawals::<MainnetEthSpec>::new(vec![Withdrawal {
+            withdrawals: types::ProgressiveWithdrawals::<Spec>::new(vec![Withdrawal {
                 index: 1,
                 validator_index: 2,
                 address: Address::from([0x33; 20]),
@@ -2261,7 +2177,7 @@ mod test {
 
     #[tokio::test]
     async fn test_expected_gas_limit() {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Spec::default_spec();
         assert_eq!(
             expected_gas_limit(30_000_000, 30_000_000, &spec),
             Some(30_000_000)

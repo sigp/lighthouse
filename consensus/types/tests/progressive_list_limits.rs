@@ -107,7 +107,7 @@ fn progressive_list_limits() {
 
 #[test]
 fn progressive_block_body_errors_propagate() {
-    type E = MinimalEthSpec;
+    type E = Spec;
     for fork in [ForkName::Gloas, ForkName::Heze] {
         let spec = fork.make_genesis_spec(E::default_spec());
         let mut block = BeaconBlock::<E>::empty(&spec);
@@ -155,7 +155,7 @@ fn progressive_block_body_errors_propagate() {
 
 #[test]
 fn progressive_column_min_size_matches_encoding() {
-    type E = MainnetEthSpec;
+    type E = Spec;
     let sidecar = DataColumnSidecarGloas::<E> {
         index: 0,
         column: ProgressiveVariableList::new(vec![Cell::<E>::default()]).unwrap(),

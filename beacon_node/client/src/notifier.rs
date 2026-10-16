@@ -167,37 +167,32 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         );
                 }
                 SyncState::CustodyBackFillSyncing { .. } => {
-                    match beacon_chain.store.get_data_column_custody_info() {
-                        Ok(data_column_custody_info) => {
-                            if let Some(earliest_data_column_slot) = data_column_custody_info
-                                .and_then(|info| info.earliest_data_column_slot)
-                                && let Some(da_boundary) = beacon_chain
-                                    .custody_context
-                                    .column_data_availability_boundary()
-                            {
-                                sync_distance = earliest_data_column_slot.saturating_sub(
-                                    da_boundary.start_slot(T::EthSpec::slots_per_epoch()),
-                                );
+                    if let Some(earliest_data_column_slot) = beacon_chain
+                        .store
+                        .get_data_column_custody_info()
+                        .and_then(|info| info.earliest_data_column_slot)
+                        && let Some(da_boundary) = beacon_chain
+                            .custody_context
+                            .column_data_availability_boundary()
+                    {
+                        sync_distance = earliest_data_column_slot
+                            .saturating_sub(da_boundary.start_slot(T::EthSpec::slots_per_epoch()));
 
-                                // We keep track of our starting point for custody backfill sync
-                                // so we can measure our speed of progress.
-                                if original_earliest_data_column_slot.is_none() {
-                                    original_earliest_data_column_slot =
-                                        Some(earliest_data_column_slot)
-                                }
-
-                                if let Some(original_earliest_data_column_slot) =
-                                    original_earliest_data_column_slot
-                                {
-                                    speedo.observe(
-                                        original_earliest_data_column_slot
-                                            .saturating_sub(earliest_data_column_slot),
-                                        Instant::now(),
-                                    );
-                                }
-                            }
+                        // We keep track of our starting point for custody backfill sync
+                        // so we can measure our speed of progress.
+                        if original_earliest_data_column_slot.is_none() {
+                            original_earliest_data_column_slot = Some(earliest_data_column_slot)
                         }
-                        Err(e) => error!(error=?e, "Unable to get data column custody info"),
+
+                        if let Some(original_earliest_data_column_slot) =
+                            original_earliest_data_column_slot
+                        {
+                            speedo.observe(
+                                original_earliest_data_column_slot
+                                    .saturating_sub(earliest_data_column_slot),
+                                Instant::now(),
+                            );
+                        }
                     }
                 }
                 SyncState::SyncingFinalized { .. }
@@ -455,7 +450,7 @@ async fn post_bellatrix_readiness_logging<T: BeaconChainTypes>(
                 }
             }
         } else {
-            Err("No execution endpoint".to_string())
+            return;
         };
 
         if let Err(readiness) = readiness {
@@ -626,6 +621,7 @@ async fn genesis_execution_payload_logging<T: BeaconChainTypes>(beacon_chain: &B
                 "Unable to check genesis which has already occurred"
             );
         }
+        Ok(GenesisExecutionPayloadStatus::NoExecutionLayer) => {}
         Err(e) => {
             error!(
                 error = ?e,
