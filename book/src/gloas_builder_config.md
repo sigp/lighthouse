@@ -17,6 +17,43 @@ The validator client reads its external-builder settings from a YAML file named
 Use `GET`, `POST`, and `DELETE` at `/eth/v1/validator/{pubkey}/builder_config`. `GET` returns the
 configuration in use. `POST` replaces the stored configuration. `DELETE` restores global inheritance.
 
+## CLI parameters
+
+To supply defaults for settings omitted from the configuration file, pass the builder URLs and bid
+policy on the validator client command line:
+
+```sh
+lighthouse vc \
+  --builder-urls https://builder-a.example.com,https://builder-b.example.com \
+  --builder-min-bid 500000000 \
+  --builder-boost-factor 100 \
+  --builder-max-execution-payment 1000000000
+```
+
+Payment amounts are integer gwei. `--builder-min-bid` also applies to p2p bids, so it can be supplied
+without builder URLs. `--builder-max-execution-payment` requires `--builder-urls`, applies the same
+cap to each supplied URL, and defaults to `0`. Authentication data defaults to the hostname of each
+URL, and no builder public keys are pinned.
+
+Explicit settings in `builder_definitions.yml` take precedence over these CLI defaults. Each omitted
+global field uses its corresponding CLI value, then its built-in default if the flag is also omitted.
+`--builder-urls` is used only when the file's global `builders` field is omitted; the two lists are
+not combined. An explicit global `builders: []` disables direct builders for validators that inherit
+the global list. Explicit per-validator configurations and per-builder bid policies keep their
+existing precedence.
+
+CLI defaults are never written to `builder_definitions.yml`, including when the keymanager API updates
+a validator. Omitted global fields remain omitted after these updates, so removing a CLI flag on
+restart restores the corresponding built-in default.
+
+Existing file values such as `min_bid: 0`, `builder_boost_factor: 100`, and `builders: []` are explicit
+settings, even when they match built-in defaults. Remove the corresponding YAML keys to use CLI
+defaults instead.
+
+These settings apply from Gloas without requiring `--builder-proposals`. Before Gloas, the existing
+`--builder-proposals` and `--builder-boost-factor` behavior is unchanged. Use the YAML file or
+keymanager API for custom authentication data, pinned builder keys, or different per-builder values.
+
 ## Example
 
 ```yaml
@@ -57,9 +94,9 @@ builders:
 
 | Field | Required | Default | Meaning |
 | ------- | ---------- | --------- | --------- |
-| `min_bid` | no | `0` | Minimum total payment, in gwei, for a p2p bid. A bid below the floor is ranked behind any floor-clearing candidate (including the local block) and only wins when nothing else is viable. Also the default `min_bid` for any builder that omits it. |
-| `builder_boost_factor` | no | `100` | Percentage multiplier applied to p2p bids when comparing against the local block. Also the default for any builder that omits it. |
-| `builders` | no | `[]` | The list of builders to request bids from directly. |
+| `min_bid` | no | CLI `--builder-min-bid`, else `0` | Minimum total payment, in gwei, for a p2p bid. A bid below the floor is ranked behind any floor-clearing candidate (including the local block) and only wins when nothing else is viable. Also the default `min_bid` for any builder that omits it. |
+| `builder_boost_factor` | no | CLI `--builder-boost-factor`, else `100` | Percentage multiplier applied to p2p bids when comparing against the local block. Also the default for any builder that omits it. |
+| `builders` | no | CLI `--builder-urls`, else `[]` | The list of builders to request bids from directly. An explicit empty list disables direct builders for validators that inherit it. |
 | `validator_configs` | no | `{}` | Builder settings for individual validators. Omitted fields use global values. An empty `builders` list uses no direct builders. |
 
 ### Per builder (each entry under `builders`)
