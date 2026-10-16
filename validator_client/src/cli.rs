@@ -410,6 +410,38 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        value_name = "NETWORK_ADDRESSES",
+        value_delimiter = ',',
+        help = "Comma-separated HTTP(S) URLs of ePBS builders. From Gloas, used as the global \
+                builder list when builders is omitted from builder_definitions.yml. Explicit \
+                file configurations take precedence.",
+        display_order = 0
+    )]
+    pub builder_urls: Option<Vec<String>>,
+
+    #[clap(
+        long,
+        value_name = "GWEI",
+        help = "Fallback minimum total builder payment in gwei from Gloas. Used when the global \
+                min_bid is omitted from builder_definitions.yml. Per-validator and per-builder \
+                values take precedence. Bids below this value rank last.",
+        display_order = 0
+    )]
+    pub builder_min_bid: Option<u64>,
+
+    #[clap(
+        long,
+        value_name = "GWEI",
+        requires = "builder_urls",
+        help = "Maximum trusted execution payment in gwei for each URL in --builder-urls. \
+                Defaults to 0. Applies from Gloas when the global builder list is omitted from \
+                builder_definitions.yml. Per-validator builder configurations take precedence.",
+        display_order = 0
+    )]
+    pub builder_max_execution_payment: Option<u64>,
+
+    #[clap(
+        long,
         value_name = "UNIX-TIMESTAMP",
         help = "This flag takes a unix timestamp value that will be used to override the \
                 timestamp used in the builder api registration.",
@@ -456,7 +488,9 @@ pub struct ValidatorClient {
         help = "Defines the boost factor, \
                 a percentage multiplier to apply to the builder's payload value \
                 when choosing between a builder payload header and payload from \
-                the local execution node.",
+                the local execution node. From Gloas, supplies the global builder_boost_factor \
+                when omitted from builder_definitions.yml. Explicit file configurations take \
+                precedence.",
         conflicts_with = "prefer_builder_proposals",
         display_order = 0
     )]
