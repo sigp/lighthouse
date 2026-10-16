@@ -5,15 +5,17 @@ use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
 use eth2::types::{EventKind, SseBlobSidecar, SseDataColumnSidecar};
+use slot_clock::SlotClock;
 use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::{
     Address, BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain,
-    EthSpec, MinimalEthSpec, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerPreferences, SignedExecutionPayloadBid, SignedProposerPreferences, SignedRoot, Slot,
+    Epoch, EthSpec, InclusionList, PayloadAttestationData, PayloadAttestationMessage,
+    ProposerPreferences, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
+    SignedInclusionList, SignedProposerPreferences, SignedRoot, Slot, Spec,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 /// Verifies that a data column event is emitted when a gossip verified data column is received via gossip or the publish block API.
 #[tokio::test]
@@ -50,12 +52,12 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
                 .sampling_columns_for_epoch(epoch)[0];
 
             // For gloas, the bid must be known, e.g. in the pending payload cache
-            let mut bid = SignedExecutionPayloadBid::<E>::empty();
+            let mut bid = SignedExecutionPayloadBidGloas::<E>::empty();
             bid.message.slot = Slot::new(10);
-            harness
-                .chain
-                .pending_payload_cache
-                .insert_bid(random_sidecar.beacon_block_root, Arc::new(bid));
+            harness.chain.pending_payload_cache.insert_bid(
+                random_sidecar.beacon_block_root,
+                Arc::new(SignedExecutionPayloadBid::Gloas(bid)),
+            );
 
             DataColumnSidecar::Gloas(random_sidecar)
         } else {
@@ -494,4 +496,76 @@ async fn proposer_preferences_event_on_gossip_verification() {
     } else {
         panic!("Expected ProposerPreferences event, got {:?}", event);
     }
+}
+
+/// Verifies that an `inclusion_list` SSE event is emitted when a new inclusion list is imported,
+/// and not when the same list is imported again.
+#[tokio::test]
+async fn inclusion_list_event_on_import() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let mut spec = test_spec::<E>();
+    spec.heze_fork_epoch = Some(Epoch::new(0));
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let slot = Slot::new(1);
+    harness.extend_to_slot(slot).await;
+
+    let (committee, dependent_root) = harness
+        .chain
+        .inclusion_list_committee(harness.head_block_root(), slot)
+        .expect("should compute committee");
+    let validator_index = committee[0];
+    let message = InclusionList {
+        slot,
+        validator_index,
+        dependent_root,
+        transactions: vec![vec![0xaa].try_into().unwrap()].try_into().unwrap(),
+    };
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let domain = harness.spec.get_domain(
+        epoch,
+        Domain::InclusionListCommittee,
+        &harness.spec.fork_at_epoch(epoch),
+        harness.chain.genesis_validators_root,
+    );
+    let signature = harness.validator_keypairs[validator_index as usize]
+        .sk
+        .sign(message.signing_root(domain));
+    let signed = SignedInclusionList {
+        message: message.clone(),
+        signature,
+    };
+
+    // Subscribe before import.
+    let event_handler = harness.chain.event_handler.as_ref().unwrap();
+    let mut receiver = event_handler.subscribe_inclusion_list();
+
+    for _ in 0..2 {
+        let verified = harness
+            .chain
+            .verify_inclusion_list_for_gossip(
+                signed.clone(),
+                harness.chain.slot_clock.now_duration().unwrap(),
+            )
+            .expect("verification should succeed");
+        harness.chain.import_inclusion_list(verified);
+    }
+
+    // Assert the event was emitted once, for the first import.
+    let event = receiver.try_recv().expect("should receive event");
+    if let EventKind::InclusionList(versioned) = event {
+        assert_eq!(versioned.data.message, message);
+        assert_eq!(versioned.version, harness.spec.fork_name_at_slot::<E>(slot));
+    } else {
+        panic!("Expected InclusionList event, got {:?}", event);
+    }
+    assert!(receiver.try_recv().is_err());
 }

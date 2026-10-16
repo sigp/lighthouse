@@ -12,8 +12,9 @@ use tokio::time::Instant;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::HashSetDelay;
+use enr::NodeId;
 use futures::prelude::*;
-use lighthouse_network::{NetworkConfig, Subnet, SubnetDiscovery, discv5::enr::NodeId};
+use lighthouse_network::{NetworkConfig, Subnet, SubnetDiscovery};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, warn};
 use types::{

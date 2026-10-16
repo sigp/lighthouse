@@ -1,13 +1,12 @@
 //! Helper functions and an extension trait for Ethereum 2 ENRs.
 
-pub use discv5::enr::CombinedKey;
+pub use enr::{CombinedKey, NodeId};
 
 use super::ENR_FILENAME;
 use crate::NetworkConfig;
 use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use alloy_rlp::bytes::Bytes;
 use libp2p::identity::Keypair;
-use lighthouse_version::{client_name, version};
 use network_utils::enr_ext::CombinedKeyExt;
 use network_utils::enr_ext::{EnrExt, QUIC_ENR_KEY, QUIC6_ENR_KEY};
 use ssz::{Decode, Encode};
@@ -189,7 +188,7 @@ pub fn build_enr<E: EthSpec>(
     next_fork_digest: [u8; 4],
     spec: &ChainSpec,
 ) -> Result<Enr, String> {
-    let mut builder = discv5::enr::Enr::builder();
+    let mut builder = enr::Enr::builder();
     let (maybe_ipv4_address, maybe_ipv6_address) = &config.enr_address;
 
     if let Some(ip) = maybe_ipv4_address {
@@ -218,11 +217,6 @@ pub fn build_enr<E: EthSpec>(
             .and_then(|v6_addr| v6_addr.disc_port.try_into().ok())
     }) {
         builder.udp6(udp6_port.get());
-    }
-
-    // Add EIP 7636 client information
-    if !config.private {
-        builder.client_info(client_name().to_string(), version().to_string(), None);
     }
 
     // Add QUIC fields to the ENR.
@@ -364,9 +358,9 @@ pub fn save_enr_to_disk(dir: &Path, enr: &Enr) {
 mod test {
     use super::*;
     use crate::config::Config as NetworkConfig;
-    use types::{Epoch, MainnetEthSpec};
+    use types::{Epoch, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
     const TEST_NFD: [u8; 4] = [0x01, 0x02, 0x03, 0x04];
 
     fn make_fulu_spec() -> ChainSpec {
@@ -409,8 +403,8 @@ mod test {
         let (enr, _key) = build_enr_with_config(NetworkConfig::default(), 4, &E::default_spec());
         // Check all Eth2 Mappings are decodeable
         enr.eth2().unwrap();
-        enr.attestation_bitfield::<MainnetEthSpec>().unwrap();
-        enr.sync_committee_bitfield::<MainnetEthSpec>().unwrap();
+        enr.attestation_bitfield::<E>().unwrap();
+        enr.sync_committee_bitfield::<E>().unwrap();
     }
 
     #[test]
@@ -419,7 +413,7 @@ mod test {
         //let my_enr_str = "enr:-Ma4QM2I1AxBU116QcMV2wKVrSr5Nsko90gMVkstZO4APysQCEwJJJeuTvODKmv7fDsLhVFjrlidVNhBOxSZ8sZPbCWCCcqHYXR0bmV0c4gAAAAAAAAMAIRldGgykGqVoakEAAAA__________-CaWSCdjSCaXCEJq-HPYRxdWljgiMziXNlY3AyNTZrMaECMPAnmmHQpD1k6DuOxWVoFXBoTYY6Wuv9BP4lxauAlmiIc3luY25ldHMAg3RjcIIjMoN1ZHCCIzI";
         let enr = Enr::from_str(enr_str).unwrap();
         enr.eth2().unwrap();
-        enr.attestation_bitfield::<MainnetEthSpec>().unwrap();
-        enr.sync_committee_bitfield::<MainnetEthSpec>().unwrap();
+        enr.attestation_bitfield::<E>().unwrap();
+        enr.sync_committee_bitfield::<E>().unwrap();
     }
 }

@@ -16,11 +16,15 @@ mod slot_data;
 #[macro_use]
 mod slot_epoch_macros;
 mod slot_epoch;
+mod spec;
 #[cfg(feature = "sqlite")]
 mod sqlite;
 
 pub use application_domain::{APPLICATION_DOMAIN_BUILDER, ApplicationDomain};
-pub use chain_spec::{BlobParameters, BlobSchedule, ChainSpec, Config, Domain};
+pub use chain_spec::{
+    BlobParameters, BlobSchedule, ChainSpec, Config, DEFAULT_GAS_LIMIT, Domain, EpochSchedule,
+    GasLimitSchedule, GasLimitScheduleEntry,
+};
 pub use config_and_preset::{
     ConfigAndPreset, ConfigAndPresetDeneb, ConfigAndPresetElectra, ConfigAndPresetFulu,
     ConfigAndPresetGloas, ConfigAndPresetHeze, get_extra_fields,
@@ -39,6 +43,7 @@ pub use relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use signing_data::{SignedRoot, SigningData};
 pub use slot_data::SlotData;
 pub use slot_epoch::{Epoch, Slot};
+pub use spec::Spec;
 
 #[cfg(test)]
 pub(crate) use chain_spec::{

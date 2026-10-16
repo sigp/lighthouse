@@ -22,7 +22,7 @@ pub struct TransitionTest<E: EthSpec> {
     pub metadata: Metadata,
     pub pre: BeaconState<E>,
     pub blocks: Vec<SignedBeaconBlock<E>>,
-    pub post: BeaconState<E>,
+    pub post: Option<BeaconState<E>>,
     pub spec: ChainSpec,
 }
 
@@ -103,7 +103,11 @@ impl<E: EthSpec> LoadCase for TransitionTest<E> {
         let pre = ssz_decode_state(&path.join("pre.ssz_snappy"), &spec)?;
 
         // Decode post-state.
-        let post = ssz_decode_state(&path.join("post.ssz_snappy"), &spec)?;
+        let post_path = path.join("post.ssz_snappy");
+        let post = post_path
+            .exists()
+            .then(|| ssz_decode_state(&post_path, &spec))
+            .transpose()?;
 
         Ok(Self {
             metadata,
@@ -124,13 +128,15 @@ impl<E: EthSpec> Case for TransitionTest<E> {
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let mut state = self.pre.clone();
-        let mut expected = Some(self.post.clone());
+        let mut expected = self.post.clone();
         let spec = &self.spec;
+        let mut processed_blocks = 0;
 
         let mut result: Result<_, String> = self
             .blocks
             .iter()
             .try_for_each(|block| {
+                processed_blocks += 1;
                 // Advance to block slot.
                 complete_state_advance(&mut state, None, block.slot(), None, spec)
                     .map_err(|e| format!("Failed to advance: {:?}", e))?;
@@ -161,6 +167,11 @@ impl<E: EthSpec> Case for TransitionTest<E> {
             })
             .map(move |()| state);
 
+        if result.is_err() && processed_blocks != self.blocks.len() {
+            return Err(Error::NotEqual(format!(
+                "Block before the final block failed: {result:?}"
+            )));
+        }
         compare_beacon_state_results_without_caches(&mut result, &mut expected)
     }
 }

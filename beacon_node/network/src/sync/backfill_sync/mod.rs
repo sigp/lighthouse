@@ -1156,20 +1156,21 @@ mod tests {
     use beacon_chain::test_utils::BeaconChainHarness;
     use bls::Hash256;
     use lighthouse_network::{NetworkConfig, SyncInfo, SyncStatus};
+    use rand_08::RngCore;
     use rand_08::SeedableRng;
     use rand_08::prelude::StdRng;
-    use types::MinimalEthSpec;
+    use types::Spec;
 
     #[test]
     fn request_batches_should_not_loop_infinitely() {
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        let harness = BeaconChainHarness::builder(Spec::default())
             .default_spec()
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()
             .build();
 
         let beacon_chain = harness.chain.clone();
-        let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+        let slots_per_epoch = Spec::slots_per_epoch();
 
         let network_globals = Arc::new(NetworkGlobals::new_test_globals(
             vec![],
@@ -1179,13 +1180,17 @@ mod tests {
 
         {
             let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+            let mut key_bytes = [0u8; 32];
+            rng.fill_bytes(&mut key_bytes);
             let peer_id = network_globals
                 .peers
                 .write()
                 .__add_connected_peer_with_custody_subnets(
                     true,
                     &beacon_chain.spec,
-                    k256::ecdsa::SigningKey::random(&mut rng).into(),
+                    enr::k256::ecdsa::SigningKey::from_slice(&key_bytes)
+                        .expect("32 bytes is a valid secp256k1 key")
+                        .into(),
                 );
 
             // Simulate finalized epoch and head being 2 epochs ahead

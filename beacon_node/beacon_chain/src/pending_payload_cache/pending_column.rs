@@ -46,7 +46,7 @@ impl<E: EthSpec> PendingColumn<E> {
     }
 
     /// Build a partial Gloas data column from the cells currently populated. Returns `None` if no
-    /// cells are present.
+    /// cells are present or the column exceeds the list bounds.
     pub fn to_partial(
         &self,
         index: ColumnIndex,
@@ -77,13 +77,13 @@ impl<E: EthSpec> PendingColumn<E> {
             index,
             sidecar: PartialDataColumnSidecarGloas {
                 cells_present_bitmap: bitmap,
-                column: ProgressiveVariableList::new(column),
-                kzg_proofs: ProgressiveVariableList::new(kzg_proofs),
+                column: ProgressiveVariableList::new(column).ok()?,
+                kzg_proofs: ProgressiveVariableList::new(kzg_proofs).ok()?,
             },
         })
     }
 
-    /// Returns a full `DataColumnSidecar` if all cells are present, or `None` if any are missing.
+    /// Returns a full `DataColumnSidecar` if all cells are present and fit the list bounds.
     pub fn to_full_sidecar(
         &self,
         index: ColumnIndex,
@@ -105,8 +105,8 @@ impl<E: EthSpec> PendingColumn<E> {
         // post-Gloas variants are introduced (or move construction to a fork-aware helper).
         Some(Arc::new(DataColumnSidecar::Gloas(DataColumnSidecarGloas {
             index,
-            column: ProgressiveVariableList::from_iter(column),
-            kzg_proofs: ProgressiveVariableList::from_iter(kzg_proofs),
+            column: ProgressiveVariableList::new(column).ok()?,
+            kzg_proofs: ProgressiveVariableList::new(kzg_proofs).ok()?,
             slot,
             beacon_block_root,
         })))

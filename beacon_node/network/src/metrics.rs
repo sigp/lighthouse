@@ -1,5 +1,6 @@
 use beacon_chain::{
     AvailabilityProcessingStatus, attestation_verification::Error as AttnError,
+    inclusion_list_verification::InclusionListVerificationError,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     sync_committee_verification::Error as SyncCommitteeError,
@@ -388,6 +389,14 @@ pub static GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVec
             &["type"],
         )
     });
+pub static GOSSIP_INCLUSION_LIST_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "gossipsub_inclusion_list_errors_per_type",
+            "Gossipsub inclusion_list errors per error type",
+            &["type"],
+        )
+    });
 pub static GOSSIP_OPTIMISTIC_UPDATE_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
@@ -499,6 +508,14 @@ pub static SYNCING_CHAIN_BATCHES: LazyLock<Result<IntGaugeVec>> = LazyLock::new(
         &["sync_type", "state"],
     )
 });
+pub static SYNC_DATA_COLUMNS_BY_RANGE_REQUEST_COLUMNS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "sync_data_columns_by_range_request_columns",
+            "Number of columns requested from one peer in a single DataColumnsByRange request",
+            Ok(vec![1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]),
+        )
+    });
 pub static SYNCING_CHAIN_BATCH_DOWNLOADING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "sync_range_chain_batch_downloading_seconds",
@@ -729,6 +746,10 @@ pub fn register_attestation_error(error: &AttnError) {
 
 pub fn register_sync_committee_error(error: &SyncCommitteeError) {
     inc_counter_vec(&GOSSIP_SYNC_COMMITTEE_ERRORS_PER_TYPE, &[error.as_ref()]);
+}
+
+pub fn register_inclusion_list_error(error: &InclusionListVerificationError) {
+    inc_counter_vec(&GOSSIP_INCLUSION_LIST_ERRORS_PER_TYPE, &[error.as_ref()]);
 }
 
 pub(crate) fn register_process_result_metrics(

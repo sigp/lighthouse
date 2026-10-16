@@ -9,7 +9,7 @@ use ssz_types::{ProgressiveVariableList, VariableList};
 #[derive(Debug)]
 pub enum ListRef<'a, T, N: Unsigned> {
     Basic(&'a VariableList<T, N>),
-    Progressive(&'a ProgressiveVariableList<T>),
+    Progressive(&'a ProgressiveVariableList<T, N>),
 }
 
 // Manual `Clone`/`Copy` impls to avoid spurious `T: Clone`/`T: Copy` bounds from the derive.
@@ -20,6 +20,18 @@ impl<T, N: Unsigned> Clone for ListRef<'_, T, N> {
 }
 
 impl<T, N: Unsigned> Copy for ListRef<'_, T, N> {}
+
+impl<'a, T, N: Unsigned> From<&'a VariableList<T, N>> for ListRef<'a, T, N> {
+    fn from(list: &'a VariableList<T, N>) -> Self {
+        Self::Basic(list)
+    }
+}
+
+impl<'a, T, N: Unsigned> From<&'a ProgressiveVariableList<T, N>> for ListRef<'a, T, N> {
+    fn from(list: &'a ProgressiveVariableList<T, N>) -> Self {
+        Self::Progressive(list)
+    }
+}
 
 impl<'a, T, N: Unsigned> ListRef<'a, T, N> {
     /// The underlying contents as a slice.
