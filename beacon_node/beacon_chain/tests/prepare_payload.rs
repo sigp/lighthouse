@@ -822,6 +822,8 @@ async fn prepare_payload_on_fork_boundary(
         return;
     }
     spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    // This test covers the Gloas transition only, so Heze must not activate before it
+    spec.heze_fork_epoch = None;
     let spec = Arc::new(spec);
 
     // Pre-Gloas blocks are always considered Empty.
@@ -1346,8 +1348,8 @@ async fn prepare_payload_gas_limit_generic(
         )
         .await
         .unwrap();
-    let PayloadAttributes::V4(attributes) = attributes else {
-        panic!("expected V4 payload attributes, got {attributes:?}");
-    };
-    assert_eq!(attributes.target_gas_limit, expected_gas_limit);
+    let target_gas_limit = attributes
+        .target_gas_limit()
+        .unwrap_or_else(|_| panic!("expected V4 or V5 payload attributes, got {attributes:?}"));
+    assert_eq!(target_gas_limit, expected_gas_limit);
 }
