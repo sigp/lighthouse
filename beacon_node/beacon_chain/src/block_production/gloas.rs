@@ -45,7 +45,9 @@ use sensitive_url::SensitiveUrl;
 
 use crate::block_production::bid_selection::{self, BidCandidate, BidSource, ExecutionPayloadData};
 use crate::payload_bid_verification::PayloadBidError;
-use crate::payload_bid_verification::direct_verified_bid::verify_direct_bid;
+use crate::payload_bid_verification::direct_verified_bid::{
+    verify_bid_for_block, verify_direct_bid,
+};
 use crate::payload_bid_verification::gossip_verified_bid::{
     builder_exit_requested, verify_bid_state_conditions,
 };
@@ -82,6 +84,22 @@ type BlockProductionResult<E> = (
     // Kept as a `SensitiveUrl` (redacted in logs); stringified only at the header boundary.
     Option<SensitiveUrl>,
 );
+
+/// External bid input for Gloas block production.
+pub enum BlockProductionBidSource<E: EthSpec> {
+    Builders(BuilderConfig),
+    /// A bid selected by the validator client, falling back to gossip if invalid.
+    ApiSupplied {
+        signed_bid: Arc<SignedExecutionPayloadBid<E>>,
+        builder_boost_factor: u64,
+    },
+}
+
+impl<E: EthSpec> From<BuilderConfig> for BlockProductionBidSource<E> {
+    fn from(config: BuilderConfig) -> Self {
+        Self::Builders(config)
+    }
+}
 
 pub type PreparePayloadResult<E> = Result<BlockProposalContentsGloas<E>, BlockProductionError>;
 pub type PreparePayloadHandle<E> = JoinHandle<Option<PreparePayloadResult<E>>>;
@@ -123,7 +141,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         graffiti_settings: GraffitiSettings,
         verification: ProduceBlockVerification,
-        builder_config: BuilderConfig,
+        bid_source: impl Into<BlockProductionBidSource<T::EthSpec>>,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
@@ -161,7 +179,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             randao_reveal,
             graffiti_settings,
             verification,
-            builder_config,
+            bid_source,
         )
         .await
     }
@@ -179,13 +197,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         graffiti_settings: GraffitiSettings,
         verification: ProduceBlockVerification,
-        builder_config: BuilderConfig,
+        bid_source: impl Into<BlockProductionBidSource<T::EthSpec>>,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
-        debug!(
-            slot = %produce_at_slot,
-            direct_builders = builder_config.builders.len(),
-            "Producing Gloas block"
-        );
+        let bid_source = bid_source.into();
+        debug!(slot = %produce_at_slot, "Producing Gloas block");
 
         let should_build_on_full = self
             .canonical_head
@@ -287,7 +302,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // production.
         let acquire_fut = self.acquire_external_bid_candidates(
             ctx,
-            &builder_config,
+            bid_source,
             proposer_preferences.as_deref(),
             &state,
             &parent_execution_requests,
@@ -706,7 +721,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // `payload_data` (`Some` only for a local build) drives envelope construction below.
         let payload_data = match source {
             BidSource::Local { payload_data, .. } => Some(*payload_data),
-            BidSource::Gossip | BidSource::Direct { .. } => None,
+            BidSource::Gossip | BidSource::Direct { .. } | BidSource::ApiSupplied => None,
         };
 
         let PartialBeaconBlock {
@@ -1117,10 +1132,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// gas limit and fee recipient). Acquisition is best-effort: any direct failure — including a
     /// missing builder service — is logged and skipped, never aborting block production, which can
     /// still proceed on the local build and gossip bids.
+    ///
+    /// For a bid supplied by the validator client, no direct builders are contacted. The gossip bid
+    /// is a candidate only if the supplied bid is invalid. Both pass the same circuit-breaker checks
+    /// as other external bids.
     async fn acquire_external_bid_candidates(
         self: &Arc<Self>,
         ctx: BidRequestContext,
-        builder_config: &BuilderConfig,
+        bid_source: BlockProductionBidSource<T::EthSpec>,
         proposer_preferences: Option<&SignedProposerPreferences>,
         state: &BeaconState<T::EthSpec>,
         parent_execution_requests: &ExecutionRequestsGloas<T::EthSpec>,
@@ -1167,36 +1186,64 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut externals = Vec::new();
 
-        // Direct bids: only when there are builders to contact and the proposer submitted
-        // preferences to validate against.
-        if !builder_config.builders.is_empty() {
-            if let Some(proposer_preferences) = proposer_preferences {
+        let (gossip_builder_boost_factor, gossip_min_bid) = match bid_source {
+            BlockProductionBidSource::Builders(builder_config) => {
+                // Direct bids: only when there are builders to contact and the proposer submitted
+                // preferences to validate against.
+                if !builder_config.builders.is_empty() {
+                    if let Some(proposer_preferences) = proposer_preferences {
+                        externals.extend(
+                            self.acquire_direct_bid_candidates(
+                                &ctx,
+                                &builder_config,
+                                proposer_preferences,
+                                state,
+                            )
+                            .await,
+                        );
+                    } else {
+                        // Direct bids can't be validated without the proposer's fee recipient /
+                        // gas-limit target, so builders configured with no available preferences
+                        // are skipped.
+                        warn!(
+                            "Builders are configured but no proposer preferences are available; \
+                             skipping direct builder bids for this proposal"
+                        );
+                    }
+                }
+                (builder_config.builder_boost_factor, builder_config.min_bid)
+            }
+            BlockProductionBidSource::ApiSupplied {
+                signed_bid,
+                builder_boost_factor,
+            } => {
                 externals.extend(
-                    self.acquire_direct_bid_candidates(
+                    self.validate_supplied_bid(
                         &ctx,
-                        builder_config,
-                        proposer_preferences,
+                        signed_bid,
+                        builder_boost_factor,
                         state,
+                        parent_execution_requests,
                     )
                     .await,
                 );
-            } else {
-                // Direct bids can't be validated without the proposer's fee recipient / gas-limit
-                // target, so builders configured with no available preferences are skipped.
-                warn!(
-                    "Builders are configured but no proposer preferences are available; skipping \
-                     direct builder bids for this proposal"
-                );
+                (builder_boost_factor, 0)
             }
-        }
+        };
 
-        if let Some(gossip_bid) = self.gossip_verified_payload_bid_cache.get_highest_bid(
-            ctx.slot,
-            BidParent {
-                parent_block_hash: ctx.executed_ancestor_hash,
-                parent_block_root: ctx.parent_root,
-            },
-        ) {
+        // The client selected the supplied bid, so only consult gossip if that bid is unusable.
+        let supplied_bid_valid = externals
+            .iter()
+            .any(|candidate| matches!(candidate.source, BidSource::ApiSupplied));
+        if !supplied_bid_valid
+            && let Some(gossip_bid) = self.gossip_verified_payload_bid_cache.get_highest_bid(
+                ctx.slot,
+                BidParent {
+                    parent_block_hash: ctx.executed_ancestor_hash,
+                    parent_block_root: ctx.parent_root,
+                },
+            )
+        {
             // The gossip bid was validated against the head state at gossip time; its builder's
             // eligibility or coverage can go stale before production. Re-check against the production
             // state and drop it if it would now fail `per_block_processing`, so a stale gossip bid
@@ -1205,8 +1252,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(_) => {
                     externals.push(BidCandidate::gossip(
                         gossip_bid,
-                        builder_config.builder_boost_factor,
-                        builder_config.min_bid,
+                        gossip_builder_boost_factor,
+                        gossip_min_bid,
                     ));
                 }
                 Err(error) => {
@@ -1278,6 +1325,61 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         externals
+    }
+
+    /// Validate a client-selected bid before it can compete with the local payload. Failures
+    /// discard only the bid, so block production can continue with the local execution engine.
+    async fn validate_supplied_bid(
+        self: &Arc<Self>,
+        ctx: &BidRequestContext,
+        signed_bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>,
+        builder_boost_factor: u64,
+        state: &BeaconState<T::EthSpec>,
+        parent_execution_requests: &ExecutionRequestsGloas<T::EthSpec>,
+    ) -> Option<BidCandidate<T::EthSpec>> {
+        if state
+            .get_builder(signed_bid.message().builder_index())
+            .is_ok_and(|builder| builder_exit_requested(builder, parent_execution_requests))
+        {
+            warn!("Skipping supplied bid from a builder the parent payload exits");
+            return None;
+        }
+
+        let executed_ancestor_gas_limit = self
+            .observed_execution_payloads
+            .get_gas_limit(ctx.executed_ancestor_hash)?;
+        let state = state.clone();
+        let spec = self.spec.clone();
+        let bid = signed_bid.clone();
+        let slot = ctx.slot;
+        let executed_ancestor_hash = ctx.executed_ancestor_hash;
+        let parent_root = ctx.parent_root;
+        let result = self
+            .task_executor
+            .spawn_blocking_handle(
+                move || {
+                    verify_bid_for_block(
+                        &bid,
+                        slot,
+                        executed_ancestor_hash,
+                        parent_root,
+                        executed_ancestor_gas_limit,
+                        &Default::default(),
+                        None,
+                        &state,
+                        &spec,
+                    )
+                },
+                "verify_supplied_bid",
+            )?
+            .await;
+        match result {
+            Ok(Ok(())) => Some(BidCandidate::supplied(signed_bid, builder_boost_factor)),
+            error => {
+                warn!(?error, "Skipping invalid supplied execution payload bid");
+                None
+            }
+        }
     }
 
     /// Request direct bids from the configured builders and return each valid one as a selection
