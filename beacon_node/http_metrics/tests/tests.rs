@@ -6,9 +6,9 @@ use reqwest::header::HeaderValue;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use types::MainnetEthSpec;
+use types::Spec;
 
-type Context = http_metrics::Context<EphemeralHarnessType<MainnetEthSpec>>;
+type Context = http_metrics::Context<EphemeralHarnessType<Spec>>;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn returns_200_ok() {

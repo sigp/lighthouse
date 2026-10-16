@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = { workspace = true }
 authors = ["Sean Anderson <sean@sigmaprime.io>"]
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 bls = { workspace = true }
 context_deserialize = { workspace = true }

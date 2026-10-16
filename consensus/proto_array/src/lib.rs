@@ -12,7 +12,6 @@ pub use crate::proto_array::{
 pub use crate::proto_array_fork_choice::{
     Block, DoNotReOrg, ExecutionStatus, ExecutionVerdict, ForkChoiceNode, LatestMessage,
     PayloadBlockHash, PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice,
-    ReOrgThreshold,
 };
 pub use error::Error;
 

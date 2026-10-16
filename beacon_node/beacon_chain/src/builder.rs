@@ -4,6 +4,7 @@ use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, CanonicalHead, LightClientProducerEvent, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
@@ -378,13 +379,8 @@ where
         // Stage the database's metadata fields for atomic storage when `build` is called.
         self.pending_io_batch.push(
             store
-                .init_blob_info(genesis.beacon_block.slot())
-                .map_err(|e| format!("Failed to initialize genesis blob info: {:?}", e))?,
-        );
-        self.pending_io_batch.push(
-            store
-                .init_data_column_info(genesis.beacon_block.slot())
-                .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
+                .init_data_info(genesis.beacon_block.slot())
+                .map_err(|e| format!("Failed to initialize genesis data info: {:?}", e))?,
         );
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, genesis.clone())
@@ -599,13 +595,8 @@ where
         self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store
-                .init_blob_info(weak_subj_block.slot())
-                .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
-        );
-        self.pending_io_batch.push(
-            store
-                .init_data_column_info(weak_subj_block.slot())
-                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
+                .init_data_info(weak_subj_block.slot())
+                .map_err(|e| format!("Failed to initialize data info: {:?}", e))?,
         );
 
         let snapshot = BeaconSnapshot {
@@ -1006,6 +997,9 @@ where
         debug!(?custody_context, "Loaded persisted custody context");
         let custody_context = Arc::new(custody_context);
 
+        let circuit_breaker =
+            CircuitBreaker::new::<E>(CircuitBreakerConfig::from_chain_config(&self.chain_config));
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -1108,6 +1102,7 @@ where
                 .map(Arc::new),
             rng: Arc::new(Mutex::new(rng)),
             gossip_verified_payload_bid_cache: <_>::default(),
+            circuit_breaker,
             gossip_verified_proposer_preferences_cache: <_>::default(),
             observed_payload_envelopes: <_>::default(),
         };
@@ -1414,13 +1409,8 @@ where
         self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store
-                .init_blob_info(initial_block.slot())
-                .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
-        );
-        self.pending_io_batch.push(
-            store
-                .init_data_column_info(initial_block.slot())
-                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
+                .init_data_info(initial_block.slot())
+                .map_err(|e| format!("Failed to initialize data info: {:?}", e))?,
         );
 
         {
