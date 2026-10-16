@@ -47,6 +47,7 @@ use validator_services::{
     block_service::{BlockService, BlockServiceBuilder},
     builder_preferences_service::BuilderPreferencesService,
     duties_service::{self, DutiesService, DutiesServiceBuilder},
+    inclusion_list_service::InclusionListService,
     latency_service,
     payload_attestation_service::PayloadAttestationService,
     preparation_service::{PreparationService, PreparationServiceBuilder},
@@ -96,6 +97,7 @@ pub struct ProductionValidatorClient<E: EthSpec> {
         ProposerPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     preparation_service: PreparationService<ValidatorStore<E>, SystemTimeSlotClock>,
+    inclusion_list_service: InclusionListService<ValidatorStore<E>, SystemTimeSlotClock>,
     validator_store: Arc<ValidatorStore<E>>,
     configured_builders: BuilderStore,
     builder_preferences_service: BuilderPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
@@ -616,6 +618,15 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context.eth2_config.spec.clone(),
         );
 
+        let inclusion_list_service = InclusionListService::new(
+            duties_service.clone(),
+            validator_store.clone(),
+            slot_clock.clone(),
+            beacon_nodes.clone(),
+            context.executor.clone(),
+            context.eth2_config.spec.clone(),
+        );
+
         Ok(Self {
             context,
             duties_service,
@@ -624,6 +635,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             sync_committee_service,
             payload_attestation_service,
             proposer_preferences_service,
+            inclusion_list_service,
             doppelganger_service,
             preparation_service,
             validator_store,
@@ -714,6 +726,13 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 .clone()
                 .start_update_service()
                 .map_err(|e| format!("Unable to start builder preferences service: {}", e))?;
+        }
+
+        if self.context.eth2_config.spec.is_heze_scheduled() {
+            self.inclusion_list_service
+                .clone()
+                .start_update_service()
+                .map_err(|e| format!("Unable to start inclusion list service: {}", e))?;
         }
 
         self.preparation_service
