@@ -211,7 +211,7 @@ pub struct SigningRequest<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
     pub object: Web3SignerObject<'a, E, Payload>,
 }
 
-#[derive(Debug, PartialEq, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct SigningResponse {
     pub signature: Signature,
 }
