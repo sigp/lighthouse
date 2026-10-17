@@ -76,8 +76,9 @@ mod test {
     use crate::test_utils::static_valid_tx;
     use alloy_consensus::TxLegacy;
     use alloy_primitives::TxKind;
+    use types::Spec;
 
-    type E = types::MainnetEthSpec;
+    type E = Spec;
 
     #[test]
     fn test_decode_static_transaction() {
