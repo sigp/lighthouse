@@ -52,8 +52,6 @@ struct Meta {
     #[serde(default)]
     finalized_checkpoint: Option<FinalizedCheckpoint>,
     #[serde(default)]
-    current_time_ms: Option<u64>,
-    #[serde(default)]
     messages: Vec<MessageMeta>,
     #[serde(default)]
     bls_setting: Option<BlsSetting>,
@@ -100,8 +98,6 @@ struct MessageMeta {
     reason: Option<String>,
     #[serde(default)]
     subnet_id: Option<u64>,
-    #[serde(default)]
-    offset_ms: Option<u64>,
     #[serde(default)]
     current_time_ms: Option<u64>,
 }
@@ -198,7 +194,7 @@ impl<E: EthSpec> GossipTester<E> {
     fn new(case: &GossipValidation<E>, spec: ChainSpec) -> Result<Self, Error> {
         let genesis_time = case.state.genesis_time();
         let blocks = case.load_beacon_blocks(&spec)?;
-        let current_time_ms = case.current_time_ms(&spec)?;
+        let current_time_ms = case.current_time_ms(&blocks, &spec)?;
         let spec = Arc::new(spec);
 
         let (harness, initial_block_index) =
@@ -439,7 +435,7 @@ impl<E: EthSpec> GossipTester<E> {
         peer_id: PeerId,
     ) -> Result<(), Error> {
         let block = Arc::new(load_beacon_block(path, &message_meta.message, &self.spec)?);
-        let time_ms = self.message_time_ms(message_meta)?;
+        let time_ms = self.message_time_ms(message_meta);
         let seen_duration = self.set_time_ms(time_ms)?;
 
         let process_fn = Box::pin(self.network_beacon_processor.clone().process_gossip_block(
@@ -587,18 +583,12 @@ impl<E: EthSpec> GossipTester<E> {
     }
 
     fn set_message_time(&self, message_meta: &MessageMeta) -> Result<Duration, Error> {
-        let time_ms = self.message_time_ms(message_meta)?;
+        let time_ms = self.message_time_ms(message_meta);
         self.set_time_ms(time_ms)
     }
 
-    fn message_time_ms(&self, message_meta: &MessageMeta) -> Result<u64, Error> {
-        if let Some(current_time_ms) = message_meta.current_time_ms {
-            return Ok(current_time_ms);
-        }
-
-        self.current_time_ms
-            .checked_add(message_meta.offset_ms.unwrap_or_default())
-            .ok_or_else(|| Error::FailedToParseTest("message time overflow".into()))
+    fn message_time_ms(&self, message_meta: &MessageMeta) -> u64 {
+        message_meta.current_time_ms.unwrap_or(self.current_time_ms)
     }
 
     fn validation_result(
@@ -862,12 +852,20 @@ impl<E: EthSpec> GossipValidation<E> {
         .any(|suffix| case_name.ends_with(suffix))
     }
 
-    fn current_time_ms(&self, spec: &ChainSpec) -> Result<u64, Error> {
-        if let Some(current_time_ms) = self.meta.current_time_ms {
-            return Ok(current_time_ms);
-        }
-
-        slot_time_ms(self.state.slot(), spec)
+    /// The start of the latest slot of the state and the setup blocks.
+    fn current_time_ms(
+        &self,
+        blocks: &HashMap<String, SignedBeaconBlock<E>>,
+        spec: &ChainSpec,
+    ) -> Result<u64, Error> {
+        let slot = self
+            .meta
+            .blocks
+            .iter()
+            .filter_map(|setup_block| blocks.get(&setup_block.block))
+            .map(|block| block.slot())
+            .fold(self.state.slot(), Slot::max);
+        slot_time_ms(slot, spec)
     }
 
     fn finalized_checkpoint(
