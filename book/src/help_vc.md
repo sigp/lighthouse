@@ -24,10 +24,26 @@ Options:
       --builder-boost-factor <UINT64>
           Defines the boost factor, a percentage multiplier to apply to the
           builder's payload value when choosing between a builder payload header
-          and payload from the local execution node.
+          and payload from the local execution node. From Gloas, supplies the
+          global builder_boost_factor when omitted from builder_definitions.yml.
+          Explicit file configurations take precedence.
+      --builder-max-execution-payment <GWEI>
+          Maximum trusted execution payment in gwei for each URL in
+          --builder-urls. Defaults to 0. Applies from Gloas when the global
+          builder list is omitted from builder_definitions.yml. Per-validator
+          builder configurations take precedence.
+      --builder-min-bid <GWEI>
+          Fallback minimum total builder payment in gwei from Gloas. Used when
+          the global min_bid is omitted from builder_definitions.yml.
+          Per-validator and per-builder values take precedence. Bids below this
+          value rank last.
       --builder-registration-timestamp-override <UNIX-TIMESTAMP>
           This flag takes a unix timestamp value that will be used to override
           the timestamp used in the builder api registration.
+      --builder-urls <NETWORK_ADDRESSES>
+          Comma-separated HTTP(S) URLs of ePBS builders. From Gloas, used as the
+          global builder list when builders is omitted from
+          builder_definitions.yml. Explicit file configurations take precedence.
   -d, --datadir <DIR>
           Used to specify a custom root data directory for lighthouse keys and
           databases. Defaults to $HOME/.lighthouse/{network} where network is

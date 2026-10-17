@@ -1,3 +1,4 @@
+use crate::Config;
 use account_utils::write_file_via_temporary;
 use bls::PublicKeyBytes;
 use builder_types::{BuilderPubkeys, BuilderUrl, MAX_BUILDER_ENTRIES, RequestAuthData};
@@ -192,19 +193,21 @@ impl ValidatorBuilderConfig {
 /// Holds the global bid-policy defaults plus the list of builders to request bids from directly. It
 /// resolves into the wire `BuilderConfig` at block-production time: the globals govern p2p bids and
 /// fill in any builder that omits `min_bid`/`builder_boost_factor`.
-#[derive(Clone, Serialize, Deserialize)]
+/// Omitted globals inherit CLI defaults and remain omitted when the file is saved.
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct BuilderConfigFile {
     /// Global minimum total payment (gwei). Applies to p2p bids and is inherited by any builder that
     /// omits its own `min_bid`.
-    #[serde(default)]
-    pub min_bid: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_bid: Option<u64>,
     /// Global boost factor. Applies to p2p bids and is inherited by any builder that omits its own
     /// `builder_boost_factor`.
-    #[serde(default = "default_builder_boost_factor")]
-    pub builder_boost_factor: u64,
-    /// The builders to request bids from directly.
-    #[serde(default)]
-    pub builders: Vec<BuilderDefinition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_boost_factor: Option<u64>,
+    /// The builders to request bids from directly. An explicit empty list disables direct
+    /// builders; an omitted list inherits the CLI defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builders: Option<Vec<BuilderDefinition>>,
     /// Per-validator overrides. The key is the compressed validator public key in hex form.
     #[serde(
         default,
@@ -229,17 +232,6 @@ fn deserialize_validator_configs_and_standardize_pubkeys<'de, D: Deserializer<'d
         }
     }
     Ok(standardized)
-}
-
-impl Default for BuilderConfigFile {
-    fn default() -> Self {
-        Self {
-            min_bid: 0,
-            builder_boost_factor: default_builder_boost_factor(),
-            builders: Vec::new(),
-            validator_configs: BTreeMap::new(),
-        }
-    }
 }
 
 impl BuilderConfigFile {
@@ -287,17 +279,17 @@ impl BuilderConfigFile {
     }
 
     pub fn as_slice(&self) -> &[BuilderDefinition] {
-        &self.builders
+        self.builders.as_deref().unwrap_or_default()
     }
 
     pub fn push(&mut self, definition: BuilderDefinition) {
-        self.builders.push(definition);
+        self.builders.get_or_insert_default().push(definition);
     }
 
     pub fn validate(&self) -> Result<(), Error> {
         // The enabled builders must fit in a `BuilderConfig`'s bounded list, so
         // `BuilderStore::builder_config` cannot overflow when constructing it.
-        let enabled = self.builders.iter().filter(|d| d.enabled).count();
+        let enabled = self.as_slice().iter().filter(|d| d.enabled).count();
         if enabled > MAX_BUILDER_ENTRIES {
             return Err(Error::TooManyEnabledBuilders {
                 enabled,
@@ -307,7 +299,7 @@ impl BuilderConfigFile {
 
         let mut seen_auth_urls = HashSet::new();
 
-        for definition in &self.builders {
+        for definition in self.as_slice() {
             if !definition.enabled {
                 // ignore disabled builders
                 continue;
@@ -324,24 +316,42 @@ impl BuilderConfigFile {
     }
 
     /// Resolve the configuration that applies to `validator_pubkey`.
-    pub fn resolved_for(&self, validator_pubkey: &PublicKeyBytes) -> ResolvedBuilderConfig {
+    pub fn resolved_for(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        cli_config: &Config,
+    ) -> ResolvedBuilderConfig {
+        let global_min_bid = self.min_bid.or(cli_config.min_bid).unwrap_or_default();
+        let global_builder_boost_factor = self
+            .builder_boost_factor
+            .or(cli_config.builder_boost_factor)
+            .unwrap_or_else(default_builder_boost_factor);
+        let global_builders = self
+            .builders
+            .as_deref()
+            .or(cli_config.builders.as_deref())
+            .unwrap_or_default();
         let validator_config = self.validator_configs.get(&validator_pubkey.to_string());
         let validator_min_bid = validator_config.and_then(|config| config.min_bid);
         let validator_builder_boost_factor =
             validator_config.and_then(|config| config.builder_boost_factor);
-        let min_bid = validator_min_bid.unwrap_or(self.min_bid);
+        let min_bid = validator_min_bid.unwrap_or(global_min_bid);
         let builder_boost_factor =
-            validator_builder_boost_factor.unwrap_or(self.builder_boost_factor);
+            validator_builder_boost_factor.unwrap_or(global_builder_boost_factor);
 
         let builders = match validator_config.and_then(|config| config.builders.as_ref()) {
             Some(builders) => builders
                 .iter()
                 .map(|builder| {
-                    self.resolve_validator_builder(builder, min_bid, builder_boost_factor)
+                    Self::resolve_validator_builder(
+                        builder,
+                        min_bid,
+                        builder_boost_factor,
+                        global_builders,
+                    )
                 })
                 .collect(),
-            None => self
-                .builders
+            None => global_builders
                 .iter()
                 .filter(|builder| {
                     if !builder.enabled {
@@ -373,12 +383,12 @@ impl BuilderConfigFile {
                     builder.min_bid = Some(
                         validator_min_bid
                             .or(builder.min_bid)
-                            .unwrap_or(self.min_bid),
+                            .unwrap_or(global_min_bid),
                     );
                     builder.builder_boost_factor = Some(
                         validator_builder_boost_factor
                             .or(builder.builder_boost_factor)
-                            .unwrap_or(self.builder_boost_factor),
+                            .unwrap_or(global_builder_boost_factor),
                     );
                     builder
                 })
@@ -393,14 +403,14 @@ impl BuilderConfigFile {
     }
 
     fn resolve_validator_builder(
-        &self,
         builder: &ValidatorBuilderDefinition,
         min_bid: u64,
         builder_boost_factor: u64,
+        global_builders: &[BuilderDefinition],
     ) -> BuilderDefinition {
         let max_execution_payment = builder
             .max_execution_payment
-            .or_else(|| self.global_max_execution_payment(builder))
+            .or_else(|| Self::global_max_execution_payment(builder, global_builders))
             .unwrap_or_default();
 
         BuilderDefinition {
@@ -416,14 +426,17 @@ impl BuilderConfigFile {
         }
     }
 
-    fn global_max_execution_payment(&self, builder: &ValidatorBuilderDefinition) -> Option<u64> {
+    fn global_max_execution_payment(
+        builder: &ValidatorBuilderDefinition,
+        global_builders: &[BuilderDefinition],
+    ) -> Option<u64> {
         let auth_data = builder
             .auth_data
             .clone()
             .map(Ok)
             .unwrap_or_else(|| builder.url.to_default_auth_data())
             .ok()?;
-        self.builders
+        global_builders
             .iter()
             .filter(|global| global.enabled)
             .find(|global| {
@@ -471,13 +484,36 @@ impl<'a> IntoIterator for &'a BuilderConfigFile {
     type IntoIter = std::slice::Iter<'a, BuilderDefinition>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.builders.iter()
+        self.as_slice().iter()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn global_settings_preserve_omitted_and_explicit_defaults() {
+        let omitted: BuilderConfigFile = yaml_serde::from_str("{}").unwrap();
+        assert!(omitted.min_bid.is_none());
+        assert!(omitted.builder_boost_factor.is_none());
+        assert!(omitted.builders.is_none());
+        let yaml = yaml_serde::to_string(&omitted).unwrap();
+        for field in ["min_bid", "builder_boost_factor", "builders"] {
+            assert!(
+                !yaml.contains(field),
+                "unset `{field}` should be omitted:\n{yaml}"
+            );
+        }
+
+        let explicit: BuilderConfigFile =
+            yaml_serde::from_str("min_bid: 0\nbuilder_boost_factor: 100\nbuilders: []\n").unwrap();
+        let yaml = yaml_serde::to_string(&explicit).unwrap();
+        let decoded: BuilderConfigFile = yaml_serde::from_str(&yaml).unwrap();
+        assert_eq!(decoded.min_bid, Some(0));
+        assert_eq!(decoded.builder_boost_factor, Some(100));
+        assert!(decoded.builders.unwrap().is_empty());
+    }
 
     #[test]
     fn auth_data_round_trips_as_hex() {
