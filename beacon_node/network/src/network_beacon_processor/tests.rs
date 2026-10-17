@@ -1883,6 +1883,118 @@ async fn requeue_early_gossip_payload_envelope() {
     );
 }
 
+/// Ensure that a gossip envelope arriving before its block is re-queued and
+/// re-processed upon importing the block.
+#[tokio::test]
+async fn requeue_unknown_block_gossip_payload_envelope() {
+    // Only test when the Gloas fork is scheduled
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+
+    // Send the envelope but not the block, and check that it was not imported.
+    rig.enqueue_gossip_envelope();
+    rig.assert_event_journal_completes(&[WorkType::GossipExecutionPayload])
+        .await;
+    assert!(
+        rig.chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .is_none(),
+        "The envelope should not have been imported."
+    );
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_none(),
+        "The envelope should be queued, not in the pending payload cache."
+    );
+
+    // Send the block and ensure that the envelope is received back and imported.
+    rig.enqueue_gossip_block();
+    rig.assert_event_journal_contains_ordered(&[
+        WorkType::GossipBlock,
+        WorkType::DelayedImportEnvelope,
+    ])
+    .await;
+
+    // The released envelope has been re-processed into the pending payload cache, where its
+    // import remains pending on data column availability, which is not exercised here.
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_some(),
+        "The envelope should have been re-processed into the pending payload cache."
+    );
+}
+
+/// Ensure that a gossip envelope referencing an unknown block gets re-queued and, when the
+/// block is never seen, is received back on timeout without being imported.
+#[tokio::test]
+async fn requeue_unknown_block_gossip_payload_envelope_without_import() {
+    // Only test when the Gloas fork is scheduled
+    if test_spec::<E>().gloas_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+
+    // Send the envelope but not the block, and check that it was not imported.
+    rig.enqueue_gossip_envelope();
+    rig.assert_event_journal_completes(&[WorkType::GossipExecutionPayload])
+        .await;
+    assert!(
+        rig.chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .is_none(),
+        "The envelope should not have been imported."
+    );
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_none(),
+        "The envelope should be queued, not in the pending payload cache."
+    );
+
+    // Ensure that the envelope is received back on timeout but not imported.
+    let timeout =
+        Duration::from_secs(1) + rig.chain.slot_clock.slot_duration() * QUEUED_ENVELOPE_DELAY_SLOTS;
+    rig.assert_event_journal_with_timeout(
+        &[
+            WorkType::DelayedImportEnvelope.into(),
+            WORKER_FREED,
+            NOTHING_TO_DO,
+        ],
+        timeout,
+        false,
+        false,
+    )
+    .await;
+
+    assert!(
+        rig.chain
+            .get_payload_envelope(&block_root)
+            .unwrap()
+            .is_none(),
+        "The envelope should not have been imported."
+    );
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_none(),
+        "The envelope should not be in the pending payload cache."
+    );
+}
+
 /// An RPC envelope can finish execution verification before its custody columns arrive. When the
 /// columns make the envelope available, the processor must notify the reprocessing queue.
 #[tokio::test]
@@ -2968,11 +3080,6 @@ async fn test_payload_envelopes_by_range_no_duplicates_with_skip_slots() {
         unique_roots.len(),
     );
 }
-
-// TODO(ePBS): Add integration tests for envelope deferral (UnknownBlockForEnvelope):
-//   1. Gossip envelope arrives before its block → queued via UnknownBlockForEnvelope
-//   2. Block imported → envelope released and processed successfully
-//   3. Timeout path → envelope released and re-verified
 
 /// Drain `network_rx` collecting `Response::BlocksByHead(Some(_))` block roots until the
 /// stream terminator (`None`) arrives. Panics on any other message type so tests fail
