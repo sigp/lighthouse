@@ -364,7 +364,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
     use tokio::sync::mpsc;
-    use types::{ChainSpec, Epoch, EthSpec, Hash256, Slot, Spec};
+    use types::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, Slot, Spec};
 
     const VALIDATOR_COUNT: usize = 48;
 
@@ -388,16 +388,16 @@ mod tests {
         harness
     }
 
-    // TODO(EIP-7732) Extend this test for gloas
     #[tokio::test]
-    async fn check_all_blocks_from_altair_to_fulu() {
+    async fn check_all_blocks_from_altair_to_gloas() {
         let slots_per_epoch = Spec::slots_per_epoch() as usize;
-        let num_epochs = 12;
+        let num_epochs = 14;
         let bellatrix_fork_epoch = 0usize;
         let capella_fork_epoch = 4usize;
         let deneb_fork_epoch = 6usize;
         let electra_fork_epoch = 8usize;
         let fulu_fork_epoch = 10usize;
+        let gloas_fork_epoch = 12usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
         let mut spec = test_spec::<Spec>();
@@ -407,12 +407,11 @@ mod tests {
         spec.deneb_fork_epoch = Some(Epoch::new(deneb_fork_epoch as u64));
         spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
         spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch as u64));
-        spec.gloas_fork_epoch = None;
+        spec.gloas_fork_epoch = Some(Epoch::new(gloas_fork_epoch as u64));
         spec.heze_fork_epoch = None;
         let spec = Arc::new(spec);
 
         let harness = get_harness(VALIDATOR_COUNT, spec.clone());
-        // finish rest of epochs
         harness.extend_slots(num_epochs * slots_per_epoch).await;
 
         let head = harness.chain.head_snapshot();
@@ -458,6 +457,13 @@ mod tests {
                 .expect("block should exist");
             expected_blocks.push(block);
         }
+
+        assert!(
+            expected_blocks[..num_blocks_produced].iter().any(|b| {
+                b.fork_name(spec.as_ref()).expect("fork should match slot") == ForkName::Gloas
+            }),
+            "expected Gloas blocks in streamed range"
+        );
 
         for epoch in 0..num_epochs {
             let start = epoch * slots_per_epoch;
