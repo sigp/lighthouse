@@ -2116,7 +2116,7 @@ async fn reconstructed_columns_notify_after_deferred_block_import() {
         .await;
 
     assert!(
-        rig.chain.is_block_data_imported(block_root, slot),
+        rig.chain.is_block_data_imported(block_root),
         "reconstruction should import the block"
     );
     assert_matches!(
@@ -2206,7 +2206,7 @@ async fn reconstructed_columns_notify_after_deferred_envelope_import() {
                 bundle
                     .commitments
                     .iter()
-                    .eq(bid.message.blob_kzg_commitments.iter())
+                    .eq(bid.message().blob_kzg_commitments().iter())
             })
             .expect("blobs for next block")
             .blobs
@@ -2244,7 +2244,7 @@ async fn reconstructed_columns_notify_after_deferred_envelope_import() {
         "reconstruction should import the envelope"
     );
     assert!(
-        rig.chain.is_block_data_imported(block_root, slot),
+        rig.chain.is_block_data_imported(block_root),
         "reconstruction should import the envelope"
     );
     assert_matches!(
