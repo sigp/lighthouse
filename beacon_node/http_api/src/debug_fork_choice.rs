@@ -7,9 +7,7 @@ use eth2::types::{
 };
 use fixed_bytes::FixedBytesExtended;
 use proto_array::core::ProtoNode;
-use proto_array::{
-    ExecutionVerdict, ParentPayloadStatus, PayloadBlockHash, PayloadStatus, ProtoArrayForkChoice,
-};
+use proto_array::{ParentPayloadStatus, PayloadBlockHash, PayloadStatus, ProtoArrayForkChoice};
 use tracing::{debug, warn};
 use types::{ExecutionBlockHash, Hash256};
 use warp::Rejection;
@@ -136,24 +134,6 @@ pub fn fork_choice_v2<T: BeaconChainTypes>(
     Ok(fork_choice)
 }
 
-/// Fields that depend on the node's payload status.
-struct PayloadStatusFields {
-    payload_status: PayloadStatus,
-    parent_root: Hash256,
-    parent_payload_status: Option<PayloadStatus>,
-    weight: u64,
-    validity: ExecutionVerdict,
-    execution_block_hash: ExecutionBlockHash,
-}
-
-/// PTC vote counts, shared by all nodes of a block.
-#[derive(Default)]
-struct PtcCounts {
-    attesters: u64,
-    availability_yes: u64,
-    data_availability_yes: u64,
-}
-
 /// Pushes the fork choice nodes of `node`'s block onto `fork_choice_nodes`.
 fn push_fork_choice_nodes(
     node: &ProtoNode,
@@ -174,133 +154,97 @@ fn push_fork_choice_nodes(
                 PayloadBlockHash::Hash(block_hash) => block_hash,
                 PayloadBlockHash::PreMerge => ExecutionBlockHash::zero(),
             };
-            fork_choice_nodes.push(fork_choice_node_v2(
-                node,
-                PayloadStatusFields {
-                    payload_status: PayloadStatus::Full,
-                    parent_root: parent_root.unwrap_or_else(Hash256::zero),
-                    // A pre-Gloas parent is a single `Full` node.
-                    parent_payload_status: parent_root.map(|_| PayloadStatus::Full),
-                    weight: node.weight(),
-                    validity: validity_assuming_full(proto_array_fork_choice, block_root)?,
-                    execution_block_hash,
+            fork_choice_nodes.push(ForkChoiceNodeV2 {
+                slot: node.slot(),
+                block_root,
+                payload_status: PayloadStatus::Full,
+                parent_root: parent_root.unwrap_or_else(Hash256::zero),
+                // A pre-Gloas parent is a single `Full` node.
+                parent_payload_status: parent_root.map(|_| PayloadStatus::Full),
+                justified_checkpoint: *node.justified_checkpoint(),
+                finalized_checkpoint: *node.finalized_checkpoint(),
+                weight: node.weight(),
+                validity: proto_array_fork_choice
+                    .get_block_execution_status_assuming_full(&block_root)
+                    .map_err(warp_utils::reject::unhandled_error)?,
+                execution_block_hash,
+                payload_attester_count: 0,
+                payload_availability_yes_count: 0,
+                payload_data_availability_yes_count: 0,
+                extra_data: ForkChoiceNodeExtraDataV2 {
+                    target_root: node.target_root(),
+                    state_root: node.state_root(),
+                    unrealized_justified_checkpoint: node.unrealized_justified_checkpoint(),
+                    unrealized_finalized_checkpoint: node.unrealized_finalized_checkpoint(),
+                    execution_status: node.execution_status().to_string(),
                 },
-                &PtcCounts::default(),
-            ));
+            });
         }
         ProtoNode::V29(gloas_node) => {
-            let ptc_counts = PtcCounts {
-                attesters: gloas_node.ptc_participation.num_set_bits() as u64,
-                availability_yes: gloas_node.payload_timeliness_votes.num_set_bits() as u64,
-                data_availability_yes: gloas_node.payload_data_availability_votes.num_set_bits()
+            let parent_payload_status =
+                parent_root.map(|_| match gloas_node.parent_payload_status {
+                    ParentPayloadStatus::Empty => PayloadStatus::Empty,
+                    ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {
+                        PayloadStatus::Full
+                    }
+                });
+
+            let pending = ForkChoiceNodeV2 {
+                slot: node.slot(),
+                block_root,
+                payload_status: PayloadStatus::Pending,
+                parent_root: parent_root.unwrap_or_else(Hash256::zero),
+                parent_payload_status,
+                justified_checkpoint: *node.justified_checkpoint(),
+                finalized_checkpoint: *node.finalized_checkpoint(),
+                weight: gloas_node.weight,
+                // Walks up through `Empty` edges, so the cost grows with long
+                // runs of missed payloads.
+                validity: proto_array
+                    .inherited_execution_status(block_root)
+                    .map_err(warp_utils::reject::unhandled_error)?,
+                execution_block_hash: gloas_node.execution_payload_parent_hash,
+                payload_attester_count: gloas_node.ptc_participation.num_set_bits() as u64,
+                payload_availability_yes_count: gloas_node.payload_timeliness_votes.num_set_bits()
                     as u64,
+                payload_data_availability_yes_count: gloas_node
+                    .payload_data_availability_votes
+                    .num_set_bits() as u64,
+                extra_data: ForkChoiceNodeExtraDataV2 {
+                    target_root: node.target_root(),
+                    state_root: node.state_root(),
+                    unrealized_justified_checkpoint: node.unrealized_justified_checkpoint(),
+                    unrealized_finalized_checkpoint: node.unrealized_finalized_checkpoint(),
+                    execution_status: node.execution_status().to_string(),
+                },
             };
 
-            // Shared by `Pending` and `Empty`. Walks up through `Empty` edges, so the cost grows
-            // with long runs of missed payloads.
-            let inherited_validity = proto_array
-                .inherited_execution_status(block_root)
-                .map_err(execution_status_rejection)?;
+            let empty = ForkChoiceNodeV2 {
+                payload_status: PayloadStatus::Empty,
+                parent_root: block_root,
+                parent_payload_status: Some(PayloadStatus::Pending),
+                weight: gloas_node.empty_payload_weight,
+                ..pending.clone()
+            };
 
-            fork_choice_nodes.push(fork_choice_node_v2(
-                node,
-                PayloadStatusFields {
-                    payload_status: PayloadStatus::Pending,
-                    parent_root: parent_root.unwrap_or_else(Hash256::zero),
-                    // Keyed on `parent_root`: the stored status defaults to `Empty` when the
-                    // parent is missing. A pre-Gloas parent is a single `Full` node.
-                    parent_payload_status: parent_root.map(|_| {
-                        match gloas_node.parent_payload_status {
-                            ParentPayloadStatus::Empty => PayloadStatus::Empty,
-                            ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {
-                                PayloadStatus::Full
-                            }
-                        }
-                    }),
-                    weight: gloas_node.weight,
-                    validity: inherited_validity,
-                    execution_block_hash: gloas_node.execution_payload_parent_hash,
-                },
-                &ptc_counts,
-            ));
-
-            fork_choice_nodes.push(fork_choice_node_v2(
-                node,
-                PayloadStatusFields {
-                    payload_status: PayloadStatus::Empty,
-                    parent_root: block_root,
-                    parent_payload_status: Some(PayloadStatus::Pending),
-                    weight: gloas_node.empty_payload_weight,
-                    validity: inherited_validity,
-                    execution_block_hash: gloas_node.execution_payload_parent_hash,
-                },
-                &ptc_counts,
-            ));
-
-            // Unlike `get_node_children`, kept even if the payload was later found invalid.
+            fork_choice_nodes.push(pending);
             if gloas_node.payload_received {
-                fork_choice_nodes.push(fork_choice_node_v2(
-                    node,
-                    PayloadStatusFields {
-                        payload_status: PayloadStatus::Full,
-                        parent_root: block_root,
-                        parent_payload_status: Some(PayloadStatus::Pending),
-                        weight: gloas_node.full_payload_weight,
-                        validity: validity_assuming_full(proto_array_fork_choice, block_root)?,
-                        execution_block_hash: gloas_node.execution_payload_block_hash,
-                    },
-                    &ptc_counts,
-                ));
+                let full = ForkChoiceNodeV2 {
+                    payload_status: PayloadStatus::Full,
+                    weight: gloas_node.full_payload_weight,
+                    validity: proto_array_fork_choice
+                        .get_block_execution_status_assuming_full(&block_root)
+                        .map_err(warp_utils::reject::unhandled_error)?,
+                    execution_block_hash: gloas_node.execution_payload_block_hash,
+                    ..empty.clone()
+                };
+                fork_choice_nodes.push(full);
             }
+            fork_choice_nodes.push(empty);
         }
     }
 
     Ok(())
-}
-
-fn fork_choice_node_v2(
-    node: &ProtoNode,
-    fields: PayloadStatusFields,
-    ptc_counts: &PtcCounts,
-) -> ForkChoiceNodeV2 {
-    ForkChoiceNodeV2 {
-        slot: node.slot(),
-        block_root: node.root(),
-        payload_status: fields.payload_status,
-        parent_root: fields.parent_root,
-        parent_payload_status: fields.parent_payload_status,
-        justified_checkpoint: *node.justified_checkpoint(),
-        finalized_checkpoint: *node.finalized_checkpoint(),
-        weight: fields.weight,
-        validity: fields.validity,
-        execution_block_hash: fields.execution_block_hash,
-        payload_attester_count: ptc_counts.attesters,
-        payload_availability_yes_count: ptc_counts.availability_yes,
-        payload_data_availability_yes_count: ptc_counts.data_availability_yes,
-        extra_data: ForkChoiceNodeExtraDataV2 {
-            target_root: node.target_root(),
-            state_root: node.state_root(),
-            unrealized_justified_checkpoint: node.unrealized_justified_checkpoint(),
-            unrealized_finalized_checkpoint: node.unrealized_finalized_checkpoint(),
-            execution_status: node.execution_status().to_string(),
-            payload_received: node.payload_received().ok(),
-        },
-    }
-}
-
-fn validity_assuming_full(
-    proto_array_fork_choice: &ProtoArrayForkChoice,
-    block_root: Hash256,
-) -> Result<ExecutionVerdict, Rejection> {
-    proto_array_fork_choice
-        .get_block_execution_status_assuming_full(&block_root)
-        .map_err(execution_status_rejection)
-}
-
-fn execution_status_rejection(error: proto_array::Error) -> Rejection {
-    warp_utils::reject::custom_server_error(format!(
-        "unable to read fork choice execution status: {error:?}"
-    ))
 }
 
 /// Fills in `parent_root` from the store for nodes whose parent was pruned. Stays zero if the

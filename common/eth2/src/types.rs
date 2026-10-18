@@ -1823,7 +1823,7 @@ pub struct ForkChoiceExtraDataV2 {
     pub unrealized_finalized_checkpoint: Checkpoint,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ForkChoiceNodeV2 {
     pub slot: Slot,
     pub block_root: Hash256,
@@ -1834,6 +1834,8 @@ pub struct ForkChoiceNodeV2 {
     pub finalized_checkpoint: Checkpoint,
     #[serde(with = "serde_utils::quoted_u64")]
     pub weight: u64,
+    // v1 reports the block's raw `ExecutionStatus` whereas `ExecutionVerdict` is the validity of
+    // the node's chain as resolved by fork choice
     pub validity: ExecutionVerdict,
     pub execution_block_hash: ExecutionBlockHash,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1845,14 +1847,13 @@ pub struct ForkChoiceNodeV2 {
     pub extra_data: ForkChoiceNodeExtraDataV2,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ForkChoiceNodeExtraDataV2 {
     pub target_root: Hash256,
     pub state_root: Hash256,
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
     pub execution_status: String,
-    pub payload_received: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]

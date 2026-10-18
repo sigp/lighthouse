@@ -15,7 +15,7 @@ use eth2::{
     JSON_CONTENT_TYPE_HEADER, Timeouts,
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     types::{
-        BlockId as CoreBlockId, ProduceBlockV3Response, ProduceBlockV4Metadata,
+        BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, ProduceBlockV4Metadata,
         StateId as CoreStateId, *,
     },
 };
@@ -36,7 +36,7 @@ use lighthouse_network::{Enr, PeerId, types::SyncState};
 use network::NetworkReceivers;
 use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
-use proto_array::{ExecutionStatus, core::ProtoNode};
+use proto_array::{ExecutionStatus, PayloadBlockHash, core::ProtoNode};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde_utils::quoted_u64::Quoted;
@@ -4286,7 +4286,89 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_debug_fork_choice(self) -> Self {
+    pub async fn test_get_debug_fork_choice_v1(self) -> Self {
+        let result = self.client.get_debug_fork_choice_v1().await.unwrap();
+
+        let beacon_fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+
+        let expected_proto_array = beacon_fork_choice.proto_array().core_proto_array();
+
+        assert_eq!(
+            result.justified_checkpoint,
+            beacon_fork_choice.justified_checkpoint()
+        );
+        assert_eq!(
+            result.finalized_checkpoint,
+            beacon_fork_choice.finalized_checkpoint()
+        );
+
+        let expected_fork_choice_nodes: Vec<ForkChoiceNode> = expected_proto_array
+            .nodes
+            .iter()
+            .map(|node| {
+                let execution_status = node
+                    .execution_status()
+                    .is_execution_enabled()
+                    .then(|| node.execution_status().to_string());
+                ForkChoiceNode {
+                    slot: node.slot(),
+                    block_root: node.root(),
+                    parent_root: node
+                        .parent()
+                        .and_then(|index| expected_proto_array.nodes.get(index))
+                        .map(|parent| parent.root()),
+                    justified_epoch: node.justified_checkpoint().epoch,
+                    finalized_epoch: node.finalized_checkpoint().epoch,
+                    weight: node.weight(),
+                    validity: execution_status,
+                    execution_block_hash: match node.block_hash() {
+                        PayloadBlockHash::Hash(block_hash) => Some(block_hash.into_root()),
+                        PayloadBlockHash::PreMerge => None,
+                    },
+                    extra_data: ForkChoiceExtraData {
+                        target_root: node.target_root(),
+                        justified_root: node.justified_checkpoint().root,
+                        finalized_root: node.finalized_checkpoint().root,
+                        unrealized_justified_root: node
+                            .unrealized_justified_checkpoint()
+                            .map(|checkpoint| checkpoint.root),
+                        unrealized_finalized_root: node
+                            .unrealized_finalized_checkpoint()
+                            .map(|checkpoint| checkpoint.root),
+                        unrealized_justified_epoch: node
+                            .unrealized_justified_checkpoint()
+                            .map(|checkpoint| checkpoint.epoch),
+                        unrealized_finalized_epoch: node
+                            .unrealized_finalized_checkpoint()
+                            .map(|checkpoint| checkpoint.epoch),
+                        execution_status: node.execution_status().to_string(),
+                        best_child: node
+                            .best_child()
+                            .ok()
+                            .flatten()
+                            .and_then(|index| expected_proto_array.nodes.get(index))
+                            .map(|child| child.root()),
+                        best_descendant: node
+                            .best_descendant()
+                            .ok()
+                            .flatten()
+                            .and_then(|index| expected_proto_array.nodes.get(index))
+                            .map(|descendant| descendant.root()),
+                    },
+                }
+            })
+            .collect();
+
+        assert_eq!(result.fork_choice_nodes, expected_fork_choice_nodes);
+
+        // need to drop beacon_fork_choice here, else borrow checker will complain
+        // that self cannot be moved out since beacon_fork_choice borrowed self.chain
+        // and might still live after self is moved out
+        drop(beacon_fork_choice);
+        self
+    }
+
+    pub async fn test_get_debug_fork_choice_v2(self) -> Self {
         let result = self.client.get_debug_fork_choice().await.unwrap().data;
 
         // Read before taking the fork choice lock, so the two locks are never held together.
@@ -4363,10 +4445,6 @@ impl ApiTester {
                     *proto_node.finalized_checkpoint()
                 );
                 assert_eq!(node.weight, proto_node.attestation_score(payload_status));
-                assert_eq!(
-                    node.extra_data.payload_received,
-                    proto_node.payload_received().ok()
-                );
 
                 let expected_validity = if payload_status == PayloadStatus::Full {
                     proto_array_fork_choice.get_block_execution_status_assuming_full(&block_root)
@@ -10636,7 +10714,9 @@ async fn debug_get() {
         .await
         .test_get_debug_beacon_heads()
         .await
-        .test_get_debug_fork_choice()
+        .test_get_debug_fork_choice_v1()
+        .await
+        .test_get_debug_fork_choice_v2()
         .await;
 }
 
