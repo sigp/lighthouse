@@ -4439,6 +4439,9 @@ impl ApiTester {
             }
         }
 
+        // need to drop beacon_fork_choice here, else borrow checker will complain
+        // that self cannot be moved out since beacon_fork_choice borrowed self.chain
+        // and might still live after self is moved out
         drop(beacon_fork_choice);
         self
     }
