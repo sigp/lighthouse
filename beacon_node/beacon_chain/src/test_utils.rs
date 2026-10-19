@@ -253,11 +253,7 @@ pub fn test_custody_context<E: EthSpec>(
 ) -> Arc<CustodyContext<EphemeralHarnessType<E>>> {
     let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
     let complete_blob_backfill = false;
-    let slot_clock = TestingSlotClock::new(
-        Slot::new(0),
-        Duration::from_secs(0),
-        spec.get_slot_duration(),
-    );
+    let slot_clock = TestingSlotClock::from_spec::<E>(Duration::from_secs(0), &spec);
     Arc::new(CustodyContext::new(
         node_custody_type,
         ordered_custody_column_indices,
@@ -620,26 +616,26 @@ where
             .expect("cannot recalculate fork times without spec");
         mock.server.execution_block_generator().shanghai_time =
             spec.capella_fork_epoch.map(|epoch| {
-                genesis_time
-                    + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
+                spec.compute_time_at_slot::<E>(genesis_time, epoch.start_slot(E::slots_per_epoch()))
+                    .expect("fork time fits in u64")
             });
         mock.server.execution_block_generator().cancun_time = spec.deneb_fork_epoch.map(|epoch| {
-            genesis_time
-                + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
+            spec.compute_time_at_slot::<E>(genesis_time, epoch.start_slot(E::slots_per_epoch()))
+                .expect("fork time fits in u64")
         });
         mock.server.execution_block_generator().prague_time =
             spec.electra_fork_epoch.map(|epoch| {
-                genesis_time
-                    + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
+                spec.compute_time_at_slot::<E>(genesis_time, epoch.start_slot(E::slots_per_epoch()))
+                    .expect("fork time fits in u64")
             });
         mock.server.execution_block_generator().osaka_time = spec.fulu_fork_epoch.map(|epoch| {
-            genesis_time
-                + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
+            spec.compute_time_at_slot::<E>(genesis_time, epoch.start_slot(E::slots_per_epoch()))
+                .expect("fork time fits in u64")
         });
         mock.server.execution_block_generator().amsterdam_time =
             spec.gloas_fork_epoch.map(|epoch| {
-                genesis_time
-                    + spec.get_slot_duration().as_secs() * E::slots_per_epoch() * epoch.as_u64()
+                spec.compute_time_at_slot::<E>(genesis_time, epoch.start_slot(E::slots_per_epoch()))
+                    .expect("fork time fits in u64")
             });
 
         self
@@ -746,7 +742,7 @@ where
             builder.slot_clock(testing_slot_clock)
         } else if builder.get_slot_clock().is_none() {
             builder
-                .testing_slot_clock(spec.get_slot_duration())
+                .testing_slot_clock()
                 .expect("should configure testing slot clock")
         } else {
             builder
@@ -773,28 +769,28 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
     task_executor: TaskExecutor,
 ) -> MockExecutionLayer<E> {
     let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
     let cancun_time = spec.deneb_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
     let prague_time = spec.electra_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
     let osaka_time = spec.fulu_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
     let amsterdam_time = spec.gloas_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
     let heze_time = spec.heze_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME
-            + (spec.get_slot_duration().as_secs()) * E::slots_per_epoch() * epoch.as_u64()
+        spec.compute_time_at_slot::<E>(HARNESS_GENESIS_TIME, epoch.start_slot(E::slots_per_epoch()))
+            .expect("fork time fits in u64")
     });
 
     let kzg = get_kzg(&spec);

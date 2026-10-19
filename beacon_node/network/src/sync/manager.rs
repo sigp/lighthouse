@@ -782,7 +782,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // Trigger a sync state update every epoch. This helps check if we need to trigger a custody backfill sync.
         let epoch_duration =
-            self.chain.slot_clock.slot_duration().as_secs() * T::EthSpec::slots_per_epoch();
+            self.chain.slot_clock.current_slot_duration().as_secs() * T::EthSpec::slots_per_epoch();
         let mut epoch_interval = tokio::time::interval(Duration::from_secs(epoch_duration));
 
         // process any inbound messages

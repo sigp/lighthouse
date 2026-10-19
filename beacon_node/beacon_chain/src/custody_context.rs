@@ -119,7 +119,9 @@ impl ValidatorRegistrations {
             // the node has enough time to subscribe to subnets etc, and to avoid having
             // inconsistent column counts within an epoch.
             let effective_delay_slots = CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS
-                .checked_div(spec.get_slot_duration().as_secs())
+                .checked_div(
+                    spec.get_slot_duration_ms(current_slot.epoch(E::slots_per_epoch())) / 1000,
+                )
                 .unwrap_or(1);
             let effective_epoch =
                 (current_slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1;
@@ -558,7 +560,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
         } else {
             let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
             self.spec
-                .min_epoch_data_availability_boundary(current_epoch)
+                .min_epoch_data_availability_boundary::<T::EthSpec>(current_epoch)
         }
     }
 
@@ -656,11 +658,7 @@ mod tests {
     type T = EphemeralHarnessType<E>;
 
     fn testing_slot_clock(spec: &ChainSpec) -> TestingSlotClock {
-        TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        )
+        TestingSlotClock::from_spec::<E>(Duration::from_secs(0), spec)
     }
 
     fn setup_custody_context(

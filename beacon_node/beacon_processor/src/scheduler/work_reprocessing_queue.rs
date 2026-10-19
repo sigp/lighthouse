@@ -790,7 +790,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 // Register the timeout.
                 let delay_key = self.envelope_delay_queue.insert(
                     block_root,
-                    self.slot_clock.slot_duration() * QUEUED_ENVELOPE_DELAY_SLOTS,
+                    self.slot_clock.current_slot_duration() * QUEUED_ENVELOPE_DELAY_SLOTS,
                 );
 
                 // Store the envelope keyed by block root.
@@ -889,7 +889,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 } else {
                     let delay_key = self.data_columns_delay_queue.insert(
                         block_root,
-                        self.slot_clock.slot_duration() * QUEUED_DATA_COLUMN_DELAY_SLOTS,
+                        self.slot_clock.current_slot_duration() * QUEUED_DATA_COLUMN_DELAY_SLOTS,
                     );
 
                     self.awaiting_data_columns_per_root
@@ -1144,7 +1144,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             }
             InboundEvent::Msg(DelayColumnReconstruction(request)) => {
                 let mut reconstruction_delay = QUEUED_RECONSTRUCTION_DELAY;
-                let slot_duration = self.slot_clock.slot_duration().as_millis() as u64;
+                let slot_duration = self.slot_clock.current_slot_duration().as_millis() as u64;
                 let reconstruction_deadline_millis =
                     (slot_duration * RECONSTRUCTION_DEADLINE.0) / RECONSTRUCTION_DEADLINE.1;
                 let reconstruction_deadline = Duration::from_millis(reconstruction_deadline_millis);
@@ -1455,7 +1455,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
     /// Returns duration until the next scheduled processing time. The schedule ensure that backfill
     /// processing is done in windows of time that aren't critical
     fn duration_until_next_backfill_batch_event(slot_clock: &S) -> Duration {
-        let slot_duration = slot_clock.slot_duration();
+        let slot_duration = slot_clock.current_slot_duration();
         slot_clock
             .millis_from_current_slot_start()
             .and_then(|duration_from_slot_start| {
@@ -2087,7 +2087,7 @@ mod tests {
         let slot_clock = Arc::new(testing_slot_clock(slot_duration_secs));
         let mut queue = ReprocessQueue::new(ready_work_tx, reprocess_work_rx, slot_clock);
 
-        let slot_duration = queue.slot_clock.slot_duration();
+        let slot_duration = queue.slot_clock.current_slot_duration();
         let reconstruction_deadline_millis = (slot_duration.as_millis() as u64
             * RECONSTRUCTION_DEADLINE.0)
             / RECONSTRUCTION_DEADLINE.1;
@@ -2227,7 +2227,7 @@ mod tests {
         // Advance time to expire the envelope.
         advance_time(
             &queue.slot_clock,
-            queue.slot_clock.slot_duration() * QUEUED_ENVELOPE_DELAY_SLOTS * 2,
+            queue.slot_clock.current_slot_duration() * QUEUED_ENVELOPE_DELAY_SLOTS * 2,
         )
         .await;
         let ready_msg = queue.next().await.unwrap();
@@ -2378,7 +2378,7 @@ mod tests {
         // Advance time past the delay so the entry expires.
         advance_time(
             &queue.slot_clock,
-            2 * queue.slot_clock.slot_duration() * QUEUED_DATA_COLUMN_DELAY_SLOTS,
+            2 * queue.slot_clock.current_slot_duration() * QUEUED_DATA_COLUMN_DELAY_SLOTS,
         )
         .await;
         let ready_msg = queue.next().await.unwrap();

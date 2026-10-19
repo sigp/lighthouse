@@ -163,7 +163,8 @@ impl GossipVerifiedInclusionList {
                 .slot_clock
                 .start_of(seen_slot)
                 .is_some_and(|slot_start| {
-                    seen_timestamp.saturating_sub(slot_start) < ctx.spec.get_inclusion_list_due()
+                    seen_timestamp.saturating_sub(slot_start)
+                        < ctx.spec.get_inclusion_list_due::<T::EthSpec>(seen_slot)
                 });
 
         Ok(Self {
