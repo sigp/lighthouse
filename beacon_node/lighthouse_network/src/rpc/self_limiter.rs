@@ -337,7 +337,7 @@ mod tests {
     use logging::create_test_tracing_subscriber;
     use std::num::NonZeroU64;
     use std::time::Duration;
-    use types::{EthSpec, ForkContext, Hash256, MainnetEthSpec, Slot};
+    use types::{EthSpec, ForkContext, Hash256, Slot, Spec};
 
     /// Test that `next_peer_request_ready` correctly maintains the queue.
     #[tokio::test]
@@ -347,12 +347,12 @@ mod tests {
             ping_quota: Quota::n_every(NonZeroU64::new(1).unwrap(), 2),
             ..Default::default()
         });
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new::<Spec>(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<AppRequestId, Spec> =
             SelfRateLimiter::new(Some(config), fork_context).unwrap();
         let peer_id = PeerId::random();
         let lookup_id = 0;
@@ -420,12 +420,12 @@ mod tests {
     /// Test that `next_peer_request_ready` correctly maintains the queue when using the self-limiter without rate limiting.
     #[tokio::test]
     async fn test_next_peer_request_ready_concurrent_requests() {
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new::<Spec>(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<AppRequestId, Spec> =
             SelfRateLimiter::new(None, fork_context).unwrap();
         let peer_id = PeerId::random();
 
@@ -497,12 +497,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_disconnected() {
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new::<Spec>(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<AppRequestId, Spec> =
             SelfRateLimiter::new(None, fork_context).unwrap();
         let peer1 = PeerId::random();
         let peer2 = PeerId::random();
@@ -574,16 +574,16 @@ mod tests {
     #[tokio::test]
     async fn test_peer_disconnected_returns_failed_requests() {
         const REPLENISH_DURATION: u64 = 50;
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new::<Spec>(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
             ping_quota: Quota::n_every_millis(NonZeroU64::new(1).unwrap(), REPLENISH_DURATION),
             ..Default::default()
         });
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<AppRequestId, Spec> =
             SelfRateLimiter::new(Some(config), fork_context).unwrap();
         let peer_id = PeerId::random();
 

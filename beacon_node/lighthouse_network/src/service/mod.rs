@@ -46,7 +46,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, info, trace, warn};
 use types::{
     ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, PartialDataColumn,
     PartialDataColumnRef, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
@@ -1108,9 +1108,15 @@ impl<E: EthSpec> Network<E> {
             .send_response(inbound_request_id, response.into())
             && self.network_globals.peers.read().is_connected(&peer_id)
         {
-            error!(%peer_id, ?inbound_request_id, %response,
-                "Request not found in RPC active requests"
-            );
+            if matches!(response, RpcResponse::StreamTermination(_)) {
+                debug!(%peer_id, ?inbound_request_id, %response,
+                    "Request not found in RPC active requests for stream termination"
+                );
+            } else {
+                warn!(%peer_id, ?inbound_request_id, %response,
+                    "Request not found in RPC active requests"
+                );
+            }
         }
     }
 
