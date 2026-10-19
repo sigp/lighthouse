@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
@@ -57,6 +58,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         historical_data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
         expected_cgc: u64,
     ) -> Result<usize, HistoricalDataColumnError> {
+        self.verify_historical_data_column_kzg(&historical_data_column_sidecar_list)?;
+
         let mut total_imported = 0;
         let mut ops = vec![];
 
@@ -97,7 +100,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             let fork_name = self.spec.fork_name_at_slot::<T::EthSpec>(slot);
-            let mut block_columns = vec![];
             for column_index in unique_column_indices.clone() {
                 if let Some(data_column) =
                     slot_and_column_index_to_data_columns.remove(&(slot, column_index))
@@ -120,38 +122,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         data_column.clone(),
                         &mut ops,
                     );
-                    block_columns.push(data_column.clone());
                     total_imported += 1;
                 }
-            }
-
-            if fork_name.gloas_enabled() && !block_columns.is_empty() {
-                let block = self
-                    .get_blinded_block(&block_root)
-                    .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?
-                    .ok_or_else(|| {
-                        HistoricalDataColumnError::BeaconChainError(Box::new(
-                            BeaconChainError::MissingBeaconBlock(block_root),
-                        ))
-                    })?;
-                let commitments = block
-                    .message()
-                    .body()
-                    .signed_execution_payload_bid()
-                    .map_err(|e| {
-                        HistoricalDataColumnError::BeaconChainError(Box::new(
-                            BeaconChainError::BeaconStateError(e),
-                        ))
-                    })?
-                    .message()
-                    .blob_kzg_commitments()
-                    .to_vec();
-                validate_data_columns_with_commitments(
-                    &self.kzg,
-                    block_columns.iter(),
-                    &commitments,
-                )
-                .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
             }
         }
 
@@ -164,16 +136,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(HistoricalDataColumnError::IndexOutOfBounds);
             }
         } else {
-            verify_kzg_for_data_column_list(
-                historical_data_column_sidecar_list
-                    .iter()
-                    .filter(|data_column| {
-                        matches!(data_column.as_ref(), DataColumnSidecar::Fulu(_))
-                    }),
-                &self.kzg,
-            )
-            .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
-
             self.store.blobs_db.do_atomically(ops)?;
         }
 
@@ -197,5 +159,56 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         current_span.record("columns_imported_count", total_imported);
 
         Ok(total_imported)
+    }
+
+    fn verify_historical_data_column_kzg(
+        &self,
+        data_columns: &DataColumnSidecarList<T::EthSpec>,
+    ) -> Result<(), HistoricalDataColumnError> {
+        let mut fulu_columns = vec![];
+        let mut gloas_columns_by_block_root: HashMap<
+            Hash256,
+            Vec<&Arc<DataColumnSidecar<T::EthSpec>>>,
+        > = HashMap::new();
+        for data_column in data_columns {
+            match data_column.as_ref() {
+                DataColumnSidecar::Fulu(_) => fulu_columns.push(data_column),
+                DataColumnSidecar::Gloas(_) => gloas_columns_by_block_root
+                    .entry(data_column.block_root())
+                    .or_default()
+                    .push(data_column),
+            }
+        }
+
+        verify_kzg_for_data_column_list(fulu_columns.into_iter(), &self.kzg)
+            .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+
+        for (block_root, columns) in gloas_columns_by_block_root {
+            let block = self
+                .get_blinded_block(&block_root)
+                .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?
+                .ok_or_else(|| {
+                    HistoricalDataColumnError::BeaconChainError(Box::new(
+                        BeaconChainError::MissingBeaconBlock(block_root),
+                    ))
+                })?;
+            let bid = block
+                .message()
+                .body()
+                .signed_execution_payload_bid()
+                .map_err(|e| {
+                    HistoricalDataColumnError::BeaconChainError(Box::new(
+                        BeaconChainError::BeaconStateError(e),
+                    ))
+                })?;
+            validate_data_columns_with_commitments(
+                &self.kzg,
+                columns.into_iter(),
+                bid.message().blob_kzg_commitments(),
+            )
+            .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+        }
+
+        Ok(())
     }
 }
