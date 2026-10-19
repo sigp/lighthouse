@@ -1,0 +1,53 @@
+name: Release runner check
+
+# Verifies that the Linux runners used by the tag-gated (`v*`) jobs in `release.yml` and
+# `docker.yml` actually pick up work. Run it manually after changing the `RELEASE_RUNNER` /
+# `RELEASE_RUNNER_ARM64` repository variables, before cutting a release.
+
+on:
+    workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+    check:
+        name: ${{ matrix.name }}
+        # Must mirror the `runs-on` expressions used for tagged builds in `release.yml` and `docker.yml`.
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    -   name: linux-x86_64
+                        runner: ${{ vars.RELEASE_RUNNER || 'ubuntu-24.04' }}
+                        variable: RELEASE_RUNNER
+                        fallback: ${{ vars.RELEASE_RUNNER == '' }}
+                        expected_arch: x86_64
+                    -   name: linux-aarch64
+                        runner: ${{ vars.RELEASE_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
+                        variable: RELEASE_RUNNER_ARM64
+                        fallback: ${{ vars.RELEASE_RUNNER_ARM64 == '' }}
+                        expected_arch: aarch64
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 10
+        steps:
+            - name: Runner info
+              run: |
+                  echo "Requested label: ${{ matrix.runner }}"
+                  echo "RUNNER_NAME=$RUNNER_NAME"
+                  echo "RUNNER_OS=$RUNNER_OS RUNNER_ARCH=$RUNNER_ARCH"
+                  uname -a
+                  nproc
+                  free -g
+                  df -h /
+            - name: Warn if repository variable is unset
+              if: matrix.fallback
+              run: echo "::warning::${{ matrix.variable }} is unset; job ran on the free fallback '${{ matrix.runner }}'"
+            - name: Check architecture
+              run: |
+                  actual="$(uname -m)"
+                  if [ "$actual" != "${{ matrix.expected_arch }}" ]; then
+                      echo "::error::expected ${{ matrix.expected_arch }}, got $actual"
+                      exit 1
+                  fi
