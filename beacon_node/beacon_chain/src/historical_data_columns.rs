@@ -166,17 +166,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     columns.push(data_column);
                 }
 
-                validate_data_columns_with_commitments(
-                    &self.kzg,
+                let columns_with_commitments =
                     columns_by_block_root
                         .values()
                         .flat_map(|(commitments, columns)| {
                             columns
                                 .iter()
-                                .map(move |data_column| (*data_column, commitments.as_slice()))
-                        }),
-                )
-                .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+                                .map(move |column| (*column, commitments.as_slice()))
+                        });
+
+                validate_data_columns_with_commitments(&self.kzg, columns_with_commitments)
+                    .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
             } else {
                 verify_kzg_for_data_column_list(
                     historical_data_column_sidecar_list.iter(),
