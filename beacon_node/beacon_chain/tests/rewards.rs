@@ -7,7 +7,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{
     BlockError, ChainConfig, StateSkipConfig, WhenSlotSkipped,
     test_utils::{AttestationStrategy, BlockStrategy, RelativeSyncCommittee},
-    types::{Epoch, EthSpec, MinimalEthSpec},
+    types::{Epoch, EthSpec, Spec},
 };
 use bls::Keypair;
 use eth2::types::{StandardAttestationRewards, TotalAttestationRewards, ValidatorId};
@@ -22,7 +22,7 @@ pub const VALIDATOR_COUNT: usize = 64;
 // When set to true, cache any states fetched from the db.
 pub const CACHE_STATE_IN_TESTS: bool = true;
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| generate_deterministic_keypairs(VALIDATOR_COUNT));
@@ -138,7 +138,7 @@ async fn test_sync_committee_rewards() {
         .collect::<HashMap<_, _>>();
 
     let proposer_index = state
-        .get_beacon_proposer_index(target_slot, &MinimalEthSpec::default_spec())
+        .get_beacon_proposer_index(target_slot, &Spec::default_spec())
         .unwrap();
 
     let mut mismatches = vec![];

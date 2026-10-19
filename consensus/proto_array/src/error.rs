@@ -7,9 +7,9 @@ pub enum Error {
     FinalizedNodeUnknown(Hash256),
     JustifiedNodeUnknown(Hash256),
     NodeUnknown(Hash256),
+    PayloadHashUnknown(ExecutionBlockHash),
     InvalidFinalizedRootChange,
     InvalidNodeIndex(usize),
-    InvalidJustifiedIndex(usize),
     InvalidBestDescendant(usize),
     InvalidParentDelta(usize),
     InvalidNodeDelta(usize),
@@ -36,9 +36,6 @@ pub enum Error {
         block_root: Hash256,
         payload_block_hash: ExecutionBlockHash,
     },
-    InvalidJustifiedCheckpointExecutionStatus {
-        justified_root: Hash256,
-    },
     UnknownLatestValidAncestorHash {
         block_root: Hash256,
         latest_valid_ancestor_hash: Option<ExecutionBlockHash>,
@@ -51,6 +48,7 @@ pub enum Error {
         parent_root: Hash256,
     },
     Arith(ArithError),
+    Unexpected(String),
     InvalidNodeVariant {
         block_root: Hash256,
     },

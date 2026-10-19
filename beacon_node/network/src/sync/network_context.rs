@@ -18,8 +18,7 @@ use crate::sync::batch::ByRangeRequestType;
 use crate::sync::block_lookups::{DownloadResult, SingleLookupId};
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::range_data_column_batch_request::RangeDataColumnBatchRequest;
-use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
+use beacon_chain::block_verification_types::{AsBlock, LookupBlock, RangeSyncBlock};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
@@ -450,7 +449,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             );
 
             let request = RequestType::Status(status_message.clone());
-            let app_request_id = AppRequestId::Router;
+            let app_request_id = AppRequestId::Status;
             let _ = self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id,
                 request,
@@ -1160,6 +1159,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })
         .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
+        metrics::observe(
+            &metrics::SYNC_DATA_COLUMNS_BY_RANGE_REQUEST_COLUMNS,
+            request.columns.len() as f64,
+        );
+
         debug!(
             method = "DataColumnsByRange",
             slots = request.count,
@@ -1516,6 +1520,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn send_block_for_processing(
         &self,
         id: Id,
+        peer_id: PeerId,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<(), SendErrorProcessor> {
@@ -1523,13 +1528,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        let lookup_block = LookupBlock::new(block);
+        let lookup_block = LookupBlock::new(block_root, block);
 
         debug!(block = ?block_root, block_slot = %lookup_block.slot(), id, "Sending block for processing");
         // Lookup sync event safety: If `beacon_processor.send_rpc_beacon_block` returns Ok() sync
         // must receive a single `SyncMessage::BlockComponentProcessed` with this process type
         beacon_processor
             .send_lookup_beacon_block(
+                peer_id,
                 block_root,
                 lookup_block,
                 BlockProcessType::SingleBlock { id },
@@ -1607,21 +1613,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<CustodyBackFillBatchRequestId, RpcRequestSendError> {
         // Attempt to find all required custody peers before sending any request or creating an ID
-        let columns_by_range_peers_to_request = {
-            let column_indexes = self
-                .chain
-                .custody_context
-                .sampling_columns_for_epoch(batch_id.epoch)
-                .iter()
-                .cloned()
-                .collect();
-
-            self.select_columns_by_range_peers_to_request(
-                &column_indexes,
-                peers,
-                peers_to_deprioritize,
-            )?
-        };
+        let column_indexes: HashSet<ColumnIndex> = request.columns.iter().copied().collect();
+        let columns_by_range_peers_to_request = self.select_columns_by_range_peers_to_request(
+            &column_indexes,
+            peers,
+            peers_to_deprioritize,
+        )?;
 
         // Create the overall `custody_by_range` request id
         let id = CustodyBackFillBatchRequestId {
@@ -1630,17 +1627,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         let result = columns_by_range_peers_to_request
-            .keys()
-            .filter_map(|peer_id| {
+            .into_iter()
+            .map(|(peer_id, columns)| {
                 self.send_data_columns_by_range_request(
-                    *peer_id,
-                    request.clone(),
+                    peer_id,
+                    DataColumnsByRangeRequest {
+                        start_slot: request.start_slot,
+                        count: request.count,
+                        columns,
+                    },
                     DataColumnsByRangeRequester::CustodyBackfillSync(id),
                     Span::none(),
                 )
-                .ok()
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let range_data_column_batch_request =
             RangeDataColumnBatchRequest::new(result, self.chain.clone(), batch_id.epoch);
