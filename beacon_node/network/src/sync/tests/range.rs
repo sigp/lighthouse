@@ -119,6 +119,20 @@ impl TestRig {
         }
     }
 
+    /// Number of `BlocksByRange` requests sent for the batch starting at `start_slot`.
+    fn blocks_by_range_requests_from(&self, start_slot: u64) -> usize {
+        self.requests
+            .iter()
+            .filter(|(request, _)| {
+                if let RequestType::BlocksByRange(req) = request {
+                    *req.start_slot() == start_slot
+                } else {
+                    false
+                }
+            })
+            .count()
+    }
+
     fn assert_no_failed_chains(&mut self) {
         assert_eq!(
             self.sync_manager.__range_failed_chains(),
@@ -640,6 +654,19 @@ async fn batch_non_faulty_failure_retries() {
     r.simulate(SimulateConfig::happy_path().with_range_non_faulty_failures(1))
         .await;
     r.assert_range_sync_completed();
+}
+
+/// A peer keeps serving a segment whose parent roots do not chain. `NonLinearParentRoots` is
+/// attributable, so the batch is penalized and gives up after MAX_BATCH_PROCESSING_ATTEMPTS (3)
+/// instead of redownloading without bound.
+#[tokio::test]
+async fn batch_gapped_blocks_penalized_and_bounded() {
+    let mut r = TestRig::default();
+    r.setup_finalized_sync().await;
+    r.simulate(SimulateConfig::happy_path().with_gapped_range_blocks_n_times(20))
+        .await;
+    assert_eq!(r.blocks_by_range_requests_from(0), 3);
+    r.assert_range_sync_chain_failed();
 }
 
 /// Batch processing returns FaultyFailure once. Peer penalized with "faulty_batch",
