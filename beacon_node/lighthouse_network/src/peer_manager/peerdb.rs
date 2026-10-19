@@ -1486,9 +1486,9 @@ mod tests {
     use super::*;
     use libp2p::core::multiaddr::Protocol;
     use std::net::{Ipv4Addr, Ipv6Addr};
-    use types::MinimalEthSpec;
+    use types::Spec;
 
-    type M = MinimalEthSpec;
+    type M = Spec;
 
     fn add_score<E: EthSpec>(db: &mut PeerDB<E>, peer_id: &PeerId, score: f64) {
         if let Some(info) = db.peer_info_mut(peer_id) {

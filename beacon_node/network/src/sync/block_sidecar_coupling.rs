@@ -548,7 +548,7 @@ mod tests {
     use tree_hash::TreeHash;
     use types::{
         ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ExecutionRequestsGloas,
-        ForkName, MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+        ForkName, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Spec as E,
     };
 
     fn components_id() -> ComponentsByRangeRequestId {

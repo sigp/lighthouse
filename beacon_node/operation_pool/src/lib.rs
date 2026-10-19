@@ -1007,7 +1007,7 @@ mod release_tests {
 
     #[test]
     fn test_earliest_attestation() {
-        let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
+        let (harness, ref spec) = attestation_test_state::<Spec>(1);
 
         // Only run this test on the phase0 hard-fork.
         if spec.altair_fork_epoch.is_some() {
@@ -1023,8 +1023,7 @@ mod release_tests {
             .map(BeaconCommittee::into_owned)
             .collect::<Vec<_>>();
 
-        let num_validators =
-            MainnetEthSpec::slots_per_epoch() as usize * spec.target_committee_size;
+        let num_validators = Spec::slots_per_epoch() as usize * spec.target_committee_size;
 
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
@@ -1041,7 +1040,7 @@ mod release_tests {
                 .iter()
                 .map(|(att, _)| att)
                 .take(2)
-                .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
+                .fold::<Option<Attestation<Spec>>, _>(None, |att, new_att| {
                     if let Some(mut a) = att {
                         a.aggregate(new_att.to_ref());
                         Some(a)
@@ -1093,9 +1092,9 @@ mod release_tests {
     /// End-to-end test of basic attestation handling.
     #[test]
     fn attestation_aggregation_insert_get_prune() {
-        let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
+        let (harness, ref spec) = attestation_test_state::<Spec>(1);
 
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
         let (mut state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
         let slot = state.slot();
@@ -1112,8 +1111,7 @@ mod release_tests {
             "we expect just one committee with this many validators"
         );
 
-        let num_validators =
-            MainnetEthSpec::slots_per_epoch() as usize * spec.target_committee_size;
+        let num_validators = Spec::slots_per_epoch() as usize * spec.target_committee_size;
 
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
@@ -1162,7 +1160,7 @@ mod release_tests {
 
         // But once we advance to more than an epoch after the attestation, it should prune it
         // out of existence.
-        *state.slot_mut() += 2 * MainnetEthSpec::slots_per_epoch();
+        *state.slot_mut() += 2 * Spec::slots_per_epoch();
         op_pool.prune_attestations(state.current_epoch());
         assert_eq!(op_pool.num_attestations(), 0);
     }
@@ -1170,11 +1168,11 @@ mod release_tests {
     /// Adding an attestation already in the pool should not increase the size of the pool.
     #[test]
     fn attestation_duplicate() {
-        let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
+        let (harness, ref spec) = attestation_test_state::<Spec>(1);
 
         let (state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let slot = state.slot();
         let committees = state
@@ -1184,8 +1182,7 @@ mod release_tests {
             .map(BeaconCommittee::into_owned)
             .collect::<Vec<_>>();
 
-        let num_validators =
-            MainnetEthSpec::slots_per_epoch() as usize * spec.target_committee_size;
+        let num_validators = Spec::slots_per_epoch() as usize * spec.target_committee_size;
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
@@ -1213,11 +1210,11 @@ mod release_tests {
     /// attestations.
     #[test]
     fn attestation_pairwise_overlapping() {
-        let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(1);
+        let (harness, ref spec) = attestation_test_state::<Spec>(1);
 
         let (state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let slot = state.slot();
         let committees = state
@@ -1227,8 +1224,7 @@ mod release_tests {
             .map(BeaconCommittee::into_owned)
             .collect::<Vec<_>>();
 
-        let num_validators =
-            MainnetEthSpec::slots_per_epoch() as usize * spec.target_committee_size;
+        let num_validators = Spec::slots_per_epoch() as usize * spec.target_committee_size;
 
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
@@ -1249,7 +1245,7 @@ mod release_tests {
                     let agg = chunk
                         .iter()
                         .map(|(att, _)| att)
-                        .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
+                        .fold::<Option<Attestation<Spec>>, _>(None, |att, new_att| {
                             if let Some(mut a) = att {
                                 a.aggregate(new_att.to_ref());
                                 Some(a)
@@ -1270,7 +1266,7 @@ mod release_tests {
                     let agg = chunk
                         .iter()
                         .map(|(att, _)| att)
-                        .fold::<Option<Attestation<MainnetEthSpec>>, _>(None, |att, new_att| {
+                        .fold::<Option<Attestation<Spec>>, _>(None, |att, new_att| {
                             if let Some(mut a) = att {
                                 a.aggregate(new_att.to_ref());
                                 Some(a)
@@ -1308,11 +1304,11 @@ mod release_tests {
         let big_step_size = 4;
         let num_committees = big_step_size;
 
-        let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
+        let (harness, ref spec) = attestation_test_state::<Spec>(num_committees);
 
         let (mut state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
 
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let slot = state.slot();
         let committees = state
@@ -1322,11 +1318,10 @@ mod release_tests {
             .map(BeaconCommittee::into_owned)
             .collect::<Vec<_>>();
 
-        let max_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_usize();
+        let max_attestations = <Spec as EthSpec>::MaxAttestations::to_usize();
         let target_committee_size = spec.target_committee_size;
-        let num_validators = num_committees
-            * MainnetEthSpec::slots_per_epoch() as usize
-            * spec.target_committee_size;
+        let num_validators =
+            num_committees * Spec::slots_per_epoch() as usize * spec.target_committee_size;
 
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
@@ -1336,8 +1331,7 @@ mod release_tests {
             slot,
         );
 
-        let insert_attestations = |attestations: Vec<(Attestation<MainnetEthSpec>, SubnetId)>,
-                                   step_size| {
+        let insert_attestations = |attestations: Vec<(Attestation<Spec>, SubnetId)>, step_size| {
             let att_0 = attestations.first().unwrap().0.clone();
             let aggs = attestations
                 .chunks_exact(step_size)
@@ -1345,13 +1339,10 @@ mod release_tests {
                     chunk
                         .iter()
                         .map(|(att, _)| att)
-                        .fold::<Attestation<MainnetEthSpec>, _>(
-                            att_0.clone(),
-                            |mut att, new_att| {
-                                att.aggregate(new_att.to_ref());
-                                att
-                            },
-                        )
+                        .fold::<Attestation<Spec>, _>(att_0.clone(), |mut att, new_att| {
+                            att.aggregate(new_att.to_ref());
+                            att
+                        })
                 })
                 .collect::<Vec<_>>();
 
@@ -1414,10 +1405,10 @@ mod release_tests {
         let big_step_size = 4;
         let num_committees = big_step_size;
 
-        let (harness, ref spec) = attestation_test_state::<MainnetEthSpec>(num_committees);
+        let (harness, ref spec) = attestation_test_state::<Spec>(num_committees);
 
         let (mut state, state_root) = get_current_state_initialize_epoch_cache(&harness, spec);
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let slot = state.slot();
         let committees = state
@@ -1427,7 +1418,7 @@ mod release_tests {
             .map(BeaconCommittee::into_owned)
             .collect::<Vec<_>>();
 
-        let max_attestations = <MainnetEthSpec as EthSpec>::MaxAttestations::to_usize();
+        let max_attestations = <Spec as EthSpec>::MaxAttestations::to_usize();
         let target_committee_size = spec.target_committee_size;
 
         // Each validator will have a multiple of 1_000_000_000 wei.
@@ -1436,9 +1427,8 @@ mod release_tests {
             state.validators_mut().get_mut(i).unwrap().effective_balance = 1_000_000_000 * i as u64;
         }
 
-        let num_validators = num_committees
-            * MainnetEthSpec::slots_per_epoch() as usize
-            * spec.target_committee_size;
+        let num_validators =
+            num_committees * Spec::slots_per_epoch() as usize * spec.target_committee_size;
         let attestations = harness.make_attestations(
             (0..num_validators).collect::<Vec<_>>().as_slice(),
             &state,
@@ -1447,8 +1437,7 @@ mod release_tests {
             slot,
         );
 
-        let insert_attestations = |attestations: Vec<(Attestation<MainnetEthSpec>, SubnetId)>,
-                                   step_size| {
+        let insert_attestations = |attestations: Vec<(Attestation<Spec>, SubnetId)>, step_size| {
             let att_0 = attestations.first().unwrap().0.clone();
             let aggs = attestations
                 .chunks_exact(step_size)
@@ -1456,13 +1445,10 @@ mod release_tests {
                     chunk
                         .iter()
                         .map(|(att, _)| att)
-                        .fold::<Attestation<MainnetEthSpec>, _>(
-                            att_0.clone(),
-                            |mut att, new_att| {
-                                att.aggregate(new_att.to_ref());
-                                att
-                            },
-                        )
+                        .fold::<Attestation<Spec>, _>(att_0.clone(), |mut att, new_att| {
+                            att.aggregate(new_att.to_ref());
+                            att
+                        })
                 })
                 .collect::<Vec<_>>();
 
@@ -1552,7 +1538,7 @@ mod release_tests {
     fn duplicate_proposer_slashing() {
         let harness = get_harness(32, None);
         let state = harness.get_current_state();
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let proposer_index = 0;
         let slashing1 = harness.make_proposer_slashing(proposer_index);
@@ -1580,7 +1566,7 @@ mod release_tests {
     fn prune_proposer_slashing_noop() {
         let harness = get_harness(32, None);
         let state = harness.get_current_state();
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let slashing = harness.make_proposer_slashing(0);
         op_pool.insert_proposer_slashing(slashing.clone().validate(&state, &harness.spec).unwrap());
@@ -1597,7 +1583,7 @@ mod release_tests {
         let harness = get_harness(32, None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let slashing = harness.make_attester_slashing(vec![1, 3, 5, 7, 9]);
         op_pool.insert_attester_slashing(slashing.clone().validate(&state, spec).unwrap());
@@ -1614,7 +1600,7 @@ mod release_tests {
         let harness = get_harness(32, None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let slashing_1 = harness.make_attester_slashing(vec![1]);
         let slashing_2 = harness.make_attester_slashing(vec![2, 3]);
@@ -1639,7 +1625,7 @@ mod release_tests {
         let harness = get_harness(32, None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let slashing_1 = harness.make_attester_slashing(vec![1, 2, 3, 4]);
         let slashing_2 = harness.make_attester_slashing(vec![1, 2, 5]);
@@ -1664,7 +1650,7 @@ mod release_tests {
         let harness = get_harness(32, None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let p_slashing = harness.make_proposer_slashing(1);
         let a_slashing_1 = harness.make_attester_slashing(vec![1, 2, 3, 4]);
@@ -1689,7 +1675,7 @@ mod release_tests {
         let harness = get_harness(32, None);
         let spec = &harness.spec;
         let state = harness.get_current_state();
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let slashing_1 = harness.make_attester_slashing_different_indices(
             vec![1, 2, 3, 4, 5, 6],
@@ -1715,7 +1701,7 @@ mod release_tests {
         let harness = get_harness(32, None);
         let spec = &harness.spec;
         let mut state = harness.get_current_state();
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
         state.validators_mut().get_mut(1).unwrap().effective_balance = 17_000_000_000;
         state.validators_mut().get_mut(2).unwrap().effective_balance = 17_000_000_000;
         state.validators_mut().get_mut(3).unwrap().effective_balance = 17_000_000_000;
@@ -1738,9 +1724,9 @@ mod release_tests {
     /// End-to-end test of basic sync contribution handling.
     #[tokio::test]
     async fn sync_contribution_aggregation_insert_get_prune() {
-        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1).await;
+        let (harness, _) = sync_contribution_test_state::<Spec>(1).await;
 
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
         let state = harness.get_current_state();
 
         let block_root = *state
@@ -1773,7 +1759,7 @@ mod release_tests {
             .expect("Should have block sync aggregate");
         assert_eq!(
             sync_aggregate.sync_committee_bits.num_set_bits(),
-            MainnetEthSpec::sync_committee_size()
+            Spec::sync_committee_size()
         );
 
         // Prune sync contributions shouldn't do anything at this point.
@@ -1797,9 +1783,9 @@ mod release_tests {
     /// Adding a sync contribution already in the pool should not increase the size of the pool.
     #[tokio::test]
     async fn sync_contribution_duplicate() {
-        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1).await;
+        let (harness, _) = sync_contribution_test_state::<Spec>(1).await;
 
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
         let state = harness.get_current_state();
         let block_root = *state
             .get_block_root(state.slot() - Slot::new(1))
@@ -1833,9 +1819,9 @@ mod release_tests {
     /// number of bits set in the aggregate.
     #[tokio::test]
     async fn sync_contribution_with_more_bits() {
-        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1).await;
+        let (harness, _) = sync_contribution_test_state::<Spec>(1).await;
 
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
         let state = harness.get_current_state();
         let block_root = *state
             .get_block_root(state.slot() - Slot::new(1))
@@ -1847,7 +1833,7 @@ mod release_tests {
             RelativeSyncCommittee::Current,
         );
 
-        let expected_bits = MainnetEthSpec::sync_committee_size() - (2 * contributions.len());
+        let expected_bits = Spec::sync_committee_size() - (2 * contributions.len());
         let mut first_contribution = contributions[0]
             .1
             .as_ref()
@@ -1912,9 +1898,9 @@ mod release_tests {
     /// number of bits set in the aggregate.
     #[tokio::test]
     async fn sync_contribution_with_fewer_bits() {
-        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1).await;
+        let (harness, _) = sync_contribution_test_state::<Spec>(1).await;
 
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
         let state = harness.get_current_state();
         let block_root = *state
             .get_block_root(state.slot() - Slot::new(1))
@@ -1926,7 +1912,7 @@ mod release_tests {
             RelativeSyncCommittee::Current,
         );
 
-        let expected_bits = MainnetEthSpec::sync_committee_size() - (2 * contributions.len());
+        let expected_bits = Spec::sync_committee_size() - (2 * contributions.len());
         let mut first_contribution = contributions[0]
             .1
             .as_ref()
@@ -2028,13 +2014,13 @@ mod release_tests {
     /// - Capella exit signed with Deneb fork version (only valid after Electra)
     #[tokio::test]
     async fn cross_fork_proposer_slashings() {
-        let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
-        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        let (harness, spec) = cross_fork_harness::<Spec>();
+        let slots_per_epoch = Spec::slots_per_epoch();
         let deneb_fork_epoch = spec.deneb_fork_epoch.unwrap();
         let electra_fork_epoch = spec.electra_fork_epoch.unwrap();
         let electra_fork_slot = electra_fork_epoch.start_slot(slots_per_epoch);
 
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         // Sign a proposer slashing in Capella with a Capella slot.
         let slashing1 = harness.make_proposer_slashing_at_slot(0, Some(Slot::new(1)));
@@ -2110,14 +2096,14 @@ mod release_tests {
     /// - both target epochs in Capella but signed with Deneb domain (only valid after Electra)
     #[tokio::test]
     async fn cross_fork_attester_slashings() {
-        let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
-        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        let (harness, spec) = cross_fork_harness::<Spec>();
+        let slots_per_epoch = Spec::slots_per_epoch();
         let zero_epoch = Epoch::new(0);
         let deneb_fork_epoch = spec.deneb_fork_epoch.unwrap();
         let electra_fork_epoch = spec.electra_fork_epoch.unwrap();
         let electra_fork_slot = electra_fork_epoch.start_slot(slots_per_epoch);
 
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         // Sign an attester slashing with the Capella fork version, with both target epochs in Capella.
         let slashing1 = harness.make_attester_slashing_with_epochs(
@@ -2228,12 +2214,12 @@ mod release_tests {
     /// Regression test to ensure that we are using the correct spec value for max attester slashings post-Electra.
     #[tokio::test]
     async fn attester_slashings_capped_at_electra_limit() {
-        let (harness, spec) = cross_fork_harness::<MainnetEthSpec>();
-        let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+        let (harness, spec) = cross_fork_harness::<Spec>();
+        let slots_per_epoch = Spec::slots_per_epoch();
         let electra_fork_epoch = spec.electra_fork_epoch.unwrap();
         let deneb_fork_epoch = spec.deneb_fork_epoch.unwrap();
 
-        let op_pool = OperationPool::<MainnetEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         harness
             .extend_to_slot(electra_fork_epoch.start_slot(slots_per_epoch))
@@ -2268,7 +2254,7 @@ mod release_tests {
             op_pool.get_attester_slashings(&electra_head.beacon_state, &mut to_be_slashed);
         assert_eq!(
             attester_slashings.len(),
-            MainnetEthSpec::max_attester_slashings_electra()
+            Spec::max_attester_slashings_electra()
         );
     }
 
@@ -2307,7 +2293,7 @@ mod release_tests {
 
     #[test]
     fn payload_attestation_insert_and_dedup() {
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
         let root = Hash256::repeat_byte(0xaa);
         let slot = Slot::new(1);
 
@@ -2326,7 +2312,7 @@ mod release_tests {
 
     #[test]
     fn payload_attestation_prune() {
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
         let root = Hash256::repeat_byte(0xaa);
 
         let msg_slot1 = make_payload_attestation_message(Slot::new(1), 0, root);
@@ -2357,13 +2343,13 @@ mod release_tests {
 
     #[tokio::test]
     async fn payload_attestation_packs_bits_from_ptc_positions() {
-        let spec = test_spec::<MinimalEthSpec>();
+        let spec = test_spec::<Spec>();
         if spec.gloas_fork_epoch.is_none() {
             return;
         };
 
         let num_validators = 64;
-        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
+        let harness = get_harness::<Spec>(num_validators, Some(spec.clone()));
 
         harness
             .add_attested_blocks_at_slots(
@@ -2383,7 +2369,7 @@ mod release_tests {
         let ptc_member_0 = ptc.0[0] as u64;
         let ptc_member_1 = ptc.0[1] as u64;
 
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         let msg0 = make_payload_attestation_message(target_slot, ptc_member_0, parent_root);
         let msg1 = make_payload_attestation_message(target_slot, ptc_member_1, parent_root);
@@ -2429,13 +2415,13 @@ mod release_tests {
 
     #[tokio::test]
     async fn payload_attestation_sets_all_duplicate_ptc_positions() {
-        let spec = test_spec::<MinimalEthSpec>();
+        let spec = test_spec::<Spec>();
         if spec.gloas_fork_epoch.is_none() {
             return;
         };
 
         let num_validators = 64;
-        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
+        let harness = get_harness::<Spec>(num_validators, Some(spec.clone()));
 
         harness
             .add_attested_blocks_at_slots(
@@ -2453,11 +2439,11 @@ mod release_tests {
 
         // Minimal preset: 16 PTC seats sampled from 8 committee members, so duplicates always exist.
         let distinct_members: HashSet<usize> = ptc.0.iter().copied().collect();
-        assert!(distinct_members.len() < MinimalEthSpec::ptc_size());
+        assert!(distinct_members.len() < Spec::ptc_size());
 
         let fork = state.fork();
 
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
         for &validator_index in &distinct_members {
             let data = PayloadAttestationData {
                 beacon_block_root: parent_root,
@@ -2485,7 +2471,7 @@ mod release_tests {
         assert_eq!(attestations.len(), 1);
         assert_eq!(
             attestations[0].aggregation_bits.num_set_bits(),
-            MinimalEthSpec::ptc_size()
+            Spec::ptc_size()
         );
 
         let indexed = state_processing::common::get_indexed_payload_attestation(
@@ -2505,13 +2491,13 @@ mod release_tests {
 
     #[tokio::test]
     async fn payload_attestation_multiple_data_combos_capped() {
-        let spec = test_spec::<MinimalEthSpec>();
+        let spec = test_spec::<Spec>();
         if spec.gloas_fork_epoch.is_none() {
             return;
         };
 
         let num_validators = 64;
-        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
+        let harness = get_harness::<Spec>(num_validators, Some(spec.clone()));
 
         harness
             .add_attested_blocks_at_slots(
@@ -2527,7 +2513,7 @@ mod release_tests {
         let parent_root = head.head_block_root();
         let ptc = state.get_ptc(target_slot, &spec).unwrap();
 
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         // Given: PTC members vote with all 4 boolean combos, with varying participation.
         let combos: [(bool, bool, &[usize]); 4] = [
@@ -2594,13 +2580,13 @@ mod release_tests {
     // https://github.com/ethereum/consensus-specs/blame/6b2201c3c25603f24ae967a92bbce5340d672c5c/specs/gloas/validator.md#L97-L111
     #[tokio::test]
     async fn attestation_payload_present_index_one_included_first() {
-        let spec = test_spec::<MinimalEthSpec>();
+        let spec = test_spec::<Spec>();
         if spec.gloas_fork_epoch.is_none() {
             return;
         }
 
         let num_validators = 64;
-        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
+        let harness = get_harness::<Spec>(num_validators, Some(spec.clone()));
         let all_validators: Vec<usize> = (0..num_validators).collect();
 
         harness
@@ -2662,7 +2648,7 @@ mod release_tests {
         }
 
         // Create attestations at Slot 2 without payload_present
-        let fork = spec.fork_at_epoch(Slot::new(2).epoch(MinimalEthSpec::slots_per_epoch()));
+        let fork = spec.fork_at_epoch(Slot::new(2).epoch(Spec::slots_per_epoch()));
         let (attestations_no_payload, _attesters) = harness.make_attestations_with_opts(
             &all_validators,
             state,
@@ -2687,7 +2673,7 @@ mod release_tests {
             }
         }
 
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         // Insert attestations with index 1
         for committee_attestations in &attestations_with_payload {
@@ -2727,8 +2713,7 @@ mod release_tests {
             .latest_execution_payload_bid()
             .unwrap()
             .slot();
-        let availability_index =
-            parent_slot.as_usize() % MinimalEthSpec::slots_per_historical_root();
+        let availability_index = parent_slot.as_usize() % Spec::slots_per_historical_root();
         advanced_state
             .execution_payload_availability_mut()
             .unwrap()
@@ -2765,13 +2750,13 @@ mod release_tests {
     // Opposite test case for: attestation_payload_present_index_one_included_first
     #[tokio::test]
     async fn attestation_payload_absent_index_zero_included_first() {
-        let spec = test_spec::<MinimalEthSpec>();
+        let spec = test_spec::<Spec>();
         if spec.gloas_fork_epoch.is_none() {
             return;
         }
 
         let num_validators = 64;
-        let harness = get_harness::<MinimalEthSpec>(num_validators, Some(spec.clone()));
+        let harness = get_harness::<Spec>(num_validators, Some(spec.clone()));
         let all_validators: Vec<usize> = (0..num_validators).collect();
 
         harness
@@ -2790,7 +2775,7 @@ mod release_tests {
         // Advance to Slot 2 without producing a block (skipped slot).
         harness.advance_slot();
 
-        let fork = spec.fork_at_epoch(Slot::new(2).epoch(MinimalEthSpec::slots_per_epoch()));
+        let fork = spec.fork_at_epoch(Slot::new(2).epoch(Spec::slots_per_epoch()));
 
         // Create attestations at Slot 2 with index=1 (with payload)
         let (attestations_with_payload, _attesters) = harness.make_attestations_with_opts(
@@ -2820,7 +2805,7 @@ mod release_tests {
             },
         );
 
-        let op_pool = OperationPool::<MinimalEthSpec>::new();
+        let op_pool = OperationPool::<Spec>::new();
 
         for (committee_attestations, _signed_aggregate_and_proof) in &attestations_with_payload {
             for (attestation, _subnetid) in committee_attestations {
