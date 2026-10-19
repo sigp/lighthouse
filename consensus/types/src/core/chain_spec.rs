@@ -5272,7 +5272,7 @@ mod yaml_tests {
         type E = MainnetEthSpec;
         let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
         spec.heze_fork_epoch = Some(Epoch::new(10000));
-        spec.slot_duration_ms_eip8198 = 6000;
+        spec.slot_duration_ms_heze = 6000;
 
         assert_eq!(
             spec.min_epoch_data_availability_boundary::<E>(Epoch::new(9999)),
@@ -5309,6 +5309,7 @@ mod yaml_tests {
         let seen_ttl = |spec: &ChainSpec, epoch: u64| spec.gossip_seen_ttl::<E>(Epoch::new(epoch));
         assert_eq!(seen_ttl(&spec, 0), Duration::from_secs(2 * 32 * 12));
 
+        spec.slot_duration_ms_heze = 10000;
         spec.heze_fork_epoch = Some(Epoch::new(10));
         assert_eq!(seen_ttl(&spec, 8), Duration::from_secs(2 * 32 * 12));
         assert_eq!(seen_ttl(&spec, 9), Duration::from_secs(32 * 12 + 32 * 10));
