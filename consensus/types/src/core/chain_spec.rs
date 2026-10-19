@@ -1419,7 +1419,7 @@ impl ChainSpec {
             sync_message_due_bps_gloas: 2500,
             contribution_due_bps: 6667,
             contribution_due_bps_gloas: 5000,
-            inclusion_list_due_bps: 6667,
+            inclusion_list_due_bps: 7500,
             slot_component_durations: vec![],
 
             /*
@@ -1932,7 +1932,7 @@ impl ChainSpec {
             sync_message_due_bps_gloas: 2500,
             contribution_due_bps: 6667,
             contribution_due_bps_gloas: 5000,
-            inclusion_list_due_bps: 6667,
+            inclusion_list_due_bps: 7500,
             slot_component_durations: vec![],
 
             /*
@@ -2935,7 +2935,7 @@ const fn default_aggregate_due_bps_gloas() -> u64 {
 }
 
 const fn default_inclusion_list_due_bps() -> u64 {
-    6667
+    7500
 }
 
 const fn default_sync_message_due_bps() -> u64 {
