@@ -203,6 +203,7 @@ fn build_range_sync_block<T>(
 where
     T: BeaconChainTypes<EthSpec = E>,
 {
+    let block_root = block.canonical_root();
     if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
         let columns = match data_sidecars {
             Some(DataSidecars::DataColumns(columns)) => columns
@@ -215,13 +216,13 @@ where
             .map(|envelope| AvailableEnvelope::new(envelope, columns, bid, &chain.custody_context))
             .transpose()
             .unwrap();
-        return RangeSyncBlock::new_gloas(block, envelope).unwrap();
+        return RangeSyncBlock::new_gloas(block_root, block, envelope).unwrap();
     }
 
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
             let block_data = AvailableBlockData::new_with_blobs(blobs.clone());
-            RangeSyncBlock::new(block, block_data, &chain.custody_context).unwrap()
+            RangeSyncBlock::new(block_root, block, block_data, &chain.custody_context).unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
             let block_data = AvailableBlockData::new_with_data_columns(
@@ -230,11 +231,15 @@ where
                     .map(|c| c.as_data_column().clone())
                     .collect::<Vec<_>>(),
             );
-            RangeSyncBlock::new(block, block_data, &chain.custody_context).unwrap()
+            RangeSyncBlock::new(block_root, block, block_data, &chain.custody_context).unwrap()
         }
-        None => {
-            RangeSyncBlock::new(block, AvailableBlockData::NoData, &chain.custody_context).unwrap()
-        }
+        None => RangeSyncBlock::new(
+            block_root,
+            block,
+            AvailableBlockData::NoData,
+            &chain.custody_context,
+        )
+        .unwrap(),
     }
 }
 
@@ -535,9 +540,10 @@ async fn chain_segment_non_linear_parent_roots() {
     let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
     blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
         // Fine to pass None to the envelope here because this is testing non linear parent roots and not envelope
-        RangeSyncBlock::new_gloas(mutated_block, None).unwrap()
+        RangeSyncBlock::new_gloas(mutated_block.canonical_root(), mutated_block, None).unwrap()
     } else {
         RangeSyncBlock::new(
+            mutated_block.canonical_root(),
             mutated_block,
             blocks[3].block_data().clone(),
             &harness.chain.custody_context,
@@ -580,9 +586,10 @@ async fn chain_segment_non_linear_slots() {
     let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
     blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
         // Fine to pass None to the envelope here because this is testing non linear slots and not envelope
-        RangeSyncBlock::new_gloas(mutated_block, None).unwrap()
+        RangeSyncBlock::new_gloas(mutated_block.canonical_root(), mutated_block, None).unwrap()
     } else {
         RangeSyncBlock::new(
+            mutated_block.canonical_root(),
             mutated_block,
             blocks[3].block_data().clone(),
             &harness.chain.custody_context,
@@ -615,9 +622,10 @@ async fn chain_segment_non_linear_slots() {
     let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
     blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
         // Fine to pass None to the envelope here because this is testing non linear slots and not envelope
-        RangeSyncBlock::new_gloas(mutated_block, None).unwrap()
+        RangeSyncBlock::new_gloas(mutated_block.canonical_root(), mutated_block, None).unwrap()
     } else {
         RangeSyncBlock::new(
+            mutated_block.canonical_root(),
             mutated_block,
             blocks[3].block_data().clone(),
             &harness.chain.custody_context,
@@ -795,7 +803,8 @@ async fn invalid_signature_gossip_block() {
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
-        let lookup_block = LookupBlock::new(Arc::new(signed_block));
+        let block_root = signed_block.canonical_root();
+        let lookup_block = LookupBlock::new(block_root, Arc::new(signed_block));
         let process_res = harness
             .chain
             .process_block(
@@ -1328,7 +1337,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_block_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await).into_block_error(),
             BlockError::FutureSlot {
                 present_slot,
                 block_slot,
@@ -1362,7 +1371,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_finalized_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await).into_block_error(),
             BlockError::WouldRevertFinalizedSlot {
                 block_slot,
                 finalized_slot,
@@ -1397,7 +1406,8 @@ async fn block_gossip_verification() {
                         junk_signature()
                     )),)
                     .await
-            ),
+            )
+            .into_block_error(),
             BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
         ),
         "should not import a block with an invalid proposal signature"
@@ -1420,7 +1430,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await).into_block_error(),
             BlockError::ParentUnknown {parent_root: p, ..}
             if p == parent_root
         ),
@@ -1446,7 +1456,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await).into_block_error(),
             BlockError::NotFinalizedDescendant { block_parent_root }
             if block_parent_root == parent_root
         ),
@@ -1483,7 +1493,7 @@ async fn block_gossip_verification() {
     );
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await).into_block_error(),
             BlockError::IncorrectBlockProposer {
                 block,
                 local_shuffling,
@@ -1500,7 +1510,8 @@ async fn block_gossip_verification() {
                     .chain
                     .verify_block_for_gossip(Arc::new(block.clone()))
                     .await
-            ),
+            )
+            .into_block_error(),
             BlockError::DuplicateImportStatusUnknown(_),
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
@@ -1528,7 +1539,8 @@ async fn block_gossip_verification() {
                 .chain
                 .verify_block_for_gossip(block.clone())
                 .await
-                .expect_err("should error when processing known block"),
+                .expect_err("should error when processing known block")
+                .into_block_error(),
             BlockError::DuplicateImportStatusUnknown(_)
         ),
         "the second proposal by this validator should be rejected"
@@ -1557,7 +1569,7 @@ async fn block_gossip_verification() {
             .unwrap();
         assert!(
             matches!(
-                unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
+                unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await).into_block_error(),
                 BlockError::InvalidBlobCount {
                     max_blobs_at_epoch,
                     block,
@@ -1600,7 +1612,8 @@ async fn block_gossip_verification() {
                             block, signature
                         )))
                         .await
-                ),
+                )
+                .into_block_error(),
                 BlockError::PerBlockProcessingError(BlockProcessingError::OperationListTooLong {
                     kind: "deposits",
                     ..
@@ -1875,7 +1888,8 @@ async fn add_base_block_to_altair_chain() {
             .chain
             .verify_block_for_gossip(Arc::new(base_block.clone()))
             .await
-            .expect_err("should error when processing base block"),
+            .expect_err("should error when processing base block")
+            .into_block_error(),
         BlockError::InconsistentFork(InconsistentFork {
             fork_at_slot: ForkName::Altair,
             object_fork: ForkName::Base,
@@ -1883,7 +1897,9 @@ async fn add_base_block_to_altair_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
+    let base_block_root = base_block.canonical_root();
     let base_range_sync_block = RangeSyncBlock::new(
+        base_block_root,
         Arc::new(base_block.clone()),
         AvailableBlockData::NoData,
         &harness.chain.custody_context,
@@ -1914,6 +1930,7 @@ async fn add_base_block_to_altair_chain() {
             .process_chain_segment(
                 vec![
                     RangeSyncBlock::new(
+                        base_block_root,
                         Arc::new(base_block),
                         AvailableBlockData::NoData,
                         &harness.chain.custody_context,
@@ -2030,7 +2047,8 @@ async fn add_altair_block_to_base_chain() {
             .chain
             .verify_block_for_gossip(Arc::new(altair_block.clone()))
             .await
-            .expect_err("should error when processing altair block"),
+            .expect_err("should error when processing altair block")
+            .into_block_error(),
         BlockError::InconsistentFork(InconsistentFork {
             fork_at_slot: ForkName::Base,
             object_fork: ForkName::Altair,
@@ -2038,7 +2056,8 @@ async fn add_altair_block_to_base_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
-    let altair_lookup_block = LookupBlock::new(Arc::new(altair_block.clone()));
+    let altair_block_root = altair_block.canonical_root();
+    let altair_lookup_block = LookupBlock::new(altair_block_root, Arc::new(altair_block.clone()));
     assert!(matches!(
         harness
             .chain
@@ -2064,6 +2083,7 @@ async fn add_altair_block_to_base_chain() {
             .process_chain_segment(
                 vec![
                     RangeSyncBlock::new(
+                        altair_block_root,
                         Arc::new(altair_block),
                         AvailableBlockData::NoData,
                         &harness.chain.custody_context,
@@ -2287,9 +2307,10 @@ async fn import_duplicate_block_unrealized_justification() {
     let range_sync_block = if block.fork_name_unchecked().gloas_enabled() {
         // Fine to pass no envelope as we are testing duplicate block import
         // which is not related.
-        RangeSyncBlock::new_gloas(block.clone(), None).unwrap()
+        RangeSyncBlock::new_gloas(block_root, block.clone(), None).unwrap()
     } else {
         RangeSyncBlock::new(
+            block_root,
             block.clone(),
             AvailableBlockData::NoData,
             &harness.chain.custody_context,
@@ -2425,7 +2446,7 @@ async fn range_sync_block_new_gloas_accepts_matching_envelope() {
         .unwrap();
     let available_envelope =
         AvailableEnvelope::new(Arc::new(envelope), columns, bid, &custody_context).unwrap();
-    let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
+    let result = RangeSyncBlock::new_gloas(block.canonical_root(), block, Some(available_envelope));
 
     assert!(
         result.is_ok(),
@@ -2440,7 +2461,7 @@ async fn range_sync_block_new_gloas_allows_missing_envelope() {
         return;
     };
 
-    let result = RangeSyncBlock::new_gloas(block, None);
+    let result = RangeSyncBlock::new_gloas(block.canonical_root(), block, None);
 
     assert!(
         result.is_ok(),
@@ -2465,7 +2486,7 @@ async fn range_sync_block_new_gloas_rejects_slot_mismatch() {
         .unwrap();
     let available_envelope =
         AvailableEnvelope::new(Arc::new(envelope), columns, bid, &custody_context).unwrap();
-    let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
+    let result = RangeSyncBlock::new_gloas(block.canonical_root(), block, Some(available_envelope));
 
     assert!(
         matches!(result, Err(ref err) if err.contains("SlotMismatch")),
@@ -2490,7 +2511,7 @@ async fn range_sync_block_new_gloas_rejects_builder_index_mismatch() {
         .unwrap();
     let available_envelope =
         AvailableEnvelope::new(Arc::new(envelope), columns, bid, &custody_context).unwrap();
-    let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
+    let result = RangeSyncBlock::new_gloas(block.canonical_root(), block, Some(available_envelope));
 
     assert!(
         matches!(result, Err(ref err) if err.contains("BuilderIndexMismatch")),
@@ -2515,7 +2536,7 @@ async fn range_sync_block_new_gloas_rejects_block_hash_mismatch() {
         .unwrap();
     let available_envelope =
         AvailableEnvelope::new(Arc::new(envelope), columns, bid, &custody_context).unwrap();
-    let result = RangeSyncBlock::new_gloas(block, Some(available_envelope));
+    let result = RangeSyncBlock::new_gloas(block.canonical_root(), block, Some(available_envelope));
 
     assert!(
         matches!(result, Err(ref err) if err.contains("BlockHashMismatch")),
@@ -2777,6 +2798,7 @@ async fn filter_chain_segment_keeps_checkpoint_gloas_block_by_split_root() {
     )
     .unwrap();
     let range_sync_block = RangeSyncBlock::Gloas {
+        block_root: checkpoint_root,
         block: checkpoint_block,
         envelope: Some(available_envelope),
     };
@@ -2851,8 +2873,12 @@ async fn range_sync_block_construction_fails_with_wrong_blob_count() {
             let block_data = AvailableBlockData::new_with_blobs(wrong_blobs);
 
             // Try to create RpcBlock with wrong blob count
-            let result =
-                RangeSyncBlock::new(Arc::new(block), block_data, &harness.chain.custody_context);
+            let result = RangeSyncBlock::new(
+                root,
+                Arc::new(block),
+                block_data,
+                &harness.chain.custody_context,
+            );
 
             // Should fail with MissingBlobs
             assert!(
@@ -2926,6 +2952,7 @@ async fn range_sync_block_rejects_missing_custody_columns() {
 
                 // Try to create RpcBlock with incomplete custody columns
                 let result = RangeSyncBlock::new(
+                    root,
                     Arc::new(block),
                     block_data,
                     &harness.chain.custody_context,
@@ -3016,6 +3043,7 @@ async fn rpc_block_allows_construction_past_da_boundary() {
             // Try to create RpcBlock with NoData for a block past DA boundary
             // This should succeed since columns are not expected for blocks past DA boundary
             let result = RangeSyncBlock::new(
+                root,
                 Arc::new(block),
                 AvailableBlockData::NoData,
                 &harness.chain.custody_context,
@@ -3074,7 +3102,9 @@ async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
     )
     .unwrap();
 
-    let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
+    let segment = vec![
+        RangeSyncBlock::new_gloas(block.canonical_root(), block, Some(available_envelope)).unwrap(),
+    ];
 
     let result = harness
         .chain
@@ -3137,7 +3167,12 @@ async fn process_chain_segment_partial_import_with_invalid_envelope() {
         &import_harness.chain.custody_context,
     )
     .unwrap();
-    let range_sync_block1 = RangeSyncBlock::new_gloas(block1, Some(available_envelope1)).unwrap();
+    let range_sync_block1 = RangeSyncBlock::new_gloas(
+        chain_dump[0].beacon_block_root,
+        block1,
+        Some(available_envelope1),
+    )
+    .unwrap();
 
     // Block 2 with an invalid envelope
     let block2 = Arc::new(
@@ -3165,7 +3200,12 @@ async fn process_chain_segment_partial_import_with_invalid_envelope() {
         &import_harness.chain.custody_context,
     )
     .unwrap();
-    let range_sync_block2 = RangeSyncBlock::new_gloas(block2, Some(available_envelope2)).unwrap();
+    let range_sync_block2 = RangeSyncBlock::new_gloas(
+        chain_dump[1].beacon_block_root,
+        block2,
+        Some(available_envelope2),
+    )
+    .unwrap();
 
     let range_sync_blocks = vec![range_sync_block1, range_sync_block2];
 
@@ -3237,7 +3277,8 @@ async fn process_chain_segment_import_fails_without_parent_envelope() {
             .unwrap(),
     );
     // Block 1 is without an envelope
-    let range_sync_block1 = RangeSyncBlock::new_gloas(block1, None).unwrap();
+    let range_sync_block1 =
+        RangeSyncBlock::new_gloas(chain_dump[0].beacon_block_root, block1, None).unwrap();
 
     let block2 = Arc::new(
         harness
@@ -3261,7 +3302,12 @@ async fn process_chain_segment_import_fails_without_parent_envelope() {
         &import_harness.chain.custody_context,
     )
     .unwrap();
-    let range_sync_block2 = RangeSyncBlock::new_gloas(block2, Some(available_envelope2)).unwrap();
+    let range_sync_block2 = RangeSyncBlock::new_gloas(
+        chain_dump[1].beacon_block_root,
+        block2,
+        Some(available_envelope2),
+    )
+    .unwrap();
 
     let block_root1 = range_sync_block1.block_root();
     let range_sync_blocks = vec![range_sync_block1, range_sync_block2];
@@ -3356,10 +3402,16 @@ async fn process_chain_segment_full_and_empty_transitions() {
         &import_harness.chain.custody_context,
     )
     .unwrap();
-    let range_sync_block1 = RangeSyncBlock::new_gloas(block1, Some(available_envelope1)).unwrap();
+    let range_sync_block1 = RangeSyncBlock::new_gloas(
+        chain_dump[0].beacon_block_root,
+        block1,
+        Some(available_envelope1),
+    )
+    .unwrap();
 
     // block2 is without envelope
-    let range_sync_block2 = RangeSyncBlock::new_gloas(block2, None).unwrap();
+    let range_sync_block2 =
+        RangeSyncBlock::new_gloas(chain_dump[1].beacon_block_root, block2, None).unwrap();
 
     // Produce block 3 as an empty child of block2
     // This simulates a proposer who did not see block2 payload, and build block3 with PayloadStatus::Empty
@@ -3384,7 +3436,9 @@ async fn process_chain_segment_full_and_empty_transitions() {
         &import_harness.chain.custody_context,
     )
     .unwrap();
-    let range_sync_block3 = RangeSyncBlock::new_gloas(block3, Some(available_envelope3)).unwrap();
+    let range_sync_block3 =
+        RangeSyncBlock::new_gloas(block3.canonical_root(), block3, Some(available_envelope3))
+            .unwrap();
 
     let block_root1 = range_sync_block1.block_root();
     let block_root2 = range_sync_block2.block_root();
@@ -3474,7 +3528,9 @@ async fn process_chain_segment_rejects_envelope_with_invalid_columns() {
     )
     .unwrap();
 
-    let segment = vec![RangeSyncBlock::new_gloas(block, Some(available_envelope)).unwrap()];
+    let segment = vec![
+        RangeSyncBlock::new_gloas(block.canonical_root(), block, Some(available_envelope)).unwrap(),
+    ];
 
     let result = import_harness
         .chain

@@ -629,7 +629,7 @@ impl<E: EthSpec> GossipTester<E> {
         self.configure_payload_status(&block, payload_status);
         let result = self.block_on_dangerous(self.network_beacon_processor.chain.process_block(
             block_root,
-            LookupBlock::new(Arc::new(block.clone())),
+            LookupBlock::new(block_root, Arc::new(block.clone())),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),

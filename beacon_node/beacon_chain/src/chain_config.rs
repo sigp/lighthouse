@@ -49,6 +49,11 @@ pub struct ChainConfig {
     pub builder_fallback_epochs_since_finalization: usize,
     /// Whether any chain health checks should be considered when deciding whether to use the builder API.
     pub builder_fallback_disable_checks: bool,
+    /// Post-Gloas: number of slots for which a builder's bids are ignored after it fails to reveal
+    /// the payload for a sufficiently-attested block that carried its bid.
+    ///
+    /// Never less than `SLOTS_PER_EPOCH`; smaller values are raised to that minimum.
+    pub builder_fallback_ban_slots: u64,
     /// When set to `true`, forget any valid/invalid/optimistic statuses in fork choice during start
     /// up.
     pub always_reset_payload_statuses: bool,
@@ -150,6 +155,7 @@ impl Default for ChainConfig {
             builder_fallback_skips_per_epoch: 8,
             builder_fallback_epochs_since_finalization: 3,
             builder_fallback_disable_checks: false,
+            builder_fallback_ban_slots: 32,
             always_reset_payload_statuses: false,
             paranoid_block_proposal: false,
             checkpoint_sync_url_timeout: 60,
