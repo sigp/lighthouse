@@ -2,10 +2,16 @@ name: Release runner check
 
 # Verifies that the Linux runners used by the tag-gated (`v*`) jobs in `release.yml` and
 # `docker.yml` actually pick up work. Run it manually after changing the `RELEASE_RUNNER` /
-# `RELEASE_RUNNER_ARM64` repository variables, before cutting a release.
+# `RELEASE_RUNNER_ARM64` repository variables, before cutting a release. It also runs on any
+# branch push that modifies this file, since `workflow_dispatch` only works once the workflow
+# exists on the default branch.
 
 on:
     workflow_dispatch:
+    push:
+        branches: ['**']
+        paths:
+            - '.github/workflows/release-runner-check.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
