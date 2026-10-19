@@ -1,4 +1,5 @@
 use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::inclusion_list_store::InclusionListKey;
 use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
@@ -4954,6 +4955,120 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_validator_duties_inclusion_list(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap().as_u64();
+
+        let half = current_epoch / 2;
+        let first = current_epoch - half;
+        let last = current_epoch + half;
+
+        for epoch in first..=last {
+            for indices in self.interesting_validator_indices() {
+                let epoch = Epoch::from(epoch);
+
+                // The endpoint requires at least one validator index.
+                if indices.is_empty() {
+                    assert_eq!(
+                        self.client
+                            .post_validator_duties_inclusion_list(epoch, indices.as_slice())
+                            .await
+                            .unwrap_err()
+                            .status()
+                            .map(Into::into),
+                        Some(400)
+                    );
+                    continue;
+                }
+
+                // The endpoint does not allow getting duties past the next epoch.
+                if epoch > current_epoch + 1 {
+                    assert_eq!(
+                        self.client
+                            .post_validator_duties_inclusion_list(epoch, indices.as_slice())
+                            .await
+                            .unwrap_err()
+                            .status()
+                            .map(Into::into),
+                        Some(400)
+                    );
+                    continue;
+                }
+
+                let results = self
+                    .client
+                    .post_validator_duties_inclusion_list(epoch, indices.as_slice())
+                    .await
+                    .unwrap();
+
+                let dependent_root = self
+                    .chain
+                    .block_root_at_slot(
+                        (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+                        WhenSlotSkipped::Prev,
+                    )
+                    .unwrap()
+                    .unwrap_or(self.chain.head_beacon_block_root());
+
+                assert_eq!(results.dependent_root, dependent_root);
+
+                let result_duties = results.data;
+
+                let mut state = self
+                    .chain
+                    .state_at_slot(
+                        epoch.start_slot(E::slots_per_epoch()),
+                        StateSkipConfig::WithStateRoots,
+                    )
+                    .unwrap();
+                state
+                    .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
+                    .unwrap();
+
+                let slot_committees: Vec<(Slot, Vec<u64>)> = epoch
+                    .slot_iter(E::slots_per_epoch())
+                    .map(|slot| {
+                        let committee = state.get_inclusion_list_committee(slot).unwrap();
+                        (slot, committee.to_vec())
+                    })
+                    .collect();
+
+                let expected_duties: Vec<InclusionListDuty> = indices
+                    .iter()
+                    .filter_map(|&validator_index| {
+                        let validator = state.validators().get(validator_index as usize)?;
+                        let (slot, _) = slot_committees
+                            .iter()
+                            .find(|(_, committee)| committee.contains(&validator_index))?;
+                        Some(InclusionListDuty {
+                            pubkey: validator.pubkey,
+                            validator_index,
+                            slot: *slot,
+                        })
+                    })
+                    .collect();
+
+                assert_eq!(
+                    result_duties, expected_duties,
+                    "inclusion list duties should exactly match state-derived committees"
+                );
+
+                // With 32 validators there are fewer unique members per slot than
+                // INCLUSION_LIST_COMMITTEE_SIZE, so every committee here cycles
+                //
+                // ensure that the endpoint returns at most one duty per validator even in that case
+                let mut seen_validators = std::collections::HashSet::new();
+                assert!(
+                    result_duties
+                        .iter()
+                        .all(|duty| seen_validators.insert(duty.validator_index)),
+                    "each validator should appear at most once in the duties response"
+                );
+            }
+        }
+
+        self
+    }
+
     pub async fn test_block_production(self) -> Self {
         // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
         if self.chain.spec.is_gloas_scheduled() {
@@ -6856,6 +6971,18 @@ impl ApiTester {
         {
             Ok(result) => panic!("query for pre-Gloas slot should fail, got: {result:?}"),
             Err(e) => assert_eq!(e.status().unwrap(), 400),
+        }
+
+        self
+    }
+
+    pub async fn test_get_validator_inclusion_list_pre_heze(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+
+        // The endpoint should return a 400 error for pre-Heze forks.
+        match self.client.get_validator_inclusion_list(slot).await {
+            Ok(result) => panic!("query for a pre-Heze slot should fail, got: {result:?}"),
+            Err(e) => assert_eq!(e.status(), Some(StatusCode::BAD_REQUEST)),
         }
 
         self
@@ -9174,7 +9301,7 @@ impl ApiTester {
         let trusted_peers = self.ctx.network_globals.as_ref().unwrap().trusted_peers();
         // Check that there aren't any trusted peers on startup
         assert!(trusted_peers.is_empty());
-        let enr = AdminPeer {enr: "enr:-QESuEDpVVjo8dmDuneRhLnXdIGY3e9NQiaG4sJR3GS-VMQCQDsmBYoQhJRaPeZzPlTsZj2F8v-iV4lKJEYIRIyztqexHodhdHRuZXRziAwAAAAAAAAAhmNsaWVudNiKTGlnaHRob3VzZYw3LjAuMC1iZXRhLjSEZXRoMpDS8Zl_YAAJEAAIAAAAAAAAgmlkgnY0gmlwhIe11XmDaXA2kCoBBPkAOitZAAAAAAAAAAKEcXVpY4IjKYVxdWljNoIjg4lzZWNwMjU2azGhA43ihEr9BUVVnIHIfFqBR3Izs4YRHHPsTqIbUgEb3Hc8iHN5bmNuZXRzD4N0Y3CCIyiEdGNwNoIjgoN1ZHCCIyiEdWRwNoIjgg".to_string()};
+        let enr = AdminPeer { enr: "enr:-QESuEDpVVjo8dmDuneRhLnXdIGY3e9NQiaG4sJR3GS-VMQCQDsmBYoQhJRaPeZzPlTsZj2F8v-iV4lKJEYIRIyztqexHodhdHRuZXRziAwAAAAAAAAAhmNsaWVudNiKTGlnaHRob3VzZYw3LjAuMC1iZXRhLjSEZXRoMpDS8Zl_YAAJEAAIAAAAAAAAgmlkgnY0gmlwhIe11XmDaXA2kCoBBPkAOitZAAAAAAAAAAKEcXVpY4IjKYVxdWljNoIjg4lzZWNwMjU2azGhA43ihEr9BUVVnIHIfFqBR3Izs4YRHHPsTqIbUgEb3Hc8iHN5bmNuZXRzD4N0Y3CCIyiEdGNwNoIjgoN1ZHCCIyiEdWRwNoIjgg".to_string() };
         self.client
             .post_lighthouse_add_peer(enr.clone())
             .await
@@ -9942,6 +10069,453 @@ impl ApiTester {
             .unwrap();
 
         assert_eq!(result.execution_optimistic, Some(true));
+    }
+
+    fn make_signed_inclusion_list(&self, slot: Slot) -> SignedInclusionList {
+        self.make_signed_inclusion_list_with_transaction(slot, 0xaa)
+    }
+
+    /// An inclusion list for `slot` from the first committee member, holding a single
+    /// one-byte transaction.
+    fn make_signed_inclusion_list_with_transaction(
+        &self,
+        slot: Slot,
+        transaction_byte: u8,
+    ) -> SignedInclusionList {
+        let genesis_validators_root = self.chain.genesis_validators_root;
+        let head_state = self.chain.head_beacon_state_cloned();
+        let key = self
+            .chain
+            .inclusion_list_key(self.chain.head_beacon_block_root(), slot)
+            .unwrap();
+        let committee = self.chain.get_inclusion_list_committee(&key).unwrap();
+        let dependent_root = key.dependent_root();
+        let validator_index = committee[0];
+        let sk: &SecretKey = &self.validator_keypairs()[validator_index as usize].sk;
+        let inclusion_list = InclusionList {
+            slot,
+            validator_index,
+            dependent_root,
+            transactions: vec![vec![transaction_byte].try_into().unwrap()]
+                .try_into()
+                .unwrap(),
+        };
+
+        self.sign_inclusion_list(
+            inclusion_list,
+            sk,
+            &head_state.fork(),
+            genesis_validators_root,
+        )
+    }
+
+    fn sign_inclusion_list(
+        &self,
+        inclusion_list: InclusionList,
+        sk: &SecretKey,
+        fork: &Fork,
+        genesis_validators_root: Hash256,
+    ) -> SignedInclusionList {
+        let epoch = inclusion_list.slot.epoch(E::slots_per_epoch());
+        let domain = self.chain.spec.get_domain(
+            epoch,
+            Domain::InclusionListCommittee,
+            fork,
+            genesis_validators_root,
+        );
+        let signing_root = inclusion_list.signing_root(domain);
+        let signature = sk.sign(signing_root);
+
+        SignedInclusionList {
+            message: inclusion_list,
+            signature,
+        }
+    }
+
+    pub async fn test_inclusion_list_post_pre_heze_returns_400(mut self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let signed_il = self.make_signed_inclusion_list(slot);
+
+        let response = self
+            .client
+            .post_validator_inclusion_list(&signed_il, self.chain.spec.fork_name_at_slot::<E>(slot))
+            .await
+            .expect_err("publishing inclusion list pre-Heze should fail");
+
+        assert_eq!(response.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_ssz_pre_heze_returns_400(mut self) -> Self {
+        let slot = self.chain.slot().unwrap();
+        let signed_il = self.make_signed_inclusion_list(slot);
+
+        let response = self
+            .client
+            .post_validator_inclusion_list_ssz(
+                &signed_il,
+                self.chain.spec.fork_name_at_slot::<E>(slot),
+            )
+            .await
+            .expect_err("publishing inclusion list pre-Heze should fail");
+
+        assert_eq!(response.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_fork_name_invalid_returns_400(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let signed_il = self.make_signed_inclusion_list(slot);
+        let err = self
+            .client
+            .post_validator_inclusion_list(&signed_il, ForkName::Gloas)
+            .await
+            .expect_err("publishing inclusion list should fail");
+
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_ssz_fork_name_invalid_returns_400(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let signed_il = self.make_signed_inclusion_list(slot);
+        let err = self
+            .client
+            .post_validator_inclusion_list_ssz(&signed_il, ForkName::Gloas)
+            .await
+            .expect_err("publishing inclusion list should fail");
+
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_while_syncing_returns_503(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let original_slot = self.chain.slot().unwrap();
+        let signed_il = self.make_signed_inclusion_list(original_slot);
+
+        let network_globals = self.ctx.network_globals.as_ref().unwrap();
+        *network_globals.sync_state.write() = SyncState::SyncingFinalized {
+            start_slot: Slot::new(0),
+            target_slot: Slot::new(u64::MAX),
+        };
+
+        let head_slot = self.chain.canonical_head.cached_head().head_slot();
+        let tolerance = self.chain.config.sync_tolerance_epochs * E::slots_per_epoch();
+        self.chain
+            .slot_clock
+            .set_slot(head_slot.as_u64() + tolerance + 1);
+
+        while self.network_rx.network_recv.recv().now_or_never().is_some() {}
+
+        let err = self
+            .client
+            .post_validator_inclusion_list(
+                &signed_il,
+                self.chain.spec.fork_name_at_slot::<E>(original_slot),
+            )
+            .await
+            .expect_err("publishing inclusion list should fail while syncing");
+
+        assert_eq!(err.status(), Some(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        *network_globals.sync_state.write() = SyncState::Synced;
+        self.chain.slot_clock.set_slot(original_slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_ssz_while_syncing_returns_503(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let original_slot = self.chain.slot().unwrap();
+        let signed_il = self.make_signed_inclusion_list(original_slot);
+
+        let network_globals = self.ctx.network_globals.as_ref().unwrap();
+        *network_globals.sync_state.write() = SyncState::SyncingFinalized {
+            start_slot: Slot::new(0),
+            target_slot: Slot::new(u64::MAX),
+        };
+
+        let head_slot = self.chain.canonical_head.cached_head().head_slot();
+        let tolerance = self.chain.config.sync_tolerance_epochs * E::slots_per_epoch();
+        self.chain
+            .slot_clock
+            .set_slot(head_slot.as_u64() + tolerance + 1);
+
+        while self.network_rx.network_recv.recv().now_or_never().is_some() {}
+
+        let err = self
+            .client
+            .post_validator_inclusion_list_ssz(
+                &signed_il,
+                self.chain.spec.fork_name_at_slot::<E>(original_slot),
+            )
+            .await
+            .expect_err("publishing inclusion list should fail while syncing");
+
+        assert_eq!(err.status(), Some(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        *network_globals.sync_state.write() = SyncState::Synced;
+        self.chain.slot_clock.set_slot(original_slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_valid(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let signed_il = self.make_signed_inclusion_list(slot);
+
+        self.client
+            .post_validator_inclusion_list(&signed_il, self.chain.spec.fork_name_at_slot::<E>(slot))
+            .await
+            .expect("publishing valid inclusion list (json) should be successful");
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid inclusion list should be sent to network"
+        );
+        let stored = self
+            .chain
+            .inclusion_list_store
+            .read()
+            .get_signed_inclusion_lists(
+                &InclusionListKey::new(slot, signed_il.message.dependent_root),
+                &[signed_il.message.validator_index],
+            );
+        assert_eq!(
+            stored,
+            vec![signed_il],
+            "published inclusion list should be added to the store"
+        );
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_known_is_not_republished(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+        let first = self.make_signed_inclusion_list_with_transaction(slot, 0xaa);
+        let equivocating = self.make_signed_inclusion_list_with_transaction(slot, 0xbb);
+        let third = self.make_signed_inclusion_list_with_transaction(slot, 0xcc);
+
+        for (signed_il, published, expected_stored) in [
+            // The first list from the validator is stored and published
+            (&first, true, vec![first.clone()]),
+            // The same list again is already known, so it is not published again
+            (&first, false, vec![first.clone()]),
+            // A second, different list flags the validator as an equivocator. It is published so
+            // peers learn about it, and the validator's lists are no longer served.
+            (&equivocating, true, vec![]),
+            // A third list is neither stored nor published.
+            (&third, false, vec![]),
+        ] {
+            self.client
+                .post_validator_inclusion_list(signed_il, fork_name)
+                .await
+                .expect("publishing inclusion list should be successful");
+
+            assert_eq!(
+                self.network_rx.network_recv.recv().now_or_never().is_some(),
+                published,
+                "unexpected publish result"
+            );
+            let stored = self
+                .chain
+                .inclusion_list_store
+                .read()
+                .get_signed_inclusion_lists(
+                    &InclusionListKey::new(slot, first.message.dependent_root),
+                    &[first.message.validator_index],
+                );
+            assert_eq!(stored, expected_stored);
+        }
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_ssz_valid(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let signed_il = self.make_signed_inclusion_list(slot);
+
+        self.client
+            .post_validator_inclusion_list_ssz(
+                &signed_il,
+                self.chain.spec.fork_name_at_slot::<E>(slot),
+            )
+            .await
+            .expect("publishing valid inclusion list (ssz) should be successful");
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid inclusion list (SSZ) should be sent to network"
+        );
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_invalid_signature_returns_400(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let valid = self.make_signed_inclusion_list(slot);
+        let validator_index = valid.message.validator_index;
+        // Sign the committee member's list with another validator's key
+        let wrong_signer = (validator_index as usize + 1) % self.validator_count();
+        let signed_il = self.sign_inclusion_list(
+            valid.message,
+            &self.validator_keypairs()[wrong_signer].sk,
+            &self.chain.head_beacon_state_cloned().fork(),
+            self.chain.genesis_validators_root,
+        );
+
+        let err = self
+            .client
+            .post_validator_inclusion_list(&signed_il, self.chain.spec.fork_name_at_slot::<E>(slot))
+            .await
+            .expect_err("publishing an inclusion list with an invalid signature should fail");
+
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+        assert!(
+            self.chain
+                .inclusion_list_store
+                .read()
+                .get_signed_inclusion_lists(
+                    &InclusionListKey::new(slot, signed_il.message.dependent_root),
+                    &[validator_index]
+                )
+                .is_empty()
+        );
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_non_committee_member_returns_400(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let key = self
+            .chain
+            .inclusion_list_key(self.chain.head_beacon_block_root(), slot)
+            .unwrap();
+        let committee = self.chain.get_inclusion_list_committee(&key).unwrap();
+        let dependent_root = key.dependent_root();
+        let validator_index = (0..self.validator_count() as u64)
+            .find(|index| !committee.contains(index))
+            .expect("some validator should be outside the inclusion list committee");
+        let signed_il = self.sign_inclusion_list(
+            InclusionList {
+                slot,
+                validator_index,
+                dependent_root,
+                transactions: vec![vec![0xaa].try_into().unwrap()].try_into().unwrap(),
+            },
+            &self.validator_keypairs()[validator_index as usize].sk,
+            &self.chain.head_beacon_state_cloned().fork(),
+            self.chain.genesis_validators_root,
+        );
+
+        let err = self
+            .client
+            .post_validator_inclusion_list(&signed_il, self.chain.spec.fork_name_at_slot::<E>(slot))
+            .await
+            .expect_err("publishing an inclusion list from a non-committee member should fail");
+
+        assert_eq!(err.status(), Some(StatusCode::BAD_REQUEST));
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
+    }
+
+    pub async fn test_inclusion_list_post_empty_transactions_is_not_published(mut self) -> Self {
+        if !self.chain.spec.is_heze_scheduled() {
+            return self;
+        }
+
+        let slot = self.chain.slot().unwrap();
+        let valid = self.make_signed_inclusion_list(slot);
+        let validator_index = valid.message.validator_index;
+        let signed_il = self.sign_inclusion_list(
+            InclusionList {
+                transactions: Default::default(),
+                ..valid.message
+            },
+            &self.validator_keypairs()[validator_index as usize].sk,
+            &self.chain.head_beacon_state_cloned().fork(),
+            self.chain.genesis_validators_root,
+        );
+
+        // Gossip ignores an empty list, so the endpoint accepts it without publishing it
+        self.client
+            .post_validator_inclusion_list(&signed_il, self.chain.spec.fork_name_at_slot::<E>(slot))
+            .await
+            .expect("publishing an empty inclusion list should not fail");
+
+        assert!(self.network_rx.network_recv.recv().now_or_never().is_none());
+        assert!(
+            self.chain
+                .inclusion_list_store
+                .read()
+                .get_signed_inclusion_lists(
+                    &InclusionListKey::new(slot, signed_il.message.dependent_root),
+                    &[validator_index]
+                )
+                .is_empty()
+        );
+
+        self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+
+        self
     }
 
     async fn test_get_beacon_rewards_blocks_at_head(
@@ -10796,6 +11370,29 @@ async fn get_validator_duties_ptc_with_skip_slots() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_inclusion_list() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_validator_duties_inclusion_list()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_inclusion_list_with_skip_slots() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_get_validator_duties_inclusion_list()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn block_production() {
     ApiTester::new().await.test_block_production().await;
 }
@@ -10988,6 +11585,17 @@ async fn get_validator_payload_attestation_data_pre_gloas() {
     ApiTester::new()
         .await
         .test_get_validator_payload_attestation_data_pre_gloas()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_pre_heze() {
+    if fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    ApiTester::new()
+        .await
+        .test_get_validator_inclusion_list_pre_heze()
         .await;
 }
 
@@ -11902,5 +12510,48 @@ async fn post_beacon_execution_payload_bids() {
         .test_post_beacon_execution_payload_bids_json()
         .await
         .test_post_beacon_execution_payload_bids_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inclusion_list_publish_pre_heze() {
+    if fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_inclusion_list_post_pre_heze_returns_400()
+        .await
+        .test_inclusion_list_post_ssz_pre_heze_returns_400()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inclusion_list_api() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_inclusion_list_post_fork_name_invalid_returns_400()
+        .await
+        .test_inclusion_list_post_ssz_fork_name_invalid_returns_400()
+        .await
+        .test_inclusion_list_post_while_syncing_returns_503()
+        .await
+        .test_inclusion_list_post_ssz_while_syncing_returns_503()
+        .await
+        .test_inclusion_list_post_valid()
+        .await
+        .test_inclusion_list_post_ssz_valid()
+        .await
+        .test_inclusion_list_post_invalid_signature_returns_400()
+        .await
+        .test_inclusion_list_post_non_committee_member_returns_400()
+        .await
+        .test_inclusion_list_post_empty_transactions_is_not_published()
+        .await
+        .test_inclusion_list_post_known_is_not_republished()
         .await;
 }

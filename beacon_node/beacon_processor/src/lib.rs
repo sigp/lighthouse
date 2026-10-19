@@ -455,6 +455,7 @@ pub enum Work<E: EthSpec> {
     BlobsByRootsRequest(BlockingFn),
     DataColumnsByRootsRequest(BlockingFn),
     DataColumnsByRangeRequest(BlockingFn),
+    InclusionListsByIndicesRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     GossipExecutionPayload(AsyncFn),
     GossipExecutionProof(AsyncFn),
@@ -519,6 +520,7 @@ pub enum WorkType {
     BlobsByRootsRequest,
     DataColumnsByRootsRequest,
     DataColumnsByRangeRequest,
+    InclusionListsByIndicesRequest,
     GossipBlsToExecutionChange,
     GossipExecutionPayload,
     GossipExecutionProof,
@@ -586,6 +588,7 @@ impl<E: EthSpec> Work<E> {
             Work::BlobsByRootsRequest(_) => WorkType::BlobsByRootsRequest,
             Work::DataColumnsByRootsRequest(_) => WorkType::DataColumnsByRootsRequest,
             Work::DataColumnsByRangeRequest(_) => WorkType::DataColumnsByRangeRequest,
+            Work::InclusionListsByIndicesRequest(_) => WorkType::InclusionListsByIndicesRequest,
             Work::LightClientBootstrapRequest(_) => WorkType::LightClientBootstrapRequest,
             Work::LightClientOptimisticUpdateRequest(_) => {
                 WorkType::LightClientOptimisticUpdateRequest
@@ -1048,6 +1051,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.dcbrange_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues.ilbindices_queue.pop() {
+                            Some(item)
                         } else if let Some(item) = work_queues.payload_envelopes_brange_queue.pop()
                         {
                             Some(item)
@@ -1314,6 +1319,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::DataColumnsByRangeRequest { .. } => {
                                 work_queues.dcbrange_queue.push(work, work_id)
                             }
+                            Work::InclusionListsByIndicesRequest { .. } => {
+                                work_queues.ilbindices_queue.push(work, work_id)
+                            }
                             Work::UnknownLightClientOptimisticUpdate { .. } => work_queues
                                 .unknown_light_client_update_queue
                                 .push(work, work_id),
@@ -1401,6 +1409,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::BlobsByRangeRequest => work_queues.blob_brange_queue.len(),
                         WorkType::BlobsByRootsRequest => work_queues.blob_broots_queue.len(),
                         WorkType::DataColumnsByRootsRequest => work_queues.dcbroots_queue.len(),
+                        WorkType::InclusionListsByIndicesRequest => {
+                            work_queues.ilbindices_queue.len()
+                        }
                         WorkType::DataColumnsByRangeRequest => work_queues.dcbrange_queue.len(),
                         WorkType::GossipBlsToExecutionChange => {
                             work_queues.gossip_bls_to_execution_change_queue.len()
@@ -1596,7 +1607,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             Work::BlobsByRangeRequest(process_fn)
             | Work::BlobsByRootsRequest(process_fn)
             | Work::DataColumnsByRootsRequest(process_fn)
-            | Work::DataColumnsByRangeRequest(process_fn) => {
+            | Work::DataColumnsByRangeRequest(process_fn)
+            | Work::InclusionListsByIndicesRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
             Work::BlocksByRangeRequest(work)

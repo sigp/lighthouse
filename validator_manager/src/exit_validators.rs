@@ -277,11 +277,7 @@ async fn run<E: EthSpec>(config: ExitConfig) -> Result<(), String> {
 }
 
 pub fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<Epoch> {
-    let slot_clock = SystemTimeSlotClock::new(
-        spec.genesis_slot,
-        Duration::from_secs(genesis_time),
-        spec.get_slot_duration(),
-    );
+    let slot_clock = SystemTimeSlotClock::from_spec::<E>(Duration::from_secs(genesis_time), spec);
     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
 }
 

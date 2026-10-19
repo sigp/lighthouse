@@ -3,6 +3,7 @@ use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::inclusion_list_store::Error as InclusionListStoreError;
+use crate::inclusion_list_verification::InclusionListTransactionsError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
@@ -114,6 +115,14 @@ pub enum BeaconChainError {
         shuffling_epoch: Epoch,
         head_block_epoch: Epoch,
     },
+    MissingShufflingDependentRoot {
+        block_root: Hash256,
+        epoch: Epoch,
+    },
+    InclusionListDependentRootMismatch {
+        dependent_root: Hash256,
+        shuffling_decision_root: Hash256,
+    },
     WeakSubjectivtyVerificationFailure,
     WeakSubjectivtyShutdownError(TrySendError<ShutdownReason>),
     AttestingToFinalizedSlot {
@@ -155,6 +164,8 @@ pub enum BeaconChainError {
     BlockVariantLacksExecutionPayload(Hash256),
     ExecutionLayerErrorPayloadReconstruction(ExecutionBlockHash, Box<execution_layer::Error>),
     ExecutionLayerGetBlockByNumberFailed(Box<execution_layer::Error>),
+    ExecutionLayerGetInclusionListFailed(Box<execution_layer::Error>),
+    InvalidInclusionListFromExecutionLayer(InclusionListTransactionsError),
     BlockHashMissingFromExecutionLayer(ExecutionBlockHash),
     InconsistentPayloadReconstructed {
         slot: Slot,

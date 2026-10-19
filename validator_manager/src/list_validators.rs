@@ -185,9 +185,18 @@ async fn run<E: EthSpec>(config: ListConfig) -> Result<Vec<SingleKeystoreRespons
                     eprintln!("Please keep your validator running till exit epoch");
                     eprintln!(
                         "Exit epoch in approximately {} secs",
-                        (exit_epoch - current_epoch)
-                            * spec.get_slot_duration().as_secs()
-                            * E::slots_per_epoch()
+                        spec.compute_time_at_slot::<E>(
+                            0,
+                            exit_epoch.start_slot(E::slots_per_epoch())
+                        )
+                        .unwrap_or(u64::MAX)
+                        .saturating_sub(
+                            spec.compute_time_at_slot::<E>(
+                                0,
+                                current_epoch.start_slot(E::slots_per_epoch())
+                            )
+                            .unwrap_or(0)
+                        )
                     );
                 }
                 ValidatorStatus::ExitedSlashed | ValidatorStatus::ExitedUnslashed => {

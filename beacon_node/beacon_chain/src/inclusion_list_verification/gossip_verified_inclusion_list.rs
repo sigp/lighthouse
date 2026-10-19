@@ -1,5 +1,5 @@
 use crate::canonical_head::CanonicalHead;
-use crate::inclusion_list_store::{InclusionListStore, InsertOutcome};
+use crate::inclusion_list_store::{InclusionListKey, InclusionListStore, InsertOutcome};
 use crate::inclusion_list_verification::{
     InclusionListVerificationError, verify_inclusion_list_transactions_bounds,
 };
@@ -50,7 +50,7 @@ impl GossipVerifiedInclusionList {
         if ctx
             .inclusion_list_store
             .read()
-            .seen_twice(slot, dependent_root, validator_index)
+            .seen_twice(&InclusionListKey::from(inclusion_list), validator_index)
         {
             return Err(InclusionListVerificationError::AlreadySeenTwice {
                 validator_index,
@@ -163,7 +163,8 @@ impl GossipVerifiedInclusionList {
                 .slot_clock
                 .start_of(seen_slot)
                 .is_some_and(|slot_start| {
-                    seen_timestamp.saturating_sub(slot_start) < ctx.spec.get_inclusion_list_due()
+                    seen_timestamp.saturating_sub(slot_start)
+                        < ctx.spec.get_inclusion_list_due::<T::EthSpec>(seen_slot)
                 });
 
         Ok(Self {

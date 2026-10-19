@@ -378,7 +378,11 @@ async fn revealed_payload_is_not_banned() {
 
     // The envelope was seen on gossip exactly at the PTC deadline. Whether it was imported by the
     // next slot tick is irrelevant.
-    observe_envelope(&harness, &block, harness.spec.get_payload_attestation_due());
+    observe_envelope(
+        &harness,
+        &block,
+        harness.spec.get_payload_attestation_due::<E>(block.slot),
+    );
 
     harness.advance_slot();
     harness.chain.per_slot_task().await;
@@ -399,7 +403,7 @@ async fn late_revealed_payload_is_banned() {
     observe_envelope(
         &harness,
         &block,
-        harness.spec.get_payload_attestation_due() + Duration::from_millis(1),
+        harness.spec.get_payload_attestation_due::<E>(block.slot) + Duration::from_millis(1),
     );
     harness
         .chain
@@ -413,6 +417,7 @@ async fn late_revealed_payload_is_banned() {
                 .latest_execution_payload_bid()
                 .unwrap()
                 .block_hash(),
+            true,
         )
         .unwrap();
 

@@ -455,8 +455,7 @@ pub fn gossipsub_config(
     network_load: u8,
     fork_context: Arc<ForkContext>,
     gossipsub_config_params: GossipsubConfigParams,
-    slot_duration: Duration,
-    slots_per_epoch: u64,
+    seen_ttl: Duration,
     idontwant_message_size_threshold: usize,
 ) -> gossipsub::Config {
     fn prefix(
@@ -499,7 +498,7 @@ pub fn gossipsub_config(
     // To accommodate the increase, we should increase the duplicate cache time to filter older seen messages.
     // 2 epochs is quite sane for pre-deneb network parameters as well.
     // Hence we keep the same parameters for pre-deneb networks as well to avoid switching at the fork.
-    let duplicate_cache_time = Duration::from_secs(slots_per_epoch * slot_duration.as_secs() * 2);
+    let duplicate_cache_time = seen_ttl;
 
     gossipsub::ConfigBuilder::default()
         .max_transmit_size(gossipsub_config_params.gossipsub_max_transmit_size)

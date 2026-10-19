@@ -53,7 +53,7 @@ impl ValidatorClientHarness {
         let spec = Arc::new(spec);
         let test_runtime = TestRuntime::default();
         let executor = test_runtime.task_executor.clone();
-        let slot_duration = spec.get_slot_duration();
+        let slot_duration = spec.genesis_slot_duration();
         let slot_clock = ManualSlotClock::new(Slot::new(0), Duration::from_secs(0), slot_duration);
 
         let (validator_store, pubkeys, validator_dir) = create_validator_store(
