@@ -70,6 +70,23 @@ impl ChunkedField {
         }
     }
 
+    /// Whether this field is backed by a `ProgressiveList` (EIP-7916) in `BeaconStateGloas`, as
+    /// opposed to a plain `List`. Checked directly against `consensus/types/src/state/beacon_state.rs`'s
+    /// Gloas field declarations: `historical_roots`, `eth1_data_votes`, and `historical_summaries`
+    /// stay as plain `List`; every other chunked field is `ProgressiveList`. This matters because
+    /// a plain `List`'s tree has no progressive folding, it's one flat `merkleize(pack(items),
+    /// limit)` tree, so a uniform `items_per_chunk`-sized stride starting at item 0 already
+    /// produces valid single-subtree chunks for those three fields; the irregular first chunk
+    /// below is only needed, and only correct, for the `ProgressiveList` fields.
+    pub const fn is_progressive(self) -> bool {
+        !matches!(
+            self,
+            ChunkedField::HistoricalRoots
+                | ChunkedField::Eth1DataVotes
+                | ChunkedField::HistoricalSummaries
+        )
+    }
+
     /// Number of items in this field's first chunk.
     ///
     /// A `ProgressiveList`'s tree is a chain of perfectly-balanced binary subtrees, one per
@@ -82,8 +99,16 @@ impl ChunkedField {
     /// power-of-two multiple of it, so every later chunk can just be a plain, round
     /// `items_per_chunk`-sized slice, no further special-casing needed. Confirmed directly with
     /// Etan Kissling (2026-10-06), who gave this exact rule.
+    ///
+    /// For a plain `List` field (see [`Self::is_progressive`]), there's no progressive folding to
+    /// account for, so the first chunk is just a normal, round `items_per_chunk`-sized slice like
+    /// every other chunk.
     pub const fn first_chunk_size(self) -> usize {
-        first_chunk_size_for(self.items_per_chunk())
+        if self.is_progressive() {
+            first_chunk_size_for(self.items_per_chunk())
+        } else {
+            self.items_per_chunk()
+        }
     }
 
     /// Number of chunks a field with `len` items splits into (0 items → 0 chunks).
@@ -235,6 +260,28 @@ mod tests {
         // Etan's own example (2026-10-06): items_per_chunk = 32 folds levels 0-2
         // (1 + 4 + 16 = 21) into the first chunk, since level 3 (64 items) doesn't fit.
         assert_eq!(first_chunk_size_for(32), 21);
+    }
+
+    #[test]
+    fn plain_list_fields_have_no_irregular_first_chunk() {
+        // historical_roots, eth1_data_votes, and historical_summaries stay as a plain `List` in
+        // BeaconStateGloas (checked directly against beacon_state.rs), not `ProgressiveList`, so
+        // they have no progressive folding to account for: the first chunk should just be a
+        // normal, round items_per_chunk-sized slice, same as every other chunk.
+        assert!(!ChunkedField::HistoricalRoots.is_progressive());
+        assert!(!ChunkedField::Eth1DataVotes.is_progressive());
+        assert!(!ChunkedField::HistoricalSummaries.is_progressive());
+        assert_eq!(
+            ChunkedField::HistoricalRoots.first_chunk_size(),
+            ChunkedField::HistoricalRoots.items_per_chunk()
+        );
+
+        // Every other chunked field is `ProgressiveList` and does need the irregular first chunk.
+        assert!(ChunkedField::Validators.is_progressive());
+        assert!(
+            ChunkedField::Validators.first_chunk_size()
+                < ChunkedField::Validators.items_per_chunk()
+        );
     }
 
     #[test]
