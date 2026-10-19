@@ -3,6 +3,7 @@ use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
+use beacon_chain::inclusion_list_store::InclusionListKey;
 use beacon_chain::payload_envelope_streamer::{
     EnvelopeRequestSource, Error as EnvelopeStreamerError,
 };
@@ -935,9 +936,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 "No block known at or before the requested slot",
             ))?;
 
-        let (committee, _) = self
+        let committee = self
             .chain
-            .inclusion_list_committee(anchor_block_root, request.slot)
+            .inclusion_list_key(anchor_block_root, request.slot)
+            .and_then(|key| self.chain.get_inclusion_list_committee(&key))
             .map_err(|_| {
                 (
                     RpcErrorResponse::ServerError,
@@ -960,8 +962,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .inclusion_list_store
             .read()
             .get_signed_inclusion_lists(
-                request.slot,
-                request.dependent_root,
+                &InclusionListKey::new(request.slot, request.dependent_root),
                 &requested_validators,
             );
 
