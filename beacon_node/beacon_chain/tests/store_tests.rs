@@ -4753,11 +4753,12 @@ async fn weak_subjectivity_sync_test(
         let mut batch_with_invalid_first_block = available_blocks.clone();
         batch_with_invalid_first_block[0] = match available_blocks[0].clone() {
             RangeSyncBlock::Base(first_block) => {
-                let (_, block, data) = first_block.deconstruct();
+                let (block_root, block, data) = first_block.deconstruct();
                 let mut corrupt_block = (*block).clone();
                 *corrupt_block.signature_mut() = Signature::empty();
                 RangeSyncBlock::Base(
                     AvailableBlock::new(
+                        block_root,
                         Arc::new(corrupt_block),
                         data,
                         &beacon_chain.custody_context,
@@ -4765,10 +4766,15 @@ async fn weak_subjectivity_sync_test(
                     .expect("available block"),
                 )
             }
-            RangeSyncBlock::Gloas { block, envelope } => {
+            RangeSyncBlock::Gloas {
+                block_root,
+                block,
+                envelope,
+            } => {
                 let mut corrupt_block = (*block).clone();
                 *corrupt_block.signature_mut() = Signature::empty();
                 RangeSyncBlock::Gloas {
+                    block_root,
                     block: Arc::new(corrupt_block),
                     envelope,
                 }
@@ -5379,7 +5385,10 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert_eq!(split.block_root, valid_fork_block.parent_root());
     assert_ne!(split.state_root, unadvanced_split_state_root);
 
-    let invalid_fork_lookup_block = LookupBlock::new(invalid_fork_block.clone());
+    let invalid_fork_lookup_block = LookupBlock::new(
+        invalid_fork_block.canonical_root(),
+        invalid_fork_block.clone(),
+    );
     // Applying the invalid block should fail.
     let err = harness
         .chain
@@ -5395,7 +5404,8 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert!(matches!(err, BlockError::WouldRevertFinalizedSlot { .. }));
 
     // Applying the valid block should succeed, but it should not become head.
-    let valid_fork_lookup_block = LookupBlock::new(valid_fork_block.clone());
+    let valid_fork_lookup_block =
+        LookupBlock::new(valid_fork_block.canonical_root(), valid_fork_block.clone());
     harness
         .chain
         .process_block(

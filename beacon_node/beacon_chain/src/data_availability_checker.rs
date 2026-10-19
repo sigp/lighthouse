@@ -508,7 +508,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         verify_columns_against_block(&self.kzg, available_block.block(), columns)?;
                     }
                 },
-                RangeSyncBlock::Gloas { block, envelope } => {
+                RangeSyncBlock::Gloas {
+                    block, envelope, ..
+                } => {
                     if let Some(envelope) = envelope {
                         verify_columns_against_block(&self.kzg, block, &envelope.columns)?;
                     }
@@ -842,12 +844,14 @@ impl<E: EthSpec> AvailableBlock<E> {
     /// - Required custody columns are complete based on the node's custody requirements
     /// - KZG commitments in blobs match those in the block
     ///
+    /// Caller must ensure that `block_root == block.canonical_root()`.
     /// Returns `AvailabilityCheckError` if:
     /// - `InvalidAvailableBlockData`: Block data is provided but not required
     /// - `MissingBlobs`: Block requires blobs but they are missing or incomplete
     /// - `MissingCustodyColumns`: Block requires custody columns but they are incomplete
     /// - `KzgCommitmentMismatch`: Blob KZG commitment doesn't match block commitment
     pub fn new<T>(
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_data: AvailableBlockData<T::EthSpec>,
         custody_context: &CustodyContext<T>,
@@ -914,17 +918,21 @@ impl<E: EthSpec> AvailableBlock<E> {
         }
 
         Ok(Self {
-            block_root: block.canonical_root(),
+            block_root,
             block,
             blob_data: block_data,
             blobs_available_timestamp: None,
         })
     }
 
-    pub fn new_gloas(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, String> {
+    /// Caller must ensure that `block_root == block.canonical_root()`.
+    pub fn new_gloas(
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<E>>,
+    ) -> Result<Self, String> {
         if block.fork_name_unchecked().gloas_enabled() {
             Ok(Self {
-                block_root: block.canonical_root(),
+                block_root,
                 block,
                 blob_data: AvailableBlockData::NoData,
                 blobs_available_timestamp: None,
@@ -1243,8 +1251,14 @@ mod test {
                 };
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-                RangeSyncBlock::new(Arc::new(block), block_data, da_checker.custody_context())
-                    .expect("should create RPC block with custody columns")
+                let block_root = block.canonical_root();
+                RangeSyncBlock::new(
+                    block_root,
+                    Arc::new(block),
+                    block_data,
+                    da_checker.custody_context(),
+                )
+                .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();
 
