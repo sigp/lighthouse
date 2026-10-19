@@ -358,6 +358,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_beacon_processor.clone(),
             sync_recv,
             fork_context.clone(),
+            config.unknown_root_min_peers,
         );
 
         // attestation and sync committee subnet service
@@ -1629,7 +1630,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         result: Result<(), crate::network_beacon_processor::Error<T::EthSpec>>,
     ) {
         if let Err(e) = result {
-            let work_type = match &e {
+            let work_type = match e.as_ref() {
                 mpsc::error::TrySendError::Closed(work) | mpsc::error::TrySendError::Full(work) => {
                     work.work_type_str()
                 }

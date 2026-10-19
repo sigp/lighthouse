@@ -6849,6 +6849,7 @@ dependencies = [
  "libp2p",
  "lighthouse_network",
  "logging",
+ "lru",
  "lru_cache",
  "matches",
  "metrics",

@@ -335,6 +335,8 @@ impl TestRig {
                 // Pass empty recv not tied to any tx
                 mpsc::unbounded_channel().1,
                 fork_context,
+                // Request unknown roots on the first report
+                1,
             ),
             harness,
             fork_name,
@@ -435,6 +437,7 @@ impl TestRig {
                     Work::RpcBlock {
                         process_fn,
                         beacon_block_root,
+                        ..
                     } => {
                         // Import block before processing if configured (for simulating race conditions)
                         if self
@@ -1306,7 +1309,7 @@ impl TestRig {
                     })
                     .transpose()
                     .unwrap();
-                RangeSyncBlock::new_gloas(block, envelope).unwrap()
+                RangeSyncBlock::new_gloas(block_root, block, envelope).unwrap()
             } else {
                 let block_data = if let Some(columns) = columns {
                     AvailableBlockData::new_with_data_columns(columns)
@@ -1315,7 +1318,13 @@ impl TestRig {
                 } else {
                     AvailableBlockData::NoData
                 };
-                RangeSyncBlock::new(block, block_data, &self.harness.chain.custody_context).unwrap()
+                RangeSyncBlock::new(
+                    block_root,
+                    block,
+                    block_data,
+                    &self.harness.chain.custody_context,
+                )
+                .unwrap()
             };
         self.network_blocks_by_slot
             .insert(block_slot, range_sync_block.clone());
@@ -1998,7 +2007,8 @@ impl TestRig {
     ) -> AvailabilityProcessingStatus {
         // Simulate importing block from another source. Don't use GossipVerified as it checks with
         // the clock, which does not match the timestamp in the payload.
-        let lookup_block = LookupBlock::new(block);
+        let block_root = block.canonical_root();
+        let lookup_block = LookupBlock::new(block_root, block);
         self.harness
             .chain
             .process_block(
