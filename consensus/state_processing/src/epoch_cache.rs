@@ -243,7 +243,7 @@ mod tests {
         let mut spec = ChainSpec::minimal();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.heze_fork_epoch = Some(Epoch::new(2));
-        spec.slot_duration_ms_eip8198 = 3000;
+        spec.slot_duration_ms_heze = 3000;
         let epoch_cache_at = |epoch: u64| {
             PreEpochCache {
                 epoch_key: EpochCacheKey {
