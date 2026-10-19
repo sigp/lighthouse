@@ -5598,13 +5598,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ));
         }
 
-        // Check that the head block arrived late and is vulnerable to a re-org. This check is only
-        // a heuristic compared to the proper weight check in `get_state_for_re_org`, the reason
-        // being that we may have only *just* received the block and not yet processed any
+        // Check that the head block became available late and is vulnerable to a re-org. This check
+        // is only a heuristic compared to the proper weight check in `get_state_for_re_org`, the
+        // reason being that we may have only *just* received the block and not yet processed any
         // attestations for it. We also can't dequeue attestations for the block during the
         // current slot, which would be necessary for determining its weight.
         let head_block_late =
-            self.block_observed_after_attestation_deadline(head_block_root, head_slot);
+            self.block_available_after_attestation_deadline(head_block_root, head_slot);
         if !head_block_late {
             return Err(Box::new(DoNotReOrg::HeadNotLate.into()));
         }
@@ -5689,8 +5689,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(forkchoice_update_params)
     }
 
-    /// Check if the block with `block_root` was observed after the attestation deadline of `slot`.
-    pub(crate) fn block_observed_after_attestation_deadline(
+    /// Check if the block with `block_root` became available after the attestation deadline of
+    /// `slot`.
+    ///
+    /// This approximates the spec's `is_head_late`, which reads the timeliness recorded by
+    /// `on_block` *after* the data availability check. We must not use the time the block was
+    /// observed on gossip, as a proposer could publish a block on time but withhold its data
+    /// until after the attestation deadline, causing honest attesters to vote for its parent.
+    ///
+    /// The block is available once it has been executed and its blobs or data columns have
+    /// arrived. Blocks with an unknown availability time (e.g. after a restart) are not late.
+    pub fn block_available_after_attestation_deadline(
         &self,
         block_root: Hash256,
         slot: Slot,
@@ -5702,7 +5711,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .unwrap_or_else(|| Duration::from_secs(0)),
         );
         block_delays
-            .observed
+            .available
             .is_some_and(|delay| delay >= self.spec.get_attestation_due::<T::EthSpec>(slot))
     }
 
