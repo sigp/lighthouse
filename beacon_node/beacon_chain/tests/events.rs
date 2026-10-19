@@ -518,10 +518,15 @@ async fn inclusion_list_event_on_import() {
     let slot = Slot::new(1);
     harness.extend_to_slot(slot).await;
 
-    let (committee, dependent_root) = harness
+    let key = harness
         .chain
-        .inclusion_list_committee(harness.head_block_root(), slot)
+        .inclusion_list_key(harness.head_block_root(), slot)
+        .expect("should compute inclusion list key");
+    let committee = harness
+        .chain
+        .get_inclusion_list_committee(&key)
         .expect("should compute committee");
+    let dependent_root = key.dependent_root();
     let validator_index = committee[0];
     let message = InclusionList {
         slot,

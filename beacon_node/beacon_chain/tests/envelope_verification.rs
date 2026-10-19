@@ -760,10 +760,12 @@ async fn heze_payload_is_sent_with_the_timely_inclusion_lists() {
     let inclusion_list_slot = slot - 1;
     harness.extend_to_slot(inclusion_list_slot).await;
 
-    let (committee, dependent_root) = harness
+    let key = harness
         .chain
-        .inclusion_list_committee(harness.head_block_root(), inclusion_list_slot)
+        .inclusion_list_key(harness.head_block_root(), inclusion_list_slot)
         .unwrap();
+    let committee = harness.chain.get_inclusion_list_committee(&key).unwrap();
+    let dependent_root = key.dependent_root();
     let timely_submitter = committee[0];
     let late_submitter = *committee
         .iter()
