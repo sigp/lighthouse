@@ -7,6 +7,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use types::light_client::consts::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 
 /// Auxiliary struct to aid on configuration parsing.
 ///
@@ -61,14 +62,31 @@ impl FromStr for ProtocolQuota {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
 pub struct OutboundRateLimiterConfig(pub RateLimiterConfig);
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub struct InboundRateLimiterConfig(pub RateLimiterConfig);
+
+impl Default for InboundRateLimiterConfig {
+    fn default() -> Self {
+        Self(RateLimiterConfig {
+            // The request limiter charges a request's maximum response count atomically. Use the
+            // maximum valid request sizes as bursts, while keeping approximately the same token
+            // rates as the former response limiter (896/10s and 1/10s respectively).
+            blobs_by_range_quota: Quota::n_every(NonZeroU64::new(1152).unwrap(), 13),
+            blobs_by_root_quota: Quota::n_every(NonZeroU64::new(1152).unwrap(), 13),
+            light_client_updates_by_range_quota: Quota::n_every(
+                NonZeroU64::new(MAX_REQUEST_LIGHT_CLIENT_UPDATES).unwrap(),
+                1280,
+            ),
+            ..RateLimiterConfig::default()
+        })
+    }
+}
 
 impl FromStr for OutboundRateLimiterConfig {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        RateLimiterConfig::from_str(s).map(Self)
+        RateLimiterConfig::from_str_with_default(s, Self::default().0).map(Self)
     }
 }
 
@@ -76,7 +94,7 @@ impl FromStr for InboundRateLimiterConfig {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        RateLimiterConfig::from_str(s).map(Self)
+        RateLimiterConfig::from_str_with_default(s, Self::default().0).map(Self)
     }
 }
 
@@ -204,14 +222,12 @@ impl Debug for RateLimiterConfig {
     }
 }
 
-/// Parse configurations for the outbound rate limiter. Protocols that are not specified use
-/// the default values. Protocol specified more than once use only the first given Quota.
+/// Parse rate-limiter overrides on top of the supplied defaults. Protocols specified more than
+/// once use only the first given quota.
 ///
 /// The expected format is a ';' separated list of [`ProtocolQuota`].
-impl FromStr for RateLimiterConfig {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+impl RateLimiterConfig {
+    fn from_str_with_default(s: &str, default: Self) -> Result<Self, &'static str> {
         let mut ping_quota = None;
         let mut meta_data_quota = None;
         let mut status_quota = None;
@@ -273,36 +289,40 @@ impl FromStr for RateLimiterConfig {
             }
         }
         Ok(RateLimiterConfig {
-            ping_quota: ping_quota.unwrap_or(Self::DEFAULT_PING_QUOTA),
-            meta_data_quota: meta_data_quota.unwrap_or(Self::DEFAULT_META_DATA_QUOTA),
-            status_quota: status_quota.unwrap_or(Self::DEFAULT_STATUS_QUOTA),
-            goodbye_quota: goodbye_quota.unwrap_or(Self::DEFAULT_GOODBYE_QUOTA),
-            blocks_by_range_quota: blocks_by_range_quota
-                .unwrap_or(Self::DEFAULT_BLOCKS_BY_RANGE_QUOTA),
-            blocks_by_root_quota: blocks_by_root_quota
-                .unwrap_or(Self::DEFAULT_BLOCKS_BY_ROOT_QUOTA),
-            blocks_by_head_quota: blocks_by_head_quota
-                .unwrap_or(Self::DEFAULT_BLOCKS_BY_HEAD_QUOTA),
+            ping_quota: ping_quota.unwrap_or(default.ping_quota),
+            meta_data_quota: meta_data_quota.unwrap_or(default.meta_data_quota),
+            status_quota: status_quota.unwrap_or(default.status_quota),
+            goodbye_quota: goodbye_quota.unwrap_or(default.goodbye_quota),
+            blocks_by_range_quota: blocks_by_range_quota.unwrap_or(default.blocks_by_range_quota),
+            blocks_by_root_quota: blocks_by_root_quota.unwrap_or(default.blocks_by_root_quota),
+            blocks_by_head_quota: blocks_by_head_quota.unwrap_or(default.blocks_by_head_quota),
             payload_envelopes_by_range_quota: payload_envelopes_by_range_quota
-                .unwrap_or(Self::DEFAULT_PAYLOAD_ENVELOPES_BY_RANGE_QUOTA),
+                .unwrap_or(default.payload_envelopes_by_range_quota),
             payload_envelopes_by_root_quota: payload_envelopes_by_root_quota
-                .unwrap_or(Self::DEFAULT_PAYLOAD_ENVELOPES_BY_ROOT_QUOTA),
-            blobs_by_range_quota: blobs_by_range_quota
-                .unwrap_or(Self::DEFAULT_BLOBS_BY_RANGE_QUOTA),
-            blobs_by_root_quota: blobs_by_root_quota.unwrap_or(Self::DEFAULT_BLOBS_BY_ROOT_QUOTA),
+                .unwrap_or(default.payload_envelopes_by_root_quota),
+            blobs_by_range_quota: blobs_by_range_quota.unwrap_or(default.blobs_by_range_quota),
+            blobs_by_root_quota: blobs_by_root_quota.unwrap_or(default.blobs_by_root_quota),
             data_columns_by_root_quota: data_columns_by_root_quota
-                .unwrap_or(Self::DEFAULT_DATA_COLUMNS_BY_ROOT_QUOTA),
+                .unwrap_or(default.data_columns_by_root_quota),
             data_columns_by_range_quota: data_columns_by_range_quota
-                .unwrap_or(Self::DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA),
+                .unwrap_or(default.data_columns_by_range_quota),
             light_client_bootstrap_quota: light_client_bootstrap_quota
-                .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA),
+                .unwrap_or(default.light_client_bootstrap_quota),
             light_client_optimistic_update_quota: light_client_optimistic_update_quota
-                .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA),
+                .unwrap_or(default.light_client_optimistic_update_quota),
             light_client_finality_update_quota: light_client_finality_update_quota
-                .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA),
+                .unwrap_or(default.light_client_finality_update_quota),
             light_client_updates_by_range_quota: light_client_updates_by_range_quota
-                .unwrap_or(Self::DEFAULT_LIGHT_CLIENT_UPDATES_BY_RANGE_QUOTA),
+                .unwrap_or(default.light_client_updates_by_range_quota),
         })
+    }
+}
+
+impl FromStr for RateLimiterConfig {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str_with_default(s, Self::default())
     }
 }
 
@@ -320,5 +340,72 @@ mod tests {
             },
         };
         assert_eq!(quota.to_string().parse(), Ok(quota))
+    }
+
+    #[test]
+    fn inbound_and_outbound_defaults_are_independent() {
+        let inbound = InboundRateLimiterConfig::default().0;
+        let outbound = OutboundRateLimiterConfig::default().0;
+
+        assert_eq!(outbound, RateLimiterConfig::default());
+        assert_eq!(outbound.blobs_by_range_quota.max_tokens.get(), 896);
+        assert_eq!(
+            outbound.blobs_by_range_quota.replenish_all_every,
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            outbound
+                .light_client_updates_by_range_quota
+                .max_tokens
+                .get(),
+            1
+        );
+        assert_eq!(
+            outbound
+                .light_client_updates_by_range_quota
+                .replenish_all_every,
+            Duration::from_secs(10)
+        );
+
+        assert_eq!(inbound.blobs_by_range_quota.max_tokens.get(), 1152);
+        assert_eq!(
+            inbound.blobs_by_range_quota.replenish_all_every,
+            Duration::from_secs(13)
+        );
+        assert_eq!(
+            inbound.light_client_updates_by_range_quota.max_tokens.get(),
+            MAX_REQUEST_LIGHT_CLIENT_UPDATES
+        );
+        assert_eq!(
+            inbound
+                .light_client_updates_by_range_quota
+                .replenish_all_every,
+            Duration::from_secs(1280)
+        );
+    }
+
+    #[test]
+    fn partial_configs_use_direction_specific_defaults() {
+        let inbound: InboundRateLimiterConfig = "status:1/1".parse().unwrap();
+        let outbound: OutboundRateLimiterConfig = "status:1/1".parse().unwrap();
+
+        assert_eq!(inbound.0.blobs_by_range_quota.max_tokens.get(), 1152);
+        assert_eq!(
+            inbound
+                .0
+                .light_client_updates_by_range_quota
+                .max_tokens
+                .get(),
+            MAX_REQUEST_LIGHT_CLIENT_UPDATES
+        );
+        assert_eq!(outbound.0.blobs_by_range_quota.max_tokens.get(), 896);
+        assert_eq!(
+            outbound
+                .0
+                .light_client_updates_by_range_quota
+                .max_tokens
+                .get(),
+            1
+        );
     }
 }
