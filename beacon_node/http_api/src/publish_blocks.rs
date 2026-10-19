@@ -85,6 +85,7 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
 /// only once per block since it hangs off the single p2p-publish point.
 fn forward_signed_block_to_winning_builder<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
+    block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
     builder_url: Option<&str>,
 ) {
@@ -106,7 +107,6 @@ fn forward_signed_block_to_winning_builder<T: BeaconChainTypes>(
 
     let builders = builders.clone();
     let slot = block.slot();
-    let block_root = block.canonical_root();
 
     chain.task_executor.spawn(
         async move {
@@ -204,6 +204,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         // reveals the execution payload envelope.
         forward_signed_block_to_winning_builder(
             &publish_chain,
+            block_root,
             block.clone(),
             builder_url.as_deref(),
         );
@@ -362,7 +363,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 "Block previously seen"
             );
             // try to reprocess as a lookup (single) block and let sync take care of missing components
-            let lookup_block = LookupBlock::new(block.clone());
+            let lookup_block = LookupBlock::new(block_root, block.clone());
             let import_result = Box::pin(chain.process_block(
                 block_root,
                 lookup_block,
