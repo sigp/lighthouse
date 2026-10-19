@@ -3815,24 +3815,6 @@ impl BeaconNodeHttpClient {
             .map_err(Error::InvalidSsz)
     }
 
-    /// `GET validator/inclusion_list?slot`
-    pub async fn get_validator_inclusion_list(
-        &self,
-        slot: Slot,
-    ) -> Result<GenericResponse<InclusionListTransactions>, Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("validator")
-            .push("inclusion_list");
-
-        path.query_pairs_mut()
-            .append_pair("slot", &slot.to_string());
-
-        self.get(path).await
-    }
-
     /// `GET v1/validator/aggregate_attestation?slot,attestation_data_root`
     pub async fn get_validator_aggregate_attestation_v1<E: EthSpec>(
         &self,
@@ -3980,48 +3962,6 @@ impl BeaconNodeHttpClient {
 
         self.get_with_timeout(path, self.timeouts.inclusion_list)
             .await
-    }
-
-    /// `POST validator/inclusion_list`
-    pub async fn post_validator_inclusion_list(
-        &self,
-        signed_inclusion_list: &SignedInclusionList,
-        fork_name: ForkName,
-    ) -> Result<(), Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("validator")
-            .push("inclusion_list");
-
-        // The request body is wrapped in a `data` object, per the beacon-APIs specs
-        let body = serde_json::json!({ "data": signed_inclusion_list });
-        self.post_generic_with_consensus_version(path, &body, None, fork_name)
-            .await?;
-
-        Ok(())
-    }
-
-    /// `POST validator/inclusion_list` (SSZ)
-    pub async fn post_validator_inclusion_list_ssz(
-        &self,
-        signed_inclusion_list: &SignedInclusionList,
-        fork_name: ForkName,
-    ) -> Result<(), Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("validator")
-            .push("inclusion_list");
-
-        let ssz_body = signed_inclusion_list.as_ssz_bytes();
-
-        self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
-            .await?;
-
-        Ok(())
     }
 
     /// `POST lighthouse/liveness`

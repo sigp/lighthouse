@@ -83,8 +83,13 @@ where
 
     pub fn start_update_service(self) -> Result<(), String> {
         info!(
-            inclusion_list_due_ms = self.chain_spec.get_inclusion_list_due().as_millis(),
-            inclusion_list_production_due_ms = self.inclusion_list_production_due().as_millis(),
+            inclusion_list_due_ms = self
+                .chain_spec
+                .get_inclusion_list_due::<S::E>(self.slot_clock.now().unwrap_or_default())
+                .as_millis(),
+            inclusion_list_production_due_ms = self
+                .inclusion_list_production_due(self.slot_clock.now().unwrap_or_default())
+                .as_millis(),
             "Inclusion list service started"
         );
         let executor = self.executor.clone();
@@ -129,15 +134,15 @@ where
     }
 
     /// Duration into the slot at which inclusion lists are produced.
-    fn inclusion_list_production_due(&self) -> Duration {
+    fn inclusion_list_production_due(&self, slot: Slot) -> Duration {
         self.chain_spec
-            .get_inclusion_list_due()
+            .get_inclusion_list_due::<S::E>(slot)
             .saturating_sub(INCLUSION_LIST_PRODUCTION_MARGIN)
     }
 
     /// Waits until inclusion lists are due for production and returns the slot to produce them for.
     async fn wait_for_inclusion_list_production_due(&self) -> Option<Slot> {
-        let slot_duration = self.chain_spec.get_slot_duration();
+        let slot_duration = self.slot_clock.current_slot_duration();
 
         let Some(slot) = self.inclusion_list_production_slot() else {
             error!("Failed to read slot clock");
@@ -181,7 +186,7 @@ where
         let current_slot = self.slot_clock.now()?;
         let time_into_slot = self.slot_clock.millis_from_current_slot_start()?;
 
-        if time_into_slot < self.inclusion_list_production_due() {
+        if time_into_slot < self.inclusion_list_production_due(current_slot) {
             Some(current_slot)
         } else {
             Some(current_slot + 1)
@@ -190,8 +195,8 @@ where
 
     /// Duration until inclusion lists are due for production at `production_slot`.
     fn duration_to_inclusion_list_production_due(&self, production_slot: Slot) -> Option<Duration> {
-        let production_due_at =
-            self.slot_clock.start_of(production_slot)? + self.inclusion_list_production_due();
+        let production_due_at = self.slot_clock.start_of(production_slot)?
+            + self.inclusion_list_production_due(production_slot);
         Some(production_due_at.saturating_sub(self.slot_clock.now_duration()?))
     }
 
@@ -494,7 +499,7 @@ mod tests {
 
         // The next wait targets the first Heze slot, 1s into it
         let first_heze_slot = Slot::new(E::slots_per_epoch());
-        let production_due = service.inclusion_list_production_due();
+        let production_due = service.inclusion_list_production_due(Slot::new(0));
         let service_wait = service.wait_for_inclusion_list_production_due();
         tokio::pin!(service_wait);
         assert!(service_wait.as_mut().now_or_never().is_none());
@@ -517,7 +522,7 @@ mod tests {
 
         let harness = TestHarness::new_with_heze_at(1, Epoch::new(1)).await;
         let service = &harness.service;
-        let production_due = service.inclusion_list_production_due();
+        let production_due = service.inclusion_list_production_due(Slot::new(0));
         let first_heze_slot = Slot::new(E::slots_per_epoch());
 
         // Last pre-Heze slot, past its production time
@@ -548,7 +553,7 @@ mod tests {
 
         let harness = TestHarness::new_with_validators(1).await;
         let service = &harness.service;
-        let production_due = service.inclusion_list_production_due();
+        let production_due = service.inclusion_list_production_due(Slot::new(0));
         assert_eq!(production_due, Duration::from_secs(7));
 
         // Past the current slot's production time, so the next slot is targeted
@@ -581,7 +586,7 @@ mod tests {
 
         let harness = TestHarness::new_with_validators(1).await;
         let service = &harness.service;
-        let production_due = service.inclusion_list_production_due();
+        let production_due = service.inclusion_list_production_due(Slot::new(0));
 
         // 2s into the current slot
         advance_time(&service.slot_clock, Duration::from_secs(2)).await;
