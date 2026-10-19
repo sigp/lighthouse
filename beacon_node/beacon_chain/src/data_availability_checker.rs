@@ -655,8 +655,11 @@ pub fn verify_columns_against_block<E: EthSpec>(
                     "Gloas block missing signed_execution_payload_bid".to_string(),
                 )
             })?;
-        validate_data_columns_with_commitments(kzg, columns.iter(), &commitments)
-            .map_err(AvailabilityCheckError::InvalidColumn)
+        validate_data_columns_with_commitments(
+            kzg,
+            columns.iter().map(|c| (c, commitments.as_slice())),
+        )
+        .map_err(AvailabilityCheckError::InvalidColumn)
     } else {
         verify_kzg_for_data_column_list(columns.iter(), kzg)
             .map_err(AvailabilityCheckError::InvalidColumn)
