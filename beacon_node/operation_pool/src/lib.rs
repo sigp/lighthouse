@@ -507,7 +507,7 @@ impl<E: EthSpec> OperationPool<E> {
                     && state
                         .validators()
                         .get(slashing.as_inner().signed_header_1.message.proposer_index as usize)
-                        .is_some_and(|validator| !validator.slashed)
+                        .is_some_and(|validator| validator.is_slashable_at(state.current_epoch()))
             },
             |slashing| slashing.as_inner().clone(),
             E::MaxProposerSlashings::to_usize(),
@@ -1572,6 +1572,33 @@ mod release_tests {
         assert_eq!(
             op_pool.get_slashings_and_exits(&state, &harness.spec).0,
             vec![slashing2]
+        );
+    }
+
+    /// Do not return a proposer slashing for a validator that reached its withdrawable epoch.
+    #[test]
+    fn proposer_slashing_not_returned_after_withdrawable_epoch() {
+        let harness = get_harness(32, None);
+        let mut state = harness.get_current_state();
+        let op_pool = OperationPool::<MainnetEthSpec>::new();
+
+        let proposer_index = 0;
+        let current_epoch = state.current_epoch();
+        let withdrawable_epoch = current_epoch + 1;
+        let validator = state.get_validator_mut(proposer_index).unwrap();
+        validator.exit_epoch = current_epoch;
+        validator.withdrawable_epoch = withdrawable_epoch;
+
+        let slashing = harness.make_proposer_slashing(proposer_index as u64);
+        op_pool.insert_proposer_slashing(slashing.clone().validate(&state, &harness.spec).unwrap());
+
+        *state.slot_mut() = withdrawable_epoch.start_slot(MainnetEthSpec::slots_per_epoch());
+        assert!(slashing.validate(&state, &harness.spec).is_err());
+        assert!(
+            op_pool
+                .get_slashings_and_exits(&state, &harness.spec)
+                .0
+                .is_empty()
         );
     }
 
