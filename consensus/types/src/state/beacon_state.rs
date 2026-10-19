@@ -3214,7 +3214,7 @@ impl<E: EthSpec> BeaconState<E> {
         let churn = if self.fork_name_unchecked().gloas_enabled() {
             churn
                 .safe_mul(spec.get_slot_duration_ms(self.current_epoch()))?
-                .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?
+                .safe_div(spec.slot_duration_ms())?
         } else {
             churn
         };
@@ -3240,7 +3240,7 @@ impl<E: EthSpec> BeaconState<E> {
             // multiple of `effective_balance_increment`.
             let churn = std::cmp::min(spec.max_per_epoch_activation_churn_limit_gloas, churn)
                 .safe_mul(spec.get_slot_duration_ms(self.current_epoch()))?
-                .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?;
+                .safe_div(spec.slot_duration_ms())?;
             return Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?);
         }
         Ok(std::cmp::min(
@@ -3262,7 +3262,7 @@ impl<E: EthSpec> BeaconState<E> {
             let churn = total_active_balance
                 .safe_div(spec.consolidation_churn_limit_quotient)?
                 .safe_mul(spec.get_slot_duration_ms(self.current_epoch()))?
-                .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?;
+                .safe_div(spec.slot_duration_ms())?;
             Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
         } else {
             self.get_balance_churn_limit(spec)?

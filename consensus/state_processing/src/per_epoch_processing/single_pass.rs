@@ -781,12 +781,12 @@ impl RewardsAndPenaltiesContext {
             .total_active_balance
             .safe_div(spec.effective_balance_increment)?;
         let previous_epoch = state_ctxt.current_epoch.saturating_sub(1u64);
-        let genesis_slot_duration_ms = spec.get_slot_duration_ms(Epoch::new(0));
+        let base_slot_duration_ms = spec.slot_duration_ms();
         let previous_slot_duration_ms = spec.get_slot_duration_ms(previous_epoch);
         let inactivity_penalty_denominator = spec
             .inactivity_score_bias
             .safe_mul(spec.inactivity_penalty_quotient_for_fork(state_ctxt.fork_name))?
-            .safe_mul(genesis_slot_duration_ms.safe_mul(genesis_slot_duration_ms)?)?
+            .safe_mul(base_slot_duration_ms.safe_mul(base_slot_duration_ms)?)?
             .safe_div(previous_slot_duration_ms.safe_mul(previous_slot_duration_ms)?)?;
 
         Ok(Self {
@@ -1022,7 +1022,7 @@ fn get_balance_churn_limit(state_ctxt: &StateContext, spec: &ChainSpec) -> Resul
     let churn = if state_ctxt.fork_name.gloas_enabled() {
         churn
             .safe_mul(spec.get_slot_duration_ms(state_ctxt.current_epoch))?
-            .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?
+            .safe_div(spec.slot_duration_ms())?
     } else {
         churn
     };
