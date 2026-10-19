@@ -783,7 +783,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                                 warn!(
                                     score_adjustment = ?peer_action,
                                     batch_epoch = %batch_id,
-                                    "Custody backfill batch failed to download. Penalizing peers"
+                                    "Custody backfill batch failed processing"
                                 );
                                 self.fail_sync(CustodyBackfillError::BatchProcessingFailed(
                                     batch_id,

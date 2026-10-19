@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
-    data_column_verification::verify_kzg_for_data_column_list,
+    data_availability_checker::verify_columns_against_block,
 };
 use store::{Error as StoreError, KeyValueStore};
 use tracing::{Span, debug, instrument};
@@ -96,6 +96,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             let fork_name = self.spec.fork_name_at_slot::<T::EthSpec>(slot);
+            let mut block_columns = vec![];
             for column_index in unique_column_indices.clone() {
                 if let Some(data_column) =
                     slot_and_column_index_to_data_columns.remove(&(slot, column_index))
@@ -118,8 +119,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         data_column.clone(),
                         &mut ops,
                     );
+                    block_columns.push(data_column.clone());
                     total_imported += 1;
                 }
+            }
+
+            if !block_columns.is_empty() {
+                let block = self
+                    .get_blinded_block(&block_root)
+                    .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?
+                    .ok_or_else(|| {
+                        HistoricalDataColumnError::BeaconChainError(Box::new(
+                            BeaconChainError::MissingBeaconBlock(block_root),
+                        ))
+                    })?;
+                verify_columns_against_block(&self.kzg, &block, &block_columns)
+                    .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
             }
         }
 
@@ -132,9 +147,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(HistoricalDataColumnError::IndexOutOfBounds);
             }
         } else {
-            verify_kzg_for_data_column_list(historical_data_column_sidecar_list.iter(), &self.kzg)
-                .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
-
             self.store.blobs_db.do_atomically(ops)?;
         }
 
