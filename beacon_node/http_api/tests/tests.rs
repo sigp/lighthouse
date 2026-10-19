@@ -37,7 +37,7 @@ use lighthouse_network::{Enr, PeerId, types::SyncState};
 use network::NetworkReceivers;
 use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
-use proto_array::{ExecutionStatus, PayloadBlockHash, core::ProtoNode};
+use proto_array::{ExecutionStatus, ParentPayloadStatus, PayloadBlockHash, core::ProtoNode};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde_utils::quoted_u64::Quoted;
@@ -4453,20 +4453,136 @@ impl ApiTester {
             result.finalized_checkpoint,
             beacon_fork_choice.finalized_checkpoint()
         );
-        let extra_data = &result.extra_data;
-        assert_eq!(extra_data.head_root, cached_head.head_block_root());
-        assert_eq!(
-            extra_data.proposer_boost_root,
-            beacon_fork_choice.proposer_boost_root()
-        );
-        assert_eq!(
-            extra_data.unrealized_justified_checkpoint,
-            beacon_fork_choice.unrealized_justified_checkpoint()
-        );
-        assert_eq!(
-            extra_data.unrealized_finalized_checkpoint,
-            beacon_fork_choice.unrealized_finalized_checkpoint()
-        );
+
+        let head_root = cached_head.head_block_root();
+        let expected_extra_data = ForkChoiceExtraDataV2 {
+            head_root,
+            // Fork choice tracks a pre-Gloas head as `Empty`, but the response shows it as its
+            // single `Full` node.
+            head_payload_status: match proto_array.get_block(head_root) {
+                Some(ProtoNode::V17(_)) => PayloadStatus::Full,
+                _ => cached_head.head_payload_status(),
+            },
+            proposer_boost_root: beacon_fork_choice.proposer_boost_root(),
+            unrealized_justified_checkpoint: beacon_fork_choice.unrealized_justified_checkpoint(),
+            unrealized_finalized_checkpoint: beacon_fork_choice.unrealized_finalized_checkpoint(),
+        };
+        assert_eq!(result.extra_data, expected_extra_data);
+
+        // Each proto-array node expands into its block's `(block_root, payload_status)` nodes, in
+        // the order the handler pushes them.
+        let mut expected_fork_choice_nodes = vec![];
+        for proto_node in &proto_array.nodes {
+            let block_root = proto_node.root();
+            let parent = proto_node
+                .parent()
+                .and_then(|index| proto_array.nodes.get(index));
+            // A pruned parent's root is loaded from the store, or zero if the block is gone.
+            let parent_root = match parent {
+                Some(parent) => parent.root(),
+                None => self
+                    .chain
+                    .store
+                    .get_blinded_block(&block_root)
+                    .unwrap()
+                    .map_or_else(Hash256::zero, |block| block.parent_root()),
+            };
+            let (
+                payload_attester_count,
+                payload_availability_yes_count,
+                payload_data_availability_yes_count,
+            ) = match proto_node {
+                ProtoNode::V17(_) => (0, 0, 0),
+                ProtoNode::V29(gloas_node) => (
+                    gloas_node.ptc_participation.num_set_bits() as u64,
+                    gloas_node.payload_timeliness_votes.num_set_bits() as u64,
+                    gloas_node.payload_data_availability_votes.num_set_bits() as u64,
+                ),
+            };
+
+            let expected_node =
+                |payload_status: PayloadStatus,
+                 parent_root: Hash256,
+                 parent_payload_status: Option<PayloadStatus>,
+                 execution_block_hash: ExecutionBlockHash| {
+                    let validity = if payload_status == PayloadStatus::Full {
+                        proto_array_fork_choice
+                            .get_block_execution_status_assuming_full(&block_root)
+                    } else {
+                        proto_array.inherited_execution_status(block_root)
+                    };
+                    ForkChoiceNodeV2 {
+                        slot: proto_node.slot(),
+                        block_root,
+                        payload_status,
+                        parent_root,
+                        parent_payload_status,
+                        justified_checkpoint: *proto_node.justified_checkpoint(),
+                        finalized_checkpoint: *proto_node.finalized_checkpoint(),
+                        weight: proto_node.attestation_score(payload_status),
+                        validity: validity.unwrap(),
+                        execution_block_hash,
+                        payload_attester_count,
+                        payload_availability_yes_count,
+                        payload_data_availability_yes_count,
+                        extra_data: ForkChoiceNodeExtraDataV2 {
+                            target_root: proto_node.target_root(),
+                            state_root: proto_node.state_root(),
+                            unrealized_justified_checkpoint: proto_node
+                                .unrealized_justified_checkpoint(),
+                            unrealized_finalized_checkpoint: proto_node
+                                .unrealized_finalized_checkpoint(),
+                            execution_status: proto_node.execution_status().to_string(),
+                        },
+                    }
+                };
+
+            match proto_node {
+                ProtoNode::V17(_) => {
+                    let execution_block_hash = match proto_node.block_hash() {
+                        PayloadBlockHash::Hash(block_hash) => block_hash,
+                        PayloadBlockHash::PreMerge => ExecutionBlockHash::zero(),
+                    };
+                    expected_fork_choice_nodes.push(expected_node(
+                        PayloadStatus::Full,
+                        parent_root,
+                        parent.map(|_| PayloadStatus::Full),
+                        execution_block_hash,
+                    ));
+                }
+                ProtoNode::V29(gloas_node) => {
+                    let parent_payload_status =
+                        parent.map(|_| match gloas_node.parent_payload_status {
+                            ParentPayloadStatus::Empty => PayloadStatus::Empty,
+                            ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {
+                                PayloadStatus::Full
+                            }
+                        });
+                    expected_fork_choice_nodes.push(expected_node(
+                        PayloadStatus::Pending,
+                        parent_root,
+                        parent_payload_status,
+                        gloas_node.execution_payload_parent_hash,
+                    ));
+                    // `Empty` and `Full` hang from their own block's `Pending` node.
+                    expected_fork_choice_nodes.push(expected_node(
+                        PayloadStatus::Empty,
+                        block_root,
+                        Some(PayloadStatus::Pending),
+                        gloas_node.execution_payload_parent_hash,
+                    ));
+                    if gloas_node.payload_received {
+                        expected_fork_choice_nodes.push(expected_node(
+                            PayloadStatus::Full,
+                            block_root,
+                            Some(PayloadStatus::Pending),
+                            gloas_node.execution_payload_block_hash,
+                        ));
+                    }
+                }
+            }
+        }
+        assert_eq!(result.fork_choice_nodes, expected_fork_choice_nodes);
 
         let find_node = |block_root: Hash256, payload_status: PayloadStatus| {
             result
@@ -4478,100 +4594,15 @@ impl ApiTester {
         // The head names a node in the response, including a pre-Gloas head, which fork choice
         // tracks as `Empty` internally.
         assert!(
-            find_node(extra_data.head_root, extra_data.head_payload_status).is_some(),
+            find_node(
+                result.extra_data.head_root,
+                result.extra_data.head_payload_status
+            )
+            .is_some(),
             "head {:?} {:?} is not in the response",
-            extra_data.head_root,
-            extra_data.head_payload_status
+            result.extra_data.head_root,
+            result.extra_data.head_payload_status
         );
-
-        // Each proto-array node expands into its block's `(block_root, payload_status)` nodes.
-        let mut expected_node_count = 0;
-        for proto_node in &proto_array.nodes {
-            let block_root = proto_node.root();
-            let expected_statuses = match proto_node {
-                ProtoNode::V17(_) => vec![PayloadStatus::Full],
-                ProtoNode::V29(gloas_node) if gloas_node.payload_received => vec![
-                    PayloadStatus::Pending,
-                    PayloadStatus::Empty,
-                    PayloadStatus::Full,
-                ],
-                ProtoNode::V29(_) => vec![PayloadStatus::Pending, PayloadStatus::Empty],
-            };
-            expected_node_count += expected_statuses.len();
-
-            for payload_status in expected_statuses {
-                let node = find_node(block_root, payload_status)
-                    .unwrap_or_else(|| panic!("missing node {block_root:?} {payload_status:?}"));
-
-                assert_eq!(node.slot, proto_node.slot());
-                assert_eq!(
-                    node.justified_checkpoint,
-                    *proto_node.justified_checkpoint()
-                );
-                assert_eq!(
-                    node.finalized_checkpoint,
-                    *proto_node.finalized_checkpoint()
-                );
-                assert_eq!(node.weight, proto_node.attestation_score(payload_status));
-
-                let expected_validity = if payload_status == PayloadStatus::Full {
-                    proto_array_fork_choice.get_block_execution_status_assuming_full(&block_root)
-                } else {
-                    proto_array.inherited_execution_status(block_root)
-                };
-                assert_eq!(node.validity, expected_validity.unwrap());
-
-                match proto_node {
-                    ProtoNode::V17(_) => {
-                        assert_eq!(node.payload_attester_count, 0);
-                        assert_eq!(node.payload_availability_yes_count, 0);
-                        assert_eq!(node.payload_data_availability_yes_count, 0);
-                    }
-                    ProtoNode::V29(gloas_node) => {
-                        let expected_block_hash = if payload_status == PayloadStatus::Full {
-                            gloas_node.execution_payload_block_hash
-                        } else {
-                            gloas_node.execution_payload_parent_hash
-                        };
-                        assert_eq!(node.execution_block_hash, expected_block_hash);
-
-                        // `Empty` and `Full` hang from their own block's `Pending` node.
-                        if payload_status != PayloadStatus::Pending {
-                            assert_eq!(node.parent_root, block_root);
-                            assert_eq!(node.parent_payload_status, Some(PayloadStatus::Pending));
-                        }
-                    }
-                }
-            }
-
-            // A pre-Gloas node or Gloas `Pending` node links to its parent block, or to nothing
-            // if the parent was pruned.
-            let link_node = match proto_node {
-                ProtoNode::V17(_) => find_node(block_root, PayloadStatus::Full),
-                ProtoNode::V29(_) => find_node(block_root, PayloadStatus::Pending),
-            }
-            .unwrap();
-            match proto_node
-                .parent()
-                .and_then(|index| proto_array.nodes.get(index))
-            {
-                Some(parent) => {
-                    assert_eq!(link_node.parent_root, parent.root());
-                    assert!(link_node.parent_payload_status.is_some());
-                }
-                None => {
-                    let expected_parent_root = self
-                        .chain
-                        .store
-                        .get_blinded_block(&block_root)
-                        .unwrap()
-                        .map_or_else(Hash256::zero, |block| block.parent_root());
-                    assert_eq!(link_node.parent_root, expected_parent_root);
-                    assert_eq!(link_node.parent_payload_status, None);
-                }
-            }
-        }
-        assert_eq!(result.fork_choice_nodes.len(), expected_node_count);
 
         // Every parent link resolves to a node in the response.
         for node in &result.fork_choice_nodes {
@@ -10776,7 +10807,7 @@ async fn config_get() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn debug_get() {
-    ApiTester::new()
+    ApiTester::new_with_hard_forks()
         .await
         .test_get_debug_beacon_states()
         .await

@@ -219,15 +219,17 @@ fn push_fork_choice_nodes(
                 },
             };
 
+            fork_choice_nodes.push(pending.clone());
+
             let empty = ForkChoiceNodeV2 {
                 payload_status: PayloadStatus::Empty,
                 parent_root: block_root,
                 parent_payload_status: Some(PayloadStatus::Pending),
                 weight: gloas_node.empty_payload_weight,
-                ..pending.clone()
+                ..pending
             };
 
-            fork_choice_nodes.push(pending);
+            fork_choice_nodes.push(empty.clone());
             if gloas_node.payload_received {
                 let full = ForkChoiceNodeV2 {
                     payload_status: PayloadStatus::Full,
@@ -236,11 +238,10 @@ fn push_fork_choice_nodes(
                         .get_block_execution_status_assuming_full(&block_root)
                         .map_err(warp_utils::reject::unhandled_error)?,
                     execution_block_hash: gloas_node.execution_payload_block_hash,
-                    ..empty.clone()
+                    ..empty
                 };
                 fork_choice_nodes.push(full);
             }
-            fork_choice_nodes.push(empty);
         }
     }
 
