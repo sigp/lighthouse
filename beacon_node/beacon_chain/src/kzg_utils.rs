@@ -112,7 +112,7 @@ pub fn validate_full_data_columns<'a, E: EthSpec>(
     kzg.verify_cell_proof_batch(&cells, &proofs, column_indices, &commitments)
 }
 
-/// Validate a batch of full `DataColumnSidecar`s against commitments supplied out-of-band.
+/// Validate a batch of full `DataColumnSidecar`s, each against the commitments of its block.
 ///
 /// Gloas sidecars do not carry commitments. Their commitments come from the block's
 /// `ExecutionPayloadBid`.
