@@ -274,7 +274,7 @@ workspace_members = { path = "common/workspace_members" }
 xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "fe3906605c87b6c0515bd7c8fc671f47875e3ccc" }
 yaml_serde = "0.10"
 zeroize = { version = "1", features = ["zeroize_derive", "serde"] }
-zip = { version = "6.0", default-features = false, features = ["deflate"] }
+zip = { version = "9.0", default-features = false, features = ["deflate"] }
 zstd = "0.13"
 
 [profile.maxperf]
