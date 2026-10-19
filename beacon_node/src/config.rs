@@ -1221,6 +1221,15 @@ pub fn set_network_config(
             .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
     }
 
+    if let Some(unknown_root_min_peers) =
+        clap_utils::parse_optional(cli_args, "unknown-root-min-peers")?
+    {
+        if unknown_root_min_peers == 0 {
+            return Err("--unknown-root-min-peers must be a non-zero value".to_string());
+        }
+        config.unknown_root_min_peers = unknown_root_min_peers;
+    }
+
     if let Some(value) = cli_args.get_one::<String>("network-load") {
         let network_load = value
             .parse::<u8>()
