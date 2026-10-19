@@ -121,12 +121,24 @@ pub fn validate_data_columns_with_commitments<'a, E: EthSpec>(
     data_column_iter: impl Iterator<Item = &'a Arc<DataColumnSidecar<E>>>,
     kzg_commitments: &[KzgCommitment],
 ) -> Result<(), (Option<u64>, KzgError)> {
+    validate_data_columns_with_block_commitments(
+        kzg,
+        data_column_iter.map(|data_column| (data_column, kzg_commitments)),
+    )
+}
+
+/// Validate a batch of full `DataColumnSidecar`s from many blocks, each paired with the
+/// commitments of its block.
+pub fn validate_data_columns_with_block_commitments<'a, 'b, E: EthSpec>(
+    kzg: &Kzg,
+    data_column_iter: impl Iterator<Item = (&'a Arc<DataColumnSidecar<E>>, &'b [KzgCommitment])>,
+) -> Result<(), (Option<u64>, KzgError)> {
     let mut cells = Vec::new();
     let mut proofs = Vec::new();
     let mut column_indices = Vec::new();
     let mut commitments = Vec::new();
 
-    for data_column in data_column_iter {
+    for (data_column, kzg_commitments) in data_column_iter {
         let col_index = *data_column.index();
 
         if data_column.column().is_empty() {

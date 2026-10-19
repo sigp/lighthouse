@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
     data_column_verification::verify_kzg_for_data_column_list,
-    kzg_utils::validate_data_columns_with_commitments,
+    kzg_utils::validate_data_columns_with_block_commitments,
 };
 use store::{Error as StoreError, KeyValueStore};
 use tracing::{Span, debug, instrument};
@@ -134,15 +134,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         } else {
             if self.spec.fork_name_at_epoch(epoch).gloas_enabled() {
-                let mut columns_by_block_root: HashMap<Hash256, Vec<_>> = HashMap::new();
+                let mut commitments_by_block_root = HashMap::new();
                 for data_column in &historical_data_column_sidecar_list {
-                    columns_by_block_root
-                        .entry(data_column.block_root())
-                        .or_default()
-                        .push(data_column);
-                }
-
-                for (block_root, columns) in columns_by_block_root {
+                    let block_root = data_column.block_root();
+                    if commitments_by_block_root.contains_key(&block_root) {
+                        continue;
+                    }
                     let block = self
                         .get_blinded_block(&block_root)
                         .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?
@@ -160,13 +157,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 BeaconChainError::BeaconStateError(e),
                             ))
                         })?;
-                    validate_data_columns_with_commitments(
-                        &self.kzg,
-                        columns.into_iter(),
-                        bid.message().blob_kzg_commitments(),
-                    )
-                    .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+                    commitments_by_block_root
+                        .insert(block_root, bid.message().blob_kzg_commitments().to_vec());
                 }
+
+                validate_data_columns_with_block_commitments(
+                    &self.kzg,
+                    historical_data_column_sidecar_list
+                        .iter()
+                        .filter_map(|data_column| {
+                            commitments_by_block_root
+                                .get(&data_column.block_root())
+                                .map(|commitments| (data_column, commitments.as_slice()))
+                        }),
+                )
+                .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
             } else {
                 verify_kzg_for_data_column_list(
                     historical_data_column_sidecar_list.iter(),
