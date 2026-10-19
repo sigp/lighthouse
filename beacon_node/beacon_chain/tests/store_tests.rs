@@ -5166,7 +5166,10 @@ async fn test_import_historical_data_columns_batch_invalid_kzg() {
         .import_historical_data_column_batch(Epoch::new(0), data_columns_list, cgc)
         .unwrap_err();
 
-    assert!(matches!(error, HistoricalDataColumnError::InvalidKzg));
+    assert!(matches!(
+        error,
+        HistoricalDataColumnError::InvalidKzg { .. }
+    ));
 }
 
 // This should verify that a data column sidecar containing mismatched block roots should fail to be imported.

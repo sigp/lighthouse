@@ -5,6 +5,7 @@ use crate::{
     data_column_verification::verify_kzg_for_data_column_list,
     kzg_utils::validate_data_columns_with_commitments,
 };
+use kzg::Error as KzgError;
 use store::{Error as StoreError, KeyValueStore};
 use tracing::{Span, debug, instrument};
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, KzgCommitment, Slot};
@@ -25,8 +26,11 @@ pub enum HistoricalDataColumnError {
         missing_slots_and_data_columns: Vec<(Slot, ColumnIndex)>,
     },
 
-    /// The provided data column sidecar list contains at least one column with an invalid kzg commitment.
-    InvalidKzg,
+    /// At least one data column failed KZG verification.
+    InvalidKzg {
+        column_index: Option<ColumnIndex>,
+        error: KzgError,
+    },
 
     /// Internal store error
     StoreError(StoreError),
@@ -176,13 +180,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         });
 
                 validate_data_columns_with_commitments(&self.kzg, columns_with_commitments)
-                    .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+                    .map_err(
+                        |(column_index, error)| HistoricalDataColumnError::InvalidKzg {
+                            column_index,
+                            error,
+                        },
+                    )?;
             } else {
                 verify_kzg_for_data_column_list(
                     historical_data_column_sidecar_list.iter(),
                     &self.kzg,
                 )
-                .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+                .map_err(|(column_index, error)| {
+                    HistoricalDataColumnError::InvalidKzg {
+                        column_index,
+                        error,
+                    }
+                })?;
             }
 
             self.store.blobs_db.do_atomically(ops)?;
