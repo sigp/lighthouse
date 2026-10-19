@@ -19,9 +19,9 @@ use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
 use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumnRef};
 use types::{
-    AbstractExecPayload, BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec,
-    DataColumnSidecar, DataColumnSidecarList, EthSpec, Hash256, PartialDataColumnSidecarError,
-    PartialDataColumnView, SignedBeaconBlock, Slot,
+    BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
+    DataColumnSidecarList, EthSpec, Hash256, PartialDataColumnSidecarError, PartialDataColumnView,
+    SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -634,9 +634,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
 /// Verify a batch of data columns belonging to a single block, picking the right commitment
 /// source for the block's fork (Fulu: inline on column; Gloas: from the embedded payload bid).
-pub fn verify_columns_against_block<E: EthSpec, Payload: AbstractExecPayload<E>>(
+pub fn verify_columns_against_block<E: EthSpec>(
     kzg: &Kzg,
-    block: &SignedBeaconBlock<E, Payload>,
+    block: &SignedBeaconBlock<E>,
     columns: &[Arc<DataColumnSidecar<E>>],
 ) -> Result<(), AvailabilityCheckError> {
     if columns.is_empty() {

@@ -2,11 +2,12 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
-    data_availability_checker::verify_columns_against_block,
+    data_column_verification::verify_kzg_for_data_column_list,
+    kzg_utils::validate_data_columns_with_commitments,
 };
 use store::{Error as StoreError, KeyValueStore};
 use tracing::{Span, debug, instrument};
-use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
+use types::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
 pub enum HistoricalDataColumnError {
@@ -124,7 +125,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
 
-            if !block_columns.is_empty() {
+            if fork_name.gloas_enabled() && !block_columns.is_empty() {
                 let block = self
                     .get_blinded_block(&block_root)
                     .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?
@@ -133,8 +134,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             BeaconChainError::MissingBeaconBlock(block_root),
                         ))
                     })?;
-                verify_columns_against_block(&self.kzg, &block, &block_columns)
-                    .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+                let commitments = block
+                    .message()
+                    .body()
+                    .signed_execution_payload_bid()
+                    .map_err(|e| {
+                        HistoricalDataColumnError::BeaconChainError(Box::new(
+                            BeaconChainError::BeaconStateError(e),
+                        ))
+                    })?
+                    .message()
+                    .blob_kzg_commitments()
+                    .to_vec();
+                validate_data_columns_with_commitments(
+                    &self.kzg,
+                    block_columns.iter(),
+                    &commitments,
+                )
+                .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
             }
         }
 
@@ -147,6 +164,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(HistoricalDataColumnError::IndexOutOfBounds);
             }
         } else {
+            verify_kzg_for_data_column_list(
+                historical_data_column_sidecar_list
+                    .iter()
+                    .filter(|data_column| {
+                        matches!(data_column.as_ref(), DataColumnSidecar::Fulu(_))
+                    }),
+                &self.kzg,
+            )
+            .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+
             self.store.blobs_db.do_atomically(ops)?;
         }
 
