@@ -24,6 +24,7 @@ mod proposer_duties;
 mod ptc_duties;
 mod publish_attestations;
 mod publish_blocks;
+mod ssz_proof;
 mod standard_block_rewards;
 mod state_id;
 mod sync_committee_rewards;
@@ -3070,6 +3071,42 @@ pub async fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/beacon/states/{state_id}/proof
+    let get_lighthouse_state_proof = warp::path("lighthouse")
+        .and(warp::path("beacon"))
+        .and(warp::path("states"))
+        .and(warp::path::param::<StateId>())
+        .and(warp::path("proof"))
+        .and(warp::path::end())
+        .and(warp::query::<eth2::lighthouse::ssz_proof::SszProofQuery>())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |state_id, query, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    ssz_proof::state_proof(state_id, query, &chain)
+                })
+            },
+        );
+
+    // GET lighthouse/beacon/blocks/{block_id}/proof
+    let get_lighthouse_block_proof = warp::path("lighthouse")
+        .and(warp::path("beacon"))
+        .and(warp::path("blocks"))
+        .and(warp::path::param::<BlockId>())
+        .and(warp::path("proof"))
+        .and(warp::path::end())
+        .and(warp::query::<eth2::lighthouse::ssz_proof::SszProofQuery>())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .then(
+            |block_id, query, task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
+                task_spawner.blocking_json_task(Priority::P1, move || {
+                    ssz_proof::block_proof(block_id, query, &chain)
+                })
+            },
+        );
+
     // GET lighthouse/proto_array
     let get_lighthouse_proto_array = warp::path("lighthouse")
         .and(warp::path("proto_array"))
@@ -3485,6 +3522,8 @@ pub async fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_peers)
                 .uor(get_lighthouse_peers_connected)
                 .uor(get_lighthouse_proto_array)
+                .uor(get_lighthouse_state_proof)
+                .uor(get_lighthouse_block_proof)
                 .uor(get_lighthouse_validator_inclusion_global)
                 .uor(get_lighthouse_validator_inclusion)
                 .uor(get_lighthouse_staking)
