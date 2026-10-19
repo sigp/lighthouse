@@ -4487,128 +4487,110 @@ impl ApiTester {
                     .unwrap()
                     .map_or_else(Hash256::zero, |block| block.parent_root()),
             };
-            let (
-                payload_attester_count,
-                payload_availability_yes_count,
-                payload_data_availability_yes_count,
-            ) = match proto_node {
-                ProtoNode::V17(_) => (0, 0, 0),
-                ProtoNode::V29(gloas_node) => (
-                    gloas_node.ptc_participation.num_set_bits() as u64,
-                    gloas_node.payload_timeliness_votes.num_set_bits() as u64,
-                    gloas_node.payload_data_availability_votes.num_set_bits() as u64,
-                ),
+            let extra_data = ForkChoiceNodeExtraDataV2 {
+                target_root: proto_node.target_root(),
+                state_root: proto_node.state_root(),
+                unrealized_justified_checkpoint: proto_node.unrealized_justified_checkpoint(),
+                unrealized_finalized_checkpoint: proto_node.unrealized_finalized_checkpoint(),
+                execution_status: proto_node.execution_status().to_string(),
             };
 
-            let expected_node =
-                |payload_status: PayloadStatus,
-                 parent_root: Hash256,
-                 parent_payload_status: Option<PayloadStatus>,
-                 execution_block_hash: ExecutionBlockHash| {
-                    let validity = if payload_status == PayloadStatus::Full {
-                        proto_array_fork_choice
-                            .get_block_execution_status_assuming_full(&block_root)
-                    } else {
-                        proto_array.inherited_execution_status(block_root)
-                    };
-                    ForkChoiceNodeV2 {
-                        slot: proto_node.slot(),
-                        block_root,
-                        payload_status,
-                        parent_root,
-                        parent_payload_status,
-                        justified_checkpoint: *proto_node.justified_checkpoint(),
-                        finalized_checkpoint: *proto_node.finalized_checkpoint(),
-                        weight: proto_node.attestation_score(payload_status),
-                        validity: validity.unwrap(),
-                        execution_block_hash,
-                        payload_attester_count,
-                        payload_availability_yes_count,
-                        payload_data_availability_yes_count,
-                        extra_data: ForkChoiceNodeExtraDataV2 {
-                            target_root: proto_node.target_root(),
-                            state_root: proto_node.state_root(),
-                            unrealized_justified_checkpoint: proto_node
-                                .unrealized_justified_checkpoint(),
-                            unrealized_finalized_checkpoint: proto_node
-                                .unrealized_finalized_checkpoint(),
-                            execution_status: proto_node.execution_status().to_string(),
-                        },
-                    }
-                };
-
             match proto_node {
-                ProtoNode::V17(_) => {
-                    let execution_block_hash = match proto_node.block_hash() {
+                // A pre-Gloas block is a single `Full` node.
+                ProtoNode::V17(_) => expected_fork_choice_nodes.push(ForkChoiceNodeV2 {
+                    slot: proto_node.slot(),
+                    block_root,
+                    payload_status: PayloadStatus::Full,
+                    parent_root,
+                    parent_payload_status: parent.map(|_| PayloadStatus::Full),
+                    justified_checkpoint: *proto_node.justified_checkpoint(),
+                    finalized_checkpoint: *proto_node.finalized_checkpoint(),
+                    weight: proto_node.weight(),
+                    validity: proto_array_fork_choice
+                        .get_block_execution_status_assuming_full(&block_root)
+                        .unwrap(),
+                    execution_block_hash: match proto_node.block_hash() {
                         PayloadBlockHash::Hash(block_hash) => block_hash,
                         PayloadBlockHash::PreMerge => ExecutionBlockHash::zero(),
-                    };
-                    expected_fork_choice_nodes.push(expected_node(
-                        PayloadStatus::Full,
-                        parent_root,
-                        parent.map(|_| PayloadStatus::Full),
-                        execution_block_hash,
-                    ));
-                }
+                    },
+                    payload_attester_count: 0,
+                    payload_availability_yes_count: 0,
+                    payload_data_availability_yes_count: 0,
+                    extra_data,
+                }),
+                // A Gloas block is a `Pending` node, with `Empty` below it and `Full` once the
+                // payload arrives.
                 ProtoNode::V29(gloas_node) => {
-                    let parent_payload_status =
-                        parent.map(|_| match gloas_node.parent_payload_status {
-                            ParentPayloadStatus::Empty => PayloadStatus::Empty,
-                            ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {
-                                PayloadStatus::Full
-                            }
-                        });
-                    expected_fork_choice_nodes.push(expected_node(
-                        PayloadStatus::Pending,
-                        parent_root,
-                        parent_payload_status,
-                        gloas_node.execution_payload_parent_hash,
-                    ));
-                    // `Empty` and `Full` hang from their own block's `Pending` node.
-                    expected_fork_choice_nodes.push(expected_node(
-                        PayloadStatus::Empty,
+                    let pending = ForkChoiceNodeV2 {
+                        slot: proto_node.slot(),
                         block_root,
-                        Some(PayloadStatus::Pending),
-                        gloas_node.execution_payload_parent_hash,
-                    ));
+                        payload_status: PayloadStatus::Pending,
+                        parent_root,
+                        parent_payload_status: parent.map(|_| {
+                            match gloas_node.parent_payload_status {
+                                ParentPayloadStatus::Empty => PayloadStatus::Empty,
+                                ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {
+                                    PayloadStatus::Full
+                                }
+                            }
+                        }),
+                        justified_checkpoint: *proto_node.justified_checkpoint(),
+                        finalized_checkpoint: *proto_node.finalized_checkpoint(),
+                        weight: gloas_node.weight,
+                        validity: proto_array.inherited_execution_status(block_root).unwrap(),
+                        execution_block_hash: gloas_node.execution_payload_parent_hash,
+                        payload_attester_count: gloas_node.ptc_participation.num_set_bits() as u64,
+                        payload_availability_yes_count: gloas_node
+                            .payload_timeliness_votes
+                            .num_set_bits()
+                            as u64,
+                        payload_data_availability_yes_count: gloas_node
+                            .payload_data_availability_votes
+                            .num_set_bits()
+                            as u64,
+                        extra_data,
+                    };
+                    let empty = ForkChoiceNodeV2 {
+                        payload_status: PayloadStatus::Empty,
+                        parent_root: block_root,
+                        parent_payload_status: Some(PayloadStatus::Pending),
+                        weight: gloas_node.empty_payload_weight,
+                        ..pending.clone()
+                    };
+                    expected_fork_choice_nodes.push(pending);
+                    expected_fork_choice_nodes.push(empty.clone());
                     if gloas_node.payload_received {
-                        expected_fork_choice_nodes.push(expected_node(
-                            PayloadStatus::Full,
-                            block_root,
-                            Some(PayloadStatus::Pending),
-                            gloas_node.execution_payload_block_hash,
-                        ));
+                        expected_fork_choice_nodes.push(ForkChoiceNodeV2 {
+                            payload_status: PayloadStatus::Full,
+                            weight: gloas_node.full_payload_weight,
+                            validity: proto_array_fork_choice
+                                .get_block_execution_status_assuming_full(&block_root)
+                                .unwrap(),
+                            execution_block_hash: gloas_node.execution_payload_block_hash,
+                            ..empty
+                        });
                     }
                 }
             }
         }
         assert_eq!(result.fork_choice_nodes, expected_fork_choice_nodes);
 
-        let find_node = |block_root: Hash256, payload_status: PayloadStatus| {
+        let has_node = |block_root: Hash256, payload_status: PayloadStatus| {
             result
                 .fork_choice_nodes
                 .iter()
-                .find(|node| node.block_root == block_root && node.payload_status == payload_status)
+                .any(|node| node.block_root == block_root && node.payload_status == payload_status)
         };
 
-        // The head names a node in the response, including a pre-Gloas head, which fork choice
-        // tracks as `Empty` internally.
-        assert!(
-            find_node(
-                result.extra_data.head_root,
-                result.extra_data.head_payload_status
-            )
-            .is_some(),
-            "head {:?} {:?} is not in the response",
+        // The head and every parent link name a node in the response.
+        assert!(has_node(
             result.extra_data.head_root,
             result.extra_data.head_payload_status
-        );
-
-        // Every parent link resolves to a node in the response.
+        ));
         for node in &result.fork_choice_nodes {
             if let Some(parent_payload_status) = node.parent_payload_status {
                 assert!(
-                    find_node(node.parent_root, parent_payload_status).is_some(),
+                    has_node(node.parent_root, parent_payload_status),
                     "dangling parent link on {:?} {:?}",
                     node.block_root,
                     node.payload_status
