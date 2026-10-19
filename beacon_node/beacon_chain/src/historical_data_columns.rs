@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
@@ -8,7 +7,7 @@ use crate::{
 };
 use store::{Error as StoreError, KeyValueStore};
 use tracing::{Span, debug, instrument};
-use types::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
+use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
 pub enum HistoricalDataColumnError {
@@ -58,8 +57,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         historical_data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
         expected_cgc: u64,
     ) -> Result<usize, HistoricalDataColumnError> {
-        self.verify_historical_data_column_kzg(&historical_data_column_sidecar_list)?;
-
         let mut total_imported = 0;
         let mut ops = vec![];
 
@@ -136,6 +133,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(HistoricalDataColumnError::IndexOutOfBounds);
             }
         } else {
+            if self.spec.fork_name_at_epoch(epoch).gloas_enabled() {
+                self.verify_gloas_data_column_kzg(&historical_data_column_sidecar_list)?;
+            } else {
+                verify_kzg_for_data_column_list(
+                    historical_data_column_sidecar_list.iter(),
+                    &self.kzg,
+                )
+                .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+            }
+
             self.store.blobs_db.do_atomically(ops)?;
         }
 
@@ -161,29 +168,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(total_imported)
     }
 
-    fn verify_historical_data_column_kzg(
+    fn verify_gloas_data_column_kzg(
         &self,
         data_columns: &DataColumnSidecarList<T::EthSpec>,
     ) -> Result<(), HistoricalDataColumnError> {
-        let mut fulu_columns = vec![];
-        let mut gloas_columns_by_block_root: HashMap<
-            Hash256,
-            Vec<&Arc<DataColumnSidecar<T::EthSpec>>>,
-        > = HashMap::new();
+        let mut columns_by_block_root: HashMap<Hash256, Vec<_>> = HashMap::new();
         for data_column in data_columns {
-            match data_column.as_ref() {
-                DataColumnSidecar::Fulu(_) => fulu_columns.push(data_column),
-                DataColumnSidecar::Gloas(_) => gloas_columns_by_block_root
-                    .entry(data_column.block_root())
-                    .or_default()
-                    .push(data_column),
-            }
+            columns_by_block_root
+                .entry(data_column.block_root())
+                .or_default()
+                .push(data_column);
         }
 
-        verify_kzg_for_data_column_list(fulu_columns.into_iter(), &self.kzg)
-            .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
-
-        for (block_root, columns) in gloas_columns_by_block_root {
+        for (block_root, columns) in columns_by_block_root {
             let block = self
                 .get_blinded_block(&block_root)
                 .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?
