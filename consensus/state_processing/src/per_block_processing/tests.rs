@@ -444,7 +444,7 @@ async fn invalid_attestation_no_committee_for_index() {
     let parent_slot = state
         .latest_execution_payload_bid()
         .ok()
-        .map(|bid| bid.slot);
+        .map(|bid| bid.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
@@ -499,7 +499,7 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
     let parent_slot = state
         .latest_execution_payload_bid()
         .ok()
-        .map(|bid| bid.slot);
+        .map(|bid| bid.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
@@ -558,7 +558,7 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
     let parent_slot = state
         .latest_execution_payload_bid()
         .ok()
-        .map(|bid| bid.slot);
+        .map(|bid| bid.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
@@ -603,7 +603,7 @@ async fn invalid_attestation_bad_signature() {
     let parent_slot = state
         .latest_execution_payload_bid()
         .ok()
-        .map(|bid| bid.slot);
+        .map(|bid| bid.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
@@ -652,7 +652,7 @@ async fn invalid_attestation_included_too_early() {
     let parent_slot = state
         .latest_execution_payload_bid()
         .ok()
-        .map(|bid| bid.slot);
+        .map(|bid| bid.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
@@ -708,7 +708,7 @@ async fn invalid_attestation_target_epoch_slot_mismatch() {
     let parent_slot = state
         .latest_execution_payload_bid()
         .ok()
-        .map(|bid| bid.slot);
+        .map(|bid| bid.slot());
     let result = process_operations::process_attestations(
         &mut state,
         head_block.body(),
@@ -805,7 +805,7 @@ async fn invalid_attester_slashing_1_invalid() {
         }
         AttesterSlashing::Gloas(attester_slashing) => {
             attester_slashing.attestation_1.attesting_indices =
-                ssz_types::ProgressiveVariableList::new(vec![2, 1]);
+                ssz_types::ProgressiveVariableList::new(vec![2, 1]).unwrap();
         }
     }
 
@@ -849,7 +849,7 @@ async fn invalid_attester_slashing_2_invalid() {
         }
         AttesterSlashing::Gloas(attester_slashing) => {
             attester_slashing.attestation_2.attesting_indices =
-                ssz_types::ProgressiveVariableList::new(vec![2, 1]);
+                ssz_types::ProgressiveVariableList::new(vec![2, 1]).unwrap();
         }
     }
 

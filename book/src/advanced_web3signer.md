@@ -57,6 +57,22 @@ SSL client authentication with the "self-signed" certificate in `/home/paul/my-k
 > considered to be failures. Setting a value that is too long may create contention and late duties
 > in the VC.  Setting it too short will result in failed signatures and therefore missed duties.
 
+## System certificate authorities
+
+The `root_certificate_path` key is only required for a certificate authority (CA) which Lighthouse
+does not already trust. The Lighthouse VC will trust its bundled public roots as well as the
+certificate authorities in the system trust store, so a CA which has been installed system-wide does
+not need to be named in the `validator_definitions.yml` file.
+
+The `SSL_CERT_FILE` environment variable can be used to name a file containing one or more
+certificates in PEM format. The `SSL_CERT_DIR` environment variable can be used to name a
+colon-separated list of directories containing certificate files.
+
+> Setting either of these variables will replace the system trust store rather than adding to it. If
+> `SSL_CERT_FILE` is already set (as it is in some container images) and a CA is mounted into a
+> directory, then `SSL_CERT_DIR` must also be set, otherwise the mounted CA will be ignored. The
+> bundled public roots will remain trusted in either case.
+
 ## Slashing protection database
 
 Web3signer can be configured with its own slashing protection database. This makes the local slashing protection database by Lighthouse redundant. To disable Lighthouse slashing protection database for web3signer keys, use the flag `--disable-slashing-protection-web3signer` on the validator client.

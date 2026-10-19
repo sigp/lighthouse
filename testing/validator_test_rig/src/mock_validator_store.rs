@@ -5,11 +5,11 @@ use futures::{Stream, stream};
 use std::future::Future;
 use std::sync::Arc;
 use types::{
-    Address, Epoch, ExecutionPayloadEnvelope, Graffiti, MainnetEthSpec, PayloadAttestationData,
-    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedValidatorRegistrationData, SingleAttestation, Slot, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    Address, Epoch, ExecutionPayloadEnvelope, Graffiti, Hash256, MainnetEthSpec,
+    PayloadAttestationData, PayloadAttestationMessage, ProposerPreferences, SelectionProof,
+    SignedAggregateAndProof, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
+    SignedProposerPreferences, SignedValidatorRegistrationData, SingleAttestation, Slot,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -106,6 +106,7 @@ impl ValidatorStore for MockValidatorStore {
         _validator_pubkey: PublicKeyBytes,
         _block: UnsignedBlock<Self::E>,
         _current_slot: Slot,
+        _local_payload_root: Option<Hash256>,
     ) -> Result<SignedBlock<Self::E>, StoreError<Self::Error>> {
         panic!("MockValidatorStore::sign_block called without a hook")
     }
@@ -195,5 +196,13 @@ impl ValidatorStore for MockValidatorStore {
 
     fn proposal_data(&self, _pubkey: &PublicKeyBytes) -> Option<ProposalData> {
         panic!("MockValidatorStore::proposal_data called without a hook")
+    }
+
+    fn proposal_data_at_epoch(
+        &self,
+        _pubkey: &PublicKeyBytes,
+        _epoch: Epoch,
+    ) -> Option<ProposalData> {
+        panic!("MockValidatorStore::proposal_data_at_epoch called without a hook")
     }
 }

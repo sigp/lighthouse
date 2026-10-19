@@ -31,3 +31,4 @@ validator_store = { workspace = true }
 [dev-dependencies]
 futures = { workspace = true }
 logging = { workspace = true }
+tempfile = { workspace = true }

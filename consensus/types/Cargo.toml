@@ -3,12 +3,19 @@ name = "types"
 version = "0.2.1"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
 edition = { workspace = true }
+autotests = false
+
+# Only used by the minimal preset tests.
+[package.metadata.cargo-udeps.ignore]
+development = ["beacon_chain", "tokio"]
 
 [features]
 default = []
 # Enable +, -, *, /, % operators for Slot and Epoch types.
 # Operations saturate instead of wrapping.
 saturating-arith = []
+spec-gnosis = []
+spec-minimal = []
 sqlite = ["dep:rusqlite"]
 arbitrary = [
     "dep:arbitrary",
@@ -68,7 +75,6 @@ yaml_serde = { workspace = true }
 [dev-dependencies]
 beacon_chain = { workspace = true }
 criterion = { workspace = true }
-state_processing = { workspace = true }
 tokio = { workspace = true }
 types = { path = ".", features = ["arbitrary"] }
 
@@ -78,3 +84,12 @@ module_inception = "allow"
 [[bench]]
 name = "benches"
 harness = false
+
+[[test]]
+name = "types_tests"
+path = "tests/main.rs"
+
+[[test]]
+name = "types_spec_minimal_tests"
+path = "tests/spec_minimal.rs"
+required-features = ["spec-minimal"]

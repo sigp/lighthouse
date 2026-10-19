@@ -603,7 +603,7 @@ pub fn update_array<E: EthSpec, T: TargetArrayChunk>(
                     current_epoch,
                     config,
                 )?;
-                if let Some(slashing) = slashing_status.into_slashing(&attestation.indexed) {
+                if let Some(slashing) = slashing_status.into_slashing(&attestation.indexed)? {
                     slashings.insert(slashing);
                 }
             }
