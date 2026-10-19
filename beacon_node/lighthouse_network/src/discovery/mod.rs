@@ -1247,9 +1247,9 @@ mod tests {
     use crate::rpc::methods::{MetaData, MetaDataV3};
     use libp2p::identity::secp256k1;
     use ssz_types::BitVector;
-    use types::{MinimalEthSpec, SubnetId};
+    use types::{Spec, SubnetId};
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     async fn build_discovery() -> Discovery<E> {
         let spec = Arc::new(ChainSpec::default());

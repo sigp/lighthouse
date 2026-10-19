@@ -30,7 +30,7 @@ hex = { workspace = true }
 if-addrs = "0.14"
 itertools = { workspace = true }
 libp2p = { workspace = true }
-libp2p-mplex = { git = "https://github.com/libp2p/rust-libp2p.git" }
+libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p", rev = "accba72bb4eafc692ac518339ef2c4080b6f8461" }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
 lru_cache = { workspace = true }
