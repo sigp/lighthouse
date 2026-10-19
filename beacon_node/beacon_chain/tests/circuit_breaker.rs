@@ -417,6 +417,7 @@ async fn late_revealed_payload_is_banned() {
                 .latest_execution_payload_bid()
                 .unwrap()
                 .block_hash(),
+            true,
         )
         .unwrap();
 

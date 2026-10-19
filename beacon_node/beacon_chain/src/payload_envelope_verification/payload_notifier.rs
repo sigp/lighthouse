@@ -8,7 +8,8 @@ use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 use crate::{
     BeaconChain, BeaconChainTypes, NotifyExecutionLayer, PayloadVerificationError,
-    execution_payload::notify_new_payload, payload_envelope_verification::EnvelopeError,
+    PayloadVerificationOutcome, execution_payload::notify_new_payload,
+    payload_envelope_verification::EnvelopeError,
 };
 
 /// Used to await the result of executing payload with a remote EE.
@@ -60,14 +61,20 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 
     pub async fn notify_new_payload(
         self,
-    ) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
+    ) -> Result<PayloadVerificationOutcome, PayloadVerificationError> {
         // EIP-8025: the proofs are this payload's validity, so the execution layer is not asked.
         if self.chain.execution_proofs_enabled() {
-            return Ok(PayloadVerificationStatus::Optimistic);
+            return Ok(PayloadVerificationOutcome {
+                payload_verification_status: PayloadVerificationStatus::Optimistic,
+                inclusion_list_satisfied: true,
+            });
         }
 
-        if let Some(precomputed_status) = self.payload_verification_status {
-            Ok(precomputed_status)
+        if let Some(payload_verification_status) = self.payload_verification_status {
+            Ok(PayloadVerificationOutcome {
+                payload_verification_status,
+                inclusion_list_satisfied: true,
+            })
         } else {
             let request =
                 Self::build_new_payload_request(&self.chain, &self.envelope, &self.block)?;

@@ -3,12 +3,14 @@ mod migration_schema_v29;
 mod migration_schema_v30;
 mod migration_schema_v31;
 mod migration_schema_v32;
+mod migration_schema_v33;
 
 use crate::beacon_chain::BeaconChainTypes;
 use migration_schema_v29::{downgrade_from_v29, upgrade_to_v29};
 use migration_schema_v30::{downgrade_from_v30, upgrade_to_v30};
 use migration_schema_v31::{downgrade_from_v31, upgrade_to_v31};
 use migration_schema_v32::{downgrade_from_v32, upgrade_to_v32};
+use migration_schema_v33::{downgrade_from_v33, upgrade_to_v33};
 use std::sync::Arc;
 use store::Error as StoreError;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
@@ -75,6 +77,16 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // Downgrade from v32 to v31.
         (SchemaVersion(32), SchemaVersion(31)) => {
             let ops = downgrade_from_v32::<T>(&db)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        // Upgrade from v32 to v33.
+        (SchemaVersion(32), SchemaVersion(33)) => {
+            let ops = upgrade_to_v33::<T>(&db)?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        // Downgrade from v33 to v32.
+        (SchemaVersion(33), SchemaVersion(32)) => {
+            let ops = downgrade_from_v33::<T>(&db)?;
             db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.
