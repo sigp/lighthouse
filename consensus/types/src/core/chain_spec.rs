@@ -103,7 +103,7 @@ pub struct ChainSpec {
     seconds_per_slot: u64,
     // Private so that this value can't get changed except via the `set_slot_duration_ms` function.
     slot_duration_ms: u64,
-    pub slot_duration_ms_eip8198: u64,
+    pub slot_duration_ms_heze: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub max_seed_lookahead: Epoch,
@@ -1113,6 +1113,11 @@ impl ChainSpec {
         Duration::from_millis(self.slot_duration_ms)
     }
 
+    /// Spec: `SLOT_DURATION_MS`. Rewards, penalties and churn scale relative to it.
+    pub fn slot_duration_ms(&self) -> u64 {
+        self.slot_duration_ms
+    }
+
     /// Set the duration of a slot (in ms).
     pub fn set_slot_duration_ms<E: EthSpec>(mut self, slot_duration_ms: u64) -> Self {
         self.slot_duration_ms = slot_duration_ms;
@@ -1126,7 +1131,7 @@ impl ChainSpec {
         let eip8198 = self
             .heze_fork_epoch
             .filter(|&fork_epoch| fork_epoch != self.far_future_epoch)
-            .map(|fork_epoch| (fork_epoch, self.slot_duration_ms_eip8198));
+            .map(|fork_epoch| (fork_epoch, self.slot_duration_ms_heze));
         std::iter::once((Epoch::new(0), self.slot_duration_ms)).chain(eip8198)
     }
 
@@ -1401,7 +1406,7 @@ impl ChainSpec {
             genesis_delay: 604800, // 7 days
             seconds_per_slot: 12,
             slot_duration_ms: 12000,
-            slot_duration_ms_eip8198: 10000,
+            slot_duration_ms_heze: 12000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
@@ -1699,7 +1704,7 @@ impl ChainSpec {
             genesis_delay: 300,
             seconds_per_slot: 6,
             slot_duration_ms: 6000,
-            slot_duration_ms_eip8198: 5000,
+            slot_duration_ms_heze: 5000,
             inactivity_penalty_quotient: u64::checked_pow(2, 25).expect("pow does not overflow"),
             min_slashing_penalty_quotient: 64,
             proportional_slashing_multiplier: 2,
@@ -1837,7 +1842,7 @@ impl ChainSpec {
             genesis_delay: 6000, // 100 minutes
             seconds_per_slot: 5,
             slot_duration_ms: 5000,
-            slot_duration_ms_eip8198: 5000,
+            slot_duration_ms_heze: 5000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
@@ -2469,7 +2474,7 @@ pub struct Config {
     slot_duration_ms: Option<MaybeQuoted<u64>>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    slot_duration_ms_eip8198: Option<MaybeQuoted<u64>>,
+    slot_duration_ms_heze: Option<MaybeQuoted<u64>>,
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_eth1_block: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -3175,8 +3180,8 @@ impl Config {
             slot_duration_ms: Some(MaybeQuoted {
                 value: spec.slot_duration_ms,
             }),
-            slot_duration_ms_eip8198: Some(MaybeQuoted {
-                value: spec.slot_duration_ms_eip8198,
+            slot_duration_ms_heze: Some(MaybeQuoted {
+                value: spec.slot_duration_ms_heze,
             }),
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
@@ -3310,7 +3315,7 @@ impl Config {
             heze_fork_epoch,
             seconds_per_slot,
             slot_duration_ms,
-            slot_duration_ms_eip8198,
+            slot_duration_ms_heze,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
@@ -3412,15 +3417,15 @@ impl Config {
                 .checked_mul(slot_duration_ms)?,
         };
         // Networks that do not set it keep their slot duration at the fork.
-        let slot_duration_ms_eip8198 = match slot_duration_ms_eip8198 {
+        let slot_duration_ms_heze = match slot_duration_ms_heze {
             Some(q)
                 if q.value == 0
                     || q.value % 1000 != 0
                     || q.value.checked_mul(BASIS_POINTS).is_none() =>
             {
                 error!(
-                    slot_duration_ms_eip8198 = q.value,
-                    "Invalid SLOT_DURATION_MS_EIP8198"
+                    slot_duration_ms_heze = q.value,
+                    "Invalid SLOT_DURATION_MS_HEZE"
                 );
                 return None;
             }
@@ -3480,7 +3485,7 @@ impl Config {
             heze_fork_epoch: heze_fork_epoch.map(|q| q.value),
             seconds_per_slot,
             slot_duration_ms,
-            slot_duration_ms_eip8198,
+            slot_duration_ms_heze,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
@@ -4832,6 +4837,7 @@ mod yaml_tests {
     #[test]
     fn slot_duration_changes_at_the_heze_fork_epoch() {
         let mut spec = ChainSpec::mainnet();
+        spec.slot_duration_ms_heze = 10000;
         assert_eq!(
             spec.slot_duration_schedule(),
             slot_duration_schedule(&[(0, 12000)])
@@ -4858,6 +4864,7 @@ mod yaml_tests {
     #[test]
     fn heze_at_genesis_uses_the_eip8198_slot_duration_from_genesis() {
         let mut spec = ChainSpec::mainnet();
+        spec.slot_duration_ms_heze = 10000;
         spec.heze_fork_epoch = Some(Epoch::new(0));
         assert_eq!(spec.get_slot_duration_ms(Epoch::new(0)), 10000);
         let schedule = spec.slot_duration_schedule();
@@ -4874,26 +4881,28 @@ mod yaml_tests {
     }
 
     #[test]
-    fn slot_duration_ms_eip8198_config() {
+    fn slot_duration_ms_heze_config() {
         let mut config = Config::from_chain_spec::<MainnetEthSpec>(&ChainSpec::mainnet());
         config.heze_fork_epoch = Some(MaybeQuoted {
             value: Epoch::new(10),
         });
+        assert_eq!(config.slot_duration_ms_heze.map(|q| q.value), Some(12000));
+        config.slot_duration_ms_heze = Some(MaybeQuoted { value: 10000 });
         let spec = ChainSpec::from_config::<MainnetEthSpec>(&config).expect("valid config");
-        assert_eq!(spec.slot_duration_ms_eip8198, 10000);
+        assert_eq!(spec.slot_duration_ms_heze, 10000);
         assert_eq!(spec.get_slot_duration_ms(Epoch::new(10)), 10000);
 
-        config.slot_duration_ms_eip8198 = None;
+        config.slot_duration_ms_heze = None;
         let spec = ChainSpec::from_config::<MainnetEthSpec>(&config).expect("valid config");
         assert_eq!(spec.get_slot_duration_ms(Epoch::new(10)), 12000);
 
         for invalid in [0, 10500, u64::MAX / 1000 * 1000] {
-            config.slot_duration_ms_eip8198 = Some(MaybeQuoted { value: invalid });
+            config.slot_duration_ms_heze = Some(MaybeQuoted { value: invalid });
             assert!(ChainSpec::from_config::<MainnetEthSpec>(&config).is_none());
         }
 
         // Without the key, a slot duration that is not a whole second still loads.
-        config.slot_duration_ms_eip8198 = None;
+        config.slot_duration_ms_heze = None;
         config.seconds_per_slot = None;
         config.slot_duration_ms = Some(MaybeQuoted { value: 1500 });
         let spec = ChainSpec::from_config::<MainnetEthSpec>(&config).expect("valid config");
@@ -4903,7 +4912,9 @@ mod yaml_tests {
     #[test]
     fn deadlines_use_the_slot_duration_at_the_heze_fork() {
         let mut spec = ChainSpec::mainnet();
+        spec.slot_duration_ms_heze = 10000;
         spec.heze_fork_epoch = Some(Epoch::new(10));
+        let spec = spec.compute_derived_values::<MainnetEthSpec>();
         let pre_fork_slot = Slot::new(319);
         let fork_slot = Slot::new(320);
         let later_slot = Slot::new(700);
@@ -5664,12 +5675,12 @@ mod slot_duration_schedule_properties {
         fn slot_duration_lookups_agree(
             heze_epoch in prop_oneof![Just(0u64), 0u64..200, Just(u64::MAX)],
             slot_duration_ms in slot_duration_ms(),
-            slot_duration_ms_eip8198 in slot_duration_ms(),
+            slot_duration_ms_heze in slot_duration_ms(),
             epoch in prop_oneof![0u64..400, any::<u64>()],
         ) {
             let mut spec = ChainSpec::mainnet();
             spec.slot_duration_ms = slot_duration_ms;
-            spec.slot_duration_ms_eip8198 = slot_duration_ms_eip8198;
+            spec.slot_duration_ms_heze = slot_duration_ms_heze;
             spec.heze_fork_epoch = Some(Epoch::new(heze_epoch));
             let epoch = Epoch::new(epoch);
             prop_assert_eq!(

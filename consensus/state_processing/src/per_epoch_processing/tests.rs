@@ -54,7 +54,7 @@ fn gloas_state_with_half_slot_duration() -> (BeaconState<MinimalEthSpec>, ChainS
     state.build_caches(&spec).unwrap();
     let mut halved = spec.clone();
     halved.heze_fork_epoch = Some(state.current_epoch());
-    halved.slot_duration_ms_eip8198 = spec.get_slot_duration_ms(Epoch::new(0)) / 2;
+    halved.slot_duration_ms_heze = spec.get_slot_duration_ms(Epoch::new(0)) / 2;
     (state, spec, halved)
 }
 

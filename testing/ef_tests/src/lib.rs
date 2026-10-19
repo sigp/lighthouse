@@ -30,6 +30,6 @@ pub fn testing_spec<E: EthSpec>(fork_name: ForkName) -> ChainSpec {
 /// Keeps the slot duration at Heze. Lighthouse activates EIP-8198 at Heze, but the upstream Heze
 /// tests do not include it.
 pub fn without_eip8198(mut spec: ChainSpec) -> ChainSpec {
-    spec.slot_duration_ms_eip8198 = spec.genesis_slot_duration().as_millis() as u64;
+    spec.slot_duration_ms_heze = spec.genesis_slot_duration().as_millis() as u64;
     spec
 }
