@@ -50,6 +50,6 @@ fn get_base_reward_per_increment(
     spec.effective_balance_increment
         .safe_mul(spec.base_reward_factor)?
         .safe_mul(spec.get_slot_duration_ms(epoch))?
-        .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?
+        .safe_div(spec.slot_duration_ms())?
         .safe_div(total_active_balance.integer_sqrt())
 }
