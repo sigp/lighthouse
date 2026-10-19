@@ -160,12 +160,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let (block_root, block, block_data) = available_block.deconstruct();
                     (block_root, block, block_data, None)
                 }
-                RangeSyncBlock::Gloas { block, envelope } => (
-                    block.canonical_root(),
+                RangeSyncBlock::Gloas {
+                    block_root,
                     block,
-                    AvailableBlockData::NoData,
                     envelope,
-                ),
+                } => (block_root, block, AvailableBlockData::NoData, envelope),
             };
 
             if block.slot() == anchor_info.oldest_block_slot {

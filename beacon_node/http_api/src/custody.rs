@@ -11,10 +11,7 @@ pub fn info<T: BeaconChainTypes>(
         return Err(custom_bad_request("Fulu is not scheduled".to_string()));
     }
 
-    let opt_data_column_custody_info = chain
-        .store
-        .get_data_column_custody_info()
-        .map_err(|e| custom_server_error(format!("error reading DataColumnCustodyInfo: {e:?}")))?;
+    let opt_data_column_custody_info = chain.store.get_data_column_custody_info();
 
     let column_data_availability_boundary = chain
         .custody_context
