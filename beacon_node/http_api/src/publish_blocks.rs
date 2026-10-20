@@ -164,6 +164,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
     let block = unverified_block.inner_block();
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
+    // Without blob data in the request (always the case for Gloas, where the builder reveals it
+    // with the payload), the node must retrieve the block's columns like it does for gossip blocks.
+    let fetch_columns = unverified_blobs.is_none();
 
     let current_span = Span::current();
     current_span.record("provenance", provenance);
@@ -208,6 +211,17 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             block.clone(),
             builder_url.as_deref(),
         );
+
+        // Later gossip copies of this block are ignored as duplicates, so start column retrieval
+        // here. Otherwise peers never learn which cells we need via partial columns.
+        if fetch_columns
+            && let Err(e) = crate::utils::publish_network_message(
+                &sender,
+                NetworkMessage::FetchBlockColumns { block_root, block },
+            )
+        {
+            warn!(error = ?e, "Unable to start column retrieval for published block");
+        }
 
         Ok(())
     };

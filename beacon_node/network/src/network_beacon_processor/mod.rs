@@ -36,7 +36,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{Instrument, Span, debug, error, instrument, trace, warn};
 use types::*;
 use {
     beacon_chain::builder::Witness, beacon_processor::BeaconProcessorChannels,
@@ -952,6 +952,45 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.network_tx.send(message).unwrap_or_else(|e| {
             debug!(error = %e, "Could not send message to the network service. Likely shutdown")
         });
+    }
+
+    /// Starts retrieving the custody columns of a block whose blob data we do not hold yet:
+    /// attempts to fetch the blobs from the EL, then requests the missing cells from peers via
+    /// partial columns.
+    pub(crate) fn spawn_fetch_block_columns(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        block: &SignedBeaconBlock<T::EthSpec>,
+        source: EnvelopeSource,
+    ) {
+        let Some(header_or_bid) = PartialHeaderOrBid::try_from_block(block) else {
+            debug!("Pre-Fulu block passed to spawn_fetch_block_columns");
+            return;
+        };
+        let task_name = match source {
+            EnvelopeSource::Gossip => "fetch_blobs_gossip",
+            EnvelopeSource::Rpc => "fetch_blobs_rpc",
+            EnvelopeSource::Http => "fetch_blobs_http",
+        };
+        let publish_blobs = true;
+        let self_clone = self.clone();
+        self.executor.spawn(
+            async move {
+                self_clone
+                    .fetch_engine_blobs_and_publish_full(
+                        header_or_bid.clone(),
+                        block_root,
+                        publish_blobs,
+                        source,
+                    )
+                    .await;
+                self_clone
+                    .publish_partial_data_columns(header_or_bid, block_root)
+                    .await
+            }
+            .instrument(Span::current()),
+            task_name,
+        );
     }
 
     pub async fn fetch_engine_blobs_and_publish_full(
