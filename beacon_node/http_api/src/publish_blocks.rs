@@ -28,9 +28,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Span, debug, error, field, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobsList, BlockImportSource, DataColumnSubnetId, EthSpec,
-    ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadBellatrix, Hash256,
-    KzgProofs, PartialDataColumn, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BlobsList, BlockImportSource, DataColumnSidecar,
+    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
+    FullPayloadBellatrix, Hash256, KzgProofs, PartialDataColumn, SignedBeaconBlock,
+    SignedBlindedBeaconBlock,
 };
 use warp::{Rejection, Reply, reply::Response};
 
@@ -310,7 +311,14 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 tokio::time::sleep(delay).await;
             }
         }
-        publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(|_| {
+        publish_column_sidecars(
+            network_tx,
+            gossip_verified_columns
+                .iter()
+                .map(|column| column.clone_data_column()),
+            &chain,
+        )
+        .map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
         let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
@@ -484,14 +492,11 @@ fn build_data_columns<T: BeaconChainTypes>(
 
 pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
     sender_clone: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    data_column_sidecars: &[GossipVerifiedDataColumn<T>],
+    data_column_sidecars: impl IntoIterator<Item = Arc<DataColumnSidecar<T::EthSpec>>>,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError> {
     let malicious_withhold_count = chain.config.malicious_withhold_count;
-    let mut data_column_sidecars = data_column_sidecars
-        .iter()
-        .map(|d| d.clone_data_column())
-        .collect::<Vec<_>>();
+    let mut data_column_sidecars = data_column_sidecars.into_iter().collect::<Vec<_>>();
     if malicious_withhold_count > 0 {
         let columns_to_keep = data_column_sidecars
             .len()

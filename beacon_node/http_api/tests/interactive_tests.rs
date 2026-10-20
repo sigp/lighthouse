@@ -6,23 +6,26 @@ use beacon_chain::{
     chain_config::DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy,
-        fork_name_from_env, test_spec,
+        fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
     },
 };
 use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
 use eth2::types::DepositContractData;
 use eth2::types::ProduceBlockV3Response;
-use eth2::types::{BroadcastValidation, PublishBlockRequest};
+use eth2::types::{
+    BroadcastValidation, PublishBlockRequest, SignedExecutionPayloadEnvelopeContents,
+};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
+use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use state_processing::{
     per_block_processing::get_expected_withdrawals, state_advance::complete_state_advance,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
@@ -1385,4 +1388,92 @@ async fn http_published_self_built_gloas_block_skips_column_fetch() {
         return;
     }
     assert!(!http_published_gloas_block_fetches_columns(BroadcastValidation::Gossip, true).await);
+}
+
+/// Columns retrieved from the EL are complete in the pending payload cache before their gradual
+/// publication. Building the same columns from the envelope's blobs marks them as seen, which makes
+/// that publication skip them, so the envelope endpoint must publish them itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn envelope_publishes_retrieved_columns_awaiting_publication() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+
+    let validator_count = 64;
+    let mut tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let harness = &tester.harness;
+    harness.execution_block_generator().set_min_blob_count(1);
+
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+    let state = harness.get_current_state();
+    let ((block, _), envelope, _) = harness.make_block_with_envelope(state, slot).await;
+    let envelope = envelope.expect("Gloas block should produce an envelope");
+    let block_root = block.canonical_root();
+    harness
+        .process_block(slot, block_root, (block.clone(), None))
+        .await
+        .expect("block should be imported");
+
+    // Stand in for column retrieval from the EL, which caches the custody columns before
+    // publishing them.
+    let columns = generate_data_column_sidecars_from_block(&block, &harness.spec);
+    harness
+        .chain
+        .process_rpc_custody_columns(columns)
+        .await
+        .expect("custody columns should be accepted");
+    let custody_columns = harness
+        .chain
+        .pending_payload_cache
+        .cached_data_column_indexes(&block_root)
+        .expect("custody columns should be cached");
+    assert!(!custody_columns.is_empty());
+
+    let commitments = block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .expect("Gloas block should have a bid")
+        .message()
+        .blob_kzg_commitments()
+        .clone();
+    let blobs_bundle = harness
+        .execution_block_generator()
+        .blobs_bundles
+        .values()
+        .find(|bundle| bundle.commitments.iter().eq(commitments.iter()))
+        .cloned()
+        .expect("mock EL should hold the payload's blobs");
+    let contents = SignedExecutionPayloadEnvelopeContents {
+        signed_execution_payload_envelope: envelope,
+        kzg_proofs: blobs_bundle.proofs,
+        blobs: blobs_bundle.blobs,
+    };
+    tester
+        .client
+        .post_beacon_execution_payload_envelope_contents(
+            &contents,
+            harness.spec.fork_name_at_slot::<E>(slot),
+            None,
+        )
+        .await
+        .expect("envelope should be published");
+
+    let mut published_columns = HashSet::new();
+    while let Ok(message) = tester.network_rx.network_recv.try_recv() {
+        if let NetworkMessage::Publish { messages } = message {
+            for message in messages {
+                if let PubsubMessage::DataColumnSidecar(column) = message {
+                    published_columns.insert(*column.1.index());
+                }
+            }
+        }
+    }
+    for index in custody_columns {
+        assert!(
+            published_columns.contains(&index),
+            "custody column {index} should be published"
+        );
+    }
 }
