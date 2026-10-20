@@ -70,6 +70,27 @@ impl ChunkedField {
         }
     }
 
+    /// SSZ tree-hash packing factor of this field's item type: how many items share one 32-byte
+    /// merkle leaf. `1` for `Container`/`List`/`Vector`-typed items (`Validator`, `Eth1Data`,
+    /// etc., which never pack), `4` for `u64` items (`Balances`, `InactivityScores`), `32` for
+    /// single-byte items (`ParticipationFlags`, which wraps a `u8`). Matches each type's real
+    /// `TreeHash::tree_hash_packing_factor()`.
+    ///
+    /// This matters for [`Self::first_chunk_size`]: the real `ProgressiveList` tree's levels
+    /// (`4^i`) are sized in merkle *leaves*, not items, so for a packed field the item-level fold
+    /// boundary has to be computed in leaf units first, then converted back, or it lands on the
+    /// wrong item index whenever the packing factor doesn't evenly divide the naive item-unit
+    /// fold (it doesn't, in general).
+    pub const fn packing_factor(self) -> usize {
+        match self {
+            ChunkedField::Balances | ChunkedField::InactivityScores => 4, // u64
+            ChunkedField::PreviousEpochParticipation | ChunkedField::CurrentEpochParticipation => {
+                32 // ParticipationFlags (wraps u8)
+            }
+            _ => 1, // Container-typed items never pack; plain-List fields don't use this anyway.
+        }
+    }
+
     /// Whether this field is backed by a `ProgressiveList` (EIP-7916) in `BeaconStateGloas`, as
     /// opposed to a plain `List`. Checked directly against `consensus/types/src/state/beacon_state.rs`'s
     /// Gloas field declarations: `historical_roots`, `eth1_data_votes`, and `historical_summaries`
@@ -103,9 +124,19 @@ impl ChunkedField {
     /// For a plain `List` field (see [`Self::is_progressive`]), there's no progressive folding to
     /// account for, so the first chunk is just a normal, round `items_per_chunk`-sized slice like
     /// every other chunk.
+    ///
+    /// The fold itself is computed in leaf units (dividing out [`Self::packing_factor`]) and
+    /// converted back to items at the end, since the real tree's levels are leaf-sized, not
+    /// item-sized (see [`Self::packing_factor`]'s docs). For unpacked fields (`packing_factor ==
+    /// 1`) this is a no-op and matches the original item-unit fold exactly.
     pub const fn first_chunk_size(self) -> usize {
         if self.is_progressive() {
-            first_chunk_size_for(self.items_per_chunk())
+            let packing_factor = self.packing_factor();
+            let leaves_per_chunk = match self.items_per_chunk().checked_div(packing_factor) {
+                Some(leaves) => leaves,
+                None => 0,
+            };
+            first_chunk_size_for(leaves_per_chunk).saturating_mul(packing_factor)
         } else {
             self.items_per_chunk()
         }
@@ -260,6 +291,38 @@ mod tests {
         // Etan's own example (2026-10-06): items_per_chunk = 32 folds levels 0-2
         // (1 + 4 + 16 = 21) into the first chunk, since level 3 (64 items) doesn't fit.
         assert_eq!(first_chunk_size_for(32), 21);
+    }
+
+    #[test]
+    fn first_chunk_size_accounts_for_packing() {
+        // Balances is u64 (packing_factor = 4), items_per_chunk = 65536 items = 16384 leaves.
+        // Folding the leaf sequence (1, 4, 16, 64, 256, 1024, 4096) sums to 5461 leaves <=
+        // 16384; adding the next level (16384 leaves) would overflow it. So the fold stops at
+        // 5461 leaves, which is 5461 * 4 = 21844 items, NOT 21845 (the item-unit-only fold this
+        // field would get if packing were ignored, since 65536 items folded directly in item
+        // units gives the same numeric sequence coincidentally but 1 item off here).
+        assert_eq!(ChunkedField::Balances.packing_factor(), 4);
+        assert_eq!(ChunkedField::Balances.first_chunk_size(), 21844);
+
+        // ParticipationFlags is a 1-byte type (packing_factor = 32), items_per_chunk = 524288
+        // items = 16384 leaves, so it folds identically to Balances in leaf terms: 5461 leaves,
+        // but converts to 5461 * 32 = 174752 items.
+        assert_eq!(
+            ChunkedField::PreviousEpochParticipation.packing_factor(),
+            32
+        );
+        assert_eq!(
+            ChunkedField::PreviousEpochParticipation.first_chunk_size(),
+            174752
+        );
+
+        // Container-typed fields (packing_factor = 1) are unaffected: the leaf-unit fold and the
+        // item-unit fold are the same computation.
+        assert_eq!(ChunkedField::Validators.packing_factor(), 1);
+        assert_eq!(
+            ChunkedField::Validators.first_chunk_size(),
+            first_chunk_size_for(ChunkedField::Validators.items_per_chunk())
+        );
     }
 
     #[test]
