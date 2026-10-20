@@ -1,5 +1,6 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::pending_payload_envelopes::PendingEnvelopeData;
 use beacon_chain::{
     ChainConfig,
     chain_config::DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
@@ -11,9 +12,11 @@ use beacon_chain::{
 use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
 use eth2::types::DepositContractData;
 use eth2::types::ProduceBlockV3Response;
+use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
+use network::NetworkMessage;
 use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use state_processing::{
@@ -23,8 +26,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, ProposerPreparationData,
-    Slot, Spec,
+    Address, BlobsList, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256,
+    ProposerPreparationData, Slot, Spec,
 };
 
 type E = Spec;
@@ -1303,4 +1306,83 @@ async fn lighthouse_custody_info() {
         info.custody_columns.len(),
         info.custody_group_count as usize
     );
+}
+
+/// Publishes a Gloas block via the HTTP API without blob data and returns whether the node asked
+/// the network service to retrieve the block's columns. With `self_built`, the blobs of the
+/// block's payload are cached as if this node had built it.
+async fn http_published_gloas_block_fetches_columns(
+    validation_level: BroadcastValidation,
+    self_built: bool,
+) -> bool {
+    let validator_count = 64;
+    let mut tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let harness = &tester.harness;
+    harness.execution_block_generator().set_min_blob_count(1);
+
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+    let state = harness.get_current_state();
+    let ((block, _), envelope, _) = harness.make_block_with_envelope(state, slot).await;
+    let block_root = block.canonical_root();
+
+    if self_built {
+        let envelope = envelope.expect("Gloas block should produce an envelope");
+        harness
+            .chain
+            .pending_payload_envelopes
+            .write()
+            .insert(PendingEnvelopeData {
+                envelope: Arc::new(envelope.message),
+                blobs: Some(Arc::new(BlobsList::<E>::default())),
+            });
+    }
+
+    tester
+        .client
+        .post_beacon_blocks_v2(
+            &PublishBlockRequest::new(block, None),
+            Some(validation_level),
+        )
+        .await
+        .expect("block should be published");
+
+    std::iter::from_fn(|| tester.network_rx.network_recv.try_recv().ok()).any(|message| {
+        matches!(
+            message,
+            NetworkMessage::FetchBlockColumns { block_root: root, .. } if root == block_root
+        )
+    })
+}
+
+/// Later gossip copies of a block published via the HTTP API are ignored as duplicates, so
+/// publishing it must start column retrieval.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_published_gloas_block_fetches_columns_gossip() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+    assert!(http_published_gloas_block_fetches_columns(BroadcastValidation::Gossip, false).await);
+}
+
+/// With consensus validation, the block is only published once `process_block` has verified it.
+/// Column retrieval must start then too.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_published_gloas_block_fetches_columns_consensus() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+    assert!(
+        http_published_gloas_block_fetches_columns(BroadcastValidation::Consensus, false).await
+    );
+}
+
+/// The envelope endpoint publishes the columns of a self-built payload from the cached blobs, so
+/// publishing the block must not retrieve them as well.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_published_self_built_gloas_block_skips_column_fetch() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+    assert!(!http_published_gloas_block_fetches_columns(BroadcastValidation::Gossip, true).await);
 }
