@@ -393,6 +393,93 @@ async fn light_client_updates_test() {
     assert_eq!(lc_updates.len(), 2);
 }
 
+/// After a fork the finalized block is still from the previous fork. The finality update must
+/// carry that block as a header upgraded to the next fork.
+#[tokio::test]
+async fn light_client_finality_update_across_next_fork() {
+    let mut spec = test_spec::<E>();
+    let Some(next_fork_name) = spec.fork_name_at_epoch(Epoch::new(0)).next_fork() else {
+        return;
+    };
+    // The harness cannot produce the merge transition block, and light client does not support
+    // Heze yet.
+    if matches!(next_fork_name, ForkName::Bellatrix | ForkName::Heze) {
+        return;
+    }
+    // The first update of a sync committee period is the best update for that period, so start
+    // the period at the fork.
+    let next_fork_epoch = spec.epochs_per_sync_committee_period;
+    set_fork_epoch(&mut spec, next_fork_name, next_fork_epoch);
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let harness = get_harness(store, LOW_VALIDATOR_COUNT);
+    let all_validators = harness.get_all_validators();
+    let next_fork_slot = next_fork_epoch.start_slot(E::slots_per_epoch());
+
+    let slots: Vec<Slot> = (1..next_fork_slot.as_u64()).map(Slot::new).collect();
+    harness
+        .add_attested_blocks_at_slots(harness.get_current_state(), &slots, &all_validators)
+        .await;
+
+    harness.advance_slot();
+    harness
+        .extend_chain_with_light_client_data(
+            E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let finality_update = harness
+        .chain
+        .light_client_server_cache
+        .get_latest_finality_update()
+        .expect("finality update exists");
+
+    let finalized_checkpoint = harness.get_current_state().finalized_checkpoint();
+    assert_eq!(
+        finality_update.map_with_fork_name(|fork_name| fork_name),
+        next_fork_name
+    );
+    assert!(finality_update.get_attested_header_slot() >= next_fork_slot);
+    assert!(finalized_checkpoint.epoch < next_fork_epoch);
+    assert_eq!(
+        finality_update.get_finalized_header_root(),
+        finalized_checkpoint.root
+    );
+
+    let sync_period = next_fork_epoch
+        .sync_committee_period(&harness.chain.spec)
+        .unwrap();
+    let light_client_update = harness
+        .chain
+        .get_light_client_updates(sync_period, 1)
+        .unwrap()
+        .pop()
+        .expect("light client update exists");
+    assert_eq!(
+        light_client_update.map_with_fork_name(|fork_name| fork_name),
+        next_fork_name
+    );
+    assert!(light_client_update.finalized_header_slot() > Slot::new(0));
+    assert!(light_client_update.finalized_header_slot() < next_fork_slot);
+}
+
+fn set_fork_epoch(spec: &mut ChainSpec, fork_name: ForkName, epoch: Epoch) {
+    match fork_name {
+        ForkName::Base => {}
+        ForkName::Altair => spec.altair_fork_epoch = Some(epoch),
+        ForkName::Bellatrix => spec.bellatrix_fork_epoch = Some(epoch),
+        ForkName::Capella => spec.capella_fork_epoch = Some(epoch),
+        ForkName::Deneb => spec.deneb_fork_epoch = Some(epoch),
+        ForkName::Electra => spec.electra_fork_epoch = Some(epoch),
+        ForkName::Fulu => spec.fulu_fork_epoch = Some(epoch),
+        ForkName::Gloas => spec.gloas_fork_epoch = Some(epoch),
+        ForkName::Heze => spec.heze_fork_epoch = Some(epoch),
+    }
+}
+
 /// Verifies that `get_light_client_updates` returns the full requested range
 /// even when it crosses a sync committee period boundary after
 /// switching to big-endian keys.
