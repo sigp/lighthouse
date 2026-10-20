@@ -4652,12 +4652,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     Ok(current_epoch_dependent_root),
                                     Ok(next_epoch_dependent_root),
                                 ) => {
+                                    let fork_name =
+                                        self.spec.fork_name_at_slot::<T::EthSpec>(head_slot);
                                     let head_v2 = SseHeadV2 {
                                         slot: head_slot,
                                         block: block_root,
                                         state: state_root,
-                                        // In the first emission of a new head_v2, the PayloadStatus is always Empty
-                                        payload_status: fork_choice::PayloadStatus::Empty,
+                                        // Full pre-Gloas for the API; Empty on the first post-Gloas emit.
+                                        payload_status: if fork_name.gloas_enabled() {
+                                            fork_choice::PayloadStatus::Empty
+                                        } else {
+                                            fork_choice::PayloadStatus::Full
+                                        },
                                         epoch_transition: is_epoch_transition,
                                         current_epoch_dependent_root,
                                         next_epoch_dependent_root,
@@ -4665,9 +4671,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     };
                                     event_handler.register(EventKind::HeadV2(Box::new(
                                         ForkVersionedResponse {
-                                            version: self
-                                                .spec
-                                                .fork_name_at_slot::<T::EthSpec>(head_v2.slot),
+                                            version: fork_name,
                                             metadata: Default::default(),
                                             data: head_v2,
                                         },
