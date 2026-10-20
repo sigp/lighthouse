@@ -220,7 +220,12 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         if fetch_columns
             && let Err(e) = crate::utils::publish_network_message(
                 &sender,
-                NetworkMessage::FetchBlockColumns { block_root, block },
+                NetworkMessage::FetchBlockColumns {
+                    block_root,
+                    block,
+                    // Trace the retrieval as part of publishing this block.
+                    span: current_span.clone(),
+                },
             )
         {
             warn!(error = ?e, "Unable to start column retrieval for published block");

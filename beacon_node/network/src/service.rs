@@ -43,7 +43,7 @@ use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{Span, debug, error, info, trace, warn};
 use typenum::Unsigned;
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, PartialDataColumn,
@@ -100,6 +100,8 @@ pub enum NetworkMessage<E: EthSpec> {
     FetchBlockColumns {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
+        /// The span of the publishing request, to trace the retrieval within.
+        span: Span,
     },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
@@ -687,11 +689,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::PublishPartialColumns { messages } => {
                 self.libp2p.publish_partial(messages);
             }
-            NetworkMessage::FetchBlockColumns { block_root, block } => {
+            NetworkMessage::FetchBlockColumns {
+                block_root,
+                block,
+                span,
+            } => {
                 self.network_beacon_processor.spawn_fetch_block_columns(
                     block_root,
                     block,
                     EnvelopeSource::Http,
+                    span,
                 );
             }
             NetworkMessage::ReportPeer {
