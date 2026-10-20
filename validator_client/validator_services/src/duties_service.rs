@@ -932,7 +932,7 @@ pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
             .is_some();
 
         if !is_known {
-            let current_slot_opt = duties_service.slot_clock.now();
+            let current_slot_opt = duties_service.slot_clock.now_or_genesis();
 
             if let Some(current_slot) = current_slot_opt {
                 let is_first_slot_of_epoch = current_slot % S::E::slots_per_epoch() == 0;
