@@ -136,7 +136,7 @@ async fn db_write_failure_poisons_fork_choice_and_shuts_down() {
     assert_eq!(
         harness.shutdown_reasons(),
         vec![ShutdownReason::Failure(
-            "Database write failure during block import"
+            "Database write failure during block or payload envelope import"
         )],
         "the chain should request shutdown"
     );
