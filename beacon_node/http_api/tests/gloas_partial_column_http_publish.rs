@@ -1,7 +1,5 @@
-//! Regression tests for HTTP publish + partial columns (#10104).
-//!
-//! With partial columns enabled, publishing a Gloas builder block without sidecars
-//! must emit custody request placeholders. With them disabled, it must not.
+//! HTTP publish of Gloas builder blocks without sidecars must emit partial-column
+//! request placeholders when that feature is enabled.
 
 use beacon_chain::chain_config::ChainConfig;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -83,8 +81,8 @@ async fn setup_gloas_builder_block_without_blobs(
         .body()
         .signed_execution_payload_bid()
         .expect("Gloas block must carry a payload bid")
-        .message
-        .blob_kzg_commitments
+        .message()
+        .blob_kzg_commitments()
         .len();
     assert!(commitments > 0, "precondition: bid has blob commitments");
 
@@ -175,8 +173,7 @@ fn assert_gloas_request_all_placeholders(
     );
 }
 
-/// Ensure HTTP publish without blobs emits custody request placeholders when partial
-/// columns are enabled.
+/// HTTP publish without blobs emits one request-all placeholder per custody column.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn http_publish_gloas_builder_block_without_blobs_publishes_partial_column_requests() {
     let Some(HttpPublishFixture {
@@ -215,7 +212,7 @@ async fn http_publish_gloas_builder_block_without_blobs_publishes_partial_column
     let messages = collect_partial_column_messages(&mut network_rx, Duration::from_secs(2)).await;
     assert!(
         !messages.is_empty(),
-        "HTTP publish without blobs must emit PublishPartialColumns (#10104)"
+        "HTTP publish without blobs must emit PublishPartialColumns"
     );
 
     let epoch = block.slot().epoch(E::slots_per_epoch());
@@ -232,7 +229,7 @@ async fn http_publish_gloas_builder_block_without_blobs_publishes_partial_column
     );
 }
 
-/// Ensure HTTP publish does not emit partial-column requests when the feature is disabled.
+/// HTTP publish emits no partial-column requests when the feature is disabled.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn http_publish_gloas_builder_block_partial_columns_disabled_publishes_nothing() {
     let Some(HttpPublishFixture {

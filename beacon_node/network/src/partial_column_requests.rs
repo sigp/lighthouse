@@ -1,6 +1,4 @@
-//! Shared helper for building partial-column gossip messages (#10104).
-//!
-//! Used by the gossip block path and the HTTP publish path.
+//! Builds partial-column gossip messages for the gossip and HTTP publish paths.
 
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::partial_data_column_assembler::AssemblyColumn;
@@ -15,11 +13,9 @@ use types::{
     PartialDataColumnGloas, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas,
 };
 
-/// Build partial-column gossip messages for `block_root`.
+/// Build partial-column gossip messages for locally held cells and missing custody columns.
 ///
-/// Includes messages for any locally held partials plus empty placeholders for
-/// missing custody columns. Returns an empty vec when partial columns are
-/// disabled or there are no blob commitments.
+/// Returns an empty vec when partial columns are disabled or there are no blob commitments.
 pub fn build_partial_column_request_messages<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     header_or_bid: &PartialHeaderOrBid<T::EthSpec>,

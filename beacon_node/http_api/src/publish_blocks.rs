@@ -416,9 +416,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     }
 }
 
-/// Publish partial-column request messages after a successful HTTP block import (#10104).
+/// Publish partial-column request messages after a successful HTTP block import.
 ///
-/// Mirrors the gossip path so peers receive request metadata for missing cells.
+/// Same messages as the gossip path; does not fetch blobs from the execution layer.
 fn maybe_publish_partial_column_requests_for_http_block<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: &SignedBeaconBlock<T::EthSpec>,

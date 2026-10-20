@@ -1009,7 +1009,7 @@ impl TestRig {
             .message()
             .body()
             .signed_execution_payload_bid()
-            .is_ok_and(|bid| !bid.message.blob_kzg_commitments.is_empty())
+            .is_ok_and(|bid| !bid.message().blob_kzg_commitments().is_empty())
     }
 }
 
@@ -3177,8 +3177,7 @@ async fn test_blocks_by_head_unknown_root() {
     }
 }
 
-/// Ensure a gossip Gloas block publishes partial-column requests when partial columns
-/// are enabled.
+/// Ensure a gossip Gloas block publishes partial-column requests.
 #[tokio::test]
 async fn gossip_gloas_block_publishes_partial_column_requests() {
     if test_spec::<E>().gloas_fork_epoch.is_none() {
@@ -3209,8 +3208,7 @@ async fn gossip_gloas_block_publishes_partial_column_requests() {
     );
 }
 
-/// Ensure `process_block` alone does not publish partials, and that the shared helper
-/// can publish them for an HTTP-style import (#10104).
+/// Ensure `process_block` alone does not publish partials, and the shared helper can.
 #[tokio::test]
 async fn shared_helper_publishes_partial_requests_for_http_style_gloas_block() {
     if test_spec::<E>().gloas_fork_epoch.is_none() {
@@ -3247,7 +3245,6 @@ async fn shared_helper_publishes_partial_requests_for_http_style_gloas_block() {
             | AvailabilityProcessingStatus::MissingComponents(..)
     ));
 
-    // Without the helper call, no partial publish (pre-fix gap).
     assert_eq!(
         rig.count_publish_partial_columns(Duration::from_millis(200))
             .await,
