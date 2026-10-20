@@ -1,5 +1,6 @@
 use crate::PeerId;
 use crate::rpc::config::InboundRateLimiterConfig;
+use crate::rpc::handler::RESP_TIMEOUT;
 use crate::rpc::rate_limiter::{RPCRateLimiter, RateLimitedErr, RateLimiterItem};
 use crate::rpc::{InboundRequestId, MAX_CONCURRENT_REQUESTS, Protocol, RequestType};
 use futures::FutureExt;
@@ -15,9 +16,9 @@ use types::{EthSpec, ForkContext};
 
 /// The maximum time the execution of a request may be delayed to comply with the rate limit
 /// quota. Requests that cannot be executed within this deadline are rejected with a rate limited
-/// error instead, since the requester will likely have given up on the request by then.
-/// This matches [`lighthouse_network::rpc::protocol::REQUEST_TIMEOUT`].
-const MAX_REQUEST_DELAY: Duration = Duration::from_secs(15);
+/// error instead, since the connection handler times out the inbound substream after
+/// [`RESP_TIMEOUT`] and the requester will likely have given up on the request by then.
+const MAX_REQUEST_DELAY: Duration = RESP_TIMEOUT;
 
 /// A request that was rate limited or waiting on other rate limited requests for the same peer
 /// and protocol.
