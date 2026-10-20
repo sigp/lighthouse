@@ -908,7 +908,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
 
 /// Iterate through all the voting pubkeys in the `ValidatorStore` and attempt to learn any unknown
 /// validator indices.
-async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
+pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
     duties_service: &DutiesService<S, T>,
 ) {
     let _timer = validator_metrics::start_timer_vec(
