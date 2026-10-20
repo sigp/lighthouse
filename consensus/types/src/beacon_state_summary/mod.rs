@@ -1,6 +1,7 @@
 mod beacon_state_part;
 mod beacon_state_snapshot;
 mod beacon_state_summary;
+mod chunk_proof;
 mod chunking;
 mod list_summary;
 
