@@ -93,7 +93,7 @@ async fn gloas_process_block_imports_without_custody_columns() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(signed_block),
+            LookupBlock::new(block_root, signed_block),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
