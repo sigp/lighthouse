@@ -423,6 +423,9 @@ Options:
           Path to a json file containing the trusted setup params. NOTE: This
           will override the trusted setup that is generated from the mainnet kzg
           ceremony. Use with caution
+      --unknown-root-min-peers <INTEGER>
+          The number of distinct peers required to report an unknown block root
+          before Lighthouse requests it. Defaults to 3.
       --validator-monitor-file <PATH>
           As per --validator-monitor-pubkeys, but the comma-separated list is
           contained within a file at the given path.
