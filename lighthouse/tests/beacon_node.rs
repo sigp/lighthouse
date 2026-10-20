@@ -860,6 +860,15 @@ fn network_target_peers_flag() {
         });
 }
 #[test]
+fn network_unknown_root_min_peers_flag() {
+    CommandLineTest::new()
+        .flag("unknown-root-min-peers", Some("5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.unknown_root_min_peers, 5);
+        });
+}
+#[test]
 fn network_subscribe_all_data_column_subnets_flag() {
     CommandLineTest::new()
         .flag("subscribe-all-data-column-subnets", None)
