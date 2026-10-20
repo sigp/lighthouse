@@ -27,7 +27,8 @@ Options:
           and payload from the local execution node.
       --builder-registration-timestamp-override <UNIX-TIMESTAMP>
           This flag takes a unix timestamp value that will be used to override
-          the timestamp used in the builder api registration.
+          the timestamp used in the builder api registration. Has no effect post
+          Gloas.
   -d, --datadir <DIR>
           Used to specify a custom root data directory for lighthouse keys and
           databases. Defaults to $HOME/.lighthouse/{network} where network is
@@ -37,11 +38,13 @@ Options:
           Specifies the verbosity level used when emitting logs to the terminal.
           [default: info] [possible values: info, debug, trace, warn, error]
       --gas-limit <INTEGER>
-          The gas limit to be used in all builder proposals for all validators
-          managed by this validator client. If this value is not set, the gas
-          limit schedule from the network config is used, falling back to a
-          default of 60,000,000. Note this will not necessarily be used if the
-          gas limit set here moves too far from the previous block's gas limit.
+          The gas limit for all validators managed by this validator client.
+          Before Gloas, it applies only to builder proposals. Post Gloas, it is
+          the target gas limit in the proposer preferences. If this value is not
+          set, the gas limit schedule from the network config is used, falling
+          back to a default of 60,000,000. Note this will not necessarily be
+          used if the gas limit set here moves too far from the previous block's
+          gas limit.
       --genesis-state-url <URL>
           A URL of a beacon-API compatible server from which to download the
           genesis state. Checkpoint sync server URLs can generally be used with
@@ -145,7 +148,7 @@ Options:
       --validator-registration-batch-size <INTEGER>
           Defines the number of validators per validator/register_validator
           request sent to the BN. This value can be reduced to avoid timeouts
-          from builders. [default: 500]
+          from builders. Has no effect post Gloas. [default: 500]
       --validators-dir <VALIDATORS_DIR>
           The directory which contains the validator keystores, deposit data for
           each validator along with the common slashing protection database and
@@ -177,7 +180,8 @@ Flags:
       --builder-proposals
           If this flag is set, Lighthouse will query the Beacon Node for only
           block headers during proposals and will sign over headers. Useful for
-          outsourcing execution payload construction during proposals.
+          outsourcing execution payload construction during proposals. Has no
+          effect post Gloas.
       --disable-attesting
           Disable the performance of attestation duties (and sync committee
           duties). This flag should only be used in emergencies to prioritise
@@ -293,7 +297,7 @@ Flags:
           Enable the Prometheus metrics HTTP server. Disabled by default.
       --prefer-builder-proposals
           If this flag is set, Lighthouse will always prefer blocks constructed
-          by builders, regardless of payload value.
+          by builders, regardless of payload value. Has no effect post Gloas.
       --stateless-block-production
           Request the execution payload with each Gloas block and publish the
           self-built payload envelope from that response, so it can be published
