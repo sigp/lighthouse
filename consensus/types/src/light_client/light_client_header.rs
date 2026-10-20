@@ -25,7 +25,7 @@ use crate::{
 };
 
 #[superstruct(
-    variants(Altair, Capella, Deneb, Electra, Fulu, Gloas,),
+    variants(Altair, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(Debug, Clone, Serialize, Deserialize, Educe, Decode, Encode, TreeHash,),
         educe(PartialEq),
@@ -470,7 +470,7 @@ mod tests {
 
     #[cfg(test)]
     mod gloas {
-        use crate::{LightClientHeaderGloas, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderGloas<MainnetEthSpec>);
+        use crate::{LightClientHeaderGloas, Spec};
+        ssz_tests!(LightClientHeaderGloas<Spec>);
     }
 }

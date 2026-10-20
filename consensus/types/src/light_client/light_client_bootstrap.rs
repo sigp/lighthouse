@@ -26,7 +26,7 @@ use crate::{
 /// A LightClientBootstrap is the initializer we send over to light_client nodes
 /// that are trying to generate their basic storage when booting up.
 #[superstruct(
-    variants(Altair, Capella, Deneb, Electra, Fulu, Gloas,),
+    variants(Altair, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(Debug, Clone, Serialize, Deserialize, Educe, Decode, Encode, TreeHash,),
         educe(PartialEq),
@@ -300,7 +300,6 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientBootstrap
                 Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Heze => {
-                // TODO(EIP-7732): check if this is correct
                 return Err(serde::de::Error::custom(format!(
                     "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
                     context
@@ -345,7 +344,7 @@ mod tests {
 
     #[cfg(test)]
     mod gloas {
-        use crate::{LightClientBootstrapGloas, MainnetEthSpec};
-        ssz_tests!(LightClientBootstrapGloas<MainnetEthSpec>);
+        use crate::{LightClientBootstrapGloas, Spec};
+        ssz_tests!(LightClientBootstrapGloas<Spec>);
     }
 }

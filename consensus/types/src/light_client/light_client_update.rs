@@ -11,11 +11,8 @@ use ssz_derive::Encode;
 use ssz_types::FixedVector;
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
-use typenum::U9;
-use typenum::U11;
-use typenum::{U4, U5, U6, U7};
+use typenum::{U4, U5, U6, U7, U9, U11};
 
-use crate::LightClientHeaderGloas;
 use crate::{
     block::SignedBlindedBeaconBlock,
     core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
@@ -23,6 +20,7 @@ use crate::{
     light_client::{
         LightClientError, LightClientHeader, LightClientHeaderAltair, LightClientHeaderCapella,
         LightClientHeaderDeneb, LightClientHeaderElectra, LightClientHeaderFulu,
+        LightClientHeaderGloas,
     },
     sync_committee::{SyncAggregate, SyncCommittee},
 };
@@ -149,7 +147,6 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientUpdate<E>
             serde::de::Error::custom(format!("LightClientUpdate failed to deserialize: {:?}", e))
         };
         Ok(match context {
-            // TODO(gloas): implement Gloas light client
             ForkName::Base | ForkName::Heze => {
                 return Err(serde::de::Error::custom(format!(
                     "LightClientUpdate failed to deserialize: unsupported fork '{}'",
@@ -630,8 +627,8 @@ mod tests {
     #[cfg(test)]
     mod gloas {
         use super::*;
-        use crate::MainnetEthSpec;
-        ssz_tests!(LightClientUpdateGloas<MainnetEthSpec>);
+        use crate::Spec;
+        ssz_tests!(LightClientUpdateGloas<Spec>);
     }
 
     #[test]
@@ -649,6 +646,13 @@ mod tests {
         assert_eq!(
             FinalizedRootProofLenElectra::to_usize(),
             FINALIZED_ROOT_PROOF_LEN_ELECTRA
+        );
+
+        assert!(2usize.pow(FINALIZED_ROOT_PROOF_LEN_GLOAS as u32) <= FINALIZED_ROOT_INDEX_GLOAS);
+        assert!(2usize.pow(FINALIZED_ROOT_PROOF_LEN_GLOAS as u32 + 1) > FINALIZED_ROOT_INDEX_GLOAS);
+        assert_eq!(
+            FinalizedRootProofLenGloas::to_usize(),
+            FINALIZED_ROOT_PROOF_LEN_GLOAS
         );
     }
 
@@ -677,6 +681,19 @@ mod tests {
             CurrentSyncCommitteeProofLenElectra::to_usize(),
             CURRENT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA
         );
+
+        assert!(
+            2usize.pow(CURRENT_SYNC_COMMITTEE_PROOF_LEN_GLOAS as u32)
+                <= CURRENT_SYNC_COMMITTEE_INDEX_GLOAS
+        );
+        assert!(
+            2usize.pow(CURRENT_SYNC_COMMITTEE_PROOF_LEN_GLOAS as u32 + 1)
+                > CURRENT_SYNC_COMMITTEE_INDEX_GLOAS
+        );
+        assert_eq!(
+            CurrentSyncCommitteeProofLenGloas::to_usize(),
+            CURRENT_SYNC_COMMITTEE_PROOF_LEN_GLOAS
+        );
     }
 
     #[test]
@@ -699,6 +716,35 @@ mod tests {
         assert_eq!(
             NextSyncCommitteeProofLenElectra::to_usize(),
             NEXT_SYNC_COMMITTEE_PROOF_LEN_ELECTRA
+        );
+
+        assert!(
+            2usize.pow(NEXT_SYNC_COMMITTEE_PROOF_LEN_GLOAS as u32)
+                <= NEXT_SYNC_COMMITTEE_INDEX_GLOAS
+        );
+        assert!(
+            2usize.pow(NEXT_SYNC_COMMITTEE_PROOF_LEN_GLOAS as u32 + 1)
+                > NEXT_SYNC_COMMITTEE_INDEX_GLOAS
+        );
+        assert_eq!(
+            NextSyncCommitteeProofLenGloas::to_usize(),
+            NEXT_SYNC_COMMITTEE_PROOF_LEN_GLOAS
+        );
+    }
+
+    #[test]
+    fn execution_block_hash_params() {
+        assert!(
+            2usize.pow(EXECUTION_BLOCK_HASH_PROOF_LEN_GLOAS as u32)
+                <= EXECUTION_BLOCK_HASH_INDEX_GLOAS
+        );
+        assert!(
+            2usize.pow(EXECUTION_BLOCK_HASH_PROOF_LEN_GLOAS as u32 + 1)
+                > EXECUTION_BLOCK_HASH_INDEX_GLOAS
+        );
+        assert_eq!(
+            ExecutionBlockHashProofLenGloas::to_usize(),
+            EXECUTION_BLOCK_HASH_PROOF_LEN_GLOAS
         );
     }
 }

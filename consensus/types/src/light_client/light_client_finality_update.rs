@@ -8,16 +8,15 @@ use ssz_types::FixedVector;
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
-use crate::FinalizedRootProofLenGloas;
-use crate::LightClientHeaderGloas;
 use crate::{
     block::SignedBlindedBeaconBlock,
     core::{ChainSpec, EthSpec, Hash256, Slot},
     fork::ForkName,
     light_client::{
-        FinalizedRootProofLen, FinalizedRootProofLenElectra, LightClientError, LightClientHeader,
-        LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
-        LightClientHeaderElectra, LightClientHeaderFulu,
+        FinalizedRootProofLen, FinalizedRootProofLenElectra, FinalizedRootProofLenGloas,
+        LightClientError, LightClientHeader, LightClientHeaderAltair, LightClientHeaderCapella,
+        LightClientHeaderDeneb, LightClientHeaderElectra, LightClientHeaderFulu,
+        LightClientHeaderGloas,
     },
     sync_committee::SyncAggregate,
 };
@@ -242,7 +241,6 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
             }
             ForkName::Fulu => Self::Fulu(LightClientFinalityUpdateFulu::from_ssz_bytes(bytes)?),
             ForkName::Gloas => Self::Gloas(LightClientFinalityUpdateGloas::from_ssz_bytes(bytes)?),
-            // TODO(gloas): implement Gloas light client
             ForkName::Base | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientFinalityUpdate decoding for {fork_name} not implemented"
@@ -322,7 +320,6 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientFinalityU
                 Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Heze => {
-                // TODO(EIP-7732): check if this is correct
                 return Err(serde::de::Error::custom(format!(
                     "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
                     context
@@ -367,7 +364,7 @@ mod tests {
 
     #[cfg(test)]
     mod gloas {
-        use crate::{LightClientFinalityUpdateGloas, MainnetEthSpec};
-        ssz_tests!(LightClientFinalityUpdateGloas<MainnetEthSpec>);
+        use crate::{LightClientFinalityUpdateGloas, Spec};
+        ssz_tests!(LightClientFinalityUpdateGloas<Spec>);
     }
 }

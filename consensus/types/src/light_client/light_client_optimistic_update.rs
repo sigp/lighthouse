@@ -259,7 +259,6 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientOptimisti
                 Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Heze => {
-                // TODO(EIP-7732): check if this is correct
                 return Err(serde::de::Error::custom(format!(
                     "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
                     context
@@ -304,7 +303,7 @@ mod tests {
 
     #[cfg(test)]
     mod gloas {
-        use crate::{LightClientOptimisticUpdateGloas, MainnetEthSpec};
-        ssz_tests!(LightClientOptimisticUpdateGloas<MainnetEthSpec>);
+        use crate::{LightClientOptimisticUpdateGloas, Spec};
+        ssz_tests!(LightClientOptimisticUpdateGloas<Spec>);
     }
 }
