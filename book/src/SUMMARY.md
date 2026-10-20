@@ -52,6 +52,7 @@
   * [Gloas Builder Configuration](./gloas_builder_config.md)
   * [Late Block Re-orgs](./advanced_re-orgs.md)
   * [Blobs](./advanced_blobs.md)
+  * [Fast Confirmation Rule](./advanced_fcr.md)
 * [Command Line Reference (CLI)](./help_general.md)
   * [Beacon Node](./help_bn.md)
   * [Validator Client](./help_vc.md)

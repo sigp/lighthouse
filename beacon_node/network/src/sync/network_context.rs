@@ -18,8 +18,7 @@ use crate::sync::batch::ByRangeRequestType;
 use crate::sync::block_lookups::{DownloadResult, SingleLookupId};
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::range_data_column_batch_request::RangeDataColumnBatchRequest;
-use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
+use beacon_chain::block_verification_types::{AsBlock, LookupBlock, RangeSyncBlock};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
@@ -450,7 +449,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             );
 
             let request = RequestType::Status(status_message.clone());
-            let app_request_id = AppRequestId::Router;
+            let app_request_id = AppRequestId::Status;
             let _ = self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id,
                 request,
@@ -1521,6 +1520,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn send_block_for_processing(
         &self,
         id: Id,
+        peer_id: PeerId,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<(), SendErrorProcessor> {
@@ -1528,13 +1528,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        let lookup_block = LookupBlock::new(block);
+        let lookup_block = LookupBlock::new(block_root, block);
 
         debug!(block = ?block_root, block_slot = %lookup_block.slot(), id, "Sending block for processing");
         // Lookup sync event safety: If `beacon_processor.send_rpc_beacon_block` returns Ok() sync
         // must receive a single `SyncMessage::BlockComponentProcessed` with this process type
         beacon_processor
             .send_lookup_beacon_block(
+                peer_id,
                 block_root,
                 lookup_block,
                 BlockProcessType::SingleBlock { id },

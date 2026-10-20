@@ -15,9 +15,9 @@ use reqwest::StatusCode;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
-use types::{ColumnIndex, EthSpec, Hash256, MainnetEthSpec, SignedBeaconBlock, Slot};
+use types::{ColumnIndex, EthSpec, Hash256, SignedBeaconBlock, Slot, Spec};
 
-type E = MainnetEthSpec;
+type E = Spec;
 
 struct HttpPublishFixture {
     tester: InteractiveTester<E>,

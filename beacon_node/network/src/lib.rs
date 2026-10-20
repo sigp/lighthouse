@@ -6,7 +6,6 @@ mod nat;
 mod network_beacon_processor;
 mod partial_column_requests;
 mod persisted_dht;
-mod router;
 mod status;
 mod subnet_service;
 mod sync;

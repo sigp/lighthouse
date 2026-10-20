@@ -4,8 +4,8 @@ use fixed_bytes::FixedBytesExtended;
 use logging::crit;
 use proto_array::{
     Block as ProtoBlock, ExecutionStatus, ExecutionVerdict, ForkChoiceNode, JustifiedBalances,
-    LatestMessage, PayloadStatus, ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice,
-    ReOrgThreshold,
+    LatestMessage, PayloadBlockHash, PayloadStatus, ProposerHeadError, ProposerHeadInfo,
+    ProtoArrayForkChoice,
 };
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -249,17 +249,6 @@ pub enum PayloadVerificationStatus {
     Irrelevant,
 }
 
-impl PayloadVerificationStatus {
-    /// Returns `true` if the payload was optimistically imported.
-    pub fn is_optimistic(&self) -> bool {
-        match self {
-            PayloadVerificationStatus::Verified => false,
-            PayloadVerificationStatus::Optimistic => true,
-            PayloadVerificationStatus::Irrelevant => false,
-        }
-    }
-}
-
 /// Calculate how far `slot` lies from the start of its epoch.
 ///
 /// ## Specification
@@ -433,12 +422,11 @@ where
 
         let (execution_status, execution_payload_parent_hash, execution_payload_block_hash) =
             if let Ok(signed_bid) = anchor_block.message().body().signed_execution_payload_bid() {
-                // Gloas: execution status is irrelevant post-Gloas; payload validation
-                // is decoupled from beacon blocks.
+                // Gloas: checkpoint sync fetches the anchor's payload later.
                 (
-                    ExecutionStatus::irrelevant(),
-                    Some(signed_bid.message.parent_block_hash),
-                    Some(signed_bid.message.block_hash),
+                    ExecutionStatus::NotYetRevealed(signed_bid.message().block_hash()),
+                    Some(signed_bid.message().parent_block_hash()),
+                    Some(signed_bid.message().block_hash()),
                 )
             } else if let Ok(execution_payload) = anchor_block.message().execution_payload() {
                 // Pre-Gloas forks: do not set payload hashes, they are only used post-Gloas.
@@ -601,17 +589,26 @@ where
         let (head_root, head_payload_status) = head_node.as_pair();
 
         // Cache some values for the next forkchoiceUpdate call to the execution layer.
-        let head_hash = self
-            .get_block(&head_root)
-            .and_then(|b| b.head_payload_block_hash(head_payload_status));
+        let head_hash = self.get_block(&head_root).and_then(|b| {
+            match b.head_payload_block_hash(head_payload_status) {
+                PayloadBlockHash::Hash(hash) => Some(hash),
+                PayloadBlockHash::PreMerge => None,
+            }
+        });
         let justified_root = self.justified_checkpoint().root;
         let finalized_root = self.finalized_checkpoint().root;
-        let justified_hash = self
-            .get_block(&justified_root)
-            .and_then(|b| b.checkpoint_payload_block_hash());
-        let finalized_hash = self
-            .get_block(&finalized_root)
-            .and_then(|b| b.checkpoint_payload_block_hash());
+        let justified_hash =
+            self.get_block(&justified_root)
+                .and_then(|b| match b.checkpoint_payload_block_hash() {
+                    PayloadBlockHash::Hash(hash) => Some(hash),
+                    PayloadBlockHash::PreMerge => None,
+                });
+        let finalized_hash =
+            self.get_block(&finalized_root)
+                .and_then(|b| match b.checkpoint_payload_block_hash() {
+                    PayloadBlockHash::Hash(hash) => Some(hash),
+                    PayloadBlockHash::PreMerge => None,
+                });
         self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
             head_hash,
@@ -631,9 +628,7 @@ where
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
-        re_org_head_threshold: ReOrgThreshold,
-        re_org_parent_threshold: ReOrgThreshold,
-        max_epochs_since_finalization: Epoch,
+        spec: &ChainSpec,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         // Ensure that fork choice has already been updated for the current slot. This prevents
         // us from having to take a write lock or do any dequeueing of attestations in this
@@ -663,9 +658,7 @@ where
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
-                re_org_head_threshold,
-                re_org_parent_threshold,
-                max_epochs_since_finalization,
+                spec,
             )
             .map_err(ProposerHeadError::convert_inner_error)
     }
@@ -673,9 +666,7 @@ where
     pub fn get_preliminary_proposer_head(
         &self,
         canonical_head: Hash256,
-        re_org_head_threshold: ReOrgThreshold,
-        re_org_parent_threshold: ReOrgThreshold,
-        max_epochs_since_finalization: Epoch,
+        spec: &ChainSpec,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error<proto_array::Error>>> {
         let current_slot = self.fc_store.get_current_slot();
         self.proto_array
@@ -683,9 +674,7 @@ where
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
-                re_org_head_threshold,
-                re_org_parent_threshold,
-                max_epochs_since_finalization,
+                spec,
             )
             .map_err(ProposerHeadError::convert_inner_error)
     }
@@ -710,32 +699,60 @@ where
         }
     }
 
-    /// Mark a Gloas payload envelope as valid and received.
-    ///
-    /// This must only be called for valid Gloas payloads.
-    pub fn on_valid_payload_envelope_received(
+    /// Record the execution layer's verdict for a Gloas payload envelope, and mark the envelope
+    /// as received.
+    pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
+        payload_verification_status: PayloadVerificationStatus,
+        payload_block_hash: ExecutionBlockHash,
     ) -> Result<(), Error<T::Error>> {
+        let execution_status = match payload_verification_status {
+            PayloadVerificationStatus::Verified => ExecutionStatus::Valid(payload_block_hash),
+            PayloadVerificationStatus::Optimistic => {
+                ExecutionStatus::Optimistic(payload_block_hash)
+            }
+            // A revealed Gloas payload always has execution enabled, so this is a logic error.
+            PayloadVerificationStatus::Irrelevant => {
+                return Err(Error::InvalidPayloadStatus {
+                    block_slot: Slot::new(0),
+                    block_root,
+                    payload_verification_status,
+                });
+            }
+        };
+
+        // `on_payload_envelope_received` promotes the ancestry itself, starting at this node's
+        // own `FULL` side.
         self.proto_array
-            .on_valid_payload_envelope_received(block_root)
-            .map_err(Error::FailedToProcessValidExecutionPayload)
+            .on_payload_envelope_received(block_root, execution_status)
+            .map_err(Error::FailedToProcessValidExecutionPayload)?;
+
+        Ok(())
     }
 
-    /// Pre-Gloas only.
+    /// Mark the payload `block_hash` valid, as judged by a forkchoiceUpdated.
     ///
     /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
     pub fn on_valid_execution_payload(
         &mut self,
-        block_root: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_validation(block_root)
+            .process_execution_payload_validation(block_hash)
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
-    /// Pre-Gloas only.
-    ///
+    /// See `ProtoArrayForkChoice::process_execution_payload_validation_by_block_root`.
+    pub fn on_valid_execution_payload_by_block_root(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .process_execution_payload_validation_by_block_root(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
+    }
+
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
@@ -813,7 +830,7 @@ where
             let builds_on_full = block
                 .body()
                 .signed_execution_payload_bid()
-                .is_ok_and(|bid| bid.message.parent_block_hash == parent_block_hash);
+                .is_ok_and(|bid| bid.message().parent_block_hash() == parent_block_hash);
             if builds_on_full && !self.is_payload_received(&block.parent_root()) {
                 return Err(Error::InvalidBlock(InvalidBlock::ParentPayloadNotVerified(
                     block.parent_root(),
@@ -1039,8 +1056,8 @@ where
         let (execution_payload_parent_hash, execution_payload_block_hash) =
             if let Ok(signed_bid) = block.body().signed_execution_payload_bid() {
                 (
-                    Some(signed_bid.message.parent_block_hash),
-                    Some(signed_bid.message.block_hash),
+                    Some(signed_bid.message().parent_block_hash()),
+                    Some(signed_bid.message().block_hash()),
                 )
             } else {
                 (None, None)
@@ -1614,6 +1631,22 @@ where
             && self.is_finalized_checkpoint_or_descendant(*block_root)
     }
 
+    /// Returns `true` if the PTC majority voted that the payload for `block_root` was timely,
+    /// regardless of whether this node has received the payload itself.
+    ///
+    /// Returns `false` for unknown or pre-Gloas blocks.
+    pub fn ptc_votes_payload_timely(&self, block_root: &Hash256) -> bool {
+        self.proto_array.ptc_votes_payload_timely::<E>(block_root)
+    }
+
+    /// Returns `true` if the PTC majority voted that the blob data for `block_root` was
+    /// available, regardless of this node's own availability view.
+    ///
+    /// Returns `false` for unknown or pre-Gloas blocks.
+    pub fn ptc_votes_data_available(&self, block_root: &Hash256) -> bool {
+        self.proto_array.ptc_votes_data_available::<E>(block_root)
+    }
+
     /// Returns `true` if the block's parent is imported (and, for a post-Gloas FULL child, its
     /// parent's payload is imported too). See [`Self::get_parent_import_status`].
     pub fn is_parent_imported(&self, block: &SignedBeaconBlock<E>) -> bool {
@@ -1643,6 +1676,13 @@ where
         } else {
             ParentImportStatus::UnknownBlock
         }
+    }
+
+    /// Returns `true` if fork choice has marked the execution payload `block_hash` invalid.
+    pub fn is_invalid(&self, block_hash: ExecutionBlockHash) -> bool {
+        self.proto_array
+            .core_proto_array()
+            .is_payload_invalid(&block_hash)
     }
 
     /// Called by the proposer to decide whether to build on the full or empty parent.
@@ -1927,6 +1967,7 @@ where
         persisted_proto_array: proto_array::core::SszContainer,
         justified_balances: JustifiedBalances,
         reset_payload_statuses: ResetPayloadStatuses,
+        equivocating_indices: &BTreeSet<u64>,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
         let mut proto_array = ProtoArrayForkChoice::from_container(
             persisted_proto_array.clone(),
@@ -1951,7 +1992,7 @@ where
 
         // Reset all blocks back to being "optimistic". This helps recover from an EL consensus
         // fault where an invalid payload becomes valid.
-        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>() {
+        if let Err(e) = proto_array.set_all_blocks_to_optimistic::<E>(equivocating_indices) {
             // If there is an error resetting the optimistic status then log loudly and revert
             // back to a proto-array which does not have the reset applied. This indicates a
             // significant error in Lighthouse and warrants detailed investigation.
@@ -1981,6 +2022,7 @@ where
             persisted.proto_array,
             justified_balances,
             reset_payload_statuses,
+            fc_store.equivocating_indices(),
         )?;
 
         let current_slot = fc_store.get_current_slot();
@@ -2013,9 +2055,10 @@ where
             // Although we may have already made this call whilst loading `proto_array`, try it
             // again since we may have mutated the `proto_array` during `get_head` and therefore may
             // get a different result.
+            let equivocating_indices = fork_choice.fc_store.equivocating_indices();
             fork_choice
                 .proto_array
-                .set_all_blocks_to_optimistic::<E>()?;
+                .set_all_blocks_to_optimistic::<E>(equivocating_indices)?;
             // If the second attempt at finding a head fails, return an error since we do not
             // expect this scenario.
             fork_choice.get_head(current_slot, spec)?;

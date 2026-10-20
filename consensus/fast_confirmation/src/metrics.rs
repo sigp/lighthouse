@@ -100,3 +100,9 @@ pub(crate) static FAST_CONFIRMATION_ADVANCES: LazyLock<Result<IntCounter>> = Laz
         "Count of FCR advances of the confirmed root to a descendant",
     )
 });
+pub static FAST_CONFIRMATION_SKIPS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_fast_confirmation_skips_total",
+        "Count of head recomputes that skipped FCR because the head was behind the wall clock",
+    )
+});

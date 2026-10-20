@@ -16,6 +16,7 @@ use fork_choice::ExecutionVerdict;
 use futures::channel::mpsc::TrySendError;
 use milhouse::Error as MilhouseError;
 use operation_pool::OpPoolError;
+use proto_array::PayloadBlockHash;
 use safe_arith::ArithError;
 use ssz::BitfieldError;
 use ssz_types::Error as SszTypesError;
@@ -178,14 +179,15 @@ pub enum BeaconChainError {
     HeadMissingFromForkChoice(Hash256),
     FinalizedBlockMissingFromForkChoice(Hash256),
     HeadBlockMissingFromForkChoice(Hash256),
+    PreMergeBlockHasNoExecutionHash(Hash256),
     InvalidFinalizedPayload {
         finalized_root: Hash256,
-        execution_block_hash: ExecutionBlockHash,
+        execution_block_hash: PayloadBlockHash,
     },
     InvalidFinalizedPayloadShutdownError(TrySendError<ShutdownReason>),
     JustifiedPayloadInvalid {
         justified_root: Hash256,
-        execution_block_hash: Option<ExecutionBlockHash>,
+        execution_block_hash: PayloadBlockHash,
     },
     ForkchoiceUpdate(execution_layer::Error),
     InvalidCheckpoint {

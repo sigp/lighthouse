@@ -12,28 +12,29 @@ pub const MAX_PROOF_SIZE: usize = 4_194_304;
 /// SSZ bound for `proof_data`.
 pub type MaxProofSize = typenum::U4194304;
 
-/// Opaque proof bytes.
-///
-/// The EIP-8025 spec defines this as `ProgressiveByteList` (EIP-7916), which is not yet
-/// supported by `ssz_types`. A `VariableList` serializes identically but merkleizes
-/// differently, so signing roots are not interoperable with spec-conformant clients.
+/// Spec type `ProofData`.
 pub type ProofData = VariableList<u8, MaxProofSize>;
 
-/// Identifier for the proof system that produced a proof (EIP-8025 `ProofType`).
+/// Spec type `ProofType`.
 pub type ProofType = u8;
 
+/// Spec constant `STATELESS_INPUT_SCHEMA_ID`: Amsterdam fork (`0x15`), schema revision (`0x01`).
+pub const STATELESS_INPUT_SCHEMA_ID: u16 = 0x1501;
+
+/// Spec type `PublicInput`.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
+#[tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1, 1))]
 pub struct PublicInput {
     pub new_payload_request_root: Hash256,
+    pub successful_validation: bool,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub chain_id: u64,
+    pub schema_id: u16,
 }
 
-/// An execution proof attesting to the validity of an execution payload (EIP-8025).
-///
-/// Deviation from the spec: `beacon_block_root` binds the proof to the beacon block whose
-/// envelope committed the payload, allowing the proof to be resolved without an index from
-/// `new_payload_request_root` to block root.
+/// Spec type `ExecutionProof`.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
@@ -41,22 +42,31 @@ pub struct ExecutionProof {
     pub proof_data: ProofData,
     pub proof_type: ProofType,
     pub public_input: PublicInput,
+}
+
+/// Spec type `ExecutionProofEnvelope`.
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[context_deserialize(ForkName)]
+pub struct ExecutionProofEnvelope {
+    pub proof_data: ProofData,
+    pub proof_type: ProofType,
     pub beacon_block_root: Hash256,
 }
 
-impl SignedRoot for ExecutionProof {}
+impl SignedRoot for ExecutionProofEnvelope {}
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash)]
 #[context_deserialize(ForkName)]
-pub struct SignedExecutionProof {
-    pub message: ExecutionProof,
+pub struct SignedExecutionProofEnvelope {
+    pub message: ExecutionProofEnvelope,
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     pub signature: Signature,
 }
 
-impl SignedExecutionProof {
+impl SignedExecutionProofEnvelope {
     pub fn beacon_block_root(&self) -> Hash256 {
         self.message.beacon_block_root
     }
@@ -70,5 +80,5 @@ impl SignedExecutionProof {
 mod tests {
     use super::*;
 
-    ssz_and_tree_hash_tests!(SignedExecutionProof);
+    ssz_and_tree_hash_tests!(SignedExecutionProofEnvelope);
 }
