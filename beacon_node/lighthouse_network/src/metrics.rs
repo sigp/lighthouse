@@ -188,9 +188,23 @@ pub static OUTBOUND_REQUEST_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(
     )
 });
 
-pub static RESPONSE_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+pub static INBOUND_REQUEST_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
-        "response_idling_seconds",
-        "The time our response remained idle in the response limiter",
+        "inbound_request_idling_seconds",
+        "The time an inbound request remained queued in the inbound rate limiter before execution",
+    )
+});
+
+pub static INBOUND_LIMITER_DELAYED_REQUESTS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "inbound_limiter_delayed_requests",
+        "Number of inbound requests queued in the inbound rate limiter awaiting execution",
+    )
+});
+
+pub static INBOUND_LIMITER_REJECTED_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "inbound_limiter_rejected_requests_total",
+        "Count of inbound requests rejected with a rate limited error",
     )
 });

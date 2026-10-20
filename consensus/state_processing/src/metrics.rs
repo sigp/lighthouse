@@ -74,3 +74,20 @@ pub static PARTICIPATION_CURR_EPOCH_TARGET_ATTESTING_GWEI_PROGRESSIVE_TOTAL: Laz
         "Progressive total effective balance (gwei) of validators who attested to the target in the current epoch",
     )
 });
+
+/*
+ * Builder onboarding cache metrics (Gloas fork transition)
+ */
+pub static BUILDER_DEPOSIT_CACHE_HITS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_builder_deposit_cache_hits_total",
+        "Number of pending deposit signature checks served from the builder onboarding cache",
+    )
+});
+pub static BUILDER_DEPOSIT_CACHE_MISSES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_builder_deposit_cache_misses_total",
+        "Number of pending deposit signature checks that missed the builder onboarding cache \
+         and were verified inline",
+    )
+});

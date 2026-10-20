@@ -2,6 +2,7 @@ use beacon_node_fallback::{ApiTopic, beacon_node_health::BeaconNodeSyncDistanceT
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
+use eth2::types::GraffitiPolicy;
 use initialized_validators::DEFAULT_WEB3SIGNER_KEEP_ALIVE;
 use sensitive_url::SensitiveUrl;
 use std::fs::File;
@@ -127,6 +128,21 @@ fn disable_auto_discover_flag() {
         .flag("disable-auto-discover", None)
         .run()
         .with_config(|config| assert!(config.disable_auto_discover));
+}
+
+#[test]
+fn disable_proposer_duties_v2_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.disable_proposer_duties_v2));
+}
+
+#[test]
+fn disable_proposer_duties_v2_flag() {
+    CommandLineTest::new()
+        .flag("disable-proposer-duties-v2", None)
+        .run()
+        .with_config(|config| assert!(config.disable_proposer_duties_v2));
 }
 
 #[test]
@@ -258,6 +274,58 @@ fn graffiti_file_with_pk_flag() {
                     .to_string(),
                 "0x6e6963652d677261666669746900000000000000000000000000000000000000"
             )
+        });
+}
+
+// Tests for graffiti-append flag
+#[test]
+fn graffiti_append_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(
+            config.graffiti_policy,
+            Some(GraffitiPolicy::AppendClientVersions)
+        );
+    });
+}
+
+#[test]
+fn graffiti_append_true_flag() {
+    CommandLineTest::new()
+        .flag("graffiti-append", Some("true"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.graffiti_policy,
+                Some(GraffitiPolicy::AppendClientVersions)
+            );
+        });
+}
+
+#[test]
+fn graffiti_append_false_flag() {
+    CommandLineTest::new()
+        .flag("graffiti-append", Some("false"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.graffiti_policy,
+                Some(GraffitiPolicy::PreserveUserGraffiti)
+            );
+        });
+}
+
+// Retain previous behaviour: `--graffiti-append` with no value is the same as
+// `--graffiti-append true`.
+#[test]
+fn graffiti_append_no_value() {
+    CommandLineTest::new()
+        .flag("graffiti-append", None)
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.graffiti_policy,
+                Some(GraffitiPolicy::AppendClientVersions)
+            );
         });
 }
 
@@ -505,7 +573,7 @@ fn no_doppelganger_protection_flag() {
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.validator_store.gas_limit == Some(60_000_000)));
+        .with_config(|config| assert!(config.validator_store.gas_limit.is_none()));
 }
 #[test]
 fn gas_limit_flag() {
@@ -527,6 +595,19 @@ fn builder_proposals_flag() {
         .flag("builder-proposals", None)
         .run()
         .with_config(|config| assert!(config.validator_store.builder_proposals));
+}
+#[test]
+fn no_stateless_block_production_flag() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert!(!config.stateless_block_production));
+}
+#[test]
+fn stateless_block_production_flag() {
+    CommandLineTest::new()
+        .flag("stateless-block-production", None)
+        .run()
+        .with_config(|config| assert!(config.stateless_block_production));
 }
 #[test]
 fn builder_boost_factor_flag() {
@@ -774,5 +855,23 @@ fn head_monitor_disabled() {
         .run()
         .with_config(|config| {
             assert!(!config.enable_beacon_head_monitor);
+        });
+}
+
+// Payload monitor is enabled by default.
+#[test]
+fn payload_available_monitor_default() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.enable_payload_available_monitor);
+    });
+}
+
+#[test]
+fn payload_available_monitor_disabled() {
+    CommandLineTest::new()
+        .flag("disable-payload-available-monitor", None)
+        .run()
+        .with_config(|config| {
+            assert!(!config.enable_payload_available_monitor);
         });
 }

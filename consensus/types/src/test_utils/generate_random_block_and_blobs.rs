@@ -3,7 +3,7 @@ use kzg::{KzgCommitment, KzgProof};
 
 use crate::{
     block::{BeaconBlock, SignedBeaconBlock},
-    core::{EthSpec, MainnetEthSpec},
+    core::{EthSpec, Spec},
     data::{Blob, BlobSidecar, BlobsList},
     execution::FullPayload,
     fork::{ForkName, map_fork_name},
@@ -79,7 +79,7 @@ mod test {
     fn test_verify_blob_inclusion_proof() {
         let mut u = crate::test_utils::test_unstructured();
         let (_block, blobs) =
-            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 2, &mut u).unwrap();
+            generate_rand_block_and_blobs::<Spec>(ForkName::Deneb, 2, &mut u).unwrap();
         for blob in blobs {
             assert!(blob.verify_blob_sidecar_inclusion_proof());
         }
@@ -89,7 +89,7 @@ mod test {
     fn test_verify_blob_inclusion_proof_from_existing_proof() {
         let mut u = crate::test_utils::test_unstructured();
         let (block, mut blob_sidecars) =
-            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut u).unwrap();
+            generate_rand_block_and_blobs::<Spec>(ForkName::Deneb, 1, &mut u).unwrap();
         let BlobSidecar {
             index,
             blob,
@@ -107,7 +107,7 @@ mod test {
     fn test_verify_blob_inclusion_proof_invalid() {
         let mut u = crate::test_utils::test_unstructured();
         let (_block, blobs) =
-            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut u).unwrap();
+            generate_rand_block_and_blobs::<Spec>(ForkName::Deneb, 1, &mut u).unwrap();
 
         for mut blob in blobs {
             blob.kzg_commitment_inclusion_proof = FixedVector::arbitrary(&mut u).unwrap();

@@ -5,7 +5,10 @@
 pub mod beacon_head_monitor;
 pub mod beacon_node_health;
 
-use beacon_head_monitor::{BeaconHeadCache, HeadEvent, poll_head_event_from_beacon_nodes};
+use beacon_head_monitor::{
+    BeaconHeadCache, HeadEvent, PayloadAvailableEvent, poll_head_event_from_beacon_nodes,
+    poll_payload_available_event_from_beacon_nodes,
+};
 use beacon_node_health::{
     BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth, IsOptimistic,
     SyncDistanceTier, check_node_health,
@@ -26,7 +29,7 @@ use std::vec::Vec;
 use strum::VariantNames;
 use task_executor::TaskExecutor;
 use tokio::{
-    sync::{RwLock, mpsc},
+    sync::{RwLock, broadcast, mpsc},
     time::sleep,
 };
 use tracing::{debug, error, warn};
@@ -70,9 +73,9 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
     executor: TaskExecutor,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
 ) -> Result<(), &'static str> {
-    if beacon_nodes.slot_clock.is_none() {
+    let Some(slot_clock) = beacon_nodes.slot_clock.clone() else {
         return Err("Cannot start fallback updater without slot clock");
-    }
+    };
 
     let beacon_nodes_ref = beacon_nodes.clone();
 
@@ -97,6 +100,43 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
         };
 
         executor.spawn(head_monitor_future, "head_monitoring");
+    }
+
+    let beacon_nodes_ref = beacon_nodes.clone();
+
+    if beacon_nodes_ref.payload_available_send.is_some()
+        && let Some(gloas_fork_epoch) = beacon_nodes_ref.spec.gloas_fork_epoch
+    {
+        let gloas_fork_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
+        let slot_clock = slot_clock.clone();
+        let pa_future = async move {
+            while slot_clock
+                .now()
+                .is_none_or(|current_slot| current_slot < gloas_fork_slot)
+            {
+                let sleep_time = slot_clock
+                    .duration_to_slot(gloas_fork_slot)
+                    .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
+                sleep(sleep_time).await;
+            }
+            loop {
+                if let Err(error) =
+                    poll_payload_available_event_from_beacon_nodes::<E, T>(beacon_nodes_ref.clone())
+                        .await
+                {
+                    warn!(
+                        error,
+                        "payload_available service failed, retrying next slot"
+                    );
+                    let sleep_time = slot_clock
+                        .duration_to_next_slot()
+                        .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
+                    sleep(sleep_time).await;
+                }
+            }
+        };
+
+        executor.spawn(pa_future, "payload_available_monitoring");
     }
 
     let future = async move {
@@ -400,6 +440,13 @@ impl CandidateBeaconNode {
             hint = UPDATE_REQUIRED_LOG_HINT,
             "Beacon node has mismatched Gloas fork epoch"
             );
+        } else if beacon_node_spec.heze_fork_epoch != spec.heze_fork_epoch {
+            warn!(
+            endpoint = %self.beacon_node,
+            endpoint_heze_fork_epoch = ?beacon_node_spec.heze_fork_epoch,
+            hint = UPDATE_REQUIRED_LOG_HINT,
+            "Beacon node has mismatched Heze fork epoch"
+            );
         }
 
         Ok(())
@@ -415,7 +462,8 @@ pub struct BeaconNodeFallback<T> {
     distance_tiers: BeaconNodeSyncDistanceTiers,
     slot_clock: Option<T>,
     beacon_head_cache: Option<Arc<BeaconHeadCache>>,
-    head_monitor_send: Option<Arc<mpsc::Sender<HeadEvent>>>,
+    head_monitor_send: Option<broadcast::Sender<HeadEvent>>,
+    payload_available_send: Option<Arc<mpsc::Sender<PayloadAvailableEvent>>>,
     broadcast_topics: Vec<ApiTopic>,
     spec: Arc<ChainSpec>,
 }
@@ -434,6 +482,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
             slot_clock: None,
             beacon_head_cache: None,
             head_monitor_send: None,
+            payload_available_send: None,
             broadcast_topics,
             spec,
         }
@@ -452,9 +501,25 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
     /// validator client is connected in the `BeaconNodeFallback`. This also initializes the
     /// beacon_head_cache under the assumption the beacon_head_cache will always be needed when
     /// head_monitor_send is set.
-    pub fn set_head_send(&mut self, head_monitor_send: Arc<mpsc::Sender<HeadEvent>>) {
+    pub fn set_head_send(&mut self, head_monitor_send: broadcast::Sender<HeadEvent>) {
         self.head_monitor_send = Some(head_monitor_send);
         self.beacon_head_cache = Some(Arc::new(BeaconHeadCache::new()));
+    }
+
+    /// Subscribe to the stream of head events, if the head monitor is enabled.
+    pub fn subscribe_to_head_events(&self) -> Option<broadcast::Receiver<HeadEvent>> {
+        self.head_monitor_send
+            .as_ref()
+            .map(|sender| sender.subscribe())
+    }
+
+    /// This is the payload monitor channel that streams events from all the beacon nodes that the
+    /// validator client is connected to in the `BeaconNodeFallback`.
+    pub fn set_payload_available_send(
+        &mut self,
+        payload_available_send: Arc<mpsc::Sender<PayloadAvailableEvent>>,
+    ) {
+        self.payload_available_send = Some(payload_available_send);
     }
 
     /// The count of candidates, regardless of their state.
@@ -855,7 +920,7 @@ mod tests {
     use eth2::Timeouts;
     use slot_clock::TestingSlotClock;
     use strum::VariantNames;
-    use types::{BeaconBlockDeneb, MainnetEthSpec, Slot};
+    use types::{BeaconBlockDeneb, ForkName, MainnetEthSpec, Slot};
     use types::{EmptyBlock, SignedBeaconBlockDeneb, SignedBlindedBeaconBlock};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
 
@@ -992,7 +1057,7 @@ mod tests {
         spec: &ChainSpec,
     ) -> (MockBeaconNode<E>, CandidateBeaconNode) {
         let mut mock_beacon_node = MockBeaconNode::<E>::new().await;
-        mock_beacon_node.mock_config_spec(spec);
+        mock_beacon_node.mock_get_config_spec(spec);
 
         let beacon_node =
             CandidateBeaconNode::new(mock_beacon_node.beacon_api_client.clone(), index);
@@ -1071,7 +1136,7 @@ mod tests {
 
     #[tokio::test]
     async fn broadcast_should_send_to_all_bns() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(ForkName::Deneb.make_genesis_spec(MainnetEthSpec::default_spec()));
         let (mut mock_beacon_node_1, beacon_node_1) = new_mock_beacon_node(0, &spec).await;
         let (mut mock_beacon_node_2, beacon_node_2) = new_mock_beacon_node(1, &spec).await;
 
@@ -1103,8 +1168,8 @@ mod tests {
 
         assert!(result.is_ok());
 
-        let received_blocks_from_bn_1 = mock_beacon_node_1.received_blocks.lock().unwrap();
-        let received_blocks_from_bn_2 = mock_beacon_node_2.received_blocks.lock().unwrap();
+        let received_blocks_from_bn_1 = mock_beacon_node_1.received_blinded_blocks.lock().unwrap();
+        let received_blocks_from_bn_2 = mock_beacon_node_2.received_blinded_blocks.lock().unwrap();
         assert_eq!(received_blocks_from_bn_1.len(), 1);
         assert_eq!(received_blocks_from_bn_2.len(), 1);
     }

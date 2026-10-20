@@ -1,7 +1,6 @@
 use crate::hdiff::{Error, HDiffBuffer};
 use crate::metrics;
-use lru::LruCache;
-use std::num::NonZeroUsize;
+use hashlink::lru_cache::LruCache;
 use types::{BeaconState, ChainSpec, EthSpec, Slot};
 
 /// Holds a combination of finalized states in two formats:
@@ -25,7 +24,7 @@ pub struct Metrics {
 }
 
 impl<E: EthSpec> HistoricStateCache<E> {
-    pub fn new(hdiff_buffer_cache_size: NonZeroUsize, state_cache_size: NonZeroUsize) -> Self {
+    pub fn new(hdiff_buffer_cache_size: usize, state_cache_size: usize) -> Self {
         Self {
             hdiff_buffers: LruCache::new(hdiff_buffer_cache_size),
             states: LruCache::new(state_cache_size),
@@ -47,7 +46,7 @@ impl<E: EthSpec> HistoricStateCache<E> {
             );
             let cloned = buffer.clone();
             drop(_timer);
-            self.hdiff_buffers.put(slot, cloned);
+            self.hdiff_buffers.insert(slot, cloned);
             Some(buffer)
         } else {
             None
@@ -63,7 +62,7 @@ impl<E: EthSpec> HistoricStateCache<E> {
             Ok(Some(state.clone()))
         } else if let Some(buffer) = self.hdiff_buffers.get(&slot) {
             let state = buffer.as_state(spec)?;
-            self.states.put(slot, state.clone());
+            self.states.insert(slot, state.clone());
             Ok(Some(state))
         } else {
             Ok(None)
@@ -71,11 +70,11 @@ impl<E: EthSpec> HistoricStateCache<E> {
     }
 
     pub fn put_state(&mut self, slot: Slot, state: BeaconState<E>) {
-        self.states.put(slot, state);
+        self.states.insert(slot, state);
     }
 
     pub fn put_hdiff_buffer(&mut self, slot: Slot, buffer: HDiffBuffer) {
-        self.hdiff_buffers.put(slot, buffer);
+        self.hdiff_buffers.insert(slot, buffer);
     }
 
     pub fn put_both(&mut self, slot: Slot, state: BeaconState<E>, buffer: HDiffBuffer) {

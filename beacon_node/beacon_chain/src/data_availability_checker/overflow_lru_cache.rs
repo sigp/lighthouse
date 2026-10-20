@@ -7,11 +7,10 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::{BeaconChainTypes, BlockProcessStatus};
-use lru::LruCache;
+use hashlink::lru_cache::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use ssz_types::RuntimeFixedVector;
 use std::cmp::Ordering;
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::data::BlobIdentifier;
@@ -200,7 +199,6 @@ impl<E: EthSpec> PendingComponents<E> {
     /// must be persisted in the DB along with the block.
     pub fn make_available(
         &self,
-        spec: &Arc<ChainSpec>,
         num_expected_columns_opt: Option<usize>,
     ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError> {
         let Some(CachedBlock::Executed(block)) = &self.block else {
@@ -271,7 +269,6 @@ impl<E: EthSpec> PendingComponents<E> {
             block: block.clone(),
             blob_data,
             blobs_available_timestamp,
-            spec: spec.clone(),
         };
 
         self.span.in_scope(|| {
@@ -352,7 +349,7 @@ impl<E: EthSpec> PendingComponents<E> {
 pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// Contains all the data we keep in memory, protected by an RwLock
     critical: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
-    custody_context: Arc<CustodyContext<T::EthSpec>>,
+    custody_context: Arc<CustodyContext<T>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -367,8 +364,8 @@ pub(crate) enum ReconstructColumnsDecision<E: EthSpec> {
 
 impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
-        capacity: NonZeroUsize,
-        custody_context: Arc<CustodyContext<T::EthSpec>>,
+        capacity: usize,
+        custody_context: Arc<CustodyContext<T>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
@@ -437,6 +434,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         f(self.critical.read().peek(block_root))
     }
 
+    pub fn custody_context(&self) -> &Arc<CustodyContext<T>> {
+        &self.custody_context
+    }
+
     /// Puts the KZG verified blobs into the availability cache as pending components.
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
@@ -503,9 +504,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                 pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
-        let num_expected_columns = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let num_expected_columns = self.custody_context.num_of_data_columns_to_sample(epoch);
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -529,7 +528,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         num_expected_columns_opt: Option<usize>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         if let Some(available_block) =
-            pending_components.make_available(&self.spec, num_expected_columns_opt)?
+            pending_components.make_available(num_expected_columns_opt)?
         {
             // Explicitly drop read lock before acquiring write lock
             drop(pending_components);
@@ -567,7 +566,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut write_lock = self.critical.write();
 
         {
-            let pending_components = write_lock.get_or_insert_mut(block_root, || {
+            let pending_components = write_lock.entry(block_root).or_insert_with(|| {
                 PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
             });
             update_fn(pending_components)?
@@ -609,9 +608,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         };
 
         let total_column_count = T::EthSpec::number_of_columns();
-        let sampling_column_count = self
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &self.spec);
+        let sampling_column_count = self.custody_context.num_of_data_columns_to_sample(epoch);
         let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
@@ -674,7 +671,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if let Some(BlockProcessStatus::NotValidated(_, _)) = self.get_cached_block(block_root) {
             // If the block is execution invalid, this status is permanent and idempotent to this
             // block_root. We drop its components (e.g. columns) because they will never be useful.
-            self.critical.write().pop(block_root);
+            self.critical.write().remove(block_root);
         }
     }
 
@@ -712,9 +709,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
     fn get_num_expected_columns(&self, epoch: Epoch) -> Option<usize> {
         if self.spec.is_peer_das_enabled_for_epoch(epoch) {
-            let num_of_column_samples = self
-                .custody_context
-                .num_of_data_columns_to_sample(epoch, &self.spec);
+            let num_of_column_samples = self.custody_context.num_of_data_columns_to_sample(epoch);
             Some(num_of_column_samples)
         } else {
             None
@@ -735,7 +730,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
         // Now remove keys
         for key in keys_to_remove {
-            write_lock.pop(&key);
+            write_lock.remove(&key);
         }
 
         Ok(())
@@ -763,12 +758,12 @@ mod test {
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
+    use slot_clock::TestingSlotClock;
     use state_processing::ConsensusContext;
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::info;
-    use types::new_non_zero_usize;
-    use types::{DataColumnSubnetId, MinimalEthSpec};
+    use types::{DataColumnSubnetId, Spec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 
@@ -926,32 +921,33 @@ mod test {
                 HotStore = BeaconNodeBackend,
                 ColdStore = BeaconNodeBackend,
                 EthSpec = E,
+                SlotClock = TestingSlotClock,
             >,
     {
         create_test_tracing_subscriber();
         let chain_db_path = tempdir().expect("should get temp dir");
         let harness = get_fulu_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
-        let capacity_non_zero = new_non_zero_usize(capacity);
+        let complete_blob_backfill = false;
+        let slot_clock = harness.chain.slot_clock.clone();
+
         let custody_context = Arc::new(CustodyContext::new(
             NodeCustodyType::Fullnode,
             generate_data_column_indices_rand_order::<E>(),
-            &spec,
+            slot_clock,
+            complete_blob_backfill,
+            spec.clone(),
         ));
         let cache = Arc::new(
-            DataAvailabilityCheckerInner::<T>::new(
-                capacity_non_zero,
-                custody_context,
-                spec.clone(),
-            )
-            .expect("should create cache"),
+            DataAvailabilityCheckerInner::<T>::new(capacity, custody_context, spec)
+                .expect("should create cache"),
         );
         (harness, cache, chain_db_path)
     }
 
     #[tokio::test]
     async fn overflow_cache_test_insert_components() {
-        type E = MinimalEthSpec;
+        type E = Spec;
         type T = DiskHarnessType<E>;
         let capacity = 4;
         let (harness, cache, _path) = setup_harness_and_cache::<E, T>(capacity).await;
@@ -961,9 +957,7 @@ mod test {
         let epoch = pending_block.block.epoch();
 
         let num_blobs_expected = pending_block.num_blobs_expected();
-        let columns_expected = cache
-            .custody_context
-            .num_of_data_columns_to_sample(epoch, &harness.spec);
+        let columns_expected = cache.custody_context.num_of_data_columns_to_sample(epoch);
 
         // All columns are returned from availability_pending_block (E::number_of_columns())
         // but we only need custody columns
@@ -1003,9 +997,7 @@ mod test {
         }
 
         // Get sampling column indices for this epoch
-        let sampling_column_indices = cache
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &harness.spec);
+        let sampling_column_indices = cache.custody_context.sampling_columns_for_epoch(epoch);
 
         // Filter to only sampling columns
         let sampling_columns: Vec<_> = columns
@@ -1041,9 +1033,7 @@ mod test {
         let root = pending_block.import_data.block_root;
 
         // Get sampling column indices for this epoch
-        let sampling_column_indices = cache
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &harness.spec);
+        let sampling_column_indices = cache.custody_context.sampling_columns_for_epoch(epoch);
 
         // Filter to only sampling columns
         let sampling_columns: Vec<_> = columns
@@ -1095,9 +1085,9 @@ mod pending_components_tests {
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
     use state_processing::ConsensusContext;
-    use types::{BeaconState, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot};
+    use types::{BeaconState, ForkName, SignedBeaconBlock, Slot, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     type Setup<E> = (
         SignedBeaconBlock<E>,
@@ -1170,7 +1160,7 @@ mod pending_components_tests {
             block: Arc::new(block),
             import_data: BlockImportData {
                 block_root: Default::default(),
-                state: BeaconState::new(0, Default::default(), &ChainSpec::minimal()),
+                state: BeaconState::new(0, Default::default(), &E::default_spec()),
                 parent_block: dummy_parent,
                 consensus_context: ConsensusContext::new(Slot::new(0)),
             },

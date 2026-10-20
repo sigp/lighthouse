@@ -7,7 +7,7 @@
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
 ENCLAVE_NAME=${1:-genesis-sync-testnet}
-CONFIG=${2:-$SCRIPT_DIR/genesis-sync-config-electra.yaml}
+CONFIG=${2:-$SCRIPT_DIR/genesis-sync-config-fulu.yaml}
 FORK_TYPE=${3:-electra}  # electra or fulu
 OFFLINE_DURATION_SECS=${4:-120} # stopped duration  of non validating nodes
 

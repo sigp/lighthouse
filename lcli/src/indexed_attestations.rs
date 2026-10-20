@@ -1,6 +1,8 @@
 use clap::ArgMatches;
 use clap_utils::parse_required;
-use state_processing::common::{attesting_indices_base, attesting_indices_electra};
+use state_processing::common::{
+    attesting_indices_base, attesting_indices_electra, attesting_indices_gloas,
+};
 use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -40,6 +42,9 @@ pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
             }
             Attestation::Electra(att) => {
                 attesting_indices_electra::get_indexed_attestation_from_state(&state, &att)
+            }
+            Attestation::Gloas(att) => {
+                attesting_indices_gloas::get_indexed_attestation_from_state(&state, &att)
             }
         })
         .collect::<Result<Vec<_>, _>>()

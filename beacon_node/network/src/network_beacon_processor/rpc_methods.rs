@@ -3,7 +3,9 @@ use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
-use beacon_chain::payload_envelope_streamer::EnvelopeRequestSource;
+use beacon_chain::payload_envelope_streamer::{
+    EnvelopeRequestSource, Error as EnvelopeStreamerError,
+};
 use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessStatus, WhenSlotSkipped};
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
@@ -20,6 +22,26 @@ use tokio_stream::StreamExt;
 use tracing::{Span, debug, error, field, instrument, trace, warn};
 use types::data::BlobIdentifier;
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
+
+fn payload_envelope_unavailable(error: &BeaconChainError) -> bool {
+    matches!(
+        error,
+        BeaconChainError::ExecutionLayerMissing
+            | BeaconChainError::BlockHashMissingFromExecutionLayer(_)
+            | BeaconChainError::EnvelopeStreamerError(
+                EnvelopeStreamerError::PayloadMissingFromExecutionLayer(_)
+            )
+    )
+}
+
+fn payload_envelope_engine_error(error: &BeaconChainError) -> bool {
+    matches!(
+        error,
+        BeaconChainError::EnvelopeStreamerError(
+            EnvelopeStreamerError::PayloadBodiesByHashV2Failure(boxed_error)
+        ) if matches!(**boxed_error, execution_layer::Error::EngineError(_))
+    )
+}
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -71,6 +93,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<Option<String>, Box<BeaconChainError>> {
         let local = self.chain.status_message();
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let latest_allowed_slot = self
+            .chain
+            .slot()
+            .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
+            .saturating_add(FUTURE_SLOT_TOLERANCE);
+        // Epoch F cannot be finalized before F + 2. Apply clock tolerance before epoch rounding.
+        let max_finalized_epoch = latest_allowed_slot
+            .epoch(T::EthSpec::slots_per_epoch())
+            .saturating_sub(2u64);
 
         let irrelevant_reason = if local.fork_digest() != remote.fork_digest() {
             // The node is on a different network/fork
@@ -79,17 +110,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 hex::encode(local.fork_digest()),
                 hex::encode(remote.fork_digest())
             ))
-        } else if *remote.head_slot()
-            > self
-                .chain
-                .slot()
-                .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot())
-                + FUTURE_SLOT_TOLERANCE
-        {
+        } else if *remote.head_slot() > latest_allowed_slot {
             // The remote's head is on a slot that is significantly ahead of what we consider the
             // current slot. This could be because they are using a different genesis time, or that
             // their or our system's clock is incorrect.
             Some("Different system clocks or genesis time".to_string())
+        } else if *remote.finalized_epoch() > max_finalized_epoch {
+            Some("Finalized epoch is too recent".to_string())
         } else if (remote.finalized_epoch() == local.finalized_epoch()
             && remote.finalized_root() == local.finalized_root())
             || remote.finalized_root().is_zero()
@@ -100,6 +127,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // genesis, or they are ahead. In all cases, we should allow this peer to connect to us
             // so we can sync from them.
             None
+        } else if remote.finalized_epoch() == local.finalized_epoch() {
+            // Both roots are nonzero and differ, so no database lookup is needed.
+            Some("Different finalized chain".to_string())
         } else {
             // Remote finalized epoch is less than ours.
             let remote_finalized_slot = start_slot(*remote.finalized_epoch());
@@ -587,7 +617,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Peer requested unknown payload envelope"
                     );
                 }
-                Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                Err(e) if payload_envelope_unavailable(e) => {
                     debug!(
                         block_root = ?root,
                         reason = "execution layer not synced",
@@ -791,7 +821,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
         // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
-        let available_columns = self.chain.custody_columns_for_epoch(None);
+        let available_columns = self.chain.custody_context.custody_columns_for_epoch(None);
 
         for data_column_ids_by_root in request.data_column_ids.as_slice() {
             let indices_to_retrieve = data_column_ids_by_root
@@ -1337,10 +1367,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         // remove all skip slots i.e. duplicated roots
-        Ok(block_roots
+        let mut block_roots_and_slots = block_roots
             .into_iter()
             .unique_by(|(root, _)| *root)
-            .collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+
+        // If `start_slot` is a skip slot, the first root belongs to a block before the range, remove it.
+        if let Some((first_root, _)) = block_roots_and_slots.first() {
+            let first_block = self.chain.get_blinded_block(first_root).map_err(|e| {
+                error!(
+                    %start_slot,
+                    count,
+                    error = ?e,
+                    "Error fetching first block for range request"
+                );
+                (RpcErrorResponse::ServerError, "Database error")
+            })?;
+            if first_block.is_none_or(|block| block.slot() < start_slot) {
+                block_roots_and_slots.remove(0);
+            }
+        }
+
+        Ok(block_roots_and_slots)
     }
 
     /// Handle a `ExecutionPayloadEnvelopesByRange` request from the peer.
@@ -1480,7 +1528,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "No envelope for block root"
                     );
                 }
-                Err(BeaconChainError::BlockHashMissingFromExecutionLayer(_)) => {
+                Err(e) if payload_envelope_unavailable(e) => {
                     debug!(
                         block_root = ?root,
                         reason = "execution layer not synced",
@@ -1494,11 +1542,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     ));
                 }
                 Err(e) => {
-                    if matches!(
-                        e,
-                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, boxed_error)
-                        if matches!(**boxed_error, execution_layer::Error::EngineError(_))
-                    ) {
+                    if payload_envelope_engine_error(e) {
                         warn!(
                             info = "this may occur occasionally when the EE is busy",
                             block_root = ?root,
@@ -1595,29 +1639,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             req.count
         };
 
-        let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
-            Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
-            None => {
-                debug!("Deneb fork is disabled");
-                return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
-            }
-        };
+        let data_availability_boundary_slot =
+            match self.chain.custody_context.data_availability_boundary() {
+                Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
+                None => {
+                    debug!("Deneb fork is disabled");
+                    return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
+                }
+            };
 
-        let oldest_blob_slot = self
-            .chain
-            .store
-            .get_blob_info()
-            .oldest_blob_slot
-            .unwrap_or(data_availability_boundary_slot);
-        if request_start_slot < oldest_blob_slot {
+        let oldest_data_slot = self.chain.store.get_data_info().oldest_data_slot;
+        if request_start_slot < oldest_data_slot {
             debug!(
                 %request_start_slot,
-                %oldest_blob_slot,
+                %oldest_data_slot,
                 %data_availability_boundary_slot,
                 "Range request start slot is older than data availability boundary."
             );
 
-            return if data_availability_boundary_slot < oldest_blob_slot {
+            return if data_availability_boundary_slot < oldest_data_slot {
                 Err((
                     RpcErrorResponse::ResourceUnavailable,
                     "blobs pruned within boundary",
@@ -1745,14 +1785,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let request_start_slot = Slot::from(req.start_slot);
 
-        let column_data_availability_boundary_slot =
-            match self.chain.column_data_availability_boundary() {
-                Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
-                None => {
-                    debug!("Fulu fork is disabled");
-                    return Err((RpcErrorResponse::InvalidRequest, "Fulu fork is disabled"));
-                }
-            };
+        let column_data_availability_boundary_slot = match self
+            .chain
+            .custody_context
+            .column_data_availability_boundary()
+        {
+            Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
+            None => {
+                debug!("Fulu fork is disabled");
+                return Err((RpcErrorResponse::InvalidRequest, "Fulu fork is disabled"));
+            }
+        };
 
         let earliest_custodied_data_column_slot =
             match self.chain.earliest_custodied_data_column_epoch() {
@@ -1798,6 +1841,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
         let available_columns = self
             .chain
+            .custody_context
             .custody_columns_for_epoch(Some(request_start_epoch));
 
         let indices_to_retrieve = req
@@ -1916,9 +1960,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let non_custody_indices = {
             let custody_columns = self
                 .chain
-                .data_availability_checker
-                .custody_context()
-                .custody_columns_for_epoch(epoch_opt, &self.chain.spec);
+                .custody_context
+                .custody_columns_for_epoch(epoch_opt);
             requested_indices
                 .iter()
                 .filter(|subnet_id| !custody_columns.contains(subnet_id))
@@ -1929,5 +1972,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let client = self.network_globals.client(peer_id);
         span.record("client", field::display(client.kind));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::ExecutionBlockHash;
+
+    #[test]
+    fn classifies_missing_envelope_payload_as_resource_unavailable() {
+        let block_hash = ExecutionBlockHash::repeat_byte(0x11);
+
+        assert!(payload_envelope_unavailable(
+            &BeaconChainError::EnvelopeStreamerError(
+                EnvelopeStreamerError::PayloadMissingFromExecutionLayer(block_hash)
+            )
+        ));
+        assert!(payload_envelope_unavailable(
+            &BeaconChainError::ExecutionLayerMissing
+        ));
+        assert!(!payload_envelope_unavailable(
+            &BeaconChainError::EnvelopeStreamerError(
+                EnvelopeStreamerError::PayloadBodyMissingWithdrawals(block_hash)
+            )
+        ));
     }
 }

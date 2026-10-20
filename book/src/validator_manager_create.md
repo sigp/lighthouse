@@ -55,6 +55,8 @@ lighthouse \
 > `--eth1-withdrawal-address`.
 > The command will create the `deposits.json` and `validators.json` in the present working directory. If you would like these files to be created in a different directory, change the value of `output-path`, for example `--output-path /desired/directory`. The directory will be created if the path does not exist.
 
+> With `--eth1-withdrawal-address`, the validators created will have a withdrawal credentials of type `0x01`. To create compounding validators with withdrawal credentials of type `0x02`, use the flag `--compounding`.
+
 Then, import the validators to a running VC with:
 
 ```bash

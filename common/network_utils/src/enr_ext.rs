@@ -1,11 +1,11 @@
 //! ENR extension trait to support libp2p integration.
 
-use discv5::enr::{CombinedKey, CombinedPublicKey};
-use libp2p_identity::{KeyType, Keypair, PublicKey, ed25519, secp256k1};
-use multiaddr::{Multiaddr, PeerId, Protocol};
+use enr::{CombinedKey, CombinedPublicKey};
+use libp2p::identity::{KeyType, Keypair, PublicKey, ed25519, secp256k1};
+use libp2p::multiaddr::{Multiaddr, PeerId, Protocol};
 use tiny_keccak::{Hasher, Keccak};
 
-type Enr = discv5::enr::Enr<CombinedKey>;
+type Enr = enr::Enr<CombinedKey>;
 
 pub const QUIC_ENR_KEY: &str = "quic";
 pub const QUIC6_ENR_KEY: &str = "quic6";
@@ -28,11 +28,13 @@ pub trait EnrExt {
     /// Returns any multiaddrs that contain the UDP protocol with the `PeerId` prepended.
     fn multiaddr_p2p_udp(&self) -> Vec<Multiaddr>;
 
-    /// Returns any multiaddrs that contain the TCP protocol.
-    fn multiaddr_tcp(&self) -> Vec<Multiaddr>;
+    /// Returns any dialable multiaddrs that contain the TCP protocol. Addresses with a zero
+    /// port are omitted.
+    fn dialable_multiaddrs_tcp(&self) -> Vec<Multiaddr>;
 
-    /// Returns any QUIC multiaddrs that are registered in this ENR.
-    fn multiaddr_quic(&self) -> Vec<Multiaddr>;
+    /// Returns any dialable QUIC multiaddrs that are registered in this ENR. Addresses with a
+    /// zero port are omitted.
+    fn dialable_multiaddrs_quic(&self) -> Vec<Multiaddr>;
 
     /// Returns the quic port if one is set.
     fn quic4(&self) -> Option<u16>;
@@ -210,10 +212,12 @@ impl EnrExt for Enr {
         multiaddrs
     }
 
-    /// Returns a list of multiaddrs if the ENR has an `ip` and a `quic` key **or** an `ip6` and a `quic6`.
-    fn multiaddr_quic(&self) -> Vec<Multiaddr> {
+    /// Returns a list of multiaddrs if the ENR has an `ip` and a non-zero `quic` key **or** an
+    /// `ip6` and a non-zero `quic6`.
+    fn dialable_multiaddrs_quic(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
         if let Some(quic_port) = self.quic4()
+            && quic_port != 0
             && let Some(ip) = self.ip4()
         {
             let mut multiaddr: Multiaddr = ip.into();
@@ -223,6 +227,7 @@ impl EnrExt for Enr {
         }
 
         if let Some(quic6_port) = self.quic6()
+            && quic6_port != 0
             && let Some(ip6) = self.ip6()
         {
             let mut multiaddr: Multiaddr = ip6.into();
@@ -233,11 +238,13 @@ impl EnrExt for Enr {
         multiaddrs
     }
 
-    /// Returns a list of multiaddrs if the ENR has an `ip` and either a `tcp` or `udp` key **or** an `ip6` and either a `tcp6` or `udp6`.
-    fn multiaddr_tcp(&self) -> Vec<Multiaddr> {
+    /// Returns a list of multiaddrs if the ENR has an `ip` and a non-zero `tcp` key **or** an
+    /// `ip6` and a non-zero `tcp6`.
+    fn dialable_multiaddrs_tcp(&self) -> Vec<Multiaddr> {
         let mut multiaddrs: Vec<Multiaddr> = Vec::new();
         if let Some(ip) = self.ip4()
             && let Some(tcp) = self.tcp4()
+            && tcp != 0
         {
             let mut multiaddr: Multiaddr = ip.into();
             multiaddr.push(Protocol::Tcp(tcp));
@@ -245,6 +252,7 @@ impl EnrExt for Enr {
         }
         if let Some(ip6) = self.ip6()
             && let Some(tcp6) = self.tcp6()
+            && tcp6 != 0
         {
             let mut multiaddr: Multiaddr = ip6.into();
             multiaddr.push(Protocol::Tcp(tcp6));
@@ -283,14 +291,13 @@ impl CombinedKeyExt for CombinedKey {
         match key.key_type() {
             KeyType::Secp256k1 => {
                 let key = key.try_into_secp256k1().expect("right key type");
-                let secret =
-                    discv5::enr::k256::ecdsa::SigningKey::from_slice(&key.secret().to_bytes())
-                        .expect("libp2p key must be valid");
+                let secret = enr::k256::ecdsa::SigningKey::from_slice(&key.secret().to_bytes())
+                    .expect("libp2p key must be valid");
                 Ok(CombinedKey::Secp256k1(secret))
             }
             KeyType::Ed25519 => {
                 let key = key.try_into_ed25519().expect("right key type");
-                let ed_keypair = discv5::enr::ed25519_dalek::SigningKey::from_bytes(
+                let ed_keypair = enr::ed25519_dalek::SigningKey::from_bytes(
                     &(key.to_bytes()[..32])
                         .try_into()
                         .expect("libp2p key must be valid"),
@@ -301,7 +308,7 @@ impl CombinedKeyExt for CombinedKey {
         }
     }
     fn from_secp256k1(key: &secp256k1::Keypair) -> Self {
-        let secret = discv5::enr::k256::ecdsa::SigningKey::from_slice(&key.secret().to_bytes())
+        let secret = enr::k256::ecdsa::SigningKey::from_slice(&key.secret().to_bytes())
             .expect("libp2p key must be valid");
         CombinedKey::Secp256k1(secret)
     }
@@ -309,7 +316,7 @@ impl CombinedKeyExt for CombinedKey {
 
 // helper function to convert a peer_id to a node_id. This is only possible for secp256k1/ed25519 libp2p
 // peer_ids
-pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, String> {
+pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<enr::NodeId, String> {
     // A libp2p peer id byte representation should be 2 length bytes + 4 protobuf bytes + compressed pk bytes
     // if generated from a PublicKey with Identity multihash.
     let pk_bytes = &peer_id.to_bytes()[2..];
@@ -332,7 +339,7 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
             let mut hasher = Keccak::v256();
             hasher.update(uncompressed_key_bytes);
             hasher.finalize(&mut output);
-            Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
+            Ok(enr::NodeId::parse(&output).expect("Must be correct length"))
         }
         KeyType::Ed25519 => {
             let pk = public_key
@@ -344,7 +351,7 @@ pub fn peer_id_to_node_id(peer_id: &PeerId) -> Result<discv5::enr::NodeId, Strin
             let mut hasher = Keccak::v256();
             hasher.update(&uncompressed_key_bytes);
             hasher.finalize(&mut output);
-            Ok(discv5::enr::NodeId::parse(&output).expect("Must be correct length"))
+            Ok(enr::NodeId::parse(&output).expect("Must be correct length"))
         }
 
         _ => Err(format!("Unsupported public key from peer {}", peer_id)),
@@ -360,33 +367,96 @@ mod tests {
     fn test_secp256k1_peer_id_conversion() {
         let sk_hex = "df94a73d528434ce2309abb19c16aedb535322797dbd59c157b1e04095900f48";
         let sk_bytes = hex::decode(sk_hex).unwrap();
-        let secret_key = discv5::enr::k256::ecdsa::SigningKey::from_slice(&sk_bytes).unwrap();
+        let secret_key = enr::k256::ecdsa::SigningKey::from_slice(&sk_bytes).unwrap();
 
         let libp2p_sk = secp256k1::SecretKey::try_from_bytes(sk_bytes).unwrap();
         let secp256k1_kp: secp256k1::Keypair = libp2p_sk.into();
         let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
 
-        let enr = discv5::enr::Enr::builder().build(&secret_key).unwrap();
+        let enr = enr::Enr::builder().build(&secret_key).unwrap();
         let node_id = peer_id_to_node_id(&peer_id).unwrap();
 
         assert_eq!(enr.node_id(), node_id);
     }
 
     #[test]
+    fn dialable_multiaddrs_tcp_skips_zero_port() {
+        let key = CombinedKey::generate_secp256k1();
+        let ip4 = std::net::Ipv4Addr::new(192, 0, 2, 1);
+
+        let enr: Enr = enr::Enr::builder().ip4(ip4).tcp4(9000).build(&key).unwrap();
+        assert_eq!(enr.dialable_multiaddrs_tcp().len(), 1);
+
+        let enr: Enr = enr::Enr::builder().ip4(ip4).tcp4(0).build(&key).unwrap();
+        assert!(enr.dialable_multiaddrs_tcp().is_empty());
+    }
+
+    #[test]
+    fn dialable_multiaddrs_tcp_skips_zero_port_ip6() {
+        let key = CombinedKey::generate_secp256k1();
+        let ip6 = std::net::Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
+
+        let enr: Enr = enr::Enr::builder().ip6(ip6).tcp6(9000).build(&key).unwrap();
+        assert_eq!(enr.dialable_multiaddrs_tcp().len(), 1);
+
+        let enr: Enr = enr::Enr::builder().ip6(ip6).tcp6(0).build(&key).unwrap();
+        assert!(enr.dialable_multiaddrs_tcp().is_empty());
+    }
+
+    #[test]
+    fn dialable_multiaddrs_quic_skips_zero_port() {
+        let key = CombinedKey::generate_secp256k1();
+        let ip4 = std::net::Ipv4Addr::new(192, 0, 2, 1);
+
+        let enr: Enr = enr::Enr::builder()
+            .ip4(ip4)
+            .add_value(QUIC_ENR_KEY, &9000u16)
+            .build(&key)
+            .unwrap();
+        assert_eq!(enr.dialable_multiaddrs_quic().len(), 1);
+
+        let enr: Enr = enr::Enr::builder()
+            .ip4(ip4)
+            .add_value(QUIC_ENR_KEY, &0u16)
+            .build(&key)
+            .unwrap();
+        assert!(enr.dialable_multiaddrs_quic().is_empty());
+    }
+
+    #[test]
+    fn dialable_multiaddrs_quic_skips_zero_port_ip6() {
+        let key = CombinedKey::generate_secp256k1();
+        let ip6 = std::net::Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
+
+        let enr: Enr = enr::Enr::builder()
+            .ip6(ip6)
+            .add_value(QUIC6_ENR_KEY, &9000u16)
+            .build(&key)
+            .unwrap();
+        assert_eq!(enr.dialable_multiaddrs_quic().len(), 1);
+
+        let enr: Enr = enr::Enr::builder()
+            .ip6(ip6)
+            .add_value(QUIC6_ENR_KEY, &0u16)
+            .build(&key)
+            .unwrap();
+        assert!(enr.dialable_multiaddrs_quic().is_empty());
+    }
+
+    #[test]
     fn test_ed25519_peer_conversion() {
         let sk_hex = "4dea8a5072119927e9d243a7d953f2f4bc95b70f110978e2f9bc7a9000e4b261";
         let sk_bytes = hex::decode(sk_hex).unwrap();
-        let secret_key = discv5::enr::ed25519_dalek::SigningKey::from_bytes(
-            &sk_bytes.clone().try_into().unwrap(),
-        );
+        let secret_key =
+            enr::ed25519_dalek::SigningKey::from_bytes(&sk_bytes.clone().try_into().unwrap());
 
         let libp2p_sk = ed25519::SecretKey::try_from_bytes(sk_bytes).unwrap();
         let secp256k1_kp: ed25519::Keypair = libp2p_sk.into();
         let libp2p_kp: Keypair = secp256k1_kp.into();
         let peer_id = libp2p_kp.public().to_peer_id();
 
-        let enr = discv5::enr::Enr::builder().build(&secret_key).unwrap();
+        let enr = enr::Enr::builder().build(&secret_key).unwrap();
         let node_id = peer_id_to_node_id(&peer_id).unwrap();
 
         assert_eq!(enr.node_id(), node_id);

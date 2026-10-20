@@ -22,6 +22,7 @@ pub const DEFAULT_TCP_PORT: u16 = 9000u16;
 pub const DEFAULT_DISC_PORT: u16 = 9000u16;
 pub const DEFAULT_QUIC_PORT: u16 = 9001u16;
 pub const DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD: usize = 1000usize;
+pub const DEFAULT_UNKNOWN_ROOT_MIN_PEERS: usize = 3;
 
 pub struct GossipsubConfigParams {
     pub message_domain_valid_snappy: [u8; 4],
@@ -62,6 +63,9 @@ pub struct Config {
 
     /// Target number of connected peers.
     pub target_peers: usize,
+
+    /// Number of distinct peers required to corroborate an unknown root before lookup sync.
+    pub unknown_root_min_peers: usize,
 
     /// Discv5 configuration parameters.
     #[serde(skip)]
@@ -124,6 +128,12 @@ pub struct Config {
 
     /// Whether light client protocols should be enabled.
     pub enable_light_client_server: bool,
+
+    /// Whether to subscribe to the EIP-8025 `execution_proof` gossip topic.
+    pub enable_execution_proof: bool,
+
+    /// Whether to enable the mplex multiplexer alongside yamux. Disabled by default.
+    pub enable_mplex: bool,
 
     /// Configuration for the outbound rate limiter (requests made by this node).
     pub outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
@@ -343,6 +353,7 @@ impl Default for Config {
             enr_quic6_port: None,
             enr_tcp6_port: None,
             target_peers: DEFAULT_TARGET_PEERS,
+            unknown_root_min_peers: DEFAULT_UNKNOWN_ROOT_MIN_PEERS,
             discv5_config,
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
@@ -362,6 +373,8 @@ impl Default for Config {
             proposer_only: false,
             metrics_enabled: false,
             enable_light_client_server: true,
+            enable_execution_proof: false,
+            enable_mplex: true,
             outbound_rate_limiter_config: None,
             invalid_block_storage: None,
             inbound_rate_limiter_config: None,
@@ -504,7 +517,9 @@ pub fn gossipsub_config(
         .fanout_ttl(Duration::from_secs(60))
         .history_length(12)
         .flood_publish(false)
-        .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
+        .max_publish_messages(500) // Responses to IWANT can be quite large
+        .max_control_messages_sent(500)
+        .max_control_message_size(128 << 10) // 128KB
         .history_gossip(load.history_gossip)
         .validate_messages() // require validation before propagation
         .validation_mode(gossipsub::ValidationMode::Anonymous)

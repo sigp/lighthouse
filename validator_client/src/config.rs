@@ -84,14 +84,20 @@ pub struct Config {
     pub enable_latency_measurement_service: bool,
     /// Enables the beacon head monitor that reacts to head updates from connected beacon nodes.
     pub enable_beacon_head_monitor: bool,
+    /// Enables the payload available monitor which attempts to trigger attestations as soon as payload is available.
+    pub enable_payload_available_monitor: bool,
     /// Defines the number of validators per `validator/register_validator` request sent to the BN.
     pub validator_registration_batch_size: usize,
     /// Whether we are running with distributed network support.
     pub distributed: bool,
+    /// Publish self-built Gloas payload envelopes from the produce response (see `BlockService`).
+    pub stateless_block_production: bool,
     /// Configuration for the initialized validators
     #[serde(flatten)]
     pub initialized_validators: InitializedValidatorsConfig,
     pub disable_attesting: bool,
+    /// Fetch proposer duties using the v1 endpoint instead of v2.
+    pub disable_proposer_duties_v2: bool,
 }
 
 impl Default for Config {
@@ -135,10 +141,13 @@ impl Default for Config {
             broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
             enable_beacon_head_monitor: true,
+            enable_payload_available_monitor: true,
             validator_registration_batch_size: 500,
             distributed: false,
+            stateless_block_production: false,
             initialized_validators: <_>::default(),
             disable_attesting: false,
+            disable_proposer_duties_v2: false,
         }
     }
 }
@@ -239,7 +248,7 @@ impl Config {
             }
         }
 
-        config.graffiti_policy = if validator_client_config.graffiti_append {
+        config.graffiti_policy = if validator_client_config.graffiti_append.unwrap_or(true) {
             Some(GraffitiPolicy::AppendClientVersions)
         } else {
             Some(GraffitiPolicy::PreserveUserGraffiti)
@@ -254,6 +263,7 @@ impl Config {
         }
 
         config.distributed = validator_client_config.distributed;
+        config.stateless_block_production = validator_client_config.stateless_block_production;
 
         if let Some(mut broadcast_topics) = validator_client_config.broadcast.clone() {
             broadcast_topics.retain(|topic| *topic != ApiTopic::None);
@@ -372,7 +382,7 @@ impl Config {
         config.validator_store.builder_proposals = validator_client_config.builder_proposals;
         config.validator_store.prefer_builder_proposals =
             validator_client_config.prefer_builder_proposals;
-        config.validator_store.gas_limit = Some(validator_client_config.gas_limit);
+        config.validator_store.gas_limit = validator_client_config.gas_limit;
 
         config.builder_registration_timestamp_override =
             validator_client_config.builder_registration_timestamp_override;
@@ -381,6 +391,8 @@ impl Config {
         config.enable_latency_measurement_service =
             !validator_client_config.disable_latency_measurement_service;
         config.enable_beacon_head_monitor = !validator_client_config.disable_beacon_head_monitor;
+        config.enable_payload_available_monitor =
+            !validator_client_config.disable_payload_available_monitor;
 
         config.validator_registration_batch_size =
             validator_client_config.validator_registration_batch_size;
@@ -402,6 +414,7 @@ impl Config {
             };
 
         config.disable_attesting = validator_client_config.disable_attesting;
+        config.disable_proposer_duties_v2 = validator_client_config.disable_proposer_duties_v2;
 
         Ok(config)
     }

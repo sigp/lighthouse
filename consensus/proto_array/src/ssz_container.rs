@@ -59,11 +59,13 @@ impl TryFrom<(SszContainerV29, JustifiedBalances)> for ProtoArrayForkChoice {
     type Error = Error;
 
     fn try_from((from, balances): (SszContainerV29, JustifiedBalances)) -> Result<Self, Error> {
-        let proto_array = ProtoArray {
+        let mut proto_array = ProtoArray {
             prune_threshold: from.prune_threshold,
             nodes: from.nodes,
             indices: from.indices.into_iter().collect::<HashMap<_, _>>(),
+            children: Vec::new(),
         };
+        proto_array.rebuild_children_index()?;
 
         Ok(Self {
             proto_array,

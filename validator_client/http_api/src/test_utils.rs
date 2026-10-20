@@ -5,6 +5,7 @@ use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
 };
 use bls::Keypair;
+use builder_store::BuilderStore;
 use deposit_contract::decode_eth1_tx_data;
 use doppelganger_service::DoppelgangerService;
 use eth2::{
@@ -88,6 +89,7 @@ impl ApiTester {
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
         let token_path = tempdir().unwrap().path().join(PK_FILENAME);
+        let configured_builders = BuilderStore::open_or_create(validator_dir.path()).unwrap();
 
         let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
@@ -134,6 +136,7 @@ impl ApiTester {
             api_secret,
             block_service: None::<BlockService<LighthouseValidatorStore<_, _>, _>>,
             validator_dir: Some(validator_dir.path().into()),
+            configured_builders: configured_builders.clone(),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
@@ -149,7 +152,7 @@ impl ApiTester {
             // It's not really interesting why this triggered, just that it happened.
             let _ = shutdown_rx.await;
         };
-        let (listening_socket, server) = super::serve::<_, E>(ctx, server_shutdown).unwrap();
+        let (listening_socket, server) = super::serve::<_, E>(ctx, server_shutdown).await.unwrap();
 
         tokio::spawn(server);
 
@@ -255,13 +258,19 @@ impl ApiTester {
     }
 
     pub async fn test_get_lighthouse_spec(self) -> Self {
-        let result = self
-            .client
-            .get_lighthouse_spec::<ConfigAndPresetGloas>()
-            .await
-            .map(|res| ConfigAndPreset::Gloas(res.data))
-            .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec());
+        let result = if self.spec.is_heze_scheduled() {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetHeze>()
+                .await
+                .map(|res| ConfigAndPreset::Heze(res.data))
+        } else {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetGloas>()
+                .await
+                .map(|res| ConfigAndPreset::Gloas(res.data))
+        }
+        .unwrap();
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.spec);
 
         assert_eq!(result, expected);
 

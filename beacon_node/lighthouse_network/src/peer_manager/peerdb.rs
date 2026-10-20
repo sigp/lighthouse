@@ -257,17 +257,9 @@ impl<E: EthSpec> PeerDB<E> {
             .iter()
             .filter(move |(_, info)| {
                 info.is_connected()
-                    && match info.sync_status() {
-                        SyncStatus::Synced { info } => {
-                            info.has_slot(epoch.start_slot(E::slots_per_epoch()))
-                        }
-                        SyncStatus::Advanced { info } => {
-                            info.has_slot(epoch.start_slot(E::slots_per_epoch()))
-                        }
-                        SyncStatus::IrrelevantPeer
-                        | SyncStatus::Behind { .. }
-                        | SyncStatus::Unknown => false,
-                    }
+                    && info.is_synced_or_advanced_with_available_slot(
+                        epoch.start_slot(E::slots_per_epoch()),
+                    )
             })
             .map(|(peer_id, _)| peer_id)
     }
@@ -301,10 +293,11 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Returns an iterator of all good gossipsub peers that are supposed to be custodying
-    /// the given subnet id.
+    /// the given subnet id, with data available at the given slot.
     pub fn good_custody_subnet_peer(
         &self,
         subnet: DataColumnSubnetId,
+        slot: Slot,
     ) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
@@ -314,7 +307,7 @@ impl<E: EthSpec> PeerDB<E> {
                 info.is_connected()
                     && info.is_good_gossipsub_peer()
                     && is_custody_subnet_peer
-                    && info.is_synced_or_advanced()
+                    && info.is_synced_or_advanced_with_available_slot(slot)
             })
             .map(|(peer_id, _)| peer_id)
     }
@@ -330,14 +323,9 @@ impl<E: EthSpec> PeerDB<E> {
 
         let good_sync_peers_for_epoch = self.peers.values().filter(|&info| {
             info.is_connected()
-                && match info.sync_status() {
-                    SyncStatus::Synced { info } | SyncStatus::Advanced { info } => {
-                        info.has_slot(epoch.start_slot(E::slots_per_epoch()))
-                    }
-                    SyncStatus::IrrelevantPeer
-                    | SyncStatus::Behind { .. }
-                    | SyncStatus::Unknown => false,
-                }
+                && info.is_synced_or_advanced_with_available_slot(
+                    epoch.start_slot(E::slots_per_epoch()),
+                )
         });
 
         for info in good_sync_peers_for_epoch {
@@ -714,9 +702,14 @@ impl<E: EthSpec> PeerDB<E> {
 
     /// Adds a gossipsub subscription to a peer in the peerdb.
     // VISIBILITY: The behaviour is able to adjust subscriptions.
-    pub(crate) fn add_subscription(&mut self, peer_id: &PeerId, subnet: Subnet) {
+    pub(crate) fn add_subscription(
+        &mut self,
+        peer_id: &PeerId,
+        subnet: Subnet,
+        supports_partials: bool,
+    ) {
         if let Some(info) = self.peers.get_mut(peer_id) {
-            info.insert_subnet(subnet);
+            info.insert_subnet(subnet, supports_partials);
         }
     }
 
@@ -757,9 +750,9 @@ impl<E: EthSpec> PeerDB<E> {
         self.update_connection_state(peer_id, NewConnectionState::Dialing { enr });
     }
 
-    /// Sets a peer as connected with an ingoing connection.
+    /// Sets a peer as connected with an incoming connection.
     // VISIBILITY: Only the peer manager can adjust the connection state.
-    pub(super) fn connect_ingoing(
+    pub(super) fn connect_incoming(
         &mut self,
         peer_id: &PeerId,
         seen_address: Multiaddr,
@@ -793,12 +786,39 @@ impl<E: EthSpec> PeerDB<E> {
         );
     }
 
-    /// Updates the connection state. MUST ONLY BE USED IN TESTS.
-    pub fn __add_connected_peer_testing_only(
+    /// Adds a connected peer to the PeerDB and sets the custody subnets.
+    /// WARNING: This updates the connection state. MUST ONLY BE USED IN TESTS.
+    pub fn __add_connected_peer_with_custody_subnets(
         &mut self,
         supernode: bool,
         spec: &ChainSpec,
         enr_key: CombinedKey,
+    ) -> PeerId {
+        let peer_id = self.__add_connected_peer(supernode, enr_key, spec);
+
+        let subnets = if supernode {
+            (0..spec.data_column_sidecar_subnet_count)
+                .map(|subnet_id| subnet_id.into())
+                .collect()
+        } else {
+            let node_id = peer_id_to_node_id(&peer_id).expect("convert peer_id to node_id");
+            compute_subnets_for_node::<E>(node_id.raw(), spec.custody_requirement, spec)
+                .expect("should compute custody subnets")
+        };
+
+        let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
+        peer_info.set_custody_subnets(subnets);
+
+        peer_id
+    }
+
+    /// Adds a connected peer to the PeerDB and updates the connection state.
+    /// MUST ONLY BE USED IN TESTS.
+    pub fn __add_connected_peer(
+        &mut self,
+        supernode: bool,
+        enr_key: CombinedKey,
+        spec: &ChainSpec,
     ) -> PeerId {
         let mut enr = Enr::builder().build(&enr_key).unwrap();
         let peer_id = enr.peer_id();
@@ -835,22 +855,19 @@ impl<E: EthSpec> PeerDB<E> {
             },
         );
 
-        if supernode {
-            let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
-            let all_subnets = (0..spec.data_column_sidecar_subnet_count)
-                .map(|subnet_id| subnet_id.into())
-                .collect();
-            peer_info.set_custody_subnets(all_subnets);
-        } else {
-            let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
-            let node_id = peer_id_to_node_id(&peer_id).expect("convert peer_id to node_id");
-            let subnets =
-                compute_subnets_for_node::<E>(node_id.raw(), spec.custody_requirement, spec)
-                    .expect("should compute custody subnets");
-            peer_info.set_custody_subnets(subnets);
-        }
-
         peer_id
+    }
+
+    /// MUST ONLY BE USED IN TESTS.
+    pub fn __set_custody_subnets(
+        &mut self,
+        peer_id: &PeerId,
+        custody_subnets: HashSet<DataColumnSubnetId>,
+    ) -> Result<(), String> {
+        self.peers
+            .get_mut(peer_id)
+            .map(|info| info.set_custody_subnets(custody_subnets))
+            .ok_or_else(|| "Cannot set custody subnets, peer not found".to_string())
     }
 
     /// The connection state of the peer has been changed. Modify the peer in the db to ensure all
@@ -936,7 +953,7 @@ impl<E: EthSpec> PeerDB<E> {
 
                 // Update the connection state
                 match direction {
-                    ConnectionDirection::Incoming => info.connect_ingoing(seen_address),
+                    ConnectionDirection::Incoming => info.connect_incoming(seen_address),
                     ConnectionDirection::Outgoing => info.connect_outgoing(seen_address),
                 }
             }
@@ -1402,13 +1419,33 @@ pub struct BannedPeersCount {
     banned_peers_per_ip: HashMap<IpAddr, usize>,
 }
 
+/// Normalizes an IP address for grouped ban counting.
+///
+/// For [`IpAddr::V4`] the address is returned unchanged.
+///
+/// For [`IpAddr::V6`] the address is masked to the /56 prefix (typical ISP
+/// allocation size for residential users), zeroing out the lower 72 host bits.
+/// This groups all addresses from the same ISP-allocated /56 subnet under a
+/// single key in the ban counter map, preventing attackers from evading bans
+/// by cycling through addresses in their allocation.
+fn normalize_ip_for_banning(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(_) => ip,
+        IpAddr::V6(ipv6) => {
+            const MASK: u128 = 0xFFFF_FFFF_FFFF_FF00_0000_0000_0000_0000;
+            IpAddr::V6(std::net::Ipv6Addr::from(u128::from(ipv6) & MASK))
+        }
+    }
+}
+
 impl BannedPeersCount {
     /// Removes the peer from the counts if it is banned. Returns true if the peer was banned and
     /// false otherwise.
     pub fn remove_banned_peer(&mut self, ip_addresses: impl Iterator<Item = IpAddr>) {
         self.banned_peers = self.banned_peers.saturating_sub(1);
         for address in ip_addresses {
-            if let Some(count) = self.banned_peers_per_ip.get_mut(&address) {
+            let normalized_ip = normalize_ip_for_banning(address);
+            if let Some(count) = self.banned_peers_per_ip.get_mut(&normalized_ip) {
                 *count = count.saturating_sub(1);
             }
         }
@@ -1417,7 +1454,8 @@ impl BannedPeersCount {
     pub fn add_banned_peer(&mut self, ip_addresses: impl Iterator<Item = IpAddr>) {
         self.banned_peers = self.banned_peers.saturating_add(1);
         for address in ip_addresses {
-            *self.banned_peers_per_ip.entry(address).or_insert(0) += 1;
+            let normalized_ip = normalize_ip_for_banning(address);
+            *self.banned_peers_per_ip.entry(normalized_ip).or_insert(0) += 1;
         }
     }
 
@@ -1436,8 +1474,9 @@ impl BannedPeersCount {
     /// An IP is considered banned if more than BANNED_PEERS_PER_IP_THRESHOLD banned peers
     /// exist with this IP
     pub fn ip_is_banned(&self, ip: &IpAddr) -> bool {
+        let normalized_ip = normalize_ip_for_banning(*ip);
         self.banned_peers_per_ip
-            .get(ip)
+            .get(&normalized_ip)
             .is_some_and(|count| *count > BANNED_PEERS_PER_IP_THRESHOLD)
     }
 }
@@ -1447,9 +1486,9 @@ mod tests {
     use super::*;
     use libp2p::core::multiaddr::Protocol;
     use std::net::{Ipv4Addr, Ipv6Addr};
-    use types::MinimalEthSpec;
+    use types::Spec;
 
-    type M = MinimalEthSpec;
+    type M = Spec;
 
     fn add_score<E: EthSpec>(db: &mut PeerDB<E>, peer_id: &PeerId, score: f64) {
         if let Some(info) = db.peer_info_mut(peer_id) {
@@ -1475,7 +1514,7 @@ mod tests {
 
         let (n_in, n_out) = (10, 20);
         for _ in 0..n_in {
-            pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_incoming(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
         }
         for _ in 0..n_out {
             pdb.connect_outgoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
@@ -1503,8 +1542,8 @@ mod tests {
         // Create peer with no connections.
         let _p3 = PeerId::random();
 
-        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&p0, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
         pdb.connect_outgoing(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
         pdb.connect_outgoing(&p2, "/ip4/0.0.0.0".parse().unwrap(), None);
 
@@ -1521,12 +1560,12 @@ mod tests {
         let mut peer_list = BTreeMap::new();
         for id in 0..MAX_DC_PEERS + 1 {
             let new_peer = PeerId::random();
-            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_incoming(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
             peer_list.insert(id, new_peer);
         }
         assert_eq!(pdb.disconnected_peers, 0);
 
-        for (_, p) in peer_list.iter() {
+        for p in peer_list.values() {
             pdb.inject_disconnect(p);
             // Allow the timing to update correctly
         }
@@ -1557,11 +1596,11 @@ mod tests {
         let mut peer_list = BTreeMap::new();
         for id in 0..MAX_DC_PEERS + 20 {
             let new_peer = PeerId::random();
-            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_incoming(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
             peer_list.insert(id, new_peer);
         }
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
-        for (_, p) in peer_list.iter() {
+        for p in peer_list.values() {
             pdb.inject_disconnect(p);
         }
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
@@ -1570,7 +1609,7 @@ mod tests {
         peer_list.clear();
         for id in 0..MAX_DC_PEERS + 20 {
             let new_peer = PeerId::random();
-            pdb.connect_ingoing(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_incoming(&new_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
             peer_list.insert(id, new_peer);
         }
 
@@ -1601,7 +1640,7 @@ mod tests {
 
         for _ in 0..MAX_DC_PEERS + 1 {
             let p = PeerId::random();
-            pdb.connect_ingoing(&p, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_incoming(&p, "/ip4/0.0.0.0".parse().unwrap(), None);
         }
         assert_eq!(pdb.disconnected_peers, 0);
 
@@ -1619,7 +1658,7 @@ mod tests {
 
         for _ in 0..MAX_BANNED_PEERS + 1 {
             let p = PeerId::random();
-            pdb.connect_ingoing(&p, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.connect_incoming(&p, "/ip4/0.0.0.0".parse().unwrap(), None);
         }
         assert_eq!(pdb.banned_peers_count.banned_peers(), 0);
 
@@ -1638,9 +1677,9 @@ mod tests {
         let p0 = PeerId::random();
         let p1 = PeerId::random();
         let p2 = PeerId::random();
-        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&p2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&p0, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&p2, "/ip4/0.0.0.0".parse().unwrap(), None);
         add_score(&mut pdb, &p0, 70.0);
         add_score(&mut pdb, &p1, 100.0);
         add_score(&mut pdb, &p2, 50.0);
@@ -1660,9 +1699,9 @@ mod tests {
         let p0 = PeerId::random();
         let p1 = PeerId::random();
         let p2 = PeerId::random();
-        pdb.connect_ingoing(&p0, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
-        pdb.connect_ingoing(&p2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&p0, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&p1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&p2, "/ip4/0.0.0.0".parse().unwrap(), None);
         add_score(&mut pdb, &p0, 70.0);
         add_score(&mut pdb, &p1, 100.0);
         add_score(&mut pdb, &p2, 50.0);
@@ -1680,10 +1719,10 @@ mod tests {
 
         let random_peer = PeerId::random();
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
 
-        pdb.connect_ingoing(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&random_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         pdb.inject_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
@@ -1733,10 +1772,10 @@ mod tests {
         println!("{}", random_peer3);
 
         // All 4 peers connected on the same IP
-        pdb.connect_ingoing(&random_peer, multiaddr.clone(), None);
-        pdb.connect_ingoing(&random_peer1, multiaddr.clone(), None);
-        pdb.connect_ingoing(&random_peer2, multiaddr.clone(), None);
-        pdb.connect_ingoing(&random_peer3, multiaddr.clone(), None);
+        pdb.connect_incoming(&random_peer, multiaddr.clone(), None);
+        pdb.connect_incoming(&random_peer1, multiaddr.clone(), None);
+        pdb.connect_incoming(&random_peer2, multiaddr.clone(), None);
+        pdb.connect_incoming(&random_peer3, multiaddr.clone(), None);
 
         // Should be no disconnected or banned peers
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
@@ -1789,7 +1828,7 @@ mod tests {
             pdb.disconnected_peers, pdb.banned_peers_count.banned_peers
         );
         // Re-connect peer3, should have no effect
-        pdb.connect_ingoing(&random_peer3, multiaddr.clone(), None);
+        pdb.connect_incoming(&random_peer3, multiaddr.clone(), None);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         assert_eq!(
             pdb.banned_peers_count.banned_peers(),
@@ -1893,7 +1932,7 @@ mod tests {
         );
 
         // Unban peer 1
-        pdb.connect_ingoing(&random_peer1, multiaddr.clone(), None);
+        pdb.connect_incoming(&random_peer1, multiaddr.clone(), None);
         pdb.peer_info_mut(&random_peer1)
             .unwrap()
             .add_to_score(100.0);
@@ -1928,7 +1967,7 @@ mod tests {
         );
 
         // Add peer 0
-        pdb.connect_ingoing(&random_peer, multiaddr, None);
+        pdb.connect_incoming(&random_peer, multiaddr, None);
         pdb.peer_info_mut(&random_peer).unwrap().add_to_score(100.0);
 
         // Should have 1 disconnect (peer 2) and one banned (peer 3)
@@ -1992,7 +2031,7 @@ mod tests {
             let mut addr = Multiaddr::empty();
             addr.push(Protocol::from(ip));
             addr.push(Protocol::Tcp(9000));
-            pdb.connect_ingoing(&p, addr, None);
+            pdb.connect_incoming(&p, addr, None);
         }
         p
     }
@@ -2002,9 +2041,9 @@ mod tests {
         let mut pdb = get_db();
 
         let ip1 = Ipv4Addr::new(1, 2, 3, 4).into();
-        let ip2 = Ipv6Addr::new(1, 2, 3, 4, 5, 6, 7, 8).into();
+        let ip2 = Ipv6Addr::new(1, 2, 3, 0x0400, 5, 6, 7, 8).into();
         let ip3 = Ipv4Addr::new(1, 2, 3, 5).into();
-        let ip4 = Ipv6Addr::new(1, 2, 3, 4, 5, 6, 7, 9).into();
+        let ip4 = Ipv6Addr::new(1, 2, 3, 0x0500, 5, 6, 7, 9).into();
         let ip5 = Ipv4Addr::new(2, 2, 3, 4).into();
 
         let mut peers = Vec::new();
@@ -2123,7 +2162,7 @@ mod tests {
         let mut socker_addr = Multiaddr::from(ip2);
         socker_addr.push(Protocol::Tcp(8080));
         for p in &peers {
-            pdb.connect_ingoing(p, socker_addr.clone(), None);
+            pdb.connect_incoming(p, socker_addr.clone(), None);
             let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
             pdb.inject_disconnect(p);
         }
@@ -2164,7 +2203,7 @@ mod tests {
         let trusted_peer = PeerId::random();
         let mut pdb: PeerDB<M> = PeerDB::new(vec![trusted_peer], false);
 
-        pdb.connect_ingoing(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&trusted_peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
         // Check trusted status and score
         assert!(pdb.peer_info(&trusted_peer).unwrap().is_trusted());
@@ -2183,11 +2222,94 @@ mod tests {
     }
 
     #[test]
+    fn test_good_custody_subnet_peer_respects_earliest_available_slot() {
+        let mut pdb = get_db();
+        let subnet = DataColumnSubnetId::new(0);
+        let request_slot = Slot::new(10);
+
+        fn sync_info(earliest_available_slot: Option<Slot>) -> SyncInfo {
+            SyncInfo {
+                head_slot: Slot::new(100),
+                head_root: Hash256::ZERO,
+                finalized_epoch: Epoch::new(0),
+                finalized_root: Hash256::ZERO,
+                earliest_available_slot,
+            }
+        }
+
+        let add_custody_peer = |pdb: &mut PeerDB<M>, sync_status: SyncStatus| {
+            let peer_id = PeerId::random();
+            pdb.connect_incoming(&peer_id, "/ip4/0.0.0.0".parse().unwrap(), None);
+            pdb.__set_custody_subnets(&peer_id, HashSet::from([subnet]))
+                .unwrap();
+            pdb.update_sync_status(&peer_id, sync_status);
+            peer_id
+        };
+
+        let peer_with_data = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(Some(Slot::new(5))),
+            },
+        );
+        let peer_at_boundary = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(Some(request_slot)),
+            },
+        );
+        let peer_pruned = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(Some(Slot::new(11))),
+            },
+        );
+        let peer_no_eas = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Synced {
+                info: sync_info(None),
+            },
+        );
+        let peer_behind = add_custody_peer(
+            &mut pdb,
+            SyncStatus::Behind {
+                info: sync_info(Some(Slot::new(0))),
+            },
+        );
+
+        let good_peers = pdb
+            .good_custody_subnet_peer(subnet, request_slot)
+            .copied()
+            .collect::<HashSet<_>>();
+
+        assert!(
+            good_peers.contains(&peer_with_data),
+            "peer with earliest_available_slot before the request slot should be returned"
+        );
+        assert!(
+            good_peers.contains(&peer_at_boundary),
+            "peer with earliest_available_slot equal to the request slot should be returned"
+        );
+        assert!(
+            !good_peers.contains(&peer_pruned),
+            "peer with earliest_available_slot after the request slot should be excluded"
+        );
+        assert!(
+            good_peers.contains(&peer_no_eas),
+            "peer without an advertised earliest_available_slot should be returned"
+        );
+        assert!(
+            !good_peers.contains(&peer_behind),
+            "behind peer should be excluded regardless of earliest_available_slot"
+        );
+    }
+
+    #[test]
     fn test_disable_peer_scoring() {
         let peer = PeerId::random();
         let mut pdb: PeerDB<M> = PeerDB::new(vec![], true);
 
-        pdb.connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+        pdb.connect_incoming(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
         // Check trusted status and score
         assert!(pdb.peer_info(&peer).unwrap().is_trusted());
@@ -2202,6 +2324,289 @@ mod tests {
         assert_eq!(
             pdb.peer_info(&peer).unwrap().score().score(),
             Score::max_score().score()
+        );
+    }
+
+    #[test]
+    fn test_normalize_ipv4_unchanged() {
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
+        assert_eq!(normalize_ip_for_banning(ip), ip);
+
+        let ip2 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        assert_eq!(normalize_ip_for_banning(ip2), ip2);
+    }
+
+    #[test]
+    fn test_normalize_ipv6_same_subnet() {
+        let ip1 = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x1234, 0x5678, 0xabcd, 0xef00, 0x0000, 0x0001,
+        ));
+        let ip2 = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x1234, 0x5678, 0xabcd, 0xef00, 0x0000, 0x0002,
+        ));
+
+        let normalized1 = normalize_ip_for_banning(ip1);
+        let normalized2 = normalize_ip_for_banning(ip2);
+
+        assert_eq!(normalized1, normalized2);
+    }
+
+    #[test]
+    fn test_normalize_ipv6_different_subnet() {
+        let ip1 = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x1234, 0x5600, 0x0000, 0x0000, 0x0000, 0x0001,
+        ));
+        let ip2 = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x1234, 0x5700, 0x0000, 0x0000, 0x0000, 0x0001,
+        ));
+
+        let normalized1 = normalize_ip_for_banning(ip1);
+        let normalized2 = normalize_ip_for_banning(ip2);
+
+        assert_ne!(normalized1, normalized2);
+    }
+
+    #[test]
+    fn test_normalize_ipv6_masks_correctly() {
+        let ip = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x1234, 0x5678, 0xabcd, 0xef01, 0x2345, 0x6789,
+        ));
+        let normalized = normalize_ip_for_banning(ip);
+
+        if let IpAddr::V6(ipv6) = normalized {
+            let segments = ipv6.segments();
+            assert_eq!(segments[0], 0x2001);
+            assert_eq!(segments[1], 0x0db8);
+            assert_eq!(segments[2], 0x1234);
+            assert_eq!(segments[3] & 0xFF00, 0x5600);
+            assert_eq!(segments[4], 0x0000);
+            assert_eq!(segments[5], 0x0000);
+            assert_eq!(segments[6], 0x0000);
+            assert_eq!(segments[7], 0x0000);
+        } else {
+            panic!("Expected IPv6 address");
+        }
+    }
+
+    #[test]
+    fn test_ipv6_ban_grouping() {
+        let mut pdb = get_db();
+
+        let base_segments = [0x2001, 0x0db8, 0x1234, 0x5600, 0, 0, 0, 0];
+
+        let mut peers = Vec::new();
+        for i in 0..BANNED_PEERS_PER_IP_THRESHOLD + 2 {
+            let segments = [
+                base_segments[0],
+                base_segments[1],
+                base_segments[2],
+                base_segments[3],
+                i as u16,
+                (i * 2) as u16,
+                (i * 3) as u16,
+                (i * 4) as u16,
+            ];
+            let ip = IpAddr::V6(Ipv6Addr::new(
+                segments[0],
+                segments[1],
+                segments[2],
+                segments[3],
+                segments[4],
+                segments[5],
+                segments[6],
+                segments[7],
+            ));
+            peers.push(connect_peer_with_ips(&mut pdb, vec![ip]));
+        }
+
+        for p in &peers[..BANNED_PEERS_PER_IP_THRESHOLD + 1] {
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
+            pdb.inject_disconnect(p);
+        }
+
+        let different_subnet_ip =
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0x0db8, 0x1234, 0x5700, 0, 0, 0, 1));
+        let p_different = connect_peer_with_ips(&mut pdb, vec![different_subnet_ip]);
+
+        assert!(
+            pdb.ban_status(&peers[BANNED_PEERS_PER_IP_THRESHOLD + 1])
+                .is_some()
+        );
+        assert!(pdb.ban_status(&p_different).is_none());
+    }
+
+    #[test]
+    fn test_ipv6_subnet_banning_with_different_addresses() {
+        let mut pdb = get_db();
+
+        let mut peers = Vec::new();
+        for i in 0..BANNED_PEERS_PER_IP_THRESHOLD + 1 {
+            let ip = IpAddr::V6(Ipv6Addr::new(
+                0x2001,
+                0x0db8,
+                0xabcd,
+                0x1200,
+                0x1111 * i as u16,
+                0x2222 * i as u16,
+                0x3333 * i as u16,
+                i as u16,
+            ));
+            peers.push(connect_peer_with_ips(&mut pdb, vec![ip]));
+        }
+
+        for p in &peers {
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
+            pdb.inject_disconnect(p);
+        }
+
+        let new_peer_same_subnet = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0xabcd, 0x1200, 0xffff, 0xeeee, 0xdddd, 0xcccc,
+        ));
+        let p_new = connect_peer_with_ips(&mut pdb, vec![new_peer_same_subnet]);
+
+        assert!(
+            pdb.ban_status(&p_new).is_some(),
+            "New peer from same /56 subnet should be banned"
+        );
+
+        let new_peer_different_subnet = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0xabcd, 0x1300, 0xffff, 0xeeee, 0xdddd, 0xcccc,
+        ));
+        let p_different = connect_peer_with_ips(&mut pdb, vec![new_peer_different_subnet]);
+
+        assert!(
+            pdb.ban_status(&p_different).is_none(),
+            "Peer from different /56 subnet should not be banned"
+        );
+    }
+
+    #[test]
+    fn test_ipv6_vs_ipv4_banning_independence() {
+        let mut pdb = get_db();
+
+        let ipv6_base = [0x2001, 0x0db8, 0x1234, 0x5600];
+        let mut ipv6_peers = Vec::new();
+        for i in 0..BANNED_PEERS_PER_IP_THRESHOLD + 1 {
+            let ip = IpAddr::V6(Ipv6Addr::new(
+                ipv6_base[0],
+                ipv6_base[1],
+                ipv6_base[2],
+                ipv6_base[3],
+                i as u16,
+                0,
+                0,
+                i as u16,
+            ));
+            ipv6_peers.push(connect_peer_with_ips(&mut pdb, vec![ip]));
+        }
+
+        for p in &ipv6_peers {
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
+            pdb.inject_disconnect(p);
+        }
+
+        let ipv4_peer = connect_peer_with_ips(&mut pdb, vec![Ipv4Addr::new(1, 2, 3, 4).into()]);
+        assert!(
+            pdb.ban_status(&ipv4_peer).is_none(),
+            "IPv4 peer should not be affected by IPv6 subnet ban"
+        );
+
+        let ipv6_peer_same_subnet = IpAddr::V6(Ipv6Addr::new(
+            ipv6_base[0],
+            ipv6_base[1],
+            ipv6_base[2],
+            ipv6_base[3],
+            0xdead,
+            0xbeef,
+            0xcafe,
+            0xbabe,
+        ));
+        let p6_new = connect_peer_with_ips(&mut pdb, vec![ipv6_peer_same_subnet]);
+        assert!(
+            pdb.ban_status(&p6_new).is_some(),
+            "New IPv6 peer from banned /56 subnet should be banned"
+        );
+    }
+
+    #[test]
+    fn test_ipv6_partial_segment_masking() {
+        let mut pdb = get_db();
+
+        let mut peers = Vec::new();
+        for i in 0..BANNED_PEERS_PER_IP_THRESHOLD + 1 {
+            let ip = IpAddr::V6(Ipv6Addr::new(
+                0x2001,
+                0x0db8,
+                0x5555,
+                0x12ab + i as u16,
+                i as u16,
+                0,
+                0,
+                i as u16,
+            ));
+            peers.push(connect_peer_with_ips(&mut pdb, vec![ip]));
+        }
+
+        for p in &peers {
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
+            pdb.inject_disconnect(p);
+        }
+
+        let same_prefix = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x5555, 0x12ff, 0xaaaa, 0xbbbb, 0xcccc, 0xdddd,
+        ));
+        let p_same = connect_peer_with_ips(&mut pdb, vec![same_prefix]);
+        assert!(
+            pdb.ban_status(&p_same).is_some(),
+            "Peer with same /56 prefix should be banned (0x12ab/56 == 0x12ff/56)"
+        );
+
+        let different_prefix = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x5555, 0x13ab, 0xaaaa, 0xbbbb, 0xcccc, 0xdddd,
+        ));
+        let p_different = connect_peer_with_ips(&mut pdb, vec![different_prefix]);
+        assert!(
+            pdb.ban_status(&p_different).is_none(),
+            "Peer with different /56 prefix should not be banned (0x12ab/56 != 0x13ab/56)"
+        );
+    }
+
+    #[test]
+    fn test_ipv6_subnet_unban_clears_all_in_subnet() {
+        let mut pdb = get_db();
+
+        let mut peers = Vec::new();
+        for i in 0..BANNED_PEERS_PER_IP_THRESHOLD + 1 {
+            let ip = IpAddr::V6(Ipv6Addr::new(
+                0x2001, 0x0db8, 0xaaaa, 0xbb00, i as u16, i as u16, i as u16, i as u16,
+            ));
+            peers.push(connect_peer_with_ips(&mut pdb, vec![ip]));
+        }
+
+        for p in &peers {
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
+            pdb.inject_disconnect(p);
+        }
+
+        let new_peer = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0xaaaa, 0xbb00, 0xdead, 0xbeef, 0xcafe, 0xbabe,
+        ));
+        let p_new = connect_peer_with_ips(&mut pdb, vec![new_peer]);
+        assert!(pdb.ban_status(&p_new).is_some(), "Subnet should be banned");
+
+        for p in &peers {
+            reset_score(&mut pdb, p);
+            pdb.update_connection_state(p, NewConnectionState::Unbanned);
+            let _ = pdb.shrink_to_fit();
+        }
+
+        let another_peer = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0xaaaa, 0xbb00, 0x1111, 0x2222, 0x3333, 0x4444,
+        ));
+        let p_another = connect_peer_with_ips(&mut pdb, vec![another_peer]);
+        assert!(
+            pdb.ban_status(&p_another).is_none(),
+            "Subnet should be unbanned after all peers are unbanned"
         );
     }
 }

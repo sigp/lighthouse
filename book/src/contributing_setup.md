@@ -12,7 +12,7 @@ The additional requirements for developers are:
 
 - [`cmake`](https://cmake.org/cmake/help/latest/command/install.html). Used by
   some dependencies. See [`Installation Guide`](./installation.md) for more info.
-- [`java 17 runtime`](https://openjdk.java.net/projects/jdk/). 17 is the minimum,
+- [`java 25 runtime`](https://openjdk.java.net/projects/jdk/). 25 is the minimum,
   used by web3signer_tests.
 
 ## Using `make`

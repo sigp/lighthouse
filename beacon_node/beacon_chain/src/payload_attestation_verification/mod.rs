@@ -26,6 +26,8 @@ pub use gossip_verified_payload_attestation::{
 ///   (the `BeaconChainError` variant)
 #[derive(Debug, AsRefStr)]
 pub enum Error {
+    /// Payload attestations are invalid before the Gloas fork.
+    PreGloasSlot { slot: Slot },
     /// The payload attestation message is from a slot that is later than the current slot
     /// (with respect to the gossip clock disparity).
     ///
@@ -60,6 +62,18 @@ pub enum Error {
     /// The attestation points to a block we have not yet imported. It's unclear if the
     /// attestation is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// The block referenced by `data.beacon_block_root` is not at slot `data.slot`, i.e. the
+    /// PTC member's assigned slot was likely empty.
+    ///
+    /// ## Peer scoring
+    ///
+    /// PTC members should not attest for empty slots, so we
+    /// ignore the message.
+    BlockNotAtSlot {
+        beacon_block_root: Hash256,
+        block_slot: Slot,
+        data_slot: Slot,
+    },
     /// The validator index is not a member of the PTC for this slot.
     ///
     /// ## Peer scoring

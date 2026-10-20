@@ -1,21 +1,19 @@
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::test_spec;
 use beacon_chain::{
-    GossipVerifiedBlock, IntoGossipVerifiedBlock, WhenSlotSkipped,
+    IntoGossipVerifiedBlock, WhenSlotSkipped,
     test_utils::{AttestationStrategy, BlockStrategy},
 };
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
-use http_api::{Config, ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block};
+use http_api::{Config, ProvenancedBlock, publish_block};
 use reqwest::{Response, StatusCode};
 use std::collections::HashSet;
-use std::sync::Arc;
-use types::{ColumnIndex, Epoch, EthSpec, ForkName, Hash256, MainnetEthSpec, Slot};
-use warp::Rejection;
+use types::{ColumnIndex, Epoch, EthSpec, ForkName, Hash256, Slot, Spec};
 use warp_utils::reject::CustomBadRequest;
 
-type E = MainnetEthSpec;
+type E = Spec;
 
 /*
  * We have the following test cases, which are duplicated for the blinded variant of the route:
@@ -76,7 +74,11 @@ pub async fn gossip_invalid() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert!(response.is_err());
 
@@ -140,7 +142,11 @@ pub async fn gossip_partial_pass() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert_eq!(response.unwrap().status(), StatusCode::ACCEPTED);
 }
@@ -180,6 +186,7 @@ pub async fn gossip_full_pass() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
             validation_level,
+            None,
         )
         .await;
 
@@ -203,7 +210,7 @@ pub async fn gossip_full_pass_ssz() {
     let validator_count = 64;
     let num_initial: u64 = 31;
     // Deneb epoch set ahead of block slot, to test fork-based decoding
-    let mut spec = ForkName::Capella.make_genesis_spec(MainnetEthSpec::default_spec());
+    let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
     spec.deneb_fork_epoch = Some(Epoch::new(4));
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
 
@@ -228,7 +235,7 @@ pub async fn gossip_full_pass_ssz() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&block_contents, validation_level)
+        .post_beacon_blocks_v2_ssz(&block_contents, validation_level, None)
         .await;
 
     assert!(response.is_ok());
@@ -277,7 +284,11 @@ pub async fn consensus_invalid() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert!(response.is_err());
 
@@ -339,7 +350,11 @@ pub async fn consensus_gossip() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert!(response.is_err());
 
@@ -416,6 +431,7 @@ pub async fn consensus_partial_pass_only_consensus() {
         &channel.0,
         validation_level,
         StatusCode::ACCEPTED,
+        None,
     )
     .await;
 
@@ -463,6 +479,7 @@ pub async fn consensus_full_pass() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
             validation_level,
+            None,
         )
         .await;
 
@@ -514,7 +531,11 @@ pub async fn equivocation_invalid() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert!(response.is_err());
 
@@ -587,7 +608,8 @@ pub async fn equivocation_consensus_early_equivocation() {
             .client
             .post_beacon_blocks_v2_ssz(
                 &PublishBlockRequest::new(block_a.clone(), blobs_a),
-                validation_level
+                validation_level,
+                None,
             )
             .await
             .is_ok()
@@ -605,6 +627,7 @@ pub async fn equivocation_consensus_early_equivocation() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block_b.clone(), blobs_b),
             validation_level,
+            None,
         )
         .await;
     assert!(response.is_err());
@@ -656,7 +679,11 @@ pub async fn equivocation_gossip() {
 
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
+        .post_beacon_blocks_v2_ssz(
+            &PublishBlockRequest::new(block, blobs),
+            validation_level,
+            None,
+        )
         .await;
     assert!(response.is_err());
 
@@ -735,6 +762,7 @@ pub async fn equivocation_consensus_late_equivocation() {
         &channel.0,
         validation_level,
         StatusCode::ACCEPTED,
+        None,
     )
     .await;
 
@@ -786,6 +814,7 @@ pub async fn equivocation_full_pass() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
             validation_level,
+            None,
         )
         .await;
 
@@ -868,9 +897,8 @@ pub async fn blinded_gossip_invalid() {
 
 /// Process a blinded block that is invalid, but valid on gossip.
 ///
-/// Due to the checks conducted by the "relay" (mock-builder) when `broadcast_to_bn` is set (post
-/// Fulu), we can't always assert that we get a 202 status for this block -- post Fulu the relay
-/// detects it as invalid and the BN returns an error.
+/// Due to the checks conducted by the "relay" (mock-builder), we can't always assert that we get a
+/// 202 status for this block -- the relay detects it as invalid and the BN returns an error.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn blinded_gossip_partial_pass() {
     /* this test targets gossip-level validation */
@@ -909,7 +937,7 @@ pub async fn blinded_gossip_partial_pass() {
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         let error_response = response.unwrap_err();
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
@@ -1067,7 +1095,7 @@ pub async fn blinded_consensus_invalid() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1075,16 +1103,12 @@ pub async fn blinded_consensus_invalid() {
         );
     } else {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
-            || tester.harness.spec.is_fulu_scheduled()
-        {
+        assert_server_message_error(
+            error_response,
             format!(
                 "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
-            )
-        } else {
-            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
-        };
-        assert_server_message_error(error_response, expected_error_msg);
+            ),
+        );
     }
 }
 
@@ -1136,7 +1160,7 @@ pub async fn blinded_consensus_gossip() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1257,23 +1281,19 @@ pub async fn blinded_equivocation_invalid() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         assert_eq!(
             error_response.status(),
             Some(StatusCode::INTERNAL_SERVER_ERROR)
         );
     } else {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        let expected_error_msg = if tester.harness.spec.deneb_fork_epoch.is_none()
-            || tester.harness.spec.is_fulu_scheduled()
-        {
+        assert_server_message_error(
+            error_response,
             format!(
                 "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
-            )
-        } else {
-            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
-        };
-        assert_server_message_error(error_response, expected_error_msg);
+            ),
+        );
     }
 }
 
@@ -1345,7 +1365,7 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
 
     let error_response: eth2::Error = response.err().unwrap();
 
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         assert_eq!(
             error_response.status(),
             Some(StatusCode::INTERNAL_SERVER_ERROR)
@@ -1403,7 +1423,7 @@ pub async fn blinded_equivocation_gossip() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() && !tester.harness.spec.is_gloas_scheduled() {
+    if !tester.harness.spec.is_gloas_scheduled() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
@@ -1419,112 +1439,6 @@ pub async fn blinded_equivocation_gossip() {
                 Hash256::zero()
             ),
         );
-    }
-}
-
-/// This test checks that a block that is valid from both a gossip and
-/// consensus perspective but that equivocates **late** is rejected when using
-/// `broadcast_validation=consensus_and_equivocation`.
-///
-/// This test is unique in that we can't actually test the HTTP API directly,
-/// but instead have to hook into the `publish_blocks` code manually. This is
-/// in order to handle the late equivocation case.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn blinded_equivocation_consensus_late_equivocation() {
-    /* this test targets gossip-level validation */
-    let validation_level = BroadcastValidation::ConsensusAndEquivocation;
-
-    // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
-    // `validator_count // 32`.
-    let validator_count = 64;
-    let num_initial: u64 = 31;
-    let tester = InteractiveTester::<E>::new(None, validator_count).await;
-
-    // Create some chain depth.
-    tester.harness.advance_slot();
-    tester
-        .harness
-        .extend_chain(
-            num_initial as usize,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-    tester.harness.advance_slot();
-
-    let slot_a = Slot::new(num_initial);
-    let slot_b = slot_a + 1;
-
-    let state_a = tester.harness.get_current_state();
-    let (block_a, mut state_after_a) = tester
-        .harness
-        .make_blinded_block(state_a.clone(), slot_b)
-        .await;
-    let (block_b, mut state_after_b) = tester.harness.make_blinded_block(state_a, slot_b).await;
-    let block_b = Arc::new(block_b);
-
-    /* check for `make_blinded_block` curios */
-    assert_eq!(
-        block_a.state_root(),
-        state_after_a.canonical_root().unwrap()
-    );
-    assert_eq!(
-        block_b.state_root(),
-        state_after_b.canonical_root().unwrap()
-    );
-    assert_ne!(block_a.state_root(), block_b.state_root());
-
-    // From fulu builders never send back a full payload, hence further checks in this test
-    // are not possible
-    if !tester.harness.spec.is_fulu_scheduled() {
-        let unblinded_block_a = reconstruct_block(
-            tester.harness.chain.clone(),
-            block_a.canonical_root(),
-            Arc::new(block_a),
-        )
-        .await
-        .expect("failed to reconstruct block")
-        .expect("block expected");
-
-        let unblinded_block_b = reconstruct_block(
-            tester.harness.chain.clone(),
-            block_b.canonical_root(),
-            block_b.clone(),
-        )
-        .await
-        .expect("failed to reconstruct block")
-        .expect("block expected");
-
-        let inner_block_a = match unblinded_block_a {
-            ProvenancedBlock::Local(a, _, _) => a,
-            ProvenancedBlock::Builder(a, _, _) => a,
-        };
-        let inner_block_b = match unblinded_block_b {
-            ProvenancedBlock::Local(b, _, _) => b,
-            ProvenancedBlock::Builder(b, _, _) => b,
-        };
-
-        let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain);
-        assert!(gossip_block_b.is_ok());
-        let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain);
-        assert!(gossip_block_a.is_err());
-
-        let channel = tokio::sync::mpsc::unbounded_channel();
-
-        let publication_result = publish_blinded_block(
-            block_b,
-            tester.harness.chain,
-            &channel.0,
-            validation_level,
-            StatusCode::ACCEPTED,
-        )
-        .await;
-
-        assert!(publication_result.is_err());
-
-        let publication_error: Rejection = publication_result.unwrap_err();
-
-        assert!(publication_error.find::<CustomBadRequest>().is_some());
     }
 }
 
@@ -1631,6 +1545,7 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some(blobs)),
             validation_level,
+            None,
         )
         .await;
 
@@ -1716,6 +1631,7 @@ pub async fn block_seen_on_gossip_with_columns() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some(blobs)),
             validation_level,
+            None,
         )
         .await;
 
@@ -1787,6 +1703,7 @@ pub async fn columns_seen_on_gossip_without_block() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some((kzg_proofs, blobs))),
             validation_level,
+            None,
         )
         .await;
 
@@ -1861,6 +1778,7 @@ async fn columns_seen_on_gossip_without_block_and_no_http_columns() {
                 Some((Default::default(), Default::default())),
             ),
             validation_level,
+            None,
         )
         .await;
 
@@ -1931,6 +1849,7 @@ async fn slashable_columns_seen_on_gossip_cause_failure() {
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block_a.clone(), Some((kzg_proofs_a, blobs_a))),
             validation_level,
+            None,
         )
         .await;
 
@@ -2001,7 +1920,7 @@ pub async fn duplicate_block_status_code() {
     let block_request = PublishBlockRequest::new(block.clone(), Some((kzg_proofs, blobs)));
     let response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&block_request, validation_level)
+        .post_beacon_blocks_v2_ssz(&block_request, validation_level, None)
         .await;
 
     // This should result in the block being fully imported.
@@ -2016,7 +1935,7 @@ pub async fn duplicate_block_status_code() {
     // Post again.
     let duplicate_response: Result<Response, eth2::Error> = tester
         .client
-        .post_beacon_blocks_v2_ssz(&block_request, validation_level)
+        .post_beacon_blocks_v2_ssz(&block_request, validation_level, None)
         .await;
     let err = duplicate_response.unwrap_err();
     assert_eq!(err.status().unwrap(), duplicate_block_status_code);
@@ -2036,6 +1955,7 @@ fn get_custody_columns(tester: &InteractiveTester<E>, slot: Slot) -> HashSet<Col
         .chain
         .as_ref()
         .unwrap()
+        .custody_context
         .sampling_columns_for_epoch(epoch)
         .iter()
         .copied()

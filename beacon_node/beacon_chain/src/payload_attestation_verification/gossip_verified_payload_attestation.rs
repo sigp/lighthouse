@@ -10,6 +10,7 @@ use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
 use parking_lot::RwLock;
 use slot_clock::SlotClock;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::per_block_processing::signature_sets::indexed_payload_attestation_signature_set_from_pubkeys;
 use std::borrow::Cow;
 use types::{
@@ -19,6 +20,7 @@ use types::{
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
+    pub builder_onboarding_cache: Option<&'a OnboardBuildersCache>,
     pub observed_payload_attesters: &'a RwLock<ObservedPayloadAttesters<T::EthSpec>>,
     pub canonical_head: &'a CanonicalHead<T>,
     pub shuffling_cache: &'a RwLock<ShufflingCache<T::EthSpec>>,
@@ -43,6 +45,15 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
     ) -> Result<Self, Error> {
         let slot = payload_attestation_message.data.slot;
         let validator_index = payload_attestation_message.validator_index;
+
+        // [REJECT] The payload attestation's slot is at or after the Gloas fork.
+        if !ctx
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(slot)
+            .gloas_enabled()
+        {
+            return Err(Error::PreGloasSlot { slot });
+        }
 
         // [IGNORE] `data.slot` is within the `MAXIMUM_GOSSIP_CLOCK_DISPARITY` allowance.
         verify_propagation_slot_range(ctx.slot_clock, slot, ctx.spec)?;
@@ -70,13 +81,21 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
         // 2. Blocks we've seen that are invalid (REJECT).
         // Presently both cases return IGNORE.
         let beacon_block_root = payload_attestation_message.data.beacon_block_root;
-        if ctx
+        let block = ctx
             .canonical_head
             .fork_choice_read_lock()
             .get_block(&beacon_block_root)
-            .is_none()
-        {
-            return Err(Error::UnknownHeadBlock { beacon_block_root });
+            .ok_or(Error::UnknownHeadBlock { beacon_block_root })?;
+
+        // [IGNORE] The block referenced by `data.beacon_block_root` is at slot `data.slot`, i.e.
+        // the block has `block.slot == data.slot`. A PTC member assigned to an empty slot must not
+        // attest, so ignore messages that reference an earlier block.
+        if block.slot != slot {
+            return Err(Error::BlockNotAtSlot {
+                beacon_block_root,
+                block_slot: block.slot,
+                data_slot: slot,
+            });
         }
 
         let message_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
@@ -84,6 +103,7 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
             ctx.canonical_head,
             ctx.shuffling_cache,
             ctx.store,
+            ctx.builder_onboarding_cache,
             ctx.spec,
             beacon_block_root,
             message_epoch,
@@ -167,6 +187,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         GossipVerificationContext {
             slot_clock: &self.slot_clock,
             spec: &self.spec,
+            builder_onboarding_cache: self.builder_onboarding_cache.as_deref(),
             observed_payload_attesters: &self.observed_payload_attesters,
             canonical_head: &self.canonical_head,
             shuffling_cache: &self.shuffling_cache,

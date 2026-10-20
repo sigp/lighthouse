@@ -667,6 +667,11 @@ fn run<E: EthSpec>(
                 .build()
                 .map_err(|e| format!("Failed to create OTLP exporter: {:?}", e))?;
 
+            // Register the W3C propagator. This is for making 'traceparent' headers work.
+            opentelemetry::global::set_text_map_propagator(
+                opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+            );
+
             let service_name = matches
                 .get_one::<String>("telemetry-service-name")
                 .cloned()

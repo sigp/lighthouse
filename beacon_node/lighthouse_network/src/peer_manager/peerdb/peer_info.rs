@@ -15,7 +15,7 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Instant;
 use strum::AsRefStr;
-use types::{DataColumnSubnetId, EthSpec};
+use types::{DataColumnSubnetId, EthSpec, Slot};
 
 /// Information about a given connected peer.
 #[derive(Clone, Debug, Serialize)]
@@ -41,6 +41,8 @@ pub struct PeerInfo<E: EthSpec> {
     meta_data: Option<MetaData<E>>,
     /// Subnets the peer is connected to.
     subnets: HashSet<Subnet>,
+    /// Subnets the peer is connected to, requesting partial messages.
+    partial_message_subnets: HashSet<Subnet>,
     /// This is computed from either metadata or the ENR, and contains the subnets that the peer
     /// is *assigned* to custody, rather than *connected* to (different to `self.subnets`).
     /// Note: Another reason to keep this separate to `self.subnets` is an upcoming change to
@@ -68,6 +70,7 @@ impl<E: EthSpec> Default for PeerInfo<E> {
             listening_addresses: Vec::new(),
             seen_multiaddrs: HashSet::new(),
             subnets: HashSet::new(),
+            partial_message_subnets: HashSet::new(),
             custody_subnets: HashSet::new(),
             sync_status: SyncStatus::Unknown,
             meta_data: None,
@@ -336,6 +339,14 @@ impl<E: EthSpec> PeerInfo<E> {
         )
     }
 
+    /// Checks if the peer is synced or advanced, and has data available for the given slot.
+    pub fn is_synced_or_advanced_with_available_slot(&self, slot: Slot) -> bool {
+        match &self.sync_status {
+            SyncStatus::Synced { info } | SyncStatus::Advanced { info } => info.has_slot(slot),
+            SyncStatus::IrrelevantPeer | SyncStatus::Behind { .. } | SyncStatus::Unknown => false,
+        }
+    }
+
     /// Checks if the status is connected.
     pub fn is_dialing(&self) -> bool {
         matches!(self.connection_status, PeerConnectionStatus::Dialing { .. })
@@ -428,18 +439,23 @@ impl<E: EthSpec> PeerInfo<E> {
     }
 
     /// Adds a known subnet for the peer.
-    pub(super) fn insert_subnet(&mut self, subnet: Subnet) {
+    pub(super) fn insert_subnet(&mut self, subnet: Subnet, supports_partials: bool) {
         self.subnets.insert(subnet);
+        if supports_partials {
+            self.partial_message_subnets.insert(subnet);
+        }
     }
 
     /// Removes a subnet from the peer.
     pub(super) fn remove_subnet(&mut self, subnet: &Subnet) {
         self.subnets.remove(subnet);
+        self.partial_message_subnets.remove(subnet);
     }
 
     /// Removes all subnets from the peer.
     pub(super) fn clear_subnets(&mut self) {
-        self.subnets.clear()
+        self.subnets.clear();
+        self.partial_message_subnets.clear()
     }
 
     /// Applies decay rates to a non-trusted peer's score.
@@ -483,9 +499,9 @@ impl<E: EthSpec> PeerInfo<E> {
         Ok(())
     }
 
-    /// Modifies the status to Connected and increases the number of ingoing
+    /// Modifies the status to Connected and increases the number of incoming
     /// connections by one
-    pub(super) fn connect_ingoing(&mut self, multiaddr: Multiaddr) {
+    pub(super) fn connect_incoming(&mut self, multiaddr: Multiaddr) {
         self.seen_multiaddrs.insert(multiaddr.clone());
 
         match &mut self.connection_status {
@@ -566,7 +582,7 @@ pub enum PeerConnectionStatus {
     Connected {
         /// The multiaddr that we are connected via.
         multiaddr: Multiaddr,
-        /// number of ingoing connections.
+        /// number of incoming connections.
         n_in: u8,
         /// number of outgoing connections.
         n_out: u8,
@@ -668,9 +684,9 @@ impl From<PeerConnectionStatus> for PeerState {
 mod tests {
     use super::*;
     use crate::types::Subnet;
-    use types::{DataColumnSubnetId, MainnetEthSpec};
+    use types::{DataColumnSubnetId, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn create_test_peer_info() -> PeerInfo<E> {
         PeerInfo::default()

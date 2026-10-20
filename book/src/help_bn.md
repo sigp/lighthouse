@@ -5,7 +5,7 @@ The primary component which connects to the Ethereum 2.0 P2P network and
 downloads, verifies and stores blocks. Provides a HTTP API for querying the
 beacon chain and publishing messages to the network.
 
-Usage: lighthouse beacon_node [OPTIONS] --execution-endpoint <EXECUTION-ENDPOINT>
+Usage: lighthouse beacon_node [OPTIONS]
 
 Options:
       --auto-compact-db <auto-compact-db>
@@ -30,6 +30,11 @@ Options:
           The URL of a service compatible with the MEV-boost API.
       --builder-disable-ssz
           Disables sending requests using SSZ over the builder API.
+      --builder-fallback-ban-slots <builder-fallback-ban-slots>
+          After the Gloas fork, a builder that fails to reveal its execution
+          payload for a block that received sufficient attestations will have
+          its bids ignored for this many slots. Cannot be less than
+          `SLOTS_PER_EPOCH`. [default: 32]
       --builder-fallback-epochs-since-finalization <builder-fallback-epochs-since-finalization>
           If this node is proposing a block and the chain has not finalized
           within this number of epochs, it will NOT query any connected
@@ -42,12 +47,21 @@ Options:
           If this node is proposing a block and has seen this number of skip
           slots on the canonical chain in a row, it will NOT query any connected
           builders, and will use the local execution engine for payload
-          construction. [default: 3]
+          construction. After the Gloas fork a skip is a slot whose beacon block
+          landed and received enough attestations to charge the builder, but
+          whose execution payload did not; slots with no beacon block are not
+          counted. After the Gloas fork builders are still queried, but any
+          external bid is used only if the local build fails. [default: 3]
       --builder-fallback-skips-per-epoch <builder-fallback-skips-per-epoch>
           If this node is proposing a block and has seen this number of skip
           slots on the canonical chain in the past `SLOTS_PER_EPOCH`, it will
           NOT query any connected builders, and will use the local execution
-          engine for payload construction. [default: 8]
+          engine for payload construction. After the Gloas fork a skip is a slot
+          whose beacon block landed and received enough attestations to charge
+          the builder, but whose execution payload did not; slots with no beacon
+          block are not counted. After the Gloas fork builders are still
+          queried, but any external bid is used only if the local build fails.
+          [default: 8]
       --builder-header-timeout <MILLISECONDS>
           Defines a timeout value (in milliseconds) to use when fetching a block
           header from the builder API. [default: 1000]
@@ -84,6 +98,14 @@ Options:
       --discovery-port6 <PORT>
           The UDP port that discovery will listen on over IPv6 if listening over
           both IPv4 and IPv6. Defaults to `port6`
+      --enable-mplex [<BOOLEAN>]
+          Enables the mplex multiplexer alongside yamux. Yamux is preferred when
+          both are available. Enabled by default; set to "false" to disable.
+          [default: true]
+      --enable-partial-columns [<BOOLEAN>]
+          Enable partial messages for data columns. This can reduce the amount
+          of data sent over the network. Enabled by default; set to "false" to
+          opt out. [default: true]
       --enr-address <ADDRESS>...
           The IP address/ DNS address to broadcast to other peers on how to
           reach this node. If a DNS address is provided, the enr-address is set
@@ -125,6 +147,7 @@ Options:
       --execution-endpoint <EXECUTION-ENDPOINT>
           Server endpoint for an execution layer JWT-authenticated HTTP JSON-RPC
           connection. Uses the same endpoint to populate the deposit cache.
+          Optional when --proof-engine-endpoint is set.
       --execution-jwt <EXECUTION-JWT>
           File path which contains the hex-encoded JWT secret for the execution
           endpoint provided in the --execution-endpoint flag.
@@ -305,15 +328,14 @@ Options:
           which don't improve their payload after the first call, and high
           values are useful for ensuring the EL is given ample notice. Default:
           1/3 of a slot.
+      --proof-engine-endpoint <PROOF-ENGINE-ENDPOINT>
+          Server endpoint for an EIP-8025 proof engine used to verify execution
+          proofs. When present, the node subscribes to the execution_proof
+          gossip topic and propagates proofs that verify. Experimental.
       --proposer-reorg-cutoff <MILLISECONDS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-disallowed-offsets <N1,N2,...>
-          Comma-separated list of integer offsets which can be used to avoid
-          proposing reorging blocks at certain slots. An offset of N means that
-          reorging proposals will not be attempted at any slot such that `slot %
-          SLOTS_PER_EPOCH == N`. By default only re-orgs at offset 0 will be
-          avoided. Any offsets supplied with this flag will impose additional
-          restrictions.
+          DEPRECATED. This flag has no effect.
       --proposer-reorg-epochs-since-finalization <EPOCHS>
           DEPRECATED. This flag has no effect.
       --proposer-reorg-parent-threshold <PERCENT>
@@ -401,6 +423,9 @@ Options:
           Path to a json file containing the trusted setup params. NOTE: This
           will override the trusted setup that is generated from the mainnet kzg
           ceremony. Use with caution
+      --unknown-root-min-peers <INTEGER>
+          The number of distinct peers required to report an unknown block root
+          before Lighthouse requests it. Defaults to 3.
       --validator-monitor-file <PATH>
           As per --validator-monitor-pubkeys, but the comma-separated list is
           contained within a file at the given path.
@@ -476,9 +501,6 @@ Flags:
       --disable-packet-filter
           Disables the discovery packet filter. Useful for testing in smaller
           networks
-      --disable-partial-columns
-          Disable partial messages for data columns. Use this on Hoodi or
-          Sepolia to opt out of the default-enabled behavior.
       --disable-proposer-reorgs
           Do not attempt to reorg late blocks from other validators when
           proposing.
@@ -494,10 +516,11 @@ Flags:
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
           --listen-address and the UDP port will be --discovery-port.
-      --enable-partial-columns
-          Enable partial messages for data columns. This can reduce the amount
-          of data sent over the network. Enabled by default on Hoodi and
-          Sepolia; use --disable-partial-columns to opt out.
+      --enable-fast-confirmation
+          Enable the Fast Confirmation Rule (FCR). When enabled, FCR provides
+          faster block confirmation (typically within 1-2 slots of the head) by
+          computing a confirmed root that is fed into the execution layer's
+          safe_block_hash.
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.

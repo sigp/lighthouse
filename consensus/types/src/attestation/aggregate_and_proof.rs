@@ -7,14 +7,15 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     attestation::{
-        Attestation, AttestationBase, AttestationElectra, AttestationRef, SelectionProof,
+        Attestation, AttestationBase, AttestationElectra, AttestationGloas, AttestationRef,
+        SelectionProof,
     },
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot},
     fork::{Fork, ForkName},
 };
 
 #[superstruct(
-    variants(Base, Electra),
+    variants(Base, Electra, Gloas),
     variant_attributes(
         derive(
             Debug,
@@ -125,6 +126,11 @@ impl<E: EthSpec> AggregateAndProof<E> {
                 selection_proof: selection_proof.into(),
             }),
             Attestation::Electra(aggregate) => Self::Electra(AggregateAndProofElectra {
+                aggregator_index,
+                aggregate,
+                selection_proof: selection_proof.into(),
+            }),
+            Attestation::Gloas(aggregate) => Self::Gloas(AggregateAndProofGloas {
                 aggregator_index,
                 aggregate,
                 selection_proof: selection_proof.into(),

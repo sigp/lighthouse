@@ -1,6 +1,6 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
-    DEFAULT_SYNC_TOLERANCE_EPOCHS, DisallowedReOrgOffsets,
+    DEFAULT_SYNC_TOLERANCE_EPOCHS, FastConfirmationMode,
 };
 use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
@@ -8,6 +8,7 @@ use beacon_node::{
     beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend,
 };
 use beacon_processor::BeaconProcessorConfig;
+use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::PeerId;
 use network_utils::unused_port::{
     unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port,
@@ -535,6 +536,33 @@ fn bellatrix_execution_endpoint_flag() {
     run_bellatrix_execution_endpoints_flag_test("execution-endpoint")
 }
 #[test]
+fn proof_engine_endpoint_without_execution_endpoint() {
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("proof-engine-endpoint", Some("http://localhost:8552/"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config
+                    .proof_engine_endpoint
+                    .as_ref()
+                    .unwrap()
+                    .expose_full()
+                    .to_string(),
+                "http://localhost:8552/"
+            );
+            assert!(config.network.enable_execution_proof);
+            // No endpoint means no execution layer at all, and so no JWT is needed either.
+            assert!(config.execution_layer.is_none());
+            assert!(config.chain.disable_get_blobs);
+            assert!(!config.store.prune_payloads);
+        });
+}
+#[test]
+#[should_panic]
+fn no_execution_endpoint_and_no_proof_engine_endpoint() {
+    CommandLineTest::new_with_no_execution_endpoint().run_with_zero_port();
+}
+#[test]
 fn bellatrix_jwt_secrets_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
@@ -665,6 +693,36 @@ fn builder_fallback_flags() {
         |config| {
             assert!(config.chain.builder_fallback_disable_checks);
         },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(config.chain.builder_fallback_ban_slots, 32);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-ban-slots"),
+        Some("64"),
+        |config| {
+            assert_eq!(config.chain.builder_fallback_ban_slots, 64);
+        },
+    );
+}
+
+#[test]
+#[should_panic]
+fn builder_fallback_ban_slots_below_slots_per_epoch_is_rejected() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-ban-slots"),
+        Some("31"),
+        |_| {},
     );
 }
 
@@ -799,6 +857,15 @@ fn network_target_peers_flag() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.target_peers, "55".parse::<usize>().unwrap());
+        });
+}
+#[test]
+fn network_unknown_root_min_peers_flag() {
+    CommandLineTest::new()
+        .flag("unknown-root-min-peers", Some("5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.unknown_root_min_peers, 5);
         });
 }
 #[test]
@@ -1258,7 +1325,12 @@ fn default_backfill_rate_limiting_flag() {
 }
 #[test]
 fn default_boot_nodes() {
-    let number_of_boot_nodes = 17;
+    let number_of_boot_nodes = Eth2NetworkConfig::constant("mainnet")
+        .unwrap()
+        .unwrap()
+        .boot_enr
+        .unwrap()
+        .len();
 
     CommandLineTest::new()
         .run_with_zero_port()
@@ -2361,35 +2433,10 @@ fn disable_proposer_re_orgs() {
 }
 
 #[test]
-fn proposer_re_org_disallowed_offsets_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_disallowed_offsets,
-                DisallowedReOrgOffsets::new::<MainnetEthSpec>(vec![0]).unwrap()
-            )
-        });
-}
-
-#[test]
-fn proposer_re_org_disallowed_offsets_override() {
+fn proposer_re_org_disallowed_offsets_deprecated() {
+    // The deprecated flag should be accepted but have no effect.
     CommandLineTest::new()
         .flag("proposer-reorg-disallowed-offsets", Some("1,2,3"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.chain.re_org_disallowed_offsets,
-                DisallowedReOrgOffsets::new::<MainnetEthSpec>(vec![1, 2, 3]).unwrap()
-            )
-        });
-}
-
-#[test]
-#[should_panic]
-fn proposer_re_org_disallowed_offsets_invalid() {
-    CommandLineTest::new()
-        .flag("proposer-reorg-disallowed-offsets", Some("32,33,34"))
         .run_with_zero_port();
 }
 
@@ -2524,6 +2571,31 @@ fn get_blobs_enabled() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.chain.disable_get_blobs);
+        });
+}
+
+#[test]
+fn fast_confirmation_disabled_by_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.fast_confirmation,
+                FastConfirmationMode::Disabled
+            );
+        });
+}
+
+#[test]
+fn fast_confirmation_enabled() {
+    CommandLineTest::new()
+        .flag("enable-fast-confirmation", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.fast_confirmation,
+                FastConfirmationMode::Enabled
+            );
         });
 }
 
@@ -2813,7 +2885,65 @@ fn invalid_block_roots_default_mainnet() {
 }
 
 #[test]
+fn enable_mplex_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_true() {
+    CommandLineTest::new()
+        .flag("enable-mplex", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_false() {
+    CommandLineTest::new()
+        .flag("enable-mplex", Some("false"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_mplex);
+        })
+}
+
+#[test]
+fn enable_mplex_no_value() {
+    CommandLineTest::new()
+        .flag("enable-mplex", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_mplex);
+        })
+}
+
+#[test]
 fn partial_columns() {
+    CommandLineTest::new()
+        .flag("enable-partial-columns", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        });
+    // And enabled by default on mainnet:
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.network.enable_partial_columns);
+            assert!(config.chain.enable_partial_columns);
+        })
+}
+
+#[test]
+fn partial_columns_no_value() {
+    // Passing the flag without a value should enable partial columns.
     CommandLineTest::new()
         .flag("enable-partial-columns", None)
         .run_with_zero_port()
@@ -2821,13 +2951,6 @@ fn partial_columns() {
             assert!(config.network.enable_partial_columns);
             assert!(config.chain.enable_partial_columns);
         });
-    // And disabled by default on mainnet:
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert!(!config.network.enable_partial_columns);
-            assert!(!config.chain.enable_partial_columns);
-        })
 }
 
 #[test]
@@ -2842,47 +2965,12 @@ fn partial_columns_default_hoodi() {
 }
 
 #[test]
-fn partial_columns_default_sepolia() {
+fn partial_columns_false_overrides_default() {
     CommandLineTest::new()
-        .flag("network", Some("sepolia"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert!(config.network.enable_partial_columns);
-            assert!(config.chain.enable_partial_columns);
-        });
-}
-
-#[test]
-fn partial_columns_disable_overrides_hoodi_default() {
-    CommandLineTest::new()
-        .flag("network", Some("hoodi"))
-        .flag("disable-partial-columns", None)
+        .flag("enable-partial-columns", Some("false"))
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.network.enable_partial_columns);
             assert!(!config.chain.enable_partial_columns);
         });
-}
-
-#[test]
-fn partial_columns_disable_on_mainnet_no_op() {
-    CommandLineTest::new()
-        .flag("disable-partial-columns", None)
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert!(!config.network.enable_partial_columns);
-            assert!(!config.chain.enable_partial_columns);
-        });
-}
-
-#[test]
-fn partial_columns_enable_disable_conflict() {
-    let mut cmd = base_cmd();
-    cmd.arg("--enable-partial-columns")
-        .arg("--disable-partial-columns");
-    let output = cmd.output().expect("should run command");
-    assert!(
-        !output.status.success(),
-        "expected clap to reject --enable-partial-columns and --disable-partial-columns together",
-    );
 }

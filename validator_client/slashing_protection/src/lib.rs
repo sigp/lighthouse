@@ -87,7 +87,7 @@ impl SigningRoot {
     }
 
     fn to_hash256(self) -> Option<Hash256> {
-        Some(self.0).filter(|_| !self.is_null())
+        (!self.is_null()).then_some(self.0)
     }
 }
 

@@ -99,6 +99,7 @@ impl<E: EthSpec> LightClientHeader<E> {
             }
             // TODO(gloas): implement Gloas light client
             ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
+            ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
         };
         Ok(header)
     }
@@ -121,7 +122,7 @@ impl<E: EthSpec> LightClientHeader<E> {
                 LightClientHeader::Fulu(LightClientHeaderFulu::from_ssz_bytes(bytes)?)
             }
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas => {
+            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientHeader decoding for {fork_name} not implemented"
                 )));
@@ -352,7 +353,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E>
         };
         Ok(match context {
             // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas => {
+            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
                 return Err(serde::de::Error::custom(format!(
                     "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
                     context
@@ -382,31 +383,31 @@ mod tests {
     // `ssz_tests!` can only be defined once per namespace
     #[cfg(test)]
     mod altair {
-        use crate::{LightClientHeaderAltair, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderAltair<MainnetEthSpec>);
+        use crate::{LightClientHeaderAltair, Spec};
+        ssz_tests!(LightClientHeaderAltair<Spec>);
     }
 
     #[cfg(test)]
     mod capella {
-        use crate::{LightClientHeaderCapella, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderCapella<MainnetEthSpec>);
+        use crate::{LightClientHeaderCapella, Spec};
+        ssz_tests!(LightClientHeaderCapella<Spec>);
     }
 
     #[cfg(test)]
     mod deneb {
-        use crate::{LightClientHeaderDeneb, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderDeneb<MainnetEthSpec>);
+        use crate::{LightClientHeaderDeneb, Spec};
+        ssz_tests!(LightClientHeaderDeneb<Spec>);
     }
 
     #[cfg(test)]
     mod electra {
-        use crate::{LightClientHeaderElectra, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderElectra<MainnetEthSpec>);
+        use crate::{LightClientHeaderElectra, Spec};
+        ssz_tests!(LightClientHeaderElectra<Spec>);
     }
 
     #[cfg(test)]
     mod fulu {
-        use crate::{LightClientHeaderFulu, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderFulu<MainnetEthSpec>);
+        use crate::{LightClientHeaderFulu, Spec};
+        ssz_tests!(LightClientHeaderFulu<Spec>);
     }
 }

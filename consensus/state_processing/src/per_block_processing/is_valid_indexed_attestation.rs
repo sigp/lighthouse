@@ -2,6 +2,7 @@ use super::errors::{BlockOperationError, IndexedAttestationInvalid as Invalid};
 use super::signature_sets::{get_pubkey_from_state, indexed_attestation_signature_set};
 use crate::VerifySignatures;
 use itertools::Itertools;
+use typenum::Unsigned;
 use types::*;
 
 type Result<T> = std::result::Result<T, BlockOperationError<Invalid>>;
@@ -21,6 +22,17 @@ pub fn is_valid_indexed_attestation<E: EthSpec>(
 
     // Verify that indices aren't empty
     verify!(!indices.is_empty(), Invalid::IndicesEmpty);
+
+    // [New in Gloas:EIP7688] Gloas attesting indices have no type-level bound, so check the
+    // spec's maximum here. Pre-Gloas attestation types already enforce an equal or tighter bound
+    // in SSZ.
+    verify!(
+        indices.len() <= E::MaxValidatorsPerSlot::to_usize(),
+        Invalid::IndicesExceedMaxLength {
+            length: indices.len(),
+            max: E::MaxValidatorsPerSlot::to_usize(),
+        }
+    );
 
     // Check that indices are sorted and unique
     let check_sorted = |list: &[u64]| -> Result<()> {

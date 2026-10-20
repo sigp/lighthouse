@@ -16,6 +16,7 @@ testing = []
 
 [dependencies]
 account_utils = { workspace = true }
+axum_utils = { workspace = true }
 beacon_chain = { workspace = true }
 bls = { workspace = true }
 clap = { workspace = true }

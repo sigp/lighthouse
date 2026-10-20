@@ -6,9 +6,9 @@ use reqwest::header::HeaderValue;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use types::MainnetEthSpec;
+use types::Spec;
 
-type Context = http_metrics::Context<EphemeralHarnessType<MainnetEthSpec>>;
+type Context = http_metrics::Context<EphemeralHarnessType<Spec>>;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn returns_200_ok() {
@@ -34,7 +34,7 @@ async fn returns_200_ok() {
             // It's not really interesting why this triggered, just that it happened.
             let _ = shutdown_rx.await;
         };
-        let (listening_socket, server) = http_metrics::serve(ctx, server_shutdown).unwrap();
+        let (listening_socket, server) = http_metrics::serve(ctx, server_shutdown).await.unwrap();
 
         tokio::spawn(server);
 

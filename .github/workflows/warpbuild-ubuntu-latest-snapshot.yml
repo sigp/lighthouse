@@ -5,8 +5,11 @@ on:
   schedule:
     # Every week (Sunday at 00:00 UTC)
     - cron: "0 0 * * 0"
-  pull_request:
-    branches: [stable, unstable]
+  push:
+    # The warpbuild snapshot is global across all branches, so only `stable`
+    # bakes it. This avoids non-stable branches (and Mergify merge-queue PRs)
+    # clobbering the shared snapshot and racking up duplicate bakes.
+    branches: [stable]
     paths:
       - '.github/workflows/warpbuild-ubuntu-latest-snapshot.yml'
 
@@ -16,7 +19,7 @@ concurrency:
 
 jobs:
   bake:
-    runs-on: warp-ubuntu-latest-x64-8x
+    runs-on: warp-ubuntu-latest-x64-8x;snapshot.enabled=true
     steps:
       - name: Install system deps
         run: |
@@ -49,11 +52,11 @@ jobs:
           cargo install --locked cargo-sort
           cargo install --locked cargo-hack
 
-      - name: Install Java (Temurin 21)
-        uses: actions/setup-java@v4
+      - name: Install Java (Temurin 25)
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '21'
+          java-version: '25'
 
       - name: Save snapshot
         uses: WarpBuilds/snapshot-save@v1
