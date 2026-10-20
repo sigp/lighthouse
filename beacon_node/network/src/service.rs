@@ -690,7 +690,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::FetchBlockColumns { block_root, block } => {
                 self.network_beacon_processor.spawn_fetch_block_columns(
                     block_root,
-                    &block,
+                    block,
                     EnvelopeSource::Http,
                 );
             }

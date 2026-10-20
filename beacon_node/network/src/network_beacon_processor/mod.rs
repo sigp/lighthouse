@@ -960,13 +960,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub(crate) fn spawn_fetch_block_columns(
         self: &Arc<Self>,
         block_root: Hash256,
-        block: &SignedBeaconBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         source: EnvelopeSource,
     ) {
-        let Some(header_or_bid) = PartialHeaderOrBid::try_from_block(block) else {
-            debug!("Pre-Fulu block passed to spawn_fetch_block_columns");
-            return;
-        };
         let task_name = match source {
             EnvelopeSource::Gossip => "fetch_blobs_gossip",
             EnvelopeSource::Rpc => "fetch_blobs_rpc",
@@ -976,6 +972,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let self_clone = self.clone();
         self.executor.spawn(
             async move {
+                // Building the Fulu header hashes the block body, so keep it off the caller's path.
+                let Some(header_or_bid) = PartialHeaderOrBid::try_from_block(block.as_ref()) else {
+                    debug!("Pre-Fulu block passed to spawn_fetch_block_columns");
+                    return;
+                };
                 self_clone
                     .fetch_engine_blobs_and_publish_full(
                         header_or_bid.clone(),
