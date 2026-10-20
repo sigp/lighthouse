@@ -3970,11 +3970,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // A small closure to group the verification and import errors.
         let chain = self.clone();
         let import_block = async move {
-            let execution_pending = unverified_block.into_execution_pending_block(
-                block_root,
-                &chain,
-                notify_execution_layer,
-            )?;
+            let execution_pending = unverified_block
+                .into_execution_pending_block(block_root, &chain, notify_execution_layer)
+                .inspect_err(|e| {
+                    // Gossip and the HTTP API cache Gloas blocks before this verification, so
+                    // that peers can fetch them by root. Stop serving a block that failed it.
+                    if !matches!(
+                        e,
+                        BlockError::DuplicateFullyImported(_)
+                            | BlockError::DuplicateImportStatusUnknown(_)
+                    ) {
+                        chain.pending_payload_cache.remove_block(&block_root);
+                    }
+                })?;
 
             let block = execution_pending.block.block_cloned();
             if block.fork_name_unchecked().gloas_enabled() {

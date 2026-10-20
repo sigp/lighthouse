@@ -248,6 +248,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             );
             tokio::time::sleep(block_publishing_delay).await;
         }
+        // Cache Gloas blocks before their columns are published, so that peers can fetch them by
+        // root. With consensus validation, `process_block` does so before publishing.
+        chain.pending_payload_cache.insert_block(
+            block_root,
+            block.clone(),
+            BlockImportSource::HttpApi,
+        );
         publish_block_p2p(block.clone(), sender_clone.clone(), seen_timestamp)
             .map_err(|_| warp_utils::reject::custom_server_error("unable to publish".into()))?;
     }
