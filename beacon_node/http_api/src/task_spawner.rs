@@ -159,7 +159,10 @@ impl<E: EthSpec> TaskSpawner<E> {
 
     pub fn try_send(&self, work_event: WorkEvent<E>) -> Result<(), warp::Rejection> {
         if let Some(beacon_processor_send) = &self.beacon_processor_send {
-            let error_message = match beacon_processor_send.try_send(work_event) {
+            let error_message = match beacon_processor_send
+                .try_send(work_event)
+                .map_err(|error| *error)
+            {
                 Ok(()) => None,
                 Err(TrySendError::Full(_)) => {
                     Some("The task was dropped. The server is overloaded.")
@@ -194,7 +197,10 @@ async fn send_to_beacon_processor<E: EthSpec, T>(
     process_fn: BlockingOrAsync,
     rx: oneshot::Receiver<T>,
 ) -> Result<T, warp::Rejection> {
-    let error_message = match beacon_processor_send.try_send(priority.work_event(process_fn)) {
+    let error_message = match beacon_processor_send
+        .try_send(priority.work_event(process_fn))
+        .map_err(|error| *error)
+    {
         Ok(()) => {
             match rx.await {
                 // The beacon processor executed the task and sent a result.
