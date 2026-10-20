@@ -780,6 +780,7 @@ mod tests {
         );
 
         let available_block = AvailableBlock::new(
+            block_root,
             block.clone(),
             AvailableBlockData::new_with_data_columns(data_columns),
             &chain.custody_context,

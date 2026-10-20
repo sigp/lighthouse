@@ -14,7 +14,6 @@ pub enum LightClientError {
     InvalidFinalizedBlock,
     BeaconBlockBodyError,
     InconsistentFork,
-    GloasNotImplemented,
     HezeNotImplemented,
 }
 
