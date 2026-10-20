@@ -6,8 +6,7 @@ use crate::sync::{
     ChainId, PeerGroup, SyncNetworkContext,
     manager::{BlockProcessType, SyncMessage},
 };
-use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
+use beacon_chain::block_verification_types::{AsBlock, LookupBlock, RangeSyncBlock};
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityCheckErrorCategory,
 };
@@ -55,13 +54,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// type checking.
     pub fn generate_lookup_beacon_block_process_fn(
         self: Arc<Self>,
+        peer_id: PeerId,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
         process_type: BlockProcessType,
     ) -> AsyncFn {
         let process_fn = async move {
             let duplicate_cache = self.duplicate_cache.clone();
-            self.process_lookup_block(block_root, block, process_type, duplicate_cache)
+            self.process_lookup_block(peer_id, block_root, block, process_type, duplicate_cache)
                 .await;
         };
         Box::pin(process_fn)
@@ -70,12 +70,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Returns the `process_fn` and `ignore_fn` required when requeuing an RPC block.
     pub fn generate_lookup_beacon_block_fns(
         self: Arc<Self>,
+        peer_id: PeerId,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
         process_type: BlockProcessType,
     ) -> (AsyncFn, BlockingFn) {
         // An async closure which will import the block.
         let process_fn = self.clone().generate_lookup_beacon_block_process_fn(
+            peer_id,
             block_root,
             block,
             process_type.clone(),
@@ -109,6 +111,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     )]
     pub async fn process_lookup_block(
         self: Arc<NetworkBeaconProcessor<T>>,
+        peer_id: PeerId,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
         process_type: BlockProcessType,
@@ -124,23 +127,29 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             );
 
             // Send message to work reprocess queue to retry the block
-            let (process_fn, ignore_fn) =
-                self.clone()
-                    .generate_lookup_beacon_block_fns(block_root, block, process_type);
+            let (process_fn, ignore_fn) = self.clone().generate_lookup_beacon_block_fns(
+                peer_id,
+                block_root,
+                block,
+                process_type,
+            );
             let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+                peer_id,
                 beacon_block_root: block_root,
                 process_fn,
                 ignore_fn,
             });
 
-            if self
-                .beacon_processor_send
-                .try_send(WorkEvent {
-                    drop_during_sync: false,
-                    work: Work::Reprocess(reprocess_msg),
-                })
-                .is_err()
-            {
+            if let Err(error) = self.beacon_processor_send.try_send(WorkEvent {
+                drop_during_sync: false,
+                work: Work::Reprocess(reprocess_msg),
+            }) {
+                // The reprocessing queue never took ownership, so complete this attempt here.
+                if let Work::Reprocess(ReprocessQueueMessage::RpcBlock(block)) =
+                    error.into_inner().work
+                {
+                    (block.ignore_fn)();
+                }
                 error!(source = "rpc", %block_root,"Failed to inform block import")
             };
             return;
@@ -416,13 +425,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // that they advertised as available.
                         Some(PeerAction::LowToleranceError)
                     }
-                    HistoricalDataColumnError::InvalidKzg => {
+                    HistoricalDataColumnError::InvalidKzg { .. } => {
                         warn!(
                             error = ?e,
                             "Custody backfill batch processing error",
                         );
                         // The peer is faulty if they don't return data columns
-                        // with valid kzg commitments.
+                        // with valid kzg proofs.
                         Some(PeerAction::LowToleranceError)
                     }
                     HistoricalDataColumnError::BeaconChainError(e) => {
