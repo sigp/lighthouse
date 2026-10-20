@@ -60,8 +60,6 @@ type InboundSubstream<E> = InboundFramed<Stream, E>;
 pub enum HandlerEvent<Id, E: EthSpec> {
     Ok(RPCReceived<Id, E>),
     Err(HandlerErr<Id>),
-    /// An inbound substream closed and no more responses can be sent for its request.
-    InboundStreamClosed(SubstreamId),
     Close(RPCError),
 }
 
@@ -658,8 +656,6 @@ where
         // Remove closed substreams
         for inbound_id in substreams_to_remove {
             self.inbound_substreams.remove(&inbound_id);
-            self.events_out
-                .push(HandlerEvent::InboundStreamClosed(inbound_id));
         }
 
         // drive outbound streams that need to be processed
