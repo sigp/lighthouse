@@ -166,7 +166,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
     // Without blob data in the request (always the case for Gloas, where the builder reveals it
     // with the payload), the node must retrieve the block's columns like it does for gossip blocks.
-    let fetch_columns = unverified_blobs.is_none();
+    // The exception is a payload we built ourselves, whose columns the envelope endpoint publishes
+    // from the cached blobs, so retrieving them as well would only duplicate that work.
+    let fetch_columns =
+        unverified_blobs.is_none() && !chain.pending_payload_envelopes.read().has_blobs(block_root);
 
     let current_span = Span::current();
     current_span.record("provenance", provenance);
