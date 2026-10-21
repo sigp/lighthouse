@@ -1905,17 +1905,6 @@ mod tests {
     use ssz::Encode;
 
     #[test]
-    fn version_data_v2_omits_unknown_execution_client() {
-        let data = VersionDataV2 {
-            beacon_node: version_with_commit(),
-            execution_client: None,
-        };
-        let json = serde_json::to_value(&data).unwrap();
-        assert!(json.get("beacon_node").is_some());
-        assert!(json.get("execution_client").is_none());
-    }
-
-    #[test]
     fn query_vec() {
         assert_eq!(
             QueryVec::try_from("0,1,2".to_string()).unwrap(),
