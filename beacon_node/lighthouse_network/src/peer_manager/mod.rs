@@ -613,12 +613,17 @@ impl<E: EthSpec> PeerManager<E> {
                     | Protocol::PayloadEnvelopesByRoot
                     | Protocol::DataColumnsByRoot
                     | Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
-                    // Lighthouse does not currently make light client requests; therefore, this
-                    // is an unexpected scenario. We do not ban the peer for rate limiting.
                     Protocol::LightClientBootstrap
                     | Protocol::LightClientOptimisticUpdate
                     | Protocol::LightClientFinalityUpdate
-                    | Protocol::LightClientUpdatesByRange => return,
+                    | Protocol::LightClientUpdatesByRange => match direction {
+                        // An inbound rate limit error means that the peer exceeded one of our
+                        // limits.
+                        ConnectionDirection::Incoming => PeerAction::MidToleranceError,
+                        // Lighthouse does not currently make light client requests; therefore,
+                        // receiving this response from a peer is an unexpected scenario.
+                        ConnectionDirection::Outgoing => return,
+                    },
                     Protocol::Goodbye | Protocol::MetaData | Protocol::Status => {
                         PeerAction::LowToleranceError
                     }
@@ -1724,7 +1729,7 @@ mod tests {
     use super::*;
     use crate::NetworkConfig;
     use crate::rpc::MetaDataV3;
-    use types::{ChainSpec, ForkName, MainnetEthSpec as E};
+    use types::{ChainSpec, ForkName, Spec as E};
 
     async fn build_peer_manager(target_peer_count: usize) -> PeerManager<E> {
         build_peer_manager_with_trusted_peers(vec![], target_peer_count).await
@@ -1790,6 +1795,40 @@ mod tests {
 
         assert!(peer_manager.dial_peer(enr_with_tcp4_port(9000)));
         assert_eq!(peer_manager.peers_to_dial.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_inbound_light_client_rate_limit_penalizes_peer() {
+        let mut peer_manager = build_peer_manager(1).await;
+        let peer_id = PeerId::random();
+        peer_manager.inject_connect_incoming(&peer_id, "/ip4/0.0.0.0".parse().unwrap(), None);
+        let rate_limited = RPCError::ErrorResponse(
+            RpcErrorResponse::RateLimited,
+            "concurrent request limit exceeded".into(),
+        );
+
+        let initial_score = peer_manager.network_globals.peers.read().score(&peer_id);
+        peer_manager.handle_rpc_error(
+            &peer_id,
+            Protocol::LightClientOptimisticUpdate,
+            &rate_limited,
+            ConnectionDirection::Incoming,
+        );
+        let penalized_score = peer_manager.network_globals.peers.read().score(&peer_id);
+        assert_eq!(initial_score - 5.0, penalized_score);
+
+        // Preserve the existing behaviour for the light client requests that Lighthouse does not
+        // currently make: an outbound rate limited response is not penalized.
+        peer_manager.handle_rpc_error(
+            &peer_id,
+            Protocol::LightClientOptimisticUpdate,
+            &rate_limited,
+            ConnectionDirection::Outgoing,
+        );
+        assert_eq!(
+            penalized_score,
+            peer_manager.network_globals.peers.read().score(&peer_id)
+        );
     }
 
     #[tokio::test]
@@ -3028,7 +3067,7 @@ mod tests {
         use tokio::runtime::Runtime;
         use typenum::Unsigned;
         use types::DataColumnSubnetId;
-        use types::{EthSpec, MainnetEthSpec as E};
+        use types::{EthSpec, Spec as E};
 
         #[derive(Clone, Debug)]
         struct PeerCondition {
