@@ -1511,6 +1511,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
+ "tokio-tungstenite",
  "tracing",
  "tree_hash",
  "tree_hash_derive",
@@ -1879,6 +1880,7 @@ name = "builder_client"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "base64 0.22.1",
  "bls",
  "builder_types",
  "context_deserialize",
@@ -1886,16 +1888,23 @@ dependencies = [
  "ethereum_ssz",
  "futures",
  "lighthouse_version",
+ "metrics",
  "mockito",
  "parking_lot",
  "pretty_reqwest_error",
  "reqwest 0.12.28",
+ "rustls",
+ "rustls-native-certs",
  "sensitive_url",
  "serde",
  "serde_json",
+ "slot_clock",
+ "task_executor",
  "tokio",
+ "tokio-tungstenite",
  "tracing",
  "types",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -10115,6 +10124,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-tungstenite"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
+dependencies = [
+ "futures-util",
+ "log",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "tokio",
+ "tokio-rustls",
+ "tungstenite",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10451,6 +10476,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "tungstenite"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8628dcc84e5a09eb3d8423d6cb682965dea9133204e8fb3efee74c2a0c259442"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand 0.9.5",
+ "rustls",
+ "rustls-pki-types",
+ "sha1",
+ "thiserror 2.0.21",
+ "utf-8",
+]
+
+[[package]]
 name = "typed-path"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10638,6 +10682,12 @@ dependencies = [
  "serde",
  "serde_derive",
 ]
+
+[[package]]
+name = "utf-8"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
 
 [[package]]
 name = "utf8_iter"
