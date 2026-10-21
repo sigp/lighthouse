@@ -29,6 +29,7 @@ esac
 docker run --rm "${env_args[@]}" -v "$PWD:/lighthouse" -w /lighthouse "$RUST_IMAGE" bash -euc "
     apt-get update
     apt-get install -y --no-install-recommends cmake clang libclang-dev
+    git config --global --add safe.directory /lighthouse
     cargo build --bin $binary --features '$features' --profile $profile --locked --target $target
     chown -R $(id -u):$(id -g) target
 "

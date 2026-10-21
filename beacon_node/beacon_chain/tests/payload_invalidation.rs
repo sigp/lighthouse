@@ -4,7 +4,7 @@
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::{
-    BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
+    BeaconChainError, BlockError, BlockErrorWithRoot, ChainConfig, ExecutionPayloadError,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, StateSkipConfig,
     WhenSlotSkipped,
     canonical_head::CachedHead,
@@ -795,7 +795,7 @@ async fn invalidates_all_descendants() {
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
-    let fork_lookup_block = LookupBlock::new(fork_block.clone());
+    let fork_lookup_block = LookupBlock::new(fork_block.canonical_root(), fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
@@ -899,7 +899,7 @@ async fn switches_heads() {
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
-    let fork_lookup_block = LookupBlock::new(fork_block.clone());
+    let fork_lookup_block = LookupBlock::new(fork_block.canonical_root(), fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
@@ -1183,13 +1183,18 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
     assert!(matches!(
-        rig.harness.chain.clone().verify_block_for_gossip(block.clone()).await,
+        rig.harness
+            .chain
+            .clone()
+            .verify_block_for_gossip(block.clone())
+            .await
+            .map_err(BlockErrorWithRoot::into_block_error),
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
 
     // Ensure the block built atop an invalid payload is invalid for import.
-    let lookup_block = LookupBlock::new(block.clone());
+    let lookup_block = LookupBlock::new(block_root, block.clone());
     assert!(matches!(
         rig.harness.chain.process_block(lookup_block.block_root(), lookup_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
@@ -1483,7 +1488,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     } = InvalidHeadSetup::new().await;
 
     // Import the fork block, it should become the head.
-    let fork_lookup_block = LookupBlock::new(fork_block.clone());
+    let fork_lookup_block = LookupBlock::new(fork_block.canonical_root(), fork_block.clone());
     rig.harness
         .chain
         .process_block(

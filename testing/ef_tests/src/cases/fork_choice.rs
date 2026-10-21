@@ -835,7 +835,7 @@ impl<E: EthSpec> Tester<E> {
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
-                LookupBlock::new(block.clone()),
+                LookupBlock::new(block_root, block.clone()),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -944,7 +944,7 @@ impl<E: EthSpec> Tester<E> {
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
-                LookupBlock::new(block.clone()),
+                LookupBlock::new(block_root, block.clone()),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
