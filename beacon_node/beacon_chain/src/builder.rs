@@ -4,6 +4,7 @@ use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, CanonicalHead, LightClientProducerEvent, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::circuit_breaker::{CircuitBreaker, CircuitBreakerConfig};
 use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
@@ -378,13 +379,8 @@ where
         // Stage the database's metadata fields for atomic storage when `build` is called.
         self.pending_io_batch.push(
             store
-                .init_blob_info(genesis.beacon_block.slot())
-                .map_err(|e| format!("Failed to initialize genesis blob info: {:?}", e))?,
-        );
-        self.pending_io_batch.push(
-            store
-                .init_data_column_info(genesis.beacon_block.slot())
-                .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
+                .init_data_info(genesis.beacon_block.slot())
+                .map_err(|e| format!("Failed to initialize genesis data info: {:?}", e))?,
         );
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, genesis.clone())
@@ -599,13 +595,8 @@ where
         self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store
-                .init_blob_info(weak_subj_block.slot())
-                .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
-        );
-        self.pending_io_batch.push(
-            store
-                .init_data_column_info(weak_subj_block.slot())
-                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
+                .init_data_info(weak_subj_block.slot())
+                .map_err(|e| format!("Failed to initialize data info: {:?}", e))?,
         );
 
         let snapshot = BeaconSnapshot {
@@ -1006,6 +997,9 @@ where
         debug!(?custody_context, "Loaded persisted custody context");
         let custody_context = Arc::new(custody_context);
 
+        let circuit_breaker =
+            CircuitBreaker::new::<E>(CircuitBreakerConfig::from_chain_config(&self.chain_config));
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -1108,6 +1102,7 @@ where
                 .map(Arc::new),
             rng: Arc::new(Mutex::new(rng)),
             gossip_verified_payload_bid_cache: <_>::default(),
+            circuit_breaker,
             gossip_verified_proposer_preferences_cache: <_>::default(),
             observed_payload_envelopes: <_>::default(),
         };
@@ -1414,13 +1409,8 @@ where
         self.pending_io_batch.push(store.store_split_in_batch());
         self.pending_io_batch.push(
             store
-                .init_blob_info(initial_block.slot())
-                .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
-        );
-        self.pending_io_batch.push(
-            store
-                .init_data_column_info(initial_block.slot())
-                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
+                .init_data_info(initial_block.slot())
+                .map_err(|e| format!("Failed to initialize data info: {:?}", e))?,
         );
 
         {
@@ -1582,9 +1572,9 @@ mod test {
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
     use task_executor::test_utils::TestRuntime;
-    use types::{EthSpec, MinimalEthSpec, Slot};
+    use types::{EthSpec, Slot, Spec};
 
-    type TestEthSpec = MinimalEthSpec;
+    type TestEthSpec = Spec;
     type Builder = BeaconChainBuilder<EphemeralHarnessType<TestEthSpec>>;
 
     #[test]
@@ -1592,12 +1582,9 @@ mod test {
         let validator_count = 1;
         let genesis_time = 13_371_337;
 
-        let store: HotColdDB<MinimalEthSpec, MemoryStore, MemoryStore> = HotColdDB::open_ephemeral(
-            StoreConfig::default(),
-            MinimalEthSpec::default_spec().into(),
-        )
-        .unwrap();
-        let spec = MinimalEthSpec::default_spec();
+        let store: HotColdDB<Spec, MemoryStore, MemoryStore> =
+            HotColdDB::open_ephemeral(StoreConfig::default(), Spec::default_spec().into()).unwrap();
+        let spec = Spec::default_spec();
 
         let genesis_state = interop_genesis_state(
             &generate_deterministic_keypairs(validator_count),
@@ -1613,7 +1600,7 @@ mod test {
 
         let kzg = get_kzg(&spec);
 
-        let chain = Builder::new(MinimalEthSpec, kzg)
+        let chain = Builder::new(Spec::default(), kzg)
             .store(Arc::new(store))
             .task_executor(runtime.task_executor.clone())
             .genesis_state(genesis_state)
@@ -1622,9 +1609,7 @@ mod test {
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .rng(Box::new(StdRng::seed_from_u64(42)))
-            .ordered_custody_column_indices(
-                generate_data_column_indices_rand_order::<MinimalEthSpec>(),
-            )
+            .ordered_custody_column_indices(generate_data_column_indices_rand_order::<Spec>())
             .build()
             .expect("should build");
 

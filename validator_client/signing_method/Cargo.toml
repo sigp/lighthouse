@@ -18,3 +18,6 @@ tracing = { workspace = true }
 types = { workspace = true }
 url = { workspace = true }
 validator_metrics = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

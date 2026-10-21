@@ -460,6 +460,9 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE` constant for this specification.
     fn max_signed_execution_payload_bid_size() -> usize;
 
+    /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE_HEZE` constant for this specification.
+    fn max_signed_execution_payload_bid_size_heze() -> usize;
+
     /// Returns the `MAX_SIGNED_INCLUSION_LIST_SIZE` constant for this specification.
     fn max_signed_inclusion_list_size() -> usize;
 
@@ -575,6 +578,10 @@ impl EthSpec for MainnetEthSpec {
         196932
     }
 
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
+    }
+
     fn max_signed_inclusion_list_size() -> usize {
         41112
     }
@@ -671,6 +678,10 @@ impl EthSpec for MinimalEthSpec {
         196932
     }
 
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
+    }
+
     fn max_signed_inclusion_list_size() -> usize {
         41112
     }
@@ -762,6 +773,10 @@ impl EthSpec for GnosisEthSpec {
 
     fn max_signed_execution_payload_bid_size() -> usize {
         196932
+    }
+
+    fn max_signed_execution_payload_bid_size_heze() -> usize {
+        196934
     }
 
     fn max_signed_inclusion_list_size() -> usize {

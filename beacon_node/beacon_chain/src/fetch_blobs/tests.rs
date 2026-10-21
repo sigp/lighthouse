@@ -14,11 +14,11 @@ use maplit::hashset;
 use std::sync::{Arc, Mutex};
 use task_executor::test_utils::TestRuntime;
 use types::{
-    BeaconBlock, BeaconBlockFulu, EmptyBlock, EthSpec, ForkName, Hash256, MainnetEthSpec,
-    SignedBeaconBlock, SignedBeaconBlockFulu,
+    BeaconBlock, BeaconBlockFulu, EmptyBlock, EthSpec, ForkName, Hash256, SignedBeaconBlock,
+    SignedBeaconBlockFulu, Spec,
 };
 
-type E = MainnetEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
 mod get_blobs_v2 {
@@ -525,7 +525,7 @@ mod get_blobs_v4 {
                 .body()
                 .signed_execution_payload_bid()
                 .expect("gloas block has a bid")
-                .clone(),
+                .clone_as_signed_execution_payload_bid(),
         );
 
         // Real pending payload cache: the Gloas path inserts the bid and merges partial columns into

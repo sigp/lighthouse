@@ -536,6 +536,33 @@ fn bellatrix_execution_endpoint_flag() {
     run_bellatrix_execution_endpoints_flag_test("execution-endpoint")
 }
 #[test]
+fn proof_engine_endpoint_without_execution_endpoint() {
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("proof-engine-endpoint", Some("http://localhost:8552/"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config
+                    .proof_engine_endpoint
+                    .as_ref()
+                    .unwrap()
+                    .expose_full()
+                    .to_string(),
+                "http://localhost:8552/"
+            );
+            assert!(config.network.enable_execution_proof);
+            // No endpoint means no execution layer at all, and so no JWT is needed either.
+            assert!(config.execution_layer.is_none());
+            assert!(config.chain.disable_get_blobs);
+            assert!(!config.store.prune_payloads);
+        });
+}
+#[test]
+#[should_panic]
+fn no_execution_endpoint_and_no_proof_engine_endpoint() {
+    CommandLineTest::new_with_no_execution_endpoint().run_with_zero_port();
+}
+#[test]
 fn bellatrix_jwt_secrets_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
@@ -666,6 +693,36 @@ fn builder_fallback_flags() {
         |config| {
             assert!(config.chain.builder_fallback_disable_checks);
         },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(config.chain.builder_fallback_ban_slots, 32);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-ban-slots"),
+        Some("64"),
+        |config| {
+            assert_eq!(config.chain.builder_fallback_ban_slots, 64);
+        },
+    );
+}
+
+#[test]
+#[should_panic]
+fn builder_fallback_ban_slots_below_slots_per_epoch_is_rejected() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-ban-slots"),
+        Some("31"),
+        |_| {},
     );
 }
 
@@ -800,6 +857,15 @@ fn network_target_peers_flag() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.target_peers, "55".parse::<usize>().unwrap());
+        });
+}
+#[test]
+fn network_unknown_root_min_peers_flag() {
+    CommandLineTest::new()
+        .flag("unknown-root-min-peers", Some("5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.unknown_root_min_peers, 5);
         });
 }
 #[test]
