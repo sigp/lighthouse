@@ -25,6 +25,12 @@ pub(crate) fn verify_preferences_consistency<E: EthSpec>(
     let current_epoch = current_slot.epoch(E::slots_per_epoch());
     let proposal_epoch = proposal_slot.epoch(E::slots_per_epoch());
 
+    if let Some(gloas_fork_epoch) = spec.gloas_fork_epoch
+        && proposal_epoch < gloas_fork_epoch
+    {
+        return Err(ProposerPreferencesError::ProposalEpochPreGloas { proposal_epoch });
+    }
+
     if proposal_epoch < current_epoch
         || proposal_epoch > current_epoch.saturating_add(spec.min_seed_lookahead)
     {
@@ -262,13 +268,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
 #[cfg(test)]
 mod tests {
-    use types::{Address, ChainSpec, EthSpec, Hash256, MinimalEthSpec, ProposerPreferences, Slot};
+    use types::{Address, ChainSpec, EthSpec, Hash256, ProposerPreferences, Slot, Spec};
 
     use super::verify_preferences_consistency;
     use crate::proposer_preferences_verification::ProposerPreferencesError;
     use crate::test_utils::{fork_name_from_env, test_spec};
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_preferences(proposal_slot: Slot, validator_index: u64) -> ProposerPreferences {
         ProposerPreferences {

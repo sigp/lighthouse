@@ -22,7 +22,7 @@ pub struct IndexedPayloadAttestation<E: EthSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
 
-    ssz_and_tree_hash_tests!(IndexedPayloadAttestation<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(IndexedPayloadAttestation<Spec>);
 }

@@ -265,18 +265,11 @@ impl<E: EthSpec> PeerManager<E> {
             "Connection established"
         );
 
-        // Update the prometheus metrics
-        if self.metrics_enabled {
-            metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-
-            self.update_peer_count_metrics();
-        }
-
         // NOTE: We don't register peers that we are disconnecting immediately. The network service
         // does not need to know about these peers.
         match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
-                self.inject_connect_ingoing(&peer_id, send_back_addr.clone(), None);
+                self.inject_connect_incoming(&peer_id, send_back_addr.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedIncoming(peer_id));
             }
@@ -286,6 +279,13 @@ impl<E: EthSpec> PeerManager<E> {
                     .push(PeerManagerEvent::PeerConnectedOutgoing(peer_id));
             }
         };
+
+        // Update the prometheus metrics
+        if self.metrics_enabled {
+            metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
+
+            self.update_peer_count_metrics();
+        }
     }
 
     fn on_connection_closed(

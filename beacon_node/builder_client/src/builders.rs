@@ -40,7 +40,10 @@ pub struct DirectBid<E: EthSpec> {
 #[derive(Clone)]
 pub struct BidRequestContext {
     pub slot: Slot,
-    pub parent_hash: ExecutionBlockHash,
+    /// The latest executed ancestor's payload hash (the parent's payload when building on FULL,
+    /// otherwise the payload the parent built on). Sent as the builder API's `parent_hash` path
+    /// parameter, and the hash a returned bid must name as its `parent_block_hash`.
+    pub executed_ancestor_hash: ExecutionBlockHash,
     pub parent_root: Hash256,
     pub proposer_pubkey: PublicKeyBytes,
     /// The active consensus version at `slot`, sent as the required `Eth-Consensus-Version`
@@ -148,7 +151,7 @@ impl Builders {
                 .get_execution_payload_bid::<E>(
                     url,
                     ctx.slot,
-                    ctx.parent_hash,
+                    ctx.executed_ancestor_hash,
                     ctx.parent_root,
                     &ctx.proposer_pubkey,
                     &entry.auth,
@@ -247,13 +250,13 @@ mod tests {
     use bls::Signature;
     use eth2::types::beacon_response::EmptyMetadata;
     use eth2::types::{
-        ExecutionPayloadBid, ForkName, ForkVersionedResponse, MainnetEthSpec, RequestAuth,
-        RequestAuthData, SignedExecutionPayloadBid, SignedRequestAuth,
+        ExecutionPayloadBidGloas, ForkName, ForkVersionedResponse, RequestAuth, RequestAuthData,
+        SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedRequestAuth, Spec,
     };
     use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER};
     use mockito::{Matcher, Mock, Server, ServerGuard};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     const BID_PATH: &str = r"^/eth/v1/builder/execution_payload_bid/.+$";
 
@@ -278,16 +281,16 @@ mod tests {
         let body = ForkVersionedResponse {
             version: ForkName::Gloas,
             metadata: EmptyMetadata {},
-            data: SignedExecutionPayloadBid::<E> {
-                message: ExecutionPayloadBid {
+            data: SignedExecutionPayloadBid::<E>::Gloas(SignedExecutionPayloadBidGloas {
+                message: ExecutionPayloadBidGloas {
                     slot: Slot::new(1),
                     parent_block_hash: ExecutionBlockHash::zero(),
                     parent_block_root: Hash256::ZERO,
                     value,
-                    ..ExecutionPayloadBid::default()
+                    ..ExecutionPayloadBidGloas::default()
                 },
                 signature: Signature::empty(),
-            },
+            }),
         };
         serde_json::to_string(&body).unwrap()
     }
@@ -305,7 +308,7 @@ mod tests {
     fn context() -> BidRequestContext {
         BidRequestContext {
             slot: Slot::new(1),
-            parent_hash: ExecutionBlockHash::zero(),
+            executed_ancestor_hash: ExecutionBlockHash::zero(),
             parent_root: Hash256::ZERO,
             proposer_pubkey: PublicKeyBytes::empty(),
             fork_name: ForkName::Gloas,
@@ -331,7 +334,10 @@ mod tests {
                 Ok::<(), String>(())
             })
             .await;
-        let mut values: Vec<u64> = bids.iter().map(|b| b.signed_bid.message.value).collect();
+        let mut values: Vec<u64> = bids
+            .iter()
+            .map(|b| b.signed_bid.message().value())
+            .collect();
         values.sort_unstable();
         assert_eq!(values, vec![100, 200]);
     }

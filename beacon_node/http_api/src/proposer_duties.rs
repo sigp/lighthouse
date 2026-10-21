@@ -162,8 +162,10 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
             .map_err(warp_utils::reject::beacon_state_error)?,
         DependentRootSelection::True => head_decision_root,
     };
+    // Must match `compute_proposer_duties_from_head`, which reads the head node. Assuming `FULL`
+    // here would make the same endpoint answer differently on a cache hit and a cache miss.
     let execution_optimistic = chain
-        .is_optimistic_or_invalid_head_block(head_block)
+        .is_optimistic_or_invalid_head()
         .map_err(warp_utils::reject::unhandled_error)?;
 
     chain

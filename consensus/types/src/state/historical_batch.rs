@@ -29,9 +29,9 @@ pub struct HistoricalBatch<E: EthSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::MainnetEthSpec;
+    use crate::core::Spec;
 
-    pub type FoundationHistoricalBatch = HistoricalBatch<MainnetEthSpec>;
+    pub type FoundationHistoricalBatch = HistoricalBatch<Spec>;
 
     ssz_and_tree_hash_tests!(FoundationHistoricalBatch);
 }

@@ -1,13 +1,11 @@
 use super::*;
 use crate::VerifySignatures;
-use crate::builder_deposits_cache::{OnboardBuildersCache, is_valid_deposit_signature_cached};
 use crate::common::{
     get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
     slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, ExitInvalid, IntoWithIndex};
 use crate::per_block_processing::verify_payload_attestation::verify_payload_attestation;
-use bls::PublicKeyBytes;
 use ssz_types::FixedVector;
 use typenum::U33;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
@@ -22,8 +20,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    // [New in Gloas:EIP7688] The operation lists are `ProgressiveList`s without type-level
-    // limits, so the spec's per-block limits are enforced at runtime instead.
+    // [New in Gloas:EIP7688] Also enforce limits on lists constructed without decoding.
     if state.fork_name_unchecked().gloas_enabled() {
         verify_operation_list_lengths(block_body)?;
     }
@@ -91,8 +88,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
 /// Verify the lengths of the (progressive) operation lists against the spec's runtime limits.
 ///
-/// [New in Gloas:EIP7688]: these limits used to be enforced by the SSZ types, but
-/// `ProgressiveList` is unbounded so they must be checked explicitly.
+/// Construction and mutation of progressive lists can exceed their decoder limits.
 pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>>(
     block_body: BeaconBlockBodyRef<E, Payload>,
 ) -> Result<(), BlockProcessingError> {
@@ -489,38 +485,6 @@ pub fn process_proposer_slashings<E: EthSpec>(
         .try_for_each(|(i, proposer_slashing)| {
             verify_proposer_slashing(proposer_slashing, state, verify_signatures, spec)
                 .map_err(|e| e.into_with_index(i))?;
-
-            // [New in Gloas:EIP7732]
-            // Remove the BuilderPendingPayment corresponding to this proposal
-            // if it is still in the 2-epoch window. Only clear it when the slashed validator is
-            // the proposer associated with the payment; otherwise an unrelated same-slot
-            // equivocation could grief an honest proposer's payment.
-            if state.fork_name_unchecked().gloas_enabled() {
-                let slot = proposer_slashing.signed_header_1.message.slot;
-                let proposal_epoch = slot.epoch(E::slots_per_epoch());
-                let slot_in_epoch = slot.as_usize().safe_rem(E::SlotsPerEpoch::to_usize())?;
-
-                let payment_index = if proposal_epoch == state.current_epoch() {
-                    Some(E::SlotsPerEpoch::to_usize().safe_add(slot_in_epoch)?)
-                } else if proposal_epoch == state.previous_epoch() {
-                    Some(slot_in_epoch)
-                } else {
-                    None
-                };
-
-                if let Some(index) = payment_index {
-                    let payment = state
-                        .builder_pending_payments_mut()?
-                        .get_mut(index)
-                        .ok_or(BlockProcessingError::BuilderPaymentIndexOutOfBounds(index))?;
-
-                    if payment.proposer_index
-                        == proposer_slashing.signed_header_1.message.proposer_index
-                    {
-                        *payment = BuilderPendingPayment::default();
-                    }
-                }
-            }
 
             slash_validator(
                 state,
@@ -1048,23 +1012,6 @@ fn process_builder_exit_request<E: EthSpec>(
     initiate_builder_exit(state, builder_index, spec)?;
 
     Ok(())
-}
-
-/// Check if there is a pending deposit for a new validator with the given pubkey.
-///
-/// Signature verification results are looked up in the `builder_onboarding_cache` when one is
-/// provided, so only cache misses pay for BLS verification. The linear scan over
-/// `pending_deposits` remains, but only performs pubkey comparisons for non-matching entries.
-pub fn is_pending_validator<'a>(
-    pending_deposits: impl IntoIterator<Item = &'a PendingDeposit>,
-    pubkey: &PublicKeyBytes,
-    builder_onboarding_cache: Option<&OnboardBuildersCache>,
-    spec: &ChainSpec,
-) -> bool {
-    pending_deposits.into_iter().any(|deposit| {
-        deposit.pubkey == *pubkey
-            && is_valid_deposit_signature_cached(builder_onboarding_cache, deposit, spec)
-    })
 }
 
 // Make sure to build the pubkey cache before calling this function

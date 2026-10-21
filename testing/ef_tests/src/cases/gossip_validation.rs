@@ -52,8 +52,6 @@ struct Meta {
     #[serde(default)]
     finalized_checkpoint: Option<FinalizedCheckpoint>,
     #[serde(default)]
-    current_time_ms: Option<u64>,
-    #[serde(default)]
     messages: Vec<MessageMeta>,
     #[serde(default)]
     bls_setting: Option<BlsSetting>,
@@ -100,8 +98,6 @@ struct MessageMeta {
     reason: Option<String>,
     #[serde(default)]
     subnet_id: Option<u64>,
-    #[serde(default)]
-    offset_ms: Option<u64>,
     #[serde(default)]
     current_time_ms: Option<u64>,
 }
@@ -198,7 +194,7 @@ impl<E: EthSpec> GossipTester<E> {
     fn new(case: &GossipValidation<E>, spec: ChainSpec) -> Result<Self, Error> {
         let genesis_time = case.state.genesis_time();
         let blocks = case.load_beacon_blocks(&spec)?;
-        let current_time_ms = case.current_time_ms(&spec)?;
+        let current_time_ms = case.current_time_ms(&blocks, &spec)?;
         let spec = Arc::new(spec);
 
         let (harness, initial_block_index) =
@@ -233,6 +229,10 @@ impl<E: EthSpec> GossipTester<E> {
         // advanced state, then import the historical block through the normal path below.
         let initial_block_index =
             (!case.meta.blocks.is_empty() && !case.is_advanced_timing_ignore()).then_some(0);
+        let spec_synthetic_anchor = match initial_block_index {
+            Some(index) => case.has_spec_synthetic_anchor(index, blocks)?,
+            None => false,
+        };
 
         let harness_builder = || {
             BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
@@ -245,7 +245,9 @@ impl<E: EthSpec> GossipTester<E> {
                 .mock_execution_layer_all_payloads_valid()
         };
 
-        let harness = if let Some(initial_block_index) = initial_block_index {
+        let harness = if let Some(initial_block_index) = initial_block_index
+            && !spec_synthetic_anchor
+        {
             let initial_setup_block = &case.meta.blocks[initial_block_index];
             // The first setup block's post-state is `state.ssz_snappy`. Other setup blocks are
             // imported below through Lighthouse's normal block import path.
@@ -263,7 +265,7 @@ impl<E: EthSpec> GossipTester<E> {
                     finalized_checkpoint,
                 )
                 .build()
-        } else if case.meta.topic.requires_synthetic_anchor() {
+        } else if spec_synthetic_anchor || case.meta.topic.requires_synthetic_anchor() {
             let (state, block) = synthetic_anchor(case.state.clone(), &spec)?;
             let slot_clock = TestingSlotClock::new(
                 spec.genesis_slot,
@@ -433,7 +435,7 @@ impl<E: EthSpec> GossipTester<E> {
         peer_id: PeerId,
     ) -> Result<(), Error> {
         let block = Arc::new(load_beacon_block(path, &message_meta.message, &self.spec)?);
-        let time_ms = self.message_time_ms(message_meta)?;
+        let time_ms = self.message_time_ms(message_meta);
         let seen_duration = self.set_time_ms(time_ms)?;
 
         let process_fn = Box::pin(self.network_beacon_processor.clone().process_gossip_block(
@@ -581,18 +583,12 @@ impl<E: EthSpec> GossipTester<E> {
     }
 
     fn set_message_time(&self, message_meta: &MessageMeta) -> Result<Duration, Error> {
-        let time_ms = self.message_time_ms(message_meta)?;
+        let time_ms = self.message_time_ms(message_meta);
         self.set_time_ms(time_ms)
     }
 
-    fn message_time_ms(&self, message_meta: &MessageMeta) -> Result<u64, Error> {
-        if let Some(current_time_ms) = message_meta.current_time_ms {
-            return Ok(current_time_ms);
-        }
-
-        self.current_time_ms
-            .checked_add(message_meta.offset_ms.unwrap_or_default())
-            .ok_or_else(|| Error::FailedToParseTest("message time overflow".into()))
+    fn message_time_ms(&self, message_meta: &MessageMeta) -> u64 {
+        message_meta.current_time_ms.unwrap_or(self.current_time_ms)
     }
 
     fn validation_result(
@@ -633,7 +629,7 @@ impl<E: EthSpec> GossipTester<E> {
         self.configure_payload_status(&block, payload_status);
         let result = self.block_on_dangerous(self.network_beacon_processor.chain.process_block(
             block_root,
-            LookupBlock::new(Arc::new(block.clone())),
+            LookupBlock::new(block_root, Arc::new(block.clone())),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -643,10 +639,19 @@ impl<E: EthSpec> GossipTester<E> {
         match result {
             Ok(_) => {
                 if payload_status == Some(PayloadStatus::Invalidated) {
-                    // The block has been imported optimistically. Mark it invalid in fork choice so
-                    // descendants observe an invalid execution parent.
+                    // The block has been imported optimistically. Mark its payload invalid in fork
+                    // choice so descendants observe an invalid execution parent.
+                    let head_hash = block
+                        .message()
+                        .execution_payload()
+                        .map_err(|e| {
+                            Error::InternalError(format!(
+                                "setup block {block_root:?} has no execution payload: {e:?}"
+                            ))
+                        })?
+                        .block_hash();
                     self.block_on_dangerous(self.harness.chain.process_invalid_execution_payload(
-                        &InvalidationOperation::InvalidateOne { block_root },
+                        &InvalidationOperation::InvalidateOne { head_hash },
                     ))?
                     .map_err(|e| {
                         Error::InternalError(format!(
@@ -692,6 +697,7 @@ impl<E: EthSpec> GossipTester<E> {
                     status: PayloadStatusV1Status::Valid,
                     latest_valid_hash: Some(block_hash),
                     validation_error: None,
+                    inclusion_list_satisfied: None,
                 },
             );
         }
@@ -807,6 +813,29 @@ impl<E: EthSpec> GossipValidation<E> {
         }
     }
 
+    /// The tests advance the state to the anchor block's slot without applying the block, so the
+    /// state's `latest_block_header` still points to an earlier block.
+    fn has_spec_synthetic_anchor(
+        &self,
+        index: usize,
+        blocks: &HashMap<String, SignedBeaconBlock<E>>,
+    ) -> Result<bool, Error> {
+        let Some(block) = self
+            .meta
+            .blocks
+            .get(index)
+            .and_then(|setup_block| blocks.get(&setup_block.block))
+        else {
+            return Ok(false);
+        };
+        let mut state = self.state.clone();
+        let state_root = state
+            .update_tree_hash_cache()
+            .map_err(|error| Error::InternalError(format!("unable to hash state: {error:?}")))?;
+        Ok(block.slot() == state.slot()
+            && block.canonical_root() != state.get_latest_block_root(state_root))
+    }
+
     fn is_advanced_timing_ignore(&self) -> bool {
         let Some(case_name) = self.path.file_name().and_then(|name| name.to_str()) else {
             return false;
@@ -823,12 +852,20 @@ impl<E: EthSpec> GossipValidation<E> {
         .any(|suffix| case_name.ends_with(suffix))
     }
 
-    fn current_time_ms(&self, spec: &ChainSpec) -> Result<u64, Error> {
-        if let Some(current_time_ms) = self.meta.current_time_ms {
-            return Ok(current_time_ms);
-        }
-
-        slot_time_ms(self.state.slot(), spec)
+    /// The start of the latest slot of the state and the setup blocks.
+    fn current_time_ms(
+        &self,
+        blocks: &HashMap<String, SignedBeaconBlock<E>>,
+        spec: &ChainSpec,
+    ) -> Result<u64, Error> {
+        let slot = self
+            .meta
+            .blocks
+            .iter()
+            .filter_map(|setup_block| blocks.get(&setup_block.block))
+            .map(|block| block.slot())
+            .fold(self.state.slot(), Slot::max);
+        slot_time_ms(slot, spec)
     }
 
     fn finalized_checkpoint(

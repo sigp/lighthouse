@@ -54,7 +54,7 @@ pub struct BalanceSourceData {
     /// Effective balance per validator index. 0 for inactive.
     pub effective_balances: Vec<u64>,
     /// Used to filter support votes
-    /// (spec: `get_block_support_between_slots` excludes slashed validators).
+    /// (spec: `get_node_support_between_slots` excludes slashed validators).
     pub slashed: Vec<bool>,
 }
 
@@ -108,7 +108,7 @@ impl BalanceSourceData {
     }
 
     /// Return balance only if the validator is not slashed.
-    /// Spec: `get_block_support_between_slots` excludes slashed validators.
+    /// Spec: `get_node_support_between_slots` excludes slashed validators.
     pub(crate) fn unslashed_balance(&self, val_idx: usize) -> u64 {
         if self.slashed.get(val_idx).copied().unwrap_or(false) {
             0

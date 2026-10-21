@@ -49,7 +49,6 @@ use crate::sync::batch::BatchId;
 use crate::sync::network_context::{RpcResponseError, SyncNetworkContext};
 use beacon_chain::block_verification_types::RangeSyncBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerId, SyncInfo};
 use logging::crit;
@@ -137,8 +136,7 @@ where
             RangeSyncType::Finalized => {
                 // Make sure we have not recently tried this chain
                 if self.failed_chains.contains(&remote_info.finalized_root) {
-                    debug!(failed_root = ?remote_info.finalized_root, %peer_id,"Disconnecting peer that belongs to previously failed chain");
-                    network.goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
+                    debug!(failed_root = ?remote_info.finalized_root, %peer_id,"Ignoring peer that belongs to previously failed chain");
                     return;
                 }
 

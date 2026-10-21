@@ -6,6 +6,9 @@ edition = { workspace = true }
 
 build = "build.rs"
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 alloy-dyn-abi = { workspace = true }
 alloy-json-abi = { workspace = true }

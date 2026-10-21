@@ -7,8 +7,9 @@ use store::DatabaseBlock;
 use tracing::debug;
 use tree_hash::TreeHash;
 use types::{
-    ChainSpec, EthSpec, ExecutionPayloadBid, ExecutionPayloadEnvelope, Hash256, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionPayloadEnvelope, Hash256,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 use crate::payload_envelope_verification::observed_payload_envelopes::ObservedPayloadEnvelopes;
@@ -45,7 +46,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
 pub(crate) fn verify_envelope_consistency<E: EthSpec>(
     envelope: &ExecutionPayloadEnvelope<E>,
     block: &SignedBeaconBlock<E>,
-    execution_bid: &ExecutionPayloadBid<E>,
+    execution_bid: ExecutionPayloadBidRef<E>,
     latest_finalized_slot: Slot,
 ) -> Result<(), EnvelopeError> {
     // Check that the envelope's slot isn't from a slot prior
@@ -66,17 +67,17 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
     }
 
     // Builder index matches committed bid.
-    if envelope.builder_index != execution_bid.builder_index {
+    if envelope.builder_index != execution_bid.builder_index() {
         return Err(EnvelopeError::BuilderIndexMismatch {
-            committed_bid: execution_bid.builder_index,
+            committed_bid: execution_bid.builder_index(),
             envelope: envelope.builder_index,
         });
     }
 
     // The block hash should match the block hash of the execution bid.
-    if envelope.payload.block_hash != execution_bid.block_hash {
+    if envelope.payload.block_hash != execution_bid.block_hash() {
         return Err(EnvelopeError::BlockHashMismatch {
-            committed_bid: execution_bid.block_hash,
+            committed_bid: execution_bid.block_hash(),
             envelope: envelope.payload.block_hash,
         });
     }
@@ -121,9 +122,9 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
     // The SSZ root of the envelope's execution requests must match the committed bid, per
     // `verify_execution_payload_envelope` in the spec.
     let execution_requests_root = requests.tree_hash_root();
-    if execution_requests_root != execution_bid.execution_requests_root {
+    if execution_requests_root != execution_bid.execution_requests_root() {
         return Err(EnvelopeError::ExecutionRequestsRootMismatch {
-            committed_bid: execution_bid.execution_requests_root,
+            committed_bid: execution_bid.execution_requests_root(),
             envelope: execution_requests_root,
         });
     }
@@ -200,11 +201,11 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                 )));
             }
         };
-        let execution_bid = &block
+        let execution_bid = block
             .message()
             .body()
             .signed_execution_payload_bid()?
-            .message;
+            .message();
 
         verify_envelope_consistency(envelope, &block, execution_bid, latest_finalized_slot)?;
 
@@ -421,16 +422,17 @@ mod tests {
     use types::{
         Address, BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BuilderDepositRequest,
         BuilderExitRequest, ConsolidationRequest, Eth1Data, EthSpec, ExecutionBlockHash,
-        ExecutionPayloadBid, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
-        ExecutionRequestsGloas, Graffiti, Hash256, MinimalEthSpec, SignedBeaconBlock,
-        SignedExecutionPayloadBid, Slot, SyncAggregate, Withdrawal, WithdrawalRequest,
+        ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidRef,
+        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, Graffiti, Hash256,
+        SignedBeaconBlock, SignedExecutionPayloadBidGloas, Slot, Spec, SyncAggregate, Withdrawal,
+        WithdrawalRequest,
     };
 
     use super::verify_envelope_consistency;
     use crate::payload_envelope_verification::EnvelopeError;
     use tree_hash::TreeHash;
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_envelope(
         slot: Slot,
@@ -472,7 +474,7 @@ mod tests {
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: ProgressiveVariableList::empty(),
                 parent_execution_requests: ExecutionRequestsGloas::default(),
-                signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
+                signed_execution_payload_bid: SignedExecutionPayloadBidGloas::empty(),
                 payload_attestations: ProgressiveVariableList::empty(),
                 _phantom: PhantomData,
             },
@@ -481,13 +483,13 @@ mod tests {
     }
 
     fn make_bid(builder_index: u64, block_hash: ExecutionBlockHash) -> ExecutionPayloadBid<E> {
-        ExecutionPayloadBid {
+        ExecutionPayloadBid::Gloas(ExecutionPayloadBidGloas {
             builder_index,
             block_hash,
             // Commit to the (default) execution requests carried by `make_envelope`.
             execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
-            ..ExecutionPayloadBid::default()
-        }
+            ..ExecutionPayloadBidGloas::default()
+        })
     }
 
     #[test]
@@ -500,7 +502,9 @@ mod tests {
         let block = make_block(slot);
         let bid = make_bid(builder_index, block_hash);
 
-        assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
+        assert!(
+            verify_envelope_consistency::<E>(&envelope, &block, bid.to_ref(), Slot::new(0)).is_ok()
+        );
     }
 
     #[test]
@@ -514,8 +518,12 @@ mod tests {
         let bid = make_bid(builder_index, block_hash);
         let latest_finalized_slot = Slot::new(10);
 
-        let result =
-            verify_envelope_consistency::<E>(&envelope, &block, &bid, latest_finalized_slot);
+        let result = verify_envelope_consistency::<E>(
+            &envelope,
+            &block,
+            bid.to_ref(),
+            latest_finalized_slot,
+        );
         assert!(matches!(
             result,
             Err(EnvelopeError::PriorToFinalization { .. })
@@ -531,7 +539,8 @@ mod tests {
         let block = make_block(Slot::new(20));
         let bid = make_bid(builder_index, block_hash);
 
-        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
+        let result =
+            verify_envelope_consistency::<E>(&envelope, &block, bid.to_ref(), Slot::new(0));
         assert!(matches!(result, Err(EnvelopeError::SlotMismatch { .. })));
     }
 
@@ -544,7 +553,8 @@ mod tests {
         let block = make_block(slot);
         let bid = make_bid(2, block_hash);
 
-        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
+        let result =
+            verify_envelope_consistency::<E>(&envelope, &block, bid.to_ref(), Slot::new(0));
         assert!(matches!(
             result,
             Err(EnvelopeError::BuilderIndexMismatch { .. })
@@ -566,7 +576,9 @@ mod tests {
 
         // Not a gossip condition; the sync-only rejection is inlined in
         // `RangeSyncBlock` construction.
-        assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
+        assert!(
+            verify_envelope_consistency::<E>(&envelope, &block, bid.to_ref(), Slot::new(0)).is_ok()
+        );
     }
 
     #[test]
@@ -578,7 +590,8 @@ mod tests {
         let block = make_block(slot);
         let bid = make_bid(builder_index, ExecutionBlockHash::repeat_byte(0xff));
 
-        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
+        let result =
+            verify_envelope_consistency::<E>(&envelope, &block, bid.to_ref(), Slot::new(0));
         assert!(matches!(
             result,
             Err(EnvelopeError::BlockHashMismatch { .. })
@@ -602,24 +615,24 @@ mod tests {
             amount: 0,
         };
         let max = E::max_withdrawals_per_payload();
-        envelope.payload.withdrawals = ProgressiveVariableList::new(vec![withdrawal.clone(); max]);
-        assert!(verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok());
+        envelope.payload.withdrawals =
+            ProgressiveVariableList::new(vec![withdrawal.clone(); max]).unwrap();
+        assert!(
+            verify_envelope_consistency::<E>(&envelope, &block, bid.to_ref(), Slot::new(0)).is_ok()
+        );
 
-        envelope.payload.withdrawals = ProgressiveVariableList::new(vec![withdrawal; max + 1]);
-        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
-        assert!(matches!(
-            result,
-            Err(EnvelopeError::OperationListTooLong {
-                kind: "withdrawals",
-                ..
-            })
-        ));
+        assert!(
+            ProgressiveVariableList::<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>::new(
+                vec![withdrawal; max + 1]
+            )
+            .is_err()
+        );
     }
 
     fn assert_requests_list_bound(
         kind: &'static str,
         max: usize,
-        set_len: impl Fn(&mut ExecutionRequestsGloas<E>, usize),
+        set_len: impl Fn(&mut ExecutionRequestsGloas<E>, usize) -> Result<(), ssz_types::Error>,
     ) {
         let slot = Slot::new(10);
         let builder_index = 1;
@@ -628,26 +641,27 @@ mod tests {
         let mut envelope = make_envelope(slot, builder_index, block_hash);
         let block = make_block(slot);
 
-        set_len(&mut envelope.execution_requests, max);
-        let bid = ExecutionPayloadBid {
+        set_len(&mut envelope.execution_requests, max).unwrap();
+        let bid = ExecutionPayloadBidGloas {
             builder_index,
             block_hash,
             execution_requests_root: envelope.execution_requests.tree_hash_root(),
-            ..ExecutionPayloadBid::default()
+            ..ExecutionPayloadBidGloas::default()
         };
         assert!(
-            verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0)).is_ok(),
+            verify_envelope_consistency::<E>(
+                &envelope,
+                &block,
+                ExecutionPayloadBidRef::Gloas(&bid),
+                Slot::new(0)
+            )
+            .is_ok(),
             "{kind} at max should be accepted"
         );
 
-        set_len(&mut envelope.execution_requests, max + 1);
-        let result = verify_envelope_consistency::<E>(&envelope, &block, &bid, Slot::new(0));
         assert!(
-            matches!(
-                result,
-                Err(EnvelopeError::OperationListTooLong { kind: k, .. }) if k == kind
-            ),
-            "{kind} over max should be rejected"
+            set_len(&mut envelope.execution_requests, max + 1).is_err(),
+            "{kind} over max should be rejected during construction"
         );
     }
 
@@ -662,7 +676,8 @@ mod tests {
                     validator_pubkey: PublicKeyBytes::empty(),
                     amount: 0,
                 };
-                requests.withdrawals = ProgressiveVariableList::new(vec![withdrawal_request; len]);
+                requests.withdrawals = ProgressiveVariableList::new(vec![withdrawal_request; len])?;
+                Ok(())
             },
         );
 
@@ -676,7 +691,8 @@ mod tests {
                     target_pubkey: PublicKeyBytes::empty(),
                 };
                 requests.consolidations =
-                    ProgressiveVariableList::new(vec![consolidation_request; len]);
+                    ProgressiveVariableList::new(vec![consolidation_request; len])?;
+                Ok(())
             },
         );
 
@@ -691,7 +707,8 @@ mod tests {
                     signature: SignatureBytes::empty(),
                 };
                 requests.builder_deposits =
-                    ProgressiveVariableList::new(vec![builder_deposit_request; len]);
+                    ProgressiveVariableList::new(vec![builder_deposit_request; len])?;
+                Ok(())
             },
         );
 
@@ -704,7 +721,8 @@ mod tests {
                     pubkey: PublicKeyBytes::empty(),
                 };
                 requests.builder_exits =
-                    ProgressiveVariableList::new(vec![builder_exit_request; len]);
+                    ProgressiveVariableList::new(vec![builder_exit_request; len])?;
+                Ok(())
             },
         );
     }

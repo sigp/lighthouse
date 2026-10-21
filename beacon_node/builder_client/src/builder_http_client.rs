@@ -5,8 +5,8 @@ use crate::{
 use bls::PublicKeyBytes;
 use eth2::types::{
     BuilderPreferencesRequest, ContentType, EthSpec, ExecutionBlockHash, ForkName,
-    ForkVersionedResponse, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
-    SignedRequestAuth, Slot,
+    ForkVersionDecode, ForkVersionedResponse, Hash256, SignedBeaconBlock,
+    SignedExecutionPayloadBid, SignedRequestAuth, Slot,
 };
 use eth2::{
     CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER,
@@ -15,7 +15,7 @@ use eth2::{
 use reqwest::StatusCode;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderName, HeaderValue};
 use sensitive_url::SensitiveUrl;
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use std::time::Duration;
 use tracing::warn;
 
@@ -41,6 +41,11 @@ const DATE_MILLISECONDS: HeaderName = HeaderName::from_static("date-milliseconds
 #[derive(Clone)]
 pub struct BuilderHttpClient {
     client: reqwest::Client,
+    /// Client for `submitSignedBeaconBlock` only. The target URL arrives over the wire (the
+    /// `Eth-Builder-Url` request header echoed by the VC) and is an SSRF risk, so beacon-APIs
+    /// `publishBlock` requires that the forwarding request "MUST NOT follow redirects" — reqwest's
+    /// redirect policy is client-wide, hence a dedicated client with redirects disabled.
+    no_redirect_client: reqwest::Client,
     user_agent: String,
     /// Only use json for all request/response types.
     disable_ssz: bool,
@@ -50,8 +55,13 @@ impl BuilderHttpClient {
     pub fn new(user_agent: Option<String>, disable_ssz: bool) -> Result<Self, Error> {
         let user_agent = user_agent.unwrap_or_else(|| DEFAULT_USER_AGENT.to_string());
         let client = reqwest::Client::builder().user_agent(&user_agent).build()?;
+        let no_redirect_client = reqwest::Client::builder()
+            .user_agent(&user_agent)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
         Ok(Self {
             client,
+            no_redirect_client,
             user_agent,
             disable_ssz,
         })
@@ -129,7 +139,7 @@ impl BuilderHttpClient {
         &self,
         builder_url: &SensitiveUrl,
         slot: Slot,
-        parent_hash: ExecutionBlockHash,
+        executed_ancestor_hash: ExecutionBlockHash,
         parent_root: Hash256,
         proposer_pubkey: &PublicKeyBytes,
         signed_request_auth: &SignedRequestAuth,
@@ -144,7 +154,8 @@ impl BuilderHttpClient {
             .push("builder")
             .push("execution_payload_bid")
             .push(slot.to_string().as_str())
-            .push(format!("{parent_hash:?}").as_str())
+            // The spec names this path parameter `parent_hash`.
+            .push(format!("{executed_ancestor_hash:?}").as_str())
             .push(format!("{parent_root:?}").as_str())
             .push(proposer_pubkey.as_hex_string().as_str());
 
@@ -171,13 +182,23 @@ impl BuilderHttpClient {
 
         match content_type_from_header(&response_headers) {
             ContentType::Ssz => {
-                let bid = SignedExecutionPayloadBid::<E>::from_ssz_bytes(&response_bytes)
-                    .map_err(Error::InvalidSsz)?;
+                let bid = SignedExecutionPayloadBid::<E>::from_ssz_bytes_by_fork(
+                    &response_bytes,
+                    fork_name,
+                )
+                .map_err(Error::InvalidSsz)?;
                 Ok(Some(bid))
             }
             ContentType::Json => {
                 let versioned: ForkVersionedResponse<SignedExecutionPayloadBid<E>> =
                     serde_json::from_slice(&response_bytes).map_err(Error::InvalidJson)?;
+                let received = versioned.data.message().fork_name_unchecked();
+                if received != fork_name {
+                    return Err(Error::InvalidFork {
+                        expected: fork_name,
+                        received,
+                    });
+                }
                 Ok(Some(versioned.data))
             }
         }
@@ -233,6 +254,10 @@ impl BuilderHttpClient {
     ///
     /// `ssz_request` selects the request-body encoding: SSZ when `true` and the client has SSZ
     /// enabled, otherwise JSON.
+    ///
+    /// Sent via [`Self::no_redirect_client`]: `builder_url` is wire input (`Eth-Builder-Url`), and
+    /// the spec forbids following redirects on this request. A redirect response surfaces as
+    /// [`Error::StatusCode`] like any other non-202.
     pub async fn submit_signed_beacon_block<E: EthSpec>(
         &self,
         builder_url: &SensitiveUrl,
@@ -262,7 +287,7 @@ impl BuilderHttpClient {
                 HeaderValue::from_str(SSZ_CONTENT_TYPE_HEADER)
                     .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
             );
-            self.client
+            self.no_redirect_client
                 .post(path)
                 .timeout(timeout)
                 .headers(headers)
@@ -273,7 +298,7 @@ impl BuilderHttpClient {
                 HeaderValue::from_str(JSON_CONTENT_TYPE_HEADER)
                     .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
             );
-            self.client
+            self.no_redirect_client
                 .post(path)
                 .timeout(timeout)
                 .headers(headers)
@@ -296,11 +321,11 @@ mod tests {
     use super::*;
     use arbitrary::Arbitrary;
     use eth2::types::beacon_response::EmptyMetadata;
-    use eth2::types::{ForkName, MainnetEthSpec};
+    use eth2::types::{ForkName, SignedExecutionPayloadBidGloas, Spec};
     use mockito::{Matcher, Server, ServerGuard};
     use std::str::FromStr;
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn client_for() -> BuilderHttpClient {
         BuilderHttpClient::new(None, false).unwrap()
@@ -315,11 +340,15 @@ mod tests {
         SignedRequestAuth::arbitrary(&mut u).unwrap()
     }
 
+    fn empty_bid() -> SignedExecutionPayloadBid<E> {
+        SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas::empty())
+    }
+
     fn empty_bid_response() -> ForkVersionedResponse<SignedExecutionPayloadBid<E>> {
         ForkVersionedResponse {
             version: ForkName::Gloas,
             metadata: EmptyMetadata {},
-            data: SignedExecutionPayloadBid::empty(),
+            data: empty_bid(),
         }
     }
 
@@ -362,7 +391,7 @@ mod tests {
         let mut server = Server::new_async().await;
         mock_bid(&mut server, ContentType::Json);
         let bid = request_bid(&server).await.expect("should have a bid");
-        assert_eq!(bid, SignedExecutionPayloadBid::empty());
+        assert_eq!(bid, empty_bid());
     }
 
     #[tokio::test]
@@ -370,7 +399,7 @@ mod tests {
         let mut server = Server::new_async().await;
         mock_bid(&mut server, ContentType::Ssz);
         let bid = request_bid(&server).await.expect("should have a bid");
-        assert_eq!(bid, SignedExecutionPayloadBid::empty());
+        assert_eq!(bid, empty_bid());
     }
 
     #[tokio::test]
@@ -500,5 +529,29 @@ mod tests {
             .with_status(204)
             .create();
         assert!(request_bid(&server).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_execution_payload_bid_rejects_invalid_fork() {
+        let mut server = Server::new_async().await;
+        mock_bid(&mut server, ContentType::Json);
+        let result = client_for()
+            .get_execution_payload_bid::<E>(
+                &builder_url(&server),
+                Slot::new(1),
+                ExecutionBlockHash::repeat_byte(1),
+                Hash256::repeat_byte(2),
+                &PublicKeyBytes::empty(),
+                &signed_request_auth(),
+                ForkName::Heze,
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(Error::InvalidFork {
+                expected: ForkName::Heze,
+                received: ForkName::Gloas,
+            })
+        ));
     }
 }
