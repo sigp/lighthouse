@@ -4658,9 +4658,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                         slot: head_slot,
                                         block: block_root,
                                         state: state_root,
-                                        // Full pre-Gloas for the API; Empty on the first post-Gloas emit.
+                                        // Pre-Gloas: Full for the API. Post-Gloas: use head_node.payload_status.
                                         payload_status: if fork_name.gloas_enabled() {
-                                            fork_choice::PayloadStatus::Empty
+                                            head_node.payload_status()
                                         } else {
                                             fork_choice::PayloadStatus::Full
                                         },
