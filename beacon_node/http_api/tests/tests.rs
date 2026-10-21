@@ -4131,7 +4131,7 @@ impl ApiTester {
                 code: execution_client.code.to_string(),
                 name: execution_client.name,
                 version: execution_client.version,
-                commit: execution_client.commit.to_string(),
+                commit: format!("0x{}", execution_client.commit),
             }),
         };
 

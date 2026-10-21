@@ -16,7 +16,7 @@ use enr::{CombinedKey, Enr};
 use fork_choice::PayloadStatus;
 #[cfg(feature = "network")]
 use libp2p::multiaddr::Multiaddr;
-use lighthouse_version::{COMMIT_PREFIX, VERSION, client_name};
+use lighthouse_version::{COMMIT_PREFIX, client_name};
 use mediatype::{MediaType, MediaTypeList, names};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -715,18 +715,11 @@ pub struct JsonClientVersion {
 
 /// Returns Lighthouse client version information
 pub fn version_with_commit() -> JsonClientVersion {
-    let version = VERSION
-        .replace("Lighthouse/", "")
-        .split('-')
-        .next()
-        .unwrap_or_default()
-        .to_string();
-
     JsonClientVersion {
         code: "LH".to_string(),
         name: client_name().to_string(),
-        version,
-        commit: COMMIT_PREFIX.to_string(),
+        version: format!("v{}", lighthouse_version::version()),
+        commit: format!("0x{}", COMMIT_PREFIX),
     }
 }
 
@@ -1910,6 +1903,17 @@ pub mod serde_status_code {
 mod tests {
     use super::*;
     use ssz::Encode;
+
+    #[test]
+    fn version_data_v2_omits_unknown_execution_client() {
+        let data = VersionDataV2 {
+            beacon_node: version_with_commit(),
+            execution_client: None,
+        };
+        let json = serde_json::to_value(&data).unwrap();
+        assert!(json.get("beacon_node").is_some());
+        assert!(json.get("execution_client").is_none());
+    }
 
     #[test]
     fn query_vec() {

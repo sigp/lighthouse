@@ -2392,20 +2392,14 @@ pub async fn serve<T: BeaconChainTypes>(
                 None
             };
 
-            let beacon_node = version_with_commit();
             warp::reply::json(&api_types::GenericResponse::from(
                 api_types::VersionDataV2 {
-                    beacon_node: JsonClientVersion {
-                        code: beacon_node.code,
-                        name: beacon_node.name,
-                        version: beacon_node.version,
-                        commit: beacon_node.commit,
-                    },
+                    beacon_node: version_with_commit(),
                     execution_client: execution_client.map(|ec| JsonClientVersion {
                         code: ec.code.to_string(),
                         name: ec.name,
                         version: ec.version,
-                        commit: ec.commit.to_string(),
+                        commit: format!("0x{}", ec.commit),
                     }),
                 },
             ))
