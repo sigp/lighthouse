@@ -1347,6 +1347,9 @@ impl<E: EthSpec + TypeName> Handler for LightClientDataCollectionHandler<E> {
         fork_name == ForkName::Altair
             || fork_name == ForkName::Bellatrix
             || fork_name == ForkName::Capella
+            || fork_name == ForkName::Deneb
+            || fork_name == ForkName::Electra
+            || fork_name == ForkName::Fulu
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {

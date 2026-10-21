@@ -219,7 +219,31 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
-            _ => return Err(LightClientError::InconsistentFork),
+            ForkName::Electra => Self::Electra(LightClientFinalityUpdateElectra {
+                attested_header: LightClientHeaderElectra::block_to_light_client_header(
+                    attested_block,
+                )?,
+                finalized_header: LightClientHeaderElectra::default(),
+                finality_branch: finality_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
+                sync_aggregate,
+                signature_slot,
+            }),
+            ForkName::Fulu => Self::Fulu(LightClientFinalityUpdateFulu {
+                attested_header: LightClientHeaderFulu::block_to_light_client_header(
+                    attested_block,
+                )?,
+                finalized_header: LightClientHeaderFulu::default(),
+                finality_branch: finality_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
+                sync_aggregate,
+                signature_slot,
+            }),
+            ForkName::Base => return Err(LightClientError::AltairForkNotActive),
+            ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
+            ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
         };
         Ok(finality_update)
     }
