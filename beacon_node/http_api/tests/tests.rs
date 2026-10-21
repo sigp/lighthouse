@@ -9904,6 +9904,71 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_head_v2_events_pre_gloas(self) -> Self {
+        assert!(!self.chain.spec.is_gloas_scheduled());
+
+        let signed_block = self.next_block.signed_block();
+        let block_root = signed_block.canonical_root();
+        let slot = signed_block.slot();
+        let state_root = signed_block.state_root();
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let old_head_slot = self.chain.head_snapshot().beacon_block.slot();
+        let is_epoch_transition = epoch > old_head_slot.epoch(E::slots_per_epoch());
+
+        let current_epoch_dependent_root = self
+            .chain
+            .block_root_at_slot(
+                (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+                WhenSlotSkipped::Prev,
+            )
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root());
+
+        let next_epoch_dependent_root = self
+            .chain
+            .block_root_at_slot(
+                epoch.start_slot(E::slots_per_epoch()) - 1,
+                WhenSlotSkipped::Prev,
+            )
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root());
+
+        let expected_fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+        let topics = vec![EventTopic::HeadV2];
+        let mut events_future = self
+            .client
+            .get_events::<E>(topics.as_slice())
+            .await
+            .unwrap();
+
+        self.client
+            .post_beacon_blocks_v2(&self.next_block, None)
+            .await
+            .unwrap();
+
+        let events = poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+
+        let expected_head_v2 = EventKind::HeadV2(Box::new(ForkVersionedResponse {
+            version: expected_fork_name,
+            metadata: Default::default(),
+            data: SseHeadV2 {
+                block: block_root,
+                slot,
+                state: state_root,
+                payload_status: PayloadStatus::Full,
+                epoch_transition: is_epoch_transition,
+                current_epoch_dependent_root,
+                next_epoch_dependent_root,
+                execution_optimistic: false,
+            },
+        }));
+
+        assert_eq!(events.as_slice(), &[expected_head_v2]);
+
+        self
+    }
+
     pub async fn test_check_optimistic_responses(&mut self) {
         // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
         if self.chain.spec.is_gloas_scheduled() {
@@ -10258,6 +10323,21 @@ async fn get_head_v2_events() {
     ApiTester::new_from_config(config)
         .await
         .test_get_head_v2_events()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_head_v2_events_pre_gloas() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_head_v2_events_pre_gloas()
         .await;
 }
 
