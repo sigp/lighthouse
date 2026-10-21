@@ -189,7 +189,15 @@ test-debug:
 # Run the tests of crates converted to `Spec` under the minimal preset. Add each crate as it
 # is converted.
 test-spec-minimal:
-	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" -p types
+	cargo nextest run --release --features "spec-minimal,$(TEST_FEATURES)" \
+		-p beacon_processor \
+		-p builder_client \
+		-p execution_layer \
+		-p genesis \
+		-p http_metrics \
+		-p lighthouse_network \
+		-p store \
+		-p types
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -245,20 +253,29 @@ test-http-api-%:
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(RECENT_FORKS))
 
+# Run operation pool tests on each preset. Tests named `payload_attestation_*` or
+# `attestation_payload_*` use minimal.
 test-op-pool-%:
 	env FORK_NAME=$* cargo nextest run --release \
 		--features "beacon_chain/fork_from_env,$(TEST_FEATURES)"\
-		-p operation_pool
+		-p operation_pool -E 'not (test(/::payload_attestation_/) | test(/::attestation_payload_/))'
+	env FORK_NAME=$* cargo nextest run --release \
+		--features "beacon_chain/fork_from_env,spec-minimal,$(TEST_FEATURES)"\
+		-p operation_pool -E 'test(/::payload_attestation_/) | test(/::attestation_payload_/)'
 
 # Run the tests in the `network` crate for all known forks.
 test-network: $(patsubst %,test-network-%,$(TEST_NETWORK_FORKS))
 
+# Run network tests on each preset. The sync, service and persisted_dht tests use minimal.
 test-network-%:
 	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
 		--features "fork_from_env,fake_crypto,$(TEST_FEATURES)" \
-		-p network
+		-p network -E 'not (test(/^sync::/) | test(/^service::tests::/) | test(/^persisted_dht::tests::/))'
 	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
-		--features "fork_from_env,$(TEST_FEATURES)" \
+		--features "fork_from_env,fake_crypto,spec-minimal,$(TEST_FEATURES)" \
+		-p network -E 'test(/^sync::/) | test(/^service::tests::/) | test(/^persisted_dht::tests::/)'
+	env FORK_NAME=$* cargo nextest run --no-fail-fast --release \
+		--features "fork_from_env,spec-minimal,$(TEST_FEATURES)" \
 		-p network crypto_on
 
 # Run the tests in the `slasher` crate for all supported database backends.

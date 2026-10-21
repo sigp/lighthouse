@@ -11,6 +11,8 @@ use beacon_chain::data_column_verification::{
 };
 use beacon_chain::execution_proof_verification::{Error as ExecutionProofError, ProofSource};
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
+use beacon_chain::inclusion_list_store::InsertOutcome;
+use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
 use beacon_chain::partial_data_column_assembler::UpdatedPartials;
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
@@ -1597,24 +1599,41 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .verify_block_for_gossip(block.clone())
             .await;
 
-        let block_root = if let Ok(verified_block) = &verification_result {
-            metrics::set_gauge(
-                &metrics::BEACON_BLOCK_DELAY_GOSSIP,
-                block_delay.as_millis() as i64,
-            );
-            // Write the time the block was observed into delay cache only for gossip
-            // valid blocks.
-            self.chain.block_times_cache.write().set_time_observed(
-                verified_block.block_root,
-                block.slot(),
-                seen_duration,
-                Some(peer_id.to_string()),
-                Some(peer_client.to_string()),
-            );
-            verified_block.block_root
-        } else {
-            block.canonical_root()
+        let block_root = match &verification_result {
+            Ok(verified_block) => {
+                metrics::set_gauge(
+                    &metrics::BEACON_BLOCK_DELAY_GOSSIP,
+                    block_delay.as_millis() as i64,
+                );
+                // Write the time the block was observed into delay cache only for gossip
+                // valid blocks.
+                self.chain.block_times_cache.write().set_time_observed(
+                    verified_block.block_root,
+                    block.slot(),
+                    seen_duration,
+                    Some(peer_id.to_string()),
+                    Some(peer_client.to_string()),
+                );
+                verified_block.block_root
+            }
+            Err(error) => match error.block_root {
+                Some(block_root) => block_root,
+                None => {
+                    debug!(
+                        error = ?error.error,
+                        "Gossip block beacon chain error"
+                    );
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Ignore,
+                    );
+                    return None;
+                }
+            },
         };
+
+        let verification_result = verification_result.map_err(|error| *error.error);
 
         let verified_block = match verification_result {
             Ok(verified_block) => {
@@ -1780,6 +1799,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // envelope import pipeline.
             Err(e @ BlockError::EnvelopeError(_)) => {
                 crit!(error = %e, "Internal block gossip validation error. Envelope error during gossip validation");
+                return None;
+            }
+            // This error variant cannot be reached when doing gossip block validation: it is only
+            // produced by `process_rpc_custody_columns`.
+            Err(e @ BlockError::DataColumnSlotMismatch { .. }) => {
+                crit!(error = %e, "Internal block gossip validation error. Data column slot mismatch during gossip validation");
                 return None;
             }
             Err(e @ BlockError::InternalError(_)) => {
@@ -4362,10 +4387,57 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         inclusion_list: Box<SignedInclusionList>,
+        seen_timestamp: Duration,
     ) {
-        // TODO(heze): ignore every inclusion list until gossip verification lands, so that
-        // unverified messages are never forwarded.
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+        let verification_result = self
+            .chain
+            .verify_inclusion_list_for_gossip(*inclusion_list, seen_timestamp);
+        if let Err(error) = &verification_result {
+            metrics::register_inclusion_list_error(error);
+        }
+
+        match verification_result {
+            Ok(verified_inclusion_list) => {
+                // Concurrent workers can all pass the first-or-second check before any of them
+                // imports, so only propagate based on the import outcome.
+                let outcome = self.chain.import_inclusion_list(verified_inclusion_list);
+                debug!(?outcome, "Imported gossip inclusion list");
+                let acceptance = match outcome {
+                    InsertOutcome::New | InsertOutcome::Equivocating => MessageAcceptance::Accept,
+                    InsertOutcome::Seen
+                    | InsertOutcome::SubsequentEquivocation
+                    | InsertOutcome::Old => MessageAcceptance::Ignore,
+                };
+                self.propagate_validation_result(message_id, peer_id, acceptance);
+            }
+            Err(
+                InclusionListVerificationError::AlreadySeenTwice { .. }
+                | InclusionListVerificationError::FutureSlot { .. }
+                | InclusionListVerificationError::PastSlot { .. }
+                | InclusionListVerificationError::EmptyTransactions
+                | InclusionListVerificationError::DependentRootUnknown { .. }
+                | InclusionListVerificationError::InvalidDependentRoot { .. }
+                | InclusionListVerificationError::UnableToReadSlot
+                | InclusionListVerificationError::BeaconChainError(_)
+                | InclusionListVerificationError::BeaconStateError(_),
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            Err(
+                InclusionListVerificationError::InvalidTransactions(_)
+                | InclusionListVerificationError::DependentRootTooRecent { .. }
+                | InclusionListVerificationError::NotInCommittee { .. }
+                | InclusionListVerificationError::UnknownValidatorIndex(_)
+                | InclusionListVerificationError::InvalidSignature,
+            ) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "invalid_gossip_inclusion_list",
+                );
+            }
+        }
     }
 
     #[instrument(

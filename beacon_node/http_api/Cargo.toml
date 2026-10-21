@@ -45,6 +45,7 @@ sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 slot_clock = { workspace = true }
+ssz_types = { workspace = true }
 state_processing = { workspace = true }
 store = { workspace = true }
 sysinfo = { workspace = true }

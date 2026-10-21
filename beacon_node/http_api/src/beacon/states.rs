@@ -13,6 +13,7 @@ use eth2::types::{
     ValidatorIdentitiesRequestBody, ValidatorIndexData, ValidatorsRequestBody,
 };
 use ssz::Encode;
+use ssz_types::FixedVector;
 use std::sync::Arc;
 use types::{
     AttestationShufflingId, BeaconStateError, CommitteeCache, EthSpec, RelativeEpoch,
@@ -126,6 +127,126 @@ pub fn get_beacon_state_pending_partial_withdrawals<T: BeaconChainTypes>(
                         Some(api_types::Accept::Ssz) => Builder::new()
                             .status(200)
                             .body(data.to_vec().as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => execution_optimistic_finalized_beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            execution_optimistic,
+                            finalized,
+                            data,
+                        )
+                        .map(|res| warp::reply::json(&res).into_response()),
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        )
+        .boxed()
+}
+
+// GET beacon/states/{state_id}/builder_pending_withdrawals
+pub fn get_beacon_state_builder_pending_withdrawals<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("builder_pending_withdrawals"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(withdrawals) = state.builder_pending_withdrawals() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Builder pending withdrawals are not available for pre-Gloas states"
+                                            .to_string(),
+                                    ));
+                                };
+
+                                Ok((
+                                    withdrawals.to_owned(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
+                            },
+                        )?;
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => execution_optimistic_finalized_beacon_response(
+                            ResponseIncludesVersion::Yes(fork_name),
+                            execution_optimistic,
+                            finalized,
+                            data,
+                        )
+                        .map(|res| warp::reply::json(&res).into_response()),
+                    }
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        )
+        .boxed()
+}
+
+// GET beacon/states/{state_id}/builder_pending_payments
+pub fn get_beacon_state_builder_pending_payments<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("builder_pending_payments"))
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let Ok(payments) = state.builder_pending_payments() else {
+                                    return Err(warp_utils::reject::custom_bad_request(
+                                        "Builder pending payments are not available for pre-Gloas states"
+                                            .to_string(),
+                                    ));
+                                };
+
+                                Ok((
+                                    payments.to_vec(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
+                            },
+                        )?;
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(data.as_ssz_bytes())
                             .map(add_ssz_content_type_header)
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
@@ -372,6 +493,90 @@ pub fn get_beacon_state_sync_committees<T: BeaconChainTypes>(
 
                     Ok(eth2::types::GenericResponse::from(response)
                         .add_execution_optimistic_finalized(execution_optimistic, finalized))
+                })
+            },
+        )
+        .boxed()
+}
+
+// `GET /eth/v1/beacon/states/{state_id}/ptc`
+pub fn get_beacon_state_ptc<T: BeaconChainTypes>(
+    beacon_states_path: BeaconStatesPath<T>,
+) -> ResponseFilter {
+    beacon_states_path
+        .clone()
+        .and(warp::path("ptc"))
+        .and(warp::query::<eth2::types::PtcQuery>())
+        .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |state_id: StateId,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             query: eth2::types::PtcQuery,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized) = state_id
+                        .map_state_and_execution_optimistic_and_finalized(
+                            &chain,
+                            |state, execution_optimistic, finalized| {
+                                let slot = query.slot.unwrap_or(state.slot());
+                                let ptc =
+                                    state.get_ptc(slot, &chain.spec).map_err(|e| match e {
+                                        BeaconStateError::IncorrectStateVariant => {
+                                            warp_utils::reject::custom_bad_request(format!(
+                                                "state at slot {} is pre-Gloas",
+                                                state.slot()
+                                            ))
+                                        }
+                                        BeaconStateError::SlotOutOfBounds => {
+                                            warp_utils::reject::custom_bad_request(format!(
+                                                "slot {} is pre-Gloas or outside the PTC window \
+                                             of the state at epoch {}",
+                                                slot,
+                                                state.current_epoch()
+                                            ))
+                                        }
+                                        e => warp_utils::reject::beacon_state_error(e),
+                                    })?;
+
+                                let validators =
+                                    FixedVector::new(ptc.0.iter().map(|&i| i as u64).collect())
+                                        .map_err(|e| {
+                                            warp_utils::reject::custom_server_error(format!(
+                                                "invalid PTC size: {:?}",
+                                                e
+                                            ))
+                                        })?;
+
+                                Ok((
+                                    eth2::types::PtcData::<T::EthSpec> { slot, validators },
+                                    execution_optimistic,
+                                    finalized,
+                                ))
+                            },
+                        )?;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Builder::new()
+                            .status(200)
+                            .body(data.as_ssz_bytes())
+                            .map(add_ssz_content_type_header)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => Ok(warp::reply::json(
+                            &eth2::types::GenericResponse::from(data)
+                                .add_execution_optimistic_finalized(
+                                    execution_optimistic,
+                                    finalized,
+                                ),
+                        )
+                        .into_response()),
+                    }
                 })
             },
         )
