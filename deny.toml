@@ -25,9 +25,7 @@ deny = [
     # { crate = "sha2", deny-multiple-versions = true, reason = "takes a long time to compile" },
     { crate = "pbkdf2", deny-multiple-versions = true, reason = "takes a long time to compile" },
     { crate = "scrypt", deny-multiple-versions = true, reason = "takes a long time to compile" },
-    # TODO: uncomment when the syn 2 holdouts (alloy macros, bindgen, strum_macros, educe,
-    # sigp derive crates) migrate to syn 3.
-    # { crate = "syn", deny-multiple-versions = true, reason = "takes a long time to compile" },
+    { crate = "syn@1", reason = "syn1 is banned as takes a long time to compile" },
     { crate = "uuid", deny-multiple-versions = true, reason = "dependency hygiene" },
     { crate = "lru", deny-multiple-versions = true, reason = "use hashlink instead" },
 ]
