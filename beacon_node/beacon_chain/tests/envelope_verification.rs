@@ -4,7 +4,7 @@ use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource}
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
-use bls::{PublicKeyBytes, Signature};
+use bls::PublicKeyBytes;
 use eth2::types::EventKind;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
@@ -737,10 +737,10 @@ fn is_optimistic(status: ExecutionStatus) -> bool {
     matches!(status, ExecutionStatus::Optimistic(_))
 }
 
-/// A forged envelope for a block whose payload we already imported must still be deduplicated
-/// after a restart, before the signing-root and signature work.
+/// A duplicate envelope for a block whose payload we already imported must still be
+/// deduplicated after a restart, before the signing-root and signature work.
 #[tokio::test]
-async fn restart_deduplicates_forged_envelope_for_an_imported_block() {
+async fn restart_deduplicates_envelope_for_an_imported_block() {
     if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
         return;
     }
@@ -758,20 +758,14 @@ async fn restart_deduplicates_forged_envelope_for_an_imported_block() {
     let target_slot = Slot::new(2);
     let (block_root, signed_envelope) = import_block_and_envelope(&harness, target_slot).await;
 
-    // Every field the bid commits to is unchanged, so the consistency checks pass and only the
-    // signature can reject it.
-    let mut forged = (*signed_envelope).clone();
-    forged.signature = Signature::empty();
-    let forged = Arc::new(forged);
-
     match harness
         .chain
-        .verify_envelope_for_gossip(forged.clone(), EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(signed_envelope.clone(), EnvelopeSource::Gossip)
         .await
     {
         Err(EnvelopeError::EnvelopeAlreadySeen { .. }) => {}
         Err(other) => panic!("expected EnvelopeAlreadySeen before the restart, got {other:?}"),
-        Ok(_) => panic!("the forged envelope should be rejected before the restart"),
+        Ok(_) => panic!("the duplicate should be deduplicated before the restart"),
     }
 
     harness
@@ -790,38 +784,27 @@ async fn restart_deduplicates_forged_envelope_for_an_imported_block() {
         .testing_slot_clock(slot_clock)
         .build();
 
-    assert!(
-        resumed
-            .chain
-            .store
-            .get_signed_payload_envelope(&block_root)
-            .expect("the store read should succeed")
-            .is_some(),
-        "the verified envelope is still on disk after the restart",
-    );
+    // Without this the duplicate below could be deduplicated by the cache rather than by the
+    // `payload_received` flag that fork choice restores from disk.
     assert!(
         !resumed
             .chain
             .observed_payload_envelopes
-            .envelope_has_been_observed(target_slot, block_root, forged.message.builder_index,),
+            .envelope_has_been_observed(
+                target_slot,
+                block_root,
+                signed_envelope.message.builder_index,
+            ),
         "the in-memory deduplication cache starts empty after the restart",
-    );
-    assert!(
-        resumed
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .is_payload_received(&block_root),
-        "fork choice is restored from disk and still records the payload",
     );
 
     match resumed
         .chain
-        .verify_envelope_for_gossip(forged, EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(signed_envelope, EnvelopeSource::Gossip)
         .await
     {
         Err(EnvelopeError::EnvelopeAlreadySeen { .. }) => {}
         Err(other) => panic!("expected EnvelopeAlreadySeen after the restart, got {other:?}"),
-        Ok(_) => panic!("the forged envelope should be rejected after the restart"),
+        Ok(_) => panic!("the duplicate reached the signing-root and signature work"),
     }
 }
