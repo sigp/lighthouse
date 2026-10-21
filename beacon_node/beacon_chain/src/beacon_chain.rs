@@ -7,9 +7,9 @@ use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
 use crate::beacon_proposer_cache::{BeaconProposerCache, EpochBlockProposers};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
-    BlockError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
-    check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
-    signature_verify_chain_segment, verify_header_signature,
+    BlockError, BlockErrorWithRoot, ExecutionPendingBlock, GossipVerifiedBlock,
+    IntoExecutionPendingBlock, check_block_is_finalized_checkpoint_or_descendant,
+    check_block_relevancy, signature_verify_chain_segment, verify_header_signature,
 };
 use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RangeSyncBlock,
@@ -3262,6 +3262,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if let RangeSyncBlock::Gloas {
                     block,
                     envelope: Some(envelope),
+                    ..
                 } = block
                 {
                     let chain = self.clone();
@@ -3398,7 +3399,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
+    ) -> Result<GossipVerifiedBlock<T>, BlockErrorWithRoot> {
         let chain = self.clone();
         self.task_executor
             .clone()
@@ -3422,7 +3423,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         }
                         Err(e) => {
                             debug!(
-                                error = e.to_string(),
+                                error = e.error.to_string(),
                                 graffiti = graffiti_string,
                                 %slot,
                                 "Rejected gossip block"
@@ -3960,20 +3961,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Gloas blocks dont need to be inserted into the DA cache
-        // they are always available.
-        if !unverified_block
-            .block()
-            .fork_name_unchecked()
-            .gloas_enabled()
-        {
-            self.data_availability_checker.put_pre_execution_block(
-                block_root,
-                unverified_block.block_cloned(),
-                block_source,
-            )?;
-        }
-
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
@@ -3994,7 +3981,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 chain
                     .pending_payload_cache
                     .insert_block(block_root, block, block_source);
-            }
+            } else {
+                chain.data_availability_checker.put_pre_execution_block(
+                    block_root,
+                    block,
+                    block_source,
+                )?;
+            };
 
             publish_fn()?;
 
@@ -4659,12 +4652,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     Ok(current_epoch_dependent_root),
                                     Ok(next_epoch_dependent_root),
                                 ) => {
+                                    let fork_name =
+                                        self.spec.fork_name_at_slot::<T::EthSpec>(head_slot);
                                     let head_v2 = SseHeadV2 {
                                         slot: head_slot,
                                         block: block_root,
                                         state: state_root,
-                                        // In the first emission of a new head_v2, the PayloadStatus is always Empty
-                                        payload_status: fork_choice::PayloadStatus::Empty,
+                                        // Pre-Gloas: Full for the API. Post-Gloas: use head_node.payload_status.
+                                        payload_status: if fork_name.gloas_enabled() {
+                                            head_node.payload_status()
+                                        } else {
+                                            fork_choice::PayloadStatus::Full
+                                        },
                                         epoch_transition: is_epoch_transition,
                                         current_epoch_dependent_root,
                                         next_epoch_dependent_root,
@@ -4672,9 +4671,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     };
                                     event_handler.register(EventKind::HeadV2(Box::new(
                                         ForkVersionedResponse {
-                                            version: self
-                                                .spec
-                                                .fork_name_at_slot::<T::EthSpec>(head_v2.slot),
+                                            version: fork_name,
                                             metadata: Default::default(),
                                             data: head_v2,
                                         },
@@ -7266,34 +7263,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.spec
             .bellatrix_fork_epoch
             .is_none_or(|bellatrix| slot.epoch(T::EthSpec::slots_per_epoch()) < bellatrix)
-    }
-
-    /// Returns the value of `execution_optimistic` for `head_block`.
-    ///
-    /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionVerdict::Valid`.
-    /// Returns `Ok(true)` if the block has `ExecutionVerdict::Optimistic` or `ExecutionVerdict::Invalid`.
-    ///
-    /// This function will return an error if `head_block` is not present in the fork choice store
-    /// and so should only be used on the head block or when the block *should* be present in the
-    /// fork choice store.
-    ///
-    /// There is a potential race condition when syncing where the block_root of `head_block` could
-    /// be pruned from the fork choice store before being read.
-    pub fn is_optimistic_or_invalid_head_block<Payload: AbstractExecPayload<T::EthSpec>>(
-        &self,
-        head_block: &SignedBeaconBlock<T::EthSpec, Payload>,
-    ) -> Result<bool, BeaconChainError> {
-        // Check if the block is pre-Bellatrix.
-        if self.slot_is_prior_to_bellatrix(head_block.slot()) {
-            Ok(false)
-        } else {
-            self.canonical_head
-                .fork_choice_read_lock()
-                .is_optimistic_or_invalid_block_assuming_full_no_fallback(
-                    &head_block.canonical_root(),
-                )
-                .map_err(BeaconChainError::ForkChoiceError)
-        }
     }
 
     /// Returns the value of `execution_optimistic` for the current head block.
