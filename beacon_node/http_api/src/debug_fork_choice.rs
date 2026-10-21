@@ -8,7 +8,6 @@ use eth2::types::{
 use fixed_bytes::FixedBytesExtended;
 use proto_array::core::ProtoNode;
 use proto_array::{ParentPayloadStatus, PayloadBlockHash, PayloadStatus, ProtoArrayForkChoice};
-use tracing::{debug, warn};
 use types::{ExecutionBlockHash, Hash256};
 use warp::Rejection;
 
@@ -94,44 +93,36 @@ pub fn fork_choice_v2<T: BeaconChainTypes>(
     // Read before taking the fork choice lock, so the two locks are never held together.
     let cached_head = chain.canonical_head.cached_head();
 
-    let mut fork_choice = {
-        let beacon_fork_choice = chain.canonical_head.fork_choice_read_lock();
-        let proto_array_fork_choice = beacon_fork_choice.proto_array();
+    let beacon_fork_choice = chain.canonical_head.fork_choice_read_lock();
+    let proto_array_fork_choice = beacon_fork_choice.proto_array();
 
-        let proto_array = proto_array_fork_choice.core_proto_array();
+    let proto_array = proto_array_fork_choice.core_proto_array();
 
-        let mut fork_choice_nodes = vec![];
-        for node in &proto_array.nodes {
-            push_fork_choice_nodes(node, proto_array_fork_choice, &mut fork_choice_nodes)?;
-        }
+    let mut fork_choice_nodes = vec![];
+    for node in &proto_array.nodes {
+        push_fork_choice_nodes(node, proto_array_fork_choice, &mut fork_choice_nodes)?;
+    }
 
-        // Fork choice tracks a pre-Gloas head as `Empty`, but this response shows a pre-Gloas
-        // block as a single `Full` node.
-        let head_root = cached_head.head_block_root();
-        let head_payload_status = match proto_array.get_block(head_root) {
-            Some(ProtoNode::V17(_)) => PayloadStatus::Full,
-            _ => cached_head.head_payload_status(),
-        };
-
-        ForkChoiceV2 {
-            justified_checkpoint: beacon_fork_choice.justified_checkpoint(),
-            finalized_checkpoint: beacon_fork_choice.finalized_checkpoint(),
-            fork_choice_nodes,
-            extra_data: ForkChoiceExtraDataV2 {
-                head_root,
-                head_payload_status,
-                proposer_boost_root: beacon_fork_choice.proposer_boost_root(),
-                unrealized_justified_checkpoint: beacon_fork_choice
-                    .unrealized_justified_checkpoint(),
-                unrealized_finalized_checkpoint: beacon_fork_choice
-                    .unrealized_finalized_checkpoint(),
-            },
-        }
+    // Fork choice tracks a pre-Gloas head as `Empty`, but this response shows a pre-Gloas
+    // block as a single `Full` node.
+    let head_root = cached_head.head_block_root();
+    let head_payload_status = match proto_array.get_block(head_root) {
+        Some(ProtoNode::V17(_)) => PayloadStatus::Full,
+        _ => cached_head.head_payload_status(),
     };
 
-    fill_pruned_parent_roots(chain, &mut fork_choice.fork_choice_nodes);
-
-    Ok(fork_choice)
+    Ok(ForkChoiceV2 {
+        justified_checkpoint: beacon_fork_choice.justified_checkpoint(),
+        finalized_checkpoint: beacon_fork_choice.finalized_checkpoint(),
+        fork_choice_nodes,
+        extra_data: ForkChoiceExtraDataV2 {
+            head_root,
+            head_payload_status,
+            proposer_boost_root: beacon_fork_choice.proposer_boost_root(),
+            unrealized_justified_checkpoint: beacon_fork_choice.unrealized_justified_checkpoint(),
+            unrealized_finalized_checkpoint: beacon_fork_choice.unrealized_finalized_checkpoint(),
+        },
+    })
 }
 
 /// Pushes the fork choice nodes of `node`'s block onto `fork_choice_nodes`.
@@ -142,7 +133,7 @@ fn push_fork_choice_nodes(
 ) -> Result<(), Rejection> {
     let proto_array = proto_array_fork_choice.core_proto_array();
     let block_root = node.root();
-    // `None` if pruned; filled in later by `fill_pruned_parent_roots`.
+    // `None` if pruned, giving a zero `parent_root`
     let parent_root = node
         .parent()
         .and_then(|index| proto_array.nodes.get(index))
@@ -246,30 +237,4 @@ fn push_fork_choice_nodes(
     }
 
     Ok(())
-}
-
-/// Fills in `parent_root` from the store for nodes whose parent was pruned. Stays zero if the
-/// block can't be loaded.
-fn fill_pruned_parent_roots<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
-    fork_choice_nodes: &mut [ForkChoiceNodeV2],
-) {
-    for node in fork_choice_nodes
-        .iter_mut()
-        .filter(|node| node.parent_payload_status.is_none())
-    {
-        match chain.store.get_blinded_block(&node.block_root) {
-            Ok(Some(block)) => node.parent_root = block.parent_root(),
-            // Abandoned-fork blocks are pruned from the store on finalization.
-            Ok(None) => debug!(
-                block_root = ?node.block_root,
-                "Fork choice node block not found in store"
-            ),
-            Err(error) => warn!(
-                block_root = ?node.block_root,
-                ?error,
-                "Failed to load fork choice node block from store"
-            ),
-        }
-    }
 }

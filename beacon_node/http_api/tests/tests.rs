@@ -4477,16 +4477,8 @@ impl ApiTester {
             let parent = proto_node
                 .parent()
                 .and_then(|index| proto_array.nodes.get(index));
-            // A pruned parent's root is loaded from the store, or zero if the block is gone.
-            let parent_root = match parent {
-                Some(parent) => parent.root(),
-                None => self
-                    .chain
-                    .store
-                    .get_blinded_block(&block_root)
-                    .unwrap()
-                    .map_or_else(Hash256::zero, |block| block.parent_root()),
-            };
+            // A pruned parent gives a zero root.
+            let parent_root = parent.map_or_else(Hash256::zero, |parent| parent.root());
             let extra_data = ForkChoiceNodeExtraDataV2 {
                 target_root: proto_node.target_root(),
                 state_root: proto_node.state_root(),
