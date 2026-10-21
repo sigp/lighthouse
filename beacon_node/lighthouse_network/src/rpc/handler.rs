@@ -41,7 +41,7 @@ const SHUTDOWN_TIMEOUT_SECS: u64 = 15;
 const MAX_INBOUND_SUBSTREAMS: usize = 32;
 
 /// Timeout that will be used for inbound and outbound responses.
-const RESP_TIMEOUT: Duration = Duration::from_secs(10);
+pub(super) const RESP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Identifier of inbound and outbound substreams from the handler's perspective.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
@@ -60,6 +60,8 @@ type InboundSubstream<E> = InboundFramed<Stream, E>;
 pub enum HandlerEvent<Id, E: EthSpec> {
     Ok(RPCReceived<Id, E>),
     Err(HandlerErr<Id>),
+    /// An inbound substream closed and no more responses can be sent for its request.
+    InboundStreamClosed(SubstreamId),
     Close(RPCError),
 }
 
@@ -422,8 +424,13 @@ where
                     id: *inbound_id.get_ref(),
                 }));
 
-                if info.pending_items.back().map(|l| l.close_after()) == Some(false) {
-                    // if the last chunk does not close the stream, append an error
+                if info
+                    .pending_items
+                    .back()
+                    .map(|response| !response.close_after())
+                    .unwrap_or(true)
+                {
+                    // If there is no response that closes the stream, append an error.
                     info.pending_items.push_back(RpcResponse::Error(
                         RpcErrorResponse::ServerError,
                         "Request timed out".into(),
@@ -651,6 +658,8 @@ where
         // Remove closed substreams
         for inbound_id in substreams_to_remove {
             self.inbound_substreams.remove(&inbound_id);
+            self.events_out
+                .push(HandlerEvent::InboundStreamClosed(inbound_id));
         }
 
         // drive outbound streams that need to be processed
