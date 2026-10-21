@@ -488,8 +488,9 @@ impl TestRig {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_lookup_beacon_block(
+                junk_peer_id(),
                 block_root,
-                LookupBlock::new(self.next_block.clone()),
+                LookupBlock::new(block_root, self.next_block.clone()),
                 BlockProcessType::SingleBlock { id: 0 },
             )
             .unwrap();
@@ -499,8 +500,9 @@ impl TestRig {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_lookup_beacon_block(
+                junk_peer_id(),
                 block_root,
-                LookupBlock::new(self.next_block.clone()),
+                LookupBlock::new(block_root, self.next_block.clone()),
                 BlockProcessType::SingleBlock { id: 1 },
             )
             .unwrap();
@@ -1004,6 +1006,13 @@ async fn status_finalized_checkpoint_relevance() {
 
     let mut ahead = conflicting.clone();
     ahead.finalized_epoch += 1;
+
+    // Allow the ahead checkpoint to have finalized without advancing our local finality.
+    rig.chain.slot_clock.set_slot(
+        (ahead.finalized_epoch + 2)
+            .start_slot(E::slots_per_epoch())
+            .as_u64(),
+    );
 
     let mut wrong_fork = local.clone();
     wrong_fork.fork_digest[0] ^= 1;
@@ -1547,7 +1556,7 @@ async fn attestation_to_unknown_block_processed_after_engine_blobs() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(rig.next_block.clone()),
+            LookupBlock::new(block_root, rig.next_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Gossip,
             || Ok(()),
@@ -1901,7 +1910,7 @@ async fn rpc_columns_notify_after_deferred_envelope_import() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(rig.next_block.clone()),
+            LookupBlock::new(block_root, rig.next_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -2029,7 +2038,7 @@ async fn rpc_columns_notify_after_deferred_block_import() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(rig.next_block.clone()),
+            LookupBlock::new(block_root, rig.next_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),

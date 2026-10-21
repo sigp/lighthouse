@@ -236,6 +236,14 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("unknown-root-min-peers")
+                .long("unknown-root-min-peers")
+                .value_name("INTEGER")
+                .help("The number of distinct peers required to report an unknown block root before Lighthouse requests it. Defaults to 3.")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("boot-nodes")
                 .long("boot-nodes")
                 .allow_hyphen_values(true)
