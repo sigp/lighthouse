@@ -2335,7 +2335,7 @@ async fn unaggregated_attestation_committee_index_replay_does_not_grow_slasher_q
     );
 
     let inner_slasher = slasher.clone();
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec)
         .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
         .fresh_ephemeral_store()
