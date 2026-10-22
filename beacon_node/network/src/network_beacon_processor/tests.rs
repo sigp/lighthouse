@@ -15,7 +15,7 @@ use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, blobs_to_data_colum
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, get_kzg,
-    test_spec,
+    pooled_payload_attestation_bits, ptc_seats, test_spec,
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
@@ -42,13 +42,13 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch, EthSpec,
-    Hash256, InclusionList, MainnetEthSpec, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
-    SignedInclusionList, SignedRoot, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    Hash256, InclusionList, PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    SignedInclusionList, SignedRoot, SignedVoluntaryExit, SingleAttestation, Slot, Spec, SubnetId,
     data::BlobIdentifier,
 };
 
-type E = MainnetEthSpec;
+type E = Spec;
 type T = EphemeralHarnessType<E>;
 
 const SLOTS_PER_EPOCH: u64 = 32;
@@ -76,6 +76,7 @@ struct TestRig {
     beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    sync_rx: mpsc::UnboundedReceiver<crate::sync::SyncMessage<E>>,
     duplicate_cache: DuplicateCache,
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     _harness: BeaconChainHarness<T>,
@@ -141,7 +142,7 @@ impl TestRig {
     ) -> Self {
         let spec = Arc::new(spec);
         let beacon_processor_config = BeaconProcessorConfig::default();
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -188,7 +189,7 @@ impl TestRig {
         } = params;
 
         let spec = Arc::new(spec);
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
@@ -303,21 +304,21 @@ impl TestRig {
             beacon_processor_rx,
         } = BeaconProcessorChannels::new(&beacon_processor_config);
 
-        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
+        let (sync_tx, sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
         let meta_data = if spec.is_peer_das_scheduled() {
             MetaData::V3(MetaDataV3 {
                 seq_number: SEQ_NUMBER,
-                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+                attnets: EnrAttestationBitfield::<E>::default(),
+                syncnets: EnrSyncCommitteeBitfield::<E>::default(),
                 custody_group_count: spec.custody_requirement,
             })
         } else {
             MetaData::V2(MetaDataV2 {
                 seq_number: SEQ_NUMBER,
-                attnets: EnrAttestationBitfield::<MainnetEthSpec>::default(),
-                syncnets: EnrSyncCommitteeBitfield::<MainnetEthSpec>::default(),
+                attnets: EnrAttestationBitfield::<E>::default(),
+                syncnets: EnrSyncCommitteeBitfield::<E>::default(),
             })
         };
 
@@ -409,6 +410,7 @@ impl TestRig {
             beacon_processor_tx,
             work_journal_rx,
             network_rx,
+            sync_rx,
             duplicate_cache,
             network_beacon_processor,
             _harness: harness,
@@ -486,8 +488,9 @@ impl TestRig {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_lookup_beacon_block(
+                junk_peer_id(),
                 block_root,
-                LookupBlock::new(self.next_block.clone()),
+                LookupBlock::new(block_root, self.next_block.clone()),
                 BlockProcessType::SingleBlock { id: 0 },
             )
             .unwrap();
@@ -497,8 +500,9 @@ impl TestRig {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_lookup_beacon_block(
+                junk_peer_id(),
                 block_root,
-                LookupBlock::new(self.next_block.clone()),
+                LookupBlock::new(block_root, self.next_block.clone()),
                 BlockProcessType::SingleBlock { id: 1 },
             )
             .unwrap();
@@ -685,9 +689,9 @@ impl TestRig {
             .unwrap();
     }
 
-    /// Enqueue a valid payload attestation message for `next_block`, signed by the first
-    /// member of the PTC for its slot.
-    pub fn enqueue_next_block_payload_attestation(&self) {
+    /// A valid payload attestation message for `next_block`, signed by the first member of the
+    /// PTC for its slot.
+    pub fn make_next_block_payload_attestation(&self) -> PayloadAttestationMessage {
         let slot = self.next_block.slot();
         let beacon_block_root = self.next_block.canonical_root();
         let head = self.chain.canonical_head.cached_head();
@@ -714,16 +718,16 @@ impl TestRig {
             .sk
             .sign(data.signing_root(domain));
 
+        PayloadAttestationMessage {
+            validator_index,
+            data,
+            signature,
+        }
+    }
+
+    pub fn enqueue_payload_attestation(&self, message: PayloadAttestationMessage) {
         self.network_beacon_processor
-            .send_gossip_payload_attestation(
-                junk_message_id(),
-                junk_peer_id(),
-                Box::new(PayloadAttestationMessage {
-                    validator_index,
-                    data,
-                    signature,
-                }),
-            )
+            .send_gossip_payload_attestation(junk_message_id(), junk_peer_id(), Box::new(message))
             .unwrap();
     }
 
@@ -974,6 +978,107 @@ fn junk_peer_id() -> PeerId {
 
 fn junk_message_id() -> MessageId {
     MessageId::new(&[])
+}
+
+#[tokio::test]
+async fn status_finalized_checkpoint_relevance() {
+    use crate::status::ToStatusMessage;
+    use crate::sync::SyncMessage;
+    use lighthouse_network::rpc::{GoodbyeReason, StatusMessage};
+
+    let mut rig = TestRig::new(SLOTS_PER_EPOCH * 4).await;
+    let local = rig.chain.status_message().status_v2();
+    assert!(local.finalized_epoch > Epoch::new(0));
+    assert!(!local.finalized_root.is_zero());
+    // At the split boundary, the historical freezer lookup cannot catch a conflict.
+    assert_eq!(
+        rig.chain.store.get_split_slot(),
+        local.finalized_epoch.start_slot(E::slots_per_epoch())
+    );
+
+    let mut conflicting = local.clone();
+    conflicting.finalized_root = Hash256::repeat_byte(0x42);
+    assert_ne!(conflicting.finalized_root, local.finalized_root);
+
+    let mut genesis = local.clone();
+    genesis.finalized_epoch = Epoch::new(0);
+    genesis.finalized_root = Hash256::ZERO;
+
+    let mut ahead = conflicting.clone();
+    ahead.finalized_epoch += 1;
+
+    // Allow the ahead checkpoint to have finalized without advancing our local finality.
+    rig.chain.slot_clock.set_slot(
+        (ahead.finalized_epoch + 2)
+            .start_slot(E::slots_per_epoch())
+            .as_u64(),
+    );
+
+    let mut wrong_fork = local.clone();
+    wrong_fork.fork_digest[0] ^= 1;
+
+    for (status, admitted) in [
+        (local, true),
+        (conflicting, false),
+        (genesis, true),
+        (ahead, true),
+        (wrong_fork, false),
+    ] {
+        let status = StatusMessage::V2(status);
+        for status in [StatusMessage::V1(status.status_v1()), status] {
+            let peer = junk_peer_id();
+            rig.network_beacon_processor
+                .process_status(peer, status.clone());
+            if admitted {
+                assert_matches!(
+                    rig.sync_rx.try_recv(),
+                    Ok(SyncMessage::AddPeer(id, info))
+                        if id == peer
+                            && info.finalized_epoch == *status.finalized_epoch()
+                            && info.finalized_root == *status.finalized_root()
+                );
+                assert_matches!(
+                    rig.network_rx.try_recv(),
+                    Err(mpsc::error::TryRecvError::Empty)
+                );
+            } else {
+                assert_matches!(
+                    rig.network_rx.try_recv(),
+                    Ok(NetworkMessage::GoodbyePeer {
+                        peer_id, reason: GoodbyeReason::IrrelevantNetwork, ..
+                    }) if peer_id == peer
+                );
+                assert_matches!(
+                    rig.sync_rx.try_recv(),
+                    Err(mpsc::error::TryRecvError::Empty)
+                );
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn status_unfinalized_local_chain_allows_peer() {
+    use crate::status::ToStatusMessage;
+    use crate::sync::SyncMessage;
+    use lighthouse_network::rpc::StatusMessage;
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let mut remote = rig.chain.status_message().status_v2();
+    assert_eq!(remote.finalized_epoch, Epoch::new(0));
+    assert!(remote.finalized_root.is_zero());
+    remote.finalized_root = Hash256::repeat_byte(0x42);
+
+    let status = StatusMessage::V2(remote);
+    for status in [StatusMessage::V1(status.status_v1()), status] {
+        let peer = junk_peer_id();
+        rig.network_beacon_processor.process_status(peer, status);
+        assert_matches!(rig.sync_rx.try_recv(), Ok(SyncMessage::AddPeer(id, _)) if id == peer);
+        assert_matches!(
+            rig.network_rx.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        );
+    }
 }
 
 // Test that column reconstruction is delayed for columns that arrive
@@ -1451,7 +1556,7 @@ async fn attestation_to_unknown_block_processed_after_engine_blobs() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(rig.next_block.clone()),
+            LookupBlock::new(block_root, rig.next_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Gossip,
             || Ok(()),
@@ -1568,16 +1673,18 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
 
     // Send the payload attestation but not the block, and check that it was not imported.
 
-    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+    let message = rig.make_next_block_payload_attestation();
+    let bits_before = pooled_payload_attestation_bits(&rig.chain, &message.data);
+    let expected_bits = ptc_seats(&rig.chain, message.data.slot, message.validator_index);
 
-    rig.enqueue_next_block_payload_attestation();
+    rig.enqueue_payload_attestation(message.clone());
 
     rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
         .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 
@@ -1617,8 +1724,8 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
     rig.assert_event_journal_contains_ordered(&events).await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages + 1,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before + expected_bits,
         "Payload attestation should have been included."
     );
 
@@ -1676,16 +1783,17 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
 
     // Send the payload attestation but not the block, and check that it was not imported.
 
-    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+    let message = rig.make_next_block_payload_attestation();
+    let bits_before = pooled_payload_attestation_bits(&rig.chain, &message.data);
 
-    rig.enqueue_next_block_payload_attestation();
+    rig.enqueue_payload_attestation(message.clone());
 
     rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
         .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 
@@ -1704,8 +1812,8 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
     .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 }
@@ -1805,7 +1913,7 @@ async fn rpc_columns_notify_after_deferred_envelope_import() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(rig.next_block.clone()),
+            LookupBlock::new(block_root, rig.next_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -1933,7 +2041,7 @@ async fn rpc_columns_notify_after_deferred_block_import() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(rig.next_block.clone()),
+            LookupBlock::new(block_root, rig.next_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),

@@ -1731,7 +1731,7 @@ mod tests {
     use ssz::Encode;
     use types::{
         BuilderDepositRequest, BuilderExitRequest, ConsolidationRequest, DepositRequest,
-        MainnetEthSpec, RequestType, WithdrawalRequest,
+        RequestType, Spec, WithdrawalRequest,
     };
 
     use super::*;
@@ -1761,7 +1761,7 @@ mod tests {
             signature: SignatureBytes::empty(),
             index: 0,
         };
-        let max = MainnetEthSpec::max_deposit_requests_per_payload();
+        let max = Spec::max_deposit_requests_per_payload();
         for count in [max, max + 1] {
             let deposits = vec![deposit.clone(); count];
             let json = JsonExecutionRequests(vec![create_request_string(
@@ -1769,17 +1769,17 @@ mod tests {
                 &deposits,
             )]);
 
-            let electra = ExecutionRequestsElectra::<MainnetEthSpec>::try_from(json.clone());
+            let electra = ExecutionRequestsElectra::<Spec>::try_from(json.clone());
             if count == max {
                 assert_eq!(electra.unwrap().deposits.to_vec(), deposits);
             } else {
                 assert!(matches!(electra, Err(RequestsError::DecodeError(_))));
             }
-            let gloas = ExecutionRequestsGloas::<MainnetEthSpec>::try_from(json.clone()).unwrap();
+            let gloas = ExecutionRequestsGloas::<Spec>::try_from(json.clone()).unwrap();
             assert_eq!(gloas.deposits.to_vec(), deposits);
 
             for fork in [ForkName::Fulu, ForkName::Heze] {
-                let parsed = parse_execution_requests::<MainnetEthSpec>(json.clone(), fork);
+                let parsed = parse_execution_requests::<Spec>(json.clone(), fork);
                 match fork {
                     ForkName::Fulu if count > max => {
                         assert!(matches!(parsed, Err(RequestsError::DecodeError(_))));
@@ -1829,7 +1829,7 @@ mod tests {
 
         // First check a valid request with all requests
         assert_eq!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
                 create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
@@ -1844,7 +1844,7 @@ mod tests {
 
         // Single requests
         assert_eq!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
             ]))
             .unwrap(),
@@ -1856,7 +1856,7 @@ mod tests {
         );
 
         assert_eq!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
             ]))
             .unwrap(),
@@ -1868,7 +1868,7 @@ mod tests {
         );
 
         assert_eq!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
             ]))
             .unwrap(),
@@ -1881,7 +1881,7 @@ mod tests {
 
         // Out of order
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
             ]))
@@ -1890,7 +1890,7 @@ mod tests {
         ));
 
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
             ]))
@@ -1899,7 +1899,7 @@ mod tests {
         ));
 
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
             ]))
@@ -1909,7 +1909,7 @@ mod tests {
 
         // Multiple requests of same type
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
             ]))
@@ -1919,7 +1919,7 @@ mod tests {
 
         // Invalid prefix
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(42, &deposit_request),
             ]))
             .unwrap_err(),
@@ -1928,7 +1928,7 @@ mod tests {
 
         // Prefix followed by no data
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 create_request_string(
                     RequestType::Consolidation.to_u8(),
@@ -1940,7 +1940,7 @@ mod tests {
         ));
         // Empty request
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 "0x".to_string()
             ]))
@@ -1956,7 +1956,7 @@ mod tests {
             signature: SignatureBytes::empty(),
         };
         assert!(matches!(
-            ExecutionRequestsElectra::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsElectra::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(
                     RequestType::BuilderDeposit.to_u8(),
                     &builder_deposit_request
@@ -2008,7 +2008,7 @@ mod tests {
                     kind.to_u8(),
                     &vec![request.clone(); count],
                 )]);
-                let result = ExecutionRequestsGloas::<MainnetEthSpec>::try_from(json);
+                let result = ExecutionRequestsGloas::<Spec>::try_from(json);
                 if count == max {
                     assert!(result.is_ok(), "{kind:?}: {result:?}");
                 } else {
@@ -2019,27 +2019,27 @@ mod tests {
         check_limit(
             RequestType::Withdrawal,
             withdrawal_request.clone(),
-            MainnetEthSpec::max_withdrawal_requests_per_payload(),
+            Spec::max_withdrawal_requests_per_payload(),
         );
         check_limit(
             RequestType::Consolidation,
             consolidation_request.clone(),
-            MainnetEthSpec::max_consolidation_requests_per_payload(),
+            Spec::max_consolidation_requests_per_payload(),
         );
         check_limit(
             RequestType::BuilderDeposit,
             builder_deposit_request.clone(),
-            MainnetEthSpec::max_builder_deposit_requests_per_payload(),
+            Spec::max_builder_deposit_requests_per_payload(),
         );
         check_limit(
             RequestType::BuilderExit,
             builder_exit_request.clone(),
-            MainnetEthSpec::max_builder_exit_requests_per_payload(),
+            Spec::max_builder_exit_requests_per_payload(),
         );
 
         // Valid request with all five request types, in ascending prefix order.
         assert_eq!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsGloas::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
                 create_request_string(RequestType::Withdrawal.to_u8(), &withdrawal_request),
                 create_request_string(RequestType::Consolidation.to_u8(), &consolidation_request),
@@ -2061,7 +2061,7 @@ mod tests {
 
         // A builder-less list is a valid Gloas value (builder lists are simply empty).
         assert_eq!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsGloas::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::Deposit.to_u8(), &deposit_request),
             ]))
             .unwrap(),
@@ -2076,7 +2076,7 @@ mod tests {
 
         // Only builder requests.
         assert_eq!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsGloas::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(
                     RequestType::BuilderDeposit.to_u8(),
                     &builder_deposit_request
@@ -2095,7 +2095,7 @@ mod tests {
 
         // Out of order: builder exit must come after a builder deposit.
         assert!(matches!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsGloas::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(RequestType::BuilderExit.to_u8(), &builder_exit_request),
                 create_request_string(
                     RequestType::BuilderDeposit.to_u8(),
@@ -2108,7 +2108,7 @@ mod tests {
 
         // Duplicate builder request type.
         assert!(matches!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsGloas::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(
                     RequestType::BuilderDeposit.to_u8(),
                     &builder_deposit_request
@@ -2124,7 +2124,7 @@ mod tests {
 
         // Empty builder request data.
         assert!(matches!(
-            ExecutionRequestsGloas::<MainnetEthSpec>::try_from(JsonExecutionRequests(vec![
+            ExecutionRequestsGloas::<Spec>::try_from(JsonExecutionRequests(vec![
                 create_request_string(
                     RequestType::BuilderDeposit.to_u8(),
                     &Vec::<BuilderDepositRequest>::new()
@@ -2145,9 +2145,9 @@ mod tests {
             "withdrawals": null,
             "blockAccessList": "0x010203",
         });
-        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
+        let body: JsonExecutionPayloadBodyV2<Spec> =
             serde_json::from_value(with_bal.clone()).unwrap();
-        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().try_into().unwrap();
+        let internal: ExecutionPayloadBodyV2<Spec> = body.clone().try_into().unwrap();
         assert_eq!(
             internal.block_access_list,
             Some(ProgressiveVariableList::new(vec![1, 2, 3]).unwrap())
@@ -2160,14 +2160,14 @@ mod tests {
             "withdrawals": null,
             "blockAccessList": null,
         });
-        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
+        let body: JsonExecutionPayloadBodyV2<Spec> =
             serde_json::from_value(null_bal.clone()).unwrap();
-        let internal: ExecutionPayloadBodyV2<MainnetEthSpec> = body.clone().try_into().unwrap();
+        let internal: ExecutionPayloadBodyV2<Spec> = body.clone().try_into().unwrap();
         assert_eq!(internal.block_access_list, None);
         assert_eq!(serde_json::to_value(&body).unwrap(), null_bal);
 
         // An omitted field is accepted as `None`, then serialized in its canonical `null` form.
-        let body: JsonExecutionPayloadBodyV2<MainnetEthSpec> =
+        let body: JsonExecutionPayloadBodyV2<Spec> =
             serde_json::from_value(json!({ "transactions": [], "withdrawals": null })).unwrap();
         assert!(body.block_access_list.is_none());
         assert_eq!(

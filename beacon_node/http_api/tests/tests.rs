@@ -1,10 +1,11 @@
 use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        fork_name_from_env, test_spec,
+        fork_name_from_env, pooled_payload_attestation_bits, ptc_seats, test_spec,
     },
 };
 use bls::{AggregateSignature, Keypair, PublicKeyBytes, SecretKey, Signature, SignatureBytes};
@@ -3670,7 +3671,137 @@ impl ApiTester {
         let message = self.make_valid_payload_attestation_message(0);
         let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
 
-        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
+        let bits_before = pooled_payload_attestation_bits(&self.chain, &message.data);
+        let expected_bits = ptc_seats(&self.chain, message.data.slot, message.validator_index);
+
+        self.client
+            .post_beacon_pool_payload_attestations(std::slice::from_ref(&message), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation should be sent to network"
+        );
+
+        assert_eq!(
+            pooled_payload_attestation_bits(&self.chain, &message.data),
+            bits_before + expected_bits,
+            "payload attestation should be added to op pool"
+        );
+
+        self
+    }
+
+    pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
+        let message = self.make_valid_payload_attestation_message(1);
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
+
+        let bits_before = pooled_payload_attestation_bits(&self.chain, &message.data);
+        let expected_bits = ptc_seats(&self.chain, message.data.slot, message.validator_index);
+
+        self.client
+            .post_beacon_pool_payload_attestations_ssz(std::slice::from_ref(&message), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation (SSZ) should be sent to network"
+        );
+
+        assert_eq!(
+            pooled_payload_attestation_bits(&self.chain, &message.data),
+            bits_before + expected_bits,
+            "payload attestation should be added to op pool"
+        );
+
+        self
+    }
+
+    pub async fn test_get_beacon_pool_payload_attestations(mut self) -> Self {
+        let pool_count_before = self.chain.op_pool.num_payload_attestations();
+
+        let first = self.make_valid_payload_attestation_message(0);
+        let first_slot = first.data.slot;
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(first_slot);
+
+        self.client
+            .post_beacon_pool_payload_attestations(std::slice::from_ref(&first), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation should be sent to network"
+        );
+
+        self.harness.extend_slots(1).await;
+
+        let first_only = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(first_slot))
+            .await
+            .unwrap();
+
+        assert_eq!(first_only.version(), Some(ForkName::Gloas));
+        assert_eq!(first_only.data().len(), 1);
+        assert_eq!(first_only.data()[0].data, first.data);
+
+        let second = self.make_valid_payload_attestation_message(0);
+        let second_slot = second.data.slot;
+        assert!(second_slot > first_slot);
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(second_slot);
+
+        self.client
+            .post_beacon_pool_payload_attestations(std::slice::from_ref(&second), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid payload attestation should be sent to network"
+        );
+
+        // An omitted slot returns every slot held, not just the current one.
+        let all = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(None)
+            .await
+            .unwrap();
+
+        assert_eq!(all.version(), Some(ForkName::Gloas));
+        assert_eq!(all.data().len(), pool_count_before + 2);
+        assert!(all.data().iter().any(|a| a.data == first.data));
+        assert!(all.data().iter().any(|a| a.data == second.data));
+
+        // An explicit slot excludes the others.
+        let second_only = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(second_slot))
+            .await
+            .unwrap();
+
+        assert_eq!(second_only.data().len(), 1);
+        assert_eq!(second_only.data()[0].data, second.data);
+
+        // A slot with nothing in the pool is an empty list, not an error.
+        let empty = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(first_slot - 1))
+            .await
+            .unwrap();
+
+        assert_eq!(empty.version(), Some(ForkName::Gloas));
+        assert!(empty.data().is_empty());
+
+        self
+    }
+
+    pub async fn test_get_beacon_pool_payload_attestations_ssz(mut self) -> Self {
+        let message = self.make_valid_payload_attestation_message(0);
+        let slot = message.data.slot;
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
 
         self.client
             .post_beacon_pool_payload_attestations(&[message], fork_name)
@@ -3682,36 +3813,23 @@ impl ApiTester {
             "valid payload attestation should be sent to network"
         );
 
-        assert_eq!(
-            self.chain.op_pool.num_payload_attestation_messages(),
-            pool_count_before + 1,
-            "payload attestation should be added to op pool"
-        );
-
-        self
-    }
-
-    pub async fn test_post_beacon_pool_payload_attestations_valid_ssz(mut self) -> Self {
-        let message = self.make_valid_payload_attestation_message(1);
-        let fork_name = self.chain.spec.fork_name_at_slot::<E>(message.data.slot);
-
-        let pool_count_before = self.chain.op_pool.num_payload_attestation_messages();
-
-        self.client
-            .post_beacon_pool_payload_attestations_ssz(&[message], fork_name)
+        let json = self
+            .client
+            .get_beacon_pool_payload_attestations::<E>(Some(slot))
             .await
             .unwrap();
 
-        assert!(
-            self.network_rx.network_recv.recv().await.is_some(),
-            "valid payload attestation (SSZ) should be sent to network"
-        );
+        let bytes = self
+            .client
+            .get_beacon_pool_payload_attestations_ssz(Some(slot))
+            .await
+            .unwrap()
+            .expect("SSZ response should be present");
 
-        assert_eq!(
-            self.chain.op_pool.num_payload_attestation_messages(),
-            pool_count_before + 1,
-            "payload attestation should be added to op pool"
-        );
+        let ssz = Vec::<PayloadAttestation<E>>::from_ssz_bytes(&bytes).unwrap();
+
+        assert!(!ssz.is_empty());
+        assert_eq!(&ssz, json.data());
 
         self
     }
@@ -3880,6 +3998,73 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_beacon_proposer_preferences(mut self) -> Self {
+        let signed = self.make_valid_signed_proposer_preferences(6);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(signed.message.proposal_slot);
+
+        self.client
+            .post_validator_proposer_preferences(std::slice::from_ref(&signed), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid proposer preferences should be sent to network"
+        );
+
+        let response = self
+            .client
+            .get_beacon_proposer_preferences(
+                Some(signed.message.proposal_slot),
+                Some(signed.message.dependent_root),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.data(), &vec![signed]);
+
+        assert_eq!(response.version(), Some(ForkName::Gloas));
+
+        self
+    }
+
+    pub async fn test_get_beacon_proposer_preferences_ssz(mut self) -> Self {
+        let signed = self.make_valid_signed_proposer_preferences(7);
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(signed.message.proposal_slot);
+
+        self.client
+            .post_validator_proposer_preferences(std::slice::from_ref(&signed), fork_name)
+            .await
+            .unwrap();
+
+        assert!(
+            self.network_rx.network_recv.recv().await.is_some(),
+            "valid proposer preferences should be sent to network"
+        );
+
+        let ssz_bytes = self
+            .client
+            .get_beacon_proposer_preferences_ssz(
+                Some(signed.message.proposal_slot),
+                Some(signed.message.dependent_root),
+            )
+            .await
+            .unwrap()
+            .expect("SSZ response should be present");
+
+        let decoded = Vec::<SignedProposerPreferences>::from_ssz_bytes(&ssz_bytes)
+            .expect("should decode SSZ proposer preferences");
+        assert_eq!(decoded, vec![signed]);
+
+        self
+    }
+
     /// Build a `SignedExecutionPayloadBid`
     fn make_signed_execution_payload_bid(&self) -> (SignedExecutionPayloadBid<E>, ForkName) {
         let head = self.chain.canonical_head.cached_head();
@@ -4029,6 +4214,42 @@ impl ApiTester {
 
         let expected = VersionData {
             version: lighthouse_version::version_with_platform(),
+        };
+
+        assert_eq!(result, expected);
+
+        self
+    }
+
+    pub async fn test_get_node_version_v2(self) -> Self {
+        let result = self.client.get_node_version_v2().await.unwrap().data;
+
+        let beacon_node = eth2::types::version_with_commit();
+        let execution_client = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .unwrap()
+            .get_engine_version(None)
+            .await
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+
+        let expected = VersionDataV2 {
+            beacon_node: JsonClientVersion {
+                code: beacon_node.code,
+                name: beacon_node.name,
+                version: beacon_node.version,
+                commit: beacon_node.commit,
+            },
+            execution_client: Some(JsonClientVersion {
+                code: execution_client.code.to_string(),
+                name: execution_client.name,
+                version: execution_client.version,
+                commit: format!("0x{}", execution_client.commit),
+            }),
         };
 
         assert_eq!(result, expected);
@@ -9836,6 +10057,71 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_head_v2_events_pre_gloas(self) -> Self {
+        assert!(!self.chain.spec.is_gloas_scheduled());
+
+        let signed_block = self.next_block.signed_block();
+        let block_root = signed_block.canonical_root();
+        let slot = signed_block.slot();
+        let state_root = signed_block.state_root();
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let old_head_slot = self.chain.head_snapshot().beacon_block.slot();
+        let is_epoch_transition = epoch > old_head_slot.epoch(E::slots_per_epoch());
+
+        let current_epoch_dependent_root = self
+            .chain
+            .block_root_at_slot(
+                (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+                WhenSlotSkipped::Prev,
+            )
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root());
+
+        let next_epoch_dependent_root = self
+            .chain
+            .block_root_at_slot(
+                epoch.start_slot(E::slots_per_epoch()) - 1,
+                WhenSlotSkipped::Prev,
+            )
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root());
+
+        let expected_fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+
+        let topics = vec![EventTopic::HeadV2];
+        let mut events_future = self
+            .client
+            .get_events::<E>(topics.as_slice())
+            .await
+            .unwrap();
+
+        self.client
+            .post_beacon_blocks_v2(&self.next_block, None)
+            .await
+            .unwrap();
+
+        let events = poll_events(&mut events_future, 1, Duration::from_millis(10000)).await;
+
+        let expected_head_v2 = EventKind::HeadV2(Box::new(ForkVersionedResponse {
+            version: expected_fork_name,
+            metadata: Default::default(),
+            data: SseHeadV2 {
+                block: block_root,
+                slot,
+                state: state_root,
+                payload_status: PayloadStatus::Full,
+                epoch_transition: is_epoch_transition,
+                current_epoch_dependent_root,
+                next_epoch_dependent_root,
+                execution_optimistic: false,
+            },
+        }));
+
+        assert_eq!(events.as_slice(), &[expected_head_v2]);
+
+        self
+    }
+
     pub async fn test_check_optimistic_responses(&mut self) {
         // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
         if self.chain.spec.is_gloas_scheduled() {
@@ -10190,6 +10476,21 @@ async fn get_head_v2_events() {
     ApiTester::new_from_config(config)
         .await
         .test_get_head_v2_events()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_head_v2_events_pre_gloas() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_head_v2_events_pre_gloas()
         .await;
 }
 
@@ -10567,6 +10868,8 @@ async fn node_get() {
     ApiTester::new()
         .await
         .test_get_node_version()
+        .await
+        .test_get_node_version_v2()
         .await
         .test_get_node_syncing()
         .await
@@ -11008,6 +11311,28 @@ async fn post_beacon_pool_payload_attestations_valid_ssz() {
     ApiTester::new_with_hard_forks()
         .await
         .test_post_beacon_pool_payload_attestations_valid_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_pool_payload_attestations() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_pool_payload_attestations()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_pool_payload_attestations_ssz() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_pool_payload_attestations_ssz()
         .await;
 }
 
@@ -11774,6 +12099,54 @@ async fn post_validator_proposer_preferences() {
         .await
         .test_post_validator_proposer_preferences_duplicate()
         .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_proposer_preferences() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_beacon_proposer_preferences()
+        .await
+        .test_get_beacon_proposer_preferences_ssz()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_beacon_proposer_preferences_before_gloas() {
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(Epoch::new(6));
+    let config = ApiTesterConfig {
+        spec,
+        ..<_>::default()
+    };
+    let tester = ApiTester::new_from_config(config).await;
+
+    assert_eq!(
+        tester
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(tester.chain.slot().unwrap()),
+        ForkName::Fulu
+    );
+    let mut signed = SignedProposerPreferences::empty();
+    signed.message.proposal_slot = Epoch::new(6).start_slot(E::slots_per_epoch());
+    tester
+        .chain
+        .gossip_verified_proposer_preferences_cache
+        .insert_preferences(GossipVerifiedProposerPreferences {
+            signed_preferences: Arc::new(signed.clone()),
+        });
+
+    let response = tester
+        .client
+        .get_beacon_proposer_preferences(Some(signed.message.proposal_slot), None)
+        .await
+        .unwrap();
+    assert_eq!(response.data(), &vec![signed]);
+    assert_eq!(response.version(), Some(ForkName::Gloas));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -48,8 +48,8 @@ use std::future::Future;
 use std::time::Duration;
 use types::execution::SignedExecutionProofEnvelope;
 use types::{
-    PayloadAttestationData, PayloadAttestationMessage, SignedExecutionPayloadBid,
-    SignedProposerPreferences,
+    PayloadAttestation, PayloadAttestationData, PayloadAttestationMessage,
+    SignedExecutionPayloadBid, SignedProposerPreferences,
 };
 
 pub const V1: EndpointVersion = EndpointVersion(1);
@@ -2187,6 +2187,49 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `GET beacon/pool/payload_attestations?slot`
+    pub async fn get_beacon_pool_payload_attestations<E: EthSpec>(
+        &self,
+        slot: Option<Slot>,
+    ) -> Result<BeaconResponse<Vec<PayloadAttestation<E>>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("payload_attestations");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        self.get(path).await.map(BeaconResponse::ForkVersioned)
+    }
+
+    /// `GET beacon/pool/payload_attestations?slot` (SSZ)
+    pub async fn get_beacon_pool_payload_attestations_ssz(
+        &self,
+        slot: Option<Slot>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("pool")
+            .push("payload_attestations");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
+    }
+
     /// `POST beacon/pool/bls_to_execution_changes`
     pub async fn post_beacon_pool_bls_to_execution_changes(
         &self,
@@ -2203,6 +2246,59 @@ impl BeaconNodeHttpClient {
         self.post(path, &address_changes).await?;
 
         Ok(())
+    }
+
+    /// `GET beacon/proposer_preferences?slot,dependent_root`
+    pub async fn get_beacon_proposer_preferences(
+        &self,
+        slot: Option<Slot>,
+        dependent_root: Option<Hash256>,
+    ) -> Result<BeaconResponse<Vec<SignedProposerPreferences>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("proposer_preferences");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        if let Some(root) = dependent_root {
+            path.query_pairs_mut()
+                .append_pair("dependent_root", &format!("{:?}", root));
+        }
+
+        self.get(path).await.map(BeaconResponse::ForkVersioned)
+    }
+
+    /// `GET beacon/proposer_preferences?slot,dependent_root` (SSZ)
+    pub async fn get_beacon_proposer_preferences_ssz(
+        &self,
+        slot: Option<Slot>,
+        dependent_root: Option<Hash256>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("proposer_preferences");
+
+        if let Some(slot) = slot {
+            path.query_pairs_mut()
+                .append_pair("slot", &slot.to_string());
+        }
+
+        if let Some(root) = dependent_root {
+            path.query_pairs_mut()
+                .append_pair("dependent_root", &format!("{:?}", root));
+        }
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
     }
 
     /// `POST validator/proposer_preferences`
@@ -2462,6 +2558,18 @@ impl BeaconNodeHttpClient {
     /// `GET node/version`
     pub async fn get_node_version(&self) -> Result<GenericResponse<VersionData>, Error> {
         let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("node")
+            .push("version");
+
+        self.get(path).await
+    }
+
+    /// `GET v2/node/version`
+    pub async fn get_node_version_v2(&self) -> Result<GenericResponse<VersionDataV2>, Error> {
+        let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
