@@ -25,7 +25,7 @@ use crate::sync::{
     },
     block_sidecar_coupling::CouplingError,
     manager::CustodyBatchProcessResult,
-    network_context::{RpcResponseError, SyncNetworkContext},
+    network_context::{BatchPeers, RpcResponseError, SyncNetworkContext},
 };
 
 /// The maximum number of batches to queue before requesting more.
@@ -576,7 +576,9 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             Ok(data_columns) => {
                 let received = data_columns.len();
 
-                match batch.download_completed(data_columns, *peer_id) {
+                match batch
+                    .download_completed(data_columns, BatchPeers::new_without_columns(*peer_id))
+                {
                     Ok(_) => {
                         let awaiting_batches = self.processing_target.saturating_sub(batch_id)
                             / CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
@@ -626,7 +628,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     }
                 }
 
-                match batch.download_failed(Some(*peer_id)) {
+                match batch.download_failed(Some(BatchPeers::new_without_columns(*peer_id))) {
                     Err(e) => {
                         self.fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0))?;
                     }
@@ -693,7 +695,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             }
         };
 
-        let Some(peer) = batch.processing_peer() else {
+        let Some(batch_peers) = batch.processing_peers().cloned() else {
             self.fail_sync(CustodyBackfillError::BatchInvalidState(
                 batch_id,
                 String::from("Peer does not exist"),
@@ -704,8 +706,8 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         debug!(
             ?result,
             batch_id = %custody_batch_id,
-            %peer,
-            client = %network.client_type(peer),
+            block_peer = %batch_peers.block_peer(),
+            client = %network.client_type(&batch_peers.block_peer()),
             "Custody backfill batch processed"
         );
 
@@ -1048,7 +1050,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     "Can't convert to data column by range request".to_string(),
                 )
             })?;
-            let failed_peers = batch.failed_peers();
+            let failed_block_peers = batch.failed_block_peers();
 
             match network.custody_backfill_data_columns_batch_request(
                 request,
@@ -1057,7 +1059,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     run_id: self.run_id,
                 },
                 &synced_peers,
-                &failed_peers,
+                &failed_block_peers,
             ) {
                 Ok(request_id) => {
                     // inform the batch about the new request
