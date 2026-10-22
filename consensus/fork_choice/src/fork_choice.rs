@@ -887,7 +887,7 @@ where
         let is_timely = current_slot == block.slot() && is_before_attesting_interval;
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
 
-        if is_timely && is_first_block {
+        let apply_proposer_boost = if is_timely && is_first_block {
             // The block isn't in fork choice so resolve its dependent root via its parent.
             let block_dependent_root =
                 self.get_shuffling_dependent_root(block.parent_root(), current_slot, spec)?;
@@ -896,10 +896,10 @@ where
 
             // Add proposer score boost if the block is timely, not conflicting with an
             // existing block, with the same dependent root as the canonical chain head.
-            if block_dependent_root.is_some() && block_dependent_root == head_dependent_root {
-                self.fc_store.set_proposer_boost_root(block_root);
-            }
-        }
+            block_dependent_root.is_some() && block_dependent_root == head_dependent_root
+        } else {
+            false
+        };
 
         // Update store with checkpoints if necessary
         self.update_checkpoints(
@@ -1099,6 +1099,12 @@ where
             spec,
             block_delay,
         )?;
+
+        // Set only now that the block has been added, so a failure above cannot leave the boost on
+        // a block that is missing from fork choice.
+        if apply_proposer_boost {
+            self.fc_store.set_proposer_boost_root(block_root);
+        }
 
         Ok(())
     }
