@@ -379,9 +379,7 @@ install-audit:
 	cargo install --force cargo-audit
 
 audit-CI:
-	# ruint is not used through the vulnerable no-alloc conversion path in Lighthouse.
-	# remove ignore once we bump msrv (ruint 1.20 requires msrv to be >=1.90)
-	cargo audit --ignore RUSTSEC-2026-0220
+	cargo audit
 
 # Runs cargo deny (check for banned crates, duplicate versions, and source restrictions)
 deny: install-deny deny-CI
