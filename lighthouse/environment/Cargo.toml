@@ -4,9 +4,13 @@ version = "0.1.2"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
+[features]
+dial9 = ["dep:dial9"]
+
 [dependencies]
 async-channel = { workspace = true }
 clap = { workspace = true }
+dial9 = { workspace = true, optional = true }
 eth2_config = { workspace = true }
 eth2_network_config = { workspace = true }
 futures = { workspace = true }

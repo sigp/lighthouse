@@ -35,6 +35,8 @@ beacon-node-leveldb = ["store/leveldb"]
 beacon-node-redb = ["store/redb"]
 # Supports console subscriber for debugging
 console-subscriber = ["console-subscriber/default"]
+# Enable dial9 profiling/telemetry integration
+dial9 = ["environment/dial9"]
 # Force the use of the system memory allocator rather than jemalloc.
 sysmalloc = ["malloc_utils/sysmalloc"]
 # Enable jemalloc heap profiling support.
