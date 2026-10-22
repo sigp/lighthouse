@@ -93,7 +93,10 @@ impl PreEpochCache {
         let total_active_balance =
             std::cmp::max(self.total_active_balance, spec.effective_balance_increment);
         let sqrt_total_active_balance = SqrtTotalActiveBalance::new(total_active_balance);
-        let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
+        let base_reward_per_increment =
+            BaseRewardPerIncrement::new(total_active_balance, epoch, spec)?;
+        let previous_epoch_base_reward_per_increment =
+            BaseRewardPerIncrement::new(total_active_balance, epoch.saturating_sub(1u64), spec)?;
 
         let effective_balance_increment = spec.effective_balance_increment;
         let max_effective_balance =
@@ -102,21 +105,36 @@ impl PreEpochCache {
             max_effective_balance.safe_div(effective_balance_increment)?;
 
         let mut base_rewards = Vec::with_capacity(max_effective_balance_eth.safe_add(1)? as usize);
+        let mut previous_epoch_base_rewards =
+            Vec::with_capacity(max_effective_balance_eth.safe_add(1)? as usize);
 
         for effective_balance_eth in 0..=max_effective_balance_eth {
             let effective_balance = effective_balance_eth.safe_mul(effective_balance_increment)?;
-            let base_reward = if spec.fork_name_at_epoch(epoch) == ForkName::Base {
-                base::get_base_reward(effective_balance, sqrt_total_active_balance, spec)?
+            let (base_reward, previous_epoch_base_reward) = if spec.fork_name_at_epoch(epoch)
+                == ForkName::Base
+            {
+                let base_reward =
+                    base::get_base_reward(effective_balance, sqrt_total_active_balance, spec)?;
+                (base_reward, base_reward)
             } else {
-                altair::get_base_reward(effective_balance, base_reward_per_increment, spec)?
+                (
+                    altair::get_base_reward(effective_balance, base_reward_per_increment, spec)?,
+                    altair::get_base_reward(
+                        effective_balance,
+                        previous_epoch_base_reward_per_increment,
+                        spec,
+                    )?,
+                )
             };
             base_rewards.push(base_reward);
+            previous_epoch_base_rewards.push(previous_epoch_base_reward);
         }
 
         Ok(EpochCache::new(
             self.epoch_key,
             self.effective_balances,
             base_rewards,
+            previous_epoch_base_rewards,
             activation_queue,
             spec,
         ))
@@ -218,5 +236,40 @@ mod tests {
 
         // Base reward for validator index 0 should be 0.
         assert_eq!(epoch_cache.get_base_reward(0).unwrap(), 0);
+    }
+
+    #[test]
+    fn base_reward_for_epoch_reads_the_current_and_previous_epoch() {
+        let mut spec = ChainSpec::minimal();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        let epoch_cache_at = |epoch: u64| {
+            PreEpochCache {
+                epoch_key: EpochCacheKey {
+                    epoch: Epoch::new(epoch),
+                    decision_block_root: Hash256::zero(),
+                },
+                effective_balances: vec![spec.max_effective_balance; 4],
+                total_active_balance: spec.max_effective_balance * 4,
+            }
+            .into_epoch_cache(ActivationQueue::default(), &spec)
+            .unwrap()
+        };
+        let epoch_cache = epoch_cache_at(2);
+
+        let current = epoch_cache
+            .get_base_reward_for_epoch(0, Epoch::new(2))
+            .unwrap();
+        let previous = epoch_cache
+            .get_base_reward_for_epoch(0, Epoch::new(1))
+            .unwrap();
+        assert_eq!(current, epoch_cache.get_base_reward(0).unwrap());
+        assert_eq!(previous, epoch_cache_at(1).get_base_reward(0).unwrap());
+
+        for epoch in [0, 3] {
+            assert!(matches!(
+                epoch_cache.get_base_reward_for_epoch(0, Epoch::new(epoch)),
+                Err(EpochCacheError::IncorrectEpoch { .. })
+            ));
+        }
     }
 }

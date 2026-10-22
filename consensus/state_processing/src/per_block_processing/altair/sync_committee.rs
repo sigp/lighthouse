@@ -90,9 +90,10 @@ pub fn compute_sync_aggregate_rewards<E: EthSpec>(
     let total_active_balance = state.get_total_active_balance()?;
     let total_active_increments =
         total_active_balance.safe_div(spec.effective_balance_increment)?;
-    let total_base_rewards = BaseRewardPerIncrement::new(total_active_balance, spec)?
-        .as_u64()
-        .safe_mul(total_active_increments)?;
+    let total_base_rewards =
+        BaseRewardPerIncrement::new(total_active_balance, state.current_epoch(), spec)?
+            .as_u64()
+            .safe_mul(total_active_increments)?;
     let max_participant_rewards = total_base_rewards
         .safe_mul(SYNC_REWARD_WEIGHT)?
         .safe_div(WEIGHT_DENOMINATOR)?

@@ -1097,6 +1097,11 @@ impl ChainSpec {
         Duration::from_millis(self.slot_duration_ms)
     }
 
+    /// Spec: `SLOT_DURATION_MS`. Rewards, penalties and churn scale relative to it.
+    pub fn slot_duration_ms(&self) -> u64 {
+        self.slot_duration_ms
+    }
+
     /// Set the duration of a slot (in ms).
     pub fn set_slot_duration_ms<E: EthSpec>(mut self, slot_duration_ms: u64) -> Self {
         self.slot_duration_ms = slot_duration_ms;
