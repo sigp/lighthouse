@@ -7115,6 +7115,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Ok(());
             };
 
+        let prepare_fork = self.spec.fork_name_at_slot::<T::EthSpec>(current_slot + 1);
+
         let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(
                 head_hash,
@@ -7124,6 +7126,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head_block_root,
                 head_payload_status,
                 custody_columns,
+                prepare_fork,
             )
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
