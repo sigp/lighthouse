@@ -93,7 +93,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
                         .slot_clock
                         .as_ref()
                         .and_then(|slot_clock| slot_clock.duration_to_next_slot())
-                        .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
+                        .unwrap_or_else(|| beacon_nodes_ref.spec.genesis_slot_duration());
                     sleep(sleep_time).await
                 }
             }
@@ -116,7 +116,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
             {
                 let sleep_time = slot_clock
                     .duration_to_slot(gloas_fork_slot)
-                    .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
+                    .unwrap_or_else(|| slot_clock.current_slot_duration());
                 sleep(sleep_time).await;
             }
             loop {
@@ -130,7 +130,7 @@ pub fn start_fallback_updater_service<T: SlotClock + 'static, E: EthSpec>(
                     );
                     let sleep_time = slot_clock
                         .duration_to_next_slot()
-                        .unwrap_or_else(|| beacon_nodes_ref.spec.get_slot_duration());
+                        .unwrap_or_else(|| slot_clock.current_slot_duration());
                     sleep(sleep_time).await;
                 }
             }
@@ -588,9 +588,9 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         }
 
         let timeouts: Timeouts = if new_list.len() == 1 || use_long_timeouts {
-            Timeouts::set_all(self.spec.get_slot_duration())
+            Timeouts::set_all(self.spec.genesis_slot_duration())
         } else {
-            Timeouts::use_optimized_timeouts(self.spec.get_slot_duration())
+            Timeouts::use_optimized_timeouts(self.spec.genesis_slot_duration())
         };
 
         let new_candidates: Vec<CandidateBeaconNode> = new_list

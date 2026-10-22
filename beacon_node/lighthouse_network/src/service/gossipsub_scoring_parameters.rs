@@ -53,8 +53,7 @@ pub struct PeerScoreSettings<E: EthSpec> {
 }
 
 impl<E: EthSpec> PeerScoreSettings<E> {
-    pub fn new(chain_spec: &ChainSpec, mesh_n: usize) -> PeerScoreSettings<E> {
-        let slot = chain_spec.get_slot_duration();
+    pub fn new(chain_spec: &ChainSpec, slot: Duration, mesh_n: usize) -> PeerScoreSettings<E> {
         let beacon_attestation_subnet_weight = 1.0 / chain_spec.attestation_subnet_count as f64;
         let max_positive_score = (MAX_IN_MESH_SCORE + MAX_FIRST_MESSAGE_DELIVERIES_SCORE)
             * (BEACON_BLOCK_WEIGHT

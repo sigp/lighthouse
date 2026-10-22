@@ -509,7 +509,7 @@ pub async fn proposer_boost_re_org_test(
     // otherwise the late block reveal for A halfway through the slot can end up being *after*
     // the payload lookahead, which messes up our measurement of timings.
     let chain_config = ChainConfig {
-        prepare_payload_lookahead: spec.get_slot_duration()
+        prepare_payload_lookahead: spec.genesis_slot_duration()
             / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
         ..Default::default()
     };

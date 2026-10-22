@@ -254,7 +254,10 @@ impl DoppelgangerService {
                         // Run the doppelganger protection check 75% through each epoch. This
                         // *should* mean that the BN has seen the blocks and attestations for this
                         // slot.
-                        sleep(duration_to_next_slot + (slot_duration / 4) * 3).await;
+                        let next_slot_duration = slot_clock
+                            .now()
+                            .map_or(slot_duration, |slot| slot_clock.slot_duration_at(slot + 1));
+                        sleep(duration_to_next_slot + (next_slot_duration / 4) * 3).await;
                     } else {
                         // Just sleep for one slot if we are unable to read the system clock, this gives
                         // us an opportunity for the clock to eventually come good.
