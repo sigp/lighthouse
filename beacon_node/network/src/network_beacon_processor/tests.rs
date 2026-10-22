@@ -51,6 +51,78 @@ use types::{
 type E = Spec;
 type T = EphemeralHarnessType<E>;
 
+#[tokio::test]
+async fn gradual_data_column_publication_batches() {
+    use beacon_chain::ChainConfig;
+    use lighthouse_network::PubsubMessage;
+    use types::{DataColumnSidecar, DataColumnSidecarFulu, ForkName, MainnetEthSpec};
+
+    for (batches, expected_sizes) in [
+        (1, vec![128]),
+        (3, vec![43, 43, 42]),
+        (4, vec![32; 4]),
+        (100, vec![2; 64]),
+        (128, vec![1; 128]),
+    ] {
+        let spec = ForkName::Fulu.make_genesis_spec(MainnetEthSpec::default_spec());
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .spec(Arc::new(spec))
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .chain_config(ChainConfig {
+                blob_publication_batches: batches,
+                blob_publication_batch_interval: Duration::ZERO,
+                ..ChainConfig::default()
+            })
+            .build();
+        let (processor, mut network_rx) =
+            NetworkBeaconProcessor::null_from_harness_with_network_receiver(&harness);
+        let processor = Arc::new(processor);
+
+        // Publication only observes the columns; it assumes they were already verified.
+        let mut header = harness
+            .chain
+            .head_snapshot()
+            .beacon_block
+            .signed_block_header();
+        header.message.slot = Slot::new(1);
+        let columns = (0..MainnetEthSpec::number_of_columns())
+            .map(|index| {
+                Arc::new(DataColumnSidecar::Fulu(DataColumnSidecarFulu {
+                    index: index as u64,
+                    column: Default::default(),
+                    kzg_commitments: Default::default(),
+                    kzg_proofs: Default::default(),
+                    signed_block_header: header.clone(),
+                    kzg_commitments_inclusion_proof: Default::default(),
+                }))
+            })
+            .collect();
+        processor.publish_data_columns_gradually(columns, Hash256::ZERO);
+
+        let mut published_indices = HashSet::new();
+        let mut batch_sizes = vec![];
+        while published_indices.len() < MainnetEthSpec::number_of_columns() {
+            let message = tokio::time::timeout(STANDARD_TIMEOUT, network_rx.recv())
+                .await
+                .expect("publication should complete")
+                .expect("network channel should remain open");
+            let NetworkMessage::Publish { messages } = message else {
+                panic!("expected a publication message");
+            };
+            batch_sizes.push(messages.len());
+            for message in messages {
+                let PubsubMessage::DataColumnSidecar(column) = message else {
+                    panic!("expected a data column");
+                };
+                assert!(published_indices.insert(*column.1.index()));
+            }
+        }
+        assert_eq!(batch_sizes, expected_sizes, "batches = {batches}");
+    }
+}
+
 const SLOTS_PER_EPOCH: u64 = 32;
 const VALIDATOR_COUNT: usize = SLOTS_PER_EPOCH as usize;
 const SMALL_CHAIN: u64 = 2;

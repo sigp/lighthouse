@@ -930,6 +930,52 @@ fn blob_publication_batches() {
 }
 
 #[test]
+fn blob_publication_batches_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.blob_publication_batches, 4));
+}
+
+#[test]
+fn blob_publication_batches_boundaries() {
+    use types::EthSpec;
+
+    for batches in [1, MainnetEthSpec::number_of_columns()] {
+        CommandLineTest::new()
+            .flag("blob-publication-batches", Some(&batches.to_string()))
+            .run_with_zero_port()
+            .with_config(|config| assert_eq!(config.chain.blob_publication_batches, batches));
+    }
+}
+
+#[test]
+fn blob_publication_batches_invalid() {
+    use types::EthSpec;
+
+    let number_of_columns = MainnetEthSpec::number_of_columns();
+    for batches in [0, number_of_columns + 1, usize::MAX] {
+        let dir = TempDir::new().unwrap();
+        let output = CommandLineTest::new()
+            .flag("blob-publication-batches", Some(&batches.to_string()))
+            .flag("datadir", dir.path().to_str())
+            .flag("immediate-shutdown", None)
+            .cmd_mut()
+            .output()
+            .expect("should run command");
+
+        assert!(!output.status.success());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains(&format!(
+                "--blob-publication-batches must be between 1 and {number_of_columns} (inclusive), got {batches}"
+            )),
+            "unexpected error: {stderr}"
+        );
+        assert!(!stderr.contains("panicked"), "unexpected panic: {stderr}");
+    }
+}
+
+#[test]
 fn blob_publication_batch_interval() {
     CommandLineTest::new()
         .flag("blob-publication-batch-interval", Some("400"))
