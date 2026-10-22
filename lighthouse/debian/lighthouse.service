@@ -1,0 +1,16 @@
+[Unit]
+Description=Lighthouse Ethereum Beacon Node
+After=network.target
+Wants=network.target
+
+[Service]
+Type=exec
+DynamicUser=yes
+StateDirectory=lighthouse
+ExecStart=/usr/bin/lighthouse bn \
+          --execution-endpoint http://localhost:8551 \
+          --execution-jwt /var/lib/lighthouse/jwt.hex \
+          --datadir %S/lighthouse
+
+[Install]
+WantedBy=multi-user.target
