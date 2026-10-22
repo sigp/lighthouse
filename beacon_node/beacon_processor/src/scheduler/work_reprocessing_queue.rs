@@ -210,6 +210,7 @@ pub struct QueuedGossipEnvelope {
 /// A block that arrived for processing when the same block was being imported over gossip.
 /// It is queued for later import.
 pub struct QueuedRpcBlock {
+    pub peer_id: lighthouse_network::PeerId,
     pub beacon_block_root: Hash256,
     /// Processes/imports the block.
     pub process_fn: AsyncFn,
@@ -811,17 +812,8 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             "RPC blocks queue is full"
                         );
                     }
-                    // Return the block to the beacon processor signalling to
-                    // ignore processing for this block
-                    if self
-                        .ready_work_tx
-                        .try_send(ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock {
-                            process_fn: rpc_block.ignore_fn,
-                        }))
-                        .is_err()
-                    {
-                        error!("Failed to send rpc block to beacon processor");
-                    }
+                    // This only notifies sync; never queue the notification behind limited work.
+                    (rpc_block.ignore_fn)();
                     return;
                 }
 
@@ -834,12 +826,14 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     %queued_rpc_block.beacon_block_root,
                     "Sending rpc block for reprocessing"
                 );
-                if self
+                if let Err(error) = self
                     .ready_work_tx
                     .try_send(ReadyWork::RpcBlock(queued_rpc_block))
-                    .is_err()
                 {
                     error!("Failed to send rpc block to beacon processor");
+                    if let ReadyWork::RpcBlock(block) = error.into_inner() {
+                        (block.ignore_fn)();
+                    }
                 }
             }
             InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate)) => self
@@ -1788,6 +1782,66 @@ mod tests {
         let slot_clock = Arc::new(testing_slot_clock(12));
 
         ReprocessQueue::new(ready_work_tx, reprocess_work_rx, slot_clock)
+    }
+
+    fn rpc_block_with_ignore_counter(
+        counter: Arc<std::sync::atomic::AtomicUsize>,
+    ) -> QueuedRpcBlock {
+        QueuedRpcBlock {
+            peer_id: lighthouse_network::PeerId::random(),
+            beacon_block_root: Hash256::ZERO,
+            process_fn: Box::pin(async {}),
+            ignore_fn: Box::new(move || {
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }),
+        }
+    }
+
+    #[tokio::test]
+    async fn rpc_reprocessing_queue_full_notifies_rejected_work() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let mut queue = test_queue();
+        let counter = Arc::new(AtomicUsize::new(0));
+        for _ in 0..MAXIMUM_QUEUED_BLOCKS {
+            queue.handle_message(InboundEvent::Msg(ReprocessQueueMessage::RpcBlock(
+                rpc_block_with_ignore_counter(counter.clone()),
+            )));
+        }
+        assert_eq!(counter.load(Ordering::SeqCst), 0);
+        queue.handle_message(InboundEvent::Msg(ReprocessQueueMessage::RpcBlock(
+            rpc_block_with_ignore_counter(counter.clone()),
+        )));
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+        assert_eq!(queue.rpc_block_delay_queue.len(), MAXIMUM_QUEUED_BLOCKS);
+    }
+
+    #[tokio::test]
+    async fn rpc_reprocessing_ready_send_failure_notifies_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let mut queue = test_queue();
+        let (ready_tx, ready_rx) = mpsc::channel(1);
+        ready_tx
+            .try_send(ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock {
+                process_fn: Box::new(|| {}),
+            }))
+            .unwrap();
+        queue.ready_work_tx = ready_tx;
+        let counter = Arc::new(AtomicUsize::new(0));
+
+        // Full channel.
+        queue.handle_message(InboundEvent::ReadyRpcBlock(rpc_block_with_ignore_counter(
+            counter.clone(),
+        )));
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+        // Closed channel.
+        drop(ready_rx);
+        queue.handle_message(InboundEvent::ReadyRpcBlock(rpc_block_with_ignore_counter(
+            counter.clone(),
+        )));
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
     }
 
     // This is a regression test for a memory leak in `awaiting_attestations_per_root`.
