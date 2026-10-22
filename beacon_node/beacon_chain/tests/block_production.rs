@@ -1,22 +1,24 @@
 use beacon_chain::{
-    BlockProductionError, ProduceBlockVerification,
+    BlockProductionBidSource, BlockProductionError, ProduceBlockVerification,
     graffiti_calculator::GraffitiSettings,
     observed_operations::ObservationOutcome,
     payload_bid_verification::gossip_verified_bid::GossipVerifiedPayloadBid,
     test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec},
 };
-use bls::PublicKeyBytes;
+use bls::{PublicKeyBytes, Signature};
 use eth2::types::{BuilderConfig, GraffitiPolicy};
 use ethereum_hashing::hash;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use proto_array::PayloadStatus;
 use ssz::Encode;
+use state_processing::state_advance::complete_state_advance;
 use std::sync::Arc;
 use types::{
-    Address, BeaconBlock, BeaconState, Checkpoint, Epoch, ExecutionBlockHash,
+    Address, BeaconBlock, BeaconState, Builder, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBidGloas, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu,
-    ExecutionRequests, ExecutionRequestsGloas, Hash256, SignedExecutionPayloadBid, Slot, Spec,
-    WithdrawalRequest, consts::gloas::PAYLOAD_BUILDER_VERSION,
+    ExecutionRequests, ExecutionRequestsGloas, Hash256, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, Slot, Spec, Uint256, WithdrawalRequest,
+    consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
 };
 
 type E = Spec;
@@ -140,6 +142,152 @@ async fn gloas_block_production_filters_exits_with_parent_partial_withdrawals() 
         state.get_validator(1).unwrap().exit_epoch,
         spec.far_future_epoch
     );
+}
+
+/// Client-selected bids use the same block construction as V4, with p2p/local fallback.
+#[tokio::test]
+async fn gloas_block_production_with_supplied_bid() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    let spec = Arc::new(spec);
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(32)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    harness
+        .execution_block_generator()
+        .set_generate_blobs(false);
+    harness
+        .extend_to_slot(Slot::new(E::slots_per_epoch() * 4))
+        .await;
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+    let head = harness.chain.canonical_head.cached_head();
+    let parent_root = head.head_block_root();
+    let parent_payload_status = head.head_payload_status();
+    let parent_envelope = head.snapshot.execution_envelope.clone();
+    drop(head);
+
+    // Add a funded builder to the production state; no mutation of the canonical state is needed
+    // because these tests inspect the produced blocks rather than importing them.
+    let mut state = harness.get_current_state();
+    complete_state_advance(&mut state, None, slot, None, &spec).unwrap();
+    let builder_key = &harness.validator_keypairs[0];
+    state
+        .builders_mut()
+        .unwrap()
+        .push(Builder {
+            pubkey: builder_key.pk.clone().into(),
+            version: PAYLOAD_BUILDER_VERSION,
+            execution_address: Address::repeat_byte(1),
+            balance: spec.min_deposit_amount + 1_000_000_000,
+            deposit_epoch: Epoch::new(0),
+            withdrawable_epoch: spec.far_future_epoch,
+        })
+        .unwrap();
+    state.build_caches(&spec).unwrap();
+    assert!(state.is_active_builder(0, &spec).unwrap());
+    let parent_bid = state.latest_execution_payload_bid().unwrap();
+    let bid = ExecutionPayloadBidGloas::<E> {
+        slot,
+        parent_block_hash: parent_bid.block_hash(),
+        parent_block_root: parent_root,
+        block_hash: ExecutionBlockHash::repeat_byte(42),
+        prev_randao: *state.get_randao_mix(state.current_epoch()).unwrap(),
+        gas_limit: parent_bid.gas_limit(),
+        builder_index: 0,
+        value: 1_000_000_000,
+        execution_payment: 2_000_000_000,
+        ..Default::default()
+    };
+    let proposer_index = state.get_beacon_proposer_index(slot, &spec).unwrap();
+    let randao_reveal = harness.sign_randao_reveal(&state, proposer_index, slot);
+
+    for case in [
+        "valid",
+        "prefer_local",
+        "wrong_slot",
+        "wrong_parent",
+        "bad_signature",
+        "p2p_fallback",
+    ] {
+        let mut supplied = bid.clone();
+        match case {
+            "wrong_slot" => supplied.slot += 1,
+            "wrong_parent" => supplied.parent_block_root = Hash256::repeat_byte(99),
+            _ => {}
+        }
+        let supplied = if matches!(case, "bad_signature" | "p2p_fallback") {
+            Arc::new(SignedExecutionPayloadBid::Gloas(
+                SignedExecutionPayloadBidGloas {
+                    message: supplied,
+                    signature: Signature::empty(),
+                },
+            ))
+        } else {
+            harness.sign_payload_bid(supplied, &state)
+        };
+        if case == "p2p_fallback" {
+            let mut gossip_bid = bid.clone();
+            gossip_bid.execution_payment = 0;
+            harness
+                .chain
+                .gossip_verified_payload_bid_cache
+                .observe_bid(GossipVerifiedPayloadBid {
+                    signed_bid: harness.sign_payload_bid(gossip_bid, &state),
+                });
+        }
+        let (block, _, _, value, payload, builder_url) = harness
+            .chain
+            .produce_block_on_state_gloas(
+                state.clone(),
+                None,
+                parent_root,
+                parent_payload_status,
+                parent_envelope.clone(),
+                slot,
+                randao_reveal.clone(),
+                GraffitiSettings::new(None, None),
+                ProduceBlockVerification::VerifyRandao,
+                BlockProductionBidSource::ApiSupplied {
+                    signed_bid: supplied,
+                    builder_boost_factor: if case == "prefer_local" { 0 } else { u64::MAX },
+                },
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{case}: {error:?}"));
+        let produced_bid = block
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .clone_as_signed_execution_payload_bid();
+        if matches!(case, "valid" | "p2p_fallback") {
+            assert_eq!(produced_bid.message().builder_index(), 0, "{case}");
+            assert_eq!(produced_bid.message().block_hash(), bid.block_hash);
+            assert!(payload.is_none());
+            let expected_gwei = if case == "valid" {
+                3_000_000_000u64
+            } else {
+                1_000_000_000
+            };
+            assert_eq!(
+                value,
+                Uint256::from(expected_gwei) * Uint256::from(1_000_000_000u64)
+            );
+        } else {
+            assert_eq!(
+                produced_bid.message().builder_index(),
+                BUILDER_INDEX_SELF_BUILD,
+                "{case}"
+            );
+            assert!(payload.is_some());
+        }
+        assert!(builder_url.is_none());
+    }
 }
 
 const BUILDER_INDEX: u64 = 0;

@@ -2,14 +2,15 @@
 //! external bids during block production, and the bans recorded for builders that fail to reveal.
 
 use beacon_chain::circuit_breaker::BanEntry;
+use beacon_chain::graffiti_calculator::GraffitiSettings;
 use beacon_chain::payload_envelope_verification::gossip_verified_envelope::GossipVerifiedEnvelope;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
     PayloadAttestationVote, fork_name_from_env, test_spec,
 };
 use beacon_chain::{
-    AvailabilityProcessingStatus, BlockError, BlockProductionError, ChainConfig,
-    NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BlockError, BlockProductionBidSource, BlockProductionError,
+    ChainConfig, NotifyExecutionLayer, ProduceBlockVerification,
 };
 use bls::PublicKeyBytes;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
@@ -22,7 +23,7 @@ use std::time::Duration;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     BeaconState, BlockImportSource, BuilderIndex, EthSpec, ExecutionBlockHash, Hash256,
-    MinimalEthSpec, SignedBeaconBlock, Slot,
+    MinimalEthSpec, SignedBeaconBlock, SignedExecutionPayloadBid, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -861,6 +862,83 @@ async fn tripped_breaker_falls_back_to_gossip_bid_when_local_build_fails() {
     ))
     .await;
     assert_eq!(block_builder_index(&block_contents.0), BUILDER_A);
+}
+
+/// Produce a block at the current slot on `state` with `signed_bid` supplied by the validator
+/// client, and return the builder index that won.
+async fn produce_with_supplied_bid(
+    harness: &Harness,
+    mut state: BeaconState<E>,
+    signed_bid: Arc<SignedExecutionPayloadBid<E>>,
+) -> BuilderIndex {
+    recompute_head(harness).await;
+    let slot = harness.get_current_slot();
+    complete_state_advance(&mut state, None, slot, None, &harness.spec).unwrap();
+    state.build_caches(&harness.spec).unwrap();
+    let proposer_index = state
+        .get_beacon_proposer_index(slot, &harness.spec)
+        .unwrap();
+    let randao_reveal = harness.sign_randao_reveal(&state, proposer_index, slot);
+    let parent_root = *state.get_block_root(slot - 1).unwrap();
+    let (block, ..) = Box::pin(harness.chain.produce_block_on_state_gloas(
+        state,
+        None,
+        parent_root,
+        PayloadStatus::Empty,
+        None,
+        slot,
+        randao_reveal,
+        GraffitiSettings::new(None, None),
+        ProduceBlockVerification::VerifyRandao,
+        BlockProductionBidSource::ApiSupplied {
+            signed_bid,
+            builder_boost_factor: u64::MAX,
+        },
+    ))
+    .await
+    .unwrap();
+    block
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap()
+        .message()
+        .builder_index()
+}
+
+#[tokio::test]
+async fn tripped_breaker_demotes_supplied_bid() {
+    let Some(harness) = gloas_harness(ChainConfig {
+        // A single missed payload trips the consecutive rule.
+        builder_fallback_skips: 0,
+        ..ChainConfig::default()
+    }) else {
+        return;
+    };
+    Box::pin(finalize(&harness)).await;
+    let state = Box::pin(withhold_payloads(&harness, 1)).await;
+    harness.advance_slot();
+    let slot = harness.get_current_slot();
+    assert_breaker_tripped(&harness, &state, slot).await;
+    let signed_bid = Arc::new(harness.make_signed_gossip_bid(
+        &state,
+        slot,
+        PayloadStatus::Empty,
+        BUILDER_A,
+        BID_VALUE,
+    ));
+
+    // The local build wins even over a supplied bid at the maximum boost factor.
+    assert_eq!(
+        produce_with_supplied_bid(&harness, state.clone(), signed_bid.clone()).await,
+        BUILDER_INDEX_SELF_BUILD
+    );
+
+    // With the local build failing, the demoted supplied bid still saves the slot.
+    fail_local_builds_on(&harness, empty_parent_block_hash(&state));
+    assert_eq!(
+        produce_with_supplied_bid(&harness, state, signed_bid).await,
+        BUILDER_A
+    );
 }
 
 #[tokio::test]
