@@ -6,6 +6,7 @@ use crate::engine_api::{
 };
 use crate::{ClientVersionV1, HttpJsonRpc};
 use hashlink::lru_cache::LruCache;
+use ssz_derive::{Decode, Encode};
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -98,7 +99,7 @@ impl State {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Encode, Decode, Debug)]
 pub struct ForkchoiceState {
     pub head_block_hash: ExecutionBlockHash,
     pub safe_block_hash: ExecutionBlockHash,
