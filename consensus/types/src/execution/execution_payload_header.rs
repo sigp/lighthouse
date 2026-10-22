@@ -244,6 +244,31 @@ impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
     }
 }
 
+impl<E: EthSpec> ExecutionPayloadHeaderFulu<E> {
+    /// Returns the `tree_hash_root` of every field in declaration order, for Merkle proofs.
+    pub fn field_roots(&self) -> Vec<Hash256> {
+        vec![
+            self.parent_hash.tree_hash_root(),
+            self.fee_recipient.tree_hash_root(),
+            self.state_root.tree_hash_root(),
+            self.receipts_root.tree_hash_root(),
+            self.logs_bloom.tree_hash_root(),
+            self.prev_randao.tree_hash_root(),
+            self.block_number.tree_hash_root(),
+            self.gas_limit.tree_hash_root(),
+            self.gas_used.tree_hash_root(),
+            self.timestamp.tree_hash_root(),
+            self.extra_data.tree_hash_root(),
+            self.base_fee_per_gas.tree_hash_root(),
+            self.block_hash.tree_hash_root(),
+            self.transactions_root.tree_hash_root(),
+            self.withdrawals_root.tree_hash_root(),
+            self.blob_gas_used.tree_hash_root(),
+            self.excess_blob_gas.tree_hash_root(),
+        ]
+    }
+}
+
 impl<E: EthSpec> ExecutionPayloadHeaderElectra<E> {
     pub fn upgrade_to_fulu(&self) -> ExecutionPayloadHeaderFulu<E> {
         ExecutionPayloadHeaderFulu {

@@ -2,6 +2,8 @@ use std::marker::PhantomData;
 
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
+use merkle_proof::MerkleTree;
+use safe_arith::SafeArith;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_derive::{Decode, Encode};
@@ -20,8 +22,13 @@ use crate::{
     fork::ForkName,
     light_client::{
         ExecutionBlockHashProofLenGloas, ExecutionPayloadProofLen, LightClientError,
-        consts::{EXECUTION_BLOCK_HASH_INDEX_GLOAS, EXECUTION_PAYLOAD_INDEX},
+        consts::{
+            EXECUTION_BLOCK_HASH_GINDEX_DENEB, EXECUTION_BLOCK_HASH_INDEX_GLOAS,
+            EXECUTION_BLOCK_HASH_PROOF_LEN_GLOAS, EXECUTION_PAYLOAD_HEADER_BLOCK_HASH_FIELD_INDEX,
+            EXECUTION_PAYLOAD_INDEX, EXECUTION_PAYLOAD_PROOF_LEN,
+        },
     },
+    state::BeaconStateError,
 };
 
 #[superstruct(
@@ -186,9 +193,17 @@ impl<E: EthSpec> Default for LightClientHeaderAltair<E> {
 }
 
 impl<E: EthSpec> LightClientHeaderCapella<E> {
+    /// Converts a block to a `LightClientHeaderCapella`. If the block is from Bellatrix, a
+    /// `LightClientHeaderAltair` is constructed and upgraded to Capella.
     pub fn block_to_light_client_header(
         block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<Self, LightClientError> {
+        if block.fork_name_unchecked() == ForkName::Bellatrix {
+            return Ok(
+                LightClientHeaderAltair::block_to_light_client_header(block)?.upgrade_to_capella(),
+            );
+        }
+
         let payload = block
             .message()
             .execution_payload()?
@@ -228,9 +243,17 @@ impl<E: EthSpec> Default for LightClientHeaderCapella<E> {
 }
 
 impl<E: EthSpec> LightClientHeaderDeneb<E> {
+    /// Converts a block to a `LightClientHeaderDeneb`. If the block is from Capella, a
+    /// `LightClientHeaderCapella` is constructed and upgraded to Deneb.
     pub fn block_to_light_client_header(
         block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<Self, LightClientError> {
+        if block.fork_name_unchecked() == ForkName::Capella {
+            return Ok(
+                LightClientHeaderCapella::block_to_light_client_header(block)?.upgrade_to_deneb(),
+            );
+        }
+
         let header = block
             .message()
             .execution_payload()?
@@ -270,9 +293,17 @@ impl<E: EthSpec> Default for LightClientHeaderDeneb<E> {
 }
 
 impl<E: EthSpec> LightClientHeaderElectra<E> {
+    /// Converts a block to a `LightClientHeaderElectra`. If the block is from Deneb, a
+    /// `LightClientHeaderDeneb` is constructed and upgraded to Electra.
     pub fn block_to_light_client_header(
         block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<Self, LightClientError> {
+        if block.fork_name_unchecked() == ForkName::Deneb {
+            return Ok(
+                LightClientHeaderDeneb::block_to_light_client_header(block)?.upgrade_to_electra()
+            );
+        }
+
         let payload = block
             .message()
             .execution_payload()?
@@ -312,9 +343,17 @@ impl<E: EthSpec> Default for LightClientHeaderElectra<E> {
 }
 
 impl<E: EthSpec> LightClientHeaderFulu<E> {
+    /// Converts a block to a `LightClientHeaderFulu`. If the block is from Electra, a
+    /// `LightClientHeaderElectra` is constructed and upgraded to Fulu.
     pub fn block_to_light_client_header(
         block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<Self, LightClientError> {
+        if block.fork_name_unchecked() == ForkName::Electra {
+            return Ok(
+                LightClientHeaderElectra::block_to_light_client_header(block)?.upgrade_to_fulu(),
+            );
+        }
+
         let payload = block
             .message()
             .execution_payload()?
@@ -353,10 +392,90 @@ impl<E: EthSpec> Default for LightClientHeaderFulu<E> {
     }
 }
 
+impl<E: EthSpec> LightClientHeaderAltair<E> {
+    /// Spec: `upgrade_lc_header_to_capella`.
+    pub fn upgrade_to_capella(self) -> LightClientHeaderCapella<E> {
+        LightClientHeaderCapella {
+            beacon: self.beacon,
+            ..LightClientHeaderCapella::default()
+        }
+    }
+}
+
+impl<E: EthSpec> LightClientHeaderCapella<E> {
+    /// Spec: `upgrade_lc_header_to_deneb`.
+    pub fn upgrade_to_deneb(self) -> LightClientHeaderDeneb<E> {
+        LightClientHeaderDeneb {
+            beacon: self.beacon,
+            execution: self.execution.upgrade_to_deneb(),
+            execution_branch: self.execution_branch,
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec> LightClientHeaderDeneb<E> {
+    /// Spec: `upgrade_lc_header_to_electra`.
+    pub fn upgrade_to_electra(self) -> LightClientHeaderElectra<E> {
+        LightClientHeaderElectra {
+            beacon: self.beacon,
+            execution: self.execution.upgrade_to_electra(),
+            execution_branch: self.execution_branch,
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec> LightClientHeaderElectra<E> {
+    /// Fulu keeps the Electra header.
+    pub fn upgrade_to_fulu(self) -> LightClientHeaderFulu<E> {
+        LightClientHeaderFulu {
+            beacon: self.beacon,
+            execution: self.execution.upgrade_to_fulu(),
+            execution_branch: self.execution_branch,
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec> LightClientHeaderFulu<E> {
+    /// Spec: `upgrade_lc_header_to_gloas`.
+    pub fn upgrade_to_gloas(self) -> Result<LightClientHeaderGloas<E>, LightClientError> {
+        let leaves = self.execution.field_roots();
+        let depth = (EXECUTION_BLOCK_HASH_GINDEX_DENEB.ilog2() as usize)
+            .safe_sub(EXECUTION_PAYLOAD_PROOF_LEN)?;
+        let (_, block_hash_branch) = MerkleTree::create(&leaves, depth)
+            .generate_proof(EXECUTION_PAYLOAD_HEADER_BLOCK_HASH_FIELD_INDEX, depth)
+            .map_err(BeaconStateError::MerkleTreeError)?;
+
+        let branch_len = block_hash_branch
+            .len()
+            .safe_add(self.execution_branch.len())?;
+        let num_extra = EXECUTION_BLOCK_HASH_PROOF_LEN_GLOAS.safe_sub(branch_len)?;
+        let normalized_branch = std::iter::repeat_n(Hash256::ZERO, num_extra)
+            .chain(block_hash_branch)
+            .chain(self.execution_branch.iter().copied())
+            .collect::<Vec<_>>();
+
+        Ok(LightClientHeaderGloas {
+            beacon: self.beacon,
+            execution_block_hash: self.execution.block_hash,
+            execution_branch: FixedVector::new(normalized_branch)?,
+            _phantom_data: PhantomData,
+        })
+    }
+}
+
 impl<E: EthSpec> LightClientHeaderGloas<E> {
+    /// Converts a block to a `LightClientHeaderGloas`. If the block is from Fulu, a
+    /// `LightClientHeaderFulu` is constructed and upgraded to Gloas.
     pub fn block_to_light_client_header(
         block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<Self, LightClientError> {
+        if block.fork_name_unchecked() == ForkName::Fulu {
+            return LightClientHeaderFulu::block_to_light_client_header(block)?.upgrade_to_gloas();
+        }
+
         let body_gloas = block
             .message()
             .body_gloas()
@@ -472,5 +591,54 @@ mod tests {
     mod gloas {
         use crate::{LightClientHeaderGloas, Spec};
         ssz_tests!(LightClientHeaderGloas<Spec>);
+    }
+
+    mod upgrade {
+        use crate::{
+            BeaconBlock, BeaconBlockFulu, ExecutionPayloadHeaderFulu, LightClientHeaderFulu,
+            LightClientHeaderGloas, SignedBeaconBlock, Spec,
+            light_client::consts::EXECUTION_BLOCK_HASH_GINDEX_DENEB,
+            test_utils::test_arbitrary_instance,
+        };
+        use bls::Signature;
+        use tree_hash::TreeHash;
+
+        #[test]
+        fn fulu_header_upgrades_to_gloas_header() {
+            let block = SignedBeaconBlock::from_block(
+                BeaconBlock::Fulu(test_arbitrary_instance::<BeaconBlockFulu<Spec>>()),
+                Signature::empty(),
+            )
+            .clone_as_blinded();
+            let pre = LightClientHeaderFulu::block_to_light_client_header(&block).unwrap();
+            let header = LightClientHeaderGloas::block_to_light_client_header(&block).unwrap();
+
+            assert_eq!(header.beacon, pre.beacon);
+            assert_eq!(header.execution_block_hash, pre.execution.block_hash);
+
+            let depth = EXECUTION_BLOCK_HASH_GINDEX_DENEB.ilog2() as usize;
+            let num_extra = header.execution_branch.len() - depth;
+            let (extra, branch) = header.execution_branch.split_at(num_extra);
+            assert!(extra.iter().all(|node| node.is_zero()));
+            assert!(merkle_proof::verify_merkle_proof(
+                header.execution_block_hash.into_root(),
+                branch,
+                depth,
+                EXECUTION_BLOCK_HASH_GINDEX_DENEB - (1 << depth),
+                header.beacon.body_root,
+            ));
+        }
+
+        #[test]
+        fn fulu_field_roots_match_execution_payload_header_root() {
+            let header = test_arbitrary_instance::<ExecutionPayloadHeaderFulu<Spec>>();
+            let leaves = header.field_roots();
+            let depth = leaves.len().next_power_of_two().ilog2() as usize;
+
+            assert_eq!(
+                merkle_proof::MerkleTree::create(&leaves, depth).hash(),
+                header.tree_hash_root()
+            );
+        }
     }
 }
