@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "account_manager"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "account_utils",
  "bls",
@@ -1511,6 +1511,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
+ "tokio-tungstenite",
  "tracing",
  "tree_hash",
  "tree_hash_derive",
@@ -1521,7 +1522,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "account_utils",
  "axum_utils",
@@ -1814,7 +1815,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -1879,6 +1880,7 @@ name = "builder_client"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "base64 0.22.1",
  "bls",
  "builder_types",
  "context_deserialize",
@@ -1886,16 +1888,23 @@ dependencies = [
  "ethereum_ssz",
  "futures",
  "lighthouse_version",
+ "metrics",
  "mockito",
  "parking_lot",
  "pretty_reqwest_error",
  "reqwest 0.12.28",
+ "rustls",
+ "rustls-native-certs",
  "sensitive_url",
  "serde",
  "serde_json",
+ "slot_clock",
+ "task_executor",
  "tokio",
+ "tokio-tungstenite",
  "tracing",
  "types",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -3647,6 +3656,7 @@ dependencies = [
  "futures",
  "futures-util",
  "libp2p",
+ "lighthouse_version",
  "mediatype",
  "pretty_reqwest_error",
  "proto_array",
@@ -5639,7 +5649,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -6122,7 +6132,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -6257,7 +6267,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse_version"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "regex",
 ]
@@ -8719,9 +8729,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -10115,6 +10125,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-tungstenite"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
+dependencies = [
+ "futures-util",
+ "log",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pki-types",
+ "tokio",
+ "tokio-rustls",
+ "tungstenite",
+]
+
+[[package]]
 name = "tokio-util"
 version = "0.7.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10451,6 +10477,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "tungstenite"
+version = "0.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8628dcc84e5a09eb3d8423d6cb682965dea9133204e8fb3efee74c2a0c259442"
+dependencies = [
+ "bytes",
+ "data-encoding",
+ "http",
+ "httparse",
+ "log",
+ "rand 0.9.5",
+ "rustls",
+ "rustls-pki-types",
+ "sha1",
+ "thiserror 2.0.21",
+ "utf-8",
+]
+
+[[package]]
 name = "typed-path"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10640,6 +10685,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "utf-8"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
+
+[[package]]
 name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10666,7 +10717,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "account_utils",
  "beacon_node_fallback",
@@ -11151,9 +11202,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dcd9d09a39985f5344844e66b0c530a33843579125f23e21e9f0f220850f22a"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
