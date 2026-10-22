@@ -25,6 +25,7 @@ fork_choice = { workspace = true }
 futures = { workspace = true, optional = true }
 futures-util = { version = "0.3.8", optional = true }
 libp2p = { workspace = true, optional = true }
+lighthouse_version = { workspace = true }
 mediatype = "0.19.13"
 pretty_reqwest_error = { workspace = true }
 proto_array = { workspace = true, optional = true }
