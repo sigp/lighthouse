@@ -42,9 +42,17 @@ impl TestContext {
             Duration::from_secs(0),
             spec.get_slot_duration(),
         );
-        let harness = BeaconChainHarness::builder(E::default())
+        let mut builder = BeaconChainHarness::builder(E::default())
             .spec(spec)
-            .deterministic_keypairs(NUM_VALIDATORS)
+            .deterministic_keypairs(NUM_VALIDATORS);
+        if heze_fork_epoch > E::genesis_epoch() {
+            builder = builder.with_genesis_state_builder(|genesis_builder| {
+                genesis_builder
+                    .set_alternating_eth1_withdrawal_credentials()
+                    .set_deposit_requests_start_index(NUM_VALIDATORS as u64)
+            });
+        }
+        let harness = builder
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(slot_clock)
