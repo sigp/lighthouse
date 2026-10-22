@@ -735,3 +735,85 @@ fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
 fn is_optimistic(status: ExecutionStatus) -> bool {
     matches!(status, ExecutionStatus::Optimistic(_))
 }
+
+/// A duplicate envelope for a block whose payload we already imported must still be
+/// deduplicated after a restart, before the signing-root and signature work.
+#[tokio::test]
+async fn restart_deduplicates_envelope_for_an_imported_block() {
+    if !fork_name_from_env().is_some_and(|fork| fork.gloas_enabled()) {
+        return;
+    }
+
+    let spec = Arc::new(test_spec::<E>());
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone())
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let target_slot = Slot::new(2);
+    let block_root = import_block_and_envelope(&harness, target_slot).await;
+
+    // The imported envelope is on disk, which is what makes re-verifying it pure waste.
+    let signed_envelope = Arc::new(
+        harness
+            .chain
+            .store
+            .get_signed_payload_envelope(&block_root)
+            .expect("the store read should succeed")
+            .expect("the imported envelope is persisted"),
+    );
+
+    match harness
+        .chain
+        .verify_envelope_for_gossip(signed_envelope.clone(), EnvelopeSource::Gossip)
+        .await
+    {
+        Err(EnvelopeError::EnvelopeAlreadySeen { .. }) => {}
+        Err(other) => panic!("expected EnvelopeAlreadySeen before the restart, got {other:?}"),
+        Ok(_) => panic!("the duplicate should be deduplicated before the restart"),
+    }
+
+    harness
+        .chain
+        .persist_fork_choice()
+        .expect("fork choice should persist");
+    let store = harness.chain.store.clone();
+    let slot_clock = harness.chain.slot_clock.clone();
+    drop(harness);
+
+    let resumed = BeaconChainHarness::builder(E::default())
+        .spec(spec)
+        .deterministic_keypairs(64)
+        .resumed_ephemeral_store(store)
+        .mock_execution_layer()
+        .testing_slot_clock(slot_clock)
+        .build();
+
+    // Without this the duplicate below could be deduplicated by the cache rather than by the
+    // `payload_received` flag that fork choice restores from disk.
+    assert!(
+        !resumed
+            .chain
+            .observed_payload_envelopes
+            .envelope_has_been_observed(
+                target_slot,
+                block_root,
+                signed_envelope.message.builder_index,
+            ),
+        "the in-memory deduplication cache starts empty after the restart",
+    );
+
+    match resumed
+        .chain
+        .verify_envelope_for_gossip(signed_envelope, EnvelopeSource::Gossip)
+        .await
+    {
+        Err(EnvelopeError::EnvelopeAlreadySeen { .. }) => {}
+        Err(other) => panic!("expected EnvelopeAlreadySeen after the restart, got {other:?}"),
+        Ok(_) => panic!("the duplicate reached the signing-root and signature work"),
+    }
+}
