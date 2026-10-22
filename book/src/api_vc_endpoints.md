@@ -494,6 +494,10 @@ Example Response Body
 Update some values for the validator with `voting_pubkey`. Possible fields: `enabled`, `gas_limit`, `builder_proposals`, `builder_boost_factor`, `prefer_builder_proposals`
 and `graffiti`.  The following example updates a validator from `enabled: true` to `enabled: false`.
 
+Post Gloas, the `builder_proposals`, `builder_boost_factor` and `prefer_builder_proposals` values
+set with this endpoint have no effect. To set the builder configuration for one validator, use
+`/eth/v1/validator/{pubkey}/builder_config`. See [Gloas Builder Configuration](./gloas_builder_config.md).
+
 ### HTTP Specification
 
 | Property          | Specification                              |

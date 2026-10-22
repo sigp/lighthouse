@@ -402,7 +402,7 @@ pub struct ValidatorClient {
         alias = "private-tx-proposals",
         help = "If this flag is set, Lighthouse will query the Beacon Node for only block \
                 headers during proposals and will sign over headers. Useful for outsourcing \
-                execution payload construction during proposals.",
+                execution payload construction during proposals. Has no effect post Gloas.",
         display_order = 0,
         help_heading = FLAG_HEADER
     )]
@@ -412,7 +412,7 @@ pub struct ValidatorClient {
         long,
         value_name = "UNIX-TIMESTAMP",
         help = "This flag takes a unix timestamp value that will be used to override the \
-                timestamp used in the builder api registration.",
+                timestamp used in the builder api registration. Has no effect post Gloas.",
         display_order = 0
     )]
     pub builder_registration_timestamp_override: Option<u64>,
@@ -421,8 +421,9 @@ pub struct ValidatorClient {
         long,
         value_name = "INTEGER",
         requires = "builder_proposals",
-        help = "The gas limit to be used in all builder proposals for all validators managed \
-                by this validator client. If this value is not set, the gas limit schedule from \
+        help = "The gas limit for all validators managed by this validator client. Before \
+                Gloas, it applies only to builder proposals. Post Gloas, it is the target gas \
+                limit in the proposer preferences. If this value is not set, the gas limit schedule from \
                 the network config is used, falling back to a default of 60,000,000. Note this \
                 will not necessarily be used if the gas limit set here moves too far from the \
                 previous block's gas limit.",
@@ -445,7 +446,7 @@ pub struct ValidatorClient {
         default_value_t = 500,
         help = "Defines the number of validators per \
                 validator/register_validator request sent to the BN. This value \
-                can be reduced to avoid timeouts from builders.",
+                can be reduced to avoid timeouts from builders. Has no effect post Gloas.",
         display_order = 0
     )]
     pub validator_registration_batch_size: usize,
@@ -465,7 +466,7 @@ pub struct ValidatorClient {
     #[clap(
         long,
         help = "If this flag is set, Lighthouse will always prefer blocks \
-                constructed by builders, regardless of payload value.",
+                constructed by builders, regardless of payload value. Has no effect post Gloas.",
         display_order = 0,
         help_heading = FLAG_HEADER
     )]
