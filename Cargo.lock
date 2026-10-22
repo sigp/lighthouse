@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "account_manager"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "account_utils",
  "bls",
@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "account_utils",
  "axum_utils",
@@ -1814,7 +1814,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -3647,6 +3647,7 @@ dependencies = [
  "futures",
  "futures-util",
  "libp2p",
+ "lighthouse_version",
  "mediatype",
  "pretty_reqwest_error",
  "proto_array",
@@ -5640,7 +5641,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -6123,7 +6124,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -6258,7 +6259,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse_version"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "regex",
 ]
@@ -10667,7 +10668,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "account_utils",
  "beacon_node_fallback",
