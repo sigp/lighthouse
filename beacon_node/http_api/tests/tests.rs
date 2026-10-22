@@ -37,7 +37,7 @@ use lighthouse_network::{Enr, PeerId, types::SyncState};
 use network::NetworkReceivers;
 use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
-use proto_array::{ExecutionStatus, PayloadBlockHash, core::ProtoNode};
+use proto_array::{ExecutionStatus, ParentPayloadStatus, PayloadBlockHash, core::ProtoNode};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde_utils::quoted_u64::Quoted;
@@ -4647,8 +4647,8 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_debug_fork_choice(self) -> Self {
-        let result = self.client.get_debug_fork_choice().await.unwrap();
+    pub async fn test_get_debug_fork_choice_v1(self) -> Self {
+        let result = self.client.get_debug_fork_choice_v1().await.unwrap();
 
         let beacon_fork_choice = self.chain.canonical_head.fork_choice_read_lock();
 
@@ -4721,6 +4721,167 @@ impl ApiTester {
             .collect();
 
         assert_eq!(result.fork_choice_nodes, expected_fork_choice_nodes);
+
+        // need to drop beacon_fork_choice here, else borrow checker will complain
+        // that self cannot be moved out since beacon_fork_choice borrowed self.chain
+        // and might still live after self is moved out
+        drop(beacon_fork_choice);
+        self
+    }
+
+    pub async fn test_get_debug_fork_choice_v2(self) -> Self {
+        let result = self.client.get_debug_fork_choice().await.unwrap().data;
+
+        // Read before taking the fork choice lock, so the two locks are never held together.
+        let cached_head = self.chain.canonical_head.cached_head();
+        let beacon_fork_choice = self.chain.canonical_head.fork_choice_read_lock();
+        let proto_array_fork_choice = beacon_fork_choice.proto_array();
+        let proto_array = proto_array_fork_choice.core_proto_array();
+
+        assert_eq!(
+            result.justified_checkpoint,
+            beacon_fork_choice.justified_checkpoint()
+        );
+        assert_eq!(
+            result.finalized_checkpoint,
+            beacon_fork_choice.finalized_checkpoint()
+        );
+
+        let head_root = cached_head.head_block_root();
+        let expected_extra_data = ForkChoiceExtraDataV2 {
+            head_root,
+            // Fork choice tracks a pre-Gloas head as `Empty`, but the response shows it as its
+            // single `Full` node.
+            head_payload_status: match proto_array.get_block(head_root) {
+                Some(ProtoNode::V17(_)) => PayloadStatus::Full,
+                _ => cached_head.head_payload_status(),
+            },
+            proposer_boost_root: beacon_fork_choice.proposer_boost_root(),
+            unrealized_justified_checkpoint: beacon_fork_choice.unrealized_justified_checkpoint(),
+            unrealized_finalized_checkpoint: beacon_fork_choice.unrealized_finalized_checkpoint(),
+        };
+        assert_eq!(result.extra_data, expected_extra_data);
+
+        // Each proto-array node expands into its block's `(block_root, payload_status)` nodes, in
+        // the order the handler pushes them.
+        let mut expected_fork_choice_nodes = vec![];
+        for proto_node in &proto_array.nodes {
+            let block_root = proto_node.root();
+            let parent = proto_node
+                .parent()
+                .and_then(|index| proto_array.nodes.get(index));
+            // A pruned parent gives a zero root.
+            let parent_root = parent.map_or_else(Hash256::zero, |parent| parent.root());
+            let extra_data = ForkChoiceNodeExtraDataV2 {
+                target_root: proto_node.target_root(),
+                state_root: proto_node.state_root(),
+                unrealized_justified_checkpoint: proto_node.unrealized_justified_checkpoint(),
+                unrealized_finalized_checkpoint: proto_node.unrealized_finalized_checkpoint(),
+                execution_status: proto_node.execution_status().to_string(),
+            };
+
+            match proto_node {
+                // A pre-Gloas block is a single `Full` node.
+                ProtoNode::V17(_) => expected_fork_choice_nodes.push(ForkChoiceNodeV2 {
+                    slot: proto_node.slot(),
+                    block_root,
+                    payload_status: PayloadStatus::Full,
+                    parent_root,
+                    parent_payload_status: parent.map(|_| PayloadStatus::Full),
+                    justified_checkpoint: *proto_node.justified_checkpoint(),
+                    finalized_checkpoint: *proto_node.finalized_checkpoint(),
+                    weight: proto_node.weight(),
+                    validity: proto_array_fork_choice
+                        .get_block_execution_status_assuming_full(&block_root)
+                        .unwrap(),
+                    execution_block_hash: match proto_node.block_hash() {
+                        PayloadBlockHash::Hash(block_hash) => block_hash,
+                        PayloadBlockHash::PreMerge => ExecutionBlockHash::zero(),
+                    },
+                    payload_attester_count: 0,
+                    payload_availability_yes_count: 0,
+                    payload_data_availability_yes_count: 0,
+                    extra_data,
+                }),
+                // A Gloas block is a `Pending` node, with `Empty` below it and `Full` once the
+                // payload arrives.
+                ProtoNode::V29(gloas_node) => {
+                    let pending = ForkChoiceNodeV2 {
+                        slot: proto_node.slot(),
+                        block_root,
+                        payload_status: PayloadStatus::Pending,
+                        parent_root,
+                        parent_payload_status: parent.map(|_| {
+                            match gloas_node.parent_payload_status {
+                                ParentPayloadStatus::Empty => PayloadStatus::Empty,
+                                ParentPayloadStatus::Full | ParentPayloadStatus::PreGloas => {
+                                    PayloadStatus::Full
+                                }
+                            }
+                        }),
+                        justified_checkpoint: *proto_node.justified_checkpoint(),
+                        finalized_checkpoint: *proto_node.finalized_checkpoint(),
+                        weight: gloas_node.weight,
+                        validity: proto_array.inherited_execution_status(block_root).unwrap(),
+                        execution_block_hash: gloas_node.execution_payload_parent_hash,
+                        payload_attester_count: gloas_node.ptc_participation.num_set_bits() as u64,
+                        payload_availability_yes_count: gloas_node
+                            .payload_timeliness_votes
+                            .num_set_bits()
+                            as u64,
+                        payload_data_availability_yes_count: gloas_node
+                            .payload_data_availability_votes
+                            .num_set_bits()
+                            as u64,
+                        extra_data,
+                    };
+                    let empty = ForkChoiceNodeV2 {
+                        payload_status: PayloadStatus::Empty,
+                        parent_root: block_root,
+                        parent_payload_status: Some(PayloadStatus::Pending),
+                        weight: gloas_node.empty_payload_weight,
+                        ..pending.clone()
+                    };
+                    expected_fork_choice_nodes.push(pending);
+                    expected_fork_choice_nodes.push(empty.clone());
+                    if gloas_node.payload_received {
+                        expected_fork_choice_nodes.push(ForkChoiceNodeV2 {
+                            payload_status: PayloadStatus::Full,
+                            weight: gloas_node.full_payload_weight,
+                            validity: proto_array_fork_choice
+                                .get_block_execution_status_assuming_full(&block_root)
+                                .unwrap(),
+                            execution_block_hash: gloas_node.execution_payload_block_hash,
+                            ..empty
+                        });
+                    }
+                }
+            }
+        }
+        assert_eq!(result.fork_choice_nodes, expected_fork_choice_nodes);
+
+        let has_node = |block_root: Hash256, payload_status: PayloadStatus| {
+            result
+                .fork_choice_nodes
+                .iter()
+                .any(|node| node.block_root == block_root && node.payload_status == payload_status)
+        };
+
+        // The head and every parent link name a node in the response.
+        assert!(has_node(
+            result.extra_data.head_root,
+            result.extra_data.head_payload_status
+        ));
+        for node in &result.fork_choice_nodes {
+            if let Some(parent_payload_status) = node.parent_payload_status {
+                assert!(
+                    has_node(node.parent_root, parent_payload_status),
+                    "dangling parent link on {:?} {:?}",
+                    node.block_root,
+                    node.payload_status
+                );
+            }
+        }
 
         // need to drop beacon_fork_choice here, else borrow checker will complain
         // that self cannot be moved out since beacon_fork_choice borrowed self.chain
@@ -10995,13 +11156,15 @@ async fn config_get() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn debug_get() {
-    ApiTester::new()
+    ApiTester::new_with_hard_forks()
         .await
         .test_get_debug_beacon_states()
         .await
         .test_get_debug_beacon_heads()
         .await
-        .test_get_debug_fork_choice()
+        .test_get_debug_fork_choice_v1()
+        .await
+        .test_get_debug_fork_choice_v2()
         .await;
 }
 
