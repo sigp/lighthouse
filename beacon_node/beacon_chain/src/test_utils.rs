@@ -893,7 +893,7 @@ pub fn pooled_payload_attestation_bits<T: BeaconChainTypes>(
 ) -> usize {
     chain
         .op_pool
-        .get_payload_attestations(|pooled| pooled == data)
+        .get_all_payload_attestations(|pooled| pooled == data)
         .iter()
         .map(|attestation| attestation.aggregation_bits.num_set_bits())
         .sum()

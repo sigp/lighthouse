@@ -40,10 +40,10 @@ use std::ptr;
 use typenum::Unsigned;
 use types::{
     AbstractExecPayload, Attestation, AttestationData, AttesterSlashing, BeaconState,
-    BeaconStateError, ChainSpec, Epoch, EthSpec, PTC, PayloadAttestation, PayloadAttestationData,
-    PayloadAttestationMessage, ProposerSlashing, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedVoluntaryExit, Slot, SyncAggregate, SyncAggregateError, SyncCommitteeContribution,
-    Validator,
+    BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, PTC, PayloadAttestation,
+    PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate, SyncAggregateError,
+    SyncCommitteeContribution, Validator,
 };
 
 type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<E>>>>;
@@ -235,9 +235,35 @@ impl<E: EthSpec> OperationPool<E> {
         Ok(())
     }
 
+    /// Get a list of payload attestations for inclusion in a block at `state.slot()`.
+    ///
+    /// Only aggregates attesting to `parent_root` at the previous slot are eligible. They are
+    /// sorted by participation (most first) and capped at `MaxPayloadAttestations`.
+    pub fn get_payload_attestations(
+        &self,
+        state: &BeaconState<E>,
+        parent_root: Hash256,
+    ) -> Vec<PayloadAttestation<E>> {
+        let target_slot = state.slot().saturating_sub(1u64);
+        let mut payload_attestations = self.get_all_payload_attestations(|data| {
+            data.slot == target_slot && data.beacon_block_root == parent_root
+        });
+
+        payload_attestations.sort_by(|a, b| {
+            b.aggregation_bits
+                .num_set_bits()
+                .cmp(&a.aggregation_bits.num_set_bits())
+        });
+        payload_attestations.truncate(E::max_payload_attestations());
+
+        payload_attestations
+    }
+
     /// Returns all known `PayloadAttestation` objects that pass `filter`, one per distinct
     /// `PayloadAttestationData`.
-    pub fn get_payload_attestations<F>(&self, filter: F) -> Vec<PayloadAttestation<E>>
+    ///
+    /// This method may return objects that are invalid for block inclusion.
+    pub fn get_all_payload_attestations<F>(&self, filter: F) -> Vec<PayloadAttestation<E>>
     where
         F: Fn(&PayloadAttestationData) -> bool,
     {
@@ -2317,7 +2343,7 @@ mod release_tests {
 
         assert_eq!(op_pool.num_payload_attestations(), 1);
 
-        let payload_attestations = op_pool.get_payload_attestations(|data| {
+        let payload_attestations = op_pool.get_all_payload_attestations(|data| {
             data.slot == target_slot && data.beacon_block_root == parent_root
         });
         assert_eq!(payload_attestations.len(), 1);
@@ -2353,7 +2379,7 @@ mod release_tests {
         assert_eq!(op_pool.num_payload_attestations(), 0);
         assert!(
             op_pool
-                .get_payload_attestations(
+                .get_all_payload_attestations(
                     |data| data.slot == target_slot && data.beacon_block_root == parent_root
                 )
                 .is_empty()
@@ -2432,8 +2458,9 @@ mod release_tests {
 
         // The predicate the pool endpoint uses: an omitted slot passes everything through.
         let payload_attestations_by_slot = |target_slot: Option<Slot>| {
-            op_pool
-                .get_payload_attestations(|data| target_slot.is_none_or(|slot| data.slot == slot))
+            op_pool.get_all_payload_attestations(|data| {
+                target_slot.is_none_or(|slot| data.slot == slot)
+            })
         };
 
         let all = payload_attestations_by_slot(None);
@@ -2455,15 +2482,111 @@ mod release_tests {
 
         assert!(payload_attestations_by_slot(Some(Slot::new(9))).is_empty());
 
-        // Block production keeps the root filter.
-        assert_eq!(
-            op_pool
-                .get_payload_attestations(
-                    |data| data.slot == target_slot && data.beacon_block_root == parent_root
-                )
-                .len(),
-            4
+        // Block production keeps only the parent root's aggregates for the previous slot.
+        let mut advanced_state = state.clone();
+        state_processing::state_advance::complete_state_advance(
+            &mut advanced_state,
+            None,
+            target_slot + 1,
+            None,
+            &spec,
+        )
+        .unwrap();
+        let packed = op_pool.get_payload_attestations(&advanced_state, parent_root);
+        assert_eq!(packed.len(), 4);
+        assert!(
+            packed.iter().all(
+                |att| att.data.slot == target_slot && att.data.beacon_block_root == parent_root
+            )
         );
+    }
+
+    #[tokio::test]
+    async fn payload_attestation_packing_prefers_participation() {
+        let spec = test_spec::<Spec>();
+        if spec.gloas_fork_epoch.is_none() {
+            return;
+        };
+
+        // Enough validators for several distinct PTC members per slot on both presets.
+        let num_validators = 512;
+        let harness = get_harness::<Spec>(num_validators, Some(spec.clone()));
+        harness
+            .add_attested_blocks_at_slots(
+                harness.get_current_state(),
+                &[Slot::new(1)],
+                (0..num_validators).collect::<Vec<_>>().as_slice(),
+            )
+            .await;
+        let head = harness.chain.canonical_head.cached_head();
+        let state = &head.snapshot.beacon_state;
+        let target_slot = Slot::new(1);
+        let parent_root = head.head_block_root();
+        let other_root = Hash256::repeat_byte(0xbb);
+        let ptc = state.get_ptc(target_slot, &spec).unwrap();
+
+        let mut seen = HashSet::new();
+        let members: Vec<usize> = ptc.0.iter().copied().filter(|v| seen.insert(*v)).collect();
+        // Groups of 1, 2 and 3 voters, with at least one voter left for the last group.
+        assert!(members.len() >= 7);
+
+        let op_pool = OperationPool::<Spec>::new();
+
+        // Each data combination gets a different number of distinct voters: 1, 2, 3, then the rest.
+        let combos = [(false, false), (false, true), (true, false), (true, true)];
+        let mut start = 0;
+        for (i, (payload_present, blob_data_available)) in combos.into_iter().enumerate() {
+            let end = if i == combos.len() - 1 {
+                members.len()
+            } else {
+                start + i + 1
+            };
+            for &validator_index in &members[start..end] {
+                let msg = make_payload_attestation_message_with_flags(
+                    target_slot,
+                    validator_index as u64,
+                    parent_root,
+                    payload_present,
+                    blob_data_available,
+                );
+                op_pool.insert_payload_attestation(&msg, &ptc).unwrap();
+            }
+            start = end;
+        }
+
+        // A full-participation aggregate for another root must never be packed.
+        for &validator_index in &members {
+            let msg =
+                make_payload_attestation_message(target_slot, validator_index as u64, other_root);
+            op_pool.insert_payload_attestation(&msg, &ptc).unwrap();
+        }
+
+        let mut advanced_state = state.clone();
+        state_processing::state_advance::complete_state_advance(
+            &mut advanced_state,
+            None,
+            target_slot + 1,
+            None,
+            &spec,
+        )
+        .unwrap();
+        let packed = op_pool.get_payload_attestations(&advanced_state, parent_root);
+
+        assert_eq!(packed.len(), Spec::max_payload_attestations());
+        assert!(
+            packed
+                .iter()
+                .all(|att| att.data.beacon_block_root == parent_root)
+        );
+        let bit_counts: Vec<usize> = packed
+            .iter()
+            .map(|att| att.aggregation_bits.num_set_bits())
+            .collect();
+        assert!(
+            bit_counts.windows(2).all(|w| w[0] >= w[1]),
+            "packed aggregates should be sorted by participation: {bit_counts:?}"
+        );
+        assert_eq!(bit_counts.iter().sum::<usize>(), Spec::ptc_size());
     }
 
     #[tokio::test]
@@ -2501,7 +2624,7 @@ mod release_tests {
         op_pool.insert_payload_attestation(&msg0, &ptc).unwrap();
         op_pool.insert_payload_attestation(&msg1, &ptc).unwrap();
 
-        let payload_attestations = op_pool.get_payload_attestations(|data| {
+        let payload_attestations = op_pool.get_all_payload_attestations(|data| {
             data.slot == target_slot && data.beacon_block_root == parent_root
         });
 
@@ -2578,7 +2701,7 @@ mod release_tests {
             &spec,
         )
         .unwrap();
-        let payload_attestations = op_pool.get_payload_attestations(|data| {
+        let payload_attestations = op_pool.get_all_payload_attestations(|data| {
             data.slot == target_slot && data.beacon_block_root == parent_root
         });
 
@@ -2650,15 +2773,17 @@ mod release_tests {
             }
         }
 
-        let mut payload_attestations = op_pool.get_payload_attestations(|data| {
-            data.slot == target_slot && data.beacon_block_root == parent_root
-        });
-        payload_attestations.sort_by(|a, b| {
-            b.aggregation_bits
-                .num_set_bits()
-                .cmp(&a.aggregation_bits.num_set_bits())
-        });
-        payload_attestations.truncate(Spec::max_payload_attestations());
+        // When: we pack payload attestations for block production at slot 2.
+        let mut advanced_state = state.clone();
+        state_processing::state_advance::complete_state_advance(
+            &mut advanced_state,
+            None,
+            Slot::new(2),
+            None,
+            &spec,
+        )
+        .unwrap();
+        let payload_attestations = op_pool.get_payload_attestations(&advanced_state, parent_root);
 
         // Then: one payload attestation per combo, sorted by participation (most first).
         assert_eq!(payload_attestations.len(), 4);

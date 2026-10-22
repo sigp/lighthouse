@@ -582,7 +582,7 @@ pub fn get_beacon_pool_payload_attestations<T: BeaconChainTypes>(
              query: PayloadAttestationPoolQuery,
              accept_header: Option<Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
-                    let payload_attestations = chain.op_pool.get_payload_attestations(|data| {
+                    let payload_attestations = chain.op_pool.get_all_payload_attestations(|data| {
                         query.slot.is_none_or(|slot| data.slot == slot)
                     });
 
