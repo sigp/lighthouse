@@ -20,6 +20,8 @@ pub fn log_file_access<P: AsRef<Path>>(file_accessed: P) {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(ACCESSED_FILE_LOG_FILENAME);
 
     let mut file = fs::File::options()
+        // Windows file locking requires read or write access, not append-only access.
+        .read(true)
         .append(true)
         .create(true)
         .open(passed_test_list_path)
@@ -96,7 +98,7 @@ where
             ssz::DecodeError::BytesInvalid(message) if message.contains("Blst") => {
                 Error::InvalidBLSInput(message)
             }
-            e => Error::FailedToParseTest(format!(
+            e => Error::InvalidSSZInput(format!(
                 "Unable to parse SSZ at {}: {:?}",
                 path.display(),
                 e
@@ -126,4 +128,25 @@ pub fn ssz_decode_light_client_update<E: EthSpec>(
     ssz_decode_file_with(path, |bytes| {
         LightClientUpdate::from_ssz_bytes(bytes, fork_name)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use snap::raw::Encoder;
+    use ssz_types::VariableList;
+    use typenum::U1;
+
+    #[test]
+    fn overlong_list_is_invalid_ssz_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let fixture_dir = dir.path().join("consensus-spec-tests");
+        fs::create_dir(&fixture_dir).unwrap();
+        let path = fixture_dir.join("list.ssz_snappy");
+        let bytes = Encoder::new().compress_vec(&[0, 1]).unwrap();
+        fs::write(&path, bytes).unwrap();
+
+        let error = ssz_decode_file::<VariableList<u8, U1>>(&path).unwrap_err();
+        assert!(matches!(error, Error::InvalidSSZInput(_)));
+    }
 }
