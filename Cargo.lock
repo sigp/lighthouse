@@ -3647,6 +3647,7 @@ dependencies = [
  "futures",
  "futures-util",
  "libp2p",
+ "lighthouse_version",
  "mediatype",
  "pretty_reqwest_error",
  "proto_array",
