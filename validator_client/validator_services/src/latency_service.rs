@@ -28,7 +28,7 @@ pub fn start_latency_service<T: SlotClock + 'static>(
                 })
                 // If we can't read the slot clock, just wait one slot. Running
                 // the measurement at a non-exact time is not a big issue.
-                .unwrap_or_else(|| slot_clock.slot_duration());
+                .unwrap_or_else(|| slot_clock.current_slot_duration());
 
             // Sleep until it's time to perform the measurement.
             sleep(sleep_time).await;

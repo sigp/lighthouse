@@ -38,11 +38,7 @@ impl TestContext {
 
     fn with_validator_count(num_validators: usize) -> Self {
         let spec = Arc::new(test_spec::<E>());
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        );
+        let slot_clock = TestingSlotClock::from_spec::<E>(Duration::from_secs(0), &spec);
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec)
             .deterministic_keypairs(num_validators)

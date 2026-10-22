@@ -1,6 +1,6 @@
 use super::{ManualSlotClock, SlotClock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use types::Slot;
+use types::{Slot, SlotDurationSchedule};
 
 /// Determines the present slot based upon the present system time.
 #[derive(Clone)]
@@ -9,10 +9,28 @@ pub struct SystemTimeSlotClock {
 }
 
 impl SlotClock for SystemTimeSlotClock {
-    fn new(genesis_slot: Slot, genesis_duration: Duration, slot_duration: Duration) -> Self {
+    fn from_schedule(
+        genesis_slot: Slot,
+        genesis_duration: Duration,
+        slot_duration_schedule: SlotDurationSchedule,
+        slots_per_epoch: u64,
+    ) -> Self {
         Self {
-            clock: ManualSlotClock::new(genesis_slot, genesis_duration, slot_duration),
+            clock: ManualSlotClock::from_schedule(
+                genesis_slot,
+                genesis_duration,
+                slot_duration_schedule,
+                slots_per_epoch,
+            ),
         }
+    }
+
+    fn slot_duration_schedule(&self) -> &SlotDurationSchedule {
+        self.clock.slot_duration_schedule()
+    }
+
+    fn slots_per_epoch(&self) -> u64 {
+        self.clock.slots_per_epoch()
     }
 
     fn now(&self) -> Option<Slot> {
@@ -41,10 +59,6 @@ impl SlotClock for SystemTimeSlotClock {
     fn duration_to_next_epoch(&self, slots_per_epoch: u64) -> Option<Duration> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
         self.clock.duration_to_next_epoch_from(now, slots_per_epoch)
-    }
-
-    fn slot_duration(&self) -> Duration {
-        self.clock.slot_duration()
     }
 
     fn duration_to_slot(&self, slot: Slot) -> Option<Duration> {

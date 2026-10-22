@@ -656,11 +656,7 @@ mod tests {
     type T = EphemeralHarnessType<E>;
 
     fn testing_slot_clock(spec: &ChainSpec) -> TestingSlotClock {
-        TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        )
+        TestingSlotClock::from_spec::<E>(Duration::from_secs(0), spec)
     }
 
     fn setup_custody_context(
