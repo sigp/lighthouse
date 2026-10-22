@@ -494,10 +494,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BlockProductionError::OpPoolError)?
         };
 
-        let mut payload_attestations = self
-            .op_pool
-            .get_payload_attestations(&state, parent_root, &self.spec)
-            .map_err(BlockProductionError::OpPoolError)?;
+        let mut payload_attestations = self.op_pool.get_payload_attestations(&state, parent_root);
 
         // If paranoid mode is enabled re-check the signatures of every included message.
         // This will be a lot slower but guards against bugs in block production and can be
@@ -1187,7 +1184,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Builders are configured but no proposer preferences are available; skipping \
                      direct builder bids for this proposal"
                 );
+                self.close_builder_bid_streams(&ctx);
             }
+        } else {
+            self.close_builder_bid_streams(&ctx);
         }
 
         if let Some(gossip_bid) = self.gossip_verified_payload_bid_cache.get_highest_bid(
@@ -1280,8 +1280,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         externals
     }
 
-    /// Request direct bids from the configured builders and return each valid one as a selection
-    /// candidate.
+    /// Close the proposal's builder bid streams when block production skips direct bids, so they
+    /// do not run to the end of the slot.
+    fn close_builder_bid_streams(&self, ctx: &BidRequestContext) {
+        if let Some(bid_streams) = self.builder_bid_streams() {
+            bid_streams.close_streams(ctx.slot, ctx.proposer_pubkey);
+        }
+    }
+
+    /// Get direct bids from the configured builders, from a bid stream or a request, and return
+    /// each valid one as a selection candidate.
     ///
     /// Best-effort and never fatal: the builder service is constructed whenever the Gloas fork is
     /// scheduled, so in a correctly-built node it is always present on this (Gloas) path — a missing
