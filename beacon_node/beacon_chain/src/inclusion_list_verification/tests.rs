@@ -166,7 +166,7 @@ fn inclusion_list_after_deadline_is_not_timely() {
     let slot = ctx.current_slot();
     let slot_clock = &ctx.harness.chain.slot_clock;
     slot_clock.set_current_time(
-        slot_clock.start_of(slot).unwrap() + ctx.harness.spec.get_inclusion_list_due(),
+        slot_clock.start_of(slot).unwrap() + ctx.harness.spec.get_inclusion_list_due::<E>(slot),
     );
 
     let signed = ctx.valid_inclusion_list(slot, ctx.genesis_block_root, vec![vec![0xaa]]);
@@ -185,7 +185,8 @@ fn inclusion_list_seen_before_deadline_is_timely() {
     let slot = ctx.current_slot();
     let slot_clock = &ctx.harness.chain.slot_clock;
     let seen_timestamp = slot_clock.start_of(slot).unwrap();
-    slot_clock.set_current_time(seen_timestamp + ctx.harness.spec.get_inclusion_list_due());
+    slot_clock
+        .set_current_time(seen_timestamp + ctx.harness.spec.get_inclusion_list_due::<E>(slot));
 
     let signed = ctx.valid_inclusion_list(slot, ctx.genesis_block_root, vec![vec![0xaa]]);
     let verified = GossipVerifiedInclusionList::new(signed, seen_timestamp, &ctx.gossip_ctx())
