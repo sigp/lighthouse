@@ -154,7 +154,7 @@ use std::collections::HashSet;
 use std::io::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
     BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
@@ -6768,15 +6768,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         fcu_params.head_root,
                         &cached_head,
                     )?;
-                    // Read here, off the async executor: the pubkey cache lock can block.
                     let bid_stream_proposer = pre_payload_attributes
                         .as_ref()
                         .filter(|_| chain.builder_bid_streams().is_some())
                         .and_then(|attributes| {
-                            let pubkey = chain
-                                .validator_pubkey_bytes(attributes.proposer_index as usize)
-                                .ok()
-                                .flatten();
+                            let pubkey = cached_head
+                                .snapshot
+                                .beacon_state
+                                .validators()
+                                .get(attributes.proposer_index as usize)
+                                .map(|validator| validator.pubkey);
                             if pubkey.is_none() {
                                 debug!(
                                     proposer_index = attributes.proposer_index,
@@ -7108,12 +7109,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let Some(parent_hash) = parent_hash else {
             return;
         };
-        // `duration_to_slot` is `None` once the slot has started.
-        let slot_start = Instant::now()
-            + self
-                .slot_clock
-                .duration_to_slot(prepare_slot)
-                .unwrap_or_default();
         let ctx = BidRequestContext {
             slot: prepare_slot,
             executed_ancestor_hash: parent_hash,
@@ -7121,7 +7116,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proposer_pubkey,
             fork_name: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
         };
-        bid_streams.open_streams(&ctx, current_slot, slot_start);
+        bid_streams.open_streams(&ctx, current_slot, &self.slot_clock);
     }
 
     pub async fn update_execution_engine_forkchoice(

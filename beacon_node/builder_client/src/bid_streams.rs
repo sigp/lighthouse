@@ -7,15 +7,18 @@
 //!
 //! [`BidStreams`] stores the `builder_preferences` entries the validator client submits for its
 //! upcoming proposals. Once the beacon node knows the parent it will build on, it opens a stream
-//! per entry, connecting `STREAM_LEAD` before the proposal slot starts. `X-Timeout-Ms` asks the
-//! builder to stream until the slot starts, when block production takes the bids. Each message's
-//! bid is checked against the stream's slot and parent and kept as SSZ; its signature is decoded
-//! at block production on a blocking thread.
+//! per entry, connecting `STREAM_LEAD` before the auction end.
 //!
-//! A failed connection attempt is retried with backoff until the slot starts, unless less than
+//! The auction end is when block production is expected to take the bids: the start of the
+//! proposal slot, when the validator client asks for the block. `Date-Milliseconds` and
+//! `X-Timeout-Ms` tell the builder to send its bid by then. If block production starts later, the
+//! bid is kept until it does. Each message's bid is checked against the stream's slot and parent
+//! and kept as SSZ; its signature is decoded at block production on a blocking thread.
+//!
+//! A failed connection attempt is retried with backoff until the auction end, unless less than
 //! `MIN_STREAM_WINDOW` is left. If the handshake gets a 400, the stream is not retried for that
-//! parent. A 401 or 403 stops it for the proposal, and a 404 or 405 stops streams to that builder
-//! until restart. A 2xx answer also means no stream for the proposal.
+//! parent. A 401, 403, 404, 405 or 2xx answer stops it for the proposal; a builder that does not
+//! serve streams is tried again at its next proposal.
 //!
 //! At block production [`BidStreams::take_bids`] closes the proposal's streams and returns each
 //! entry's stream bid. A stream bid is used if it decodes and passes validation, otherwise the
@@ -37,10 +40,10 @@ use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use parking_lot::Mutex;
 use sensitive_url::SensitiveUrl;
-use slot_clock::timestamp_now;
+use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz::SszDecoderBuilder;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::marker::PhantomData;
 use std::pin::Pin;
@@ -73,14 +76,12 @@ const MAX_BYTES_PER_STREAM: usize = 8 * 1024 * 1024;
 /// Bound on the stored `builder_preferences` entries, across all slots. Each proposal is also
 /// bounded to `MAX_BUILDER_ENTRIES`, the most block production can use.
 const MAX_STORED_BUILDER_PREFERENCES: usize = 8192;
-/// Bound on the builder URLs remembered as not serving bid streams. Once full, no more are added.
-const MAX_UNSUPPORTED_URLS: usize = 1024;
-/// How long before the proposal slot starts a stream connects.
+/// How long before the auction end a stream connects.
 const STREAM_LEAD: Duration = Duration::from_secs(1);
-/// The least time left before the slot starts for a connection attempt. A builder streams in the
+/// The least time left before the auction end for a connection attempt. A builder streams in the
 /// last few hundred milliseconds of the window it is given, so a shorter window gets no bid.
 const MIN_STREAM_WINDOW: Duration = Duration::from_millis(500);
-/// How long a stream keeps reading after the slot starts, for messages already in flight.
+/// How long a stream keeps reading after the auction end, for messages already in flight.
 const READ_GRACE: Duration = Duration::from_millis(500);
 
 const INITIAL_RECONNECT_BACKOFF: Duration = Duration::from_millis(100);
@@ -156,7 +157,6 @@ struct Mailbox {
 }
 
 type SharedMailbox = Arc<Mutex<Mailbox>>;
-type UnsupportedUrls = Arc<Mutex<HashSet<BuilderUrl>>>;
 /// Entries by proposal slot, proposer and builder url.
 type StoredPreferences =
     BTreeMap<Slot, HashMap<PublicKeyBytes, HashMap<BuilderUrl, BuilderPreferenceEntry>>>;
@@ -202,7 +202,6 @@ impl StreamHandle {
 /// Stored `builder_preferences` entries and the bid streams opened from them.
 ///
 /// Lock ordering: `streams` before `preferences`, and `streams` before a stream's mailbox.
-/// `unsupported` is never held together with another lock.
 pub struct BidStreams<E: EthSpec> {
     executor: TaskExecutor,
     user_agent: HeaderValue,
@@ -211,8 +210,6 @@ pub struct BidStreams<E: EthSpec> {
     max_bytes_per_stream: usize,
     preferences: Mutex<StoredPreferences>,
     streams: Mutex<HashMap<EntryKey, StreamHandle>>,
-    /// Builder URLs that answered the handshake with 404 or 405.
-    unsupported: UnsupportedUrls,
     _phantom: PhantomData<E>,
 }
 
@@ -228,7 +225,6 @@ impl<E: EthSpec> BidStreams<E> {
             max_bytes_per_stream: MAX_BYTES_PER_STREAM,
             preferences: Mutex::new(BTreeMap::new()),
             streams: Mutex::new(HashMap::new()),
-            unsupported: Arc::new(Mutex::new(HashSet::new())),
             _phantom: PhantomData,
         })
     }
@@ -290,17 +286,17 @@ impl<E: EthSpec> BidStreams<E> {
     }
 
     /// Open a stream for every stored entry of `ctx.proposer_pubkey` at `ctx.slot` that is not
-    /// already streaming this parent, skipping builders that do not serve bid streams. A stream
-    /// for another parent of the same entry is replaced.
+    /// already streaming this parent. A stream for another parent of the same entry is replaced.
     ///
-    /// Each stream connects `STREAM_LEAD` before `slot_start`, or at once if that has passed, and
-    /// reads until `slot_start` plus a short grace. No stream opens with less than
-    /// `MIN_STREAM_WINDOW` left. Returns the number of streams opened.
-    pub fn open_streams(
+    /// The auction end is the start of `ctx.slot` on `slot_clock`, which the streams keep for all
+    /// their timing. Each stream connects `STREAM_LEAD` before it, or at once if that has passed,
+    /// and reads until it plus a short grace. No stream opens with less than `MIN_STREAM_WINDOW`
+    /// left. Returns the number of streams opened.
+    pub fn open_streams<S: SlotClock + 'static>(
         &self,
         ctx: &BidRequestContext,
         current_slot: Slot,
-        slot_start: Instant,
+        slot_clock: &S,
     ) -> usize {
         let Some(fork_byte) = bid_stream_fork_byte(ctx.fork_name) else {
             return 0;
@@ -314,17 +310,17 @@ impl<E: EthSpec> BidStreams<E> {
             .and_then(|slot_entries| slot_entries.get(&ctx.proposer_pubkey))
             .map(|proposal| proposal.values().cloned().collect())
             .unwrap_or_default();
-        if entries.is_empty()
-            || slot_start.saturating_duration_since(Instant::now()) < MIN_STREAM_WINDOW
-        {
+        let (Some(auction_end), Some(now)) =
+            (slot_clock.start_of(ctx.slot), slot_clock.now_duration())
+        else {
+            return 0;
+        };
+        if entries.is_empty() || auction_end.saturating_sub(now) < MIN_STREAM_WINDOW {
             return 0;
         }
 
         let mut opened = 0;
         for entry in entries {
-            if self.unsupported.lock().contains(&entry.url) {
-                continue;
-            }
             let key = EntryKey {
                 slot: ctx.slot,
                 proposer_pubkey: ctx.proposer_pubkey,
@@ -346,7 +342,7 @@ impl<E: EthSpec> BidStreams<E> {
                 }
             }
 
-            let task = match self.stream_task(ctx, &entry, fork_byte, slot_start) {
+            let task = match self.stream_task(ctx, &entry, fork_byte, auction_end, slot_clock) {
                 Ok(task) => task,
                 Err(error) => {
                     warn!(
@@ -470,13 +466,14 @@ impl<E: EthSpec> BidStreams<E> {
             .retain(|key, _| key.slot >= current_slot);
     }
 
-    fn stream_task(
+    fn stream_task<S: SlotClock>(
         &self,
         ctx: &BidRequestContext,
         entry: &BuilderPreferenceEntry,
         fork_byte: u8,
-        slot_start: Instant,
-    ) -> Result<StreamTask, String> {
+        auction_end: Duration,
+        slot_clock: &S,
+    ) -> Result<StreamTask<S>, String> {
         let builder_url = entry
             .url
             .to_sensitive_url()
@@ -493,19 +490,18 @@ impl<E: EthSpec> BidStreams<E> {
             ctx: ctx.clone(),
             ws_url,
             builder_url,
-            url_key: entry.url.clone(),
             auth_header,
             consensus_version,
             user_agent: self.user_agent.clone(),
             fork_byte,
-            deadline: slot_start,
+            auction_end,
+            slot_clock: slot_clock.clone(),
             max_bytes: self.max_bytes_per_stream,
             tls_config: self.tls_config.clone(),
             mailbox: Arc::new(Mutex::new(Mailbox {
                 status: StreamStatus::Pending,
                 latest: None,
             })),
-            unsupported: self.unsupported.clone(),
         })
     }
 }
@@ -516,32 +512,39 @@ fn prune_preferences(preferences: &mut StoredPreferences, current_slot: Slot) {
 
 type WsStream = WebSocketStream<MaybeTlsStream<ByteLimited<TcpStream>>>;
 
-/// One stream: connects before its deadline, retries failed attempts with backoff until then, and
-/// fills the mailbox until shortly after it.
-struct StreamTask {
+/// One stream: connects before the auction end, retries failed attempts with backoff until then,
+/// and fills the mailbox until shortly after it.
+struct StreamTask<S> {
     /// The proposal and parent the stream's bids must be for.
     ctx: BidRequestContext,
     ws_url: String,
     /// The builder URL, for logs.
     builder_url: SensitiveUrl,
-    /// The builder URL, to remember a builder that does not serve bid streams.
-    url_key: BuilderUrl,
     auth_header: HeaderValue,
     consensus_version: HeaderValue,
     user_agent: HeaderValue,
     fork_byte: u8,
-    /// The start of the proposal slot, when block production takes the bids.
-    deadline: Instant,
+    /// When block production is expected to take the bids: the start of the proposal slot, as a
+    /// duration since the UNIX epoch.
+    auction_end: Duration,
+    slot_clock: S,
     /// Bytes the connection may read, handshake included.
     max_bytes: usize,
     tls_config: Arc<rustls::ClientConfig>,
     mailbox: SharedMailbox,
-    unsupported: UnsupportedUrls,
 }
 
-impl StreamTask {
+impl<S: SlotClock> StreamTask<S> {
+    /// Time from now until `time`, a duration since the UNIX epoch. Zero once it has passed, or if
+    /// the clock cannot be read.
+    fn time_until(&self, time: Duration) -> Duration {
+        self.slot_clock
+            .now_duration()
+            .map_or(Duration::ZERO, |now| time.saturating_sub(now))
+    }
+
     fn remaining(&self) -> Duration {
-        self.deadline.saturating_duration_since(Instant::now())
+        self.time_until(self.auction_end)
     }
 
     fn set_status(&self, status: StreamStatus) {
@@ -549,13 +552,10 @@ impl StreamTask {
     }
 
     async fn run<E: EthSpec>(self, mut cancel: oneshot::Receiver<()>) {
-        let connect_at = self
-            .deadline
-            .checked_sub(STREAM_LEAD)
-            .unwrap_or(self.deadline);
+        let until_connect = self.time_until(self.auction_end.saturating_sub(STREAM_LEAD));
         tokio::select! {
             _ = &mut cancel => return,
-            _ = tokio::time::sleep_until(connect_at.into()) => {}
+            _ = tokio::time::sleep(until_connect) => {}
         }
 
         let mut backoff = INITIAL_RECONNECT_BACKOFF;
@@ -637,17 +637,12 @@ impl StreamTask {
         self.set_status(stream_status);
 
         if outcome == "unsupported" {
-            let recorded = {
-                let mut unsupported = self.unsupported.lock();
-                unsupported.len() < MAX_UNSUPPORTED_URLS && unsupported.insert(self.url_key.clone())
-            };
-            if recorded {
-                info!(
-                    builder_url = %self.builder_url,
-                    status = status.as_u16(),
-                    "Builder does not serve bid streams; using HTTP until restart"
-                );
-            }
+            info!(
+                builder_url = %self.builder_url,
+                slot = %self.ctx.slot,
+                status = status.as_u16(),
+                "Builder does not serve bid streams; using HTTP"
+            );
         } else if !status.is_success() {
             // Builder-controlled: logged with `Debug` so control characters are escaped.
             let reason = response
@@ -676,7 +671,12 @@ impl StreamTask {
         headers.insert(HEADER_REQUEST_AUTH, self.auth_header.clone());
         headers.insert(
             DATE_MILLISECONDS,
-            HeaderValue::from(timestamp_now().as_millis() as u64),
+            HeaderValue::from(
+                self.slot_clock
+                    .now_duration()
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+            ),
         );
         headers.insert(
             X_TIMEOUT_MS,
@@ -712,7 +712,7 @@ impl StreamTask {
         Ok(ws_stream)
     }
 
-    /// Read messages into the mailbox until the deadline plus `READ_GRACE`, and say why reading
+    /// Read messages into the mailbox until the auction end plus `READ_GRACE`, and say why reading
     /// stopped.
     async fn read_frames<E: EthSpec>(
         &self,
@@ -720,7 +720,7 @@ impl StreamTask {
         cancel: &mut oneshot::Receiver<()>,
     ) -> &'static str {
         let (mut write, mut read) = ws_stream.split();
-        let stop = tokio::time::sleep_until((self.deadline + READ_GRACE).into());
+        let stop = tokio::time::sleep(self.time_until(self.auction_end + READ_GRACE));
         tokio::pin!(stop);
         let mut received = 0;
 
@@ -734,7 +734,7 @@ impl StreamTask {
                 message = read.next() => message,
                 _ = &mut stop => {
                     send_close(&mut write, None).await;
-                    return "deadline";
+                    return "auction_end";
                 }
             };
 

@@ -8,6 +8,7 @@ use eth2::types::{
 };
 use eth2::{CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER};
 use mockito::{Matcher, Mock, Server, ServerGuard};
+use slot_clock::{SystemTimeSlotClock, timestamp_now};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use task_executor::test_utils::TestRuntime;
@@ -39,7 +40,7 @@ enum Reply {
     /// the end of the window, never reading the socket. The window is `X-Timeout-Ms` less the
     /// time since `Date-Milliseconds`, at most 3200 ms. A missing or zero `X-Timeout-Ms` gets a
     /// 401.
-    BidBeforeDeadline(Vec<u8>),
+    BidAtWindowEnd(Vec<u8>),
 }
 
 struct MockBuilder {
@@ -127,7 +128,7 @@ async fn mock_builder(replies: Vec<Reply>, http_upstream: Option<SocketAddr>) ->
                     Reply::Refuse(status) => Some(status),
                     _ => None,
                 };
-                let streams_before_deadline = matches!(reply, Reply::BidBeforeDeadline(_));
+                let sends_at_window_end = matches!(reply, Reply::BidAtWindowEnd(_));
                 let window = Arc::new(Mutex::new(Duration::ZERO));
                 let (seen, window_set) = (requests.clone(), window.clone());
                 let callback = move |request: &Request, response: Response| {
@@ -135,7 +136,7 @@ async fn mock_builder(replies: Vec<Reply>, http_upstream: Option<SocketAddr>) ->
                     let header = |name: &str| -> Option<u64> {
                         request.headers().get(name)?.to_str().ok()?.parse().ok()
                     };
-                    let refuse = match (refuse, streams_before_deadline) {
+                    let refuse = match (refuse, sends_at_window_end) {
                         (Some(status), _) => Some(status),
                         (None, false) => None,
                         (None, true) => match (header("date-milliseconds"), header("x-timeout-ms"))
@@ -182,7 +183,7 @@ async fn mock_builder(replies: Vec<Reply>, http_upstream: Option<SocketAddr>) ->
                             }
                         }
                     }
-                    Reply::BidBeforeDeadline(bid) => {
+                    Reply::BidAtWindowEnd(bid) => {
                         let end = tokio::time::Instant::now() + *window.lock();
                         let send_from = end.checked_sub(Duration::from_millis(300)).unwrap_or(end);
                         tokio::time::sleep_until(send_from).await;
@@ -277,6 +278,14 @@ fn fork_byte() -> u8 {
 /// A proposal slot starting soon enough that its streams connect at once.
 fn slot_start_soon() -> Instant {
     Instant::now() + Duration::from_millis(900)
+}
+
+/// A slot clock on which `slot` starts at `slot_start`, or now if that has passed.
+fn clock_starting(slot: Slot, slot_start: Instant) -> SystemTimeSlotClock {
+    let slot_duration = Duration::from_secs(12);
+    let start = timestamp_now() + slot_start.saturating_duration_since(Instant::now());
+    let genesis = start - slot_duration * slot.as_u64() as u32;
+    SystemTimeSlotClock::new(Slot::new(0), genesis, slot_duration)
 }
 
 fn bid_value(bid_ssz: &[u8]) -> u64 {
@@ -389,8 +398,11 @@ impl Case {
             Slot::new(SLOT - 1),
             Slot::new(SLOT + 64),
         );
-        self.bid_streams
-            .open_streams(ctx, Slot::new(SLOT - 1), slot_start)
+        self.bid_streams.open_streams(
+            ctx,
+            Slot::new(SLOT - 1),
+            &clock_starting(ctx.slot, slot_start),
+        )
     }
 
     fn open(&self, slot_start: Instant) -> usize {
@@ -515,12 +527,12 @@ async fn connects_before_the_slot_with_timing_headers() {
     assert_eq!(case.open_for(&context(parent_b()), Instant::now()), 0);
 }
 
-/// A builder that sends its bid only in the last 300 ms before the deadline, then closes, and
+/// A builder that sends its bid only in the last 300 ms before the auction end, then closes, and
 /// never reads the socket. Block production at the slot start uses that bid without a request.
 #[tokio::test]
-async fn bid_sent_just_before_deadline_is_used() {
+async fn bid_sent_just_before_auction_end_is_used() {
     let case = case(
-        vec![Reply::BidBeforeDeadline(bid_bytes(STREAM_VALUE))],
+        vec![Reply::BidAtWindowEnd(bid_bytes(STREAM_VALUE))],
         Http::Bid(HTTP_VALUE),
         0,
     )
@@ -575,9 +587,11 @@ async fn stream_bid_validation() {
     assert_eq!(*valid.builder.close_codes.lock(), vec![None]);
     assert_eq!(valid.peek(&valid.ctx), Err(StreamFallback::NoStream));
     assert_eq!(
-        valid
-            .bid_streams
-            .open_streams(&valid.ctx, Slot::new(SLOT - 1), slot_start_soon()),
+        valid.bid_streams.open_streams(
+            &valid.ctx,
+            Slot::new(SLOT - 1),
+            &clock_starting(valid.ctx.slot, slot_start_soon())
+        ),
         0
     );
 
@@ -673,14 +687,14 @@ async fn never_connected_requests_over_http() {
     );
 }
 
-/// 400 refuses only the parent, 401 the proposal, and 404 the builder until restart.
+/// 400 refuses only the parent, and 401 and 404 the proposal.
 #[tokio::test]
 async fn refusals_are_scoped() {
     let next_slot = || BidRequestContext {
         slot: Slot::new(SLOT + 1),
         ..context(parent_a())
     };
-    for (status, new_parent_opens, next_proposal_opens) in [(400, 1, 1), (401, 0, 1), (404, 0, 0)] {
+    for (status, new_parent_opens, next_proposal_opens) in [(400, 1, 1), (401, 0, 1), (404, 0, 1)] {
         let case = case(
             vec![
                 Reply::Refuse(status),
@@ -758,7 +772,7 @@ async fn byte_and_size_limits_stop_the_stream() {
         .await;
         case.open(slot_start_soon());
         wait_for(|| case.builder.ended.load(Ordering::SeqCst) == 1).await;
-        // Stopped by the limit, not by the deadline, which would send a close.
+        // Stopped by the limit, not after the auction end, which would send a close.
         assert!(case.builder.close_codes.lock().is_empty());
         assert_eq!(
             case.state(),
@@ -803,7 +817,7 @@ async fn invalid_messages_are_skipped() {
 
 /// The stream reads until shortly after the slot starts, then closes and keeps its bid.
 #[tokio::test]
-async fn stream_closes_after_the_deadline() {
+async fn stream_closes_after_the_auction_end() {
     let case = case(
         vec![Reply::Accept(vec![bid(STREAM_VALUE)])],
         Http::Bid(HTTP_VALUE),
@@ -926,7 +940,11 @@ async fn proposal_entries_are_bounded() {
     assert_eq!(store(&[other_proposer]), 1);
 
     assert_eq!(
-        bid_streams.open_streams(&context(parent_a()), Slot::new(SLOT - 1), slot_start_soon()),
+        bid_streams.open_streams(
+            &context(parent_a()),
+            Slot::new(SLOT - 1),
+            &clock_starting(Slot::new(SLOT), slot_start_soon())
+        ),
         MAX_BUILDER_ENTRIES
     );
 }
