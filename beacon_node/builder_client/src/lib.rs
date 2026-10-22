@@ -3,11 +3,14 @@ use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADE
 use reqwest::header::HeaderMap;
 use std::str::FromStr;
 
+mod bid_streams;
 pub mod builder_http_client;
 pub mod builders;
 pub mod error;
+mod metrics;
 pub mod pre_gloas_builder_http_client;
 
+pub use bid_streams::BidStreams;
 pub use builder_http_client::BuilderHttpClient;
 pub use builders::{BidRequestContext, Builders, DirectBid, SubmissionFailure};
 pub use error::{Error, ok_or_error, success_or_error};
