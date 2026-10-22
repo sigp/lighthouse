@@ -1650,7 +1650,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .epoch(T::EthSpec::slots_per_epoch());
             if let Some(min_epochs_for_blobs) = self
                 .spec
-                .min_epoch_data_availability_boundary(current_epoch)
+                .min_epoch_data_availability_boundary::<T::EthSpec>(current_epoch)
             {
                 let cutoff_epoch = std::cmp::max(finalized_epoch + 1, min_epochs_for_blobs);
                 if let Err(e) = self.pending_payload_cache.do_maintenance(cutoff_epoch) {
