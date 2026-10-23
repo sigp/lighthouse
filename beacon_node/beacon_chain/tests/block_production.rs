@@ -14,8 +14,8 @@ use proto_array::PayloadStatus;
 use ssz::Encode;
 use std::sync::Arc;
 use types::{
-    Address, BeaconBlock, BeaconState, Checkpoint, Epoch, ExecutionBlockHash, ExecutionPayloadBid,
-    ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadHeader,
+    Address, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
+    ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadHeader,
     ExecutionPayloadHeaderFulu, ExecutionRequests, ExecutionRequestsGloas, Hash256, InclusionList,
     InclusionListBits, ProgressiveTransactions, SignedExecutionPayloadBid,
     SignedExecutionPayloadBidRef, SignedInclusionList, Slot, Spec, WithdrawalRequest,
@@ -508,6 +508,95 @@ async fn heze_self_build_bid_claims_held_inclusion_lists() {
                 .get(position)
                 .unwrap(),
             expected,
+            "unexpected bit at committee position {position}"
+        );
+    }
+}
+
+/// At the first slot of an epoch, the inclusion list slot's dependent block is the parent of the
+/// block finalized at that epoch boundary. The self-built bid must still claim the lists held for
+/// that slot.
+#[tokio::test]
+async fn heze_self_build_bid_claims_held_inclusion_lists_at_epoch_start() {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    spec.heze_fork_epoch = Some(Epoch::new(0));
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let proposal_epoch = Epoch::new(5);
+    let proposal_slot = proposal_epoch.start_slot(E::slots_per_epoch());
+    let inclusion_list_slot = proposal_slot - 1;
+    harness.extend_to_slot(inclusion_list_slot).await;
+
+    // Tick fork choice into the proposal slot, as the state advance timer does just before it
+    // starts, so the epoch boundary pulls finality up.
+    harness.chain.slot_clock.set_slot(proposal_slot.as_u64());
+    harness
+        .chain
+        .canonical_head
+        .fork_choice_write_lock()
+        .update_time(proposal_slot)
+        .unwrap();
+    let finalized_checkpoint = harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .finalized_checkpoint();
+    assert_eq!(finalized_checkpoint.epoch, proposal_epoch - 2);
+
+    let state = harness.get_current_state();
+    let dependent_slot = finalized_checkpoint.epoch.start_slot(E::slots_per_epoch()) - 1;
+    let dependent_root = *state.get_block_root(dependent_slot).unwrap();
+    let committee = state
+        .get_inclusion_list_committee(inclusion_list_slot)
+        .unwrap();
+    let submitter = committee[0];
+    harness
+        .chain
+        .inclusion_list_store
+        .write()
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: SignedInclusionList {
+                message: InclusionList {
+                    slot: inclusion_list_slot,
+                    validator_index: submitter,
+                    dependent_root,
+                    transactions: ProgressiveTransactions::default(),
+                },
+                signature: Signature::empty(),
+            },
+            is_timely: true,
+        });
+
+    let (block_contents, _, _) = harness.make_block_with_envelope(state, proposal_slot).await;
+
+    let SignedExecutionPayloadBidRef::Heze(signed_bid) = block_contents
+        .0
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap()
+    else {
+        panic!("a Heze block should carry a Heze bid");
+    };
+    assert_eq!(signed_bid.message.builder_index, BUILDER_INDEX_SELF_BUILD);
+
+    for (position, validator_index) in committee.iter().enumerate() {
+        assert_eq!(
+            signed_bid
+                .message
+                .inclusion_list_bits
+                .get(position)
+                .unwrap(),
+            *validator_index == submitter,
             "unexpected bit at committee position {position}"
         );
     }

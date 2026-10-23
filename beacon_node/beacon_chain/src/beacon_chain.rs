@@ -7737,6 +7737,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
+    /// The inclusion list store key and committee for a payload at `payload_slot` built on
+    /// `parent_root`.
+    ///
+    /// Both are resolved from `parent_root`'s shuffling, never from the dependent block itself.
+    /// At the first slot of an epoch the dependent block is the parent of the block just
+    /// finalized, which fork choice no longer returns (failing `get_inclusion_list_committee`)
+    /// and may already have pruned (failing `inclusion_list_key`).
+    ///
+    /// Takes a fork choice read lock (via `with_committee_cache`).
+    pub fn inclusion_list_key_and_committee_for_payload(
+        &self,
+        parent_root: Hash256,
+        payload_slot: Slot,
+    ) -> Result<(InclusionListKey, InclusionListCommittee<T::EthSpec>), Error> {
+        let slot = payload_slot.safe_sub(1)?;
+        let committee_size = T::EthSpec::inclusion_list_committee_size();
+
+        self.with_committee_cache(
+            parent_root,
+            slot.epoch(T::EthSpec::slots_per_epoch()),
+            |cached_shuffling, dependent_root| {
+                let committee = cached_shuffling
+                    .committee_cache
+                    .get_inclusion_list_committee_at_slot(slot, committee_size)?
+                    .into_iter()
+                    .map(|index| index as u64)
+                    .collect::<Vec<_>>();
+
+                Ok((
+                    InclusionListKey::new(slot, dependent_root),
+                    FixedVector::new(committee)?,
+                ))
+            },
+        )
+    }
+
     /// Provides the timely inclusion list transactions for a payload built on `parent_root` at
     /// `slot + 1`, falling back to an empty list if they can't be read.
     pub fn payload_inclusion_list_transactions(
