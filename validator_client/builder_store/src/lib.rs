@@ -262,9 +262,6 @@ mod tests {
         configured_global_builder.min_bid = Some(100);
         configured_global_builder.builder_boost_factor = Some(200);
         store.insert(configured_global_builder).unwrap();
-        let mut empty_auth = global_builder("https://empty-auth.example", 7);
-        empty_auth.auth_data = Some(RequestAuthData::default());
-        store.insert(empty_auth).unwrap();
         let mut excessive_pubkeys = global_builder("https://too-many-pubkeys.example", 7);
         excessive_pubkeys.builder_pubkeys =
             (0..65).map(|_| Keypair::random().pk.compress()).collect();
@@ -307,6 +304,18 @@ mod tests {
         assert_eq!(restored.builders.len(), 1);
         assert_eq!(restored.builders[0].min_bid, Some(100));
         assert_eq!(restored.builders[0].builder_boost_factor, Some(200));
+    }
+
+    #[test]
+    fn insert_rejects_empty_auth_data() {
+        let directory = tempdir().unwrap();
+        let store = BuilderStore::open_or_create(directory.path()).unwrap();
+        let mut empty_auth = global_builder("https://empty-auth.example", 7);
+        empty_auth.auth_data = Some(RequestAuthData::default());
+        assert!(matches!(
+            store.insert(empty_auth),
+            Err(Error::EmptyAuthData(_))
+        ));
     }
 
     #[test]
