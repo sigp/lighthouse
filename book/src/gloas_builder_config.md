@@ -94,9 +94,9 @@ builders:
 
 | Field | Required | Default | Meaning |
 | ------- | ---------- | --------- | --------- |
-| `min_bid` | no | CLI `--builder-min-bid`, else `0` | Minimum total payment, in gwei, for a p2p bid. A bid below the floor is ranked behind any floor-clearing candidate (including the local block) and only wins when nothing else is viable. Also the default `min_bid` for any builder that omits it. |
-| `builder_boost_factor` | no | CLI `--builder-boost-factor`, else `100` | Percentage multiplier applied to p2p bids when comparing against the local block. Also the default for any builder that omits it. |
-| `builders` | no | CLI `--builder-urls`, else `[]` | The list of builders to request bids from directly. An explicit empty list disables direct builders for validators that inherit it. |
+| `min_bid` | no | `0` | Minimum total payment, in gwei, for a p2p bid. A bid below the floor is ranked behind any floor-clearing candidate (including the local block) and only wins when nothing else is viable. Also the default `min_bid` for any builder that omits it. CLI can set it using --builder-min-bid as a fallback. |
+| `builder_boost_factor` | no | `100` | Percentage multiplier applied to p2p bids when comparing against the local block. Also the default for any builder that omits it. CLI can set it using --builder-boost-factor as a fallback. |
+| `builders` | no | `[]` | The list of builders to request bids from directly. An explicit empty list disables direct builders for validators that inherit it. CLI can set it using --builder-urls as a fallback.|
 | `validator_configs` | no | `{}` | Builder settings for individual validators. Omitted fields use global values. An empty `builders` list uses no direct builders. |
 
 ### Per builder (each entry under `builders`)
