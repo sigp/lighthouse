@@ -1,3 +1,4 @@
+pub mod advanced_head_state;
 pub mod attestation_rewards;
 pub mod attestation_simulator;
 pub mod attestation_verification;

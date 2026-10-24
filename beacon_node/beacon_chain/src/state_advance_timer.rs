@@ -30,11 +30,13 @@ use tokio::time::{Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, debug_span, error, instrument, warn};
 use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot};
 
-/// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
-/// the state advancement.
+/// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot **and** the node is
+/// long-range syncing, then don't perform the state advancement.
 ///
-/// This avoids doing unnecessary work whilst the node is syncing or has perhaps been put to sleep
-/// for some period of time.
+/// Whilst syncing, a far-behind head is about to be replaced by imported blocks, so advancing it
+/// wastes CPU. When the node is synced or stalled (e.g. prolonged outage with no peers), we keep
+/// advancing so validator API requests can reuse the retained advanced head state (#9530) instead
+/// of replaying every empty epoch from the head.
 pub(crate) const MAX_ADVANCE_DISTANCE: u64 = 256;
 
 /// Similarly for fork choice: avoid the fork choice lookahead during sync.
@@ -95,21 +97,34 @@ impl Lock {
 }
 
 /// Spawns the timer described in the module-level documentation.
-pub fn spawn_state_advance_timer<T: BeaconChainTypes>(
+///
+/// `is_long_range_syncing` should return `true` while the node is performing range sync
+/// (`SyncingFinalized` / `SyncingHead` / `SyncTransition`). When `true`, advancement stops once
+/// the head lags by more than [`MAX_ADVANCE_DISTANCE`]. When `false` (synced or stalled), the
+/// timer keeps advancing so a stale head stays cheap for validator API callers (#9530).
+pub fn spawn_state_advance_timer<T, F>(
     executor: TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-) {
+    is_long_range_syncing: F,
+) where
+    T: BeaconChainTypes,
+    F: Fn() -> bool + Send + Sync + 'static,
+{
     executor.spawn(
-        state_advance_timer(executor.clone(), beacon_chain),
+        state_advance_timer(executor.clone(), beacon_chain, is_long_range_syncing),
         "state_advance_timer",
     );
 }
 
 /// Provides the timer described in the module-level documentation.
-async fn state_advance_timer<T: BeaconChainTypes>(
+async fn state_advance_timer<T, F>(
     executor: TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
-) {
+    is_long_range_syncing: F,
+) where
+    T: BeaconChainTypes,
+    F: Fn() -> bool + Send + Sync + 'static,
+{
     let is_running = Lock::new();
     let slot_clock = &beacon_chain.slot_clock;
     let slot_duration = slot_clock.slot_duration();
@@ -163,10 +178,11 @@ async fn state_advance_timer<T: BeaconChainTypes>(
         if !is_running.lock() {
             let beacon_chain = beacon_chain.clone();
             let is_running = is_running.clone();
+            let refuse_far_advance = is_long_range_syncing();
 
             executor.spawn_blocking(
                 move || {
-                    match advance_head(&beacon_chain) {
+                    match advance_head(&beacon_chain, refuse_far_advance) {
                         Ok(()) => (),
                         Err(Error::BeaconChain(e)) => error!(
                             error = ?e,
@@ -253,9 +269,16 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 /// `BeaconState` of the head block. If it obtains this clone, the state will be advanced a single
 /// slot then placed in the `state_cache` to be used for block verification.
 ///
+/// When `refuse_far_advance` is true (long-range syncing), refuse to advance if the head is more
+/// than [`MAX_ADVANCE_DISTANCE`] behind the wall clock. When false (synced/stalled), keep
+/// advancing so validator API paths can reuse the result via [`BeaconChain::advanced_head_state`].
+///
 /// See the module-level documentation for rationale.
 #[instrument(skip_all)]
-fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Result<(), Error> {
+fn advance_head<T: BeaconChainTypes>(
+    beacon_chain: &Arc<BeaconChain<T>>,
+    refuse_far_advance: bool,
+) -> Result<(), Error> {
     let current_slot = beacon_chain.slot()?;
 
     // These brackets ensure that the `head_slot` value is dropped before we run fork choice and
@@ -265,8 +288,8 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
     {
         let head_slot = beacon_chain.best_slot();
 
-        // Don't run this when syncing or if lagging too far behind.
-        if head_slot + MAX_ADVANCE_DISTANCE < current_slot {
+        // Don't run this when long-range syncing with a far-behind head.
+        if refuse_far_advance && head_slot + MAX_ADVANCE_DISTANCE < current_slot {
             return Err(Error::MaxDistanceExceeded {
                 current_slot,
                 head_slot,
@@ -453,6 +476,14 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
     // case is we end up with a finalized state stored, that will get pruned the next time pruning
     // runs.
     beacon_chain.store.put_state(&advanced_state_root, &state)?;
+
+    // Keep the retained advanced-head cache in sync so HTTP handlers can extend from here
+    // instead of the unadvanced head (#9530).
+    beacon_chain.advanced_head_state.observe_advanced_state(
+        head_block_root,
+        advanced_state_root,
+        &state,
+    );
 
     debug!(
         ?head_block_root,

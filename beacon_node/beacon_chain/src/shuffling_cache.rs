@@ -397,16 +397,6 @@ where
         let state_read_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
-        let cached_head = canonical_head.cached_head();
-        let head_state_opt = if cached_head.head_block_root() == head_block_root {
-            Some((
-                cached_head.snapshot.beacon_state.clone(),
-                cached_head.head_state_root(),
-            ))
-        } else {
-            None
-        };
-
         // Compute the `target_slot` to advance the block's state to.
         //
         // Since there's a one-epoch look-ahead on the attester shuffling, it suffices to only
@@ -428,16 +418,28 @@ where
             );
         }
 
-        // If the head state is useful for this request, use it. Otherwise, read a state from disk
-        // that is advanced as close as possible to `target_slot`.
-        let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
+        // Prefer an advanced hot state (from the state-advance timer or
+        // `BeaconChain::head_state_advanced_to`) over the unadvanced head snapshot. Using the
+        // snapshot here made every new shuffling epoch replay all empty slots from the head
+        // during stale-head outages (#9530).
+        let (mut state, state_root) = if let Some((state_root, state)) =
+            store.get_advanced_hot_state_from_cache(head_block_root, target_slot)
+        {
             (state, state_root)
         } else {
-            let (state_root, state) = store
-                .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)
-                .map_err(BeaconChainError::DBError)?
-                .ok_or(BeaconChainError::MissingBeaconState(head_block.state_root))?;
-            (state, state_root)
+            let cached_head = canonical_head.cached_head();
+            if cached_head.head_block_root() == head_block_root {
+                (
+                    cached_head.snapshot.beacon_state.clone(),
+                    cached_head.head_state_root(),
+                )
+            } else {
+                let (state_root, state) = store
+                    .get_advanced_hot_state(head_block_root, target_slot, head_block.state_root)
+                    .map_err(BeaconChainError::DBError)?
+                    .ok_or(BeaconChainError::MissingBeaconState(head_block.state_root))?;
+                (state, state_root)
+            }
         };
 
         metrics::stop_timer(state_read_timer);

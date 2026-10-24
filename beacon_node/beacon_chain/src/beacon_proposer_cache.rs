@@ -257,14 +257,9 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
 ) -> Result<(Vec<usize>, Hash256, Hash256, ExecutionVerdict, Fork), BeaconChainError> {
     // Atomically collect information about the head whilst holding the canonical head `Arc` as
     // short as possible.
-    let (mut state, head_state_root, head_block_root, head_node) = {
+    let (head_block_root, head_node) = {
         let head = chain.canonical_head.cached_head();
-        // Take a copy of the head state.
-        let head_state = head.snapshot.beacon_state.clone();
-        let head_state_root = head.head_state_root();
-        let head_block_root = head.head_block_root();
-        let head_node = head.head_node();
-        (head_state, head_state_root, head_block_root, head_node)
+        (head.head_block_root(), head.head_node())
     };
 
     let execution_status = chain
@@ -273,10 +268,18 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         .get_node_execution_status(head_node)?
         .ok_or(BeaconChainError::HeadMissingFromForkChoice(head_block_root))?;
 
-    // Advance the state into the requested epoch.
+    // Advance via the retained advanced-head state so a stale head does not replay every empty
+    // epoch on each duties request (#9530).
+    let minimum_slot = chain
+        .spec
+        .proposer_shuffling_decision_slot::<T::EthSpec>(request_epoch)
+        .safe_add(1)?;
+    let (state_root, mut state) = chain.head_state_advanced_to(minimum_slot)?;
+
+    // Ensure the state can determine proposers (no-op if already past the decision slot).
     ensure_state_can_determine_proposers_for_epoch(
         &mut state,
-        head_state_root,
+        state_root,
         request_epoch,
         chain.builder_onboarding_cache.as_deref(),
         &chain.spec,

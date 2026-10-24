@@ -1172,6 +1172,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Clear the early attester cache in case it conflicts with `self.canonical_head`.
             self.early_attester_cache.clear();
+            // Drop any empty-slot advance of the previous head (#9530).
+            self.advanced_head_state.invalidate();
 
             new_head
         } else {

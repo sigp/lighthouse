@@ -766,7 +766,19 @@ where
             }
 
             let state_advance_context = runtime_context.clone();
-            spawn_state_advance_timer(state_advance_context.executor, beacon_chain.clone());
+            let sync_globals = self.network_globals.clone();
+            spawn_state_advance_timer(
+                state_advance_context.executor,
+                beacon_chain.clone(),
+                move || {
+                    // While long-range syncing, keep the MAX_ADVANCE_DISTANCE cap. When synced or
+                    // stalled (outage), keep advancing past that cap for #9530.
+                    sync_globals
+                        .as_ref()
+                        .map(|g| g.is_syncing())
+                        .unwrap_or(false)
+                },
+            );
 
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
