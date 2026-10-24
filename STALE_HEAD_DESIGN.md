@@ -27,18 +27,17 @@ HTTP handlers run as blocking tasks on the beacon processor and continue after c
 Keep **one** furthest advanced empty-slot state for the current head, and always extend it instead of replaying from the head.
 
 1. **`AdvancedHeadStateCache` on `BeaconChain`**
-   - At most one retained `(head_block_root, state_root, BeaconState)` — the furthest empty-slot advance for the current head.
-   - `get_or_advance_to(target_slot)`:
-     - If cached head matches and `state.slot() >= target_slot`, return a clone.
-     - Else start from that cached state (or `get_advanced_hot_state` / head snapshot on miss / reorg), `partial_state_advance` the remaining distance, `update_tree_hash_cache`, `store.put_state`, and replace the cache entry.
-     - Concurrent callers for the same `(head_block_root, target_slot)` share one advance via `OnceCell` (mutex held only for lookup/insert / updating `latest`).
-   - Head change / reorg: mismatched `head_block_root` discards the entry; next call loads the new head.
+   - At most **two** retained entries for the current head (bounded memory):
+     - **Partial** — `partial_state_advance` (zero intermediate state roots). Fast; suitable for shuffling, duties, attestation justified checkpoints. **Must not** be `put_state`'d (invalid for consensus / block import).
+     - **Complete** — `complete_state_advance` (proper state roots). Suitable for block production; may be `put_state`'d. Also fed by the state-advance timer.
+   - `get_or_advance_to(kind, target_slot)` extends the matching entry under a mutex so concurrent callers share one catch-up.
+   - Head change / reorg: `invalidate()` discards both entries.
 
 2. **Route expensive paths through the helper**
-   - Attestation production slow path.
-   - `with_cached_shuffling` when the requested head is the canonical head (stop preferring the unadvanced snapshot).
-   - Proposer-duty computation (`compute_proposer_duties_from_head` / `with_proposer_cache` state provider).
-   - Block-production state advance from the canonical head parent.
+   - Attestation production slow path → partial.
+   - `with_committee_cache` preloads a partial advanced state into `with_cached_shuffling`.
+   - Proposer-duty computation (`compute_proposer_duties_from_head`) → partial.
+   - Block production → complete (`head_state_completely_advanced_to`).
    - Prefer this over new per-endpoint result caches; existing proposer / shuffling caches still apply on top.
 
 3. **State advance timer**

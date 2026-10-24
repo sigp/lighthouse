@@ -5508,27 +5508,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let parent_block_root = forkchoice_update_params.head_root;
 
-        let (unadvanced_state, unadvanced_state_root, parent_bid_block_hash) =
-            if parent_block_root == head_block_root {
-                (
-                    Cow::Borrowed(head_state),
-                    cached_head.head_state_root(),
-                    head_block.payload_bid_block_hash().ok(),
-                )
-            } else {
-                let block = self
-                    .get_blinded_block(&parent_block_root)?
-                    .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
-                let (state_root, state) = self
-                    .store
-                    .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
-                    .ok_or(Error::MissingBeaconState(block.state_root()))?;
-                (
-                    Cow::Owned(state),
-                    state_root,
-                    block.payload_bid_block_hash().ok(),
-                )
-            };
+        let parent_bid_block_hash = if parent_block_root == head_block_root {
+            head_block.payload_bid_block_hash().ok()
+        } else {
+            self.get_blinded_block(&parent_block_root)?
+                .ok_or(Error::MissingBeaconBlock(parent_block_root))?
+                .payload_bid_block_hash()
+                .ok()
+        };
 
         let parent_payload_status =
             gloas_parent_payload_status(parent_bid_block_hash, forkchoice_update_params.head_hash);
@@ -5536,6 +5523,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if parent_payload_status == Some(fork_choice::PayloadStatus::Empty) {
             // The state has already deducted these withdrawals, but they remain pending for the
             // execution layer after an empty parent.
+            let unadvanced_state = if parent_block_root == head_block_root {
+                Cow::Borrowed(head_state)
+            } else {
+                let block = self
+                    .get_blinded_block(&parent_block_root)?
+                    .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
+                let (_, state) = self
+                    .store
+                    .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
+                    .ok_or(Error::MissingBeaconState(block.state_root()))?;
+                Cow::Owned(state)
+            };
             return unadvanced_state
                 .payload_expected_withdrawals()?
                 .to_vec()
@@ -5543,24 +5542,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(Error::SszTypesError);
         }
 
-        // Advance the state using the partial method.
-        // TODO(gloas): we might want to optimise this further by using:
-        // - `get_advanced_hot_state` instead of the cached head
-        // - restoring the pre-Gloas optimisation to avoid advancing further than the epoch
-        //   boundary
+        // Advance via the retained advanced head state when building on the canonical head so a
+        // stale head does not replay every empty epoch (#9530). Partial is sufficient for
+        // withdrawal calculation.
         debug!(
             %proposal_slot,
             ?parent_block_root,
             "Advancing state for withdrawals calculation"
         );
-        let mut advanced_state = unadvanced_state.into_owned();
-        partial_state_advance(
-            &mut advanced_state,
-            Some(unadvanced_state_root),
-            proposal_slot,
-            self.builder_onboarding_cache.as_deref(),
-            &self.spec,
-        )?;
+        let mut advanced_state = if parent_block_root == head_block_root {
+            self.head_state_advanced_to(proposal_slot)?.1
+        } else {
+            let block = self
+                .get_blinded_block(&parent_block_root)?
+                .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
+            let (state_root, mut state) = self
+                .store
+                .get_advanced_hot_state(parent_block_root, proposal_slot, block.state_root())?
+                .ok_or(Error::MissingBeaconState(block.state_root()))?;
+            partial_state_advance(
+                &mut state,
+                Some(state_root),
+                proposal_slot,
+                self.builder_onboarding_cache.as_deref(),
+                &self.spec,
+            )?;
+            state
+        };
 
         // For Gloas, when the head payload is Full, we need to apply the parent's
         // execution requests to the state to get the correct withdrawals.
