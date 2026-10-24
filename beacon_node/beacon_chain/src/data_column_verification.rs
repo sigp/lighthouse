@@ -1704,29 +1704,32 @@ fn verify_slot_higher_than_parent(
     Ok(())
 }
 
-fn verify_parent_block_and_finalized_descendant<T: BeaconChainTypes>(
+pub(crate) fn verify_parent_block_and_finalized_descendant<T: BeaconChainTypes>(
     block_parent_root: Hash256,
     slot: Slot,
     chain: &BeaconChain<T>,
 ) -> Result<ProtoBlock, GossipDataColumnError> {
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
 
-    // We have already verified that the column is past finalization, so we can
-    // just check fork choice for the block's parent.
-    let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
-        return Err(GossipDataColumnError::ParentUnknown {
-            parent_root: block_parent_root,
-            slot,
-        });
-    };
+    if let Some(parent_block) = fork_choice.get_block(&block_parent_root) {
+        return Ok(parent_block);
+    }
 
-    // Do not process a column that does not descend from the finalized root.
-    // We just loaded the parent_block, so we can be sure that it exists in fork choice.
-    if !fork_choice.is_finalized_checkpoint_or_descendant(block_parent_root) {
+    // `get_block` omits non-finalized nodes; check proto-array and the DB so a known conflicting
+    // parent becomes `NotFinalizedDescendant` rather than `ParentUnknown`.
+    if fork_choice.proto_array_contains_block(&block_parent_root)
+        || chain
+            .store
+            .block_exists(&block_parent_root)
+            .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
+    {
         return Err(GossipDataColumnError::NotFinalizedDescendant { block_parent_root });
     }
 
-    Ok(parent_block)
+    Err(GossipDataColumnError::ParentUnknown {
+        parent_root: block_parent_root,
+        slot,
+    })
 }
 
 fn verify_proposer_and_signature<T: BeaconChainTypes>(
@@ -2543,6 +2546,83 @@ mod test {
         assert_eq!(
             merged.sidecar().cells_present_bitmap(),
             a.sidecar().cells_present_bitmap()
+        );
+    }
+
+    fn column_parent_check_harness(
+        validator_count: usize,
+    ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(test_spec::<E>().into())
+            .deterministic_keypairs(validator_count)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .chain_config(ChainConfig {
+                archive: true,
+                ..ChainConfig::default()
+            })
+            .build();
+        harness.advance_slot();
+        harness
+    }
+
+    /// Parent known in proto-array but pruned from the DB must be `NotFinalizedDescendant`.
+    ///
+    /// Calls the helper directly: gossip verifies the inclusion proof before this check.
+    #[tokio::test]
+    async fn rejects_column_parent_known_in_proto_array_but_absent_from_db() {
+        use super::verify_parent_block_and_finalized_descendant;
+        use crate::test_utils::ABANDONED_FORK_VALIDATOR_COUNT;
+
+        let harness = column_parent_check_harness(ABANDONED_FORK_VALIDATOR_COUNT);
+        let stray_root = harness.non_finalized_parent_in_proto_array_not_db().await;
+        let slot = harness.chain.slot().expect("should read slot");
+
+        let err = verify_parent_block_and_finalized_descendant(stray_root, slot, &harness.chain)
+            .expect_err("should reject proto-array-known non-finalized parent");
+
+        assert!(
+            matches!(
+                err,
+                GossipDataColumnError::NotFinalizedDescendant { block_parent_root }
+                if block_parent_root == stray_root
+            ),
+            "expected NotFinalizedDescendant, got {err:?}"
+        );
+    }
+
+    /// Parent known in the DB but absent from proto-array must be `NotFinalizedDescendant`.
+    ///
+    /// Also checks that a random unknown root remains `ParentUnknown`.
+    #[tokio::test]
+    async fn rejects_column_parent_known_in_db_but_absent_from_proto_array() {
+        use super::verify_parent_block_and_finalized_descendant;
+
+        let harness = column_parent_check_harness(32);
+        let db_parent = harness.non_finalized_parent_in_db_not_proto_array().await;
+        let unknown_root = Hash256::repeat_byte(0xab);
+        let slot = harness.chain.slot().expect("should read slot");
+
+        let err = verify_parent_block_and_finalized_descendant(db_parent, slot, &harness.chain)
+            .expect_err("should reject DB-known non-finalized parent");
+        assert!(
+            matches!(
+                err,
+                GossipDataColumnError::NotFinalizedDescendant { block_parent_root }
+                if block_parent_root == db_parent
+            ),
+            "expected NotFinalizedDescendant, got {err:?}"
+        );
+
+        let err = verify_parent_block_and_finalized_descendant(unknown_root, slot, &harness.chain)
+            .expect_err("truly unknown parent should stay ParentUnknown");
+        assert!(
+            matches!(
+                err,
+                GossipDataColumnError::ParentUnknown { parent_root, .. }
+                if parent_root == unknown_root
+            ),
+            "expected ParentUnknown, got {err:?}"
         );
     }
 }
