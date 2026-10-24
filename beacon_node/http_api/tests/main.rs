@@ -2,4 +2,5 @@
 
 pub mod broadcast_validation_tests;
 pub mod interactive_tests;
+pub mod stale_head_tests;
 pub mod tests;
