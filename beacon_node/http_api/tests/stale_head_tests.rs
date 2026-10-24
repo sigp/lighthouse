@@ -395,33 +395,35 @@ async fn block_production_incremental_with_stale_head() {
     assert_incremental(third_delta, cold_delta, "complete advance +2 epochs");
     assert_eq!(state2.slot(), slot2);
 
-    // HTTP produce at the wall-clock slot should build on the stale head.
-    let epoch = slot2.epoch(E::slots_per_epoch());
-    let duties = client
-        .get_validator_duties_proposer_v2(epoch)
-        .await
-        .unwrap();
-    let duty = duties
-        .data
-        .iter()
-        .find(|d| d.slot == slot2)
-        .expect("proposer duty for slot");
-    let proposer_index = duty.validator_index as usize;
-    let head_state = harness.get_current_state();
-    let randao = harness
-        .sign_randao_reveal(&head_state, proposer_index, slot2)
-        .into();
-    let (block_type, _) = client
-        .get_validator_blocks_v3::<E>(slot2, &randao, None, None, None)
-        .await
-        .unwrap();
-    match block_type.data {
-        ProduceBlockV3Response::Full(contents) => {
-            let (block, _) = contents.deconstruct();
-            assert_eq!(block.slot(), slot2);
-            assert_eq!(block.parent_root(), ctx.head_block_root);
+    // HTTP produce at the wall-clock slot should build on the stale head (v3 is pre-Gloas only).
+    if !harness.spec.fork_name_at_slot::<E>(slot2).gloas_enabled() {
+        let epoch = slot2.epoch(E::slots_per_epoch());
+        let duties = client
+            .get_validator_duties_proposer_v2(epoch)
+            .await
+            .unwrap();
+        let duty = duties
+            .data
+            .iter()
+            .find(|d| d.slot == slot2)
+            .expect("proposer duty for slot");
+        let proposer_index = duty.validator_index as usize;
+        let head_state = harness.get_current_state();
+        let randao = harness
+            .sign_randao_reveal(&head_state, proposer_index, slot2)
+            .into();
+        let (block_type, _) = client
+            .get_validator_blocks_v3::<E>(slot2, &randao, None, None, None)
+            .await
+            .unwrap();
+        match block_type.data {
+            ProduceBlockV3Response::Full(contents) => {
+                let (block, _) = contents.deconstruct();
+                assert_eq!(block.slot(), slot2);
+                assert_eq!(block.parent_root(), ctx.head_block_root);
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("expected full block"),
         }
-        ProduceBlockV3Response::Blinded(_) => panic!("expected full block"),
     }
 }
 
