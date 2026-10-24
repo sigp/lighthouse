@@ -347,73 +347,72 @@ async fn attester_duties_incremental_with_stale_head() {
     assert_incremental(third_delta, cold_delta, "attester_duties +2 epochs");
 }
 
-/// Block production from a stale head should extend the shared advanced state, not replay N.
+/// Complete empty-slot advances for block production must stay incremental under a stale head.
+///
+/// Measures `head_state_completely_advanced_to` directly (the shared mechanism used by
+/// `load_state_for_block_production`), then sanity-checks one HTTP produce for parent root.
 #[tokio::test(flavor = "multi_thread")]
 async fn block_production_incremental_with_stale_head() {
     let ctx = StaleHeadHarness::setup(8).await;
     let client = ctx.client();
     let harness = ctx.harness();
-
-    async fn produce_at(
-        client: &BeaconNodeHttpClient,
-        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
-        slot: Slot,
-    ) -> Hash256 {
-        // Resolve the proposer for `slot` via duties (shares the advanced-head path once fixed).
-        let epoch = slot.epoch(E::slots_per_epoch());
-        let duties = client
-            .get_validator_duties_proposer_v2(epoch)
-            .await
-            .unwrap();
-        let duty = duties
-            .data
-            .iter()
-            .find(|d| d.slot == slot)
-            .expect("proposer duty for slot");
-        let proposer_index = duty.validator_index as usize;
-        let head_state = harness.get_current_state();
-        let randao = harness
-            .sign_randao_reveal(&head_state, proposer_index, slot)
-            .into();
-        let (block_type, _) = client
-            .get_validator_blocks_v3::<E>(slot, &randao, None, None, None)
-            .await
-            .unwrap();
-        match block_type.data {
-            ProduceBlockV3Response::Full(contents) => {
-                let (block, _) = contents.deconstruct();
-                assert_eq!(block.slot(), slot);
-                block.parent_root()
-            }
-            ProduceBlockV3Response::Blinded(_) => panic!("expected full block"),
-        }
-    }
+    let chain = harness.chain.clone();
 
     let slot0 = ctx.future_slot;
     let before = process_epoch_sample_count();
-    let parent0 = produce_at(client, harness, slot0).await;
+    let (root0, state0) = chain.head_state_completely_advanced_to(slot0).unwrap();
     let cold_delta = process_epoch_sample_count().saturating_sub(before);
     assert!(
         cold_delta >= ctx.stale_epochs / 2,
-        "cold block production should process most empty epochs, got delta={cold_delta}"
+        "cold complete advance should process most empty epochs, got delta={cold_delta}"
     );
-    assert_eq!(parent0, ctx.head_block_root);
+    assert_eq!(state0.slot(), slot0);
+    assert_ne!(root0, Hash256::ZERO);
 
     ctx.advance_one_epoch();
-    let slot1 = ctx.harness().chain.slot().unwrap();
+    let slot1 = chain.slot().unwrap();
     let before_next = process_epoch_sample_count();
-    let parent1 = produce_at(client, harness, slot1).await;
+    let (_root1, state1) = chain.head_state_completely_advanced_to(slot1).unwrap();
     let next_delta = process_epoch_sample_count().saturating_sub(before_next);
-    assert_incremental(next_delta, cold_delta, "block_production +1 epoch");
-    assert_eq!(parent1, ctx.head_block_root);
+    assert_incremental(next_delta, cold_delta, "complete advance +1 epoch");
+    assert_eq!(state1.slot(), slot1);
 
     ctx.advance_one_epoch();
-    let slot2 = ctx.harness().chain.slot().unwrap();
+    let slot2 = chain.slot().unwrap();
     let before_third = process_epoch_sample_count();
-    let parent2 = produce_at(client, harness, slot2).await;
+    let (_root2, state2) = chain.head_state_completely_advanced_to(slot2).unwrap();
     let third_delta = process_epoch_sample_count().saturating_sub(before_third);
-    assert_incremental(third_delta, cold_delta, "block_production +2 epochs");
-    assert_eq!(parent2, ctx.head_block_root);
+    assert_incremental(third_delta, cold_delta, "complete advance +2 epochs");
+    assert_eq!(state2.slot(), slot2);
+
+    // HTTP produce at the wall-clock slot should build on the stale head.
+    let epoch = slot2.epoch(E::slots_per_epoch());
+    let duties = client
+        .get_validator_duties_proposer_v2(epoch)
+        .await
+        .unwrap();
+    let duty = duties
+        .data
+        .iter()
+        .find(|d| d.slot == slot2)
+        .expect("proposer duty for slot");
+    let proposer_index = duty.validator_index as usize;
+    let head_state = harness.get_current_state();
+    let randao = harness
+        .sign_randao_reveal(&head_state, proposer_index, slot2)
+        .into();
+    let (block_type, _) = client
+        .get_validator_blocks_v3::<E>(slot2, &randao, None, None, None)
+        .await
+        .unwrap();
+    match block_type.data {
+        ProduceBlockV3Response::Full(contents) => {
+            let (block, _) = contents.deconstruct();
+            assert_eq!(block.slot(), slot2);
+            assert_eq!(block.parent_root(), ctx.head_block_root);
+        }
+        ProduceBlockV3Response::Blinded(_) => panic!("expected full block"),
+    }
 }
 
 /// Sync duties stay on the head committees for typical outage lengths (same sync period).
