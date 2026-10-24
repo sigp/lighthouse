@@ -119,6 +119,7 @@ impl GossipVerifiedInclusionList {
             ctx.spec,
             dependent_root,
             epoch,
+            None,
             |cached_shuffling, _| {
                 cached_shuffling
                     .committee_cache

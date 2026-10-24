@@ -107,6 +107,7 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
             ctx.spec,
             beacon_block_root,
             message_epoch,
+            None,
             |cached_shuffling, _| cached_shuffling.ptc_for_slot(slot),
         )?;
 

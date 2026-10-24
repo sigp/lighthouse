@@ -479,11 +479,9 @@ fn advance_head<T: BeaconChainTypes>(
 
     // Keep the retained advanced-head cache in sync so HTTP handlers can extend from here
     // instead of the unadvanced head (#9530).
-    beacon_chain.advanced_head_state.observe_advanced_state(
-        head_block_root,
-        advanced_state_root,
-        &state,
-    );
+    beacon_chain
+        .advanced_head_state
+        .observe_complete_advanced_state(head_block_root, advanced_state_root, &state);
 
     debug!(
         ?head_block_root,

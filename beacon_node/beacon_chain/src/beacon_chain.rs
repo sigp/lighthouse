@@ -1,4 +1,4 @@
-use crate::advanced_head_state::AdvancedHeadStateCache;
+use crate::advanced_head_state::{AdvanceKind, AdvancedHeadStateCache};
 use crate::attestation_verification::{
     Error as AttestationError, VerifiedAggregatedAttestation, VerifiedAttestation,
     VerifiedUnaggregatedAttestation, batch_verify_aggregated_attestations,
@@ -1527,19 +1527,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .collect()
     }
 
-    /// Returns the `BeaconState` at the given slot.
+    /// Return the canonical head state advanced through empty slots to `target_slot` using a
+    /// **partial** advance (skips intermediate state roots).
     ///
-    /// Returns `None` when the state is not found in the database or there is an error skipping
-    /// to a future state.
-    #[instrument(level = "debug", skip_all)]
-    /// Return the canonical head state advanced through empty slots to `target_slot`.
-    ///
-    /// Reuses [`Self::advanced_head_state`] so repeated calls (and new epochs during a stale-head
-    /// outage) extend the previous advance instead of replaying from the head (#9530). Also writes
-    /// the result into the hot state store so `get_advanced_hot_state` can see it.
+    /// Suitable for shuffling, proposer/attester duties, and attestation production. The result
+    /// is **not** consensus-valid and must not be written to the store. Reuses
+    /// [`Self::advanced_head_state`] so a stale head costs ~one epoch of work per new epoch (#9530).
     #[instrument(skip_all, fields(%target_slot), level = "debug")]
     pub fn head_state_advanced_to(
         &self,
+        target_slot: Slot,
+    ) -> Result<(Hash256, BeaconState<T::EthSpec>), Error> {
+        self.head_state_advanced_to_kind(AdvanceKind::Partial, target_slot)
+    }
+
+    /// Like [`Self::head_state_advanced_to`], but with a **complete** advance (proper state roots).
+    ///
+    /// Suitable for block production. The result is persisted via `put_state`.
+    #[instrument(skip_all, fields(%target_slot), level = "debug")]
+    pub fn head_state_completely_advanced_to(
+        &self,
+        target_slot: Slot,
+    ) -> Result<(Hash256, BeaconState<T::EthSpec>), Error> {
+        self.head_state_advanced_to_kind(AdvanceKind::Complete, target_slot)
+    }
+
+    fn head_state_advanced_to_kind(
+        &self,
+        kind: AdvanceKind,
         target_slot: Slot,
     ) -> Result<(Hash256, BeaconState<T::EthSpec>), Error> {
         let (head_block_root, head_state_root) = {
@@ -1548,16 +1563,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let entry = self.advanced_head_state.get_or_advance_to(
+            kind,
             head_block_root,
             target_slot,
             || -> Result<(Hash256, BeaconState<T::EthSpec>), Error> {
                 // Prefer any advanced hot state already in the store cache (e.g. from the
                 // state-advance timer), else the unadvanced head snapshot.
-                //
-                // `get_advanced_hot_state` returns a state at most `target_slot`. When the head is
-                // already past `target_slot`, load with `max(target_slot, head_slot)` so we still
-                // receive the head (callers that only need a decision at `target_slot` are fine
-                // with a later empty-slot state of the same head).
                 let head_slot = self.canonical_head.cached_head().head_slot();
                 let load_slot = std::cmp::max(target_slot, head_slot);
                 if let Some(cached) = self.store.get_advanced_hot_state(
@@ -1575,25 +1586,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
              target_slot|
              -> Result<(Hash256, BeaconState<T::EthSpec>), Error> {
                 if state.slot() < target_slot {
-                    partial_state_advance(
-                        &mut state,
-                        Some(state_root),
-                        target_slot,
-                        self.builder_onboarding_cache.as_deref(),
-                        &self.spec,
-                    )
-                    .map_err(Error::StateAdvanceError)?;
+                    match kind {
+                        AdvanceKind::Partial => {
+                            partial_state_advance(
+                                &mut state,
+                                Some(state_root),
+                                target_slot,
+                                self.builder_onboarding_cache.as_deref(),
+                                &self.spec,
+                            )
+                            .map_err(Error::StateAdvanceError)?;
+                            // Partial states are invalid; do not tree-hash or put_state.
+                            Ok((Hash256::ZERO, state))
+                        }
+                        AdvanceKind::Complete => {
+                            complete_state_advance(
+                                &mut state,
+                                Some(state_root),
+                                target_slot,
+                                self.builder_onboarding_cache.as_deref(),
+                                &self.spec,
+                            )
+                            .map_err(Error::StateAdvanceError)?;
+                            let advanced_root = state.update_tree_hash_cache()?;
+                            self.store.put_state(&advanced_root, &state)?;
+                            Ok((advanced_root, state))
+                        }
+                    }
+                } else {
+                    Ok((state_root, state))
                 }
-                let advanced_root = state.update_tree_hash_cache()?;
-                // Persist so `get_advanced_hot_state` / shuffling paths can reuse this advance.
-                self.store.put_state(&advanced_root, &state)?;
-                Ok((advanced_root, state))
             },
         )?;
 
         Ok((entry.state_root, entry.state))
     }
 
+    /// Returns the `BeaconState` at the given slot.
+    ///
+    /// Returns `None` when the state is not found in the database or there is an error skipping
+    /// to a future state.
+    #[instrument(level = "debug", skip_all)]
     pub fn state_at_slot(
         &self,
         slot: Slot,
@@ -7620,10 +7653,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         F: Fn(&CachedShuffling<T::EthSpec>, Hash256) -> Result<R, Error>,
     {
         // When the shuffling is for the canonical head, pre-extend the retained advanced head
-        // state so `with_cached_shuffling` finds it via `get_advanced_hot_state_from_cache` instead
-        // of replaying empty epochs from the unadvanced snapshot (#9530).
+        // state and pass it into `with_cached_shuffling` so we do not replay empty epochs from
+        // the unadvanced snapshot (#9530).
         let canonical_head_root = self.canonical_head.cached_head().head_block_root();
-        if head_block_root == canonical_head_root {
+        let starting_state = if head_block_root == canonical_head_root {
             let mut target_slot = std::cmp::max(
                 shuffling_epoch
                     .saturating_sub(1_u64)
@@ -7636,8 +7669,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     shuffling_epoch.start_slot(T::EthSpec::slots_per_epoch()),
                 );
             }
-            let _ = self.head_state_advanced_to(target_slot)?;
-        }
+            Some(self.head_state_advanced_to(target_slot)?)
+        } else {
+            None
+        };
 
         with_cached_shuffling(
             &self.canonical_head,
@@ -7647,6 +7682,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &self.spec,
             head_block_root,
             shuffling_epoch,
+            starting_state,
             map_fn,
         )
     }

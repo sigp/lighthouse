@@ -443,7 +443,9 @@ async fn sync_duties_cheap_with_stale_head() {
     );
 }
 
-/// `states/{slot}/validators` for a slot past the head fails fast (no state root) without advancing.
+/// `states/{slot}/validators` for a skipped slot at the wall clock (past the head block) is cheap:
+/// `state_root_at_slot` returns the head state root without empty-epoch processing. Charon's
+/// `states/head/validators` fallback is likewise a clone.
 #[tokio::test(flavor = "multi_thread")]
 async fn states_validators_past_head_cheap_with_stale_head() {
     let ctx = StaleHeadHarness::setup(12).await;
@@ -456,22 +458,21 @@ async fn states_validators_past_head_cheap_with_stale_head() {
         .client()
         .post_beacon_states_validators(StateId::Slot(past_head_slot), None, None)
         .await
-        .unwrap();
+        .unwrap()
+        .expect("skipped slot at/before wall clock resolves via head state root");
     let elapsed = start.elapsed();
     let delta = process_epoch_sample_count().saturating_sub(before);
 
-    assert!(
-        result.is_none(),
-        "slot past the head should 404 (Ok(None)), not invent a skip-slot state"
-    );
     assert_eq!(
         delta, 0,
-        "states/{{slot}}/validators past head must not process epochs (delta={delta})"
+        "states/{{slot}}/validators for a skip slot past the head must not process epochs \
+         (delta={delta})"
     );
     assert!(
         elapsed.as_millis() < 500,
-        "past-head states/validators should fail fast, took {elapsed:?}"
+        "skip-slot states/validators should be cheap, took {elapsed:?}"
     );
+    assert_eq!(result.data.len(), ctx.validator_count);
 
     // Head fallback used by Charon is a cheap clone.
     let before_head = process_epoch_sample_count();

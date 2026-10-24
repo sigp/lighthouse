@@ -79,11 +79,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     parent_envelope: inputs.parent_envelope,
                 }
             } else {
-                // Continuation: the new block builds on the current head. Use the retained
-                // advanced head state so a stale head does not replay every empty epoch (#9530).
-                // This also feeds the hot state cache used by the state advance timer path.
+                // Continuation: the new block builds on the current head. Use a *complete*
+                // retained advance so a stale head does not replay every empty epoch (#9530).
+                // Partial advances are unsuitable here (invalid intermediate state roots).
                 let (state_root, state) = self
-                    .head_state_advanced_to(slot)
+                    .head_state_completely_advanced_to(slot)
                     .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
                 BlockProductionState {

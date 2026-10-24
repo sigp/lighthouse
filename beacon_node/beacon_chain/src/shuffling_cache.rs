@@ -320,6 +320,9 @@ pub fn with_cached_shuffling<T, F, R, Error>(
     spec: &ChainSpec,
     head_block_root: Hash256,
     shuffling_epoch: Epoch,
+    // When provided (e.g. from `BeaconChain::head_state_advanced_to`), use this as the starting
+    // state instead of cloning the unadvanced head / loading from disk (#9530).
+    starting_state: Option<(Hash256, BeaconState<T::EthSpec>)>,
     map_fn: F,
 ) -> Result<R, Error>
 where
@@ -418,11 +421,13 @@ where
             );
         }
 
-        // Prefer an advanced hot state (from the state-advance timer or
-        // `BeaconChain::head_state_advanced_to`) over the unadvanced head snapshot. Using the
-        // snapshot here made every new shuffling epoch replay all empty slots from the head
+        // Prefer a caller-provided advanced state (from `head_state_advanced_to`), then any
+        // advanced hot state in the store cache, then the unadvanced head snapshot. Using the
+        // snapshot alone made every new shuffling epoch replay all empty slots from the head
         // during stale-head outages (#9530).
-        let (mut state, state_root) = if let Some((state_root, state)) =
+        let (mut state, state_root) = if let Some((state_root, state)) = starting_state {
+            (state, state_root)
+        } else if let Some((state_root, state)) =
             store.get_advanced_hot_state_from_cache(head_block_root, target_slot)
         {
             (state, state_root)
