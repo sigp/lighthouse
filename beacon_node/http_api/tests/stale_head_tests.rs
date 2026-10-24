@@ -16,11 +16,17 @@ use eth2::BeaconNodeHttpClient;
 use eth2::types::{ProduceBlockV3Response, StateId};
 use futures::future::join_all;
 use http_api::test_utils::InteractiveTester;
+use parking_lot::Mutex;
 use state_processing::state_advance::partial_state_advance;
+use std::sync::LazyLock;
 use std::time::Instant;
 use types::{Epoch, EthSpec, Hash256, Slot, Spec};
 
 type E = Spec;
+
+/// `process_epoch` metrics are process-global; serialize these tests so parallel `cargo test`
+/// workers do not inflate each other's deltas.
+static PROCESS_EPOCH_METRIC_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 /// Sample count for the global `beacon_state_processing_process_epoch` histogram.
 fn process_epoch_sample_count() -> u64 {
@@ -129,6 +135,7 @@ fn assert_incremental(delta: u64, baseline: u64, label: &str) {
 /// of work, not another full replay from the head.
 #[tokio::test(flavor = "multi_thread")]
 async fn attestation_data_incremental_with_stale_head() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
     let ctx = StaleHeadHarness::setup(12).await;
     let client = ctx.client();
     let slot0 = ctx.future_slot;
@@ -243,6 +250,7 @@ async fn proposer_duties_incremental_with_stale_head() {
         return;
     }
 
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
     let ctx = StaleHeadHarness::setup(12).await;
     let client = ctx.client();
 
@@ -296,6 +304,7 @@ async fn proposer_duties_incremental_with_stale_head() {
 /// Attester duties for the current epoch: same incremental property via the shuffling path.
 #[tokio::test(flavor = "multi_thread")]
 async fn attester_duties_incremental_with_stale_head() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
     let ctx = StaleHeadHarness::setup(12).await;
     let client = ctx.client();
     let indices: Vec<u64> = (0..ctx.validator_count as u64).collect();
@@ -353,6 +362,7 @@ async fn attester_duties_incremental_with_stale_head() {
 /// `load_state_for_block_production`), then sanity-checks one HTTP produce for parent root.
 #[tokio::test(flavor = "multi_thread")]
 async fn block_production_incremental_with_stale_head() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
     let ctx = StaleHeadHarness::setup(8).await;
     let client = ctx.client();
     let harness = ctx.harness();
@@ -418,6 +428,7 @@ async fn block_production_incremental_with_stale_head() {
 /// Sync duties stay on the head committees for typical outage lengths (same sync period).
 #[tokio::test(flavor = "multi_thread")]
 async fn sync_duties_cheap_with_stale_head() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
     let ctx = StaleHeadHarness::setup(12).await;
     let indices: Vec<u64> = (0..ctx.validator_count as u64).collect();
     let epoch = ctx.harness().chain.epoch().unwrap();
@@ -447,6 +458,7 @@ async fn sync_duties_cheap_with_stale_head() {
 /// `states/head/validators` fallback is likewise a clone.
 #[tokio::test(flavor = "multi_thread")]
 async fn states_validators_past_head_cheap_with_stale_head() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
     let ctx = StaleHeadHarness::setup(12).await;
     let past_head_slot = ctx.future_slot;
     assert!(past_head_slot > ctx.harness().head_slot());
@@ -490,6 +502,7 @@ async fn states_validators_past_head_cheap_with_stale_head() {
 /// really does cost ~N process_epoch samples (documents the metric used above).
 #[tokio::test(flavor = "multi_thread")]
 async fn process_epoch_count_scales_with_manual_advance() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
     let ctx = StaleHeadHarness::setup(6).await;
     let harness = ctx.harness();
     let mut state = harness.get_current_state();
