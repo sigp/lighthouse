@@ -7,7 +7,8 @@
 //! This cache keeps at most:
 //! - one **partial** advance (invalid intermediate state roots; safe for shuffling / duties /
 //!   attestation justified checkpoints), and
-//! - one **complete** advance (valid state; safe for block production and `put_state`).
+//! - one **complete** advance (valid state; safe for block production; demand-path jumps are
+//!   kept in memory only — see `BeaconChain::head_state_completely_advanced_to`).
 //!
 //! Advances for the same head are serialized on a mutex so concurrent callers share one catch-up.
 //! Head changes discard both entries.

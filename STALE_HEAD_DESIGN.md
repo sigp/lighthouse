@@ -29,7 +29,7 @@ Keep **one** furthest advanced empty-slot state for the current head, and always
 1. **`AdvancedHeadStateCache` on `BeaconChain`**
    - At most **two** retained entries for the current head (bounded memory):
      - **Partial** — `partial_state_advance` (zero intermediate state roots). Fast; suitable for shuffling, duties, attestation justified checkpoints. **Must not** be `put_state`'d (invalid for consensus / block import).
-     - **Complete** — `complete_state_advance` (proper state roots). Suitable for block production; may be `put_state`'d. Also fed by the state-advance timer.
+     - **Complete** — `complete_state_advance` (proper state roots). Suitable for block production. Kept **in memory only** on the demand path: `put_state` of a multi-epoch empty-slot jump breaks hierarchical hot diffs (`MissingHotStateSummary`). The state-advance timer still persists one slot at a time and feeds this entry via `observe_complete_advanced_state`.
    - `get_or_advance_to(kind, target_slot)` extends the matching entry under a mutex so concurrent callers share one catch-up.
    - Head change / reorg: `invalidate()` discards both entries.
 

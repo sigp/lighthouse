@@ -82,9 +82,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Continuation: the new block builds on the current head. Use a *complete*
                 // retained advance so a stale head does not replay every empty epoch (#9530).
                 // Partial advances are unsuitable here (invalid intermediate state roots).
-                let (state_root, state) = self
-                    .head_state_completely_advanced_to(slot)
-                    .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
+                let (state_root, state) =
+                    self.head_state_completely_advanced_to(slot).map_err(|e| {
+                        warn!(
+                            %slot,
+                            error = ?e,
+                            "Failed to completely advance head state for block production"
+                        );
+                        BlockProductionError::UnableToProduceAtSlot(slot)
+                    })?;
 
                 BlockProductionState {
                     state,

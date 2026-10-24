@@ -1543,7 +1543,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Like [`Self::head_state_advanced_to`], but with a **complete** advance (proper state roots).
     ///
-    /// Suitable for block production. The result is persisted via `put_state`.
+    /// Suitable for block production. The result is retained in [`Self::advanced_head_state`]
+    /// only; long demand-path jumps are not `put_state`'d (hierarchical hot diffs require a
+    /// continuous summary chain that multi-epoch skips do not provide).
     #[instrument(skip_all, fields(%target_slot), level = "debug")]
     pub fn head_state_completely_advanced_to(
         &self,
@@ -1609,7 +1611,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             )
                             .map_err(Error::StateAdvanceError)?;
                             let advanced_root = state.update_tree_hash_cache()?;
-                            self.store.put_state(&advanced_root, &state)?;
+                            // Do **not** `put_state` long demand-path jumps: hierarchical diffs
+                            // need a continuous hot-summary chain, and a multi-epoch empty-slot
+                            // jump can fail with `MissingHotStateSummary`. The
+                            // `AdvancedHeadStateCache` retains the complete state in memory;
+                            // the state-advance timer still persists one slot at a time.
                             Ok((advanced_root, state))
                         }
                     }
