@@ -107,7 +107,7 @@ impl GossipVerifiedExecutionProof {
             ctx.spec,
             block_root,
             block_epoch,
-            None,
+            || Ok(None),
             |cached_shuffling, _| {
                 Ok::<_, Error>(
                     cached_shuffling

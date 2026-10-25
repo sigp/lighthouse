@@ -10656,6 +10656,9 @@ async fn beacon_get_state_hashes() {
         .await;
 }
 
+// The advanced-head state future inlines into `ApiTester::new` and pushes this test over
+// Clippy's stack-frame limit in release.
+#[allow(clippy::large_stack_frames)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn beacon_get_state_info() {
     ApiTester::new()
@@ -11387,6 +11390,9 @@ async fn payload_attestation_present_after_envelope_publish() {
         .await;
 }
 
+// The advanced-head state future inlines into `ApiTester::new_with_hard_forks` and pushes
+// this test over Clippy's stack-frame limit in release.
+#[allow(clippy::large_stack_frames)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn envelope_api() {
     if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {

@@ -16,6 +16,12 @@
 //! 4. `Option<Mutex<BeaconFastConfirmationRule>>`: FCR state and the roots it has sent the EL
 //!    (None when disabled).
 //!
+//! `recompute_head` calls `BeaconChain::advanced_head_state.invalidate` while lock 3 is held.
+//! That cache mutex must be acquired after lock 3 and must not be held across a state advance:
+//! `invalidate` only bumps a generation counter and returns. The cache mutex is acquired before
+//! the store `state_cache` mutex and the hot/cold split read lock; those store locks are taken
+//! on the load path, which runs outside the cache mutex.
+//!
 //! This module has to take great efforts to avoid causing a deadlock with these three methods. Any
 //! developers working in this module should tread carefully and seek a detailed review.
 //!
@@ -1172,7 +1178,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Clear the early attester cache in case it conflicts with `self.canonical_head`.
             self.early_attester_cache.clear();
-            // Drop any empty-slot advance of the previous head (#9530).
+            // Drop any empty-slot advance of the previous head. This does not wait on an
+            // in-flight advance; that advance's store is rejected via the generation counter.
             self.advanced_head_state.invalidate();
 
             new_head

@@ -57,6 +57,101 @@ pub static BUILDER_CIRCUIT_BREAKER_FILTERED_BIDS: LazyLock<Result<IntCounter>> =
     });
 
 /*
+ * Advanced head state
+ *
+ * Retained empty-slot advance of the canonical head, shared by validator API handlers.
+ */
+
+pub static ADVANCED_HEAD_STATE_HITS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_advanced_head_state_hits_total",
+        "Count of advanced-head lookups served from an entry already at the requested slot",
+    )
+});
+pub static ADVANCED_HEAD_STATE_MISSES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_advanced_head_state_misses_total",
+        "Count of advanced-head lookups that advanced a state",
+    )
+});
+pub static ADVANCED_HEAD_STATE_COALESCED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_advanced_head_state_coalesced_total",
+        "Count of advanced-head lookups that waited for an in-flight advance of the same target",
+    )
+});
+pub static ADVANCED_HEAD_STATE_SLOTS_ADVANCED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_advanced_head_state_slots_advanced_total",
+        "Slots processed by advanced-head cache misses, including throwaway advances past the retain window",
+    )
+});
+pub static ADVANCED_HEAD_STATE_STALE_STORE: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_advanced_head_state_stale_store_total",
+        "Advanced-head results dropped because invalidate ran while they were being computed",
+    )
+});
+pub static ADVANCED_HEAD_STATE_BLOCK_ROOT_MISMATCH: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_advanced_head_state_block_root_mismatch_total",
+            "Advanced-head results dropped because the state was not for the requested head block",
+        )
+    });
+pub static ADVANCED_HEAD_STATE_LOCK_WAIT: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_advanced_head_state_lock_wait_seconds",
+        "Time spent waiting to acquire the advanced-head cache mutex",
+    )
+});
+pub static ADVANCED_HEAD_STATE_PARTIAL_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "beacon_advanced_head_state_partial_slot",
+        "Slot of the retained partial advanced head state, or 0 when empty",
+    )
+});
+pub static ADVANCED_HEAD_STATE_COMPLETE_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "beacon_advanced_head_state_complete_slot",
+        "Slot of the retained complete advanced head state, or 0 when empty",
+    )
+});
+pub static ADVANCED_HEAD_STATE_PARTIAL_SLOT_LAG: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "beacon_advanced_head_state_partial_slot_lag",
+        "Wall-clock slot minus the retained partial entry slot. Negative when the entry is ahead of the clock",
+    )
+});
+pub static ADVANCED_HEAD_STATE_COMPLETE_SLOT_LAG: LazyLock<Result<IntGauge>> = LazyLock::new(
+    || {
+        try_create_int_gauge(
+            "beacon_advanced_head_state_complete_slot_lag",
+            "Wall-clock slot minus the retained complete entry slot. Negative when the entry is ahead of the clock",
+        )
+    },
+);
+pub static STATE_ADVANCE_TIMER_SLOTS_ADVANCED: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_state_advance_timer_slots_advanced_total",
+        "Slots the state-advance timer moved the in-memory head state forward",
+    )
+});
+pub static STATE_ADVANCE_TIMER_SLOTS_PERSISTED: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_state_advance_timer_slots_persisted_total",
+            "Slots the state-advance timer wrote to the hot database",
+        )
+    });
+pub static STATE_ADVANCE_TIMER_SLOT_LAG: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "beacon_state_advance_timer_slot_lag",
+        "Wall-clock slot minus the slot the state-advance timer last reached. Negative when the timer is one slot ahead",
+    )
+});
+
+/*
 * Execution Payload Envelope Processing
 */
 
@@ -2329,6 +2424,10 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         .scrape_for_metrics();
 
     beacon_chain.store.register_metrics();
+
+    beacon_chain
+        .advanced_head_state
+        .scrape_metrics(beacon_chain.slot().ok());
 }
 
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.

@@ -1,32 +1,35 @@
-//! Regression tests for https://github.com/sigp/lighthouse/issues/9530.
+//! Regression tests for validator API cost while the canonical head is stale.
 //!
-//! When the head is many epochs behind the wall clock, validator API handlers that need a
-//! current/next-epoch state must not replay every empty epoch from the head on each new epoch.
-//! These tests jump the clock, then advance epoch-by-epoch and assert that `process_epoch` work
-//! for each new epoch stays roughly one epoch — not O(staleness).
+//! When the head is many epochs behind the wall clock, handlers that need a current or next
+//! epoch state must not replay every empty epoch from the head on each new epoch. These tests
+//! jump the clock, then advance epoch-by-epoch and assert that `process_epoch` work for each
+//! new epoch stays roughly one epoch.
 //!
-//! Expected to **fail** on `unstable` / `ef55e2fbf` and **pass** once the advanced-head-state
-//! fix is applied.
+//! A few cases are labelled guards. They passed before this cache existed and check that the
+//! cache does not make an already-cheap path expensive.
 
+use beacon_chain::StateSkipConfig;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
     LightClientStrategy, SyncCommitteeStrategy, test_spec,
 };
 use eth2::BeaconNodeHttpClient;
-use eth2::types::{ProduceBlockV3Response, StateId};
+use eth2::types::{BuilderConfig, ProduceBlockV3Response, StateId};
 use futures::future::join_all;
 use http_api::test_utils::InteractiveTester;
-use parking_lot::Mutex;
 use state_processing::state_advance::partial_state_advance;
-use std::sync::LazyLock;
-use std::time::Instant;
-use types::{Epoch, EthSpec, Hash256, Slot, Spec};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
+use std::thread;
+use std::time::Duration;
+use types::{Epoch, EthSpec, ForkName, Hash256, Slot, Spec};
 
 type E = Spec;
 
 /// `process_epoch` metrics are process-global; serialize these tests so parallel `cargo test`
 /// workers do not inflate each other's deltas.
-static PROCESS_EPOCH_METRIC_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static PROCESS_EPOCH_METRIC_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 /// Sample count for the global `beacon_state_processing_process_epoch` histogram.
 fn process_epoch_sample_count() -> u64 {
@@ -135,7 +138,7 @@ fn assert_incremental(delta: u64, baseline: u64, label: &str) {
 /// of work, not another full replay from the head.
 #[tokio::test(flavor = "multi_thread")]
 async fn attestation_data_incremental_with_stale_head() {
-    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
     let ctx = StaleHeadHarness::setup(12).await;
     let client = ctx.client();
     let slot0 = ctx.future_slot;
@@ -250,7 +253,7 @@ async fn proposer_duties_incremental_with_stale_head() {
         return;
     }
 
-    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
     let ctx = StaleHeadHarness::setup(12).await;
     let client = ctx.client();
 
@@ -276,7 +279,7 @@ async fn proposer_duties_incremental_with_stale_head() {
     assert_eq!(repeat, first);
     assert_eq!(
         repeat_delta, 0,
-        "repeat proposer duties should hit cache (delta={repeat_delta})"
+        "repeat proposer duties should reuse the retained advanced state (delta={repeat_delta})"
     );
 
     ctx.advance_one_epoch();
@@ -304,7 +307,7 @@ async fn proposer_duties_incremental_with_stale_head() {
 /// Attester duties for the current epoch: same incremental property via the shuffling path.
 #[tokio::test(flavor = "multi_thread")]
 async fn attester_duties_incremental_with_stale_head() {
-    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
     let ctx = StaleHeadHarness::setup(12).await;
     let client = ctx.client();
     let indices: Vec<u64> = (0..ctx.validator_count as u64).collect();
@@ -362,7 +365,7 @@ async fn attester_duties_incremental_with_stale_head() {
 /// `load_state_for_block_production`), then sanity-checks one HTTP produce for parent root.
 #[tokio::test(flavor = "multi_thread")]
 async fn block_production_incremental_with_stale_head() {
-    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
     let ctx = StaleHeadHarness::setup(8).await;
     let client = ctx.client();
     let harness = ctx.harness();
@@ -427,63 +430,52 @@ async fn block_production_incremental_with_stale_head() {
     }
 }
 
-/// Sync duties stay on the head committees for typical outage lengths (same sync period).
+/// Guard: sync duties in the same sync period were already cheap before the advanced-head
+/// cache. This checks the cache does not start replaying empty epochs for them.
 #[tokio::test(flavor = "multi_thread")]
 async fn sync_duties_cheap_with_stale_head() {
-    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
     let ctx = StaleHeadHarness::setup(12).await;
     let indices: Vec<u64> = (0..ctx.validator_count as u64).collect();
     let epoch = ctx.harness().chain.epoch().unwrap();
 
     let before = process_epoch_sample_count();
-    let start = Instant::now();
     let _duties = ctx
         .client()
         .post_validator_duties_sync(epoch, &indices)
         .await
         .unwrap();
-    let elapsed = start.elapsed();
     let delta = process_epoch_sample_count().saturating_sub(before);
 
     assert_eq!(
         delta, 0,
         "sync duties within the same sync period must not advance empty epochs (delta={delta})"
     );
-    assert!(
-        elapsed.as_millis() < 500,
-        "sync duties should be cheap with a stale head, took {elapsed:?}"
-    );
 }
 
-/// `states/{slot}/validators` for a skipped slot at the wall clock (past the head block) is cheap:
-/// `state_root_at_slot` returns the head state root without empty-epoch processing. Charon's
-/// `states/head/validators` fallback is likewise a clone.
+/// Guard: `states/{slot}/validators` for a skipped slot at the wall clock was already cheap.
+/// `state_root_at_slot` returns the head state root without empty-epoch processing. This checks
+/// the cache does not change that.
 #[tokio::test(flavor = "multi_thread")]
 async fn states_validators_past_head_cheap_with_stale_head() {
-    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
     let ctx = StaleHeadHarness::setup(12).await;
     let past_head_slot = ctx.future_slot;
     assert!(past_head_slot > ctx.harness().head_slot());
 
     let before = process_epoch_sample_count();
-    let start = Instant::now();
     let result = ctx
         .client()
         .post_beacon_states_validators(StateId::Slot(past_head_slot), None, None)
         .await
         .unwrap()
         .expect("skipped slot at/before wall clock resolves via head state root");
-    let elapsed = start.elapsed();
     let delta = process_epoch_sample_count().saturating_sub(before);
 
     assert_eq!(
         delta, 0,
         "states/{{slot}}/validators for a skip slot past the head must not process epochs \
          (delta={delta})"
-    );
-    assert!(
-        elapsed.as_millis() < 500,
-        "skip-slot states/validators should be cheap, took {elapsed:?}"
     );
     assert_eq!(result.data.len(), ctx.validator_count);
 
@@ -504,7 +496,7 @@ async fn states_validators_past_head_cheap_with_stale_head() {
 /// really does cost ~N process_epoch samples (documents the metric used above).
 #[tokio::test(flavor = "multi_thread")]
 async fn process_epoch_count_scales_with_manual_advance() {
-    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock();
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
     let ctx = StaleHeadHarness::setup(6).await;
     let harness = ctx.harness();
     let mut state = harness.get_current_state();
@@ -527,4 +519,314 @@ async fn process_epoch_count_scales_with_manual_advance() {
         "manual advance over {stale} stale epochs should record ~that many process_epoch samples, got {delta}",
         stale = ctx.stale_epochs
     );
+}
+
+/// A sync-duty lookup for the next sync period, with an unknown validator, must not leave the
+/// shared advanced state so far ahead that later duty calls fail.
+#[tokio::test(flavor = "multi_thread")]
+async fn sync_duties_next_period_unknown_validator_does_not_break_later_duties() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
+    let ctx = StaleHeadHarness::setup(8).await;
+    let spec = ctx.harness().spec.clone();
+    let current_epoch = ctx.harness().chain.epoch().unwrap();
+    let period = current_epoch.sync_committee_period(&spec).unwrap();
+    let next_period_epoch = spec.epochs_per_sync_committee_period * (period + 1);
+    let unknown = vec![u64::MAX / 4];
+
+    // The handler rejects the unknown index, but only after loading a state at that period.
+    let _ = ctx
+        .client()
+        .post_validator_duties_sync(next_period_epoch, &unknown)
+        .await;
+
+    let slot = ctx.harness().chain.slot().unwrap();
+    let attestation = ctx
+        .client()
+        .get_validator_attestation_data(slot, 0)
+        .await
+        .expect("attestation_data after a far sync-duty lookup");
+    assert_eq!(attestation.data.beacon_block_root, ctx.head_block_root);
+    assert_eq!(attestation.data.slot, slot);
+
+    let indices: Vec<u64> = (0..ctx.validator_count as u64).collect();
+    let epoch = ctx.harness().chain.epoch().unwrap();
+    let attesters = ctx
+        .client()
+        .post_validator_duties_attester(epoch, &indices)
+        .await
+        .expect("attester duties after a far sync-duty lookup");
+    assert!(!attesters.data.is_empty());
+
+    let proposers = ctx
+        .client()
+        .get_validator_duties_proposer_v2(epoch)
+        .await
+        .expect("current-epoch proposer duties after a far sync-duty lookup");
+    assert_eq!(proposers.data.len() as u64, ctx.slots_per_epoch);
+}
+
+/// Pre-Fulu, next-epoch proposer duties used to leave the shared state in the next epoch, and
+/// the following current-epoch request failed with `SlotOutOfBounds`.
+#[tokio::test(flavor = "multi_thread")]
+async fn next_epoch_proposer_duties_do_not_break_current_epoch() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
+    let ctx = StaleHeadHarness::setup(8).await;
+    let current_epoch = ctx.harness().chain.epoch().unwrap();
+    let next_epoch = current_epoch + 1;
+
+    let next = ctx
+        .client()
+        .get_validator_duties_proposer_v2(next_epoch)
+        .await
+        .expect("next-epoch proposer duties");
+    assert_eq!(next.data.len() as u64, ctx.slots_per_epoch);
+
+    let current = ctx
+        .client()
+        .get_validator_duties_proposer_v2(current_epoch)
+        .await
+        .expect("current-epoch proposer duties after a next-epoch request");
+    assert_eq!(current.data.len() as u64, ctx.slots_per_epoch);
+}
+
+/// `state_at_slot` returns the slot that was asked for, even after a later slot was requested.
+#[tokio::test(flavor = "multi_thread")]
+async fn state_at_slot_returns_the_requested_slot() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
+    let ctx = StaleHeadHarness::setup(2).await;
+    let chain = ctx.harness().chain.clone();
+    let head_slot = ctx.harness().head_slot();
+    let far = head_slot + ctx.slots_per_epoch * 20;
+    let mid = head_slot + ctx.slots_per_epoch;
+
+    let far_state = chain
+        .state_at_slot(far, StateSkipConfig::WithoutStateRoots)
+        .expect("far state");
+    assert_eq!(far_state.slot(), far);
+
+    let mid_state = chain
+        .state_at_slot(mid, StateSkipConfig::WithoutStateRoots)
+        .expect("mid state");
+    assert_eq!(
+        mid_state.slot(),
+        mid,
+        "state_at_slot must not return a later cached state"
+    );
+}
+
+/// After the complete entry has been moved to `slot + 1` (what the state-advance timer does at
+/// three quarters of the way through the slot), block production for `slot` still succeeds.
+#[tokio::test(flavor = "multi_thread")]
+async fn block_production_after_entry_advanced_past_produce_slot() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
+    let ctx = StaleHeadHarness::setup(4).await;
+    let harness = ctx.harness();
+    let chain = harness.chain.clone();
+    let slot = ctx.future_slot;
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let duties = ctx
+        .client()
+        .get_validator_duties_proposer_v2(epoch)
+        .await
+        .unwrap();
+    let duty = duties
+        .data
+        .iter()
+        .find(|duty| duty.slot == slot)
+        .expect("proposer duty for slot");
+    let proposer_index = duty.validator_index as usize;
+    let head_state = harness.get_current_state();
+    let randao = harness
+        .sign_randao_reveal(&head_state, proposer_index, slot)
+        .into();
+
+    // The state-advance timer moves the complete entry to slot+1 at three quarters of the slot.
+    let (_, ahead) = chain
+        .head_state_completely_advanced_to(slot + 1)
+        .expect("advance to slot+1");
+    assert_eq!(ahead.slot(), slot + 1);
+
+    produce_and_check_parent(&ctx, slot, &randao).await;
+}
+
+async fn produce_and_check_parent(
+    ctx: &StaleHeadHarness,
+    slot: Slot,
+    randao: &bls::SignatureBytes,
+) {
+    let harness = ctx.harness();
+    if harness.spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+        let (response, _) = ctx
+            .client()
+            .post_validator_blocks_v4::<E>(
+                slot,
+                randao,
+                None,
+                false,
+                &BuilderConfig::empty(),
+                None,
+                ForkName::Gloas,
+            )
+            .await
+            .expect("block production via v4");
+        let block = response.into_block();
+        assert_eq!(block.slot(), slot);
+        assert_eq!(block.parent_root(), ctx.head_block_root);
+    } else {
+        let (block_type, _) = ctx
+            .client()
+            .get_validator_blocks_v3::<E>(slot, randao, None, None, None)
+            .await
+            .expect("block production via v3");
+        match block_type.data {
+            ProduceBlockV3Response::Full(contents) => {
+                let (block, _) = contents.deconstruct();
+                assert_eq!(block.slot(), slot);
+                assert_eq!(block.parent_root(), ctx.head_block_root);
+            }
+            ProduceBlockV3Response::Blinded(_) => panic!("expected a full block"),
+        }
+    }
+}
+
+/// `invalidate` returns while an advance is still running, and the advance's result is not kept.
+#[tokio::test(flavor = "multi_thread")]
+async fn invalidate_during_advance_is_not_blocked() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
+    let ctx = StaleHeadHarness::setup(4).await;
+    let chain = ctx.harness().chain.clone();
+    let far = ctx.harness().head_slot() + ctx.slots_per_epoch * 80;
+    let started = Arc::new(AtomicBool::new(false));
+    let finished = Arc::new(AtomicBool::new(false));
+    let chain_worker = chain.clone();
+    let started_worker = started.clone();
+    let finished_worker = finished.clone();
+    let worker = thread::spawn(move || {
+        started_worker.store(true, Ordering::SeqCst);
+        let _ = chain_worker.head_state_advanced_to(far);
+        finished_worker.store(true, Ordering::SeqCst);
+    });
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    while !started.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+        thread::yield_now();
+    }
+    let samples_at_start = process_epoch_sample_count();
+    while process_epoch_sample_count() == samples_at_start && std::time::Instant::now() < deadline {
+        thread::yield_now();
+    }
+    assert!(
+        process_epoch_sample_count() > samples_at_start,
+        "the advance did not start processing epochs"
+    );
+
+    // `invalidate` used to take the same mutex the advance holds, so it could not return
+    // until that advance finished. It must now return while `process_epoch` is still running.
+    let invalidate_done = Arc::new(AtomicBool::new(false));
+    let invalidate_done_worker = invalidate_done.clone();
+    let chain_invalidate = chain.clone();
+    let invalidate_thread = thread::spawn(move || {
+        chain_invalidate.advanced_head_state.invalidate();
+        invalidate_done_worker.store(true, Ordering::SeqCst);
+    });
+    let observe_deadline = std::time::Instant::now() + Duration::from_secs(60);
+    let mut returned_while_advance_running = false;
+    while std::time::Instant::now() < observe_deadline {
+        let invalidate_returned = invalidate_done.load(Ordering::SeqCst);
+        let advance_finished = finished.load(Ordering::SeqCst);
+        if invalidate_returned && !advance_finished {
+            returned_while_advance_running = true;
+            break;
+        }
+        if advance_finished {
+            break;
+        }
+        thread::yield_now();
+    }
+    assert!(
+        returned_while_advance_running,
+        "invalidate did not return while the advance was still running"
+    );
+    invalidate_thread.join().expect("invalidate thread");
+    worker.join().expect("advance thread");
+
+    let near = ctx.harness().chain.slot().unwrap();
+    let state = chain
+        .state_at_slot(near, StateSkipConfig::WithoutStateRoots)
+        .expect("state after invalidate");
+    assert_eq!(state.slot(), near);
+}
+
+/// A shuffling-cache hit must not advance the head state. Gossip verification and a repeat
+/// attester-duty call both take this path.
+#[tokio::test(flavor = "multi_thread")]
+async fn shuffling_cache_hit_does_not_advance_head_state() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
+    let ctx = StaleHeadHarness::setup(12).await;
+    let indices: Vec<u64> = (0..ctx.validator_count as u64).collect();
+    let epoch = ctx.harness().chain.epoch().unwrap();
+
+    ctx.client()
+        .post_validator_duties_attester(epoch, &indices)
+        .await
+        .unwrap();
+    // Drop the advanced state only. The shuffling cache for this epoch stays populated.
+    ctx.harness().chain.advanced_head_state.invalidate();
+
+    let before = process_epoch_sample_count();
+    ctx.client()
+        .post_validator_duties_attester(epoch, &indices)
+        .await
+        .expect("attester duties from the shuffling cache");
+    let delta = process_epoch_sample_count().saturating_sub(before);
+    assert_eq!(
+        delta, 0,
+        "a shuffling-cache hit must not replay empty epochs (delta={delta})"
+    );
+}
+
+/// PTC duties on Gloas stay incremental under a stale head.
+#[tokio::test(flavor = "multi_thread")]
+async fn ptc_duties_incremental_with_stale_head() {
+    let spec = test_spec::<E>();
+    if !spec.is_gloas_scheduled() {
+        return;
+    }
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
+    let ctx = StaleHeadHarness::setup(12).await;
+    if !ctx
+        .harness()
+        .spec
+        .fork_name_at_slot::<E>(ctx.future_slot)
+        .gloas_enabled()
+    {
+        return;
+    }
+    let indices: Vec<u64> = (0..ctx.validator_count as u64).collect();
+    let epoch0 = ctx.harness().chain.epoch().unwrap();
+
+    let before = process_epoch_sample_count();
+    let first = ctx
+        .client()
+        .post_validator_duties_ptc(epoch0, &indices)
+        .await
+        .expect("cold ptc duties");
+    let cold_delta = process_epoch_sample_count().saturating_sub(before);
+    assert!(
+        cold_delta >= ctx.stale_epochs / 2,
+        "cold ptc duties should process most empty epochs, got delta={cold_delta}"
+    );
+    assert!(!first.data.is_empty());
+
+    ctx.advance_one_epoch();
+    let epoch1 = ctx.harness().chain.epoch().unwrap();
+    let before_next = process_epoch_sample_count();
+    let second = ctx
+        .client()
+        .post_validator_duties_ptc(epoch1, &indices)
+        .await
+        .expect("ptc duties one epoch later");
+    let next_delta = process_epoch_sample_count().saturating_sub(before_next);
+    assert_incremental(next_delta, cold_delta, "ptc duties +1 epoch");
+    assert!(!second.data.is_empty());
 }

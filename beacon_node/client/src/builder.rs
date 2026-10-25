@@ -772,11 +772,15 @@ where
                 beacon_chain.clone(),
                 move || {
                     // While long-range syncing, keep the MAX_ADVANCE_DISTANCE cap. When synced or
-                    // stalled (outage), keep advancing past that cap for #9530.
+                    // stalled (outage), the timer may advance the in-memory entry past that cap
+                    // but still will not write the hot database past it.
+                    //
+                    // `None` means this builder has no sync view. Keep the cap in that case;
+                    // treating it as "not syncing" would lift the cap entirely.
                     sync_globals
                         .as_ref()
                         .map(|g| g.is_syncing())
-                        .unwrap_or(false)
+                        .unwrap_or(true)
                 },
             );
 

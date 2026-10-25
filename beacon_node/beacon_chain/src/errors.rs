@@ -265,6 +265,11 @@ pub enum BeaconChainError {
     },
     SkipProposerPreparation,
     FailedColumnCustodyInfoUpdate,
+    /// Advanced-head state was not for the block root the caller read.
+    AdvancedHeadBlockRootMismatch {
+        state_block_root: Hash256,
+        head_block_root: Hash256,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

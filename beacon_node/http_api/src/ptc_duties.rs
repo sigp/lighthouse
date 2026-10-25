@@ -6,7 +6,7 @@ use eth2::types::{self as api_types, PtcDuty};
 use slot_clock::SlotClock;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::state_advance::partial_state_advance;
-use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256};
+use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot};
 
 type ApiDuties = api_types::DutiesResponse<Vec<PtcDuty>>;
 
@@ -125,17 +125,25 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
 
     let (state, dependent_block_root, execution_optimistic) =
         if let Some((block_root, state_root, head_slot, execution_optimistic)) = state_opt {
-            let max_slot = std::cmp::max(
-                head_slot,
-                request_epoch.start_slot(T::EthSpec::slots_per_epoch()),
-            );
-            let (state_root, mut state) = chain
-                .store
-                .get_advanced_hot_state(block_root, max_slot, state_root)
-                .map_err(BeaconChainError::DBError)
-                .map_err(warp_utils::reject::unhandled_error)?
-                .ok_or(BeaconChainError::MissingBeaconState(state_root))
-                .map_err(warp_utils::reject::unhandled_error)?;
+            let target_slot = ptc_state_slot::<T::EthSpec>(request_epoch, head_slot, &chain.spec);
+            // The canonical head shares the retained advanced-head state with the other duty
+            // endpoints. A non-canonical parent still loads from the store.
+            let canonical_head = chain.canonical_head.cached_head();
+            let (state_root, mut state) = if block_root == canonical_head.head_block_root()
+                && canonical_head.head_slot() <= target_slot
+            {
+                chain
+                    .partially_advance_cached_head(&canonical_head, target_slot)
+                    .map_err(warp_utils::reject::unhandled_error)?
+            } else {
+                chain
+                    .store
+                    .get_advanced_hot_state(block_root, target_slot, state_root)
+                    .map_err(BeaconChainError::DBError)
+                    .map_err(warp_utils::reject::unhandled_error)?
+                    .ok_or(BeaconChainError::MissingBeaconState(state_root))
+                    .map_err(warp_utils::reject::unhandled_error)?
+            };
             ensure_state_knows_ptc_duties_for_epoch(
                 &mut state,
                 state_root,
@@ -164,6 +172,21 @@ fn compute_ptc_duties_from_state<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::unhandled_error)?;
 
     convert_to_api_response(duties, dependent_root, execution_optimistic)
+}
+
+/// Slot at which PTC duties for `request_epoch` can be read.
+///
+/// `get_ptc` accepts a state in the previous epoch, so the target is the start of
+/// `request_epoch - 1`, or the Gloas fork slot when the request is the fork epoch.
+/// The head slot is a floor: the cache cannot rewind a state.
+fn ptc_state_slot<E: EthSpec>(request_epoch: Epoch, head_slot: Slot, spec: &ChainSpec) -> Slot {
+    let mut target_slot = request_epoch
+        .saturating_sub(1_u64)
+        .start_slot(E::slots_per_epoch());
+    if spec.gloas_fork_epoch == Some(request_epoch) {
+        target_slot = std::cmp::max(target_slot, request_epoch.start_slot(E::slots_per_epoch()));
+    }
+    std::cmp::max(target_slot, head_slot)
 }
 
 fn ensure_state_knows_ptc_duties_for_epoch<E: EthSpec>(
