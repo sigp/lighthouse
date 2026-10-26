@@ -3141,7 +3141,10 @@ async fn process_chain_segment_partial_import_with_invalid_envelope() {
         )
         .await;
 
-    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let chain_dump = harness
+        .chain
+        .chain_dump_blocks_from_slot(Slot::new(1))
+        .unwrap();
     let import_harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
 
     // Block 1 with a valid envelope.
@@ -3265,7 +3268,10 @@ async fn process_chain_segment_import_fails_without_parent_envelope() {
         )
         .await;
 
-    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let chain_dump = harness
+        .chain
+        .chain_dump_blocks_from_slot(Slot::new(1))
+        .unwrap();
     let import_harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
 
     let block1 = Arc::new(
@@ -3367,7 +3373,10 @@ async fn process_chain_segment_full_and_empty_transitions() {
         )
         .await;
 
-    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let chain_dump = harness
+        .chain
+        .chain_dump_blocks_from_slot(Slot::new(1))
+        .unwrap();
     let block1 = Arc::new(
         harness
             .chain
@@ -3491,7 +3500,10 @@ async fn process_chain_segment_rejects_envelope_with_invalid_columns() {
         )
         .await;
 
-    let chain_dump = harness.chain.chain_dump_from_slot(Slot::new(1)).unwrap();
+    let chain_dump = harness
+        .chain
+        .chain_dump_blocks_from_slot(Slot::new(1))
+        .unwrap();
     let block = Arc::new(
         harness
             .chain

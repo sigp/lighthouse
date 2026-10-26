@@ -130,11 +130,11 @@ pub async fn verify_full_block_production_up_to<E: EthSpec>(
     let beacon_nodes = network.beacon_nodes.read();
     let beacon_chain = beacon_nodes[0].client.beacon_chain().unwrap();
     let block_slots = beacon_chain
-        .chain_dump()
+        .chain_dump_blocks()
         .unwrap()
         .iter()
-        .take_while(|s| s.beacon_block.slot() <= slot)
-        .map(|s| s.beacon_block.slot().as_usize())
+        .take_while(|block| block.beacon_block.slot() <= slot)
+        .map(|block| block.beacon_block.slot().as_usize())
         .collect::<Vec<_>>();
     let num_blocks = block_slots.len();
     if num_blocks != slot.as_usize() + 1 {

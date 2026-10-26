@@ -17,7 +17,7 @@ use beacon_chain::test_utils::{
     SyncCommitteeStrategy, fork_name_from_env, generate_data_column_indices_rand_order,
 };
 use beacon_chain::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ChainConfig, ChainDumpSnapshot,
+    BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, ChainConfig, ChainDumpBlock,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
     beacon_proposer_cache::{
         compute_proposer_duties_from_head, ensure_state_can_determine_proposers_for_epoch,
@@ -1263,13 +1263,13 @@ async fn multiple_attestations_per_block() {
         .unwrap();
     assert!(committees_per_slot > 1);
 
-    for snapshot in harness.chain.chain_dump().unwrap() {
-        let slot = snapshot.beacon_block.slot();
+    for block in harness.chain.chain_dump_blocks().unwrap() {
+        let slot = block.beacon_block.slot();
         let fork_name = harness.chain.spec.fork_name_at_slot::<E>(slot);
 
         if fork_name.electra_enabled() {
             assert_eq!(
-                snapshot
+                block
                     .beacon_block
                     .as_ref()
                     .message()
@@ -1279,7 +1279,7 @@ async fn multiple_attestations_per_block() {
             );
         } else {
             assert_eq!(
-                snapshot
+                block
                     .beacon_block
                     .as_ref()
                     .message()
@@ -3106,13 +3106,13 @@ async fn prunes_payload_envelopes_from_multiple_pre_finalization_forks() {
         .find(|(slot, _)| **slot < finalized_slot)
         .expect("canonical chain should contain a finalized block");
     let pruned_block_root: Hash256 = (*pruned_block_hash).into();
-    let chain_dump = rig.chain.chain_dump_from_slot(pruned_slot).unwrap();
-    let pruned_snapshot = chain_dump
+    let chain_dump = rig.chain.chain_dump_blocks_from_slot(pruned_slot).unwrap();
+    let pruned_block = chain_dump
         .iter()
-        .find(|snapshot| snapshot.beacon_block_root == pruned_block_root)
+        .find(|block| block.beacon_block_root == pruned_block_root)
         .expect("chain dump should include the finalized block");
     assert!(
-        pruned_snapshot.execution_envelope.is_none(),
+        pruned_block.execution_envelope.is_none(),
         "chain dump should represent a pruned envelope body as absent"
     );
 
@@ -3207,12 +3207,9 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         );
     }
 
-    let chain_dump = rig.chain.chain_dump().unwrap();
-    assert_eq!(
-        get_finalized_epoch_boundary_blocks(&chain_dump),
-        vec![Hash256::zero().into()].into_iter().collect(),
-    );
+    assert_eq!(rig.get_finalized_checkpoints(), hashset! {});
 
+    let chain_dump = rig.chain.chain_dump_blocks().unwrap();
     assert!(get_blocks(&chain_dump).contains(&shared_head));
 
     // Trigger finalization
@@ -3257,7 +3254,7 @@ async fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
     }
 
     assert!(!rig.knows_head(&stray_head));
-    let chain_dump = rig.chain.chain_dump().unwrap();
+    let chain_dump = rig.chain.chain_dump_blocks().unwrap();
     assert!(get_blocks(&chain_dump).contains(&shared_head));
 
     check_db_invariants(&rig);
@@ -3934,11 +3931,7 @@ async fn pruning_test(
     check_all_blocks_exist(&harness, stray_blocks.values());
     check_all_states_exist(&harness, stray_states.iter());
 
-    let chain_dump = harness.chain.chain_dump().unwrap();
-    assert_eq!(
-        get_finalized_epoch_boundary_blocks(&chain_dump),
-        vec![Hash256::zero().into()].into_iter().collect(),
-    );
+    assert_eq!(harness.get_finalized_checkpoints(), hashset! {});
 
     // Trigger finalization
     let num_finalization_blocks = 4 * E::slots_per_epoch();
@@ -4582,16 +4575,16 @@ async fn weak_subjectivity_sync_test(
     }
 
     // Apply blocks forward to reach head.
-    let chain_dump = harness.chain.chain_dump().unwrap();
+    let chain_dump = harness.chain.chain_dump_blocks().unwrap();
     let new_blocks = chain_dump
         .iter()
-        .filter(|snapshot| snapshot.beacon_block.slot() > checkpoint_slot);
+        .filter(|block| block.beacon_block.slot() > checkpoint_slot);
 
-    for snapshot in new_blocks {
-        let block_root = snapshot.beacon_block_root;
+    for block in new_blocks {
+        let block_root = block.beacon_block_root;
         let full_block = harness
             .chain
-            .get_block(&snapshot.beacon_block_root)
+            .get_block(&block.beacon_block_root)
             .await
             .unwrap()
             .unwrap();
@@ -4613,7 +4606,7 @@ async fn weak_subjectivity_sync_test(
         .unwrap();
 
         // Store the envelope, its columns, and apply to fork choice.
-        if let Some(envelope) = &snapshot.execution_envelope {
+        if let Some(envelope) = &block.execution_envelope {
             // Persist data columns for Gloas blocks. This mirrors what production does in
             // `import_available_execution_payload_envelope` and what the harness now does in
             // `process_envelope` — the WSS forward-sync loop bypasses both, so do it directly.
@@ -4847,14 +4840,14 @@ async fn weak_subjectivity_sync_test(
     }
 
     if prune_payloads {
-        for snapshot in chain_dump
+        for block in chain_dump
             .iter()
-            .filter(|snapshot| snapshot.beacon_block.slot() < wss_block_slot)
+            .filter(|block| block.beacon_block.slot() < wss_block_slot)
         {
-            let Some(_) = &snapshot.execution_envelope else {
+            let Some(_) = &block.execution_envelope else {
                 continue;
             };
-            let block_root = snapshot.beacon_block_root;
+            let block_root = block.beacon_block_root;
             assert!(
                 beacon_chain
                     .store
@@ -4870,9 +4863,9 @@ async fn weak_subjectivity_sync_test(
     }
 
     // Store envelopes for all historic blocks (needed for dumping the chain from the new node).
-    for snapshot in chain_dump.iter() {
-        let block_root = snapshot.beacon_block_root;
-        if let Some(envelope) = &snapshot.execution_envelope {
+    for block in chain_dump.iter() {
+        let block_root = block.beacon_block_root;
+        if let Some(envelope) = &block.execution_envelope {
             beacon_chain
                 .store
                 .put_payload_envelope(&block_root, envelope)
@@ -8260,16 +8253,8 @@ async fn bellatrix_produce_and_store_payloads() {
     );
 }
 
-fn get_finalized_epoch_boundary_blocks(
-    dump: &[ChainDumpSnapshot<Spec>],
-) -> HashSet<SignedBeaconBlockHash> {
+fn get_blocks(dump: &[ChainDumpBlock<Spec>]) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
-        .map(|checkpoint| checkpoint.beacon_state.finalized_checkpoint().root.into())
-        .collect()
-}
-
-fn get_blocks(dump: &[ChainDumpSnapshot<Spec>]) -> HashSet<SignedBeaconBlockHash> {
-    dump.iter()
-        .map(|checkpoint| checkpoint.beacon_block_root.into())
+        .map(|block| block.beacon_block_root.into())
         .collect()
 }
