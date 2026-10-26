@@ -1697,7 +1697,58 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head_block_root: block_root,
             });
         }
-        Ok((entry.state_root, entry.state))
+        let mut state = entry.state;
+        // Exact-slot retention keeps only the furthest state. A next-epoch proposer advance
+        // therefore sits past the current-epoch attester target, and that attester request
+        // cannot seed from it. The committees this state can already serve (previous, current,
+        // and next epoch) are stored in the shuffling cache so that request is a hit.
+        // States past the retain window are throwaways for a far epoch; their committees are
+        // not the ones a wall-clock attester request will ask for.
+        if state.slot() <= max_store_slot {
+            self.remember_attester_shufflings(block_root, &mut state);
+        }
+        Ok((entry.state_root, state))
+    }
+
+    /// Store attester shufflings this advanced head state can already compute.
+    ///
+    /// Failures are skipped. A missing committee must not fail the caller that advanced the
+    /// state; the attester path still computes the shuffling itself on a cache miss.
+    fn remember_attester_shufflings(
+        &self,
+        block_root: Hash256,
+        state: &mut BeaconState<T::EthSpec>,
+    ) {
+        for relative_epoch in [
+            RelativeEpoch::Previous,
+            RelativeEpoch::Current,
+            RelativeEpoch::Next,
+        ] {
+            let Ok(shuffling_id) = AttestationShufflingId::new(block_root, state, relative_epoch)
+            else {
+                continue;
+            };
+            if self.shuffling_cache.read().contains(&shuffling_id) {
+                continue;
+            }
+            if state
+                .build_committee_cache(relative_epoch, &self.spec)
+                .is_err()
+            {
+                continue;
+            }
+            let Ok(committee_cache) = state.committee_cache(relative_epoch).cloned() else {
+                continue;
+            };
+            let shuffling_epoch = relative_epoch.into_epoch(state.current_epoch());
+            let Ok(Some(ptcs)) = CachedPTCs::try_from_state(state, shuffling_epoch, &self.spec)
+            else {
+                continue;
+            };
+            self.shuffling_cache
+                .write()
+                .insert_committee_cache(shuffling_id, CachedShuffling::new(committee_cache, ptcs));
+        }
     }
 
     /// Returns the `BeaconState` at the given slot.

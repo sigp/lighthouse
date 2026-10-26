@@ -22,7 +22,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::thread;
 use std::time::Duration;
-use types::{Epoch, EthSpec, ForkName, Hash256, Slot, Spec};
+use types::{Epoch, EthSpec, ForkName, Hash256, RelativeEpoch, Slot, Spec};
 
 type E = Spec;
 
@@ -755,6 +755,99 @@ async fn invalidate_during_advance_is_not_blocked() {
         .state_at_slot(near, StateSkipConfig::WithoutStateRoots)
         .expect("state after invalidate");
     assert_eq!(state.slot(), near);
+}
+
+/// Next-epoch proposer duties park the retained partial state past the current-epoch attester
+/// target. Current-epoch attester duties must still be served from that advance (via the
+/// committee cache) instead of replaying every empty epoch from the head, and the duties must
+/// match an independent advance.
+#[tokio::test(flavor = "multi_thread")]
+async fn current_epoch_attester_duties_after_next_epoch_proposer_do_not_replay() {
+    let _metric_guard = PROCESS_EPOCH_METRIC_LOCK.lock().await;
+    let ctx = StaleHeadHarness::setup(12).await;
+    let harness = ctx.harness();
+    let indices: Vec<u64> = (0..ctx.validator_count as u64).collect();
+    let current_epoch = harness.chain.epoch().unwrap();
+    let next_epoch = current_epoch + 1;
+
+    ctx.client()
+        .get_validator_duties_proposer_v2(next_epoch)
+        .await
+        .expect("next-epoch proposer duties advance the retained head state");
+
+    let before = process_epoch_sample_count();
+    let duties = ctx
+        .client()
+        .post_validator_duties_attester(current_epoch, &indices)
+        .await
+        .expect("current-epoch attester duties");
+    let delta = process_epoch_sample_count().saturating_sub(before);
+    assert_eq!(
+        delta, 0,
+        "current-epoch attester duties replayed empty epochs after the proposer advance \
+         (delta={delta})"
+    );
+    assert_eq!(
+        duties.dependent_root, ctx.head_block_root,
+        "stale-head attester shuffling is decided by the head block"
+    );
+    assert!(!duties.data.is_empty());
+
+    let mut target_slot = std::cmp::max(
+        current_epoch
+            .saturating_sub(1_u64)
+            .start_slot(ctx.slots_per_epoch),
+        harness.head_slot(),
+    );
+    if harness.spec.gloas_fork_epoch == Some(current_epoch) {
+        target_slot = std::cmp::max(target_slot, current_epoch.start_slot(ctx.slots_per_epoch));
+    }
+    let mut state = harness.get_current_state();
+    let state_root = harness.chain.canonical_head.cached_head().head_state_root();
+    partial_state_advance(
+        &mut state,
+        Some(state_root),
+        target_slot,
+        harness.chain.builder_onboarding_cache.as_deref(),
+        &harness.spec,
+    )
+    .unwrap();
+    let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), current_epoch).unwrap();
+    state
+        .build_committee_cache(relative_epoch, &harness.spec)
+        .unwrap();
+    let committee_cache = state.committee_cache(relative_epoch).unwrap();
+
+    for index in &indices {
+        let expected = committee_cache
+            .get_attestation_duties(*index as usize)
+            .unwrap();
+        let actual = duties
+            .data
+            .iter()
+            .find(|duty| duty.validator_index == *index);
+        match (expected, actual) {
+            (None, None) => {}
+            (Some(expected), Some(actual)) => {
+                assert_eq!(actual.slot, expected.slot, "validator {index}");
+                assert_eq!(
+                    actual.committee_index, expected.index,
+                    "validator {index} committee"
+                );
+                assert_eq!(
+                    actual.validator_committee_index, expected.committee_position as u64,
+                    "validator {index} position"
+                );
+                assert_eq!(
+                    actual.committee_length, expected.committee_len as u64,
+                    "validator {index} committee length"
+                );
+            }
+            (expected, actual) => {
+                panic!("validator {index}: expected {expected:?}, http returned {actual:?}")
+            }
+        }
+    }
 }
 
 /// A shuffling-cache hit must not advance the head state. Gossip verification and a repeat
