@@ -738,9 +738,10 @@ where
     pub fn on_valid_execution_payload(
         &mut self,
         block_hash: ExecutionBlockHash,
+        inclusion_list_satisfied: Option<bool>,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_validation(block_hash)
+            .process_execution_payload_validation(block_hash, inclusion_list_satisfied)
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 

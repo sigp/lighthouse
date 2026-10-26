@@ -210,7 +210,7 @@ impl InvalidPayloadRig {
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .on_valid_execution_payload(block_hash)
+            .on_valid_execution_payload(block_hash, None)
             .unwrap();
     }
 

@@ -7202,7 +7202,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match forkchoice_updated_response {
             Ok(status) => match status {
-                PayloadStatus::Valid { .. } => {
+                PayloadStatus::Valid {
+                    inclusion_list_satisfied,
+                } => {
                     // EIP-8025: only the proofs promote a payload to valid.
                     if self.execution_proofs_enabled() {
                         return Ok(());
@@ -7218,7 +7220,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 chain
                                     .canonical_head
                                     .fork_choice_write_lock()
-                                    .on_valid_execution_payload(head_hash)
+                                    .on_valid_execution_payload(head_hash, inclusion_list_satisfied)
                             },
                             "update_execution_engine_valid_payload",
                         )

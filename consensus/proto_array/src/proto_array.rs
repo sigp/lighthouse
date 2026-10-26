@@ -976,23 +976,35 @@ impl ProtoArray {
     /// For a Gloas head on its `EMPTY` node the forkchoiceUpdated head hash is an ancestor's
     /// payload, so that ancestor is promoted, not the head.
     ///
+    /// Records `inclusion_list_satisfied` for the payload `block_hash` if it was optimistic. Its
+    /// ancestors keep the verdict they already have.
+    ///
     /// Returns an error if any of the to-be-validated payloads are already invalid.
     pub fn propagate_execution_payload_validation(
         &mut self,
         block_hash: ExecutionBlockHash,
+        inclusion_list_satisfied: Option<bool>,
     ) -> Result<(), Error> {
         for index in self.execution_block_hash_to_node_indices(&block_hash) {
-            // The block's own payload is the validated one: a pre-Gloas block carries it inside
-            // itself, a Gloas block runs it on its `FULL` node.
-            let start_status = match self
+            let node = self
                 .nodes
                 .get(index)
-                .ok_or(Error::InvalidNodeIndex(index))?
-            {
+                .ok_or(Error::InvalidNodeIndex(index))?;
+            let was_optimistic = matches!(node.execution_status(), ExecutionStatus::Optimistic(_));
+            // The block's own payload is the validated one: a pre-Gloas block carries it inside
+            // itself, a Gloas block runs it on its `FULL` node.
+            let start_status = match node {
                 ProtoNode::V17(_) => ParentPayloadStatus::PreGloas,
                 ProtoNode::V29(_) | ProtoNode::V33(_) => ParentPayloadStatus::Full,
             };
             self.propagate_execution_payload_validation_from(index, start_status)?;
+
+            if was_optimistic
+                && let Some(inclusion_list_satisfied) = inclusion_list_satisfied
+                && let Some(ProtoNode::V33(node)) = self.nodes.get_mut(index)
+            {
+                node.payload_inclusion_list_satisfied = inclusion_list_satisfied;
+            }
         }
         Ok(())
     }

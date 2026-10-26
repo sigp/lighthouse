@@ -8,6 +8,7 @@ use beacon_chain::test_utils::{
 use bls::{PublicKeyBytes, Signature};
 use eth2::types::EventKind;
 use execution_layer::http::ENGINE_NEW_PAYLOAD_V6;
+use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use parking_lot::Mutex;
 use proto_array::ExecutionStatus;
 use ssz_types::ProgressiveVariableList;
@@ -893,4 +894,107 @@ async fn heze_payload_not_satisfying_inclusion_lists_is_not_extended() {
         head.head_payload_status(),
         proto_array::PayloadStatus::Empty
     );
+}
+
+/// Imports a Heze block and envelope, then validates the payload with a forkchoiceUpdated in the
+/// next slot that reports it as not satisfying the inclusion lists.
+async fn validate_heze_payload_with_unsatisfied_fcu(
+    optimistic: bool,
+) -> Option<(
+    BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>>,
+    Hash256,
+)> {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return None;
+    }
+    spec.heze_fork_epoch = Some(Epoch::new(1));
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let slot = Epoch::new(1).start_slot(E::slots_per_epoch()) + 1;
+    harness.extend_to_slot(slot - 1).await;
+
+    let mock_el = harness.mock_execution_layer.as_ref().unwrap();
+    if optimistic {
+        mock_el.server.all_payloads_syncing(true);
+    }
+    let block_root = import_block_and_envelope(&harness, slot).await;
+    let block_hash = match execution_status(&harness, block_root) {
+        ExecutionStatus::Optimistic(hash) if optimistic => hash,
+        ExecutionStatus::Valid(hash) if !optimistic => hash,
+        status => panic!("unexpected execution status {status:?}"),
+    };
+
+    mock_el.server.set_fcu_payload_status(
+        block_hash,
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: Some(block_hash),
+            validation_error: None,
+            inclusion_list_satisfied: Some(false),
+        },
+    );
+    harness.advance_slot();
+    harness.chain.recompute_head_at_current_slot().await;
+    let cached_head = harness.chain.canonical_head.cached_head();
+    assert_eq!(cached_head.head_block_root(), block_root);
+    assert_eq!(
+        cached_head.head_payload_status(),
+        proto_array::PayloadStatus::Full
+    );
+    harness
+        .chain
+        .update_execution_engine_forkchoice(
+            slot + 1,
+            cached_head.forkchoice_update_parameters(),
+            cached_head.head_payload_status(),
+            beacon_chain::OverrideForkchoiceUpdate::AlreadyApplied,
+        )
+        .await
+        .unwrap();
+    assert!(is_valid_and_post_bellatrix(execution_status(
+        &harness, block_root
+    )));
+    harness.chain.recompute_head_at_current_slot().await;
+
+    Some((harness, block_root))
+}
+
+#[tokio::test]
+async fn heze_optimistic_payload_records_the_fcu_inclusion_list_verdict() {
+    let Some((harness, block_root)) = validate_heze_payload_with_unsatisfied_fcu(true).await else {
+        return;
+    };
+
+    let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(!fork_choice.should_extend_payload(&block_root).unwrap());
+    drop(fork_choice);
+
+    let head = harness.chain.canonical_head.cached_head();
+    assert_eq!(head.head_block_root(), block_root);
+    assert_eq!(
+        head.head_payload_status(),
+        proto_array::PayloadStatus::Empty
+    );
+}
+
+#[tokio::test]
+async fn heze_valid_payload_keeps_its_inclusion_list_verdict_on_fcu() {
+    let Some((harness, block_root)) = validate_heze_payload_with_unsatisfied_fcu(false).await
+    else {
+        return;
+    };
+
+    let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(fork_choice.should_extend_payload(&block_root).unwrap());
+    drop(fork_choice);
+
+    let head = harness.chain.canonical_head.cached_head();
+    assert_eq!(head.head_block_root(), block_root);
+    assert_eq!(head.head_payload_status(), proto_array::PayloadStatus::Full);
 }
