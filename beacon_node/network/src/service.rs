@@ -31,7 +31,7 @@ use lighthouse_network::{
 use lighthouse_network::{MessageAcceptance, prometheus_client::registry::Registry};
 use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
-    service::api_types::{AppRequestId, SyncRequestId},
+    service::api_types::SyncRequestId,
     types::{GossipEncoding, GossipTopic, core_topics_to_subscribe},
 };
 use logging::{TimeLatch, crit};
@@ -75,7 +75,7 @@ pub enum NetworkMessage<E: EthSpec> {
     SendRequest {
         peer_id: PeerId,
         request: RequestType<E>,
-        app_request_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
     },
     /// Send a successful Response to the libp2p service.
     SendResponse {
@@ -541,17 +541,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
             NetworkEvent::ResponseReceived {
                 peer_id,
-                app_request_id,
+                sync_request_id,
                 response,
             } => {
-                self.handle_rpc_response(peer_id, app_request_id, response);
+                self.handle_rpc_response(peer_id, sync_request_id, response);
             }
             NetworkEvent::RPCFailed {
-                app_request_id,
+                sync_request_id,
                 peer_id,
                 error,
             } => {
-                self.on_rpc_error(peer_id, app_request_id, error);
+                self.on_rpc_error(peer_id, sync_request_id, error);
             }
             NetworkEvent::StatusPeer(peer_id) => {
                 self.send_status(&[peer_id]);
@@ -623,12 +623,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::SendRequest {
                 peer_id,
                 request,
-                app_request_id,
+                sync_request_id,
             } => {
-                if let Err((app_request_id, error)) =
-                    self.libp2p.send_request(peer_id, app_request_id, request)
+                if let Err((sync_request_id, error)) =
+                    self.libp2p.send_request(peer_id, sync_request_id, request)
                 {
-                    self.on_rpc_error(peer_id, app_request_id, error);
+                    self.on_rpc_error(peer_id, sync_request_id, error);
                 }
             }
             NetworkMessage::SendResponse {
@@ -977,21 +977,25 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let status = status_message(&self.beacon_chain);
         for peer_id in peer_ids {
             debug!(%peer_id, ?status, "Sending Status Request");
-            if let Err((app_request_id, error)) = self.libp2p.send_request(
-                *peer_id,
-                AppRequestId::Status,
-                RequestType::Status(status.clone()),
-            ) {
-                self.on_rpc_error(*peer_id, app_request_id, error);
+            if let Err((sync_request_id, error)) =
+                self.libp2p
+                    .send_request(*peer_id, None, RequestType::Status(status.clone()))
+            {
+                self.on_rpc_error(*peer_id, sync_request_id, error);
             }
         }
     }
 
     /// An error occurred during an RPC request. The state is maintained by the sync manager, so
     /// this function notifies the sync manager of the error.
-    fn on_rpc_error(&mut self, peer_id: PeerId, app_request_id: AppRequestId, error: RPCError) {
+    fn on_rpc_error(
+        &mut self,
+        peer_id: PeerId,
+        sync_request_id: Option<SyncRequestId>,
+        error: RPCError,
+    ) {
         // Check if the failed RPC belongs to sync
-        if let AppRequestId::Sync(sync_request_id) = app_request_id {
+        if let Some(sync_request_id) = sync_request_id {
             self.send_to_sync(SyncMessage::RpcError {
                 peer_id,
                 sync_request_id,
@@ -1144,7 +1148,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     fn handle_rpc_response(
         &mut self,
         peer_id: PeerId,
-        app_request_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
         response: Response<T::EthSpec>,
     ) {
         match response {
@@ -1156,28 +1160,28 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 )
             }
             Response::BlocksByRange(beacon_block) => {
-                self.on_blocks_by_range_response(peer_id, app_request_id, beacon_block);
+                self.on_blocks_by_range_response(peer_id, sync_request_id, beacon_block);
             }
             Response::BlocksByRoot(beacon_block) => {
-                self.on_blocks_by_root_response(peer_id, app_request_id, beacon_block);
+                self.on_blocks_by_root_response(peer_id, sync_request_id, beacon_block);
             }
             Response::BlobsByRange(blob) => {
-                self.on_blobs_by_range_response(peer_id, app_request_id, blob);
+                self.on_blobs_by_range_response(peer_id, sync_request_id, blob);
             }
             Response::BlobsByRoot(_) => {
                 crit!(%peer_id, "Unexpected BlobsByRoot response; lookup blob requests removed");
             }
             Response::DataColumnsByRoot(data_column) => {
-                self.on_data_columns_by_root_response(peer_id, app_request_id, data_column);
+                self.on_data_columns_by_root_response(peer_id, sync_request_id, data_column);
             }
             Response::DataColumnsByRange(data_column) => {
-                self.on_data_columns_by_range_response(peer_id, app_request_id, data_column);
+                self.on_data_columns_by_range_response(peer_id, sync_request_id, data_column);
             }
             Response::PayloadEnvelopesByRoot(envelope) => {
-                self.on_payload_envelopes_by_root_response(peer_id, app_request_id, envelope);
+                self.on_payload_envelopes_by_root_response(peer_id, sync_request_id, envelope);
             }
             Response::PayloadEnvelopesByRange(envelope) => {
-                self.on_payload_envelopes_by_range_response(peer_id, app_request_id, envelope);
+                self.on_payload_envelopes_by_range_response(peer_id, sync_request_id, envelope);
             }
             // Lighthouse currently only serves BlocksByHead and does not issue it as a client,
             // so receiving a response is unexpected. Drop it without crashing.
@@ -1199,22 +1203,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     fn on_blocks_by_range_response(
         &mut self,
         peer_id: PeerId,
-        app_request_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
         beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        let sync_request_id = match app_request_id {
-            AppRequestId::Sync(sync_request_id) => match sync_request_id {
-                id @ SyncRequestId::BlocksByRange { .. } => id,
-                other => {
-                    crit!(request = ?other, "BlocksByRange response on incorrect request");
-                    return;
-                }
-            },
-            AppRequestId::Status => {
+        let sync_request_id = match sync_request_id {
+            Some(id @ SyncRequestId::BlocksByRange { .. }) => id,
+            Some(other) => {
+                crit!(request = ?other, "BlocksByRange response on incorrect request");
+                return;
+            }
+            None => {
                 crit!(%peer_id, "All BBRange requests belong to sync");
                 return;
             }
-            AppRequestId::Internal => unreachable!("Handled internally"),
         };
 
         trace!(
@@ -1233,7 +1234,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     fn on_blobs_by_range_response(
         &mut self,
         peer_id: PeerId,
-        app_request_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
         blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
     ) {
         trace!(
@@ -1241,7 +1242,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             "Received BlobsByRange Response"
         );
 
-        if let AppRequestId::Sync(sync_request_id) = app_request_id {
+        if let Some(sync_request_id) = sync_request_id {
             self.send_to_sync(SyncMessage::RpcBlob {
                 peer_id,
                 sync_request_id,
@@ -1256,22 +1257,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     fn on_blocks_by_root_response(
         &mut self,
         peer_id: PeerId,
-        app_request_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
         beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
-        let sync_request_id = match app_request_id {
-            AppRequestId::Sync(sync_id) => match sync_id {
-                id @ SyncRequestId::SingleBlock { .. } => id,
-                other => {
-                    crit!(request = ?other, "BlocksByRoot response on incorrect request");
-                    return;
-                }
-            },
-            AppRequestId::Status => {
+        let sync_request_id = match sync_request_id {
+            Some(id @ SyncRequestId::SingleBlock { .. }) => id,
+            Some(other) => {
+                crit!(request = ?other, "BlocksByRoot response on incorrect request");
+                return;
+            }
+            None => {
                 crit!(%peer_id, "All BBRoot requests belong to sync");
                 return;
             }
-            AppRequestId::Internal => unreachable!("Handled internally"),
         };
 
         trace!(
@@ -1289,22 +1287,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     fn on_data_columns_by_root_response(
         &mut self,
         peer_id: PeerId,
-        app_request_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
         data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
-        let sync_request_id = match app_request_id {
-            AppRequestId::Sync(sync_id) => match sync_id {
-                id @ SyncRequestId::DataColumnsByRoot { .. } => id,
-                other => {
-                    crit!(request = ?other, "DataColumnsByRoot response on incorrect request");
-                    return;
-                }
-            },
-            AppRequestId::Status => {
+        let sync_request_id = match sync_request_id {
+            Some(id @ SyncRequestId::DataColumnsByRoot { .. }) => id,
+            Some(other) => {
+                crit!(request = ?other, "DataColumnsByRoot response on incorrect request");
+                return;
+            }
+            None => {
                 crit!(%peer_id, "All DataColumnsByRoot requests belong to sync");
                 return;
             }
-            AppRequestId::Internal => unreachable!("Handled internally"),
         };
 
         trace!(
@@ -1321,7 +1316,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     fn on_data_columns_by_range_response(
         &mut self,
         peer_id: PeerId,
-        app_request_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
         data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
         trace!(
@@ -1329,7 +1324,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             "Received DataColumnsByRange Response"
         );
 
-        if let AppRequestId::Sync(sync_request_id) = app_request_id {
+        if let Some(sync_request_id) = sync_request_id {
             self.send_to_sync(SyncMessage::RpcDataColumn {
                 peer_id,
                 sync_request_id,
@@ -1344,11 +1339,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     fn on_payload_envelopes_by_root_response(
         &mut self,
         peer_id: PeerId,
-        app_request_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
         envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
-        let sync_request_id = match app_request_id {
-            AppRequestId::Sync(id @ SyncRequestId::SinglePayloadEnvelope { .. }) => id,
+        let sync_request_id = match sync_request_id {
+            Some(id @ SyncRequestId::SinglePayloadEnvelope { .. }) => id,
             other => {
                 crit!(request = ?other, %peer_id, "PayloadEnvelopesByRoot response on incorrect request");
                 return;
@@ -1366,11 +1361,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     fn on_payload_envelopes_by_range_response(
         &mut self,
         peer_id: PeerId,
-        app_request_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
         envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
     ) {
-        let sync_request_id = match app_request_id {
-            AppRequestId::Sync(id @ SyncRequestId::PayloadEnvelopesByRange { .. }) => id,
+        let sync_request_id = match sync_request_id {
+            Some(id @ SyncRequestId::PayloadEnvelopesByRange { .. }) => id,
             other => {
                 crit!(request = ?other, %peer_id, "PayloadEnvelopesByRange response on incorrect request");
                 return;
