@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "account_manager"
-version = "8.3.1"
+version = "8.4.0-rc.0"
 dependencies = [
  "account_utils",
  "bls",
@@ -1135,6 +1135,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-compression"
+version = "0.4.50"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee19bd99b43e3691acbad4e840420a4881cea6c0b66a208125a824f8fd53f5a1"
+dependencies = [
+ "compression-codecs",
+ "compression-core",
+ "pin-project-lite",
+ "tokio",
+]
+
+[[package]]
 name = "async-io"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1522,7 +1534,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "8.3.1"
+version = "8.4.0-rc.0"
 dependencies = [
  "account_utils",
  "axum_utils",
@@ -1815,7 +1827,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "8.3.1"
+version = "8.4.0-rc.0"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -2351,6 +2363,23 @@ dependencies = [
  "quote",
  "syn 2.0.119",
 ]
+
+[[package]]
+name = "compression-codecs"
+version = "0.4.45"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98fc98460ba0ad5317075d3632b8dfc45d0be8c4a49347c2a38272019717614a"
+dependencies = [
+ "compression-core",
+ "flate2",
+ "memchr",
+]
+
+[[package]]
+name = "compression-core"
+version = "0.4.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e8ccc4ea9f6acc32d102c0f6d471d11d913ad15f20c04de743374861fa1d414"
 
 [[package]]
 name = "concurrent-queue"
@@ -4880,6 +4909,7 @@ dependencies = [
  "axum 0.8.9",
  "axum_utils",
  "beacon_chain",
+ "flate2",
  "health_metrics",
  "lighthouse_network",
  "lighthouse_version",
@@ -5649,7 +5679,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "8.3.1"
+version = "8.4.0-rc.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -6132,7 +6162,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "8.3.1"
+version = "8.4.0-rc.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -6267,7 +6297,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse_version"
-version = "8.3.1"
+version = "8.4.0-rc.0"
 dependencies = [
  "regex",
 ]
@@ -10289,12 +10319,16 @@ version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
 dependencies = [
+ "async-compression",
  "bitflags 2.13.2",
  "bytes",
+ "futures-core",
  "futures-util",
  "http",
  "http-body",
  "pin-project-lite",
+ "tokio",
+ "tokio-util",
  "tower 0.5.3",
  "tower-layer",
  "tower-service",
@@ -10717,7 +10751,7 @@ dependencies = [
 
 [[package]]
 name = "validator_client"
-version = "8.3.1"
+version = "8.4.0-rc.0"
 dependencies = [
  "account_utils",
  "beacon_node_fallback",

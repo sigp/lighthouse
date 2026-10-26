@@ -95,7 +95,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "8.3.1"
+version = "8.4.0-rc.0"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
@@ -158,6 +158,7 @@ execution_layer = { path = "beacon_node/execution_layer" }
 fast_confirmation = { path = "consensus/fast_confirmation" }
 filesystem = { path = "common/filesystem" }
 fixed_bytes = { path = "consensus/fixed_bytes" }
+flate2 = "1"
 fnv = "1"
 fork_choice = { path = "consensus/fork_choice" }
 fs2 = "0.4"
