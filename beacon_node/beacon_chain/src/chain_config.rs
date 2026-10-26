@@ -54,6 +54,9 @@ pub struct ChainConfig {
     ///
     /// Never less than `SLOTS_PER_EPOCH`; smaller values are raised to that minimum.
     pub builder_fallback_ban_slots: u64,
+    /// Post-Gloas: open builder bid streams for the stored `builder_preferences` entries of this
+    /// node's upcoming proposals, and use a stream's latest bid at block production.
+    pub builder_bid_streaming: bool,
     /// When set to `true`, forget any valid/invalid/optimistic statuses in fork choice during start
     /// up.
     pub always_reset_payload_statuses: bool,
@@ -156,6 +159,7 @@ impl Default for ChainConfig {
             builder_fallback_epochs_since_finalization: 3,
             builder_fallback_disable_checks: false,
             builder_fallback_ban_slots: 32,
+            builder_bid_streaming: false,
             always_reset_payload_statuses: false,
             paranoid_block_proposal: false,
             checkpoint_sync_url_timeout: 60,

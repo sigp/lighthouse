@@ -1523,6 +1523,17 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("builder-bid-streaming")
+                .long("builder-bid-streaming")
+                .help("After the Gloas fork, stream bids from each builder in the builder \
+                       preferences submitted for this node's upcoming proposals, and use a \
+                       builder's streamed bid at block production instead of requesting one.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("builder-user-agent")
                 .long("builder-user-agent")
                 .value_name("STRING")
