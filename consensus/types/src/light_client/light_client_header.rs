@@ -10,6 +10,7 @@ use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 use crate::{
+    AbstractExecPayload, BeaconBlockBodyRef, ExecutionBlockHash,
     block::{BeaconBlockBody, BeaconBlockHeader, SignedBlindedBeaconBlock},
     core::{ChainSpec, EthSpec, Hash256},
     execution::{
@@ -17,11 +18,14 @@ use crate::{
         ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
     },
     fork::ForkName,
-    light_client::{ExecutionPayloadProofLen, LightClientError, consts::EXECUTION_PAYLOAD_INDEX},
+    light_client::{
+        ExecutionBlockHashProofLenGloas, ExecutionPayloadProofLen, LightClientError,
+        consts::{EXECUTION_BLOCK_HASH_INDEX_GLOAS, EXECUTION_PAYLOAD_INDEX},
+    },
 };
 
 #[superstruct(
-    variants(Altair, Capella, Deneb, Electra, Fulu,),
+    variants(Altair, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(Debug, Clone, Serialize, Deserialize, Educe, Decode, Encode, TreeHash,),
         educe(PartialEq),
@@ -62,8 +66,13 @@ pub struct LightClientHeader<E: EthSpec> {
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_header_fulu"))]
     pub execution: ExecutionPayloadHeaderFulu<E>,
 
+    #[superstruct(only(Gloas))]
+    pub execution_block_hash: ExecutionBlockHash,
+
     #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub execution_branch: FixedVector<Hash256, ExecutionPayloadProofLen>,
+    #[superstruct(only(Gloas), partial_getter(rename = "execution_branch_gloas"))]
+    pub execution_branch: FixedVector<Hash256, ExecutionBlockHashProofLenGloas>,
 
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -97,8 +106,9 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Fulu => {
                 LightClientHeader::Fulu(LightClientHeaderFulu::block_to_light_client_header(block)?)
             }
-            // TODO(gloas): implement Gloas light client
-            ForkName::Gloas => return Err(LightClientError::GloasNotImplemented),
+            ForkName::Gloas => LightClientHeader::Gloas(
+                LightClientHeaderGloas::block_to_light_client_header(block)?,
+            ),
             ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
         };
         Ok(header)
@@ -121,8 +131,10 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Fulu => {
                 LightClientHeader::Fulu(LightClientHeaderFulu::from_ssz_bytes(bytes)?)
             }
-            // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
+            ForkName::Gloas => {
+                LightClientHeader::Gloas(LightClientHeaderGloas::from_ssz_bytes(bytes)?)
+            }
+            ForkName::Base | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientHeader decoding for {fork_name} not implemented"
                 )));
@@ -142,7 +154,8 @@ impl<E: EthSpec> LightClientHeader<E> {
 
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
         if fork_name.gloas_enabled() {
-            // TODO(EIP7732): check this
+            // Gloas: `LightClientHeaderGloas` has no variable-length fields (`execution_block_hash`
+            // is a fixed-size hash and `execution_branch` is a `FixedVector`)
             0
         } else if fork_name.capella_enabled() {
             ExecutionPayloadHeader::<E>::ssz_max_var_len_for_fork(fork_name)
@@ -340,6 +353,48 @@ impl<E: EthSpec> Default for LightClientHeaderFulu<E> {
     }
 }
 
+impl<E: EthSpec> LightClientHeaderGloas<E> {
+    pub fn block_to_light_client_header(
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<Self, LightClientError> {
+        let body_gloas = block
+            .message()
+            .body_gloas()
+            .map_err(|_| LightClientError::BeaconBlockBodyError)?;
+
+        let execution_block_hash = body_gloas
+            .signed_execution_payload_bid
+            .message
+            .parent_block_hash;
+
+        let execution_branch = Self::execution_block_hash_merkle_proof(block.message().body())?;
+
+        Ok(LightClientHeaderGloas {
+            beacon: block.message().block_header(),
+            execution_block_hash,
+            execution_branch: FixedVector::new(execution_branch)?,
+            _phantom_data: PhantomData,
+        })
+    }
+
+    fn execution_block_hash_merkle_proof<Payload: AbstractExecPayload<E>>(
+        beacon_block_body: BeaconBlockBodyRef<'_, E, Payload>,
+    ) -> Result<Vec<Hash256>, LightClientError> {
+        Ok(beacon_block_body.block_body_merkle_proof(EXECUTION_BLOCK_HASH_INDEX_GLOAS)?)
+    }
+}
+
+impl<E: EthSpec> Default for LightClientHeaderGloas<E> {
+    fn default() -> Self {
+        Self {
+            beacon: BeaconBlockHeader::empty(),
+            execution_block_hash: ExecutionBlockHash::zero(),
+            execution_branch: FixedVector::default(),
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E> {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
@@ -352,8 +407,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E>
             ))
         };
         Ok(match context {
-            // TODO(gloas): implement Gloas light client
-            ForkName::Base | ForkName::Gloas | ForkName::Heze => {
+            ForkName::Base | ForkName::Heze => {
                 return Err(serde::de::Error::custom(format!(
                     "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
                     context
@@ -374,6 +428,9 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E>
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
+            ForkName::Gloas => {
+                Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
         })
     }
 }
@@ -383,31 +440,37 @@ mod tests {
     // `ssz_tests!` can only be defined once per namespace
     #[cfg(test)]
     mod altair {
-        use crate::{LightClientHeaderAltair, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderAltair<MainnetEthSpec>);
+        use crate::{LightClientHeaderAltair, Spec};
+        ssz_tests!(LightClientHeaderAltair<Spec>);
     }
 
     #[cfg(test)]
     mod capella {
-        use crate::{LightClientHeaderCapella, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderCapella<MainnetEthSpec>);
+        use crate::{LightClientHeaderCapella, Spec};
+        ssz_tests!(LightClientHeaderCapella<Spec>);
     }
 
     #[cfg(test)]
     mod deneb {
-        use crate::{LightClientHeaderDeneb, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderDeneb<MainnetEthSpec>);
+        use crate::{LightClientHeaderDeneb, Spec};
+        ssz_tests!(LightClientHeaderDeneb<Spec>);
     }
 
     #[cfg(test)]
     mod electra {
-        use crate::{LightClientHeaderElectra, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderElectra<MainnetEthSpec>);
+        use crate::{LightClientHeaderElectra, Spec};
+        ssz_tests!(LightClientHeaderElectra<Spec>);
     }
 
     #[cfg(test)]
     mod fulu {
-        use crate::{LightClientHeaderFulu, MainnetEthSpec};
-        ssz_tests!(LightClientHeaderFulu<MainnetEthSpec>);
+        use crate::{LightClientHeaderFulu, Spec};
+        ssz_tests!(LightClientHeaderFulu<Spec>);
+    }
+
+    #[cfg(test)]
+    mod gloas {
+        use crate::{LightClientHeaderGloas, Spec};
+        ssz_tests!(LightClientHeaderGloas<Spec>);
     }
 }

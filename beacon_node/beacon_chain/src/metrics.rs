@@ -22,6 +22,41 @@ pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL: &s
     "validator_monitor_attestation_simulator_source_attester_miss_total";
 
 /*
+* Builder circuit breaker
+*/
+
+pub static BUILDER_CIRCUIT_BREAKER_TRIPS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "beacon_builder_circuit_breaker_trips_total",
+        "Count of block proposals that ignored external builders because a chain health \
+         condition failed",
+        &["condition"],
+    )
+});
+pub static BUILDER_CIRCUIT_BREAKER_BANS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "beacon_builder_circuit_breaker_bans_total",
+        "Count of builder bans recorded, by reason: a missed payload reveal or an \
+         execution-invalid payload (post-Gloas)",
+        &["reason"],
+    )
+});
+pub static BUILDER_CIRCUIT_BREAKER_BAN_ENTRIES: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "beacon_builder_circuit_breaker_ban_entries",
+        "Number of unexpired builder ban entries (post-Gloas)",
+    )
+});
+pub static BUILDER_CIRCUIT_BREAKER_FILTERED_BIDS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_builder_circuit_breaker_filtered_bids_total",
+            "Count of payload bids dropped from block production because their builder is \
+             banned (post-Gloas)",
+        )
+    });
+
+/*
 * Execution Payload Envelope Processing
 */
 
@@ -665,6 +700,14 @@ pub static BALANCES_CACHE_MISSES: LazyLock<Result<IntCounter>> = LazyLock::new(|
         "Count of times balances cache misses request",
     )
 });
+pub static BALANCES_CACHE_BOUNDARY_STATE_LOAD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(
+    || {
+        try_create_histogram(
+            "beacon_balances_cache_boundary_state_load_seconds",
+            "Time spent loading the epoch boundary state to fill the balances cache after a skipped boundary slot",
+        )
+    },
+);
 
 /*
  * Persisting BeaconChain components to disk
@@ -695,13 +738,6 @@ pub static DEFAULT_ETH1_VOTES: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
 /*
  * Chain Head
  */
-pub static SLOT_ASSIGNMENTS_ERRORS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "beacon_slot_assignments_errors_total",
-        "Count of slot assignments cache update errors by error category",
-        &["error"],
-    )
-});
 pub static HEAD_STATE_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "beacon_head_state_slot",
@@ -1525,6 +1561,25 @@ pub static PAYLOAD_ATTESTATION_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
             "Full runtime of payload attestation gossip verification",
         )
     });
+pub static INCLUSION_LIST_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_inclusion_list_processing_requests_total",
+        "Count of all inclusion lists submitted for processing",
+    )
+});
+pub static INCLUSION_LIST_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_inclusion_list_processing_successes_total",
+            "Number of inclusion lists verified for gossip",
+        )
+    });
+pub static INCLUSION_LIST_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_inclusion_list_equivocations_total",
+        "Number of validators flagged for sending two different inclusion lists",
+    )
+});
 pub static SYNC_MESSAGE_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "sync_message_equivocations_total",

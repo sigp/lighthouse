@@ -145,14 +145,6 @@ pub enum CustodyRequester {
     RangeSync(ComponentsByRangeRequestId),
 }
 
-/// Application level requests sent to the network.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AppRequestId {
-    Sync(SyncRequestId),
-    Router,
-    Internal,
-}
-
 /// The type of RPC responses the Behaviour informs it has received, and allows for sending.
 ///
 // NOTE: This is an application-level wrapper over the lower network level responses that can be

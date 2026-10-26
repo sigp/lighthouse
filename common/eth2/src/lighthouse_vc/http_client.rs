@@ -494,6 +494,18 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
+    fn make_builder_config_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
+        let mut url = self.server.expose_full().clone();
+        url.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push(&pubkey.to_string())
+            .push("builder_config");
+        Ok(url)
+    }
+
     fn make_graffiti_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
         let mut url = self.server.expose_full().clone();
         url.path_segments_mut()
@@ -600,6 +612,33 @@ impl ValidatorClientHttpClient {
     /// `DELETE /eth/v1/validator/{pubkey}/feerecipient`
     pub async fn delete_fee_recipient(&self, pubkey: &PublicKeyBytes) -> Result<Response, Error> {
         let url = self.make_fee_recipient_url(pubkey)?;
+        self.delete_with_raw_response(url, &()).await
+    }
+
+    /// `GET /eth/v1/validator/{pubkey}/builder_config`
+    pub async fn get_builder_config(
+        &self,
+        pubkey: &PublicKeyBytes,
+    ) -> Result<BuilderConfig, Error> {
+        let url = self.make_builder_config_url(pubkey)?;
+        self.get(url)
+            .await
+            .map(|generic: GenericResponse<BuilderConfig>| generic.data)
+    }
+
+    /// `POST /eth/v1/validator/{pubkey}/builder_config`
+    pub async fn post_builder_config(
+        &self,
+        pubkey: &PublicKeyBytes,
+        request: &BuilderConfig,
+    ) -> Result<Response, Error> {
+        let url = self.make_builder_config_url(pubkey)?;
+        self.post_with_raw_response(url, request).await
+    }
+
+    /// `DELETE /eth/v1/validator/{pubkey}/builder_config`
+    pub async fn delete_builder_config(&self, pubkey: &PublicKeyBytes) -> Result<Response, Error> {
+        let url = self.make_builder_config_url(pubkey)?;
         self.delete_with_raw_response(url, &()).await
     }
 

@@ -284,10 +284,11 @@ impl BlockTimesCache {
         }
     }
 
-    // Prune the cache to only store the most recent 2 epochs.
+    // Prune the cache to only store the most recent 2 epochs and at most one slot ahead of `current_slot`
     pub fn prune(&mut self, current_slot: Slot) {
-        self.cache
-            .retain(|_, cache| cache.slot > current_slot.saturating_sub(64_u64));
+        self.cache.retain(|_, cache| {
+            cache.slot > current_slot.saturating_sub(64_u64) && cache.slot <= current_slot + 1
+        });
     }
 }
 

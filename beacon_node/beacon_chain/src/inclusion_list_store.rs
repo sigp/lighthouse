@@ -6,11 +6,12 @@
 //! keyed by `(slot, dependent_root)`, which pins an inclusion list to the committee it was produced
 //! against.
 
-use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
+use crate::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
+use ssz_types::{BitVector, ProgressiveVariableList};
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
-use types::{ChainSpec, EthSpec, Hash256, SignedInclusionList, Slot};
+use types::{ChainSpec, EthSpec, Hash256, InclusionListCommittee, SignedInclusionList, Slot};
 
 /// The shuffling `dependent_root` an inclusion list was produced against.
 pub type DependentRoot = Hash256;
@@ -50,8 +51,6 @@ struct SlotEntry {
     by_dependent_root: HashMap<DependentRoot, HashMap<u64, (SignedInclusionList, bool)>>,
     /// Validator indices flagged as equivocators.
     equivocators: HashMap<DependentRoot, HashSet<u64>>,
-    /// Count of valid inclusion lists seen this slot per validator, for the first-or-second rule.
-    validator_counts: HashMap<u64, usize>,
 }
 
 pub struct InclusionListStore<E: EthSpec> {
@@ -81,15 +80,15 @@ impl<E: EthSpec> InclusionListStore<E> {
         }
     }
 
-    /// Validate-and-insert a received `SignedInclusionList`, detecting equivocation.
-    ///
-    /// TODO(heze): accept a `GossipVerifiedInclusionList` once gossip verification lands, so the
-    /// caller cannot skip the p2p checks.
+    /// Insert a `GossipVerifiedInclusionList`, detecting equivocation.
     pub fn process_inclusion_list(
         &mut self,
-        signed_inclusion_list: SignedInclusionList,
-        is_timely: bool,
+        verified_inclusion_list: GossipVerifiedInclusionList,
     ) -> InsertOutcome {
+        let GossipVerifiedInclusionList {
+            signed_inclusion_list,
+            is_timely,
+        } = verified_inclusion_list;
         let inclusion_list = &signed_inclusion_list.message;
         let slot = inclusion_list.slot;
         let dependent_root = inclusion_list.dependent_root;
@@ -107,7 +106,7 @@ impl<E: EthSpec> InclusionListStore<E> {
             .map(|(stored, _)| stored.message != *inclusion_list);
 
         match stored_differs {
-            // An exact duplicate is not a second valid message, so it is not counted.
+            // An exact duplicate is not a second valid message.
             Some(false) => InsertOutcome::Seen,
             Some(true) => {
                 let newly_flagged = entry
@@ -116,14 +115,12 @@ impl<E: EthSpec> InclusionListStore<E> {
                     .or_default()
                     .insert(validator_index);
                 if newly_flagged {
-                    *entry.validator_counts.entry(validator_index).or_insert(0) += 1;
                     InsertOutcome::Equivocating
                 } else {
                     InsertOutcome::SubsequentEquivocation
                 }
             }
             None => {
-                *entry.validator_counts.entry(validator_index).or_insert(0) += 1;
                 entry
                     .by_dependent_root
                     .entry(dependent_root)
@@ -135,11 +132,18 @@ impl<E: EthSpec> InclusionListStore<E> {
     }
 
     /// Answers the gossip "first or second valid message from this validator" check.
-    pub fn seen_twice(&self, slot: Slot, validator_index: u64) -> bool {
+    ///
+    /// A validator's second valid message is always the one that flags it as an equivocator.
+    pub fn seen_twice(
+        &self,
+        slot: Slot,
+        dependent_root: DependentRoot,
+        validator_index: u64,
+    ) -> bool {
         self.slots
             .get(&slot)
-            .and_then(|entry| entry.validator_counts.get(&validator_index))
-            .is_some_and(|count| *count >= 2)
+            .and_then(|entry| entry.equivocators.get(&dependent_root))
+            .is_some_and(|equivocators| equivocators.contains(&validator_index))
     }
 
     /// Validator indices that submitted a valid, non-equivocating inclusion list for
@@ -209,7 +213,7 @@ impl<E: EthSpec> InclusionListStore<E> {
         &self,
         slot: Slot,
         dependent_root: DependentRoot,
-        il_committee: &FixedVector<u64, E::InclusionListCommitteeSize>,
+        il_committee: &InclusionListCommittee<E>,
         only_timely: bool,
     ) -> Result<BitVector<E::InclusionListCommitteeSize>, Error> {
         let submitted = self.submitted_validators(slot, dependent_root, only_timely);
@@ -229,7 +233,7 @@ impl<E: EthSpec> InclusionListStore<E> {
         &self,
         slot: Slot,
         dependent_root: DependentRoot,
-        il_committee: &FixedVector<u64, E::InclusionListCommitteeSize>,
+        il_committee: &InclusionListCommittee<E>,
         bits: &BitVector<E::InclusionListCommitteeSize>,
         only_timely: bool,
     ) -> Result<bool, Error> {
@@ -282,13 +286,15 @@ impl<E: EthSpec> InclusionListStore<E> {
 #[cfg(test)]
 mod tests {
     use super::{DependentRoot, InclusionListStore, InsertOutcome};
+    use crate::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
     use bls::Signature;
     use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
     use types::{
-        Epoch, EthSpec, Hash256, InclusionList, MinimalEthSpec, SignedInclusionList, Slot,
+        Epoch, EthSpec, Hash256, InclusionList, InclusionListCommittee, SignedInclusionList, Slot,
+        Spec,
     };
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn new_store() -> InclusionListStore<E> {
         InclusionListStore::new(&E::default_spec())
@@ -299,7 +305,7 @@ mod tests {
     }
 
     fn tx(byte: u8) -> ProgressiveVariableList<u8> {
-        ProgressiveVariableList::new(vec![byte])
+        ProgressiveVariableList::new(vec![byte]).unwrap()
     }
 
     fn signed_il(
@@ -315,9 +321,20 @@ mod tests {
                 dependent_root,
                 transactions: ProgressiveVariableList::new(
                     tx_bytes.iter().map(|b| tx(*b)).collect(),
-                ),
+                )
+                .unwrap(),
             },
             signature: Signature::empty(),
+        }
+    }
+
+    fn verified(
+        signed_inclusion_list: SignedInclusionList,
+        is_timely: bool,
+    ) -> GossipVerifiedInclusionList {
+        GossipVerifiedInclusionList {
+            signed_inclusion_list,
+            is_timely,
         }
     }
 
@@ -326,27 +343,30 @@ mod tests {
         let mut store = new_store();
         let il = signed_il(10, 1, root(1), &[0xaa]);
         assert_eq!(
-            store.process_inclusion_list(il.clone(), true),
+            store.process_inclusion_list(verified(il.clone(), true)),
             InsertOutcome::New
         );
-        assert_eq!(store.process_inclusion_list(il, true), InsertOutcome::Seen);
+        assert_eq!(
+            store.process_inclusion_list(verified(il, true)),
+            InsertOutcome::Seen
+        );
         // A duplicate is not a second valid message.
-        assert!(!store.seen_twice(Slot::new(10), 1));
+        assert!(!store.seen_twice(Slot::new(10), root(1), 1));
     }
 
     #[test]
     fn differing_list_flags_equivocation() {
         let mut store = new_store();
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xaa]), true)),
             InsertOutcome::New
         );
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xbb]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xbb]), true)),
             InsertOutcome::Equivocating
         );
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xcc]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xcc]), true)),
             InsertOutcome::SubsequentEquivocation
         );
     }
@@ -356,7 +376,7 @@ mod tests {
         let mut store = new_store();
         store.prune(Slot::new(20));
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xaa]), true)),
             InsertOutcome::Old
         );
     }
@@ -364,20 +384,20 @@ mod tests {
     #[test]
     fn seen_twice_counts_valid_arrivals() {
         let mut store = new_store();
-        assert!(!store.seen_twice(Slot::new(10), 1));
-        store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true);
-        assert!(!store.seen_twice(Slot::new(10), 1));
+        assert!(!store.seen_twice(Slot::new(10), root(1), 1));
+        store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xaa]), true));
+        assert!(!store.seen_twice(Slot::new(10), root(1), 1));
         // A differing (equivocating) message still counts as a valid arrival.
-        store.process_inclusion_list(signed_il(10, 1, root(1), &[0xbb]), true);
-        assert!(store.seen_twice(Slot::new(10), 1));
+        store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xbb]), true));
+        assert!(store.seen_twice(Slot::new(10), root(1), 1));
     }
 
     #[test]
     fn transactions_are_deduplicated_and_timely_filtered() {
         let mut store = new_store();
         let dr = root(1);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xaa, 0xbb]), true);
-        store.process_inclusion_list(signed_il(10, 2, dr, &[0xbb, 0xcc]), false);
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xaa, 0xbb]), true));
+        store.process_inclusion_list(verified(signed_il(10, 2, dr, &[0xbb, 0xcc]), false));
 
         let all = store.get_inclusion_list_transactions(Slot::new(10), dr, false);
         assert_eq!(all.len(), 3);
@@ -390,8 +410,8 @@ mod tests {
     fn equivocators_excluded_from_reads() {
         let mut store = new_store();
         let dr = root(1);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xaa]), true);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xbb]), true);
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xaa]), true));
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xbb]), true));
         assert!(
             store
                 .get_inclusion_list_transactions(Slot::new(10), dr, false)
@@ -402,12 +422,12 @@ mod tests {
     #[test]
     fn bits_reflect_submitters_and_inclusivity() {
         let mut store = new_store();
-        let il_committee: FixedVector<u64, <E as EthSpec>::InclusionListCommitteeSize> =
+        let il_committee: InclusionListCommittee<E> =
             FixedVector::new((100..116).collect()).unwrap();
         let dr = root(1);
 
-        store.process_inclusion_list(signed_il(10, il_committee[3], dr, &[0xaa]), true);
-        store.process_inclusion_list(signed_il(10, il_committee[7], dr, &[0xbb]), true);
+        store.process_inclusion_list(verified(signed_il(10, il_committee[3], dr, &[0xaa]), true));
+        store.process_inclusion_list(verified(signed_il(10, il_committee[7], dr, &[0xbb]), true));
 
         let bits = store
             .get_inclusion_list_bits(Slot::new(10), dr, &il_committee, false)
@@ -436,11 +456,11 @@ mod tests {
     fn differing_dependent_roots_are_not_equivocation() {
         let mut store = new_store();
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xaa]), true)),
             InsertOutcome::New
         );
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(2), &[0xbb]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(2), &[0xbb]), true)),
             InsertOutcome::New
         );
 
@@ -453,17 +473,18 @@ mod tests {
             );
         }
 
-        // Both still count against the first-or-second rule, which is per validator and slot.
-        assert!(store.seen_twice(Slot::new(10), 1));
+        // Each dependent root is counted separately.
+        assert!(!store.seen_twice(Slot::new(10), root(1), 1));
+        assert!(!store.seen_twice(Slot::new(10), root(2), 1));
     }
 
     #[test]
     fn get_signed_inclusion_lists_skips_equivocators_and_missing() {
         let mut store = new_store();
         let dr = root(1);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xaa]), true);
-        store.process_inclusion_list(signed_il(10, 2, dr, &[0xbb]), true);
-        store.process_inclusion_list(signed_il(10, 2, dr, &[0xcc]), true);
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xaa]), true));
+        store.process_inclusion_list(verified(signed_il(10, 2, dr, &[0xbb]), true));
+        store.process_inclusion_list(verified(signed_il(10, 2, dr, &[0xcc]), true));
 
         let result = store.get_signed_inclusion_lists(Slot::new(10), dr, &[1, 2, 3]);
         assert_eq!(result.len(), 1);
@@ -474,8 +495,8 @@ mod tests {
     fn prune_drops_old_slots() {
         let mut store = new_store();
         let dr = root(1);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xaa]), true);
-        store.process_inclusion_list(signed_il(12, 1, dr, &[0xbb]), true);
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xaa]), true));
+        store.process_inclusion_list(verified(signed_il(12, 1, dr, &[0xbb]), true));
 
         store.prune(Slot::new(12));
         assert!(
@@ -499,7 +520,7 @@ mod tests {
         spec.min_slots_for_inclusion_lists_requests = 4;
         let mut store = InclusionListStore::<E>::new(&spec);
         let dr = root(1);
-        store.process_inclusion_list(signed_il(10, 1, dr, &[0xaa]), true);
+        store.process_inclusion_list(verified(signed_il(10, 1, dr, &[0xaa]), true));
 
         store.prune(Slot::new(15));
         assert!(
@@ -525,14 +546,17 @@ mod tests {
         let dr = root(1);
 
         assert_eq!(
-            store.process_inclusion_list(
+            store.process_inclusion_list(verified(
                 signed_il(first_heze_slot.as_u64() - 1, 1, dr, &[0xaa]),
                 true
-            ),
+            )),
             InsertOutcome::Old
         );
         assert_eq!(
-            store.process_inclusion_list(signed_il(first_heze_slot.as_u64(), 1, dr, &[0xaa]), true),
+            store.process_inclusion_list(verified(
+                signed_il(first_heze_slot.as_u64(), 1, dr, &[0xaa]),
+                true
+            )),
             InsertOutcome::New
         );
     }
@@ -545,7 +569,7 @@ mod tests {
         let mut store = InclusionListStore::<E>::new(&spec);
 
         assert_eq!(
-            store.process_inclusion_list(signed_il(10, 1, root(1), &[0xaa]), true),
+            store.process_inclusion_list(verified(signed_il(10, 1, root(1), &[0xaa]), true)),
             InsertOutcome::New
         );
     }

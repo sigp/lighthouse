@@ -75,7 +75,7 @@ use execution_layer::PayloadStatus;
 pub use fork_choice::{AttestationFromBlock, ParentImportStatus, PayloadVerificationStatus};
 use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
-use proto_array::Block as ProtoBlock;
+use proto_array::{Block as ProtoBlock, PayloadBlockHash};
 use safe_arith::ArithError;
 use slot_clock::SlotClock;
 use ssz::Encode;
@@ -102,9 +102,10 @@ use strum::{AsRefStr, IntoStaticStr};
 use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
-    Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
-    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot, data::DataColumnSidecarError,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, ColumnIndex,
+    DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256,
+    InconsistentFork, KzgProofs, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    data::DataColumnSidecarError,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -333,7 +334,43 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    /// The slot of a Gloas data column sidecar does not match the slot of its bid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The column is invalid and the peer that served `column_index` should be penalized.
+    DataColumnSlotMismatch {
+        column_index: ColumnIndex,
+        block_slot: Slot,
+        data_column_slot: Slot,
+    },
     EnvelopeError(Box<EnvelopeError>),
+}
+
+/// Wraps the `BlockError` with the root of the block being computed to avoid
+/// computing it again on error.
+#[derive(Debug)]
+pub struct BlockErrorWithRoot {
+    /// Absent when the verification task fails without returning a computed root.
+    /// Note: We should return the root in almost all cases.
+    /// Only runtime failures can be returned without it.
+    pub block_root: Option<Hash256>,
+    pub error: Box<BlockError>,
+}
+
+impl BlockErrorWithRoot {
+    pub fn into_block_error(self) -> BlockError {
+        *self.error
+    }
+}
+
+impl From<BeaconChainError> for BlockErrorWithRoot {
+    fn from(error: BeaconChainError) -> Self {
+        Self {
+            block_root: None,
+            error: Box::new(error.into()),
+        }
+    }
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -763,7 +800,7 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for Arc<SignedBeaconBlock<T
         self,
         chain: &BeaconChain<T>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
-        GossipVerifiedBlock::new(self, chain)
+        GossipVerifiedBlock::new(self, chain).map_err(BlockErrorWithRoot::into_block_error)
     }
 
     fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
@@ -841,7 +878,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     pub fn new(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
-    ) -> Result<Self, BlockError> {
+    ) -> Result<Self, BlockErrorWithRoot> {
         // If the block is valid for gossip we don't supply it to the slasher here because
         // we assume it will be transformed into a fully verified block. We *do* need to supply
         // it to the slasher if an error occurs, because that's the end of this block's journey,
@@ -850,23 +887,25 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // The `SignedBeaconBlock` and `SignedBeaconBlockHeader` have the same canonical root,
         // but it's way quicker to calculate root of the header since the hash of the tree rooted
         // at `BeaconBlockBody` is already computed in the header.
-        Self::new_without_slasher_checks(block, &header, chain)
+        let block_root = get_block_header_root(&header);
+        Span::current().record("block_root", block_root.to_string());
+        Self::new_without_slasher_checks(block, block_root, chain)
             .map_err(|e| {
                 process_block_slash_info::<_, BlockError>(
                     chain,
                     BlockSlashInfo::from_early_error_block(header, e),
                 )
             })
-            .inspect(|block| {
-                let current_span = Span::current();
-                current_span.record("block_root", block.block_root.to_string());
+            .map_err(|error| BlockErrorWithRoot {
+                block_root: Some(block_root),
+                error: Box::new(error),
             })
     }
 
     /// As for new, but doesn't pass the block to the slasher.
     fn new_without_slasher_checks(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        block_header: &SignedBeaconBlockHeader,
+        block_root: Hash256,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError> {
         // Ensure the block is the correct structure for the fork at `block.slot()`.
@@ -918,8 +957,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             }
         }
 
-        let block_root = get_block_header_root(block_header);
-
         // Do not gossip a block from a finalized slot.
         check_block_against_finalized_slot(block.message(), block_root, chain)?;
 
@@ -953,10 +990,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
         // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
         if let Ok(bid) = block.message().body().signed_execution_payload_bid()
-            && bid.message.parent_block_root != block.message().parent_root()
+            && bid.message().parent_block_root() != block.message().parent_root()
         {
             return Err(BlockError::BidParentRootMismatch {
-                bid_parent_root: bid.message.parent_block_root,
+                bid_parent_root: bid.message().parent_block_root(),
                 block_parent_root: block.message().parent_root(),
             });
         }
@@ -1258,6 +1295,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 {
                     MaybeAvailableBlock::Available(
                         AvailableBlock::new(
+                            from.block_root,
                             block,
                             AvailableBlockData::NoData,
                             &chain.custody_context,
@@ -1457,13 +1495,20 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .observe_proposal(block_root, block.message())
             .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
 
-        match chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_parent_import_status(block.as_block())
-        {
+        let fork_choice = chain.canonical_head.fork_choice_read_lock();
+        match fork_choice.get_parent_import_status(block.as_block()) {
             ParentImportStatus::Imported(parent) => {
-                if parent.execution_status.is_invalid() {
+                let payload_invalid = match block.as_block().payload_bid_parent_block_hash() {
+                    // Post-Gloas the bid names the payload this block builds on. A child of the
+                    // parent's `EMPTY` node builds on an older payload, not the parent's own.
+                    Ok(block_hash) => fork_choice.is_invalid(block_hash),
+                    // Pre-Gloas a block builds on its parent's payload.
+                    Err(_) => match parent.block_hash() {
+                        PayloadBlockHash::Hash(block_hash) => fork_choice.is_invalid(block_hash),
+                        PayloadBlockHash::PreMerge => false,
+                    },
+                };
+                if payload_invalid {
                     return Err(BlockError::ParentExecutionPayloadInvalid {
                         parent_root: block.parent_root(),
                     });
@@ -1476,6 +1521,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 });
             }
         }
+        drop(fork_choice);
 
         /*
          *  Perform cursory checks to see if the block is even worth processing.

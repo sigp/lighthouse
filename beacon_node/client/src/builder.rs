@@ -19,7 +19,7 @@ use beacon_chain::{
 use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
-use builder_client::{BuilderHttpClient, Builders};
+use builder_client::{BidStreams, BuilderHttpClient, Builders};
 use environment::RuntimeContext;
 use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
@@ -216,7 +216,16 @@ where
                 .unwrap_or((None, false));
             let client = BuilderHttpClient::new(user_agent, disable_ssz)
                 .map_err(|e| format!("unable to start builder client: {:?}", e))?;
-            Some(Arc::new(Builders::new(Arc::new(client))))
+            let user_agent = client.get_user_agent().to_string();
+            let mut builders = Builders::new(Arc::new(client));
+            if config.chain.builder_bid_streaming {
+                builders = builders.with_bid_streams(Arc::new(BidStreams::new(
+                    context.executor.clone(),
+                    &user_agent,
+                )?));
+                info!("Builder bid streams enabled");
+            }
+            Some(Arc::new(builders))
         } else {
             None
         };
@@ -270,7 +279,7 @@ where
             builder
         };
 
-        let chain_exists = builder.store_contains_beacon_chain().unwrap_or(false);
+        let chain_exists = builder.store_contains_beacon_chain()?;
 
         // If the client is expect to resume but there's no beacon chain in the database,
         // use the `DepositContract` method. This scenario is quite common when the client
@@ -874,6 +883,32 @@ where
             .shutdown_sender(context.executor.shutdown_sender())
             .build()
             .map_err(|e| format!("Failed to build beacon chain: {}", e))?;
+
+        if chain.execution_layer.is_none() && chain.execution_proofs_enabled() {
+            // Blocks at or below finality are never imported.
+            let finalized_epoch = chain
+                .canonical_head
+                .cached_head()
+                .finalized_checkpoint()
+                .epoch;
+            if !chain
+                .spec
+                .fork_name_at_epoch(finalized_epoch)
+                .gloas_enabled()
+            {
+                return Err(
+                    "Running with no execution layer needs finality at or after the Gloas fork, \
+                     where EIP-8025 proofs decide payload validity. Set --execution-endpoint, \
+                     or checkpoint sync past the fork."
+                        .to_string(),
+                );
+            }
+
+            info!(
+                info = "the node cannot verify pre-Gloas payloads or propose a locally built one",
+                "Running with no execution layer; EIP-8025 proofs decide payload validity"
+            );
+        }
 
         self.beacon_chain = Some(Arc::new(chain));
         self.beacon_chain_builder = None;
