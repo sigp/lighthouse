@@ -1,0 +1,12 @@
+min_bid: 0
+builder_boost_factor: 100
+builders:
+  - enabled: true
+    url: "http://buildoor-lighthouse-geth-1-1:8080"
+    max_execution_payment: 10000000000000
+  - enabled: true
+    url: "http://buildoor-lighthouse-geth-1-2:8080"
+    max_execution_payment: 20000000000000
+  - enabled: true
+    url: "http://buildoor-lighthouse-geth-1-3:8080"
+    max_execution_payment: 30000000000000
