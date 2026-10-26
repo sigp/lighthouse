@@ -57,7 +57,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
     }
 
     pub fn fulu_params(executor: TaskExecutor) -> Self {
-        let mut spec = MainnetEthSpec::default_spec();
+        let mut spec = E::default_spec();
         spec.terminal_block_hash = ExecutionBlockHash::zero();
         spec.terminal_block_hash_activation_epoch = Epoch::new(0);
         Self::new(
@@ -77,7 +77,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
     /// Build a mock whose client advertises REST-SSZ but whose server does not serve it. The
     /// capabilities probe then 404s over REST, forcing the transport to fall back to JSON-RPC.
     pub fn rest_client_without_rest_server(executor: TaskExecutor) -> Self {
-        let mut spec = MainnetEthSpec::default_spec();
+        let mut spec = E::default_spec();
         spec.terminal_block_hash = ExecutionBlockHash::zero();
         spec.terminal_block_hash_activation_epoch = Epoch::new(0);
         Self::new_with_transport(

@@ -328,12 +328,7 @@ mod tests {
         let spec = Arc::new(test_spec::<Spec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
         let mock_execution_layer = harness.mock_execution_layer.as_ref().unwrap();
-        mock_execution_layer
-            .server
-            .set_engine_capabilities(EngineCapabilities {
-                get_client_version_v1: false,
-                ..DEFAULT_ENGINE_CAPABILITIES
-            });
+        mock_execution_layer.server.disable_client_version();
         harness
             .chain
             .execution_layer
