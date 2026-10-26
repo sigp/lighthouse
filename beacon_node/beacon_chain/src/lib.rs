@@ -80,7 +80,7 @@ pub use self::beacon_chain::{
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, LightClientProducerEvent, OverrideForkchoiceUpdate,
     ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
 };
-pub use self::beacon_snapshot::{BeaconSnapshot, ChainDumpSnapshot};
+pub use self::beacon_snapshot::{BeaconSnapshot, ChainDumpBlock, ChainDumpSnapshot};
 pub use self::block_production::PayloadEnvelopeContents;
 pub use self::chain_config::ChainConfig;
 pub use self::errors::{BeaconChainError, BlockProductionError};

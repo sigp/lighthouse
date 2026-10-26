@@ -23,6 +23,15 @@ pub struct BeaconSnapshot<
 pub type ChainDumpSnapshot<E> =
     BeaconSnapshot<E, BlindedPayload<E>, SignedExecutionPayloadEnvelope<E>>;
 
+/// A block from a dump of the canonical chain, without its state.
+#[derive(Clone, Debug)]
+pub struct ChainDumpBlock<E: EthSpec> {
+    pub beacon_block: Arc<SignedBlindedBeaconBlock<E>>,
+    /// The block's payload envelope, if its payload is canonical and has not been pruned.
+    pub execution_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    pub beacon_block_root: Hash256,
+}
+
 /// This snapshot is to be used for verifying a child of `self.beacon_block`.
 #[derive(Debug)]
 pub struct PreProcessingSnapshot<T: EthSpec> {

@@ -95,7 +95,7 @@ use crate::validator_monitor::{
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot,
-    CachedHead, ChainDumpSnapshot, metrics,
+    CachedHead, ChainDumpBlock, ChainDumpSnapshot, metrics,
 };
 use bls::{PublicKey, PublicKeyBytes, Signature};
 use builder_client::{BidRequestContext, BidStreams, Builders};
@@ -7680,8 +7680,56 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Vec<ChainDumpSnapshot<T::EthSpec>>, Error> {
         let mut dump = vec![];
 
-        let mut prev_block_root = None;
         let mut prev_beacon_state = None;
+
+        for ChainDumpBlock {
+            beacon_block,
+            execution_envelope,
+            beacon_block_root,
+        } in self.chain_dump_blocks_from_slot(from_slot)?
+        {
+            let state_root = beacon_block.state_root();
+
+            let mut beacon_state = self
+                .store
+                .get_state(&state_root, Some(beacon_block.slot()), true)?
+                .ok_or_else(|| Error::DBInconsistent(format!("Missing state {:?}", state_root)))?;
+
+            // This beacon state might come from the freezer DB, which means it could have pending
+            // updates or lots of untethered memory. We rebase it on the previous state in order to
+            // address this.
+            beacon_state.apply_pending_mutations()?;
+            if let Some(prev) = prev_beacon_state {
+                beacon_state.rebase_on(&prev, &self.spec)?;
+            }
+            beacon_state.build_caches(&self.spec)?;
+            prev_beacon_state = Some(beacon_state.clone());
+
+            let snapshot = BeaconSnapshot {
+                beacon_block,
+                execution_envelope,
+                beacon_block_root,
+                beacon_state,
+            };
+            dump.push(snapshot);
+        }
+
+        Ok(dump)
+    }
+
+    /// As for `chain_dump`, but without loading the state of each block, which is much cheaper.
+    pub fn chain_dump_blocks(&self) -> Result<Vec<ChainDumpBlock<T::EthSpec>>, Error> {
+        self.chain_dump_blocks_from_slot(Slot::new(0))
+    }
+
+    /// As for `chain_dump_from_slot`, but without loading the state of each block.
+    pub fn chain_dump_blocks_from_slot(
+        &self,
+        from_slot: Slot,
+    ) -> Result<Vec<ChainDumpBlock<T::EthSpec>>, Error> {
+        let mut dump = vec![];
+
+        let mut prev_block_root = None;
 
         // Collect all blocks.
         let mut blocks = vec![];
@@ -7745,30 +7793,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 None
             };
-            let state_root = block.state_root();
 
-            let mut beacon_state = self
-                .store
-                .get_state(&state_root, Some(block.slot()), true)?
-                .ok_or_else(|| Error::DBInconsistent(format!("Missing state {:?}", state_root)))?;
-
-            // This beacon state might come from the freezer DB, which means it could have pending
-            // updates or lots of untethered memory. We rebase it on the previous state in order to
-            // address this.
-            beacon_state.apply_pending_mutations()?;
-            if let Some(prev) = prev_beacon_state {
-                beacon_state.rebase_on(&prev, &self.spec)?;
-            }
-            beacon_state.build_caches(&self.spec)?;
-            prev_beacon_state = Some(beacon_state.clone());
-
-            let snapshot = BeaconSnapshot {
+            dump.push(ChainDumpBlock {
                 beacon_block: block.clone(),
                 execution_envelope: opt_envelope,
                 beacon_block_root: *block_root,
-                beacon_state,
-            };
-            dump.push(snapshot);
+            });
         }
 
         Ok(dump)
