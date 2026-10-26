@@ -236,6 +236,14 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("unknown-root-min-peers")
+                .long("unknown-root-min-peers")
+                .value_name("INTEGER")
+                .help("The number of distinct peers required to report an unknown block root before Lighthouse requests it. Defaults to 3.")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("boot-nodes")
                 .long("boot-nodes")
                 .allow_hyphen_values(true)
@@ -840,8 +848,8 @@ pub fn cli_app() -> Command {
                 .alias("execution-endpoints")
                 .help("Server endpoint for an execution layer JWT-authenticated HTTP \
                        JSON-RPC connection. Uses the same endpoint to populate the \
-                       deposit cache.")
-                .required(true)
+                       deposit cache. Optional when --proof-engine-endpoint is set.")
+                .required_unless_present("proof-engine-endpoint")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1455,7 +1463,12 @@ pub fn cli_app() -> Command {
                 .long("builder-fallback-skips")
                 .help("If this node is proposing a block and has seen this number of skip slots \
                         on the canonical chain in a row, it will NOT query any connected builders, \
-                        and will use the local execution engine for payload construction.")
+                        and will use the local execution engine for payload construction. After \
+                        the Gloas fork a skip is a slot whose beacon block landed and received \
+                        enough attestations to charge the builder, but whose execution payload \
+                        did not; slots with no beacon block are not counted. After the Gloas \
+                        fork builders are still queried, but any external bid is used only if \
+                        the local build fails.")
                 .default_value("3")
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -1466,8 +1479,22 @@ pub fn cli_app() -> Command {
                 .help("If this node is proposing a block and has seen this number of skip slots \
                         on the canonical chain in the past `SLOTS_PER_EPOCH`, it will NOT query \
                         any connected builders, and will use the local execution engine for \
-                        payload construction.")
+                        payload construction. After the Gloas fork a skip is a slot whose beacon \
+                        block landed and received enough attestations to charge the builder, but \
+                        whose execution payload did not; slots with no beacon block are not \
+                        counted. After the Gloas fork builders are still queried, but any \
+                        external bid is used only if the local build fails.")
                 .default_value("8")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("builder-fallback-ban-slots")
+                .long("builder-fallback-ban-slots")
+                .help("After the Gloas fork, a builder that fails to reveal its execution payload \
+                        for a block that received sufficient attestations will have its bids \
+                        ignored for this many slots. Cannot be less than `SLOTS_PER_EPOCH`.")
+                .default_value("32")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1493,6 +1520,17 @@ pub fn cli_app() -> Command {
                         conditions.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("builder-bid-streaming")
+                .long("builder-bid-streaming")
+                .help("After the Gloas fork, stream bids from each builder in the builder \
+                       preferences submitted for this node's upcoming proposals, and use a \
+                       builder's streamed bid at block production instead of requesting one.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .hide(true)
                 .display_order(0)
         )
         .arg(

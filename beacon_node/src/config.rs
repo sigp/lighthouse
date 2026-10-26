@@ -291,41 +291,48 @@ pub fn get_config<E: EthSpec>(
         client_config.http_metrics.allocator_metrics_enabled = false;
     }
 
-    // `--execution-endpoint` is required now.
-    let endpoints: String = clap_utils::parse_required(cli_args, "execution-endpoint")?;
     let mut el_config = execution_layer::Config::default();
 
-    // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
-    let execution_endpoint = parse_only_one_value(
-        endpoints.as_str(),
-        SensitiveUrl::parse,
-        "--execution-endpoint",
-    )?;
+    // Clap requires `--execution-endpoint` unless a proof engine is configured. Absent, the node
+    // runs with no execution layer.
+    if let Some(endpoints) = cli_args.get_one::<String>("execution-endpoint") {
+        // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
+        el_config.execution_endpoint = Some(parse_only_one_value(
+            endpoints.as_str(),
+            SensitiveUrl::parse,
+            "--execution-endpoint",
+        )?);
 
-    // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
-    // file_path or directly as string.
-    let secret_file: PathBuf;
-    // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
-    if let Some(secret_files) = cli_args.get_one::<String>("execution-jwt") {
-        secret_file = parse_only_one_value(secret_files, PathBuf::from_str, "--execution-jwt")?;
-    // Check if the JWT secret key is passed directly via cli flag and persist it to the default
-    // file location.
-    } else if let Some(jwt_secret_key) = cli_args.get_one::<String>("execution-jwt-secret-key") {
-        use std::fs::File;
-        use std::io::Write;
-        secret_file = client_config.data_dir().join(DEFAULT_JWT_FILE);
-        let mut jwt_secret_key_file = File::create(secret_file.clone())
-            .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
-        jwt_secret_key_file
-            .write_all(jwt_secret_key.as_bytes())
-            .map_err(|e| {
-                format!(
-                    "Error occurred while writing to jwt_secret_key file: {:?}",
-                    e
-                )
-            })?;
-    } else {
-        return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
+        // JWTs are required if `--execution-endpoint` is supplied. They can be either passed via
+        // file_path or directly as string.
+        // Parse a single JWT secret from a given file_path, logging warnings if multiple are supplied.
+        if let Some(secret_files) = cli_args.get_one::<String>("execution-jwt") {
+            el_config.secret_file = Some(parse_only_one_value(
+                secret_files,
+                PathBuf::from_str,
+                "--execution-jwt",
+            )?);
+        // Check if the JWT secret key is passed directly via cli flag and persist it to the default
+        // file location.
+        } else if let Some(jwt_secret_key) = cli_args.get_one::<String>("execution-jwt-secret-key")
+        {
+            use std::fs::File;
+            use std::io::Write;
+            let secret_file = client_config.data_dir().join(DEFAULT_JWT_FILE);
+            let mut jwt_secret_key_file = File::create(secret_file.clone())
+                .map_err(|e| format!("Error while creating jwt_secret_key file: {:?}", e))?;
+            jwt_secret_key_file
+                .write_all(jwt_secret_key.as_bytes())
+                .map_err(|e| {
+                    format!(
+                        "Error occurred while writing to jwt_secret_key file: {:?}",
+                        e
+                    )
+                })?;
+            el_config.secret_file = Some(secret_file);
+        } else {
+            return Err("Error! Please set either --execution-jwt file_path or --execution-jwt-secret-key directly via cli when using --execution-endpoint".to_string());
+        }
     }
 
     // Parse and set the EIP-8025 proof engine, if any.
@@ -353,8 +360,6 @@ pub fn get_config<E: EthSpec>(
     }
 
     // Set config values from parse values.
-    el_config.secret_file = Some(secret_file.clone());
-    el_config.execution_endpoint = Some(execution_endpoint.clone());
     el_config.suggested_fee_recipient =
         clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
     el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
@@ -366,8 +371,13 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
     el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
 
-    // Store the EL config in the client config.
-    client_config.execution_layer = Some(el_config);
+    // With no endpoint there is no execution layer, and every field here is read only through one.
+    if el_config.execution_endpoint.is_some() {
+        client_config.execution_layer = Some(el_config);
+    } else {
+        // No engine to fetch blobs from.
+        client_config.chain.disable_get_blobs = true;
+    }
 
     // Override default trusted setup file if required
     if let Some(trusted_setup_file_path) = cli_args.get_one::<String>("trusted-setup-file-override")
@@ -425,6 +435,10 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(prune_payloads) = clap_utils::parse_optional(cli_args, "prune-payloads")? {
         client_config.store.prune_payloads = prune_payloads;
+    }
+    // No engine to reconstruct a pruned payload from.
+    if client_config.execution_layer.is_none() {
+        client_config.store.prune_payloads = false;
     }
 
     if clap_utils::parse_optional::<u64>(cli_args, "slots-per-restore-point")?.is_some() {
@@ -816,6 +830,16 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "builder-fallback-epochs-since-finalization")?;
     client_config.chain.builder_fallback_disable_checks =
         cli_args.get_flag("builder-fallback-disable-checks");
+    client_config.chain.builder_bid_streaming = cli_args.get_flag("builder-bid-streaming");
+    let builder_fallback_ban_slots: u64 =
+        clap_utils::parse_required(cli_args, "builder-fallback-ban-slots")?;
+    if builder_fallback_ban_slots < E::slots_per_epoch() {
+        return Err(format!(
+            "--builder-fallback-ban-slots must be at least SLOTS_PER_EPOCH ({})",
+            E::slots_per_epoch()
+        ));
+    }
+    client_config.chain.builder_fallback_ban_slots = builder_fallback_ban_slots;
 
     // Graphical user interface config.
     if cli_args.get_flag("gui") {
@@ -1196,6 +1220,15 @@ pub fn set_network_config(
         config.target_peers = target_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
+    }
+
+    if let Some(unknown_root_min_peers) =
+        clap_utils::parse_optional(cli_args, "unknown-root-min-peers")?
+    {
+        if unknown_root_min_peers == 0 {
+            return Err("--unknown-root-min-peers must be a non-zero value".to_string());
+        }
+        config.unknown_root_min_peers = unknown_root_min_peers;
     }
 
     if let Some(value) = cli_args.get_one::<String>("network-load") {

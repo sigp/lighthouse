@@ -452,11 +452,11 @@ mod payload_hash_tests {
     use types::{
         BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionPayloadEnvelope,
         ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-        Graffiti, Hash256, MinimalEthSpec, SignedBeaconBlock, SignedExecutionPayloadBidGloas,
-        SignedExecutionPayloadEnvelope, Slot, SyncAggregate,
+        Graffiti, Hash256, SignedBeaconBlock, SignedExecutionPayloadBidGloas,
+        SignedExecutionPayloadEnvelope, Slot, Spec, SyncAggregate,
     };
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_block(slot: Slot) -> SignedBeaconBlock<E> {
         let block = BeaconBlock::Gloas(BeaconBlockGloas {

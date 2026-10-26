@@ -948,6 +948,25 @@ pub fn post_validator_builder_preferences<T: BeaconChainTypes>(
                             "Received submit builder preferences request"
                         );
 
+                        // Keep the entries for the bid streams of this node's upcoming proposals. A
+                        // validator client submits the current and next epoch. This is best-effort
+                        // and doesn't hold up the submission to the builders.
+                        if let Some(bid_streams) = builders.bid_streams() {
+                            match chain.slot() {
+                                Ok(current_slot) => {
+                                    let max_slot = current_slot.saturating_add(
+                                        T::EthSpec::slots_per_epoch().saturating_mul(2),
+                                    );
+                                    bid_streams.store_preferences(&entries, current_slot, max_slot);
+                                }
+                                Err(error) => debug!(
+                                    ?error,
+                                    "Unable to read the slot; not storing builder preferences \
+                                     for bid streams"
+                                ),
+                            }
+                        }
+
                         // Submitting to a builder can be slow (they frequently time out), so the
                         // fan-out runs in a detached task rather than holding a `BeaconProcessor`
                         // worker. The service submits each entry independently and best-effort,
@@ -1015,12 +1034,6 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
              preparation_data: Vec<ProposerPreparationData>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
-                    let execution_layer = chain
-                        .execution_layer
-                        .as_ref()
-                        .ok_or(BeaconChainError::ExecutionLayerMissing)
-                        .map_err(warp_utils::reject::unhandled_error)?;
-
                     let current_slot = chain
                         .slot_clock
                         .now_or_genesis()
@@ -1033,12 +1046,14 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                         "Received proposer preparation data"
                     );
 
-                    execution_layer
-                        .update_proposer_preparation(
-                            current_epoch,
-                            preparation_data.iter().map(|data| (data, &None)),
-                        )
-                        .await;
+                    if let Some(execution_layer) = chain.execution_layer.as_ref() {
+                        execution_layer
+                            .update_proposer_preparation(
+                                current_epoch,
+                                preparation_data.iter().map(|data| (data, &None)),
+                            )
+                            .await;
+                    }
 
                     // TODO(gloas): verify this is correct. We skip proposer preparation for
                     // Gloas because the execution payload is no longer embedded in the beacon

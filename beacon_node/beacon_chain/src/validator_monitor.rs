@@ -2170,11 +2170,11 @@ mod tests {
     use super::*;
     use execution_layer::test_utils::generate_genesis_header;
     use genesis::InteropGenesisBuilder;
-    use types::{ForkName, MinimalEthSpec, test_utils::generate_deterministic_keypairs};
+    use types::{ForkName, Spec, test_utils::generate_deterministic_keypairs};
 
     #[test]
     fn registry_indices_across_growth_and_shorter_forks() {
-        type E = MinimalEthSpec;
+        type E = Spec;
         let keypairs = generate_deterministic_keypairs(33);
 
         for fork in [ForkName::Base, ForkName::Gloas] {

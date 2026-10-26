@@ -650,9 +650,9 @@ mod tests {
     use crate::test_utils::{EphemeralHarnessType, generate_data_column_indices_rand_order};
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::time::Duration;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
-    type E = MainnetEthSpec;
+    type E = Spec;
     type T = EphemeralHarnessType<E>;
 
     fn testing_slot_clock(spec: &ChainSpec) -> TestingSlotClock {

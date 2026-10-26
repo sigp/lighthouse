@@ -16,9 +16,9 @@ use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
 use tempfile::{TempDir, tempdir};
-use types::{BeaconState, EthSpec, Hash256, MinimalEthSpec, SignedExecutionPayloadEnvelope, Slot};
+use types::{BeaconState, EthSpec, Hash256, SignedExecutionPayloadEnvelope, Slot, Spec};
 
-type E = MinimalEthSpec;
+type E = Spec;
 type Harness = BeaconChainHarness<DiskHarnessType<E>>;
 type Store = Arc<HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>>;
 
@@ -57,7 +57,7 @@ fn config(fcr: bool, reset_payload_statuses: bool) -> ChainConfig {
 
 /// The harness owns the mock execution layer and the clock; the node shares both.
 fn harness(store: Store) -> Harness {
-    let harness = Harness::builder(MinimalEthSpec)
+    let harness = Harness::builder(Spec::default())
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS.to_vec())
         .fresh_disk_store(store)
@@ -69,7 +69,7 @@ fn harness(store: Store) -> Harness {
 }
 
 fn node(store: Store, harness: &Harness, fresh: bool, fcr: bool, reset: bool) -> Harness {
-    let builder = Harness::builder(MinimalEthSpec)
+    let builder = Harness::builder(Spec::default())
         .spec(store.get_chain_spec().clone())
         .keypairs(KEYPAIRS.to_vec());
     let builder = if fresh {
@@ -655,12 +655,16 @@ struct Restarted {
 }
 
 async fn restart_after(slots_of_downtime: u64) -> Restarted {
+    restart_after_warmup(WARMUP_SLOTS, slots_of_downtime).await
+}
+
+async fn restart_after_warmup(warmup_slots: u64, slots_of_downtime: u64) -> Restarted {
     let db = tempdir().unwrap();
     let store = store(&db);
     let stopped = harness(store.clone());
     stopped
         .extend_chain(
-            WARMUP_SLOTS as usize,
+            warmup_slots as usize,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -778,7 +782,9 @@ async fn drops_a_root_that_was_reorged_out() {
     if pre_bellatrix() {
         return;
     }
-    let rig = restart_after(1).await;
+    // Restart near the epoch end so FCR can recover from observed justification at the
+    // next boundary, while still trailing the root confirmed before the restart.
+    let rig = restart_after_warmup(WARMUP_SLOTS + E::slots_per_epoch() - 1, 0).await;
 
     // A fork from the pre-restart root's parent, attested by all, takes the head off that branch.
     let first_slot = rig.node.chain.slot().unwrap();
@@ -805,14 +811,32 @@ async fn drops_a_root_that_was_reorged_out() {
         rig.slot_before.epoch(E::slots_per_epoch()) + 2 > rig.node.chain.epoch().unwrap(),
         "the pre-restart root must still be recent, or it would be dropped as stale instead"
     );
+    let canonical_head = &rig.node.chain.canonical_head;
+    let current_confirmed = canonical_head
+        .fast_confirmation
+        .as_ref()
+        .unwrap()
+        .lock()
+        .fcr
+        .confirmed_root;
+    let current_confirmed_slot = canonical_head
+        .fork_choice_read_lock()
+        .get_block(&current_confirmed)
+        .unwrap()
+        .slot;
     assert!(
-        confirmed(&rig.node.chain).unwrap().1 < rig.slot_before,
+        current_confirmed_slot < rig.slot_before,
         "the rule must not have caught up, or that is what dropped the root"
     );
     assert_ne!(
+        current_confirmed,
+        finalized(&rig.node.chain),
+        "FCR must have recovered ahead of finalized for this to test the fallback"
+    );
+    assert_eq!(
         confirmed(&rig.node.chain).unwrap().0,
-        rig.confirmed_before,
-        "a root off the head's chain must be dropped"
+        current_confirmed,
+        "a reorged pre-restart root must fall back to the current confirmed root"
     );
 }
 
