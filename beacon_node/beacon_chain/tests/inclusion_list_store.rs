@@ -273,12 +273,12 @@ async fn per_slot_task_prunes_the_store() {
 #[tokio::test]
 async fn proposer_inclusion_list_transactions_returns_the_stored_inclusion_list() {
     let harness = get_harness();
-    let slot = Slot::new(1);
+    let il_slot = Slot::new(1);
     let block_root = harness.head_block_root();
 
     let (committee, dependent_root) = harness
         .chain
-        .inclusion_list_committee(block_root, slot)
+        .inclusion_list_committee(block_root, il_slot)
         .unwrap();
 
     harness
@@ -286,14 +286,19 @@ async fn proposer_inclusion_list_transactions_returns_the_stored_inclusion_list(
         .inclusion_list_store
         .write()
         .process_inclusion_list(GossipVerifiedInclusionList {
-            signed_inclusion_list: signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
+            signed_inclusion_list: signed_inclusion_list(
+                il_slot,
+                committee[0],
+                dependent_root,
+                0xaa,
+            ),
             is_timely: true,
         });
 
     assert_eq!(
         harness
             .chain
-            .proposer_inclusion_list_transactions(block_root, slot),
+            .proposer_inclusion_list_transactions(block_root, il_slot + 1),
         ProgressiveTransactions::new(vec![transaction(0xaa)]).unwrap()
     );
 }
@@ -301,12 +306,12 @@ async fn proposer_inclusion_list_transactions_returns_the_stored_inclusion_list(
 #[tokio::test]
 async fn proposer_inclusion_list_transactions_includes_untimely_lists() {
     let harness = get_harness();
-    let slot = Slot::new(1);
+    let il_slot = Slot::new(1);
     let block_root = harness.head_block_root();
 
     let (committee, dependent_root) = harness
         .chain
-        .inclusion_list_committee(block_root, slot)
+        .inclusion_list_committee(block_root, il_slot)
         .unwrap();
 
     let timely_submitter = committee[0];
@@ -317,18 +322,23 @@ async fn proposer_inclusion_list_transactions_includes_untimely_lists() {
 
     let mut store = harness.chain.inclusion_list_store.write();
     store.process_inclusion_list(GossipVerifiedInclusionList {
-        signed_inclusion_list: signed_inclusion_list(slot, timely_submitter, dependent_root, 0xaa),
+        signed_inclusion_list: signed_inclusion_list(
+            il_slot,
+            timely_submitter,
+            dependent_root,
+            0xaa,
+        ),
         is_timely: true,
     });
     store.process_inclusion_list(GossipVerifiedInclusionList {
-        signed_inclusion_list: signed_inclusion_list(slot, late_submitter, dependent_root, 0xbb),
+        signed_inclusion_list: signed_inclusion_list(il_slot, late_submitter, dependent_root, 0xbb),
         is_timely: false,
     });
     drop(store);
 
     let transactions = harness
         .chain
-        .proposer_inclusion_list_transactions(block_root, slot);
+        .proposer_inclusion_list_transactions(block_root, il_slot + 1);
     assert_eq!(transactions.len(), 2);
     assert!(transactions.contains(&transaction(0xaa)));
     assert!(transactions.contains(&transaction(0xbb)));
@@ -337,20 +347,20 @@ async fn proposer_inclusion_list_transactions_includes_untimely_lists() {
 #[tokio::test]
 async fn proposer_inclusion_list_transactions_is_empty_when_the_committee_cannot_be_resolved() {
     let harness = get_harness();
-    let slot = Slot::new(1);
+    let il_slot = Slot::new(1);
     let unknown_root = Hash256::ZERO;
 
     assert!(
         harness
             .chain
-            .get_inclusion_list_transactions(unknown_root, slot, false)
+            .get_inclusion_list_transactions(unknown_root, il_slot, false)
             .is_err()
     );
 
     assert_eq!(
         harness
             .chain
-            .proposer_inclusion_list_transactions(unknown_root, slot),
+            .proposer_inclusion_list_transactions(unknown_root, il_slot + 1),
         ProgressiveTransactions::empty()
     );
 }

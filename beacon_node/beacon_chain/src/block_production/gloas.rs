@@ -1528,14 +1528,12 @@ where
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)
         .await;
-    let slot_number = Some(slot.as_u64());
     let inclusion_list_transactions = if fork.heze_enabled() {
         let inner_chain = chain.clone();
         let transactions = chain
             .spawn_blocking_handle(
                 move || {
-                    inner_chain
-                        .proposer_inclusion_list_transactions(parent_beacon_block_root, slot - 1)
+                    inner_chain.proposer_inclusion_list_transactions(parent_beacon_block_root, slot)
                 },
                 "prepare_execution_payload_inclusion_list_transactions",
             )
@@ -1553,7 +1551,7 @@ where
         suggested_fee_recipient,
         Some(withdrawals),
         Some(parent_beacon_block_root),
-        slot_number,
+        Some(slot.as_u64()),
         Some(target_gas_limit),
         inclusion_list_transactions,
     );
