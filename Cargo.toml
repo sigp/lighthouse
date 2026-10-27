@@ -281,7 +281,7 @@ xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "fe3906605c87b6c05
 yaml_serde = "0.10"
 zeroize = { version = "1", features = ["zeroize_derive", "serde"] }
 zip = { version = "9.0", default-features = false, features = ["deflate"] }
-zstd = "0.13"
+zstd = "0.14"
 
 [profile.maxperf]
 inherits = "release"
