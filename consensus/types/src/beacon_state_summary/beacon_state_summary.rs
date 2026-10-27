@@ -6,7 +6,7 @@ use ssz_types::{BitVector, FixedVector};
 use tree_hash_derive::TreeHash;
 
 use crate::{
-    ExecutionBlockHash, ExecutionPayloadBid, Fork,
+    ExecutionBlockHash, ExecutionPayloadBidGloas, Fork,
     attestation::Checkpoint,
     beacon_state_summary::ListSummary,
     block::BeaconBlockHeader,
@@ -118,7 +118,7 @@ pub struct BeaconStateSummary<E: EthSpec> {
     pub builder_pending_payments:
         FixedVector<BuilderPendingPayment, E::BuilderPendingPaymentsLimit>,
     pub builder_pending_withdrawals: ListSummary,
-    pub latest_execution_payload_bid: ExecutionPayloadBid<E>,
+    pub latest_execution_payload_bid: ExecutionPayloadBidGloas<E>,
     pub payload_expected_withdrawals: ListSummary,
     pub ptc_window: FixedVector<FixedVector<u64, E::PTCSize>, E::PtcWindowLength>,
 }
