@@ -864,7 +864,9 @@ async fn invalid_signature_block_proposal() {
         assert!(
             matches!(
                 process_res,
-                Err(BlockError::InvalidSignature(InvalidSignature::Unknown))
+                Err(BlockError::InvalidSignature(
+                    InvalidSignature::ProposerSignature
+                ))
             ),
             "should not import chain segment with an invalid block signature, got: {:?}",
             process_res
@@ -935,7 +937,7 @@ async fn invalid_signature_block_proposal_checked_before_body() {
             .await
             .into_block_error()
         {
-            Err(BlockError::InvalidSignature(InvalidSignature::Unknown)) => {}
+            Err(BlockError::InvalidSignature(InvalidSignature::ProposerSignature)) => {}
             other => panic!(
                 "should reject the proposer signature before building body signature sets, got: {:?}",
                 other
