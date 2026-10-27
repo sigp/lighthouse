@@ -560,7 +560,7 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
         } else {
             let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
             self.spec
-                .min_epoch_data_availability_boundary(current_epoch)
+                .min_epoch_data_availability_boundary::<T::EthSpec>(current_epoch)
         }
     }
 
