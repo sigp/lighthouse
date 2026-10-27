@@ -5721,14 +5721,19 @@ impl ApiTester {
             return self;
         };
 
-        let (sk, _, mut envelope) = self
+        let (sk, _, envelope) = self
             .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
             .await;
-        envelope.payload.gas_limit = envelope.payload.gas_limit.saturating_add(1);
         let signed_envelope =
             self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
 
         while self.network_rx.network_recv.recv().now_or_never().is_some() {}
+
+        // The EL rejects the payload, so the envelope passes gossip but fails import.
+        let mock_el = self.harness.mock_execution_layer.as_ref().unwrap();
+        mock_el
+            .server
+            .all_payloads_invalid_on_new_payload(signed_envelope.message.payload.parent_hash);
 
         let url = self
             .client
@@ -5747,6 +5752,7 @@ impl ApiTester {
         assert_eq!(response.status(), StatusCode::ACCEPTED);
         assert!(self.network_rx.network_recv.recv().now_or_never().is_some());
 
+        mock_el.server.full_payload_verification();
         self.chain.slot_clock.set_slot(slot.as_u64() + 1);
 
         self
