@@ -77,7 +77,7 @@ pub async fn produce_block_v4<T: BeaconChainTypes>(
 
     // The resolved builder config is threaded into block production, where it drives direct-builder
     // bid requests and the gossip/direct bid policy (see `produce_block_on_state_gloas`).
-    debug!(
+    info!(
         %slot,
         builders = builder_config.builders.len(),
         "Received produceBlockV4 request"

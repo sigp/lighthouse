@@ -17,7 +17,7 @@
 //! then the boosted value, then ties go to the local build, then to the earlier candidate. `min_bid`
 //! is ranked, not filtered, so a below-floor bid is a last resort rather than a dropped one.
 //!
-//! Consumed by `gloas.rs` block production via [`select_payload_bid`].
+//! Consumed by `gloas.rs` block production via [`rank_payload_bids`].
 
 use sensitive_url::SensitiveUrl;
 use std::sync::Arc;
@@ -69,6 +69,16 @@ pub enum BidSource<E: EthSpec> {
         builder_url: SensitiveUrl,
         max_execution_payment: u64,
     },
+}
+
+impl<E: EthSpec> std::fmt::Display for BidSource<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BidSource::Local { .. } => write!(f, "local"),
+            BidSource::Gossip => write!(f, "gossip"),
+            BidSource::Direct { .. } => write!(f, "direct"),
+        }
+    }
 }
 
 /// A payload-bid candidate: the committed bid, the proposer's boost for it, and its [`BidSource`].
@@ -248,21 +258,14 @@ impl<E: EthSpec> BidCandidate<E> {
     }
 }
 
-/// Select the winning payload bid.
+/// Rank the bids in descending order (highest first), so we use Reverse
+/// This keeps all candidates so that we can log all bid candidates
 ///
 /// The total order is defined by [`rank_key`](BidCandidate::rank_key). On a full tie the earlier
-/// candidate is kept. Returns `None` only when there are no candidates — the caller treats that as
-/// block-production failure.
-pub fn select_payload_bid<E: EthSpec>(candidates: Vec<BidCandidate<E>>) -> Option<BidCandidate<E>> {
-    // `reduce` keeps `best` unless `candidate` is *strictly* greater, so the earliest of any tied
-    // maxima wins.
-    candidates.into_iter().reduce(|best, candidate| {
-        if candidate.rank_key() > best.rank_key() {
-            candidate
-        } else {
-            best
-        }
-    })
+/// candidate is kept.
+pub fn rank_payload_bids<E: EthSpec>(mut candidates: Vec<BidCandidate<E>>) -> Vec<BidCandidate<E>> {
+    candidates.sort_by_key(|a| std::cmp::Reverse(a.rank_key()));
+    candidates
 }
 
 #[cfg(test)]
@@ -379,6 +382,12 @@ mod tests {
             win.payload_value(),
             source,
         )
+    }
+
+    /// Select the winning payload bid which it is the first element in rank_payload_bids
+    /// Returns None when there are no candidates in `rank_payload_bids`
+    fn select_payload_bid<E: EthSpec>(candidates: Vec<BidCandidate<E>>) -> Option<BidCandidate<E>> {
+        rank_payload_bids(candidates).into_iter().next()
     }
 
     #[test]
