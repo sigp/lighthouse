@@ -112,7 +112,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 ) {
     let is_running = Lock::new();
     let slot_clock = &beacon_chain.slot_clock;
-    let slot_duration = slot_clock.slot_duration();
+    let slot_duration = slot_clock.current_slot_duration();
 
     loop {
         let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot() else {
