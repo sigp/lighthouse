@@ -98,7 +98,7 @@ use crate::{
     CachedHead, ChainDumpSnapshot, metrics,
 };
 use bls::{PublicKey, PublicKeyBytes, Signature};
-use builder_client::Builders;
+use builder_client::{BidRequestContext, BidStreams, Builders};
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
     EventKind, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
@@ -478,9 +478,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Client for the EIP-8025 proof engine, if one is configured.
     pub proof_engine: Option<Arc<ProofEngine>>,
-    /// Orchestrates direct builder bid requests and preference submissions over the Gloas Builder
-    /// API. Present only when the Gloas fork is scheduled.
-    pub builders: Option<Arc<Builders>>,
+    /// Orchestrates direct builder bid requests, preference submissions and, when enabled, bid
+    /// streams over the Gloas Builder API. Present only when the Gloas fork is scheduled.
+    pub builders: Option<Arc<Builders<T::EthSpec>>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHead<T>,
@@ -2391,7 +2391,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verified: &VerifiedPayloadAttestationMessage<T>,
     ) -> Result<(), Error> {
         self.op_pool
-            .insert_payload_attestation_message(verified.payload_attestation_message().clone())
+            .insert_payload_attestation(verified.payload_attestation_message(), verified.ptc())
             .map_err(Error::OpPoolError)?;
         Ok(())
     }
@@ -3970,11 +3970,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // A small closure to group the verification and import errors.
         let chain = self.clone();
         let import_block = async move {
-            let execution_pending = unverified_block.into_execution_pending_block(
-                block_root,
-                &chain,
-                notify_execution_layer,
-            )?;
+            let execution_pending = unverified_block
+                .into_execution_pending_block(block_root, &chain, notify_execution_layer)
+                .inspect_err(|e| {
+                    // Gossip and the HTTP API cache Gloas blocks before this verification, so
+                    // that peers can fetch them by root. Stop serving a block that failed it.
+                    if !matches!(
+                        e,
+                        BlockError::DuplicateFullyImported(_)
+                            | BlockError::DuplicateImportStatusUnknown(_)
+                    ) {
+                        chain.pending_payload_cache.remove_block(&block_root);
+                    }
+                })?;
 
             let block = execution_pending.block.block_cloned();
             if block.fork_name_unchecked().gloas_enabled() {
@@ -6768,6 +6776,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         fcu_params.head_root,
                         &cached_head,
                     )?;
+                    let bid_stream_proposer = pre_payload_attributes
+                        .as_ref()
+                        .filter(|_| chain.builder_bid_streams().is_some())
+                        .and_then(|attributes| {
+                            let pubkey = cached_head
+                                .snapshot
+                                .beacon_state
+                                .validators()
+                                .get(attributes.proposer_index as usize)
+                                .map(|validator| validator.pubkey);
+                            if pubkey.is_none() {
+                                debug!(
+                                    proposer_index = attributes.proposer_index,
+                                    "Unknown proposer pubkey; not opening builder bid streams"
+                                );
+                            }
+                            pubkey
+                        });
                     let proposer_shuffling_decision_root = cached_head
                         .snapshot
                         .beacon_state
@@ -6844,6 +6870,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         pre_payload_attributes,
                         build_payload_status,
                         proposer_shuffling_decision_root,
+                        bid_stream_proposer,
                     )))
                 },
                 "prepare_beacon_proposer_head_read",
@@ -6855,6 +6882,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(pre_payload_attributes),
             build_payload_status,
             proposer_shuffling_decision_root,
+            bid_stream_proposer,
         )) = maybe_prep_data
         else {
             // Appropriate log messages have already been logged above and in
@@ -6871,6 +6899,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .await
         {
             return Ok(None);
+        }
+
+        // The parent this node builds the proposal on is now known, so builder bid streams for it
+        // can open.
+        if let (Some(bid_streams), Some(proposer_pubkey)) =
+            (self.builder_bid_streams(), bid_stream_proposer)
+        {
+            self.open_builder_bid_streams(
+                bid_streams,
+                current_slot,
+                prepare_slot,
+                forkchoice_update_params.head_root,
+                forkchoice_update_params.head_hash,
+                proposer_pubkey,
+            );
         }
 
         // Fetch payload attributes from the execution layer's cache, or compute them from scratch
@@ -7049,6 +7092,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         Ok(Some(head_root))
+    }
+
+    /// The builder bid streams, when enabled.
+    pub fn builder_bid_streams(&self) -> Option<&BidStreams<T::EthSpec>> {
+        self.builders
+            .as_ref()
+            .and_then(|builders| builders.bid_streams())
+    }
+
+    /// Open builder bid streams for the `builder_preferences` entries stored for the proposer of
+    /// `prepare_slot`, building on `parent_root` and the execution payload `parent_hash`.
+    ///
+    /// Each call for a new parent replaces that proposal's streams for the previous parent.
+    fn open_builder_bid_streams(
+        &self,
+        bid_streams: &BidStreams<T::EthSpec>,
+        current_slot: Slot,
+        prepare_slot: Slot,
+        parent_root: Hash256,
+        parent_hash: Option<ExecutionBlockHash>,
+        proposer_pubkey: PublicKeyBytes,
+    ) {
+        let Some(parent_hash) = parent_hash else {
+            return;
+        };
+        let ctx = BidRequestContext {
+            slot: prepare_slot,
+            executed_ancestor_hash: parent_hash,
+            parent_root,
+            proposer_pubkey,
+            fork_name: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
+        };
+        bid_streams.open_streams(&ctx, current_slot, &self.slot_clock);
     }
 
     pub async fn update_execution_engine_forkchoice(
