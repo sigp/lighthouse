@@ -25,10 +25,6 @@ pub enum Error {
     /// There was an error attempting to read from a `BeaconState`. Block
     /// validity was not determined.
     BeaconStateError(BeaconStateError),
-    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
-    ///
-    /// The block is invalid.
-    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// Failed to load a signature set. The block may be invalid or we failed to process it.
     SignatureSetError(SignatureSetError),
     /// Error related to the consensus context, likely the proposer index or block root calc.
@@ -143,10 +139,8 @@ where
         ctxt: &mut ConsensusContext<E>,
     ) -> Result<()> {
         let block_root = Some(ctxt.get_current_block_root(block)?);
-        let verified_proposer_index =
-            ctxt.get_proposer_index_from_epoch_state(self.state, self.spec)?;
 
-        self.include_block_proposal(block, block_root, verified_proposer_index)?;
+        self.include_block_proposal(block, block_root)?;
         self.include_all_signatures_except_proposal(block, ctxt)?;
 
         Ok(())
@@ -180,14 +174,7 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<E, Payload>,
         block_root: Option<Hash256>,
-        verified_proposer_index: u64,
     ) -> Result<()> {
-        if verified_proposer_index != block.message().proposer_index() {
-            return Err(Error::IncorrectBlockProposer {
-                block: block.message().proposer_index(),
-                local_shuffling: verified_proposer_index,
-            });
-        }
         let set = block_proposal_signature_set(
             block,
             block_root,
