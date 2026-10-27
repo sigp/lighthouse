@@ -68,7 +68,7 @@ use crate::{
     beacon_chain::{BeaconForkChoice, ForkChoiceError},
     metrics,
 };
-use bls::{PublicKey, PublicKeyBytes};
+use bls::{PublicKey, PublicKeyBytes, verify_signature_sets};
 use educe::Educe;
 use eth2::types::{BlockGossip, EventKind};
 use execution_layer::PayloadStatus;
@@ -82,7 +82,8 @@ use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::errors::IntoWithIndex;
 use state_processing::per_block_processing::{
-    process_operations::verify_operation_list_lengths, verify_execution_request_list_lengths,
+    process_operations::verify_operation_list_lengths,
+    signature_sets::block_proposal_signature_set, verify_execution_request_list_lengths,
 };
 use state_processing::{
     AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext,
@@ -661,6 +662,35 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 ) -> Result<Vec<SignatureVerifiedBlock<T>>, BlockError> {
     if chain_segment.is_empty() {
         return Ok(vec![]);
+    }
+
+    // Authenticate every block against its claimed proposer before doing any other work. This
+    // needs no state; the proposer index is checked against the shuffling later.
+    {
+        let pubkey_cache = get_validator_pubkey_cache(chain)?;
+        let proposer_signature_sets = chain_segment
+            .iter()
+            .map(|(block_root, block)| {
+                let proposer_index = block.as_block().message().proposer_index();
+                let pubkey = pubkey_cache
+                    .get(proposer_index as usize)
+                    .ok_or(BlockError::UnknownValidator(proposer_index))?;
+                block_proposal_signature_set(
+                    block.as_block(),
+                    Some(*block_root),
+                    &chain.spec.fork_at_epoch(block.epoch()),
+                    chain.genesis_validators_root,
+                    |_| Some(Cow::Borrowed(pubkey)),
+                    &chain.spec,
+                )
+                .map_err(|e| BlockError::from(BlockSignatureVerifierError::from(e)))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if !verify_signature_sets(proposer_signature_sets.iter()) {
+            return Err(BlockError::InvalidSignature(
+                InvalidSignature::ProposerSignature,
+            ));
+        }
     }
 
     let (first_root, first_block) = chain_segment.remove(0);
