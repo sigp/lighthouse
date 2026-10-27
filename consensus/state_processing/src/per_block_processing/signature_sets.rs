@@ -854,11 +854,9 @@ where
 mod inclusion_list_signature_tests {
     use super::{get_pubkey_from_state, inclusion_list_signature_set};
     use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-    use types::{
-        Domain, EthSpec, Hash256, InclusionList, MinimalEthSpec, SignedInclusionList, SignedRoot,
-    };
+    use types::{Domain, EthSpec, Hash256, InclusionList, SignedInclusionList, SignedRoot, Spec};
 
-    type E = MinimalEthSpec;
+    type E = Spec;
     const VALIDATOR_COUNT: usize = 16;
 
     fn harness() -> BeaconChainHarness<EphemeralHarnessType<E>> {

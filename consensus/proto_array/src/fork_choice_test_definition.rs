@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    MainnetEthSpec, Slot,
+    Slot, Spec,
 };
 
 pub use execution_status::*;
@@ -152,7 +152,7 @@ pub struct ForkChoiceTestDefinition {
 impl ForkChoiceTestDefinition {
     pub fn run(self) {
         let spec = self.spec.unwrap_or_else(|| {
-            let mut spec = MainnetEthSpec::default_spec();
+            let mut spec = Spec::default_spec();
             spec.proposer_score_boost = 50;
             // Legacy test definitions target pre-Gloas behaviour unless explicitly overridden.
             spec.gloas_fork_epoch = None;
@@ -161,7 +161,7 @@ impl ForkChoiceTestDefinition {
 
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+        let mut fork_choice = ProtoArrayForkChoice::new::<Spec>(
             self.finalized_block_slot,
             self.finalized_block_slot,
             Hash256::zero(),
@@ -193,7 +193,7 @@ impl ForkChoiceTestDefinition {
                         JustifiedBalances::from_effective_balances(justified_state_balances)
                             .unwrap();
                     let (head, payload_status) = fork_choice
-                        .find_head::<MainnetEthSpec>(
+                        .find_head::<Spec>(
                             justified_checkpoint,
                             finalized_checkpoint,
                             &justified_balances,
@@ -243,7 +243,7 @@ impl ForkChoiceTestDefinition {
                         JustifiedBalances::from_effective_balances(justified_state_balances)
                             .unwrap();
                     let (head, payload_status) = fork_choice
-                        .find_head::<MainnetEthSpec>(
+                        .find_head::<Spec>(
                             justified_checkpoint,
                             finalized_checkpoint,
                             &justified_balances,
@@ -281,7 +281,7 @@ impl ForkChoiceTestDefinition {
                     let justified_balances =
                         JustifiedBalances::from_effective_balances(justified_state_balances)
                             .unwrap();
-                    let result = fork_choice.find_head::<MainnetEthSpec>(
+                    let result = fork_choice.find_head::<Spec>(
                         justified_checkpoint,
                         finalized_checkpoint,
                         &justified_balances,
@@ -336,7 +336,7 @@ impl ForkChoiceTestDefinition {
                         payload_received: false,
                     };
                     fork_choice
-                        .process_block::<MainnetEthSpec>(block, slot, &spec, Duration::ZERO)
+                        .process_block::<Spec>(block, slot, &spec, Duration::ZERO)
                         .unwrap_or_else(|e| {
                             panic!(
                                 "process_block op at index {} returned error: {:?}",
@@ -437,7 +437,7 @@ impl ForkChoiceTestDefinition {
                         InvalidationOperation::InvalidateOne { head_hash }
                     };
                     fork_choice
-                        .process_execution_payload_invalidation::<MainnetEthSpec>(
+                        .process_execution_payload_invalidation::<Spec>(
                             &op,
                             self.finalized_checkpoint,
                         )
@@ -607,7 +607,7 @@ impl ForkChoiceTestDefinition {
                     proposer_boost_root,
                 } => {
                     let actual = fork_choice
-                        .get_canonical_payload_status::<MainnetEthSpec>(
+                        .get_canonical_payload_status::<Spec>(
                             &block_root,
                             current_slot.unwrap_or(last_current_slot),
                             proposer_boost_root.unwrap_or_else(Hash256::zero),
@@ -627,7 +627,7 @@ impl ForkChoiceTestDefinition {
                     expected,
                 } => {
                     let actual = fork_choice
-                        .should_build_on_full::<MainnetEthSpec>(
+                        .should_build_on_full::<Spec>(
                             &block_root,
                             parent_payload_status,
                             proposal_slot,
@@ -679,7 +679,7 @@ fn assert_canonical_payload_status_matches_find_head(
     expected: PayloadStatus,
     op_index: usize,
 ) {
-    match fork_choice.get_canonical_payload_status::<MainnetEthSpec>(
+    match fork_choice.get_canonical_payload_status::<Spec>(
         head,
         current_slot,
         proposer_boost_root,

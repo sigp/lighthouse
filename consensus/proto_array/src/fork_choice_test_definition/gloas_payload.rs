@@ -1,7 +1,7 @@
 use super::*;
 
 fn gloas_spec() -> ChainSpec {
-    let mut spec = MainnetEthSpec::default_spec();
+    let mut spec = Spec::default_spec();
     spec.proposer_score_boost = 50;
     spec.gloas_fork_epoch = Some(Epoch::new(0));
     spec
@@ -201,7 +201,7 @@ pub fn get_gloas_payload_probe_test_definition() -> ForkChoiceTestDefinition {
             justified_state_balances: vec![1, 1],
             expected_head: get_root(1),
             current_slot: Slot::new(0),
-            // With MainnetEthSpec PTC_SIZE=512 and a 256-bit threshold, 1 bit set is not timely, so Empty.
+            // 1 bit set is below the PTC_SIZE / 2 threshold, so not timely: Empty.
             expected_payload_status: Some(PayloadStatus::Empty),
         },
         // PTC votes write to bitfields only, not to full/empty weight.
@@ -1007,10 +1007,11 @@ pub fn get_gloas_should_build_on_full_test_definition() -> ForkChoiceTestDefinit
 /// resolve the PENDING seed to EMPTY or FULL.
 pub fn get_pending_head_resolves_when_justified_subtree_non_viable_test_definition()
 -> ForkChoiceTestDefinition {
+    let slots_per_epoch = Spec::slots_per_epoch();
     let ops = vec![
-        // Justified block at slot 32.
+        // Justified block at the first slot of epoch 1.
         Operation::ProcessBlock {
-            slot: Slot::new(32),
+            slot: Slot::new(slots_per_epoch),
             root: get_root(2),
             parent_root: get_root(0),
             justified_checkpoint: get_checkpoint(0),
@@ -1020,7 +1021,7 @@ pub fn get_pending_head_resolves_when_justified_subtree_non_viable_test_definiti
         },
         // Child with stale voting source (below viability horizon).
         Operation::ProcessBlock {
-            slot: Slot::new(64),
+            slot: Slot::new(2 * slots_per_epoch),
             root: get_root(3),
             parent_root: get_root(2),
             justified_checkpoint: get_checkpoint(0),
@@ -1036,13 +1037,13 @@ pub fn get_pending_head_resolves_when_justified_subtree_non_viable_test_definiti
             finalized_checkpoint: get_checkpoint(0),
             justified_state_balances: vec![1],
             expected_head: get_root(2),
-            current_slot: Slot::new(128),
+            current_slot: Slot::new(4 * slots_per_epoch),
             expected_payload_status: Some(PayloadStatus::Empty),
         },
         Operation::AssertShouldBuildOnFull {
             block_root: get_root(2),
             parent_payload_status: PayloadStatus::Empty,
-            proposal_slot: Slot::new(129),
+            proposal_slot: Slot::new(4 * slots_per_epoch + 1),
             expected: false,
         },
     ];
@@ -1063,7 +1064,7 @@ mod tests {
     use super::*;
 
     fn gloas_fork_boundary_spec() -> ChainSpec {
-        let mut spec = MainnetEthSpec::default_spec();
+        let mut spec = Spec::default_spec();
         spec.proposer_score_boost = 50;
         spec.gloas_fork_epoch = Some(Epoch::new(1));
         spec
@@ -1089,7 +1090,7 @@ mod tests {
         // The test harness sets execution_status = Optimistic(ExecutionBlockHash::from_root(root)),
         // so this V17 node's EL block hash = ExecutionBlockHash::from_root(get_root(1)).
         ops.push(Operation::ProcessBlock {
-            slot: Slot::new(MainnetEthSpec::slots_per_epoch() - 1),
+            slot: Slot::new(Spec::slots_per_epoch() - 1),
             root: get_root(1),
             parent_root: get_root(0),
             justified_checkpoint: get_checkpoint(0),
@@ -1100,9 +1101,9 @@ mod tests {
 
         // First Gloas block (V29 node).
         let gloas_slot = if skip_first_gloas_slot {
-            MainnetEthSpec::slots_per_epoch() + 1
+            Spec::slots_per_epoch() + 1
         } else {
-            MainnetEthSpec::slots_per_epoch()
+            Spec::slots_per_epoch()
         };
 
         // The first Gloas block should always have the pre-Gloas block as its execution parent,
@@ -1272,7 +1273,7 @@ mod tests {
 
         // V17 block at slot 31 (pre-Gloas).
         ops.push(Operation::ProcessBlock {
-            slot: Slot::new(MainnetEthSpec::slots_per_epoch() - 1),
+            slot: Slot::new(Spec::slots_per_epoch() - 1),
             root: get_root(1),
             parent_root: get_root(0),
             justified_checkpoint: get_checkpoint(0),
@@ -1283,7 +1284,7 @@ mod tests {
 
         // V29 block at slot 32 (first Gloas slot), child of block 1.
         ops.push(Operation::ProcessBlock {
-            slot: Slot::new(MainnetEthSpec::slots_per_epoch()),
+            slot: Slot::new(Spec::slots_per_epoch()),
             root: get_root(2),
             parent_root: get_root(1),
             justified_checkpoint: get_checkpoint(0),
@@ -1296,7 +1297,7 @@ mod tests {
         ops.push(Operation::ProcessAttestation {
             validator_index: 0,
             block_root: get_root(2),
-            attestation_slot: Slot::new(MainnetEthSpec::slots_per_epoch()),
+            attestation_slot: Slot::new(Spec::slots_per_epoch()),
         });
 
         // FindHead triggers apply_score_changes which materializes the vote.
@@ -1305,7 +1306,7 @@ mod tests {
             finalized_checkpoint: get_checkpoint(0),
             justified_state_balances: balances.clone(),
             expected_head: get_root(2),
-            current_slot: Slot::new(MainnetEthSpec::slots_per_epoch()),
+            current_slot: Slot::new(Spec::slots_per_epoch()),
             expected_payload_status: None,
         });
 
@@ -1321,7 +1322,7 @@ mod tests {
             finalized_checkpoint: get_checkpoint(0),
             justified_state_balances: balances.clone(),
             expected_head: get_root(0),
-            current_slot: Slot::new(MainnetEthSpec::slots_per_epoch()),
+            current_slot: Slot::new(Spec::slots_per_epoch()),
             expected_payload_status: None,
         });
 
