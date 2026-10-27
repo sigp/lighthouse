@@ -49,18 +49,7 @@ impl From<ContextError> for Error {
 
 impl From<SignatureSetError> for Error {
     fn from(e: SignatureSetError) -> Error {
-        match e {
-            // Make a special distinction for `IncorrectBlockProposer` since it indicates an
-            // invalid block, not an internal error.
-            SignatureSetError::IncorrectBlockProposer {
-                block,
-                local_shuffling,
-            } => Error::IncorrectBlockProposer {
-                block,
-                local_shuffling,
-            },
-            e => Error::SignatureSetError(e),
-        }
+        Error::SignatureSetError(e)
     }
 }
 
@@ -155,7 +144,7 @@ where
     ) -> Result<()> {
         let block_root = Some(ctxt.get_current_block_root(block)?);
         let verified_proposer_index =
-            Some(ctxt.get_proposer_index_from_epoch_state(self.state, self.spec)?);
+            ctxt.get_proposer_index_from_epoch_state(self.state, self.spec)?;
 
         self.include_block_proposal(block, block_root, verified_proposer_index)?;
         self.include_all_signatures_except_proposal(block, ctxt)?;
@@ -191,14 +180,20 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<E, Payload>,
         block_root: Option<Hash256>,
-        verified_proposer_index: Option<u64>,
+        verified_proposer_index: u64,
     ) -> Result<()> {
+        if verified_proposer_index != block.message().proposer_index() {
+            return Err(Error::IncorrectBlockProposer {
+                block: block.message().proposer_index(),
+                local_shuffling: verified_proposer_index,
+            });
+        }
         let set = block_proposal_signature_set(
-            self.state,
-            self.get_pubkey.clone(),
             block,
             block_root,
-            verified_proposer_index,
+            &self.state.fork(),
+            self.state.genesis_validators_root(),
+            self.get_pubkey.clone(),
             self.spec,
         )?;
         self.sets.push(set);
