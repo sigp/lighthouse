@@ -158,11 +158,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         };
 
         if is_latest_finality {
+            // When finalized_checkpoint.root is ZERO_HASH, hash_tree_root(finalized_header)
+            // cannot be proven, so finalized_header must be empty/default initialized.
             let update = if cached_parts.finalized_block_root.is_zero() {
-                // When finalized_checkpoint.root is ZERO_HASH, hash_tree_root(finalized_header)
-                // cannot be proven, so finalized_header must be empty/default initialized.
-                Some(LightClientFinalityUpdate::new_with_empty_finalized_header(
+                Some(LightClientFinalityUpdate::new(
                     &attested_block,
+                    None,
                     cached_parts.finality_branch.clone(),
                     sync_aggregate.clone(),
                     signature_slot,
@@ -171,7 +172,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             } else if let Some(finalized_block) = maybe_finalized_block.as_ref() {
                 Some(LightClientFinalityUpdate::new(
                     &attested_block,
-                    finalized_block,
+                    Some(finalized_block),
                     cached_parts.finality_branch.clone(),
                     sync_aggregate.clone(),
                     signature_slot,
