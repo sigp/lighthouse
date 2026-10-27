@@ -595,9 +595,9 @@ fn handle_rpc_request<E: EthSpec>(
             },
         ))),
         SupportedProtocol::InclusionListsByIndicesV1 => {
-            Ok(Some(RequestType::InclusionListsByIndices(
+            Ok(Some(RequestType::InclusionListsByIndices(Box::new(
                 InclusionListsByIndicesRequest::from_ssz_bytes(decoded_buffer)?,
-            )))
+            ))))
         }
         SupportedProtocol::PingV1 => Ok(Some(RequestType::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
@@ -2155,7 +2155,7 @@ mod tests {
             RequestType::MetaData(MetadataRequest::new_v1()),
             RequestType::BlobsByRange(blbrange_request()),
             RequestType::DataColumnsByRange(dcbrange_request()),
-            RequestType::InclusionListsByIndices(ilbindices_request()),
+            RequestType::InclusionListsByIndices(Box::new(ilbindices_request())),
             RequestType::MetaData(MetadataRequest::new_v2()),
             RequestType::BlocksByHead(BlocksByHeadRequest {
                 beacon_root: Hash256::zero(),

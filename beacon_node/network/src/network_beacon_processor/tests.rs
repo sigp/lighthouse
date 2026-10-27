@@ -16,7 +16,7 @@ use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, blobs_to_data_colum
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, get_kzg,
-    test_spec,
+    pooled_payload_attestation_bits, ptc_seats, test_spec,
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
@@ -491,8 +491,9 @@ impl TestRig {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_lookup_beacon_block(
+                junk_peer_id(),
                 block_root,
-                LookupBlock::new(self.next_block.clone()),
+                LookupBlock::new(block_root, self.next_block.clone()),
                 BlockProcessType::SingleBlock { id: 0 },
             )
             .unwrap();
@@ -502,8 +503,9 @@ impl TestRig {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_lookup_beacon_block(
+                junk_peer_id(),
                 block_root,
-                LookupBlock::new(self.next_block.clone()),
+                LookupBlock::new(block_root, self.next_block.clone()),
                 BlockProcessType::SingleBlock { id: 1 },
             )
             .unwrap();
@@ -690,9 +692,9 @@ impl TestRig {
             .unwrap();
     }
 
-    /// Enqueue a valid payload attestation message for `next_block`, signed by the first
-    /// member of the PTC for its slot.
-    pub fn enqueue_next_block_payload_attestation(&self) {
+    /// A valid payload attestation message for `next_block`, signed by the first member of the
+    /// PTC for its slot.
+    pub fn make_next_block_payload_attestation(&self) -> PayloadAttestationMessage {
         let slot = self.next_block.slot();
         let beacon_block_root = self.next_block.canonical_root();
         let head = self.chain.canonical_head.cached_head();
@@ -719,16 +721,16 @@ impl TestRig {
             .sk
             .sign(data.signing_root(domain));
 
+        PayloadAttestationMessage {
+            validator_index,
+            data,
+            signature,
+        }
+    }
+
+    pub fn enqueue_payload_attestation(&self, message: PayloadAttestationMessage) {
         self.network_beacon_processor
-            .send_gossip_payload_attestation(
-                junk_message_id(),
-                junk_peer_id(),
-                Box::new(PayloadAttestationMessage {
-                    validator_index,
-                    data,
-                    signature,
-                }),
-            )
+            .send_gossip_payload_attestation(junk_message_id(), junk_peer_id(), Box::new(message))
             .unwrap();
     }
 
@@ -1007,6 +1009,13 @@ async fn status_finalized_checkpoint_relevance() {
 
     let mut ahead = conflicting.clone();
     ahead.finalized_epoch += 1;
+
+    // Allow the ahead checkpoint to have finalized without advancing our local finality.
+    rig.chain.slot_clock.set_slot(
+        (ahead.finalized_epoch + 2)
+            .start_slot(E::slots_per_epoch())
+            .as_u64(),
+    );
 
     let mut wrong_fork = local.clone();
     wrong_fork.fork_digest[0] ^= 1;
@@ -1550,7 +1559,7 @@ async fn attestation_to_unknown_block_processed_after_engine_blobs() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(rig.next_block.clone()),
+            LookupBlock::new(block_root, rig.next_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Gossip,
             || Ok(()),
@@ -1667,16 +1676,18 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
 
     // Send the payload attestation but not the block, and check that it was not imported.
 
-    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+    let message = rig.make_next_block_payload_attestation();
+    let bits_before = pooled_payload_attestation_bits(&rig.chain, &message.data);
+    let expected_bits = ptc_seats(&rig.chain, message.data.slot, message.validator_index);
 
-    rig.enqueue_next_block_payload_attestation();
+    rig.enqueue_payload_attestation(message.clone());
 
     rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
         .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 
@@ -1716,8 +1727,8 @@ async fn payload_attestation_to_unknown_block_processed(import_method: BlockImpo
     rig.assert_event_journal_contains_ordered(&events).await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages + 1,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before + expected_bits,
         "Payload attestation should have been included."
     );
 
@@ -1775,16 +1786,17 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
 
     // Send the payload attestation but not the block, and check that it was not imported.
 
-    let initial_messages = rig.chain.op_pool.num_payload_attestation_messages();
+    let message = rig.make_next_block_payload_attestation();
+    let bits_before = pooled_payload_attestation_bits(&rig.chain, &message.data);
 
-    rig.enqueue_next_block_payload_attestation();
+    rig.enqueue_payload_attestation(message.clone());
 
     rig.assert_event_journal_completes(&[WorkType::GossipPayloadAttestation])
         .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 
@@ -1803,8 +1815,8 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
     .await;
 
     assert_eq!(
-        rig.chain.op_pool.num_payload_attestation_messages(),
-        initial_messages,
+        pooled_payload_attestation_bits(&rig.chain, &message.data),
+        bits_before,
         "Payload attestation should not have been included."
     );
 }
@@ -1904,7 +1916,7 @@ async fn rpc_columns_notify_after_deferred_envelope_import() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(rig.next_block.clone()),
+            LookupBlock::new(block_root, rig.next_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
@@ -2032,7 +2044,7 @@ async fn rpc_columns_notify_after_deferred_block_import() {
         .chain
         .process_block(
             block_root,
-            LookupBlock::new(rig.next_block.clone()),
+            LookupBlock::new(block_root, rig.next_block.clone()),
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),

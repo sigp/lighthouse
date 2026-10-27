@@ -864,7 +864,7 @@ pub enum RequestType<E: EthSpec> {
     BlobsByRoot(BlobsByRootRequest),
     DataColumnsByRoot(DataColumnsByRootRequest<E>),
     DataColumnsByRange(DataColumnsByRangeRequest),
-    InclusionListsByIndices(InclusionListsByIndicesRequest<E>),
+    InclusionListsByIndices(Box<InclusionListsByIndicesRequest<E>>),
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,
     LightClientFinalityUpdate,
