@@ -379,7 +379,9 @@ install-audit:
 	cargo install --force cargo-audit
 
 audit-CI:
-	cargo audit
+	# crypto-bigint 0.5 is used by alloy-signer via k256 0.13
+	# Remove the ignore when alloy-signer updates to k256 0.14
+	cargo audit --ignore RUSTSEC-2026-0387
 
 # Runs cargo deny (check for banned crates, duplicate versions, and source restrictions)
 deny: install-deny deny-CI
