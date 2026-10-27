@@ -745,10 +745,10 @@ impl<E: EthSpec> Tester<E> {
 
     fn tick_to_slot(&self, tick: u64) -> Result<Slot, Error> {
         let genesis_time = self.harness.chain.slot_clock.genesis_duration().as_secs();
-        let since_genesis = tick
-            .checked_sub(genesis_time)
-            .ok_or_else(|| Error::FailedToParseTest("tick is prior to genesis".into()))?;
-        let slots_since_genesis = since_genesis / self.spec.get_slot_duration().as_secs();
+        let slots_since_genesis = self
+            .spec
+            .compute_slot_at_time::<E>(genesis_time, tick)
+            .map_err(|_| Error::FailedToParseTest("tick is prior to genesis".into()))?;
         Ok(self.spec.genesis_slot + slots_since_genesis)
     }
 

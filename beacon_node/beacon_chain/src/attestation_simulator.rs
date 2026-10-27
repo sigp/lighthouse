@@ -30,9 +30,8 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
     executor: TaskExecutor,
     chain: Arc<BeaconChain<T>>,
 ) {
-    let slot_duration = chain.slot_clock.current_slot_duration();
-
     loop {
+        let slot_duration = chain.slot_clock.current_slot_duration();
         match chain.slot_clock.now_duration() {
             Some(now_duration) => {
                 let (attestation_slot, Some(time_to_deadline)) =

@@ -178,7 +178,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
 
     /// Starts the service which periodically produces proposer preparations.
     pub fn start_proposer_prepare_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let slot_duration = spec.get_slot_duration();
         info!("Proposer preparation service started");
 
         let executor = self.executor.clone();
@@ -204,7 +203,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
                 } else {
                     error!("Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
-                    sleep(slot_duration).await;
+                    sleep(self.slot_clock.current_slot_duration()).await;
                 }
             }
         };
@@ -218,7 +217,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
         info!("Validator registration service started");
 
         let spec = spec.clone();
-        let slot_duration = spec.get_slot_duration();
 
         let executor = self.executor.clone();
 
@@ -239,7 +237,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
                 } else {
                     error!("Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
-                    sleep(slot_duration).await;
+                    sleep(self.slot_clock.current_slot_duration()).await;
                 }
             }
         };

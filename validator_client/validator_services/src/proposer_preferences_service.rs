@@ -85,11 +85,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
     }
 
     async fn run_update(&self, published_preferences: &mut PublishedPreferences) {
-        let slot_duration = self.chain_spec.get_slot_duration();
-
         let Some(current_slot) = self.slot_clock.now() else {
             error!("Failed to read slot clock");
-            sleep(slot_duration).await;
+            sleep(self.slot_clock.current_slot_duration()).await;
             return;
         };
 
@@ -102,11 +100,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
     }
 
     async fn sleep_until_next_slot(&self) {
-        let slot_duration = self.chain_spec.get_slot_duration();
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
-            .unwrap_or(slot_duration);
+            .unwrap_or_else(|| self.slot_clock.current_slot_duration());
         sleep(duration_to_next_slot).await;
     }
 

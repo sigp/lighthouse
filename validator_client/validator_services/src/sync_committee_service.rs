@@ -108,13 +108,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             .unwrap_or(false)
     }
 
-    pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service(self) -> Result<(), String> {
         if self.duties_service.disable_attesting {
             info!("Sync committee service disabled");
             return Ok(());
         }
 
-        let slot_duration = spec.get_slot_duration();
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -133,14 +132,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             loop {
                 let Some(now) = self.slot_clock.now_duration() else {
                     error!("Failed to read slot clock");
-                    sleep(slot_duration).await;
+                    sleep(self.slot_clock.current_slot_duration()).await;
                     continue;
                 };
                 let (next_slot, Some(duration_to_sync_message_deadline)) =
                     sync_message_deadline::<S::E>(&self.slot_clock, &self.duties_service.spec, now)
                 else {
                     error!("Failed to determine sync message deadline");
-                    sleep(slot_duration).await;
+                    sleep(self.slot_clock.current_slot_duration()).await;
                     continue;
                 };
 
@@ -779,10 +778,7 @@ mod tests {
         }
 
         fn start(&self) {
-            self.service
-                .clone()
-                .start_update_service(&self.harness.spec)
-                .unwrap();
+            self.service.clone().start_update_service().unwrap();
         }
 
         fn send_head(&self, slot: u64, block_root: u64) {
@@ -864,7 +860,7 @@ mod tests {
         let gloas_fork_epoch = Epoch::new(1);
         spec.gloas_fork_epoch = Some(gloas_fork_epoch);
 
-        let slot_duration = spec.get_slot_duration();
+        let slot_duration = spec.genesis_slot_duration();
         let genesis_time = slot_duration;
         let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
         let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());

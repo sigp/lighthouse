@@ -407,7 +407,7 @@ pub async fn proposer_boost_re_org_test(
     // Scale the lookahead with the slot duration, or it lands before the block B reveal at
     // half way through the slot and we measure the wrong fork choice update.
     let chain_config = ChainConfig {
-        prepare_payload_lookahead: spec.get_slot_duration()
+        prepare_payload_lookahead: spec.genesis_slot_duration()
             / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
         ..Default::default()
     };
@@ -990,7 +990,7 @@ async fn proposer_duties_with_gossip_tolerance() {
     harness
         .chain
         .slot_clock
-        .advance_time(spec.get_slot_duration() - spec.maximum_gossip_clock_disparity());
+        .advance_time(spec.genesis_slot_duration() - spec.maximum_gossip_clock_disparity());
     assert_eq!(
         harness
             .chain
@@ -1097,7 +1097,7 @@ async fn proposer_duties_v2_with_gossip_tolerance() {
     harness
         .chain
         .slot_clock
-        .advance_time(spec.get_slot_duration() - spec.maximum_gossip_clock_disparity());
+        .advance_time(spec.genesis_slot_duration() - spec.maximum_gossip_clock_disparity());
     assert_eq!(
         harness
             .chain

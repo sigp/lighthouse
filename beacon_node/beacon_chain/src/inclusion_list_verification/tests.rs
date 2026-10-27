@@ -37,11 +37,7 @@ impl TestContext {
         let mut spec = test_spec::<E>();
         spec.heze_fork_epoch = Some(heze_fork_epoch);
         let spec = Arc::new(spec);
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        );
+        let slot_clock = TestingSlotClock::from_spec::<E>(Duration::from_secs(0), &spec);
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec)
             .deterministic_keypairs(NUM_VALIDATORS)
@@ -51,10 +47,8 @@ impl TestContext {
             .build();
 
         // Advance past genesis so `now_with_past_tolerance` doesn't underflow.
-        harness
-            .chain
-            .slot_clock
-            .set_current_time(harness.spec.get_slot_duration());
+        let slot_one_start = harness.chain.slot_clock.start_of(Slot::new(1)).unwrap();
+        harness.chain.slot_clock.set_current_time(slot_one_start);
         let genesis_block_root = harness.chain.genesis_block_root;
 
         Self {

@@ -119,7 +119,9 @@ impl ValidatorRegistrations {
             // the node has enough time to subscribe to subnets etc, and to avoid having
             // inconsistent column counts within an epoch.
             let effective_delay_slots = CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS
-                .checked_div(spec.get_slot_duration().as_secs())
+                .checked_div(
+                    spec.get_slot_duration_ms(current_slot.epoch(E::slots_per_epoch())) / 1000,
+                )
                 .unwrap_or(1);
             let effective_epoch =
                 (current_slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1;
