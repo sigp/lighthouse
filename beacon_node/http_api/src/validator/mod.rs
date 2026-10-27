@@ -1562,7 +1562,7 @@ pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
                     not_synced_filter?;
-                    ensure_heze_consensus_version(fork_name)?;
+                    ensure_post_heze_consensus_version(fork_name)?;
                     publish_inclusion_list(&chain, &network_tx, request_body.data)?;
                     Ok(warp::reply())
                 })
@@ -1598,7 +1598,7 @@ pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
                     not_synced_filter?;
-                    ensure_heze_consensus_version(fork_name)?;
+                    ensure_post_heze_consensus_version(fork_name)?;
                     let signed_inclusion_list = SignedInclusionList::from_ssz_bytes(&body_bytes)
                         .map_err(|e| {
                             warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
@@ -1611,7 +1611,7 @@ pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
         .boxed()
 }
 
-fn ensure_heze_consensus_version(fork_name: ForkName) -> Result<(), Rejection> {
+fn ensure_post_heze_consensus_version(fork_name: ForkName) -> Result<(), Rejection> {
     if !fork_name.heze_enabled() {
         return Err(warp_utils::reject::custom_bad_request(format!(
             "Eth-Consensus-Version {fork_name} is not supported for inclusion lists"
