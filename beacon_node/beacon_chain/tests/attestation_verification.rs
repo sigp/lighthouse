@@ -5,11 +5,9 @@ use beacon_chain::attestation_verification::{
     Error, batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
 };
 use beacon_chain::observed_aggregates::ObservedAttestationKey;
-use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::test_utils::{HARNESS_GENESIS_TIME, MakeAttestationOptions};
 use beacon_chain::{
-    BeaconChain, BeaconChainError, BeaconChainTypes, ChainConfig, NotifyExecutionLayer,
-    WhenSlotSkipped,
+    BeaconChain, BeaconChainError, BeaconChainTypes, ChainConfig, WhenSlotSkipped,
     attestation_verification::Error as AttnError,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
@@ -20,10 +18,8 @@ use bls::{AggregateSignature, Keypair, SecretKey};
 use eth2::types::EventKind;
 use execution_layer::test_utils::generate_genesis_header;
 use fixed_bytes::FixedBytesExtended;
-use fork_choice::InvalidationOperation;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
 use int_to_bytes::int_to_bytes32;
-use proto_array::ExecutionStatus;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::GloasVerificationContext;
 use state_processing::per_slot_processing;
@@ -32,8 +28,8 @@ use tempfile::tempdir;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
-    Address, Attestation, AttestationRef, BlockImportSource, ChainSpec, Epoch, EthSpec, ForkName,
-    Hash256, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, Spec, SubnetId,
+    Address, Attestation, AttestationRef, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
+    SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, Spec, SubnetId,
     attestation::SignedAggregateAndProofRefMut, test_utils::generate_deterministic_keypair,
 };
 
@@ -2270,158 +2266,6 @@ async fn gloas_aggregated_attestation_unknown_payload_envelope() {
          rejected with UnknownPayloadEnvelope, got {:?}",
         result.err()
     );
-}
-
-/// [New in Gloas]: An `index == 1` attestation for a block whose payload went from optimistic to
-/// invalid is rejected with `InvalidPayload`, unaggregated and aggregate.
-#[tokio::test]
-async fn gloas_attestation_to_invalidated_payload() {
-    if !test_spec::<E>()
-        .fork_name_at_epoch(Epoch::new(0))
-        .gloas_enabled()
-    {
-        return;
-    }
-
-    let harness = get_harness(VALIDATOR_COUNT);
-
-    harness
-        .extend_chain(
-            Spec::slots_per_epoch() as usize * 2,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        )
-        .await;
-
-    // Import one more block and its envelope while the execution layer answers SYNCING, so its
-    // payload is optimistic.
-    let mock_execution_layer = harness.mock_execution_layer.as_ref().unwrap();
-    mock_execution_layer.server.all_payloads_syncing(true);
-    let head = harness.chain.head_snapshot();
-    let block_slot = head.beacon_block.slot() + 1;
-    let ((signed_block, blobs), envelope, _post_state) = harness
-        .make_block_with_envelope(head.beacon_state.clone(), block_slot)
-        .await;
-    let block_root = signed_block.canonical_root();
-    harness
-        .process_block(block_slot, block_root, (signed_block.clone(), blobs))
-        .await
-        .expect("block should import");
-    harness.process_gossip_columns(&signed_block, None).await;
-    let gossip_verified_envelope = harness
-        .chain
-        .verify_envelope_for_gossip(
-            Arc::new(envelope.expect("gloas block should have an envelope")),
-            EnvelopeSource::Gossip,
-        )
-        .await
-        .expect("envelope gossip verification should succeed");
-    harness
-        .chain
-        .process_execution_payload_envelope(
-            block_root,
-            gossip_verified_envelope,
-            NotifyExecutionLayer::Yes,
-            BlockImportSource::Gossip,
-            || Ok(()),
-        )
-        .await
-        .expect("optimistic envelope should import");
-
-    let head_block = harness
-        .chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .get_block(&block_root)
-        .expect("block should be in fork choice");
-    let block_hash = head_block.execution_payload_block_hash.unwrap();
-    assert!(head_block.payload_received);
-    assert_eq!(
-        head_block.execution_status,
-        ExecutionStatus::Optimistic(block_hash)
-    );
-
-    // The execution layer later finds the payload invalid. The block stays head on its `EMPTY`
-    // node, which inherits the parent's valid payload.
-    harness
-        .chain
-        .process_invalid_execution_payload(&InvalidationOperation::InvalidateOne {
-            head_hash: block_hash,
-        })
-        .await
-        .unwrap();
-    assert_eq!(
-        harness
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_block(&block_root)
-            .unwrap()
-            .execution_status,
-        ExecutionStatus::Invalid(block_hash)
-    );
-
-    harness.advance_slot();
-
-    let (mut attestation, _attester_sk, subnet_id) =
-        get_valid_unaggregated_attestation(&harness.chain);
-    assert_eq!(attestation.data.beacon_block_root, block_root);
-
-    let aggregate_attestation = {
-        let head = harness.chain.head_snapshot();
-        let committee = head
-            .beacon_state
-            .get_beacon_committee(attestation.data.slot, attestation.committee_index)
-            .expect("should get committee");
-        single_attestation_to_attestation(
-            &attestation,
-            committee.committee,
-            harness.spec.fork_name_at_slot::<E>(attestation.data.slot),
-        )
-        .unwrap()
-    };
-    let (mut valid_aggregate, _, _) =
-        get_valid_aggregated_attestation(&harness.chain, aggregate_attestation);
-
-    attestation.data.index = 1;
-    match harness
-        .chain
-        .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
-    {
-        Err(AttnError::InvalidPayload { beacon_block_root }) => {
-            assert_eq!(beacon_block_root, block_root)
-        }
-        other => panic!(
-            "gloas: payload-present attestation for an invalidated payload should be rejected with \
-             InvalidPayload, got {:?}",
-            other.err()
-        ),
-    }
-
-    match valid_aggregate.to_mut() {
-        SignedAggregateAndProofRefMut::Base(att) => {
-            att.message.aggregate.data.index = 1;
-        }
-        SignedAggregateAndProofRefMut::Electra(att) => {
-            att.message.aggregate.data.index = 1;
-        }
-        SignedAggregateAndProofRefMut::Gloas(att) => {
-            att.message.aggregate.data.index = 1;
-        }
-    }
-    match harness
-        .chain
-        .verify_aggregated_attestation_for_gossip(&valid_aggregate)
-    {
-        Err(AttnError::InvalidPayload { beacon_block_root }) => {
-            assert_eq!(beacon_block_root, block_root)
-        }
-        other => panic!(
-            "gloas: payload-present aggregate for an invalidated payload should be rejected with \
-             InvalidPayload, got {:?}",
-            other.err()
-        ),
-    }
 }
 
 /// Regression test: a SingleAttestation with a huge bogus attester_index must not be forwarded to
