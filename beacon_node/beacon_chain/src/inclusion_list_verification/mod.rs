@@ -87,10 +87,15 @@ impl From<BeaconStateError> for InclusionListVerificationError {
     }
 }
 
+/// EIP-2718 transaction type of blob transaction
+const BLOB_TX_TYPE_ID: u8 = 0x03;
+
 #[derive(Debug, PartialEq, Eq, AsRefStr)]
 pub enum InclusionListTransactionsError {
     /// A transaction in the inclusion list has zero length
     EmptyTransaction { index: usize },
+    /// A transaction in the inclusion list is a blob transaction
+    BlobTransaction { index: usize },
     /// The inclusion list exceeds the maximum allowed size
     ListExceedsSizeLimit { size: u64, max: u64 },
 }
@@ -110,6 +115,19 @@ pub fn verify_inclusion_list_transactions_bounds(
     }
     if let Some(index) = transactions.iter().position(|tx| tx.is_empty()) {
         return Err(InclusionListTransactionsError::EmptyTransaction { index });
+    }
+    Ok(())
+}
+
+/// Verify the inclusion list contains no blob transactions
+pub fn verify_no_blob_transactions(
+    transactions: &ProgressiveTransactions,
+) -> Result<(), InclusionListTransactionsError> {
+    if let Some(index) = transactions
+        .iter()
+        .position(|tx| tx.first() == Some(&BLOB_TX_TYPE_ID))
+    {
+        return Err(InclusionListTransactionsError::BlobTransaction { index });
     }
     Ok(())
 }
