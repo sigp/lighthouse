@@ -1,4 +1,5 @@
 use super::{BlockComponent, PeerId, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS};
+use crate::metrics;
 use crate::network_beacon_processor::BlockProcessingResult;
 use crate::sync::block_lookups::{
     BlockDownloadResponse, CustodyDownloadResponse, PayloadDownloadResponse,
@@ -85,6 +86,10 @@ impl AwaitingParent {
 }
 
 type PeerSet = Arc<RwLock<HashSet<PeerId>>>;
+
+/// An honest peer references at most two bid parent hashes for one block: this block's bid
+/// `block_hash` (FULL child) and its bid `parent_block_hash` (EMPTY child).
+const MAX_GLOAS_CHILD_KEYS_PER_PEER: usize = 2;
 
 #[derive(Debug)]
 struct BlockRequest<E: EthSpec> {
@@ -242,6 +247,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             created: Instant::now(),
             span: lookup_span,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn gloas_child_peers_len(&self) -> usize {
+        self.gloas_child_peers.len()
     }
 
     /// Return the slot of this lookup's block if it's currently cached
@@ -696,12 +706,28 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 // This peer claims to have imported a FULL child of this block whose bid references
                 // `execution_hash` as its parent. It is therefore proven to hold this block's
                 // payload envelope and data columns.
-                added |= self
-                    .gloas_child_peers
-                    .entry(*execution_hash)
-                    .or_default()
-                    .write()
-                    .insert(peer_id);
+                //
+                // The hash comes from an unverified gossip block, so cap the keys a peer can add.
+                // The set shared with `self.peers` holds every peer and does not count.
+                if self.gloas_child_peers.contains_key(execution_hash)
+                    || self
+                        .gloas_child_peers
+                        .values()
+                        .filter(|set| {
+                            !Arc::ptr_eq(set, &self.peers) && set.read().contains(&peer_id)
+                        })
+                        .count()
+                        < MAX_GLOAS_CHILD_KEYS_PER_PEER
+                {
+                    added |= self
+                        .gloas_child_peers
+                        .entry(*execution_hash)
+                        .or_default()
+                        .write()
+                        .insert(peer_id);
+                } else {
+                    metrics::inc_counter(&metrics::SYNC_LOOKUP_GLOAS_CHILD_KEYS_REFUSED);
+                }
             }
             PeerType::Block => {}
         }
