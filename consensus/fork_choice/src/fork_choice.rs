@@ -306,6 +306,111 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
     }
 }
 
+/// Cap on parked attesting indices (~one per mainnet active validator).
+const MAX_INDICES_AWAITING_PAYLOAD: usize = 1_000_000;
+
+/// Block-carried `payload_present` attestations awaiting a payload envelope, keyed by block root.
+///
+/// Bounded by a cap on the total number of attesting indices.
+#[derive(PartialEq)]
+pub struct AttestationsAwaitingPayload {
+    by_root: HashMap<Hash256, Vec<QueuedAttestation>>,
+    /// Sum of `attesting_indices.len()` across `by_root`.
+    num_indices: usize,
+    cap: usize,
+}
+
+impl AttestationsAwaitingPayload {
+    pub fn new(cap: usize) -> Self {
+        Self {
+            by_root: HashMap::new(),
+            num_indices: 0,
+            cap,
+        }
+    }
+
+    /// Parks `attestation`. If the total number of attesting indices exceeds the cap, evicts the
+    /// lowest-slot attestations until it is at most 90% of the cap.
+    pub fn insert(&mut self, attestation: QueuedAttestation) {
+        self.num_indices = self
+            .num_indices
+            .saturating_add(attestation.attesting_indices.len());
+        self.by_root
+            .entry(attestation.block_root)
+            .or_default()
+            .push(attestation);
+
+        if self.num_indices > self.cap {
+            self.evict_oldest(self.cap / 10 * 9);
+        }
+    }
+
+    /// Removes and returns every attestation parked for `block_root`.
+    pub fn take(&mut self, block_root: &Hash256) -> Vec<QueuedAttestation> {
+        let attestations = self.by_root.remove(block_root).unwrap_or_default();
+        self.num_indices = self
+            .num_indices
+            .saturating_sub(count_indices(&attestations));
+        attestations
+    }
+
+    /// Drops every entry whose block root fails `keep`.
+    pub fn retain(&mut self, keep: impl Fn(&Hash256) -> bool) {
+        self.by_root.retain(|block_root, _| keep(block_root));
+        self.num_indices = self.by_root.values().map(|v| count_indices(v)).sum();
+    }
+
+    pub fn get(&self, block_root: &Hash256) -> Option<&Vec<QueuedAttestation>> {
+        self.by_root.get(block_root)
+    }
+
+    pub fn num_indices(&self) -> usize {
+        self.num_indices
+    }
+
+    /// Keeps the highest-slot attestations whose attesting indices fit within `target`.
+    fn evict_oldest(&mut self, target: usize) {
+        let mut attestations = self
+            .by_root
+            .drain()
+            .flat_map(|(_, attestations)| attestations)
+            .collect::<Vec<_>>();
+        // Highest slot first; `block_root` breaks same-slot ties.
+        attestations.sort_unstable_by_key(|attestation| {
+            (std::cmp::Reverse(attestation.slot), attestation.block_root)
+        });
+
+        let previous_num_indices = self.num_indices;
+        self.num_indices = 0;
+        for attestation in attestations {
+            let num_indices = self
+                .num_indices
+                .saturating_add(attestation.attesting_indices.len());
+            if num_indices > target {
+                break;
+            }
+            self.num_indices = num_indices;
+            self.by_root
+                .entry(attestation.block_root)
+                .or_default()
+                .push(attestation);
+        }
+
+        debug!(
+            previous_num_indices,
+            num_indices = self.num_indices,
+            "Evicted attestations awaiting payload"
+        );
+    }
+}
+
+fn count_indices(attestations: &[QueuedAttestation]) -> usize {
+    attestations
+        .iter()
+        .map(|attestation| attestation.attesting_indices.len())
+        .sum()
+}
+
 /// Returns all attestations in `queued_attestations` with a slot earlier than the current slot,
 /// removing them from the queue.
 pub fn dequeue_attestations(
@@ -369,9 +474,8 @@ pub struct ForkChoice<T, E> {
     /// Attestations that arrived at the current slot and must be queued for later processing,
     /// keyed by their slot.
     queued_attestations: BTreeMap<Slot, Vec<QueuedAttestation>>,
-    /// Block-carried `payload_present` attestations awaiting a payload envelope, keyed by the
-    /// block root they attest to.
-    attestations_awaiting_payload: HashMap<Hash256, Vec<QueuedAttestation>>,
+    /// Block-carried `payload_present` attestations awaiting a payload envelope.
+    attestations_awaiting_payload: AttestationsAwaitingPayload,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
     /// Rejects attestations from the current or a future slot instead of queueing them, as the
@@ -472,7 +576,9 @@ where
             fc_store,
             proto_array,
             queued_attestations: BTreeMap::new(),
-            attestations_awaiting_payload: HashMap::new(),
+            attestations_awaiting_payload: AttestationsAwaitingPayload::new(
+                MAX_INDICES_AWAITING_PAYLOAD,
+            ),
             spec_test_mode: false,
             // This will be updated during the next call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
@@ -734,11 +840,7 @@ where
             .map_err(Error::FailedToProcessValidExecutionPayload)?;
 
         // Apply any attestations that were waiting for this payload.
-        for attestation in self
-            .attestations_awaiting_payload
-            .remove(&block_root)
-            .unwrap_or_default()
-        {
+        for attestation in self.attestations_awaiting_payload.take(&block_root) {
             self.apply_or_queue_attestation(attestation)?;
         }
 
@@ -1366,14 +1468,12 @@ where
 
         match self.validate_on_attestation(attestation, is_from_block, spec) {
             Ok(()) => (),
-            Err(invalid @ InvalidAttestation::PayloadNotReceived { beacon_block_root }) => {
+            Err(invalid @ InvalidAttestation::PayloadNotReceived { .. }) => {
                 match is_from_block {
                     // Defer until `on_payload_envelope_received`.
                     AttestationFromBlock::True => {
                         self.attestations_awaiting_payload
-                            .entry(beacon_block_root)
-                            .or_default()
-                            .push(QueuedAttestation::from(attestation));
+                            .insert(QueuedAttestation::from(attestation));
                         return Ok(());
                     }
                     AttestationFromBlock::False => return Err(invalid.into()),
@@ -1998,8 +2098,8 @@ where
         &self.queued_attestations
     }
 
-    /// Returns a reference to the attestations awaiting a payload envelope, keyed by block root.
-    pub fn attestations_awaiting_payload(&self) -> &HashMap<Hash256, Vec<QueuedAttestation>> {
+    /// Returns a reference to the attestations awaiting a payload envelope.
+    pub fn attestations_awaiting_payload(&self) -> &AttestationsAwaitingPayload {
         &self.attestations_awaiting_payload
     }
 
@@ -2020,8 +2120,9 @@ where
         self.proto_array.maybe_prune(finalized_root)?;
 
         // Drop entries for blocks pruned from the DAG.
+        let proto_array = &self.proto_array;
         self.attestations_awaiting_payload
-            .retain(|block_root, _| self.proto_array.contains_block(block_root));
+            .retain(|block_root| proto_array.contains_block(block_root));
 
         Ok(())
     }
@@ -2096,7 +2197,9 @@ where
             fc_store,
             proto_array,
             queued_attestations: BTreeMap::new(),
-            attestations_awaiting_payload: HashMap::new(),
+            attestations_awaiting_payload: AttestationsAwaitingPayload::new(
+                MAX_INDICES_AWAITING_PAYLOAD,
+            ),
             spec_test_mode: false,
             // Will be updated in the following call to `Self::get_head`.
             forkchoice_update_parameters: ForkchoiceUpdateParameters {
@@ -2289,5 +2392,55 @@ mod tests {
             vec![4],
             "only the not-yet-due slot-4 vote should remain"
         );
+    }
+
+    fn awaiting_payload_attestation(slot: u64, root: u64, num_indices: u64) -> QueuedAttestation {
+        QueuedAttestation {
+            slot: Slot::new(slot),
+            attesting_indices: (0..num_indices).collect(),
+            block_root: Hash256::from_low_u64_be(root),
+            target_epoch: Epoch::new(0),
+            payload_present: true,
+        }
+    }
+
+    #[test]
+    fn awaiting_payload_take_and_retain_track_num_indices() {
+        let mut awaiting = AttestationsAwaitingPayload::new(100);
+        awaiting.insert(awaiting_payload_attestation(1, 1, 3));
+        awaiting.insert(awaiting_payload_attestation(2, 1, 4));
+        awaiting.insert(awaiting_payload_attestation(2, 2, 5));
+        assert_eq!(awaiting.num_indices(), 12);
+
+        assert_eq!(awaiting.take(&Hash256::from_low_u64_be(1)).len(), 2);
+        assert_eq!(awaiting.num_indices(), 5);
+        assert!(awaiting.take(&Hash256::from_low_u64_be(1)).is_empty());
+
+        awaiting.retain(|root| *root != Hash256::from_low_u64_be(2));
+        assert_eq!(awaiting.num_indices(), 0);
+        assert!(awaiting.get(&Hash256::from_low_u64_be(2)).is_none());
+    }
+
+    #[test]
+    fn awaiting_payload_evicts_oldest_past_cap() {
+        let mut awaiting = AttestationsAwaitingPayload::new(100);
+        // Slots 1..=10, 10 indices each, alternating between two roots. Cap 100 is not exceeded.
+        for slot in 1..=10 {
+            awaiting.insert(awaiting_payload_attestation(slot, slot % 2, 10));
+        }
+        assert_eq!(awaiting.num_indices(), 100);
+
+        // Exceeding the cap evicts down to 90 indices, oldest slots first.
+        awaiting.insert(awaiting_payload_attestation(11, 1, 10));
+        assert_eq!(awaiting.num_indices(), 90);
+
+        let mut slots = [0, 1]
+            .iter()
+            .flat_map(|root| awaiting.get(&Hash256::from_low_u64_be(*root)))
+            .flatten()
+            .map(|attestation| attestation.slot.as_u64())
+            .collect::<Vec<_>>();
+        slots.sort_unstable();
+        assert_eq!(slots, (3..=11).collect::<Vec<_>>());
     }
 }

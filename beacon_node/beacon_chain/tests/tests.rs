@@ -755,9 +755,10 @@ async fn gloas_block_carried_payload_votes_applied_after_envelope() {
 
     let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
     assert!(
-        !fork_choice
+        fork_choice
             .attestations_awaiting_payload()
-            .contains_key(&payload_less_root),
+            .get(&payload_less_root)
+            .is_none(),
         "parked votes should have been applied on envelope import"
     );
     assert!(
