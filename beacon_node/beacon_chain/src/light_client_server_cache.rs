@@ -158,11 +158,22 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         };
 
         if is_latest_finality {
-            // Immediately after checkpoint sync the finalized block may not be available yet.
-            if let Some(finalized_block) = maybe_finalized_block.as_ref() {
+            // Spec: finalized_checkpoint.root being zero (not the finalized block's slot) is what
+            // determines whether the finalized header must be empty, see consensus-specs#5707.
+            if cached_parts.finalized_block_root.is_zero() {
                 *self.latest_finality_update.write() = Some(LightClientFinalityUpdate::new(
                     &attested_block,
-                    finalized_block,
+                    None,
+                    cached_parts.finality_branch.clone(),
+                    sync_aggregate.clone(),
+                    signature_slot,
+                    chain_spec,
+                )?);
+            } else if let Some(finalized_block) = maybe_finalized_block.as_ref() {
+                // Immediately after checkpoint sync the finalized block may not be available yet.
+                *self.latest_finality_update.write() = Some(LightClientFinalityUpdate::new(
+                    &attested_block,
+                    Some(finalized_block),
                     cached_parts.finality_branch.clone(),
                     sync_aggregate.clone(),
                     signature_slot,
