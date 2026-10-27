@@ -11,6 +11,11 @@ use beacon_chain::{
     graffiti_calculator::GraffitiSettings,
 };
 use bls::{Keypair, Signature};
+use builder_client::{BidStreams, BuilderHttpClient, Builders};
+use eth2::types::{
+    BuilderConfig, BuilderEntry, BuilderPreferenceEntry, BuilderPubkeys, RequestAuth,
+    RequestAuthData, SignedRequestAuth,
+};
 use eth2::types::{GraffitiPolicy, ProposerPreparationData};
 use execution_layer::http::{ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5};
 use execution_layer::json_structures::{
@@ -18,7 +23,9 @@ use execution_layer::json_structures::{
 };
 use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes};
 use fork_choice::PayloadStatus;
+use futures::{SinkExt, StreamExt};
 use logging::create_test_tracing_subscriber;
+use parking_lot::Mutex;
 use ssz_types::ProgressiveVariableList;
 use state_processing::{
     per_block_processing::{
@@ -27,10 +34,18 @@ use state_processing::{
     },
     state_advance::complete_state_advance,
 };
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
+use task_executor::test_utils::TestRuntime;
 use tempfile::{TempDir, tempdir};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio_tungstenite::accept_hdr_async;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use types::*;
 
 // Should ideally be divisible by 3.
@@ -1350,4 +1365,296 @@ async fn prepare_payload_gas_limit_generic(
         panic!("expected V4 payload attributes, got {attributes:?}");
     };
     assert_eq!(attributes.target_gas_limit, expected_gas_limit);
+}
+
+/// A builder serving bid streams and bid requests on one address. It records the path of each
+/// stream and bid request, answers bid requests with 204, and sends no bids.
+struct MockBuilder {
+    url: String,
+    stream_paths: Arc<Mutex<Vec<String>>>,
+    bid_paths: Arc<Mutex<Vec<String>>>,
+    /// Streams the client is reading: it answered a ping.
+    reading: Arc<AtomicUsize>,
+}
+
+async fn mock_builder() -> MockBuilder {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let builder = MockBuilder {
+        url: format!("http://{}", listener.local_addr().unwrap()),
+        stream_paths: Arc::new(Mutex::new(Vec::new())),
+        bid_paths: Arc::new(Mutex::new(Vec::new())),
+        reading: Arc::new(AtomicUsize::new(0)),
+    };
+    let stream_paths = builder.stream_paths.clone();
+    let bid_paths = builder.bid_paths.clone();
+    let reading = builder.reading.clone();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let stream_paths = stream_paths.clone();
+            let bid_paths = bid_paths.clone();
+            let reading = reading.clone();
+            tokio::spawn(async move {
+                let mut prefix = [0u8; 4];
+                loop {
+                    match stream.peek(&mut prefix).await {
+                        Ok(n) if n >= prefix.len() => break,
+                        Ok(0) | Err(_) => return,
+                        Ok(_) => tokio::time::sleep(Duration::from_millis(1)).await,
+                    }
+                }
+                if &prefix == b"POST" {
+                    let mut head = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+                        match stream.read(&mut chunk).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => head.extend_from_slice(&chunk[..n]),
+                        }
+                    }
+                    let request = String::from_utf8_lossy(&head);
+                    if let Some(path) = request.split_whitespace().nth(1) {
+                        bid_paths.lock().push(path.to_string());
+                    }
+                    let _ = stream
+                        .write_all(b"HTTP/1.1 204 No Content\r\nconnection: close\r\n\r\n")
+                        .await;
+                    return;
+                }
+                let callback = move |request: &Request, response: Response| {
+                    stream_paths.lock().push(request.uri().path().to_string());
+                    Ok(response)
+                };
+                let Ok(mut ws_stream) = accept_hdr_async(stream, callback).await else {
+                    return;
+                };
+                let _ = ws_stream.send(Message::Ping(Default::default())).await;
+                while let Some(Ok(message)) = ws_stream.next().await {
+                    if message.is_pong() {
+                        reading.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            });
+        }
+    });
+    builder
+}
+
+async fn wait_for(mut condition: impl FnMut() -> bool) {
+    for _ in 0..500 {
+        if condition() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("condition not met in time");
+}
+
+/// Proposer prep opens the bid stream for the proposal block production makes.
+#[tokio::test]
+async fn bid_stream_matches_block_production() {
+    bid_stream_generic(false, true).await;
+}
+
+/// As above, building on the Empty parent of a Full head after PTC votes.
+#[tokio::test]
+async fn bid_stream_matches_block_production_on_empty_parent() {
+    bid_stream_generic(true, true).await;
+}
+
+/// Block production without direct builders closes the proposal's bid streams.
+#[tokio::test]
+async fn bid_stream_closed_when_production_skips_direct_bids() {
+    bid_stream_generic(false, false).await;
+}
+
+async fn bid_stream_generic(negative_ptc: bool, direct_bids: bool) {
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let runtime = TestRuntime::default();
+    let bid_streams =
+        Arc::new(BidStreams::<E>::new(runtime.task_executor.clone(), "test-user-agent").unwrap());
+    let builders = Arc::new(
+        Builders::new(Arc::new(BuilderHttpClient::new(None, false).unwrap()))
+            .with_bid_streams(bid_streams.clone()),
+    );
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = TestHarness::builder(Spec::default())
+        .spec(store.get_chain_spec().clone())
+        .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .chain_config(ChainConfig {
+            archive: true,
+            ..ChainConfig::default()
+        })
+        .node_custody_type(NodeCustodyType::Fullnode)
+        .builders(builders)
+        .build();
+    harness.advance_slot();
+    harness
+        .execution_block_generator()
+        .set_generate_blobs(false);
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let parent_root = harness.head_block_root();
+    let parent_state = harness.get_current_state();
+    let parent_slot = parent_state.slot();
+    let prepare_slot = parent_slot + 1;
+    let current_slot = prepare_slot - 1;
+    let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
+    // The Full and Empty parents must build on different hashes for the comparison to mean
+    // anything.
+    assert_ne!(parent_bid.block_hash(), parent_bid.parent_block_hash());
+    if negative_ptc {
+        let (messages, _) = harness.make_payload_attestation_messages(
+            &parent_state,
+            parent_root,
+            parent_slot,
+            vec![PayloadAttestationVote {
+                validator_count: E::ptc_size(),
+                payload_present: false,
+                blob_data_available: false,
+            }],
+        );
+        harness
+            .import_payload_attestation_messages(messages)
+            .unwrap();
+    }
+    harness.set_current_slot(current_slot);
+    harness.chain.recompute_head_at_current_slot().await;
+    // The head is still Full; only the negative PTC makes the proposer build on Empty.
+    assert_eq!(
+        harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_payload_status(),
+        PayloadStatus::Full
+    );
+    let executed_ancestor_hash = if negative_ptc {
+        parent_bid.parent_block_hash()
+    } else {
+        parent_bid.block_hash()
+    };
+
+    let mut advanced_state = harness.get_current_state();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, None, &spec).unwrap();
+    let proposer_index = advanced_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+    let proposer_pubkey = advanced_state.get_validator(proposer_index).unwrap().pubkey;
+
+    let fee_recipient = Address::repeat_byte(42);
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient,
+            },
+            &None,
+        )],
+    )
+    .await;
+    insert_proposer_preferences(
+        &harness,
+        prepare_slot,
+        proposer_index as u64,
+        fee_recipient,
+        DEFAULT_GAS_LIMIT,
+    );
+
+    // The validator client's `builder_preferences` entry for the proposal.
+    let builder = mock_builder().await;
+    let auth = SignedRequestAuth {
+        message: RequestAuth {
+            data: RequestAuthData::new(b"request auth data".to_vec()).unwrap(),
+            slot: prepare_slot,
+        },
+        signature: Signature::empty(),
+    };
+    let preference = BuilderPreferenceEntry {
+        proposer_pubkey,
+        url: builder.url.parse().unwrap(),
+        auth: auth.clone(),
+        max_execution_payment: 0,
+    };
+    assert_eq!(
+        bid_streams.store_preferences(&[preference], current_slot, prepare_slot),
+        1
+    );
+
+    // Streams connect a second before the slot starts. With a 4s lookahead, block production runs
+    // before the stream connects.
+    let lookahead = Duration::from_secs(if direct_bids { 2 } else { 4 });
+    harness.advance_to_slot_lookahead(prepare_slot, lookahead);
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+    let expected_path = format!(
+        "{prepare_slot}/{executed_ancestor_hash:?}/{parent_root:?}/{}",
+        proposer_pubkey.as_hex_string()
+    );
+    if direct_bids {
+        wait_for(|| builder.reading.load(Ordering::SeqCst) == 1).await;
+        assert_eq!(
+            *builder.stream_paths.lock(),
+            vec![format!(
+                "/eth/v1/builder/execution_payload_bid_stream/{expected_path}"
+            )]
+        );
+    }
+
+    let mut builder_config = BuilderConfig::empty();
+    if direct_bids {
+        builder_config.builders = vec![BuilderEntry {
+            url: builder.url.parse().unwrap(),
+            auth,
+            builder_pubkeys: BuilderPubkeys::default(),
+            max_execution_payment: 0,
+            min_bid: 0,
+            builder_boost_factor: 100,
+        }]
+        .try_into()
+        .unwrap();
+    }
+    let randao_reveal = harness.sign_randao_reveal(&advanced_state, proposer_index, prepare_slot);
+    harness
+        .chain
+        .produce_block_with_verification_gloas(
+            randao_reveal,
+            prepare_slot,
+            GraffitiSettings::Unspecified,
+            ProduceBlockVerification::VerifyRandao,
+            builder_config,
+        )
+        .await
+        .unwrap();
+
+    // A stream for the produced proposal that connected without a bid means no bid request. A
+    // stream for another proposal or parent would have been requested over HTTP.
+    assert!(builder.bid_paths.lock().is_empty());
+
+    // Block production forgot the proposal's entries, so preparing again opens no stream. When
+    // production skipped direct bids before the stream connected, it closed that stream too.
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+    tokio::time::sleep(lookahead).await;
+    assert_eq!(builder.stream_paths.lock().len(), usize::from(direct_bids));
 }

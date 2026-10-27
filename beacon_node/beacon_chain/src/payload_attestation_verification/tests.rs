@@ -367,14 +367,25 @@ async fn harness_builds_and_imports_payload_attestation_messages() {
         absent_weight
     );
 
-    let pool_count_before = ctx.harness.chain.op_pool.num_payload_attestation_messages();
+    let pooled_bits = || -> usize {
+        ctx.harness
+            .chain
+            .op_pool
+            .get_all_payload_attestations(|data| {
+                data.slot == slot && data.beacon_block_root == beacon_block_root
+            })
+            .iter()
+            .map(|attestation| attestation.aggregation_bits.num_set_bits())
+            .sum()
+    };
+
+    let bits_before = pooled_bits();
     ctx.harness
         .import_payload_attestation_messages(messages)
         .expect("payload attestation messages should import");
-    assert_eq!(
-        ctx.harness.chain.op_pool.num_payload_attestation_messages(),
-        pool_count_before + attesters.len()
-    );
+
+    let expected_bits: usize = attesters.iter().map(|v| ptc_weights[v]).sum();
+    assert_eq!(pooled_bits(), bits_before + expected_bits);
 }
 
 #[tokio::test]
@@ -692,4 +703,157 @@ async fn side_chain_payload_attestation_uses_side_chain_ptc() {
         .verify_payload_attestation_message_for_gossip(msg)
         .expect("side-chain payload attestation should verify");
     assert_eq!(verified.ptc(), &side_ptc);
+}
+
+/// Payload attestations for two competing branches, with PTCs that differ, are aggregated into
+/// the op pool using the PTC from the shuffling cache. A block produced on top of each branch must
+/// only pack that branch's aggregates, and those aggregates must pass full signature verification
+/// against the branch's own state.
+#[tokio::test]
+async fn side_chain_payload_attestations_pack_into_valid_blocks() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let slots_per_epoch = E::slots_per_epoch();
+    let fork_slot = Slot::new(slots_per_epoch);
+    let target_slot = Slot::new(slots_per_epoch * 4);
+    let block_slot = target_slot + 1;
+    // Enough validators for at least four distinct PTC members per slot on both presets.
+    let num_validators = 512;
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .default_spec()
+        .deterministic_keypairs(num_validators)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.extend_to_slot(fork_slot).await;
+    let fork_state = harness.chain.head_snapshot().beacon_state.clone();
+
+    let side_slots: Vec<_> = ((fork_slot + 2).as_u64()..=target_slot.as_u64())
+        .map(Slot::new)
+        .collect();
+    let canonical_slots: Vec<_> = ((fork_slot + 1).as_u64()..=target_slot.as_u64())
+        .map(Slot::new)
+        .collect();
+    let canonical_validators = (0..num_validators / 2).collect::<Vec<_>>();
+
+    let results = harness
+        .add_blocks_on_multiple_chains(vec![
+            (fork_state.clone(), side_slots, vec![]),
+            (fork_state, canonical_slots, canonical_validators),
+        ])
+        .await;
+
+    let branches: Vec<(Hash256, types::BeaconState<E>)> = results
+        .iter()
+        .map(|result| (result.2.into(), result.3.clone()))
+        .collect();
+    let [(side_root, side_state), (canonical_root, canonical_state)] = &branches[..] else {
+        panic!("expected two branches");
+    };
+    assert_ne!(side_root, canonical_root);
+    assert_eq!(
+        harness.chain.head_snapshot().beacon_block_root,
+        *canonical_root
+    );
+    assert_ne!(
+        side_state.get_ptc(target_slot, &harness.spec).unwrap(),
+        canonical_state.get_ptc(target_slot, &harness.spec).unwrap(),
+        "precondition: branches should have different PTCs"
+    );
+
+    // Every distinct PTC member votes, cycling through all four data combinations, so each branch
+    // has four aggregates of different weight for the same slot and block root.
+    let combos = [(true, true), (true, false), (false, true), (false, false)];
+    let fork = harness
+        .spec
+        .fork_at_epoch(target_slot.epoch(slots_per_epoch));
+    // Gossip accepts one message per validator per slot, so a validator sitting in both PTCs only
+    // votes on the first branch. Track the PTC seats each branch's voters fill.
+    harness.set_current_slot(target_slot);
+    let mut voted = std::collections::HashSet::new();
+    let mut expected_bits = vec![];
+    for (root, state) in &branches {
+        let ptc = state.get_ptc(target_slot, &harness.spec).unwrap();
+        let members = ptc
+            .0
+            .iter()
+            .copied()
+            .filter(|validator_index| voted.insert(*validator_index))
+            .collect::<Vec<_>>();
+        assert!(
+            members.len() >= 4,
+            "each branch needs voters for all four combos"
+        );
+        expected_bits.push(
+            ptc.0
+                .iter()
+                .filter(|validator_index| members.contains(validator_index))
+                .count(),
+        );
+        let messages = members
+            .iter()
+            .enumerate()
+            .map(|(i, &validator_index)| {
+                let (payload_present, blob_data_available) = combos[i % combos.len()];
+                let data = PayloadAttestationData {
+                    beacon_block_root: *root,
+                    slot: target_slot,
+                    payload_present,
+                    blob_data_available,
+                };
+                harness.make_payload_attestation_message(validator_index, data, &fork)
+            })
+            .collect::<Vec<_>>();
+        harness
+            .import_payload_attestation_messages(messages)
+            .expect("branch payload attestations should import");
+    }
+    assert_eq!(harness.chain.op_pool.num_payload_attestations(), 8);
+
+    for ((root, state), expected_bits) in branches.iter().zip(expected_bits) {
+        let (block_contents, _envelope, _post_state) = harness
+            .try_make_gloas_block_with_envelope_on(
+                state.clone(),
+                block_slot,
+                proto_array::PayloadStatus::Empty,
+            )
+            .await
+            .expect("block production should succeed");
+
+        let block = &block_contents.0;
+        let payload_attestations = block
+            .message()
+            .body()
+            .payload_attestations()
+            .expect("Gloas block should have payload attestations");
+        assert_eq!(payload_attestations.len(), E::max_payload_attestations());
+        assert!(
+            payload_attestations
+                .iter()
+                .all(|att| att.data.beacon_block_root == *root && att.data.slot == target_slot)
+        );
+        let total_bits: usize = payload_attestations
+            .iter()
+            .map(|att| att.aggregation_bits.num_set_bits())
+            .sum();
+        assert_eq!(total_bits, expected_bits);
+        let bit_counts = payload_attestations
+            .iter()
+            .map(|att| att.aggregation_bits.num_set_bits())
+            .collect::<Vec<_>>();
+        assert!(
+            bit_counts.windows(2).all(|w| w[0] >= w[1]),
+            "aggregates should be packed by participation: {bit_counts:?}"
+        );
+
+        // Full import verifies every payload attestation signature against the block's state.
+        harness
+            .process_block(block_slot, block.canonical_root(), block_contents.clone())
+            .await
+            .expect("block with branch payload attestations should import");
+    }
 }
