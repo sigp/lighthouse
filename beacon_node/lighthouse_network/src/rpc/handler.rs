@@ -175,7 +175,7 @@ struct InboundInfo<E: EthSpec> {
     /// BlocksByRange.
     request_start_time: Instant,
     /// Key to keep track of the substream's timeout via `self.inbound_substreams_delay`.
-    delay_key: Option<delay_queue::Key>,
+    delay_key: delay_queue::Key,
 }
 
 /// Contains the information the handler keeps on established outbound substreams.
@@ -497,9 +497,7 @@ where
                                 // The substream closed, we remove it from the mapping and remove
                                 // the timeout
                                 substreams_to_remove.push(*id);
-                                if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay.remove(delay_key);
-                                }
+                                self.inbound_substreams_delay.remove(&info.delay_key);
                                 // If there was an error in shutting down the substream report the
                                 // error
                                 if let Err(error) = res {
@@ -543,9 +541,8 @@ where
 
                                 // If this substream has not ended, we reset the timer.
                                 // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
-                                if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay.reset(delay_key, RESP_TIMEOUT);
-                                }
+                                self.inbound_substreams_delay
+                                    .reset(&info.delay_key, RESP_TIMEOUT);
 
                                 // The stream may be currently idle. Attempt to process more
                                 // elements
@@ -574,9 +571,7 @@ where
                                 // The substream has closed. Remove the timeout related to the
                                 // substream.
                                 substreams_to_remove.push(*id);
-                                if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay.remove(delay_key);
-                                }
+                                self.inbound_substreams_delay.remove(&info.delay_key);
 
                                 // BlocksByRange is the one that typically consumes the most time.
                                 // Its useful to log when the request was completed.
@@ -610,9 +605,7 @@ where
                             Poll::Ready(Err(error)) => {
                                 // Remove the stream timeout from the mapping
                                 substreams_to_remove.push(*id);
-                                if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay.remove(delay_key);
-                                }
+                                self.inbound_substreams_delay.remove(&info.delay_key);
                                 // Report the error that occurred during the send process
                                 self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
                                     error,
@@ -869,6 +862,14 @@ where
             ));
         }
 
+        // Report events queued while driving the substreams, such as closed inbound substreams,
+        // as the handler is not necessarily woken up again to report them.
+        if !self.events_out.is_empty() {
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                self.events_out.remove(0),
+            ));
+        }
+
         Poll::Pending
     }
 
@@ -1011,7 +1012,7 @@ where
                         pending_items: VecDeque::with_capacity(
                             std::cmp::min(max_responses, 128) as usize
                         ),
-                        delay_key: Some(delay_key),
+                        delay_key,
                         protocol: req.versioned_protocol().protocol(),
                         request_start_time: Instant::now(),
                         max_remaining_chunks: max_responses,
