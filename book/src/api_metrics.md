@@ -56,7 +56,7 @@ Check to ensure that the metrics are available on the default port:
 curl localhost:5064/metrics
 ```
 
-Similar to the beacon node, you can choose to return a compressed data to reduce data transfer:
+Similar to the beacon node, you can choose to return a compressed file to reduce data transfer:
 
 ```bash
 curl localhost:5064/metrics -H "Accept-Encoding: gzip" > metrics_vc.gz
