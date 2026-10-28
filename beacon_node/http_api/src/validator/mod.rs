@@ -7,7 +7,7 @@ use crate::utils::{
     ResponseFilter, TaskSpawnerFilter, ValidatorSubscriptionTxFilter, publish_network_message,
 };
 use crate::version::{V1, V2, V3, add_ssz_content_type_header, unsupported_version_rejection};
-use crate::{StateId, attester_duties, proposer_duties, ptc_duties, sync_committees};
+use crate::{StateId, attester_duties, metrics, proposer_duties, ptc_duties, sync_committees};
 use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
@@ -1654,6 +1654,7 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
                     network_tx,
                     PubsubMessage::InclusionList(Box::new(signed_inclusion_list)),
                 )?;
+                metrics::inc_counter(&metrics::INCLUSION_LISTS_PUBLISHED_TOTAL);
             }
             Ok(())
         }
