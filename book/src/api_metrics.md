@@ -28,7 +28,7 @@ Check to ensure that the metrics are available on the default port:
 curl localhost:5054/metrics
 ```
 
-Lighthouse supports Gzip compression when querying the metrics server. When used, the returned compressed file reduces the data transfer by ~90% compared to plain text. To obtain a gzip file, use the header `-H "Accept-Encoding: gzip`, for example:
+Lighthouse supports Gzip compression when querying the metrics server. When used, the returned compressed file reduces the data transfer by ~90% compared to plain text. To obtain a Gzip file, use the header `-H "Accept-Encoding: gzip`, for example:
 
 ```bash
 curl localhost:5054/metrics -H "Accept-Encoding: gzip" > metrics.gz

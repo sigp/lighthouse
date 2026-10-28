@@ -109,7 +109,7 @@ and also considers bids seen over p2p. For each candidate bid:
 The highest-value bid after these rules wins. Per-builder `min_bid`/`builder_boost_factor` apply
 only to bids requested directly by URL. For p2p bids, per-validator defaults override the global values.
 
-## Logs 
+## Logs
 
 This section provide new block proposal logs relevant to ePBS. It assumes the "happy path": if a block production is successful, what you should expect to see in Lighthouse logs.
 
@@ -122,6 +122,7 @@ INFO  Winning execution payload bid                 slot: 190, source: gossip, b
 ```
 
 The fields are:
+
 - `slot`: the slot of the block proposal
 - `source`, to indicate where the bid comes from:
   - `local` - locally built (i.e. via the execution client)
@@ -142,7 +143,7 @@ DEBUG Execution payload bid candidate               slot: 190, source: gossip, b
 DEBUG Execution payload bid candidate               slot: 190, source: local, builder_index: 18446744073709551615, bid_value_gwei: 0, execution_payment_gwei: 0, payload_value_wei: 20765522000000000
 ```
 
-### Beacon node after block production (payload envelope) 
+### Beacon node after block production (payload envelope)
 
 If a bid is won by a direct builder connection, the beacon node will forward the signed block to the builder:
 
