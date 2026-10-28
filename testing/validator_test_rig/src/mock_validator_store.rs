@@ -197,4 +197,12 @@ impl ValidatorStore for MockValidatorStore {
     fn proposal_data(&self, _pubkey: &PublicKeyBytes) -> Option<ProposalData> {
         panic!("MockValidatorStore::proposal_data called without a hook")
     }
+
+    fn proposal_data_at_epoch(
+        &self,
+        _pubkey: &PublicKeyBytes,
+        _epoch: Epoch,
+    ) -> Option<ProposalData> {
+        panic!("MockValidatorStore::proposal_data_at_epoch called without a hook")
+    }
 }

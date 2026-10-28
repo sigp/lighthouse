@@ -57,6 +57,13 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
             .map(|data| &data.envelope)
     }
 
+    /// Returns true if the blobs for a beacon block root are cached and have not been taken yet.
+    pub fn has_blobs(&self, beacon_block_root: Hash256) -> bool {
+        self.envelopes
+            .get(&beacon_block_root)
+            .is_some_and(|data| data.blobs.is_some())
+    }
+
     /// Remove and return the blobs for a beacon block root, leaving the envelope in place.
     pub fn take_blobs(&mut self, beacon_block_root: Hash256) -> Option<Arc<BlobsList<E>>> {
         self.envelopes
@@ -97,9 +104,9 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256, MainnetEthSpec};
+    use types::{ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn make_envelope(slot: Slot, beacon_block_root: Hash256) -> PendingEnvelopeData<E> {
         PendingEnvelopeData {
@@ -181,10 +188,12 @@ mod tests {
             blobs: Some(blobs),
         };
         cache.insert(data);
+        assert!(cache.has_blobs(block_root));
 
         // First take returns the blobs
         let taken = cache.take_blobs(block_root);
         assert!(taken.is_some());
+        assert!(!cache.has_blobs(block_root));
 
         // Second take returns None — blobs are consumed
         let taken_again = cache.take_blobs(block_root);
@@ -202,9 +211,11 @@ mod tests {
 
         // Insert with no blobs
         cache.insert(make_envelope(slot, block_root));
+        assert!(!cache.has_blobs(block_root));
         assert!(cache.take_blobs(block_root).is_none());
 
         // Non-existent block root
+        assert!(!cache.has_blobs(Hash256::repeat_byte(99)));
         assert!(cache.take_blobs(Hash256::repeat_byte(99)).is_none());
     }
 

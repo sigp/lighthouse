@@ -250,6 +250,7 @@ fn build_chain_inner(
             epoch: Slot::new(CHAIN_TIP_SLOT).epoch(E::slots_per_epoch()),
         },
         total_active_balance,
+        total_unslashed_active_balance: total_active_balance,
         effective_balances: vec![BALANCE; num_validators],
         slashed: vec![false; num_validators],
     };
@@ -282,6 +283,7 @@ fn build_chain_inner(
         &seed_state,
         finalized_checkpoint,
         &seed_state,
+        None,
         25,
         40,
         &spec,

@@ -364,7 +364,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
     use tokio::sync::mpsc;
-    use types::{ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot};
+    use types::{ChainSpec, Epoch, EthSpec, Hash256, Slot, Spec};
 
     const VALIDATOR_COUNT: usize = 48;
 
@@ -375,8 +375,8 @@ mod tests {
     fn get_harness(
         validator_count: usize,
         spec: Arc<ChainSpec>,
-    ) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    ) -> BeaconChainHarness<EphemeralHarnessType<Spec>> {
+        let harness = BeaconChainHarness::builder(Spec::default())
             .spec(spec)
             .keypairs(KEYPAIRS[0..validator_count].to_vec())
             .fresh_ephemeral_store()
@@ -391,7 +391,7 @@ mod tests {
     // TODO(EIP-7732) Extend this test for gloas
     #[tokio::test]
     async fn check_all_blocks_from_altair_to_fulu() {
-        let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
+        let slots_per_epoch = Spec::slots_per_epoch() as usize;
         let num_epochs = 12;
         let bellatrix_fork_epoch = 0usize;
         let capella_fork_epoch = 4usize;
@@ -400,7 +400,7 @@ mod tests {
         let fulu_fork_epoch = 10usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
-        let mut spec = test_spec::<MinimalEthSpec>();
+        let mut spec = test_spec::<Spec>();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
@@ -425,7 +425,7 @@ mod tests {
         );
         assert_eq!(
             state.current_epoch(),
-            num_blocks_produced as u64 / MinimalEthSpec::slots_per_epoch(),
+            num_blocks_produced as u64 / Spec::slots_per_epoch(),
             "head should be at the expected epoch"
         );
         assert_eq!(

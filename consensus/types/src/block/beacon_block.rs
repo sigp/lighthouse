@@ -14,7 +14,7 @@ use tree_hash_derive::TreeHash;
 use typenum::Unsigned;
 
 use crate::{
-    KzgCommitment, SignedExecutionPayloadBid,
+    KzgCommitment, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
     attestation::{AttestationBase, AttestationData, IndexedAttestationBase},
     block::{
         BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,
@@ -731,7 +731,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockGloa
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: ProgressiveVariableList::empty(),
                 parent_execution_requests: ExecutionRequestsGloas::default(),
-                signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
+                signed_execution_payload_bid: SignedExecutionPayloadBidGloas::empty(),
                 payload_attestations: ProgressiveVariableList::empty(),
                 _phantom: PhantomData,
             },
@@ -763,7 +763,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockHeze
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: ProgressiveVariableList::empty(),
                 parent_execution_requests: ExecutionRequestsGloas::default(),
-                signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
+                signed_execution_payload_bid: SignedExecutionPayloadBidHeze::empty(),
                 payload_attestations: ProgressiveVariableList::empty(),
                 _phantom: PhantomData,
             },
@@ -1006,18 +1006,18 @@ impl fmt::Display for BlockImportSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{core::MainnetEthSpec, test_utils::test_ssz_tree_hash_pair_with};
+    use crate::{core::Spec, test_utils::test_ssz_tree_hash_pair_with};
     use arbitrary::Arbitrary;
     use ssz::Encode;
 
-    type BeaconBlock = super::BeaconBlock<MainnetEthSpec>;
-    type BeaconBlockBase = super::BeaconBlockBase<MainnetEthSpec>;
-    type BeaconBlockAltair = super::BeaconBlockAltair<MainnetEthSpec>;
+    type BeaconBlock = super::BeaconBlock<Spec>;
+    type BeaconBlockBase = super::BeaconBlockBase<Spec>;
+    type BeaconBlockAltair = super::BeaconBlockAltair<Spec>;
 
     #[test]
     fn roundtrip_base_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Base.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Base.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockBase::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Base(inner_block.clone());
@@ -1030,7 +1030,7 @@ mod tests {
     #[test]
     fn roundtrip_altair_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Altair.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Altair.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockAltair::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Altair(inner_block.clone());
@@ -1043,7 +1043,7 @@ mod tests {
     #[test]
     fn roundtrip_capella_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Capella.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Capella.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockCapella::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Capella(inner_block.clone());
@@ -1056,7 +1056,7 @@ mod tests {
     #[test]
     fn roundtrip_deneb_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Deneb.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Deneb.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockDeneb::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Deneb(inner_block.clone());
@@ -1069,7 +1069,7 @@ mod tests {
     #[test]
     fn roundtrip_electra_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Electra.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Electra.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockElectra::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Electra(inner_block.clone());
@@ -1082,7 +1082,7 @@ mod tests {
     #[test]
     fn roundtrip_fulu_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Fulu.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Fulu.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockFulu::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Fulu(inner_block.clone());
@@ -1095,7 +1095,7 @@ mod tests {
     #[test]
     fn roundtrip_heze_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Heze.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Heze.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockHeze::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Heze(inner_block.clone());
@@ -1108,7 +1108,7 @@ mod tests {
     #[test]
     fn roundtrip_gloas_block() {
         let mut u = crate::test_utils::test_unstructured();
-        let spec = &ForkName::Gloas.make_genesis_spec(MainnetEthSpec::default_spec());
+        let spec = &ForkName::Gloas.make_genesis_spec(Spec::default_spec());
 
         let inner_block = BeaconBlockGloas::arbitrary(&mut u).unwrap();
         let block = BeaconBlock::Gloas(inner_block.clone());
@@ -1120,12 +1120,12 @@ mod tests {
 
     #[test]
     fn decode_base_and_altair() {
-        type E = MainnetEthSpec;
+        type E = Spec;
         let mut spec = E::default_spec();
 
         let mut u = crate::test_utils::test_unstructured();
 
-        let altair_fork_epoch = spec.altair_fork_epoch.unwrap();
+        let altair_fork_epoch = Epoch::new(1);
 
         let base_epoch = altair_fork_epoch.saturating_sub(1_u64);
         let base_slot = base_epoch.end_slot(E::slots_per_epoch());

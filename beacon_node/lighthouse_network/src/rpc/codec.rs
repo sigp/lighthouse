@@ -19,10 +19,7 @@ use types::SignedExecutionPayloadEnvelope;
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
     ForkName, ForkVersionDecode, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
-    SignedBeaconBlockGloas, SignedBeaconBlockHeze,
+    LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock, SignedBeaconBlockBase,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -870,39 +867,8 @@ fn handle_rpc_response<E: EthSpec>(
             MetaData::V2(MetaDataV2::from_ssz_bytes(decoded_buffer)?),
         )))),
         SupportedProtocol::BlocksByRangeV2 => match fork_name {
-            Some(ForkName::Altair) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(decoded_buffer)?),
-            )))),
-
-            Some(ForkName::Base) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Bellatrix) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Capella) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Electra) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Gloas) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Heze) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                SignedBeaconBlock::Heze(SignedBeaconBlockHeze::from_ssz_bytes(decoded_buffer)?),
+            Some(fork_name) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::from_ssz_bytes_by_fork(decoded_buffer, fork_name)?,
             )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
@@ -913,38 +879,8 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         SupportedProtocol::BlocksByRootV2 => match fork_name {
-            Some(ForkName::Altair) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Base) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Bellatrix) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Capella) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Deneb) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Electra) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Electra(SignedBeaconBlockElectra::from_ssz_bytes(
-                    decoded_buffer,
-                )?),
-            )))),
-            Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Gloas) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(decoded_buffer)?),
-            )))),
-            Some(ForkName::Heze) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                SignedBeaconBlock::Heze(SignedBeaconBlockHeze::from_ssz_bytes(decoded_buffer)?),
+            Some(fork_name) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::from_ssz_bytes_by_fork(decoded_buffer, fork_name)?,
             )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
@@ -999,12 +935,10 @@ mod tests {
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
         DataColumnsByRootIdentifier, EmptyBlock, Epoch, FullPayload, KzgCommitment, KzgProof,
-        SignedBeaconBlockHeader, Slot,
+        SignedBeaconBlockHeader, Slot, Spec,
         data::{BlobIdentifier, Cell},
     };
     use types::{BlobSidecar, DataColumnSidecarFulu};
-
-    type Spec = types::MainnetEthSpec;
 
     fn spec_with_all_forks_enabled() -> ChainSpec {
         let mut chain_spec = Spec::default_spec();
@@ -1885,28 +1819,41 @@ mod tests {
         );
     }
 
-    // BlocksByHead is introduced in Fulu but the response is just `SignedBeaconBlock`,
-    // so the codec must accept blocks of any fork variant — the chain a Fulu peer walks
-    // back may straddle the Fulu boundary and include pre-Fulu canonical blocks.
+    // Each block response must preserve the fork variant selected by the context bytes,
+    // including variants with identical SSZ encodings.
     #[test]
-    fn test_blocks_by_head_decodes_all_forks() {
-        let chain_spec = spec_with_all_forks_enabled();
-        for (block, fork) in [
-            (empty_base_block(&chain_spec), ForkName::Base),
-            (altair_block(&chain_spec), ForkName::Altair),
-            (bellatrix_block_small(&chain_spec), ForkName::Bellatrix),
-        ] {
-            let block_arc = Arc::new(block);
-            assert_eq!(
-                encode_then_decode_response(
-                    SupportedProtocol::BlocksByHeadV1,
-                    RpcResponse::Success(RpcSuccessResponse::BlocksByHead(block_arc.clone())),
-                    fork,
-                    &chain_spec,
+    fn test_block_responses_decode_all_forks() {
+        for fork in ForkName::list_all() {
+            let chain_spec = fork.make_genesis_spec(Spec::default_spec());
+            let block = Arc::new(SignedBeaconBlock::from_block(
+                BeaconBlock::empty(&chain_spec),
+                Signature::empty(),
+            ));
+            for (protocol, response) in [
+                (
+                    SupportedProtocol::BlocksByRangeV2,
+                    RpcSuccessResponse::BlocksByRange(block.clone()),
                 ),
-                Ok(Some(RpcSuccessResponse::BlocksByHead(block_arc))),
-                "BlocksByHeadV1 must round-trip a {fork} block"
-            );
+                (
+                    SupportedProtocol::BlocksByRootV2,
+                    RpcSuccessResponse::BlocksByRoot(block.clone()),
+                ),
+                (
+                    SupportedProtocol::BlocksByHeadV1,
+                    RpcSuccessResponse::BlocksByHead(block),
+                ),
+            ] {
+                assert_eq!(
+                    encode_then_decode_response(
+                        protocol,
+                        RpcResponse::Success(response.clone()),
+                        fork,
+                        &chain_spec,
+                    ),
+                    Ok(Some(response)),
+                    "{protocol:?} must round-trip a {fork} block"
+                );
+            }
         }
     }
 
@@ -2214,14 +2161,13 @@ mod tests {
         // byte 1,2,3 are chunk length (little endian)
         let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
 
-        // Full altair block is 157916 bytes uncompressed. `max_compressed_len` is 32 + 157916 + 157916/6 = 184267.
         let block_message_bytes = altair_block(&fork_context.spec).as_ssz_bytes();
+        let max_compressed_len = snap::raw::max_compress_len(block_message_bytes.len());
 
-        assert_eq!(block_message_bytes.len(), 157916);
-        assert_eq!(
-            snap::raw::max_compress_len(block_message_bytes.len()),
-            184267
-        );
+        let mut writer = FrameEncoder::new(Vec::new());
+        writer.write_all(&block_message_bytes).unwrap();
+        writer.flush().unwrap();
+        let compressed_payload = writer.get_ref();
 
         let mut uvi_codec: Uvi<usize> = Uvi::default();
         let mut dst = BytesMut::with_capacity(1024);
@@ -2238,21 +2184,18 @@ mod tests {
         // Insert snappy stream identifier
         dst.extend_from_slice(stream_identifier);
 
-        // Insert malicious padding of 176156 bytes.
-        for _ in 0..44039 {
+        // Insert just enough malicious padding to push the message past `max_compressed_len`.
+        let padding_len = max_compressed_len - stream_identifier.len() - compressed_payload.len();
+        for _ in 0..padding_len / malicious_padding.len() + 1 {
             dst.extend_from_slice(malicious_padding);
         }
 
-        // Insert payload (8102 bytes compressed)
-        let mut writer = FrameEncoder::new(Vec::new());
-        writer.write_all(&block_message_bytes).unwrap();
-        writer.flush().unwrap();
-        assert_eq!(writer.get_ref().len(), 8102);
-        dst.extend_from_slice(writer.get_ref());
+        // Insert payload
+        dst.extend_from_slice(compressed_payload);
 
         let chain_spec = spec_with_all_forks_enabled();
 
-        // 10 (for stream identifier) + 176156 + 8103 = 184269 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
+        // The message is longer than `max_compressed_len`, so decoding should fail with `InvalidData`.
         assert!(matches!(
             decode_response(
                 SupportedProtocol::BlocksByRangeV2,
