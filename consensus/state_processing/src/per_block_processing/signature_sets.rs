@@ -482,9 +482,9 @@ where
 ///
 /// The domain is computed at the inclusion list's own slot epoch, not the state's current epoch.
 pub fn inclusion_list_signature_set<'a, E, F>(
-    state: &'a BeaconState<E>,
     get_pubkey: F,
     signed_inclusion_list: &'a SignedInclusionList,
+    genesis_validators_root: Hash256,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
@@ -500,7 +500,7 @@ where
         epoch,
         Domain::InclusionListCommittee,
         &fork,
-        state.genesis_validators_root(),
+        genesis_validators_root,
     );
 
     let signing_root = message.signing_root(domain);
@@ -895,10 +895,10 @@ mod inclusion_list_signature_tests {
             .sign(message.signing_root(domain));
         let signed = SignedInclusionList { message, signature };
 
-        let set = inclusion_list_signature_set(
-            &state,
+        let set = inclusion_list_signature_set::<E, _>(
             |i| get_pubkey_from_state(&state, i),
             &signed,
+            state.genesis_validators_root(),
             &spec,
         )
         .unwrap();
@@ -931,10 +931,10 @@ mod inclusion_list_signature_tests {
             .sign(message.signing_root(domain));
         let signed = SignedInclusionList { message, signature };
 
-        let set = inclusion_list_signature_set(
-            &state,
+        let set = inclusion_list_signature_set::<E, _>(
             |i| get_pubkey_from_state(&state, i),
             &signed,
+            state.genesis_validators_root(),
             &spec,
         )
         .unwrap();

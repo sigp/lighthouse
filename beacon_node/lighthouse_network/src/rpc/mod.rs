@@ -12,7 +12,6 @@ use libp2p::swarm::{
     handler::ConnectionHandler,
 };
 use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
-use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -26,9 +25,12 @@ pub use protocol::RequestType;
 use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use self::protocol::RPCProtocol;
 use self::self_limiter::SelfRateLimiter;
+use crate::rpc::inbound_limiter::{
+    ActiveInboundRequest, Admission, InboundRateLimiter, ReadyRequest,
+};
 use crate::rpc::rate_limiter::RateLimiterItem;
-use crate::rpc::response_limiter::ResponseLimiter;
 pub use handler::SubstreamId;
+use logging::crit;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, LightClientBootstrapRequest,
     ResponseTermination, RpcErrorResponse, StatusMessage,
@@ -38,11 +40,11 @@ pub use protocol::{Protocol, RPCError};
 pub(crate) mod codec;
 pub mod config;
 mod handler;
+mod inbound_limiter;
 pub mod methods;
 mod outbound;
 mod protocol;
 mod rate_limiter;
-mod response_limiter;
 mod self_limiter;
 
 // Maximum number of concurrent requests per protocol ID that a client may issue.
@@ -97,13 +99,6 @@ pub struct InboundRequestId {
     substream_id: SubstreamId,
 }
 
-// An Active inbound request received via Rpc.
-struct ActiveInboundRequest<E: EthSpec> {
-    pub peer_id: PeerId,
-    pub request_type: RequestType<E>,
-    pub peer_disconnected: bool,
-}
-
 impl InboundRequestId {
     /// Creates an _unchecked_ [`InboundRequestId`].
     ///
@@ -145,12 +140,12 @@ type BehaviourAction<Id, E> = ToSwarm<RPCMessage<Id, E>, RPCSend<Id, E>>;
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<Id: ReqId, E: EthSpec> {
-    /// Rate limiter for our responses.
-    response_limiter: Option<ResponseLimiter<E>>,
+    /// Rate limiter for inbound requests, which delays or rejects requests before they are
+    /// executed. Also tracks the active requests and enforces the maximum number of concurrent
+    /// requests per protocol per peer, which bounds the delayed requests queue.
+    inbound_request_limiter: InboundRateLimiter<E>,
     /// Rate limiter for our own requests.
     outbound_request_limiter: SelfRateLimiter<Id, E>,
-    /// Active inbound requests that are awaiting a response.
-    active_inbound_requests: HashMap<InboundRequestId, ActiveInboundRequest<E>>,
     /// Queue of events to be processed.
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
@@ -167,20 +162,20 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
         seq_number: u64,
     ) -> Self {
-        let response_limiter = inbound_rate_limiter_config.map(|config| {
-            debug!(?config, "Using response rate limiting params");
-            ResponseLimiter::new(config, fork_context.clone())
-                .expect("Inbound limiter configuration parameters are valid")
-        });
+        if let Some(config) = &inbound_rate_limiter_config {
+            debug!(?config, "Using inbound rate limiting params");
+        }
+        let inbound_request_limiter =
+            InboundRateLimiter::new(inbound_rate_limiter_config, fork_context.clone())
+                .expect("Inbound limiter configuration parameters are valid");
 
         let outbound_request_limiter: SelfRateLimiter<Id, E> =
             SelfRateLimiter::new(outbound_rate_limiter_config, fork_context.clone())
                 .expect("Outbound limiter configuration parameters are valid");
 
         RPC {
-            response_limiter,
+            inbound_request_limiter,
             outbound_request_limiter,
-            active_inbound_requests: HashMap::new(),
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
@@ -198,8 +193,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         let Some(ActiveInboundRequest {
             peer_id,
             request_type,
-            peer_disconnected,
-        }) = self.active_inbound_requests.remove(&request_id)
+        }) = self.inbound_request_limiter.complete_request(request_id)
         else {
             return Err(response);
         };
@@ -209,51 +203,59 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         if request_type.protocol().terminator().is_some()
             && matches!(response, RpcResponse::Success(_))
         {
-            self.active_inbound_requests.insert(
+            self.inbound_request_limiter.reinsert_active(
                 request_id,
                 ActiveInboundRequest {
                     peer_id,
                     request_type: request_type.clone(),
-                    peer_disconnected,
                 },
             );
         }
 
-        if peer_disconnected {
-            trace!(%peer_id, ?request_id, %response,
-                "Discarding response, peer is no longer connected");
-            return Ok(());
-        }
-
-        self.send_response_inner(peer_id, request_type.protocol(), request_id, response);
+        self.send_response_inner(peer_id, request_id, response);
         Ok(())
     }
 
     fn send_response_inner(
         &mut self,
         peer_id: PeerId,
-        protocol: Protocol,
         request_id: InboundRequestId,
         response: RpcResponse<E>,
     ) {
-        if let Some(response_limiter) = self.response_limiter.as_mut()
-            && !response_limiter.allows(
-                peer_id,
-                protocol,
-                request_id.connection_id,
-                request_id.substream_id,
-                response.clone(),
-            )
-        {
-            // Response is logged and queued internally in the response limiter.
-            return;
-        }
-
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
             handler: NotifyHandler::One(request_id.connection_id),
             event: RPCSend::Response(request_id.substream_id, response),
         });
+    }
+
+    /// Delivers an inbound request to the application for execution. Pings are additionally
+    /// answered here directly.
+    fn deliver_request(
+        &mut self,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        request_id: InboundRequestId,
+        request_type: RequestType<E>,
+    ) {
+        // If we received a Ping, we queue a Pong response.
+        if let RequestType::Ping(_) = request_type {
+            trace!(%connection_id, %peer_id, "Received Ping, queueing Pong");
+            if let Err(response) = self.send_response(
+                request_id,
+                RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
+                    data: self.seq_number,
+                })),
+            ) {
+                crit!(%response, %peer_id, "Unexpected missing request for PONG");
+            }
+        }
+
+        self.events.push(ToSwarm::GenerateEvent(RPCMessage {
+            peer_id,
+            connection_id,
+            message: Ok(RPCReceived::Request(request_id, request_type)),
+        }));
     }
 
     /// Submits an RPC request.
@@ -366,6 +368,11 @@ where
             ..
         }) = event
         {
+            // Drop requests that have not yet been delivered for execution. They cannot be
+            // answered after their connection closes, even if the peer has another connection.
+            self.inbound_request_limiter
+                .connection_closed(peer_id, connection_id);
+
             // If there are still connections remaining, do nothing.
             if remaining_established > 0 {
                 return;
@@ -383,15 +390,6 @@ where
                     }),
                 });
                 self.events.push(error_msg);
-            }
-
-            self.active_inbound_requests
-                .values_mut()
-                .filter(|request| request.peer_id == peer_id)
-                .for_each(|request| request.peer_disconnected = true);
-
-            if let Some(limiter) = self.response_limiter.as_mut() {
-                limiter.peer_disconnected(peer_id);
             }
 
             // Replace the pending Requests to the disconnected peer
@@ -425,70 +423,41 @@ where
     ) {
         match event {
             HandlerEvent::Ok(RPCReceived::Request(request_id, request_type)) => {
-                let is_concurrent_request_limit_exceeded = self
-                    .active_inbound_requests
-                    .iter()
-                    .filter(
-                        |(
-                            _inbound_request_id,
-                            ActiveInboundRequest {
-                                peer_id: request_peer_id,
-                                request_type: active_request_type,
-                                peer_disconnected,
-                            },
-                        )| {
-                            *request_peer_id == peer_id
-                                && active_request_type.protocol() == request_type.protocol()
-                                && !peer_disconnected
-                        },
-                    )
-                    .count()
-                    >= MAX_CONCURRENT_REQUESTS;
-
-                // Restricts more than MAX_CONCURRENT_REQUESTS inbound requests from running simultaneously on the same protocol per peer.
-                if is_concurrent_request_limit_exceeded {
-                    // There is already an active request with the same protocol. Send an error code to the peer.
-                    debug!(request = %request_type, protocol = %request_type.protocol(), %peer_id, "There is an active request with the same protocol");
-                    self.send_response_inner(
-                        peer_id,
-                        request_type.protocol(),
-                        request_id,
-                        RpcResponse::Error(
-                            RpcErrorResponse::RateLimited,
-                            format!("Rate limited. There are already {MAX_CONCURRENT_REQUESTS} active requests with the same protocol")
-                                .into(),
-                        ),
-                    );
-                    return;
+                // Check the rate limit quota before executing the request, so that no memory is
+                // consumed by responses that cannot be sent yet. Requests over the quota are
+                // delayed until the quota allows them, or rejected if that would take too long.
+                match self
+                    .inbound_request_limiter
+                    .allows(peer_id, request_id, request_type)
+                {
+                    Admission::Execute(request_type) => {
+                        self.deliver_request(peer_id, connection_id, request_id, request_type);
+                    }
+                    Admission::Delayed => {
+                        // The request is queued inside the limiter and delivered via `poll`.
+                    }
+                    Admission::Reject(_request_type) => {
+                        self.send_response_inner(
+                            peer_id,
+                            request_id,
+                            RpcResponse::Error(
+                                RpcErrorResponse::RateLimited,
+                                "Rate limited. Request quota exceeded, try again later".into(),
+                            ),
+                        );
+                    }
+                    Admission::RejectConcurrent(_request_type) => {
+                        self.send_response_inner(
+                            peer_id,
+                            request_id,
+                            RpcResponse::Error(
+                                RpcErrorResponse::RateLimited,
+                                format!("Rate limited. There are already {MAX_CONCURRENT_REQUESTS} active requests with the same protocol")
+                                    .into(),
+                            ),
+                        );
+                    }
                 }
-
-                // Requests that are below the limit on the number of simultaneous requests are added to the active inbound requests.
-                self.active_inbound_requests.insert(
-                    request_id,
-                    ActiveInboundRequest {
-                        peer_id,
-                        request_type: request_type.clone(),
-                        peer_disconnected: false,
-                    },
-                );
-
-                // If we received a Ping, we queue a Pong response.
-                if let RequestType::Ping(_) = request_type {
-                    trace!(connection_id = %connection_id, %peer_id, "Received Ping, queueing Pong");
-                    self.send_response(
-                        request_id,
-                        RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
-                            data: self.seq_number,
-                        })),
-                    )
-                    .expect("Request to exist");
-                }
-
-                self.events.push(ToSwarm::GenerateEvent(RPCMessage {
-                    peer_id,
-                    connection_id,
-                    message: Ok(RPCReceived::Request(request_id, request_type)),
-                }));
             }
             HandlerEvent::Ok(RPCReceived::Response(id, response)) => {
                 if response.protocol().terminator().is_none() {
@@ -516,17 +485,32 @@ where
             }
             HandlerEvent::Err(err) => {
                 // Inform the limiter that the request has ended with an error.
-                let protocol = match err {
-                    HandlerErr::Inbound { proto, .. } | HandlerErr::Outbound { proto, .. } => proto,
-                };
-                self.outbound_request_limiter
-                    .request_completed(&peer_id, protocol);
+                match &err {
+                    HandlerErr::Inbound { id, .. } => {
+                        self.inbound_request_limiter
+                            .request_ended(InboundRequestId {
+                                connection_id,
+                                substream_id: *id,
+                            });
+                    }
+                    HandlerErr::Outbound { proto, .. } => {
+                        self.outbound_request_limiter
+                            .request_completed(&peer_id, *proto);
+                    }
+                }
 
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
                     peer_id,
                     connection_id,
                     message: Err(err),
                 }));
+            }
+            HandlerEvent::InboundStreamClosed(substream_id) => {
+                self.inbound_request_limiter
+                    .request_ended(InboundRequestId {
+                        connection_id,
+                        substream_id,
+                    });
             }
             HandlerEvent::Close(_) => {
                 // Handle the close event here.
@@ -539,15 +523,33 @@ where
     }
 
     fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        if let Some(response_limiter) = self.response_limiter.as_mut()
-            && let Poll::Ready(responses) = response_limiter.poll_ready(cx)
-        {
-            for response in responses {
-                self.events.push(ToSwarm::NotifyHandler {
-                    peer_id: response.peer_id,
-                    handler: NotifyHandler::One(response.connection_id),
-                    event: RPCSend::Response(response.substream_id, response.response),
-                });
+        if let Poll::Ready(ready_requests) = self.inbound_request_limiter.poll_ready(cx) {
+            for ready_request in ready_requests {
+                match ready_request {
+                    ReadyRequest::Execute {
+                        peer_id,
+                        request_id,
+                        request_type,
+                    } => {
+                        self.deliver_request(
+                            peer_id,
+                            request_id.connection_id,
+                            request_id,
+                            request_type,
+                        );
+                    }
+                    ReadyRequest::Reject { request_id } => {
+                        if let Err(response) = self.send_response(
+                            request_id,
+                            RpcResponse::Error(
+                                RpcErrorResponse::RateLimited,
+                                "Rate limited. Request quota exceeded, try again later".into(),
+                            ),
+                        ) {
+                            crit!(%response, ?request_id, "Unexpected missing request");
+                        };
+                    }
+                }
             }
         }
 
@@ -560,5 +562,298 @@ where
         }
 
         Poll::Pending
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rpc::config::RateLimiterConfig;
+    use crate::rpc::methods::{OldBlocksByRangeRequest, StatusMessage, StatusMessageV1};
+    use crate::rpc::rate_limiter::Quota;
+    use libp2p::Multiaddr;
+    use libp2p::core::{ConnectedPoint, Endpoint};
+    use logging::create_test_tracing_subscriber;
+    use std::num::NonZeroU64;
+    use std::time::Duration;
+    use types::{Epoch, Hash256, MainnetEthSpec, Slot};
+
+    /// Creates an RPC behaviour with the given inbound rate limiter quotas.
+    fn test_rpc(config: RateLimiterConfig) -> RPC<usize, MainnetEthSpec> {
+        create_test_tracing_subscriber();
+        let fork_context = Arc::new(ForkContext::new::<MainnetEthSpec>(
+            Slot::new(0),
+            Hash256::ZERO,
+            &MainnetEthSpec::default_spec(),
+        ));
+        RPC::new(
+            fork_context,
+            false,
+            Some(InboundRateLimiterConfig(config)),
+            None,
+            0,
+        )
+    }
+
+    fn status_request() -> RequestType<MainnetEthSpec> {
+        RequestType::Status(StatusMessage::V1(StatusMessageV1 {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::ZERO,
+            finalized_epoch: Epoch::new(0),
+            head_root: Hash256::ZERO,
+            head_slot: Slot::new(0),
+        }))
+    }
+
+    fn receive_request_on_connection(
+        rpc: &mut RPC<usize, MainnetEthSpec>,
+        peer_id: PeerId,
+        connection_id: usize,
+        substream_id: usize,
+    ) {
+        rpc.on_connection_handler_event(
+            peer_id,
+            ConnectionId::new_unchecked(connection_id),
+            HandlerEvent::Ok(RPCReceived::Request(
+                InboundRequestId::new_unchecked(connection_id, substream_id),
+                status_request(),
+            )),
+        );
+    }
+
+    fn receive_request(rpc: &mut RPC<usize, MainnetEthSpec>, peer_id: PeerId, substream_id: usize) {
+        receive_request_on_connection(rpc, peer_id, 0, substream_id);
+    }
+
+    fn close_connection(
+        rpc: &mut RPC<usize, MainnetEthSpec>,
+        peer_id: PeerId,
+        connection_id: usize,
+        remaining_established: usize,
+    ) {
+        let endpoint = ConnectedPoint::Dialer {
+            address: Multiaddr::empty(),
+            role_override: Endpoint::Dialer,
+            port_use: PortUse::Reuse,
+        };
+        rpc.on_swarm_event(FromSwarm::ConnectionClosed(ConnectionClosed {
+            peer_id,
+            connection_id: ConnectionId::new_unchecked(connection_id),
+            endpoint: &endpoint,
+            cause: None,
+            remaining_established,
+        }));
+    }
+
+    /// Simulates the disconnection of the peer's last connection.
+    fn disconnect_peer(rpc: &mut RPC<usize, MainnetEthSpec>, peer_id: PeerId) {
+        close_connection(rpc, peer_id, 0, 0);
+    }
+
+    /// Polls the RPC behaviour until it is pending and returns the produced events.
+    fn poll_events(
+        rpc: &mut RPC<usize, MainnetEthSpec>,
+    ) -> Vec<BehaviourAction<usize, MainnetEthSpec>> {
+        let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+        let mut events = vec![];
+        while let Poll::Ready(event) = rpc.poll(&mut cx) {
+            events.push(event);
+        }
+        events
+    }
+
+    fn count_delivered_requests(events: &[BehaviourAction<usize, MainnetEthSpec>]) -> usize {
+        events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    ToSwarm::GenerateEvent(RPCMessage {
+                        message: Ok(RPCReceived::Request(..)),
+                        ..
+                    })
+                )
+            })
+            .count()
+    }
+
+    fn count_rate_limited_errors(events: &[BehaviourAction<usize, MainnetEthSpec>]) -> usize {
+        events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    ToSwarm::NotifyHandler {
+                        event: RPCSend::Response(
+                            _,
+                            RpcResponse::Error(RpcErrorResponse::RateLimited, _)
+                        ),
+                        ..
+                    }
+                )
+            })
+            .count()
+    }
+
+    #[tokio::test]
+    async fn test_inbound_handler_error_ends_active_request() {
+        let mut rpc = test_rpc(RateLimiterConfig::default());
+        let peer_id = PeerId::random();
+
+        receive_request(&mut rpc, peer_id, 0);
+        assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
+        assert_eq!(1, rpc.inbound_request_limiter.active_request_count());
+
+        rpc.on_connection_handler_event(
+            peer_id,
+            ConnectionId::new_unchecked(0),
+            HandlerEvent::Err(HandlerErr::Inbound {
+                id: SubstreamId::new(0),
+                proto: Protocol::Status,
+                error: RPCError::StreamTimeout,
+            }),
+        );
+
+        assert_eq!(0, rpc.inbound_request_limiter.active_request_count());
+    }
+
+    #[tokio::test]
+    async fn test_inbound_stream_close_ends_active_request() {
+        let mut rpc = test_rpc(RateLimiterConfig::default());
+        let peer_id = PeerId::random();
+        let connection_id = ConnectionId::new_unchecked(0);
+
+        rpc.on_connection_handler_event(
+            peer_id,
+            connection_id,
+            HandlerEvent::Ok(RPCReceived::Request(
+                InboundRequestId::new_unchecked(0, 0),
+                RequestType::BlocksByRange(OldBlocksByRangeRequest::new(0, 1, 1)),
+            )),
+        );
+        assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
+        assert_eq!(1, rpc.inbound_request_limiter.active_request_count());
+
+        rpc.on_connection_handler_event(
+            peer_id,
+            connection_id,
+            HandlerEvent::InboundStreamClosed(SubstreamId::new(0)),
+        );
+
+        assert_eq!(0, rpc.inbound_request_limiter.active_request_count());
+    }
+
+    /// Test that rate limited requests are executed once the quota replenishes, instead of being
+    /// executed immediately and their responses queued.
+    #[tokio::test]
+    async fn test_rate_limited_request_delayed() {
+        let mut rpc = test_rpc(RateLimiterConfig {
+            status_quota: Quota::n_every_millis(NonZeroU64::new(1).unwrap(), 100),
+            ..Default::default()
+        });
+        let peer_id = PeerId::random();
+
+        receive_request(&mut rpc, peer_id, 0);
+        receive_request(&mut rpc, peer_id, 1);
+
+        // Only the first request is passed to the application immediately, but both requests
+        // are tracked as active.
+        assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
+        assert_eq!(2, rpc.inbound_request_limiter.active_request_count());
+
+        // Once the quota replenishes, the delayed request is executed.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
+    }
+
+    /// Test that requests that cannot be executed in time are answered with a rate limited
+    /// error.
+    #[tokio::test]
+    async fn test_rate_limited_request_rejected() {
+        let mut rpc = test_rpc(RateLimiterConfig {
+            status_quota: Quota::n_every(NonZeroU64::new(1).unwrap(), 60),
+            ..Default::default()
+        });
+        let peer_id = PeerId::random();
+
+        receive_request(&mut rpc, peer_id, 0);
+        receive_request(&mut rpc, peer_id, 1);
+
+        // The first request is delivered, while the second would have to be delayed for too
+        // long and is rejected.
+        let events = poll_events(&mut rpc);
+        assert_eq!(1, count_delivered_requests(&events));
+        assert_eq!(1, count_rate_limited_errors(&events));
+
+        // The rejected request is no longer tracked.
+        assert_eq!(1, rpc.inbound_request_limiter.active_request_count());
+    }
+
+    /// Test that delayed requests of a peer are dropped when the peer disconnects.
+    #[tokio::test]
+    async fn test_delayed_requests_dropped_on_disconnect() {
+        let mut rpc = test_rpc(RateLimiterConfig {
+            status_quota: Quota::n_every_millis(NonZeroU64::new(1).unwrap(), 100),
+            ..Default::default()
+        });
+        let peer_id = PeerId::random();
+
+        receive_request(&mut rpc, peer_id, 0);
+        receive_request(&mut rpc, peer_id, 1);
+        assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
+        assert_eq!(2, rpc.inbound_request_limiter.active_request_count());
+
+        // Disconnecting the peer drops both its delivered and delayed requests.
+        disconnect_peer(&mut rpc, peer_id);
+        assert_eq!(0, rpc.inbound_request_limiter.active_request_count());
+
+        // The dropped request is not executed once the quota replenishes.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(0, count_delivered_requests(&poll_events(&mut rpc)));
+    }
+
+    /// Test that closing one connection drops only its delayed requests when the peer remains
+    /// connected on another connection.
+    #[tokio::test]
+    async fn test_delayed_requests_dropped_on_connection_close() {
+        let mut rpc = test_rpc(RateLimiterConfig {
+            status_quota: Quota::n_every_millis(NonZeroU64::new(1).unwrap(), 100),
+            ..Default::default()
+        });
+        let peer_id = PeerId::random();
+
+        receive_request_on_connection(&mut rpc, peer_id, 0, 0);
+        assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
+        rpc.send_response(
+            InboundRequestId::new_unchecked(0, 0),
+            RpcResponse::Success(RpcSuccessResponse::Status(match status_request() {
+                RequestType::Status(status) => status,
+                _ => unreachable!("status_request always returns a status request"),
+            })),
+        )
+        .expect("the first request is active");
+        let _ = poll_events(&mut rpc);
+
+        receive_request_on_connection(&mut rpc, peer_id, 0, 1);
+        receive_request_on_connection(&mut rpc, peer_id, 1, 0);
+        assert_eq!(0, count_delivered_requests(&poll_events(&mut rpc)));
+        assert_eq!(2, rpc.inbound_request_limiter.active_request_count());
+
+        // The request queued on connection 0 is dropped, but the request queued on connection 1
+        // remains active.
+        close_connection(&mut rpc, peer_id, 0, 1);
+        assert_eq!(1, rpc.inbound_request_limiter.active_request_count());
+
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let events = poll_events(&mut rpc);
+        assert_eq!(1, count_delivered_requests(&events));
+        assert!(events.iter().any(|event| matches!(
+            event,
+            ToSwarm::GenerateEvent(RPCMessage {
+                connection_id,
+                message: Ok(RPCReceived::Request(..)),
+                ..
+            }) if *connection_id == ConnectionId::new_unchecked(1)
+        )));
     }
 }

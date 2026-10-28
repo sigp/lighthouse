@@ -280,6 +280,21 @@ fn always_prepare_payload_override() {
 }
 
 #[test]
+fn builder_bid_streaming_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.builder_bid_streaming));
+}
+
+#[test]
+fn builder_bid_streaming_flag() {
+    CommandLineTest::new()
+        .flag("builder-bid-streaming", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.builder_bid_streaming));
+}
+
+#[test]
 fn paranoid_block_proposal_default() {
     CommandLineTest::new()
         .run_with_zero_port()
@@ -694,6 +709,36 @@ fn builder_fallback_flags() {
             assert!(config.chain.builder_fallback_disable_checks);
         },
     );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert_eq!(config.chain.builder_fallback_ban_slots, 32);
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-ban-slots"),
+        Some("64"),
+        |config| {
+            assert_eq!(config.chain.builder_fallback_ban_slots, 64);
+        },
+    );
+}
+
+#[test]
+#[should_panic]
+fn builder_fallback_ban_slots_below_slots_per_epoch_is_rejected() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-fallback-ban-slots"),
+        Some("31"),
+        |_| {},
+    );
 }
 
 #[test]
@@ -827,6 +872,15 @@ fn network_target_peers_flag() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.target_peers, "55".parse::<usize>().unwrap());
+        });
+}
+#[test]
+fn network_unknown_root_min_peers_flag() {
+    CommandLineTest::new()
+        .flag("unknown-root-min-peers", Some("5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.unknown_root_min_peers, 5);
         });
 }
 #[test]

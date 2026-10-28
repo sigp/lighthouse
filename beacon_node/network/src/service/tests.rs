@@ -17,8 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use types::{
-    BlobParameters, BlobSchedule, ChainSpec, Epoch, EthSpec, ForkName, MinimalEthSpec, Slot,
-    SubnetId,
+    BlobParameters, BlobSchedule, ChainSpec, Epoch, EthSpec, ForkName, Slot, Spec, SubnetId,
 };
 
 impl<T: BeaconChainTypes> NetworkService<T> {
@@ -29,7 +28,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
 #[test]
 fn test_dht_persistence() {
-    let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
+    let beacon_chain = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
@@ -97,13 +96,13 @@ fn test_removing_topic_weight_on_old_topics() {
     let runtime = Arc::new(Runtime::new().unwrap());
 
     // Capella spec. Fork at epoch 2 so genesis is outside the subscribe window.
-    let mut spec = MinimalEthSpec::default_spec();
+    let mut spec = Spec::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
     spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     spec.capella_fork_epoch = Some(Epoch::new(2));
 
     // Build beacon chain.
-    let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
+    let beacon_chain = BeaconChainHarness::builder(Spec::default())
         .spec(spec.clone().into())
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
@@ -186,11 +185,9 @@ fn test_removing_topic_weight_on_old_topics() {
     assert!(old_topic_params2.topic_weight > 0.0);
 
     // Advance slot to the next fork
-    beacon_chain.slot_clock.set_slot(
-        next_fork_epoch
-            .start_slot(MinimalEthSpec::slots_per_epoch())
-            .as_u64(),
-    );
+    beacon_chain
+        .slot_clock
+        .set_slot(next_fork_epoch.start_slot(Spec::slots_per_epoch()).as_u64());
 
     runtime.block_on(async {
         network_service.update_next_fork_digest();
@@ -208,10 +205,10 @@ fn test_removing_topic_weight_on_old_topics() {
     assert_eq!(0.0, old_topic_params2.topic_weight);
 }
 
-type TestBeaconChain = Arc<BeaconChain<EphemeralHarnessType<MinimalEthSpec>>>;
+type TestBeaconChain = Arc<BeaconChain<EphemeralHarnessType<Spec>>>;
 
 fn build_beacon_chain(spec: ChainSpec, slot: Slot) -> TestBeaconChain {
-    let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
+    let beacon_chain = BeaconChainHarness::builder(Spec::default())
         .spec(spec.into())
         .deterministic_keypairs(8)
         .fresh_ephemeral_store()
@@ -234,7 +231,7 @@ fn network_config(port: u16) -> Arc<NetworkConfig> {
 /// the topics after every slot.
 #[test]
 fn test_fork_topic_subscriptions_across_schedules() {
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
     let mut port = 21222;
     for gloas_epoch in [2, 3] {
         for bpo_gap in 1..=4 {
@@ -246,7 +243,7 @@ fn test_fork_topic_subscriptions_across_schedules() {
                 (Slot::new(0), inside_gloas_window),
                 (inside_gloas_window, inside_gloas_window),
             ] {
-                let mut spec = ForkName::Fulu.make_genesis_spec(MinimalEthSpec::default_spec());
+                let mut spec = ForkName::Fulu.make_genesis_spec(Spec::default_spec());
                 spec.gloas_fork_epoch = Some(Epoch::new(gloas_epoch));
                 spec.blob_schedule = BlobSchedule::new(vec![BlobParameters {
                     epoch: Epoch::new(gloas_epoch + bpo_gap),
@@ -261,7 +258,7 @@ fn test_fork_topic_subscriptions_across_schedules() {
 
 /// Runs one schedule. Sends `SubscribeCoreTopics` at `sync_slot`.
 fn run_fork_schedule(spec: ChainSpec, start_slot: Slot, sync_slot: Slot, port: u16) {
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
     let last_digest_epoch = spec.all_digest_epochs().last().unwrap();
     let end_slot = (last_digest_epoch + UNSUBSCRIBE_DELAY_EPOCHS + 1).start_slot(slots_per_epoch);
     let beacon_chain = build_beacon_chain(spec, start_slot);
@@ -333,12 +330,12 @@ async fn settle() {
 /// - two epochs after a digest change, we are no longer on an older digest
 fn check_fork_topic_subscriptions(
     beacon_chain: &TestBeaconChain,
-    network_globals: &NetworkGlobals<MinimalEthSpec>,
+    network_globals: &NetworkGlobals<Spec>,
     slot: Slot,
     sync_slot: Slot,
 ) {
     let spec = &beacon_chain.spec;
-    let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
+    let slots_per_epoch = Spec::slots_per_epoch();
     let epoch = slot.epoch(slots_per_epoch);
     let next_digest_epoch = spec.next_digest_epoch(epoch);
     let subscriptions = network_globals.gossipsub_subscriptions.read().clone();
@@ -349,7 +346,7 @@ fn check_fork_topic_subscriptions(
 
     let assert_on_core_topics = |digest_epoch: Epoch| {
         let digest = beacon_chain.compute_fork_digest(digest_epoch);
-        for kind in core_topics_to_subscribe::<MinimalEthSpec>(
+        for kind in core_topics_to_subscribe::<Spec>(
             spec.fork_name_at_epoch(digest_epoch),
             &network_globals.as_topic_config(),
             spec,

@@ -269,7 +269,7 @@ impl<E: EthSpec> PeerManager<E> {
         // does not need to know about these peers.
         match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
-                self.inject_connect_ingoing(&peer_id, send_back_addr.clone(), None);
+                self.inject_connect_incoming(&peer_id, send_back_addr.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedIncoming(peer_id));
             }
