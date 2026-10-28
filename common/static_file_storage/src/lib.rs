@@ -27,7 +27,8 @@
 //! re-puts of an already-committed slot (so migration retries after a
 //! mid-loop crash are safe). Previously-skipped slots (offset 0) cannot
 //! be filled — that would break the append-only data file. A failed write
-//! poisons the handle: further writes error until reopen; reads stay live.
+//! poisons the handle: the next write first heals to the on-disk marker;
+//! reads stay live.
 //!
 //! # Recovery on open
 //!
@@ -76,8 +77,6 @@ struct CommittedState {
 #[derive(Debug)]
 pub enum Error {
     Io(io::Error),
-    /// Writes rejected after an earlier write failure; reopen to heal.
-    Poisoned,
     /// Another handle holds the column lock.
     AlreadyOpen(PathBuf),
     /// On-disk state failed validation — repair or rebuild.
@@ -90,12 +89,6 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Io(e) => write!(f, "static file io error: {e}"),
-            Self::Poisoned => {
-                write!(
-                    f,
-                    "writes rejected after an earlier write failure; reopen to heal"
-                )
-            }
             Self::AlreadyOpen(path) => {
                 write!(f, "already open by another handle: {}", path.display())
             }
@@ -137,8 +130,8 @@ pub struct StaticFile {
 struct State {
     /// Highest committed slot and committed data length from `column.conf`.
     committed: CommittedState,
-    /// Set when a write error leaves on-disk state unverified; further writes
-    /// error until reopen. Reads stay safe: `committed` never runs ahead of disk.
+    /// Set when a write error leaves on-disk state unverified; the next write
+    /// heals first. Reads stay safe: `committed` never runs ahead of disk.
     poisoned: bool,
 }
 
@@ -258,7 +251,8 @@ impl StaticFile {
 
         let mut state = self.state.lock();
         if state.poisoned {
-            return Err(Error::Poisoned);
+            state.committed = self.heal_from_disk()?;
+            state.poisoned = false;
         }
         let start = self.skip_committed_prefix(items, state.committed.highest_slot)?;
         if start == items.len() {
@@ -268,7 +262,7 @@ impl StaticFile {
 
         // One data fsync + one offset fsync per file group, one config commit
         // per batch. Any error past this point leaves disk state unverified,
-        // so poison writes; open-time healing recovers.
+        // so poison writes; the next write heals first.
         let mut last_data_len: u64 = 0;
         for (target_file_id, group) in group_by_file_id(&items[start..]) {
             match self.write_group(target_file_id, &group, state.committed) {
@@ -444,6 +438,15 @@ impl StaticFile {
         } else {
             self.remove_uncommitted_files(None)
         }
+    }
+
+    /// Heal to the marker on disk, not in memory: a failed write may have
+    /// landed the rename before its dir fsync failed, so redo that fsync.
+    fn heal_from_disk(&self) -> Result<CommittedState, Error> {
+        let committed = deserialize_on_disk_config(&fs::read(self.config_path())?)?;
+        self.heal_to_marker(committed.highest_slot, committed.data_len)?;
+        sync_dir(&self.root_dir)?;
+        Ok(committed)
     }
 
     /// Truncate the committed file back to the config marker after a crash.
@@ -813,29 +816,32 @@ mod tests {
     }
 
     #[test]
-    fn write_failure_poisons_writes_until_reopen() {
+    fn write_failure_heals_on_next_write() {
         let dir = tempfile::tempdir().unwrap();
         let store = open(&dir);
         store.put(0, b"a").unwrap();
 
-        // Force a real write error: swap the data file for a directory.
+        // Torn append: the data write lands, then the offset file is a directory.
         let data_path = dir.path().join("data_00000");
-        let orig = fs::read(&data_path).unwrap();
-        fs::remove_file(&data_path).unwrap();
-        fs::create_dir(&data_path).unwrap();
+        let committed_len = fs::metadata(&data_path).unwrap().len();
+        let off_path = dir.path().join("data_00000.off");
+        let orig = fs::read(&off_path).unwrap();
+        fs::remove_file(&off_path).unwrap();
+        fs::create_dir(&off_path).unwrap();
         assert!(matches!(store.put(1, b"b"), Err(Error::Io(_))));
-        fs::remove_dir(&data_path).unwrap();
-        fs::write(&data_path, &orig).unwrap();
+        assert!(fs::metadata(&data_path).unwrap().len() > committed_len);
 
-        // writes rejected, reads still served
-        assert!(matches!(store.put(3, b"c"), Err(Error::Poisoned)));
+        // heal truncates the data, then fails on the offset file: still poisoned
+        assert!(matches!(store.put(2, b"c"), Err(Error::Io(_))));
+        assert_eq!(fs::metadata(&data_path).unwrap().len(), committed_len);
+        fs::remove_dir(&off_path).unwrap();
+        fs::write(&off_path, &orig).unwrap();
+
+        // next write heals without a reopen
+        store.put(3, b"d").unwrap();
         assert_eq!(store.get(0).unwrap(), Some(b"a".to_vec()));
-
-        // reopen heals and lifts the poison
-        drop(store);
-        let store = open(&dir);
-        store.put(3, b"c").unwrap();
-        assert_eq!(store.get(3).unwrap(), Some(b"c".to_vec()));
+        assert_eq!(store.get(1).unwrap(), None);
+        assert_eq!(store.get(3).unwrap(), Some(b"d".to_vec()));
     }
 
     #[test]
