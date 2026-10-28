@@ -51,3 +51,9 @@ pub static HTTP_API_STATE_ROOT_TIMES: LazyLock<Result<Histogram>> = LazyLock::ne
         "Time to load a state root for a request",
     )
 });
+pub static INCLUSION_LISTS_PUBLISHED_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_inclusion_lists_published_total",
+        "Total number of published inclusion lists",
+    )
+});
