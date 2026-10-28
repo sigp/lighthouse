@@ -18,8 +18,7 @@
 //! The header is never validated, by design: it only keeps offset 0 free to mean "no record".
 //!
 //! `column.conf`: `b"LHSF" | version u32 LE | highest_slot u64 LE (u64::MAX =
-//! empty) | current_data_len u64 LE`. No crc: rewritten atomically every
-//! batch, so rot is unlikely.
+//! empty) | current_data_len u64 LE | crc32 u32 LE`.
 //! Atomic update: write `.tmp`, fsync, rename, fsync dir.
 //!
 //! # Put contract
@@ -81,9 +80,7 @@ pub enum Error {
     Io(io::Error),
     /// Another handle holds the column lock.
     AlreadyOpen(PathBuf),
-    /// On-disk state failed validation — repair or rebuild.
-    Corrupt(String),
-    /// Caller contract violation; state unchanged.
+    /// Bad input or bad on-disk data.
     Invalid(String),
 }
 
@@ -94,7 +91,6 @@ impl fmt::Display for Error {
             Self::AlreadyOpen(path) => {
                 write!(f, "already open by another handle: {}", path.display())
             }
-            Self::Corrupt(message) => write!(f, "static file corrupt: {message}"),
             Self::Invalid(message) => write!(f, "static file invalid data: {message}"),
         }
     }
@@ -142,7 +138,8 @@ struct State {
 impl StaticFile {
     /// Open or create a `StaticFile` rooted at `root_dir`. `max_value_bytes` is
     /// a runtime-only read OOM cap. The column is identified by its directory.
-    pub fn open(root_dir: PathBuf, max_value_bytes: u64) -> Result<Self, Error> {
+    pub fn open(root_dir: impl Into<PathBuf>, max_value_bytes: u64) -> Result<Self, Error> {
+        let root_dir = root_dir.into();
         let missing_dirs = root_dir.ancestors().take_while(|dir| !dir.exists()).count();
         fs::create_dir_all(&root_dir)?;
         // Make the column dir's own dirent durable, plus any parent
@@ -178,7 +175,7 @@ impl StaticFile {
             // A store writes column.conf before any data file, so data files
             // without a conf mean external damage — don't wipe them.
             if dir_has_static_files(&root_dir)? {
-                return Err(Error::Corrupt(format!(
+                return Err(Error::Invalid(format!(
                     "column.conf missing but data files exist in {}",
                     root_dir.display()
                 )));
@@ -372,7 +369,7 @@ impl StaticFile {
         };
         let data_len = data_file.metadata()?.len();
         if data_len < cursor {
-            return Err(Error::Corrupt(
+            return Err(Error::Invalid(
                 "data file shorter than committed length".into(),
             ));
         }
@@ -451,7 +448,7 @@ impl StaticFile {
         let mut payload = vec![0; len];
         read_record_bytes(&mut data_file, &mut payload, slot)?;
         if record_checksum(slot, &payload).to_le_bytes() != header[4..8] {
-            return Err(Error::Corrupt(format!("checksum mismatch at slot {slot}")));
+            return Err(Error::Invalid(format!("checksum mismatch at slot {slot}")));
         }
         Ok(Some(payload))
     }
@@ -488,7 +485,7 @@ impl StaticFile {
         let data_file = OpenOptions::new().read(true).write(true).open(&data_path)?;
         let data_len = data_file.metadata()?.len();
         if data_len < current_data_len {
-            return Err(Error::Corrupt(
+            return Err(Error::Invalid(
                 "data file shorter than committed length".into(),
             ));
         }
@@ -502,7 +499,7 @@ impl StaticFile {
         let required_len = offset_position(slot) + OFFSET_SIZE;
         let off_len = off_file.metadata()?.len();
         if off_len < required_len {
-            return Err(Error::Corrupt(
+            return Err(Error::Invalid(
                 "offset file shorter than committed slot".into(),
             ));
         }
@@ -537,7 +534,7 @@ impl StaticFile {
             if max_file_id.is_none_or(|max| file_id > max) {
                 let file_type = entry.file_type()?;
                 if !file_type.is_file() {
-                    return Err(Error::Corrupt(format!(
+                    return Err(Error::Invalid(format!(
                         "static data path is not a file: {}",
                         entry.path().display()
                     )));
@@ -593,25 +590,30 @@ impl StaticFile {
 
 /// Pack the `column.conf` marker.
 fn serialize_on_disk_config(committed: CommittedState) -> Vec<u8> {
-    let mut bytes = vec![0u8; 24];
+    let mut bytes = vec![0u8; 28];
     bytes[0..4].copy_from_slice(CONFIG_MAGIC);
     bytes[4..8].copy_from_slice(&FORMAT_VERSION.to_le_bytes());
     bytes[8..16].copy_from_slice(&committed.highest_slot.unwrap_or(EMPTY_SLOT).to_le_bytes());
     bytes[16..24].copy_from_slice(&committed.data_len.to_le_bytes());
+    let crc = crc32fast::hash(&bytes[0..24]);
+    bytes[24..28].copy_from_slice(&crc.to_le_bytes());
     bytes
 }
 
 /// Parse the `column.conf` marker.
 fn deserialize_on_disk_config(bytes: &[u8]) -> Result<CommittedState, Error> {
-    if bytes.len() != 24 {
-        return Err(Error::Corrupt("invalid config length".into()));
+    if bytes.len() != 28 {
+        return Err(Error::Invalid("invalid config length".into()));
+    }
+    if crc32fast::hash(&bytes[0..24]).to_le_bytes() != bytes[24..28] {
+        return Err(Error::Invalid("config checksum mismatch".into()));
     }
     if &bytes[0..4] != CONFIG_MAGIC {
-        return Err(Error::Corrupt("invalid config magic".into()));
+        return Err(Error::Invalid("invalid config magic".into()));
     }
     let version = u32::from_le_bytes(bytes[4..8].try_into().expect("slice length checked"));
     if version != FORMAT_VERSION {
-        return Err(Error::Corrupt(format!(
+        return Err(Error::Invalid(format!(
             "unsupported config version {version}, expected {FORMAT_VERSION}"
         )));
     }
@@ -647,11 +649,11 @@ fn atomic_write_config(
     sync_dir(root_dir)
 }
 
-/// `read_exact`, but a record running past the end of its data file is `Corrupt`.
+/// `read_exact`, but a record running past the end of its data file is `Invalid`.
 fn read_record_bytes(data_file: &mut File, buf: &mut [u8], slot: u64) -> Result<(), Error> {
     data_file.read_exact(buf).map_err(|e| {
         if e.kind() == io::ErrorKind::UnexpectedEof {
-            Error::Corrupt(format!("record at slot {slot} runs past end of data file"))
+            Error::Invalid(format!("record at slot {slot} runs past end of data file"))
         } else {
             e.into()
         }
@@ -910,12 +912,17 @@ mod tests {
                 b[4] ^= 0xff; // version
                 b
             },
+            {
+                let mut b = good.clone();
+                b[16] ^= 0x01; // data_len: would truncate committed data
+                b
+            },
             good[..good.len() - 1].to_vec(), // length
         ] {
             fs::write(&conf_path, &bad).unwrap();
             assert!(matches!(
                 StaticFile::open(dir.path().to_path_buf(), MAX_VALUE_BYTES),
-                Err(Error::Corrupt(_))
+                Err(Error::Invalid(_))
             ));
         }
 
@@ -934,7 +941,7 @@ mod tests {
 
         let store = open(&dir);
         assert_eq!(store.get(0).unwrap(), Some(b"a".to_vec()));
-        assert!(matches!(store.get(1), Err(Error::Corrupt(_))));
+        assert!(matches!(store.get(1), Err(Error::Invalid(_))));
     }
 
     // Equal payloads, so only the slot binding in the crc can reject slot 1's
@@ -950,7 +957,7 @@ mod tests {
 
         let store = open(&dir);
         assert_eq!(store.get(0).unwrap(), Some(b"a".to_vec()));
-        assert!(matches!(store.get(1), Err(Error::Corrupt(_))));
+        assert!(matches!(store.get(1), Err(Error::Invalid(_))));
     }
 
     #[test]
@@ -1009,7 +1016,7 @@ mod tests {
         offsets[0..8].copy_from_slice(&1_000_000u64.to_le_bytes());
         fs::write(&off_path, &offsets).unwrap();
 
-        assert!(matches!(open(&dir).get(0), Err(Error::Corrupt(_))));
+        assert!(matches!(open(&dir).get(0), Err(Error::Invalid(_))));
     }
 
     #[test]
@@ -1039,7 +1046,7 @@ mod tests {
 
         assert!(matches!(
             StaticFile::open(dir.path().to_path_buf(), MAX_VALUE_BYTES),
-            Err(Error::Corrupt(_))
+            Err(Error::Invalid(_))
         ));
         assert!(dir.path().join("data_00000").exists());
         assert!(dir.path().join("data_00001").exists());
