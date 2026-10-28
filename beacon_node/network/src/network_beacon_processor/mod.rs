@@ -1,12 +1,14 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
-use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::block_verification_types::RangeSyncBlock;
+use beacon_chain::block_verification_types::{LookupBlock, RangeSyncBlock};
 use beacon_chain::data_column_verification::{
     GossipDataColumnError, KzgVerifiedCustodyDataColumn, observe_gossip_data_column,
 };
-use beacon_chain::fetch_blobs::{FetchEngineBlobError, fetch_and_process_engine_blobs};
+use beacon_chain::fetch_blobs::{
+    FetchEngineBlobError, PartialHeaderOrBid, fetch_and_process_engine_blobs,
+};
 use beacon_chain::partial_data_column_assembler::AssemblyColumn;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
@@ -27,14 +29,14 @@ use lighthouse_network::{
 };
 use logging::crit;
 use rand::prelude::SliceRandom;
-use ssz_types::VariableList;
+use ssz_types::{ProgressiveVariableList, VariableList};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{Instrument, Span, debug, error, instrument, trace, warn};
 use types::*;
 use {
     beacon_chain::builder::Witness, beacon_processor::BeaconProcessorChannels,
@@ -43,9 +45,9 @@ use {
 
 pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
 
-use gossip_methods::ReprocessAllowance;
+pub use gossip_methods::ReprocessAllowance;
 
-pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
+pub type Error<T> = Box<TrySendError<BeaconWorkEvent<T>>>;
 
 mod gossip_methods;
 mod rpc_methods;
@@ -182,25 +184,29 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
+        let process_peer_id = peer_id;
         let process_fn = async move {
             let invalid_block_storage = processor.invalid_block_storage.clone();
             let duplicate_cache = processor.duplicate_cache.clone();
             processor
                 .process_gossip_block(
                     message_id,
-                    peer_id,
+                    process_peer_id,
                     peer_client,
                     block,
                     duplicate_cache,
                     invalid_block_storage,
                     seen_timestamp,
                 )
-                .await
+                .await;
         };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::GossipBlock(Box::pin(process_fn)),
+            work: Work::GossipBlock {
+                peer_id,
+                process_fn: Box::pin(process_fn),
+            },
         })
     }
 
@@ -460,6 +466,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some execution proof.
+    pub fn send_gossip_execution_proof(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_proof: Arc<SignedExecutionProofEnvelope>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_execution_proof(message_id, peer_id, execution_proof)
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipExecutionProof(Box::pin(process_fn)),
+        })
+    }
+
     /// Create a new `Work` event for some execution payload bid
     pub fn send_gossip_execution_payload_bid(
         self: &Arc<Self>,
@@ -495,6 +521,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 message_id,
                 peer_id,
                 payload_attestation_message,
+                ReprocessAllowance::BlockOnly,
             )
         };
 
@@ -522,21 +549,48 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some inclusion list
+    pub fn send_gossip_inclusion_list(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        inclusion_list: Box<SignedInclusionList>,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.process_gossip_inclusion_list(
+                message_id,
+                peer_id,
+                inclusion_list,
+                seen_timestamp,
+            )
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work: Work::GossipInclusionList(Box::new(process_fn)),
+        })
+    }
+
     /// Create a new `Work` event for some block, where the result from computation (if any) is
     /// sent to the other side of `result_tx`.
     pub fn send_lookup_beacon_block(
         self: &Arc<Self>,
+        peer_id: PeerId,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
-        let process_fn =
+        let (process_fn, ignore_fn) =
             self.clone()
-                .generate_lookup_beacon_block_process_fn(block_root, block, process_type);
+                .generate_lookup_beacon_block_fns(peer_id, block_root, block, process_type);
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcBlock {
+                peer_id,
                 process_fn,
+                ignore_fn,
                 beacon_block_root: block_root,
             },
         })
@@ -900,16 +954,58 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
+    /// Starts retrieving the custody columns of a block whose blob data we do not hold yet:
+    /// attempts to fetch the blobs from the EL, then requests the missing cells from peers via
+    /// partial columns. The retrieval is traced within `span`.
+    pub(crate) fn spawn_fetch_block_columns(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        source: EnvelopeSource,
+        span: Span,
+    ) {
+        let task_name = match source {
+            EnvelopeSource::Gossip => "fetch_blobs_gossip",
+            EnvelopeSource::Rpc => "fetch_blobs_rpc",
+            EnvelopeSource::Http => "fetch_blobs_http",
+        };
+        let publish_blobs = true;
+        let self_clone = self.clone();
+        self.executor.spawn(
+            async move {
+                // Building the Fulu header hashes the block body, so keep it off the caller's path.
+                let Some(header_or_bid) = PartialHeaderOrBid::try_from_block(block.as_ref()) else {
+                    debug!("Pre-Fulu block passed to spawn_fetch_block_columns");
+                    return;
+                };
+                self_clone
+                    .fetch_engine_blobs_and_publish_full(
+                        header_or_bid.clone(),
+                        block_root,
+                        publish_blobs,
+                        source,
+                    )
+                    .await;
+                self_clone
+                    .publish_partial_data_columns(header_or_bid, block_root)
+                    .await
+            }
+            .instrument(span),
+            task_name,
+        );
+    }
+
     pub async fn fetch_engine_blobs_and_publish_full(
         self: &Arc<Self>,
-        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+        header_or_bid: PartialHeaderOrBid<T::EthSpec>,
         block_root: Hash256,
         publish_blobs: bool,
+        source: EnvelopeSource,
     ) {
         if self.chain.config.disable_get_blobs {
             return;
         }
-        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
+        let epoch = header_or_bid.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
         let publish_fn = move |columns: Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>| {
@@ -924,20 +1020,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match fetch_and_process_engine_blobs(
             self.chain.clone(),
             block_root,
-            header,
+            header_or_bid,
             custody_columns,
             publish_fn,
         )
         .await
         {
             Ok(Some(availability)) => match availability {
-                AvailabilityProcessingStatus::Imported(..) => {
+                AvailabilityProcessingStatus::Imported(slot, block_root) => {
                     debug!(
                         result = "imported block and custody columns",
                         %block_root,
                         "Block components retrieved from EL"
                     );
                     self.chain.recompute_head_at_current_slot().await;
+                    self.notify_import_after_column(slot, block_root, source);
                 }
                 AvailabilityProcessingStatus::MissingComponents(_, _) => {
                     debug!(
@@ -972,60 +1069,81 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub async fn publish_partial_data_columns(
         self: &Arc<Self>,
-        header: Arc<PartialDataColumnHeader<T::EthSpec>>,
+        header_or_bid: PartialHeaderOrBid<T::EthSpec>,
         block_root: Hash256,
     ) {
-        if header.kzg_commitments.is_empty() {
+        if header_or_bid.kzg_commitments().is_empty() {
             return;
         }
 
-        // TODO(gloas): implement publish partial columns
-        let Some(assembler) = self.chain.data_availability_checker.partial_assembler() else {
-            // Partials are disabled.
+        if !self.chain.config.enable_partial_columns {
             return;
-        };
-        let epoch = header.slot().epoch(T::EthSpec::slots_per_epoch());
+        }
+        let epoch = header_or_bid.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.custody_context.sampling_columns_for_epoch(epoch);
-        let columns = assembler.get_columns_and_mark_as_local_fetched(block_root, &header);
 
-        let mut present_indices: HashSet<ColumnIndex> = HashSet::with_capacity(columns.len());
-        let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = Vec::with_capacity(columns.len());
-        for column in columns {
-            // Republish both complete and incomplete columns as partials
-            let partial_column = match column {
-                AssemblyColumn::Incomplete(partial) => partial.into_inner(),
-                AssemblyColumn::Complete(full) => {
-                    let DataColumnSidecar::Fulu(fulu) = full.as_data_column() else {
-                        continue;
-                    };
-                    match fulu.to_partial() {
-                        Ok(partial) => Arc::new(partial),
-                        Err(err) => {
-                            error!(
-                                %block_root,
-                                column_index = %full.index(),
-                                ?err,
-                                "Failed to convert complete column to partial for re-seeding"
-                            );
-                            continue;
-                        }
+        let mut present_indices: HashSet<ColumnIndex> = HashSet::new();
+        let mut messages: Vec<PubsubPartialMessage<T::EthSpec>> = match &header_or_bid {
+            PartialHeaderOrBid::PartialHeader(header) => {
+                self.chain
+                    .data_availability_checker
+                    .partial_assembler()
+                    .map(|assembler| {
+                        assembler.get_columns_and_mark_as_local_fetched(block_root, header)
+                    })
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|column| {
+                        let column = match column {
+                            AssemblyColumn::Incomplete(partial) => partial.into_inner(),
+                            AssemblyColumn::Complete(full) => {
+                                match full.as_data_column().to_partial() {
+                                    Ok(PartialDataColumn::Fulu(fulu)) => Arc::new(fulu),
+                                    // The Fulu assembler never holds Gloas columns.
+                                    Ok(PartialDataColumn::Gloas(_)) => {
+                                        crit!("Found gloas column in Fulu partial assembler");
+                                        return None;
+                                    }
+                                    // Unreachable: DataColumn and CellBitmap share a bound.
+                                    Err(err) => {
+                                        crit!(?err, "Failed to convert full column to partial");
+                                        return None;
+                                    }
+                                }
+                            }
+                        };
+                        present_indices.insert(column.index);
+                        let mut request_cells = column.sidecar.cells_present_bitmap.clone_zeroed();
+                        request_cells.not_inplace();
+                        Some(PubsubPartialMessage::DataColumnFulu {
+                            column,
+                            request_cells,
+                            header: header.clone(),
+                        })
+                    })
+                    .collect()
+            }
+            PartialHeaderOrBid::Bid(bid) => self
+                .chain
+                .pending_payload_cache
+                .get_partials_and_mark_as_local_fetched(block_root, bid)
+                .into_iter()
+                .map(|partial| {
+                    present_indices.insert(partial.index());
+                    let column = partial.into_inner();
+                    let mut request_cells = column.sidecar.cells_present_bitmap.clone_zeroed();
+                    request_cells.not_inplace();
+                    PubsubPartialMessage::DataColumnGloas {
+                        column,
+                        request_cells,
                     }
-                }
-            };
-
-            present_indices.insert(partial_column.index);
-            let mut request_cells = partial_column.sidecar.cells_present_bitmap.clone_zeroed();
-            request_cells.not_inplace();
-            messages.push(PubsubPartialMessage::DataColumnFulu {
-                column: partial_column,
-                request_cells,
-                header: header.clone(),
-            });
-        }
+                })
+                .collect(),
+        };
 
         // For each custody column without any local partial, send an empty placeholder
         // that requests all cells.
-        let num_cells = header.kzg_commitments.len();
+        let num_cells = header_or_bid.kzg_commitments().len();
         for col_idx in custody_columns {
             if present_indices.contains(col_idx) {
                 continue;
@@ -1043,20 +1161,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 continue;
             };
             let request_cells = cells_present_bitmap.not();
-            messages.push(PubsubPartialMessage::DataColumnFulu {
-                column: Arc::new(PartialDataColumn {
-                    block_root,
-                    index: *col_idx,
-                    sidecar: PartialDataColumnSidecar {
-                        cells_present_bitmap,
-                        column: VariableList::empty(),
-                        kzg_proofs: VariableList::empty(),
-                        header: None.into(),
-                    },
-                }),
-                request_cells,
-                header: header.clone(),
-            });
+            let message = match &header_or_bid {
+                PartialHeaderOrBid::PartialHeader(header) => PubsubPartialMessage::DataColumnFulu {
+                    column: Arc::new(PartialDataColumnFulu {
+                        block_root,
+                        index: *col_idx,
+                        sidecar: PartialDataColumnSidecarFulu {
+                            cells_present_bitmap,
+                            column: VariableList::empty(),
+                            kzg_proofs: VariableList::empty(),
+                            header: None.into(),
+                        },
+                    }),
+                    request_cells,
+                    header: header.clone(),
+                },
+                PartialHeaderOrBid::Bid(_) => PubsubPartialMessage::DataColumnGloas {
+                    column: Arc::new(PartialDataColumnGloas {
+                        block_root,
+                        slot: header_or_bid.slot(),
+                        index: *col_idx,
+                        sidecar: PartialDataColumnSidecarGloas {
+                            cells_present_bitmap,
+                            column: ProgressiveVariableList::empty(),
+                            kzg_proofs: ProgressiveVariableList::empty(),
+                        },
+                    }),
+                    request_cells,
+                },
+            };
+            messages.push(message);
         }
 
         if !messages.is_empty() {
@@ -1217,12 +1351,28 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
         executor: TaskExecutor,
     ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
+        let (processor, beacon_processor_rx, _network_rx) =
+            Self::null_for_testing_with_network_receiver(network_globals, sync_tx, chain, executor);
+
+        (processor, beacon_processor_rx)
+    }
+
+    fn null_for_testing_with_network_receiver(
+        network_globals: Arc<NetworkGlobals<E>>,
+        sync_tx: UnboundedSender<SyncMessage<E>>,
+        chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
+        executor: TaskExecutor,
+    ) -> (
+        Self,
+        mpsc::Receiver<BeaconWorkEvent<E>>,
+        mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    ) {
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
         } = <_>::default();
 
-        let (network_tx, _network_rx) = mpsc::unbounded_channel();
+        let (network_tx, network_rx) = mpsc::unbounded_channel();
 
         let network_beacon_processor = Self {
             beacon_processor_send: beacon_processor_tx,
@@ -1235,24 +1385,34 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             executor,
         };
 
-        (network_beacon_processor, beacon_processor_rx)
+        (network_beacon_processor, beacon_processor_rx, network_rx)
     }
 
     /// Constructs a mostly non-functional `NetworkBeaconProcessor` from a test harness,
     /// suitable for directly calling gossip processing methods in tests.
     pub fn null_from_harness(harness: &BeaconChainHarness<EphemeralHarnessType<E>>) -> Self {
+        Self::null_from_harness_with_network_receiver(harness).0
+    }
+
+    /// Constructs a mostly non-functional `NetworkBeaconProcessor` and returns its network event
+    /// receiver so tests can observe messages sent to the network service.
+    pub fn null_from_harness_with_network_receiver(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) -> (Self, mpsc::UnboundedReceiver<NetworkMessage<E>>) {
         let network_globals = NetworkGlobals::new_test_globals(
             vec![],
             Arc::new(NetworkConfig::default()),
             harness.spec.clone(),
         );
 
-        Self::null_for_testing(
-            Arc::new(network_globals),
-            mpsc::unbounded_channel().0,
-            harness.chain.clone(),
-            harness.runtime.task_executor.clone(),
-        )
-        .0
+        let (processor, _beacon_processor_rx, network_rx) =
+            Self::null_for_testing_with_network_receiver(
+                Arc::new(network_globals),
+                mpsc::unbounded_channel().0,
+                harness.chain.clone(),
+                harness.runtime.task_executor.clone(),
+            );
+
+        (processor, network_rx)
     }
 }

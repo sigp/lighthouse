@@ -1,5 +1,6 @@
 use beacon_chain::{
     AvailabilityProcessingStatus, attestation_verification::Error as AttnError,
+    inclusion_list_verification::InclusionListVerificationError,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     sync_committee_verification::Error as SyncCommitteeError,
@@ -18,13 +19,6 @@ use types::EthSpec;
 
 #[derive(Debug, AsRefStr)]
 pub(crate) enum BlockSource {
-    Gossip,
-    Rpc,
-}
-
-/// The path through which a payload envelope was imported.
-#[derive(Debug, Clone, Copy, AsRefStr)]
-pub(crate) enum EnvelopeSource {
     Gossip,
     Rpc,
 }
@@ -135,6 +129,20 @@ pub static BEACON_PROCESSOR_GOSSIP_BLOCK_EARLY_SECONDS: LazyLock<Result<Histogra
         )
     },
 );
+pub static BEACON_PROCESSOR_GOSSIP_PAYLOAD_ENVELOPE_REQUEUED_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_processor_gossip_payload_envelope_requeued_total",
+            "Total number of gossip payload envelopes that arrived early and were re-queued for later processing.",
+        )
+    });
+pub static BEACON_PROCESSOR_GOSSIP_PAYLOAD_ENVELOPE_EARLY_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_processor_gossip_payload_envelope_early_seconds",
+            "Whenever a gossip payload envelope is received early this metric is set to how early that envelope was.",
+        )
+    });
 pub static BEACON_PROCESSOR_GOSSIP_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL: LazyLock<
     Result<IntCounter>,
 > = LazyLock::new(|| {
@@ -317,6 +325,13 @@ pub static BEACON_PROCESSOR_AGGREGATED_ATTESTATION_REQUEUED_TOTAL: LazyLock<Resu
             "Total number of aggregated attestations that referenced an unknown block and were re-queued.",
         )
     });
+pub static BEACON_PROCESSOR_PAYLOAD_ATTESTATION_REQUEUED_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_processor_payload_attestation_requeued_total",
+            "Total number of payload attestations that referenced an unknown block and were re-queued.",
+        )
+    });
 // Sync committee messages.
 pub static BEACON_PROCESSOR_SYNC_MESSAGE_VERIFIED_TOTAL: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
@@ -371,6 +386,14 @@ pub static GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVec
         try_create_int_counter_vec(
             "gossipsub_light_client_finality_update_errors_per_type",
             "Gossipsub light_client_finality_update errors per error type",
+            &["type"],
+        )
+    });
+pub static GOSSIP_INCLUSION_LIST_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "gossipsub_inclusion_list_errors_per_type",
+            "Gossipsub inclusion_list errors per error type",
             &["type"],
         )
     });
@@ -485,6 +508,14 @@ pub static SYNCING_CHAIN_BATCHES: LazyLock<Result<IntGaugeVec>> = LazyLock::new(
         &["sync_type", "state"],
     )
 });
+pub static SYNC_DATA_COLUMNS_BY_RANGE_REQUEST_COLUMNS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "sync_data_columns_by_range_request_columns",
+            "Number of columns requested from one peer in a single DataColumnsByRange request",
+            Ok(vec![1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0]),
+        )
+    });
 pub static SYNCING_CHAIN_BATCH_DOWNLOADING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "sync_range_chain_batch_downloading_seconds",
@@ -715,6 +746,10 @@ pub fn register_attestation_error(error: &AttnError) {
 
 pub fn register_sync_committee_error(error: &SyncCommitteeError) {
     inc_counter_vec(&GOSSIP_SYNC_COMMITTEE_ERRORS_PER_TYPE, &[error.as_ref()]);
+}
+
+pub fn register_inclusion_list_error(error: &InclusionListVerificationError) {
+    inc_counter_vec(&GOSSIP_INCLUSION_LIST_ERRORS_PER_TYPE, &[error.as_ref()]);
 }
 
 pub(crate) fn register_process_result_metrics(

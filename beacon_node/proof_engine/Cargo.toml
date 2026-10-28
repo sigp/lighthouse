@@ -1,0 +1,11 @@
+[package]
+name = "proof_engine"
+version = "0.1.0"
+edition = { workspace = true }
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+
+[dependencies]
+reqwest = { workspace = true }
+sensitive_url = { workspace = true }
+serde = { workspace = true }
+types = { workspace = true }

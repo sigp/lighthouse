@@ -39,13 +39,16 @@ type_name!(MainnetEthSpec, "mainnet");
 type_name_generic!(AggregateAndProof);
 type_name_generic!(AggregateAndProofBase, "AggregateAndProof");
 type_name_generic!(AggregateAndProofElectra, "AggregateAndProof");
+type_name_generic!(AggregateAndProofGloas, "AggregateAndProof");
 type_name_generic!(Attestation);
 type_name_generic!(AttestationBase, "Attestation");
 type_name_generic!(AttestationElectra, "Attestation");
+type_name_generic!(AttestationGloas, "Attestation");
 type_name!(AttestationData);
 type_name_generic!(AttesterSlashing);
 type_name_generic!(AttesterSlashingBase, "AttesterSlashing");
 type_name_generic!(AttesterSlashingElectra, "AttesterSlashing");
+type_name_generic!(AttesterSlashingGloas, "AttesterSlashing");
 type_name_generic!(BeaconBlock);
 type_name_generic!(BeaconBlockBody);
 type_name_generic!(BeaconBlockBodyBase, "BeaconBlockBody");
@@ -56,6 +59,7 @@ type_name_generic!(BeaconBlockBodyDeneb, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyElectra, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyFulu, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyGloas, "BeaconBlockBody");
+type_name_generic!(BeaconBlockBodyHeze, "BeaconBlockBody");
 type_name!(BeaconBlockHeader);
 type_name_generic!(BeaconState);
 type_name!(BlobIdentifier);
@@ -73,6 +77,8 @@ type_name!(DepositMessage);
 type_name!(DepositRequest);
 type_name!(Eth1Data);
 type_name!(Builder);
+type_name!(BuilderDepositRequest);
+type_name!(BuilderExitRequest);
 type_name!(BuilderPendingPayment);
 type_name!(BuilderPendingWithdrawal);
 type_name!(WithdrawalRequest);
@@ -83,6 +89,7 @@ type_name_generic!(ExecutionPayloadDeneb, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadElectra, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadFulu, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadGloas, "ExecutionPayload");
+type_name_generic!(ExecutionPayloadHeze, "ExecutionPayload");
 type_name_generic!(FullPayload, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadHeader);
 type_name_generic!(ExecutionPayloadHeaderBellatrix, "ExecutionPayloadHeader");
@@ -91,8 +98,13 @@ type_name_generic!(ExecutionPayloadHeaderDeneb, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderElectra, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadHeaderFulu, "ExecutionPayloadHeader");
 type_name_generic!(ExecutionPayloadBid);
+type_name_generic!(ExecutionPayloadBidGloas, "ExecutionPayloadBid");
+type_name_generic!(ExecutionPayloadBidHeze, "ExecutionPayloadBid");
 type_name_generic!(SignedExecutionPayloadBid);
-type_name_generic!(ExecutionRequests);
+type_name_generic!(SignedExecutionPayloadBidGloas, "SignedExecutionPayloadBid");
+type_name_generic!(SignedExecutionPayloadBidHeze, "SignedExecutionPayloadBid");
+type_name_generic!(ExecutionRequestsElectra, "ExecutionRequests");
+type_name_generic!(ExecutionRequestsGloas, "ExecutionRequests");
 type_name_generic!(ExecutionPayloadEnvelope);
 type_name_generic!(SignedExecutionPayloadEnvelope);
 type_name_generic!(BlindedPayload, "ExecutionPayloadHeader");
@@ -102,6 +114,7 @@ type_name_generic!(HistoricalBatch);
 type_name_generic!(IndexedAttestation);
 type_name_generic!(IndexedAttestationBase, "IndexedAttestation");
 type_name_generic!(IndexedAttestationElectra, "IndexedAttestation");
+type_name_generic!(IndexedAttestationGloas, "IndexedAttestation");
 type_name_generic!(IndexedPayloadAttestation);
 type_name_generic!(LightClientBootstrap);
 type_name_generic!(LightClientBootstrapAltair, "LightClientBootstrap");
@@ -109,6 +122,7 @@ type_name_generic!(LightClientBootstrapCapella, "LightClientBootstrap");
 type_name_generic!(LightClientBootstrapDeneb, "LightClientBootstrap");
 type_name_generic!(LightClientBootstrapElectra, "LightClientBootstrap");
 type_name_generic!(LightClientBootstrapFulu, "LightClientBootstrap");
+type_name_generic!(LightClientBootstrapGloas, "LightClientBootstrap");
 type_name_generic!(LightClientFinalityUpdate);
 type_name_generic!(LightClientFinalityUpdateAltair, "LightClientFinalityUpdate");
 type_name_generic!(
@@ -121,12 +135,14 @@ type_name_generic!(
     "LightClientFinalityUpdate"
 );
 type_name_generic!(LightClientFinalityUpdateFulu, "LightClientFinalityUpdate");
+type_name_generic!(LightClientFinalityUpdateGloas, "LightClientFinalityUpdate");
 type_name_generic!(LightClientHeader);
 type_name_generic!(LightClientHeaderAltair, "LightClientHeader");
 type_name_generic!(LightClientHeaderCapella, "LightClientHeader");
 type_name_generic!(LightClientHeaderDeneb, "LightClientHeader");
 type_name_generic!(LightClientHeaderElectra, "LightClientHeader");
 type_name_generic!(LightClientHeaderFulu, "LightClientHeader");
+type_name_generic!(LightClientHeaderGloas, "LightClientHeader");
 type_name_generic!(LightClientOptimisticUpdate);
 type_name_generic!(
     LightClientOptimisticUpdateAltair,
@@ -148,12 +164,17 @@ type_name_generic!(
     LightClientOptimisticUpdateFulu,
     "LightClientOptimisticUpdate"
 );
+type_name_generic!(
+    LightClientOptimisticUpdateGloas,
+    "LightClientOptimisticUpdate"
+);
 type_name_generic!(LightClientUpdate);
 type_name_generic!(LightClientUpdateAltair, "LightClientUpdate");
 type_name_generic!(LightClientUpdateCapella, "LightClientUpdate");
 type_name_generic!(LightClientUpdateDeneb, "LightClientUpdate");
 type_name_generic!(LightClientUpdateElectra, "LightClientUpdate");
 type_name_generic!(LightClientUpdateFulu, "LightClientUpdate");
+type_name_generic!(LightClientUpdateGloas, "LightClientUpdate");
 type_name_generic!(PendingAttestation);
 type_name_generic!(PayloadAttestation);
 type_name!(PayloadAttestationData);
@@ -167,6 +188,7 @@ type_name!(SignedProposerPreferences);
 type_name_generic!(SignedAggregateAndProof);
 type_name_generic!(SignedAggregateAndProofBase, "SignedAggregateAndProof");
 type_name_generic!(SignedAggregateAndProofElectra, "SignedAggregateAndProof");
+type_name_generic!(SignedAggregateAndProofGloas, "SignedAggregateAndProof");
 type_name_generic!(SignedBeaconBlock);
 type_name!(SignedBeaconBlockHeader);
 type_name_generic!(SignedContributionAndProof);

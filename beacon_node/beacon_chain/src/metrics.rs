@@ -22,6 +22,41 @@ pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL: &s
     "validator_monitor_attestation_simulator_source_attester_miss_total";
 
 /*
+* Builder circuit breaker
+*/
+
+pub static BUILDER_CIRCUIT_BREAKER_TRIPS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "beacon_builder_circuit_breaker_trips_total",
+        "Count of block proposals that ignored external builders because a chain health \
+         condition failed",
+        &["condition"],
+    )
+});
+pub static BUILDER_CIRCUIT_BREAKER_BANS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "beacon_builder_circuit_breaker_bans_total",
+        "Count of builder bans recorded, by reason: a missed payload reveal or an \
+         execution-invalid payload (post-Gloas)",
+        &["reason"],
+    )
+});
+pub static BUILDER_CIRCUIT_BREAKER_BAN_ENTRIES: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "beacon_builder_circuit_breaker_ban_entries",
+        "Number of unexpired builder ban entries (post-Gloas)",
+    )
+});
+pub static BUILDER_CIRCUIT_BREAKER_FILTERED_BIDS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_builder_circuit_breaker_filtered_bids_total",
+            "Count of payload bids dropped from block production because their builder is \
+             banned (post-Gloas)",
+        )
+    });
+
+/*
 * Execution Payload Envelope Processing
 */
 
@@ -612,6 +647,35 @@ pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = La
         exponential_buckets(1e-3, 4.0, 7),
     )
 });
+pub static FORK_CHOICE_READ_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_read_lock_hold_seconds",
+        "Time the fork-choice read lock was held before being released.",
+        decimal_buckets(-4, 1),
+    )
+});
+pub static FORK_CHOICE_WRITE_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_write_lock_hold_seconds",
+        "Time the fork-choice write lock was held before being released.",
+        decimal_buckets(-4, 1),
+    )
+});
+pub static FORK_CHOICE_UPGRADABLE_READ_LOCK_HOLD_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "beacon_fork_choice_upgradable_read_lock_hold_seconds",
+            "Time the fork-choice upgradable read lock was held before being released or upgraded.",
+            decimal_buckets(-4, 1),
+        )
+    });
+pub static FORK_CHOICE_UPGRADE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_fork_choice_upgrade_seconds",
+        "Time taken to upgrade the fork-choice upgradable read lock to a write lock.",
+        exponential_buckets(1e-3, 4.0, 7),
+    )
+});
 pub static FORK_CHOICE_ENCODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_fork_choice_encode_seconds",
@@ -636,6 +700,14 @@ pub static BALANCES_CACHE_MISSES: LazyLock<Result<IntCounter>> = LazyLock::new(|
         "Count of times balances cache misses request",
     )
 });
+pub static BALANCES_CACHE_BOUNDARY_STATE_LOAD_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(
+    || {
+        try_create_histogram(
+            "beacon_balances_cache_boundary_state_load_seconds",
+            "Time spent loading the epoch boundary state to fill the balances cache after a skipped boundary slot",
+        )
+    },
+);
 
 /*
  * Persisting BeaconChain components to disk
@@ -1489,6 +1561,25 @@ pub static PAYLOAD_ATTESTATION_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
             "Full runtime of payload attestation gossip verification",
         )
     });
+pub static INCLUSION_LIST_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_inclusion_list_processing_requests_total",
+        "Count of all inclusion lists submitted for processing",
+    )
+});
+pub static INCLUSION_LIST_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_inclusion_list_processing_successes_total",
+            "Number of inclusion lists verified for gossip",
+        )
+    });
+pub static INCLUSION_LIST_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_inclusion_list_equivocations_total",
+        "Number of validators flagged for sending two different inclusion lists",
+    )
+});
 pub static SYNC_MESSAGE_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "sync_message_equivocations_total",
@@ -1857,6 +1948,38 @@ pub static BEACON_ENGINE_GET_BLOBS_V3_REQUEST_DURATION_SECONDS: LazyLock<Result<
         try_create_histogram(
             "beacon_engine_getBlobsV3_request_duration_seconds",
             "Duration of engine_getBlobsV3 requests to the execution layer in seconds",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_REQUESTS_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV4_requests_total",
+            "Total number of engine_getBlobsV4 requests made to the execution layer",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_COMPLETE_RESPONSES_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV4_complete_responses_total",
+            "Total number of engine_getBlobsV4 responses with all requested cells present",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_PARTIAL_RESPONSES_TOTAL: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_engine_getBlobsV4_partial_responses_total",
+            "Total number of engine_getBlobsV4 responses with at least one missing cell",
+        )
+    });
+
+pub static BEACON_ENGINE_GET_BLOBS_V4_REQUEST_DURATION_SECONDS: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_engine_getBlobsV4_request_duration_seconds",
+            "Duration of engine_getBlobsV4 requests to the execution layer in seconds",
         )
     });
 

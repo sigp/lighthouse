@@ -162,8 +162,10 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
             .map_err(warp_utils::reject::beacon_state_error)?,
         DependentRootSelection::True => head_decision_root,
     };
+    // Must match `compute_proposer_duties_from_head`, which reads the head node. Assuming `FULL`
+    // here would make the same endpoint answer differently on a cache hit and a cache miss.
     let execution_optimistic = chain
-        .is_optimistic_or_invalid_head_block(head_block)
+        .is_optimistic_or_invalid_head()
         .map_err(warp_utils::reject::unhandled_error)?;
 
     chain
@@ -251,19 +253,24 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
         }
     };
 
-    let (state, execution_optimistic) = if let Some((state_root, mut state, execution_optimistic)) =
-        state_opt
-    {
-        // If we've loaded the head state it might be from a previous epoch, ensure it's in a
-        // suitable epoch.
-        ensure_state_can_determine_proposers_for_epoch(&mut state, state_root, epoch, &chain.spec)
+    let (state, execution_optimistic) =
+        if let Some((state_root, mut state, execution_optimistic)) = state_opt {
+            // If we've loaded the head state it might be from a previous epoch, ensure it's in a
+            // suitable epoch.
+            ensure_state_can_determine_proposers_for_epoch(
+                &mut state,
+                state_root,
+                epoch,
+                chain.builder_onboarding_cache.as_deref(),
+                &chain.spec,
+            )
             .map_err(warp_utils::reject::unhandled_error)?;
-        (state, execution_optimistic)
-    } else {
-        let (state, execution_optimistic, _finalized) =
-            StateId::from_slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?;
-        (state, execution_optimistic)
-    };
+            (state, execution_optimistic)
+        } else {
+            let (state, execution_optimistic, _finalized) =
+                StateId::from_slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?;
+            (state, execution_optimistic)
+        };
 
     // Ensure the state lookup was correct.
     if state.current_epoch() != epoch && state.current_epoch() + 1 != epoch {

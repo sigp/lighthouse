@@ -1,5 +1,8 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
-use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, beacon_head_monitor::HeadEvent};
+use beacon_node_fallback::{
+    ApiTopic, BeaconNodeFallback,
+    beacon_head_monitor::{HeadEvent, head_event_or_deadline},
+};
 use futures::StreamExt;
 use logging::crit;
 use slot_clock::SlotClock;
@@ -7,12 +10,11 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::sync::Mutex;
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, broadcast};
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use tree_hash::TreeHash;
-use types::{Attestation, AttestationData, ChainSpec, CommitteeIndex, EthSpec, Hash256, Slot};
+use types::{AttestationData, ChainSpec, CommitteeIndex, EthSpec, Hash256, Slot};
 use validator_store::{AggregateToSign, AttestationToSign, ValidatorStore};
 
 /// Builds an `AttestationService`.
@@ -24,7 +26,7 @@ pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> 
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     executor: Option<TaskExecutor>,
     chain_spec: Option<Arc<ChainSpec>>,
-    head_monitor_rx: Option<Mutex<mpsc::Receiver<HeadEvent>>>,
+    head_monitor_rx: Option<broadcast::Receiver<HeadEvent>>,
     disable: bool,
 }
 
@@ -79,7 +81,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
 
     pub fn head_monitor_rx(
         mut self,
-        head_monitor_rx: Option<Mutex<mpsc::Receiver<HeadEvent>>>,
+        head_monitor_rx: Option<broadcast::Receiver<HeadEvent>>,
     ) -> Self {
         self.head_monitor_rx = head_monitor_rx;
         self
@@ -105,7 +107,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
                 chain_spec: self
                     .chain_spec
                     .ok_or("Cannot build AttestationService without chain_spec")?,
-                head_monitor_rx: self.head_monitor_rx,
+                head_monitor_rx: Mutex::new(self.head_monitor_rx),
                 disable: self.disable,
                 latest_attested_slot: Mutex::new(Slot::default()),
             }),
@@ -121,13 +123,13 @@ pub struct Inner<S, T> {
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
-    head_monitor_rx: Option<Mutex<mpsc::Receiver<HeadEvent>>>,
+    head_monitor_rx: Mutex<Option<broadcast::Receiver<HeadEvent>>>,
     disable: bool,
     latest_attested_slot: Mutex<Slot>,
 }
 
-/// Attempts to produce attestations for all known validators 1/3rd of the way through each slot
-/// or when a head event is received from the BNs.
+/// Attempts to produce attestations for all known validators at the fork-aware attestation
+/// deadline or when a head event is received from the BNs.
 ///
 /// If any validators are on the same committee, a single attestation will be downloaded and
 /// returned to the beacon node. This attestation will have a signature from each of the
@@ -152,6 +154,23 @@ impl<S, T> Deref for AttestationService<S, T> {
     }
 }
 
+fn attestation_deadline<E: EthSpec>(
+    slot_clock: &impl SlotClock,
+    chain_spec: &ChainSpec,
+    now: Duration,
+) -> (Slot, Option<Duration>) {
+    let attestation_slot = slot_clock
+        .slot_of(now)
+        .map_or_else(|| slot_clock.genesis_slot(), |slot| slot + 1);
+    let duration_to_attestation_deadline = slot_clock
+        .start_of(attestation_slot)
+        .and_then(|slot_start| {
+            slot_start.checked_add(chain_spec.get_attestation_due::<E>(attestation_slot))
+        })
+        .and_then(|deadline| deadline.checked_sub(now));
+    (attestation_slot, duration_to_attestation_deadline)
+}
+
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, T> {
     /// Starts the service which periodically produces attestations.
     pub fn start_update_service(self, spec: &ChainSpec) -> Result<(), String> {
@@ -173,26 +192,30 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         let executor = self.executor.clone();
 
-        let unaggregated_attestation_due = self.chain_spec.get_unaggregated_attestation_due();
-
         let interval_fut = async move {
+            let mut head_monitor_rx = self.head_monitor_rx.lock().await.take();
             loop {
-                let Some(duration) = self.slot_clock.duration_to_next_slot() else {
+                let Some(now) = self.slot_clock.now_duration() else {
                     error!("Failed to read slot clock");
                     sleep(slot_duration).await;
                     continue;
                 };
-
-                let beacon_node_data = if self.head_monitor_rx.is_some() {
-                    tokio::select! {
-                        _ = sleep(duration + unaggregated_attestation_due) => None,
-                        event = self.poll_for_head_events() =>
-                            event.map(|event| (event.beacon_node_index, event.beacon_block_root)),
-                    }
-                } else {
-                    sleep(duration + unaggregated_attestation_due).await;
-                    None
+                let (attestation_slot, duration_to_attestation_deadline) =
+                    attestation_deadline::<S::E>(&self.slot_clock, &self.chain_spec, now);
+                let Some(duration_to_attestation_deadline) = duration_to_attestation_deadline
+                else {
+                    error!(%attestation_slot, "Failed to determine attestation deadline");
+                    sleep(slot_duration).await;
+                    continue;
                 };
+
+                let beacon_node_data = head_event_or_deadline(
+                    &mut head_monitor_rx,
+                    &self.slot_clock,
+                    duration_to_attestation_deadline,
+                )
+                .await
+                .map(|event| (event.beacon_node_index, event.beacon_block_root));
 
                 let Some(current_slot) = self.slot_clock.now() else {
                     error!("Failed to read slot clock after trigger");
@@ -211,7 +234,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         *last_slot = current_slot;
                     }
                     Err(e) => {
-                        crit!(error = e, "Failed to spawn attestation tasks")
+                        crit!(error = e, "Failed to spawn attestation tasks");
                     }
                 }
             }
@@ -219,30 +242,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         executor.spawn(interval_fut, "attestation_service");
         Ok(())
-    }
-
-    async fn poll_for_head_events(&self) -> Option<HeadEvent> {
-        let Some(receiver) = &self.head_monitor_rx else {
-            return None;
-        };
-        let mut receiver = receiver.lock().await;
-        loop {
-            match receiver.recv().await {
-                Some(head_event) => {
-                    // Only return head events for the current slot - this ensures the
-                    // block for this slot has been produced before triggering attestation
-                    let current_slot = self.slot_clock.now()?;
-                    if head_event.slot == current_slot {
-                        return Some(head_event);
-                    }
-                    // Head event is for a previous slot, keep waiting
-                }
-                None => {
-                    warn!("Head monitor channel closed unexpectedly");
-                    return None;
-                }
-            }
-        }
     }
 
     /// Spawn only one new task for attestation post-Electra
@@ -314,7 +313,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 .duration_to_slot(slot + 1)
                 .and_then(|duration_to_next_slot| {
                     duration_to_next_slot
-                        .checked_add(self.chain_spec.get_unaggregated_attestation_due())
+                        .checked_add(self.chain_spec.get_attestation_due::<S::E>(slot))
                 })
                 .map(|next_slot_deadline| {
                     next_slot_deadline.saturating_sub(self.chain_spec.get_slot_duration())
@@ -367,15 +366,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             )
             .ok_or("Failed to spawn attestation data task")?;
 
-        // If a validator needs to publish an aggregate attestation, they must do so at 2/3
-        // through the slot. This delay triggers at this time
+        // If a validator needs to publish an aggregate attestation, trigger it at the
+        // fork-appropriate aggregate due time.
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_slot(slot + 1)
             .ok_or("Unable to determine duration to next slot")?;
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
-                .checked_add(self.chain_spec.get_aggregate_attestation_due())
+                .checked_add(self.chain_spec.get_aggregate_attestation_due::<S::E>(slot))
                 .and_then(|offset| offset.checked_sub(self.chain_spec.get_slot_duration()))
                 .unwrap_or_else(|| Duration::from_secs(0));
 
@@ -480,7 +479,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     committee_index,
                     slot = slot.as_u64(),
                     "Error during aggregate attestation routine"
-                )
+                );
             })?;
 
         Ok(())
@@ -539,33 +538,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 continue;
             }
 
-            let attestation = match Attestation::empty_for_signing(
-                duty.committee_index,
-                duty.committee_length as usize,
-                attestation_data.slot,
-                attestation_data.beacon_block_root,
-                attestation_data.source,
-                attestation_data.target,
-                attestation_data.index != 0,
-                &self.chain_spec,
-            ) {
-                Ok(attestation) => attestation,
-                Err(err) => {
-                    crit!(
-                        validator = ?duty.pubkey,
-                        ?duty,
-                        ?err,
-                        "Invalid validator duties during signing"
-                    );
-                    continue;
-                }
-            };
-
             attestations_to_sign.push(AttestationToSign {
-                validator_index: duty.validator_index,
+                attester_index: duty.validator_index,
                 pubkey: duty.pubkey,
-                validator_committee_index: duty.validator_committee_index as usize,
-                attestation,
+                committee_index: duty.committee_index,
+                data: attestation_data.clone(),
             });
         }
 
@@ -588,29 +565,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 Ok(batch) if !batch.is_empty() => {
                     received_non_empty_batch = true;
 
-                    let single_attestations = batch
-                        .iter()
-                        .filter_map(|(attester_index, attestation)| {
-                            match attestation
-                                .to_single_attestation_with_attester_index(*attester_index)
-                            {
-                                Ok(single_attestation) => Some(single_attestation),
-                                Err(e) => {
-                                    // This shouldn't happen unless BN and VC are out of sync with
-                                    // respect to the Electra fork.
-                                    error!(
-                                        error = ?e,
-                                        committee_index = attestation_data.index,
-                                        slot = slot.as_u64(),
-                                        "type" = "unaggregated",
-                                        "Unable to convert to SingleAttestation"
-                                    );
-                                    None
-                                }
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    let single_attestations = &single_attestations;
+                    let single_attestations = &batch;
                     let validator_indices = single_attestations
                         .iter()
                         .map(|att| att.attester_index)
@@ -873,6 +828,52 @@ mod tests {
     use super::*;
     use futures::future::FutureExt;
     use parking_lot::RwLock;
+    use slot_clock::ManualSlotClock;
+    use types::{Epoch, MainnetEthSpec};
+
+    #[test]
+    fn duration_to_attestation_deadline_is_fork_aware() {
+        type E = MainnetEthSpec;
+
+        let mut spec = E::default_spec();
+        let gloas_fork_epoch = Epoch::new(1);
+        spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+
+        let slot_duration = spec.get_slot_duration();
+        let genesis_time = slot_duration;
+        let slot_clock = ManualSlotClock::new(Slot::new(0), genesis_time, slot_duration);
+        let first_gloas_slot = gloas_fork_epoch.start_slot(E::slots_per_epoch());
+        let last_pre_gloas_slot = first_gloas_slot - 1;
+
+        let test_cases = [
+            (
+                "pre-genesis",
+                genesis_time - Duration::from_secs(1),
+                slot_clock.genesis_slot(),
+                Duration::from_millis(4999),
+            ),
+            (
+                "pre-Gloas",
+                slot_clock.start_of(last_pre_gloas_slot - 1).unwrap(),
+                last_pre_gloas_slot,
+                Duration::from_millis(15999),
+            ),
+            (
+                "post-Gloas",
+                slot_clock.start_of(last_pre_gloas_slot).unwrap(),
+                first_gloas_slot,
+                Duration::from_millis(15000),
+            ),
+        ];
+
+        for (case, now, expected_slot, expected_duration) in test_cases {
+            assert_eq!(
+                attestation_deadline::<E>(&slot_clock, &spec, now),
+                (expected_slot, Some(expected_duration)),
+                "{case}"
+            );
+        }
+    }
 
     /// This test is to ensure that a `tokio_timer::Sleep` with an instant in the past will still
     /// trigger.

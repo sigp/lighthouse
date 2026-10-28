@@ -4,7 +4,8 @@ use tokio::sync::broadcast::{Receiver, Sender, error::SendError};
 use tracing::trace;
 use types::EthSpec;
 
-const DEFAULT_CHANNEL_CAPACITY: usize = 16;
+// Allow a full slot of payload attestation messages (mainnet PTC_SIZE) to be buffered.
+const DEFAULT_CHANNEL_CAPACITY: usize = 512;
 
 pub struct ServerSentEventHandler<E: EthSpec> {
     attestation_tx: Sender<EventKind<E>>,
@@ -14,11 +15,11 @@ pub struct ServerSentEventHandler<E: EthSpec> {
     data_column_sidecar_tx: Sender<EventKind<E>>,
     finalized_tx: Sender<EventKind<E>>,
     head_tx: Sender<EventKind<E>>,
+    head_v2_tx: Sender<EventKind<E>>,
     exit_tx: Sender<EventKind<E>>,
     chain_reorg_tx: Sender<EventKind<E>>,
     contribution_tx: Sender<EventKind<E>>,
     payload_attributes_tx: Sender<EventKind<E>>,
-    late_head: Sender<EventKind<E>>,
     light_client_finality_update_tx: Sender<EventKind<E>>,
     light_client_optimistic_update_tx: Sender<EventKind<E>>,
     proposer_slashing_tx: Sender<EventKind<E>>,
@@ -31,6 +32,8 @@ pub struct ServerSentEventHandler<E: EthSpec> {
     execution_payload_bid_tx: Sender<EventKind<E>>,
     proposer_preferences_tx: Sender<EventKind<E>>,
     payload_attestation_message_tx: Sender<EventKind<E>>,
+    fast_confirmation_tx: Sender<EventKind<E>>,
+    inclusion_list_tx: Sender<EventKind<E>>,
 }
 
 impl<E: EthSpec> ServerSentEventHandler<E> {
@@ -46,11 +49,11 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         let (data_column_sidecar_tx, _) = broadcast::channel(capacity);
         let (finalized_tx, _) = broadcast::channel(capacity);
         let (head_tx, _) = broadcast::channel(capacity);
+        let (head_v2_tx, _) = broadcast::channel(capacity);
         let (exit_tx, _) = broadcast::channel(capacity);
         let (chain_reorg_tx, _) = broadcast::channel(capacity);
         let (contribution_tx, _) = broadcast::channel(capacity);
         let (payload_attributes_tx, _) = broadcast::channel(capacity);
-        let (late_head, _) = broadcast::channel(capacity);
         let (light_client_finality_update_tx, _) = broadcast::channel(capacity);
         let (light_client_optimistic_update_tx, _) = broadcast::channel(capacity);
         let (proposer_slashing_tx, _) = broadcast::channel(capacity);
@@ -63,6 +66,8 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         let (execution_payload_bid_tx, _) = broadcast::channel(capacity);
         let (proposer_preferences_tx, _) = broadcast::channel(capacity);
         let (payload_attestation_message_tx, _) = broadcast::channel(capacity);
+        let (fast_confirmation_tx, _) = broadcast::channel(capacity);
+        let (inclusion_list_tx, _) = broadcast::channel(capacity);
 
         Self {
             attestation_tx,
@@ -72,11 +77,11 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             data_column_sidecar_tx,
             finalized_tx,
             head_tx,
+            head_v2_tx,
             exit_tx,
             chain_reorg_tx,
             contribution_tx,
             payload_attributes_tx,
-            late_head,
             light_client_finality_update_tx,
             light_client_optimistic_update_tx,
             proposer_slashing_tx,
@@ -89,6 +94,8 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             execution_payload_bid_tx,
             proposer_preferences_tx,
             payload_attestation_message_tx,
+            fast_confirmation_tx,
+            inclusion_list_tx,
         }
     }
 
@@ -129,6 +136,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .head_tx
                 .send(kind)
                 .map(|count| log_count("head", count)),
+            EventKind::HeadV2(_) => self
+                .head_v2_tx
+                .send(kind)
+                .map(|count| log_count("head_v2", count)),
             EventKind::VoluntaryExit(_) => self
                 .exit_tx
                 .send(kind)
@@ -145,10 +156,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .payload_attributes_tx
                 .send(kind)
                 .map(|count| log_count("payload attributes", count)),
-            EventKind::LateHead(_) => self
-                .late_head
-                .send(kind)
-                .map(|count| log_count("late head", count)),
             EventKind::LightClientFinalityUpdate(_) => self
                 .light_client_finality_update_tx
                 .send(kind)
@@ -197,6 +204,14 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .payload_attestation_message_tx
                 .send(kind)
                 .map(|count| log_count("payload attestation message", count)),
+            EventKind::FastConfirmation(_) => self
+                .fast_confirmation_tx
+                .send(kind)
+                .map(|count| log_count("fast confirmation", count)),
+            EventKind::InclusionList(_) => self
+                .inclusion_list_tx
+                .send(kind)
+                .map(|count| log_count("inclusion list", count)),
         };
         if let Err(SendError(event)) = result {
             trace!(?event, "No receivers registered to listen for event");
@@ -231,6 +246,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.head_tx.subscribe()
     }
 
+    pub fn subscribe_head_v2(&self) -> Receiver<EventKind<E>> {
+        self.head_v2_tx.subscribe()
+    }
+
     pub fn subscribe_exit(&self) -> Receiver<EventKind<E>> {
         self.exit_tx.subscribe()
     }
@@ -245,10 +264,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn subscribe_payload_attributes(&self) -> Receiver<EventKind<E>> {
         self.payload_attributes_tx.subscribe()
-    }
-
-    pub fn subscribe_late_head(&self) -> Receiver<EventKind<E>> {
-        self.late_head.subscribe()
     }
 
     pub fn subscribe_light_client_finality_update(&self) -> Receiver<EventKind<E>> {
@@ -299,6 +314,14 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.payload_attestation_message_tx.subscribe()
     }
 
+    pub fn subscribe_fast_confirmation(&self) -> Receiver<EventKind<E>> {
+        self.fast_confirmation_tx.subscribe()
+    }
+
+    pub fn subscribe_inclusion_list(&self) -> Receiver<EventKind<E>> {
+        self.inclusion_list_tx.subscribe()
+    }
+
     pub fn has_attestation_subscribers(&self) -> bool {
         self.attestation_tx.receiver_count() > 0
     }
@@ -327,6 +350,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.head_tx.receiver_count() > 0
     }
 
+    pub fn has_head_v2_subscribers(&self) -> bool {
+        self.head_v2_tx.receiver_count() > 0
+    }
+
     pub fn has_exit_subscribers(&self) -> bool {
         self.exit_tx.receiver_count() > 0
     }
@@ -341,10 +368,6 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn has_payload_attributes_subscribers(&self) -> bool {
         self.payload_attributes_tx.receiver_count() > 0
-    }
-
-    pub fn has_late_head_subscribers(&self) -> bool {
-        self.late_head.receiver_count() > 0
     }
 
     pub fn has_proposer_slashing_subscribers(&self) -> bool {
@@ -385,5 +408,13 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn has_payload_attestation_message_subscribers(&self) -> bool {
         self.payload_attestation_message_tx.receiver_count() > 0
+    }
+
+    pub fn has_fast_confirmation_subscribers(&self) -> bool {
+        self.fast_confirmation_tx.receiver_count() > 0
+    }
+
+    pub fn has_inclusion_list_subscribers(&self) -> bool {
+        self.inclusion_list_tx.receiver_count() > 0
     }
 }

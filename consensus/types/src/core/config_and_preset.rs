@@ -6,14 +6,14 @@ use superstruct::superstruct;
 
 use crate::core::{
     AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config, DenebPreset,
-    ElectraPreset, EthSpec, FuluPreset, GloasPreset, consts,
+    ElectraPreset, EthSpec, FuluPreset, GloasPreset, HezePreset, consts,
 };
 
 /// Fusion of a runtime-config with the compile-time preset values.
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Deneb, Electra, Fulu, Gloas),
+    variants(Deneb, Electra, Fulu, Gloas, Heze),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -32,15 +32,18 @@ pub struct ConfigAndPreset {
     pub capella_preset: CapellaPreset,
     #[serde(flatten)]
     pub deneb_preset: DenebPreset,
-    #[superstruct(only(Electra, Fulu, Gloas))]
+    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     #[serde(flatten)]
     pub electra_preset: ElectraPreset,
-    #[superstruct(only(Fulu, Gloas))]
+    #[superstruct(only(Fulu, Gloas, Heze))]
     #[serde(flatten)]
     pub fulu_preset: FuluPreset,
-    #[superstruct(only(Gloas))]
+    #[superstruct(only(Gloas, Heze))]
     #[serde(flatten)]
     pub gloas_preset: GloasPreset,
+    #[superstruct(only(Heze))]
+    #[serde(flatten)]
+    pub heze_preset: HezePreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
     pub extra_fields: HashMap<String, Value>,
@@ -56,7 +59,31 @@ impl ConfigAndPreset {
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
 
-        if spec.is_gloas_scheduled() {
+        if !spec.is_gloas_scheduled() {
+            // Remove gas limit schedule for backwards-compatibility.
+            config.gas_limit_schedule.set_skip_serializing();
+        }
+
+        if spec.is_heze_scheduled() {
+            let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
+            let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
+            let gloas_preset = GloasPreset::from_chain_spec::<E>(spec);
+            let heze_preset = HezePreset::from_chain_spec::<E>(spec);
+
+            ConfigAndPreset::Heze(ConfigAndPresetHeze {
+                config,
+                base_preset,
+                altair_preset,
+                bellatrix_preset,
+                capella_preset,
+                deneb_preset,
+                electra_preset,
+                fulu_preset,
+                gloas_preset,
+                heze_preset,
+                extra_fields,
+            })
+        } else if spec.is_gloas_scheduled() {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
             let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
             let gloas_preset = GloasPreset::from_chain_spec::<E>(spec);
@@ -129,6 +156,8 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
             spec.target_aggregators_per_committee.to_string().into(),
         "domain_contribution_and_proof".to_uppercase() =>
             u32_hex(spec.domain_contribution_and_proof),
+        "domain_inclusion_list_committee".to_uppercase() =>
+            u32_hex(spec.domain_inclusion_list_committee),
         "domain_sync_committee".to_uppercase() => u32_hex(spec.domain_sync_committee),
         "domain_sync_committee_selection_proof".to_uppercase() =>
             u32_hex(spec.domain_sync_committee_selection_proof),
@@ -136,6 +165,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "domain_beacon_builder".to_uppercase() => u32_hex(spec.domain_beacon_builder),
         "domain_ptc_attester".to_uppercase() => u32_hex(spec.domain_ptc_attester),
         "domain_proposer_preferences".to_uppercase() => u32_hex(spec.domain_proposer_preferences),
+        "domain_builder_deposit".to_uppercase() => u32_hex(spec.domain_builder_deposit),
         "sync_committee_subnet_count".to_uppercase() =>
             consts::altair::SYNC_COMMITTEE_SUBNET_COUNT.to_string().into(),
         "target_aggregators_per_sync_subcommittee".to_uppercase() =>
@@ -152,7 +182,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{Epoch, MainnetEthSpec};
+    use crate::{Epoch, GasLimitSchedule, GasLimitScheduleEntry, MainnetEthSpec};
     use std::fs::File;
     use tempfile::NamedTempFile;
 
@@ -165,6 +195,7 @@ mod test {
             .open(tmp_file.as_ref())
             .expect("error opening file");
         let mut mainnet_spec = ChainSpec::mainnet();
+        // TODO(heze): bump this test to roundtrip a heze config once Heze is enabled.
         // setting gloas_fork_epoch because we are roundtripping a gloas config
         mainnet_spec.gloas_fork_epoch = Some(Epoch::new(42));
         let mut yamlconfig = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
@@ -200,6 +231,38 @@ mod test {
         assert_eq!(
             extra_fields.get("ATTESTATION_SUBNET_PREFIX_BITS"),
             Some(&Value::String("6".to_string()))
+        );
+    }
+
+    #[test]
+    fn gas_limit_schedule_in_config_spec() {
+        let mut spec = ChainSpec::mainnet();
+        let config = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&spec);
+        let json = serde_json::to_value(&config).expect("should serialize");
+        assert!(
+            json.get("GAS_LIMIT_SCHEDULE").is_none(),
+            "GAS_LIMIT_SCHEDULE is hidden while Gloas is not scheduled"
+        );
+
+        spec.gloas_fork_epoch = Some(Epoch::new(42));
+        spec.gas_limit_schedule = GasLimitSchedule::new(vec![
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(100),
+                gas_limit: 75_000_000,
+            },
+            GasLimitScheduleEntry {
+                epoch: Epoch::new(42),
+                gas_limit: 60_000_000,
+            },
+        ]);
+        let config = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&spec);
+        let json = serde_json::to_value(&config).expect("should serialize");
+        assert_eq!(
+            json.get("GAS_LIMIT_SCHEDULE"),
+            Some(&serde_json::json!([
+                {"EPOCH": "42", "GAS_LIMIT": "60000000"},
+                {"EPOCH": "100", "GAS_LIMIT": "75000000"},
+            ]))
         );
     }
 

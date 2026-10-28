@@ -1,5 +1,4 @@
-//! This build script downloads the latest Web3Signer release and places it in the `OUT_DIR` so it
-//! can be used for integration testing.
+//! Downloads a Web3Signer release and places it in a temp directory for integration testing.
 
 use reqwest::Client;
 use std::env;
@@ -7,33 +6,41 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use zip::ZipArchive;
 
-/// Use `None` to download the latest Github release.
-/// Use `Some("21.8.1")` to download a specific version.
-const FIXED_VERSION_STRING: Option<&str> = None;
+/// Use `None` to require `LIGHTHOUSE_WEB3SIGNER_VERSION`.
+/// Use `Some("26.9.0")` to download a specific version.
+///
+/// Pin to 26.9.0 for Gloas (remote-signing-api v1.4.0).
+const FIXED_VERSION_STRING: Option<&str> = Some("26.9.0");
 
 // This function no longer makes any attempt to avoid downloads, because in practice we use it
 // with a fresh temp directory every time we run the tests. We might want to change this in future
 // to enable reproducible/offline testing.
 pub async fn download_binary(dest_dir: PathBuf) {
-    let version = if let Some(version) = FIXED_VERSION_STRING {
-        version.to_string()
-    } else if let Ok(env_version) = env::var("LIGHTHOUSE_WEB3SIGNER_VERSION") {
+    let version = if let Ok(env_version) = env::var("LIGHTHOUSE_WEB3SIGNER_VERSION") {
         env_version
+    } else if let Some(version) = FIXED_VERSION_STRING {
+        version.to_string()
     } else {
-        // The Consenys artifact server resolves `latest` to the latest release. We previously hit
-        // the Github API to establish the version, but that is no longer necessary.
-        "latest".to_string()
+        panic!("set FIXED_VERSION_STRING or LIGHTHOUSE_WEB3SIGNER_VERSION");
     };
     eprintln!("Downloading web3signer version: {version}");
 
-    // Download the release zip.
+    // Download the release zip from GitHub (artifacts.consensys.net does not host 26.9.0).
     let client = Client::builder().build().unwrap();
     let zip_url = format!(
-        "https://artifacts.consensys.net/public/web3signer/raw/names/web3signer.zip/versions/{}/web3signer-{}.zip",
-        version, version
+        "https://github.com/Consensys-Incorporated/web3signer/releases/download/{version}/web3signer-{version}.zip"
     );
-    let zip_response = client
-        .get(zip_url)
+    let mut request = client
+        .get(&zip_url)
+        .header("User-Agent", "lighthouse-web3signer-tests");
+    if let Some(token) = env::var("LIGHTHOUSE_GITHUB_TOKEN")
+        .ok()
+        .or_else(|| env::var("GITHUB_TOKEN").ok())
+        .filter(|token| !token.is_empty())
+    {
+        request = request.header("Authorization", format!("Bearer {token}"));
+    }
+    let zip_response = request
         .send()
         .await
         .unwrap()

@@ -1,10 +1,11 @@
 use crate::{BeaconChain, BeaconChainTypes};
 use slot_clock::SlotClock;
 use std::sync::Arc;
+use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use tracing::{debug, error};
-use types::{EthSpec, Slot};
+use tracing::{debug, error, warn};
+use types::{ChainSpec, EthSpec, Slot};
 
 /// Don't run the attestation simulator if the head slot is this many epochs
 /// behind the wall-clock slot.
@@ -23,18 +24,29 @@ pub fn start_attestation_simulator_service<T: BeaconChainTypes>(
     );
 }
 
-/// Loop indefinitely, calling `BeaconChain::produce_unaggregated_attestation` every 4s into each slot.
+/// Loop indefinitely, calling `BeaconChain::produce_unaggregated_attestation` each slot at the
+/// unaggregated attestation deadline.
 async fn attestation_simulator_service<T: BeaconChainTypes>(
     executor: TaskExecutor,
     chain: Arc<BeaconChain<T>>,
 ) {
     let slot_duration = chain.slot_clock.slot_duration();
-    let additional_delay = slot_duration / 3;
 
     loop {
-        match chain.slot_clock.duration_to_next_slot() {
-            Some(duration) => {
-                sleep(duration + additional_delay).await;
+        match chain.slot_clock.now_duration() {
+            Some(now_duration) => {
+                let (attestation_slot, Some(time_to_deadline)) =
+                    time_until_attestation_deadline::<T::EthSpec>(
+                        &chain.slot_clock,
+                        &chain.spec,
+                        now_duration,
+                    )
+                else {
+                    error!("Failed to calculate attestation deadline");
+                    sleep(slot_duration).await;
+                    continue;
+                };
+                sleep(time_to_deadline).await;
 
                 debug!("Simulating unagg. attestation production");
 
@@ -42,8 +54,10 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
                 let inner_chain = chain.clone();
                 executor.spawn(
                     async move {
-                        if let Ok(current_slot) = inner_chain.slot() {
-                            produce_unaggregated_attestation(inner_chain, current_slot);
+                        if let Some(slot) = inner_chain.slot_clock.now() && slot == attestation_slot {
+                            produce_unaggregated_attestation(inner_chain, attestation_slot);
+                        } else {
+                            warn!(%attestation_slot, "Missed attestation simulator slot due to lag");
                         }
                     },
                     "attestation_simulator_service",
@@ -56,6 +70,23 @@ async fn attestation_simulator_service<T: BeaconChainTypes>(
             }
         };
     }
+}
+
+fn time_until_attestation_deadline<E: EthSpec>(
+    slot_clock: &impl SlotClock,
+    chain_spec: &ChainSpec,
+    now: Duration,
+) -> (Slot, Option<Duration>) {
+    let attestation_slot = slot_clock
+        .slot_of(now)
+        .map_or_else(|| slot_clock.genesis_slot(), |slot| slot + 1);
+    let duration_to_attestation_deadline = slot_clock
+        .start_of(attestation_slot)
+        .and_then(|slot_start| {
+            slot_start.checked_add(chain_spec.get_attestation_due::<E>(attestation_slot))
+        })
+        .and_then(|deadline| deadline.checked_sub(now));
+    (attestation_slot, duration_to_attestation_deadline)
 }
 
 pub fn produce_unaggregated_attestation<T: BeaconChainTypes>(

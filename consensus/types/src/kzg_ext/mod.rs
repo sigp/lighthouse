@@ -5,7 +5,7 @@ pub use kzg::{Error as KzgError, Kzg, KzgCommitment, KzgProof};
 use crate::core::EthSpec;
 use crate::{BeaconStateError, Hash256};
 use merkle_proof::{MerkleTree, MerkleTreeError};
-use ssz_types::{FixedVector, VariableList};
+use ssz_types::{FixedVector, ProgressiveVariableList, VariableList};
 use tree_hash::{BYTES_PER_CHUNK, TreeHash};
 
 // Note on List limit:
@@ -19,6 +19,12 @@ pub type KzgProofs<E> = VariableList<KzgProof, <E as EthSpec>::MaxCellsPerBlock>
 
 pub type KzgCommitments<E> =
     VariableList<KzgCommitment, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+
+/// Progressive (EIP-7688) variant of `KzgCommitments`, used from Gloas onwards.
+///
+/// The `MaxBlobCommitmentsPerBlock` limit is enforced during deserialization.
+pub type ProgressiveKzgCommitments<E> =
+    ProgressiveVariableList<KzgCommitment, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
 /// Util method helpful for logging.
 pub fn format_kzg_commitments(commitments: &[KzgCommitment]) -> String {
