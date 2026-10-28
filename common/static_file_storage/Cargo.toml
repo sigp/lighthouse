@@ -8,7 +8,7 @@ crc32fast = { workspace = true }
 parking_lot = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-libc = "0.2"
+libc = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }

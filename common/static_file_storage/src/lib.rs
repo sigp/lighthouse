@@ -15,6 +15,7 @@
 //! Data file: `b"LHSF"`, then records appended as
 //! `length[4 LE] | crc32[4 LE] | payload`, where the crc covers
 //! `slot u64 LE | length | payload` so an offset pointing at another slot's record fails the check.
+//! The header is never validated, by design: it only keeps offset 0 free to mean "no record".
 //!
 //! `column.conf`: `b"LHSF" | version u32 LE | highest_slot u64 LE (u64::MAX =
 //! empty) | current_data_len u64 LE`. No crc: rewritten atomically every
@@ -118,7 +119,7 @@ impl From<io::Error> for Error {
 #[derive(Debug)]
 pub struct StaticFile {
     root_dir: PathBuf,
-    /// Max record size, an OOM guard on reads.
+    /// Max record size, an OOM guard on reads. Deliberately not persisted.
     max_value_bytes: u64,
     /// Writer-only; held across put_batch's fsyncs.
     state: Mutex<State>,
@@ -142,10 +143,15 @@ impl StaticFile {
     /// Open or create a `StaticFile` rooted at `root_dir`. `max_value_bytes` is
     /// a runtime-only read OOM cap. The column is identified by its directory.
     pub fn open(root_dir: PathBuf, max_value_bytes: u64) -> Result<Self, Error> {
+        let missing_dirs = root_dir.ancestors().take_while(|dir| !dir.exists()).count();
         fs::create_dir_all(&root_dir)?;
-        // Make the column dir's own dirent durable; fsyncs inside it don't.
-        if let Some(parent) = root_dir.parent().filter(|p| !p.as_os_str().is_empty()) {
-            sync_dir(parent)?;
+        // Make the column dir's own dirent durable, plus any parent
+        // create_dir_all added; fsyncs inside them don't.
+        for dir in root_dir.ancestors().take(missing_dirs.max(1)) {
+            // Not syncing cwd is intentional.
+            if let Some(parent) = dir.parent().filter(|p| !p.as_os_str().is_empty()) {
+                sync_dir(parent)?;
+            }
         }
 
         // Lock before touching anything: a second handle would heal
@@ -323,6 +329,7 @@ impl StaticFile {
                      cannot fill a previously-skipped slot"
                 ))
             })?;
+            // Full byte compare on purpose: retries are rare, a CRC-only shortcut is not worth it.
             if existing.as_slice() != *value {
                 return Err(Error::Invalid(format!(
                     "re-put at slot {slot} with mismatched value"
@@ -352,10 +359,10 @@ impl StaticFile {
             .create(true)
             .truncate(false) // keep committed records; we seek + overwrite
             .open(&data_path)?;
-        let cursor = if committed
+        let appending = committed
             .highest_slot
-            .is_some_and(|slot| file_id(slot) == target_file_id)
-        {
+            .is_some_and(|slot| file_id(slot) == target_file_id);
+        let cursor = if appending {
             committed.data_len
         } else {
             // new file: plant header at offset 0, start just past it
@@ -410,11 +417,16 @@ impl StaticFile {
             off_file.write_all(&offset.to_le_bytes())?;
         }
         sync_file(&off_file)?;
+        if !appending {
+            // Both dirents must be durable before the marker points into this file.
+            sync_dir(&self.root_dir)?;
+        }
 
         Ok(data_len)
     }
 
     /// Read the record at `slot`; lock-free — committed bytes are immutable.
+    /// Handles are reopened per read on purpose: not worth optimizing now.
     fn read_record(&self, slot: u64) -> Result<Option<Vec<u8>>, Error> {
         let file_id = file_id(slot);
         let offset = self.read_offset(file_id, slot)?;
@@ -430,7 +442,9 @@ impl StaticFile {
         read_record_bytes(&mut data_file, &mut header, slot)?;
         let len = u32::from_le_bytes(header[0..4].try_into().expect("slice length checked"));
         if u64::from(len) > self.max_value_bytes {
-            return Err(Error::Corrupt("record exceeds size limit".into()));
+            return Err(Error::Invalid(format!(
+                "record at slot {slot} exceeds max_value_bytes"
+            )));
         }
 
         let len = len as usize;
@@ -953,6 +967,37 @@ mod tests {
             let read = rx.recv_timeout(std::time::Duration::from_secs(5));
             assert_eq!(read, Ok(Some(b"a".to_vec())));
         });
+    }
+
+    #[test]
+    fn reads_see_committed_records_during_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir);
+        let last_slot = 2 * SLOTS_PER_FILE;
+
+        std::thread::scope(|scope| {
+            let writer = scope.spawn(|| {
+                for slot in (0..=last_slot).step_by(512) {
+                    store.put(slot, &slot.to_le_bytes()).unwrap();
+                }
+            });
+            // Loop on the thread, not the slot, so a panicking writer fails the test instead of hanging it.
+            while !writer.is_finished() {
+                if let Some(slot) = store.highest_written_slot() {
+                    assert_eq!(store.get(slot).unwrap(), Some(slot.to_le_bytes().to_vec()));
+                }
+            }
+        });
+        assert_eq!(store.highest_written_slot(), Some(last_slot));
+    }
+
+    #[test]
+    fn record_above_lowered_cap_is_invalid() {
+        let dir = tempfile::tempdir().unwrap();
+        open(&dir).put(0, b"abcd").unwrap();
+
+        let store = StaticFile::open(dir.path().to_path_buf(), 2).unwrap();
+        assert!(matches!(store.get(0), Err(Error::Invalid(_))));
     }
 
     #[test]
