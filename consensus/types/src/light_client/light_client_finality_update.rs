@@ -93,9 +93,14 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
 }
 
 impl<E: EthSpec> LightClientFinalityUpdate<E> {
+    // Spec (full-node.md / sync-protocol.md, see ethereum/consensus-specs#5707): whether the
+    // finalized header must be empty is determined by finalized_checkpoint.root being zero, not
+    // by the finalized block's slot. A zero root cannot be proven by finality_branch, so the
+    // header must be default-initialized; any non-zero root (including one that still points at
+    // the genesis block, once finalization legitimately advances onto it) gets a real header.
     pub fn new(
         attested_block: &SignedBlindedBeaconBlock<E>,
-        finalized_block: &SignedBlindedBeaconBlock<E>,
+        finalized_block: Option<&SignedBlindedBeaconBlock<E>>,
         finality_branch: Vec<Hash256>,
         sync_aggregate: SyncAggregate<E>,
         signature_slot: Slot,
@@ -110,9 +115,10 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                     attested_header: LightClientHeaderAltair::block_to_light_client_header(
                         attested_block,
                     )?,
-                    finalized_header: LightClientHeaderAltair::block_to_light_client_header(
-                        finalized_block,
-                    )?,
+                    finalized_header: finalized_block
+                        .map(LightClientHeaderAltair::block_to_light_client_header)
+                        .transpose()?
+                        .unwrap_or_default(),
                     finality_branch: finality_branch
                         .try_into()
                         .map_err(LightClientError::SszTypesError)?,
@@ -124,9 +130,10 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 attested_header: LightClientHeaderCapella::block_to_light_client_header(
                     attested_block,
                 )?,
-                finalized_header: LightClientHeaderCapella::block_to_light_client_header(
-                    finalized_block,
-                )?,
+                finalized_header: finalized_block
+                    .map(LightClientHeaderCapella::block_to_light_client_header)
+                    .transpose()?
+                    .unwrap_or_default(),
                 finality_branch: finality_branch
                     .try_into()
                     .map_err(LightClientError::SszTypesError)?,
@@ -137,9 +144,10 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 attested_header: LightClientHeaderDeneb::block_to_light_client_header(
                     attested_block,
                 )?,
-                finalized_header: LightClientHeaderDeneb::block_to_light_client_header(
-                    finalized_block,
-                )?,
+                finalized_header: finalized_block
+                    .map(LightClientHeaderDeneb::block_to_light_client_header)
+                    .transpose()?
+                    .unwrap_or_default(),
                 finality_branch: finality_branch
                     .try_into()
                     .map_err(LightClientError::SszTypesError)?,
@@ -150,9 +158,10 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 attested_header: LightClientHeaderElectra::block_to_light_client_header(
                     attested_block,
                 )?,
-                finalized_header: LightClientHeaderElectra::block_to_light_client_header(
-                    finalized_block,
-                )?,
+                finalized_header: finalized_block
+                    .map(LightClientHeaderElectra::block_to_light_client_header)
+                    .transpose()?
+                    .unwrap_or_default(),
                 finality_branch: finality_branch
                     .try_into()
                     .map_err(LightClientError::SszTypesError)?,
@@ -163,9 +172,10 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 attested_header: LightClientHeaderFulu::block_to_light_client_header(
                     attested_block,
                 )?,
-                finalized_header: LightClientHeaderFulu::block_to_light_client_header(
-                    finalized_block,
-                )?,
+                finalized_header: finalized_block
+                    .map(LightClientHeaderFulu::block_to_light_client_header)
+                    .transpose()?
+                    .unwrap_or_default(),
                 finality_branch: finality_branch
                     .try_into()
                     .map_err(LightClientError::SszTypesError)?,
@@ -176,9 +186,10 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 attested_header: LightClientHeaderGloas::block_to_light_client_header(
                     attested_block,
                 )?,
-                finalized_header: LightClientHeaderGloas::block_to_light_client_header(
-                    finalized_block,
-                )?,
+                finalized_header: finalized_block
+                    .map(LightClientHeaderGloas::block_to_light_client_header)
+                    .transpose()?
+                    .unwrap_or_default(),
                 finality_branch: finality_branch
                     .try_into()
                     .map_err(LightClientError::SszTypesError)?,
