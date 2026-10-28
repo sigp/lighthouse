@@ -23,6 +23,9 @@
 //!
 //! # Put contract
 //!
+//! Append-only, permanently: no pruning, no deletes, no back-fill of
+//! skipped slots. Anything that needs mutation does not belong here.
+//!
 //! Durable on return. Slots arrive ascending **or** are identical-value
 //! re-puts of an already-committed slot (so migration retries after a
 //! mid-loop crash are safe). Previously-skipped slots (offset 0) cannot
@@ -510,6 +513,7 @@ impl StaticFile {
         let clear_start = required_len;
         if clear_start < OFFSET_FILE_LEN {
             // Remove offsets to entries beyond the committed slot.
+            // Unconditional on purpose: at most 64 KiB per open or heal.
             off_file.seek(SeekFrom::Start(clear_start))?;
             let zeroes = vec![0; (OFFSET_FILE_LEN - clear_start) as usize];
             off_file.write_all(&zeroes)?;
