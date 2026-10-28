@@ -115,7 +115,7 @@ This section provide new block proposal logs relevant to ePBS. It assumes the "h
 
 ### Beacon node during block production
 
-With ePBS, during block production, the beacon node usually receives several bids from various sources. The beacon node will select the best bid and logs:
+With ePBS, during block production, the beacon node usually receives several bids from various sources. The beacon node selects the best bid and logs:
 
 ```text
 INFO  Winning execution payload bid                 slot: 190, source: gossip, builder_index: 0, bid_value_gwei: 120765522, execution_payment_gwei: 0, payload_value_wei: 120765522000000000, runner_up_source: "direct", runner_up_payload_value_wei: "20865522000000000"
