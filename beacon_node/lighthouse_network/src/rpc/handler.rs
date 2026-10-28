@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{GoodbyeReason, RpcErrorResponse, RpcResponse};
+use super::methods::{GoodbyeReason, RpcResponse};
 use super::outbound::OutboundRequestContainer;
 use super::protocol::{InboundOutput, Protocol, RPCError, RPCProtocol, RequestType};
 use super::{RPCReceived, RPCSend, ReqId};
@@ -411,32 +411,28 @@ where
             };
         }
 
-        // purge expired inbound substreams and send an error
+        // Purge expired inbound substreams: report the timeout and reclaim the substream
+        // immediately.
+        while let Poll::Ready(Some(expired)) = self.inbound_substreams_delay.poll_expired(cx) {
+            let substream_id = expired.into_inner();
+            let Some(protocol) = self
+                .inbound_substreams
+                .get(&substream_id)
+                .map(|info| info.protocol)
+            else {
+                // The substream has already been removed.
+                continue;
+            };
 
-        while let Poll::Ready(Some(inbound_id)) = self.inbound_substreams_delay.poll_expired(cx) {
-            // handle a stream timeout for various states
-            if let Some(info) = self.inbound_substreams.get_mut(inbound_id.get_ref()) {
-                // the delay has been removed
-                info.delay_key = None;
-                self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
-                    error: RPCError::StreamTimeout,
-                    proto: info.protocol,
-                    id: *inbound_id.get_ref(),
-                }));
+            self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                error: RPCError::StreamTimeout,
+                proto: protocol,
+                id: substream_id,
+            }));
 
-                if info
-                    .pending_items
-                    .back()
-                    .map(|response| !response.close_after())
-                    .unwrap_or(true)
-                {
-                    // If there is no response that closes the stream, append an error.
-                    info.pending_items.push_back(RpcResponse::Error(
-                        RpcErrorResponse::ServerError,
-                        "Request timed out".into(),
-                    ));
-                }
-            }
+            self.inbound_substreams.remove(&substream_id);
+            self.events_out
+                .push(HandlerEvent::InboundStreamClosed(substream_id));
         }
 
         // purge expired outbound substreams
