@@ -129,6 +129,13 @@ pub static SIGNED_VOLUNTARY_EXITS_TOTAL: LazyLock<Result<IntCounterVec>> = LazyL
         &["status"],
     )
 });
+pub static SIGNED_INCLUSION_LISTS_TOTAL: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "vc_signed_inclusion_lists_total",
+        "Total count of attempted InclusionList signings",
+        &["status"],
+    )
+});
 pub static SIGNED_VALIDATOR_REGISTRATIONS_TOTAL: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
         try_create_int_counter_vec(

@@ -1577,6 +1577,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             .await
             .map_err(Error::SpecificError)?;
 
+        validator_metrics::inc_counter_vec(
+            &validator_metrics::SIGNED_INCLUSION_LISTS_TOTAL,
+            &[validator_metrics::SUCCESS],
+        );
+
         Ok(SignedInclusionList {
             message: inclusion_list,
             signature,
