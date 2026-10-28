@@ -259,8 +259,7 @@ impl<E: EthSpec> BidCandidate<E> {
 }
 
 /// Rank the bids in descending order (highest first), so we use Reverse
-/// This keeps all candidates so that we can log all bid candidates
-///
+/// This keeps all candidates to be logged in debug level
 /// The total order is defined by [`rank_key`](BidCandidate::rank_key). On a full tie the earlier
 /// candidate is kept.
 pub fn rank_payload_bids<E: EthSpec>(mut candidates: Vec<BidCandidate<E>>) -> Vec<BidCandidate<E>> {
