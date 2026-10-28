@@ -433,7 +433,7 @@ pub fn build_new_payload_request<'a, E: EthSpec>(
 /// This is the CL-side substitute for the `is_valid_block_hash` portion of the spec's
 /// `verify_and_notify_new_payload`, used where the execution layer cannot be consulted
 /// (historical backfill).
-pub fn perform_optimistic_sync_verifications<E: EthSpec>(
+pub fn verify_envelope_payload_hash<E: EthSpec>(
     envelope: &SignedExecutionPayloadEnvelope<E>,
     block: &types::SignedBeaconBlock<E>,
 ) -> Result<(), EnvelopeError> {
@@ -444,7 +444,7 @@ pub fn perform_optimistic_sync_verifications<E: EthSpec>(
 
 #[cfg(test)]
 mod payload_hash_tests {
-    use super::perform_optimistic_sync_verifications;
+    use super::verify_envelope_payload_hash;
     use bls::Signature;
     use execution_layer::calculate_execution_block_hash;
     use ssz_types::ProgressiveVariableList;
@@ -520,7 +520,7 @@ mod payload_hash_tests {
         let slot = Slot::new(10);
         let block = make_block(slot);
         let envelope = make_consistent_envelope(slot);
-        assert!(perform_optimistic_sync_verifications::<E>(&envelope, &block).is_ok());
+        assert!(verify_envelope_payload_hash::<E>(&envelope, &block).is_ok());
     }
 
     #[test]
@@ -530,6 +530,6 @@ mod payload_hash_tests {
         let mut envelope = make_consistent_envelope(slot);
         // Tamper a field that only the hash recompute can catch.
         envelope.message.payload.timestamp += 1;
-        assert!(perform_optimistic_sync_verifications::<E>(&envelope, &block).is_err());
+        assert!(verify_envelope_payload_hash::<E>(&envelope, &block).is_err());
     }
 }
