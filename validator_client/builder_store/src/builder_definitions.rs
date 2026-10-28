@@ -554,8 +554,10 @@ mod tests {
 
     #[test]
     fn validate_rejects_enabled_empty_auth_allows_omitted_and_disabled() {
-        let mut config = BuilderConfigFile::default();
-        config.builders = vec![definition(true, Some(RequestAuthData::default()))];
+        let mut config = BuilderConfigFile {
+            builders: vec![definition(true, Some(RequestAuthData::default()))],
+            ..Default::default()
+        };
         assert!(matches!(config.validate(), Err(Error::EmptyAuthData(_))));
 
         config.builders = vec![definition(true, None)];
