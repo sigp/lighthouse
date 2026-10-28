@@ -30,9 +30,9 @@ struct DelayedRequest<E: EthSpec> {
 }
 
 /// An active inbound request received via RPC.
-pub(super) struct ActiveInboundRequest<E: EthSpec> {
-    pub peer_id: PeerId,
-    pub request_type: RequestType<E>,
+struct ActiveInboundRequest {
+    peer_id: PeerId,
+    protocol: Protocol,
 }
 
 /// The result of checking a new inbound request against the rate limiter.
@@ -70,8 +70,10 @@ pub(super) struct InboundRateLimiter<E: EthSpec> {
     /// Rate limiter that determines whether a request may be executed. When `None`, no rate
     /// limiting is applied and requests are executed as soon as they are admitted.
     limiter: Option<RPCRateLimiter>,
-    /// Active inbound requests that are awaiting a response.
-    active_requests: HashMap<InboundRequestId, ActiveInboundRequest<E>>,
+    /// Active inbound requests whose substream has not been closed yet. Requests remain active
+    /// after their final response is produced, until the response is written to the substream and
+    /// the substream is closed.
+    active_requests: HashMap<InboundRequestId, ActiveInboundRequest>,
     /// Requests waiting for the rate limiter to allow their execution.
     delayed_requests: HashMap<(PeerId, Protocol), VecDeque<DelayedRequest<E>>>,
     /// The delay until the next request of a peer and protocol may be executed.
@@ -114,13 +116,12 @@ impl<E: EthSpec> InboundRateLimiter<E> {
         }
 
         // Enforce the maximum number of concurrent requests per peer and protocol, counting
-        // requests that have not yet been completed (including delayed ones).
+        // requests whose substream has not yet been closed (including delayed ones).
         let active_request_count = self
             .active_requests
             .values()
             .filter(|request| {
-                request.peer_id == peer_id
-                    && request.request_type.protocol() == request_type.protocol()
+                request.peer_id == peer_id && request.protocol == request_type.protocol()
             })
             .count();
         if active_request_count >= MAX_CONCURRENT_REQUESTS {
@@ -133,7 +134,7 @@ impl<E: EthSpec> InboundRateLimiter<E> {
         // request limit above accounts for it.
         let active_request = ActiveInboundRequest {
             peer_id,
-            request_type: request_type.clone(),
+            protocol: request_type.protocol(),
         };
 
         let Some(limiter) = self.limiter.as_mut() else {
@@ -195,31 +196,33 @@ impl<E: EthSpec> InboundRateLimiter<E> {
         }
     }
 
-    /// Removes a completed request from the active requests and returns it, so that the caller
-    /// can answer it. Returns `None` if the request is no longer tracked as active.
-    pub fn complete_request(
-        &mut self,
-        request_id: InboundRequestId,
-    ) -> Option<ActiveInboundRequest<E>> {
-        self.active_requests.remove(&request_id)
+    /// Returns the peer that sent an active request, so that the caller can answer it. Returns
+    /// `None` if the request is no longer tracked as active.
+    pub fn active_request_peer(&self, request_id: &InboundRequestId) -> Option<PeerId> {
+        self.active_requests
+            .get(request_id)
+            .map(|request| request.peer_id)
     }
 
-    /// Re-tracks a request as active after it was completed via [`Self::complete_request`], for
-    /// protocols that require the stream to be terminated before the request is fully answered.
-    pub fn reinsert_active(
-        &mut self,
-        request_id: InboundRequestId,
-        request: ActiveInboundRequest<E>,
-    ) {
-        self.active_requests.insert(request_id, request);
-    }
-
-    /// Stops tracking a request that ended in the connection handler. The request may still be in
-    /// the delayed queue if its substream ended before it was released for execution.
-    pub fn request_ended(&mut self, request_id: InboundRequestId) {
-        if self.active_requests.remove(&request_id).is_none() {
-            return;
+    /// Drops a request from the delayed queue after the connection handler reported an error for
+    /// it, as the request is answered with an error and must not be executed anymore. The request
+    /// remains active until its substream is closed.
+    pub fn request_failed(&mut self, request_id: InboundRequestId) {
+        if self.active_requests.contains_key(&request_id) {
+            self.remove_delayed_request(request_id);
         }
+    }
+
+    /// Stops tracking a request whose substream was closed by the connection handler. The request
+    /// may still be in the delayed queue if its substream closed before it was released for
+    /// execution.
+    pub fn request_ended(&mut self, request_id: InboundRequestId) {
+        if self.active_requests.remove(&request_id).is_some() {
+            self.remove_delayed_request(request_id);
+        }
+    }
+
+    fn remove_delayed_request(&mut self, request_id: InboundRequestId) {
         self.delayed_requests.retain(|_key, queue| {
             queue.retain(|request| request.request_id != request_id);
             !queue.is_empty()
@@ -401,7 +404,9 @@ mod tests {
             limiter.allows(peer_id, request_id(1), status_request()),
             Admission::Delayed
         ));
-        assert!(limiter.complete_request(request_id(0)).is_some());
+        assert_eq!(2, limiter.active_request_count());
+        limiter.request_ended(request_id(0));
+        assert_eq!(1, limiter.active_request_count());
         // A third request is queued behind the delayed one.
         assert!(matches!(
             limiter.allows(peer_id, request_id(2), status_request()),
@@ -620,7 +625,9 @@ mod tests {
             limiter.allows(peer_id, request_id(0), status_request()),
             Admission::Execute(_)
         ));
-        assert!(limiter.complete_request(request_id(0)).is_some());
+        assert_eq!(1, limiter.active_request_count());
+        limiter.request_ended(request_id(0));
+        assert_eq!(0, limiter.active_request_count());
         assert!(matches!(
             limiter.allows(peer_id, request_id(1), status_request()),
             Admission::Delayed

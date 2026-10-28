@@ -60,7 +60,8 @@ type InboundSubstream<E> = InboundFramed<Stream, E>;
 pub enum HandlerEvent<Id, E: EthSpec> {
     Ok(RPCReceived<Id, E>),
     Err(HandlerErr<Id>),
-    /// An inbound substream closed and no more responses can be sent for its request.
+    /// An inbound substream closed and no more responses can be sent for its request. Emitted
+    /// for every inbound request reported to the behaviour, unless the connection closes first.
     InboundStreamClosed(SubstreamId),
     Close(RPCError),
 }
@@ -1032,6 +1033,12 @@ where
             },
             req,
         )));
+        // Requests that expect no responses do not keep their substream, which is dropped here.
+        if max_responses == 0 {
+            self.events_out.push(HandlerEvent::InboundStreamClosed(
+                self.current_inbound_substream_id,
+            ));
+        }
         self.current_inbound_substream_id.0 += 1;
     }
 
