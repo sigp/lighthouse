@@ -6689,6 +6689,73 @@ async fn deneb_prune_blobs_margin_test(margin: u64) {
     check_blob_existence(&harness, oldest_blob_slot, harness.head_slot(), true);
 }
 
+/// Regression test for https://github.com/sigp/lighthouse/issues/10442.
+///
+/// On a checkpoint synced node that has data stored for every block back to the oldest block,
+/// pruning must stop at the oldest block rather than trying to load its (missing) parent.
+#[tokio::test]
+async fn prune_blobs_stops_at_oldest_block() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let spec = store.get_chain_spec().clone();
+
+    if spec.deneb_fork_epoch.is_none() {
+        // No-op prior to Deneb.
+        return;
+    }
+
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 8) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Simulate checkpoint sync with backfill to `oldest_block_slot` by deleting the blocks prior
+    // to it (except genesis).
+    let oldest_block_slot = Epoch::new(1).start_slot(E::slots_per_epoch());
+    let deleted_block_roots = harness
+        .chain
+        .forwards_iter_block_roots_until(Slot::new(1), oldest_block_slot - 1)
+        .unwrap()
+        .map(|result| result.unwrap().0)
+        .collect::<Vec<_>>();
+    for block_root in &deleted_block_roots {
+        store.delete_block(block_root).unwrap();
+    }
+    let anchor = store.get_anchor_info();
+    store
+        .compare_and_set_anchor_info_with_write(
+            anchor.clone(),
+            store::AnchorInfo {
+                oldest_block_slot,
+                oldest_block_parent: *deleted_block_roots.last().unwrap(),
+                ..anchor
+            },
+        )
+        .unwrap();
+
+    let data_availability_boundary = Epoch::new(4);
+    store
+        .try_prune_blobs(true, data_availability_boundary)
+        .unwrap();
+
+    let oldest_data_slot = store.get_data_info().oldest_data_slot;
+    assert_eq!(
+        oldest_data_slot,
+        data_availability_boundary.start_slot(E::slots_per_epoch())
+    );
+    let check_data_existence: fn(&TestHarness, Slot, Slot, bool) = if spec.is_peer_das_scheduled() {
+        check_data_column_existence
+    } else {
+        check_blob_existence
+    };
+    check_data_existence(&harness, oldest_block_slot, oldest_data_slot - 1, false);
+    check_data_existence(&harness, oldest_data_slot, harness.head_slot(), true);
+}
+
 /// Check that there are blob sidecars (or not) at every slot in the range.
 fn check_blob_existence(
     harness: &TestHarness,
