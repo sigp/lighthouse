@@ -4735,8 +4735,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Store the block and its state, and execute the confirmation batch for the intermediate
         // states, which will delete their temporary flags.
-        // If the write fails, revert fork choice to the version from disk, else we can
-        // end up with blocks in fork choice that are missing from disk.
+        // If the write fails, poison fork choice and shut down, else we can end up with blocks
+        // in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
         let (_, signed_block, block_data) = signed_block.deconstruct();
 
@@ -4846,13 +4846,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         fork_choice_write_lock: ForkChoiceWriteGuard<T>,
         block_root: Hash256,
     ) {
+        // Poison before releasing the lock, so anything waiting on it to persist fork choice sees
+        // the flag.
+        self.canonical_head.poison_fork_choice();
         drop(fork_choice_write_lock);
 
         // Clear the early attester cache to prevent attestations which we would later be unable
         // to verify due to the failure.
         self.early_attester_cache.clear();
 
-        self.canonical_head.poison_fork_choice();
         crit!(
             ?block_root,
             advice = "restart the node to recover the last consistent fork choice from disk",
