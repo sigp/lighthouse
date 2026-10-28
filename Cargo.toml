@@ -125,6 +125,7 @@ clap_utils = { path = "common/clap_utils" }
 compare_fields = "0.1"
 console-subscriber = "0.4"
 context_deserialize = "0.2"
+crc32fast = "1.5"
 criterion = "0.8"
 delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }

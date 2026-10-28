@@ -8654,6 +8654,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 name = "static_file_storage"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "criterion",
  "libc",
  "parking_lot",
