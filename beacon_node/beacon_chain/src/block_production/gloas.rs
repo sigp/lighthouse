@@ -1540,6 +1540,10 @@ where
             .instrument(debug_span!("proposer_inclusion_list_transactions"))
             .await
             .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?;
+        metrics::inc_counter_by(
+            &metrics::INCLUSION_LIST_TRANSACTIONS_PREPARE_EXECUTION_PAYLOAD_TOTAL,
+            transactions.len() as u64,
+        );
         Some(transactions)
     } else {
         None
