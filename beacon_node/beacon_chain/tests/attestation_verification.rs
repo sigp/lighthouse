@@ -21,6 +21,7 @@ use fixed_bytes::FixedBytesExtended;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
 use int_to_bytes::int_to_bytes32;
 use slasher::{Config as SlasherConfig, Slasher};
+use state_processing::GloasVerificationContext;
 use state_processing::per_slot_processing;
 use std::sync::{Arc, LazyLock};
 use tempfile::tempdir;
@@ -28,11 +29,11 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     Address, Attestation, AttestationRef, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
-    MainnetEthSpec, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
+    SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, Spec, SubnetId,
     attestation::SignedAggregateAndProofRefMut, test_utils::generate_deterministic_keypair,
 };
 
-pub type E = MainnetEthSpec;
+pub type E = Spec;
 
 /// The validator count needs to be relatively high compared to other tests to ensure that we can
 /// have committees where _some_ validators are aggregators but not _all_.
@@ -56,7 +57,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     spec.target_aggregators_per_committee = 4;
     let spec = Arc::new(spec);
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec)
         .chain_config(ChainConfig {
             archive: true,
@@ -95,7 +96,7 @@ fn get_harness_capella_spec(
     )
     .unwrap();
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.clone())
         .chain_config(ChainConfig {
             archive: true,
@@ -303,7 +304,7 @@ impl GossipTester {
         // Extend the chain out a few epochs so we have some chain depth to play with.
         harness
             .extend_chain(
-                MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+                Spec::slots_per_epoch() as usize * 3 - 1,
                 BlockStrategy::OnCanonicalHead,
                 AttestationStrategy::AllValidators,
             )
@@ -1292,7 +1293,7 @@ async fn attestation_that_skips_epochs() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
+            Spec::slots_per_epoch() as usize * 3 + 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::SomeValidators(vec![]),
         )
@@ -1301,7 +1302,7 @@ async fn attestation_that_skips_epochs() {
     let current_slot = harness.chain.slot().expect("should get slot");
     let current_epoch = harness.chain.epoch().expect("should get epoch");
 
-    let earlier_slot = (current_epoch - 2).start_slot(MainnetEthSpec::slots_per_epoch());
+    let earlier_slot = (current_epoch - 2).start_slot(Spec::slots_per_epoch());
     let earlier_block = harness
         .chain
         .block_at_slot(earlier_slot, WhenSlotSkipped::Prev)
@@ -1319,7 +1320,13 @@ async fn attestation_that_skips_epochs() {
         .expect("should find state");
 
     while state.slot() < current_slot {
-        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+        per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            &harness.spec,
+        )
+        .expect("should process slot");
     }
 
     let state_root = state.update_tree_hash_cache().unwrap();
@@ -1373,7 +1380,7 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
         .extend_chain(
             // To trigger the bug we need the proposer attestation reward to be signed at a block
             // that isn't the first in the epoch.
-            MainnetEthSpec::slots_per_epoch() as usize + 1,
+            Spec::slots_per_epoch() as usize + 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::SomeValidators(attesters),
         )
@@ -1411,7 +1418,7 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
     harness.advance_slot();
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 2,
+            Spec::slots_per_epoch() as usize * 2,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::SomeValidators(vec![]),
         )
@@ -1430,7 +1437,13 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
         .expect("should find state");
 
     while state.slot() < current_slot {
-        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+        per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            &harness.spec,
+        )
+        .expect("should process slot");
     }
 
     let state_root = state.update_tree_hash_cache().unwrap();
@@ -1465,7 +1478,7 @@ async fn attestation_to_finalized_block() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 4 + 1,
+            Spec::slots_per_epoch() as usize * 4 + 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -1481,7 +1494,7 @@ async fn attestation_to_finalized_block() {
 
     let earlier_slot = finalized_checkpoint
         .epoch
-        .start_slot(MainnetEthSpec::slots_per_epoch())
+        .start_slot(Spec::slots_per_epoch())
         - 1;
     let earlier_block = harness
         .chain
@@ -1507,7 +1520,13 @@ async fn attestation_to_finalized_block() {
         .expect("should find state");
 
     while state.slot() < current_slot {
-        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+        per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            &harness.spec,
+        )
+        .expect("should process slot");
     }
 
     let state_root = state.update_tree_hash_cache().unwrap();
@@ -1553,7 +1572,7 @@ async fn verify_aggregate_for_gossip_doppelganger_detection() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            Spec::slots_per_epoch() as usize * 3 - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -1633,7 +1652,7 @@ async fn verify_attestation_for_gossip_doppelganger_detection() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            Spec::slots_per_epoch() as usize * 3 - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -1696,7 +1715,7 @@ async fn attestation_verification_use_head_state_fork() {
     // Advance to last block of the pre-Capella fork epoch. Capella is at slot 32.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
+            Spec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::SomeValidators(vec![]),
         )
@@ -1803,7 +1822,7 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
     // Advance to last block of the pre-Capella fork epoch. Capella is at slot 32.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
+            Spec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::SomeValidators(vec![]),
         )
@@ -1918,7 +1937,7 @@ async fn gloas_unaggregated_attestation_same_slot_index_must_be_zero() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            Spec::slots_per_epoch() as usize * 3 - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -1995,7 +2014,7 @@ async fn gloas_aggregated_attestation_same_slot_index_must_be_zero() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            Spec::slots_per_epoch() as usize * 3 - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -2094,7 +2113,7 @@ async fn gloas_unaggregated_attestation_unknown_payload_envelope() {
     // produced so far has `payload_received == true`.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 2,
+            Spec::slots_per_epoch() as usize * 2,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -2175,7 +2194,7 @@ async fn gloas_aggregated_attestation_unknown_payload_envelope() {
     // produced so far has `payload_received == true`.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 2,
+            Spec::slots_per_epoch() as usize * 2,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -2261,7 +2280,7 @@ async fn unaggregated_attestation_bogus_attester_index_not_sent_to_slasher() {
     );
 
     let inner_slasher = slasher.clone();
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec)
         .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
         .fresh_ephemeral_store()

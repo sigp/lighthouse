@@ -1,20 +1,23 @@
 //! This module exposes a superset of the `types` crate. It adds additional types that are only
 //! required for the HTTP API.
 
+pub use builder_types::*;
 pub use types::*;
 
 use crate::{
-    CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
-    EXECUTION_PAYLOAD_INCLUDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
+    BUILDER_URL_HEADER, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
+    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_INCLUDED_HEADER,
+    EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
 use bls::{PublicKeyBytes, SecretKey, Signature, SignatureBytes};
 use context_deserialize::{ContextDeserialize, context_deserialize};
 #[cfg(feature = "network")]
 use enr::{CombinedKey, Enr};
 use fork_choice::PayloadStatus;
-use mediatype::{MediaType, MediaTypeList, names};
 #[cfg(feature = "network")]
-use multiaddr::Multiaddr;
+use libp2p::multiaddr::Multiaddr;
+use lighthouse_version::{COMMIT_PREFIX, client_name};
+use mediatype::{MediaType, MediaTypeList, names};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
@@ -357,7 +360,7 @@ pub struct ValidatorData {
     pub validator: Validator,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ValidatorBalanceData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
@@ -543,6 +546,11 @@ pub struct SyncCommitteesQuery {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct PtcQuery {
+    pub slot: Option<Slot>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct RandaoQuery {
     pub epoch: Option<Epoch>,
 }
@@ -551,6 +559,17 @@ pub struct RandaoQuery {
 pub struct AttestationPoolQuery {
     pub slot: Option<Slot>,
     pub committee_index: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ProposerPreferencesQuery {
+    pub slot: Option<Slot>,
+    pub dependent_root: Option<Hash256>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PayloadAttestationPoolQuery {
+    pub slot: Option<Slot>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -594,6 +613,14 @@ pub struct SyncCommitteeByValidatorIndices {
     #[serde(with = "serde_utils::quoted_u64_vec")]
     pub validators: Vec<u64>,
     pub validator_aggregates: Vec<SyncSubcommittee>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[serde(bound = "E: EthSpec")]
+pub struct PtcData<E: EthSpec> {
+    pub slot: Slot,
+    #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
+    pub validators: ssz_types::FixedVector<u64, E::PTCSize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -672,6 +699,33 @@ pub struct MetaData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VersionData {
     pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VersionDataV2 {
+    pub beacon_node: JsonClientVersion,
+    // The execution_client field will not be shown if it is offline, to conform to the spec
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_client: Option<JsonClientVersion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JsonClientVersion {
+    pub code: String,
+    #[serde(default)]
+    pub name: String,
+    pub version: String,
+    pub commit: String,
+}
+
+/// Returns Lighthouse client version information
+pub fn version_with_commit() -> JsonClientVersion {
+    JsonClientVersion {
+        code: "LH".to_string(),
+        name: client_name().to_string(),
+        version: format!("v{}", lighthouse_version::version()),
+        commit: format!("0x{}", COMMIT_PREFIX),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -861,6 +915,14 @@ pub struct PtcDuty {
     pub slot: Slot,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InclusionListDuty {
+    pub pubkey: PublicKeyBytes,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    pub slot: Slot,
+}
+
 #[derive(Clone, Deserialize)]
 pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
@@ -898,6 +960,11 @@ impl TryFrom<Option<String>> for SkipRandaoVerification {
 pub struct ValidatorAttestationDataQuery {
     pub slot: Slot,
     pub committee_index: CommitteeIndex,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ValidatorPayloadAttestationDataQuery {
+    pub slot: Slot,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -1081,6 +1148,10 @@ pub struct SseBlock {
     pub slot: Slot,
     pub block: Hash256,
     pub execution_optimistic: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub builder_index: Option<Quoted<u64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_hash: Option<ExecutionBlockHash>,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -1238,6 +1309,10 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_block_number: Option<Quoted<u64>>,
     pub parent_block_hash: ExecutionBlockHash,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub safe_block_hash: Option<ExecutionBlockHash>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finalized_block_hash: Option<ExecutionBlockHash>,
     pub payload_attributes: T,
 }
 
@@ -1247,6 +1322,7 @@ pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecut
 pub type VersionedSseProposerPreferences = ForkVersionedResponse<SignedProposerPreferences>;
 pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
 pub type VersionedSseHeadV2 = ForkVersionedResponse<SseHeadV2>;
+pub type VersionedSseInclusionList = ForkVersionedResponse<SignedInclusionList>;
 
 impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
@@ -1297,6 +1373,8 @@ impl<'de> ContextDeserialize<'de, ForkName> for SseExtendedPayloadAttributes {
             parent_block_root: helper.parent_block_root,
             parent_block_number: helper.parent_block_number,
             parent_block_hash: helper.parent_block_hash,
+            safe_block_hash: helper.safe_block_hash,
+            finalized_block_hash: helper.finalized_block_hash,
             payload_attributes: SsePayloadAttributes::context_deserialize(
                 helper.payload_attributes,
                 context,
@@ -1334,6 +1412,7 @@ pub enum EventKind<E: EthSpec> {
     ProposerPreferences(Box<VersionedSseProposerPreferences>),
     PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
     FastConfirmation(SseFastConfirmation),
+    InclusionList(Box<VersionedSseInclusionList>),
 }
 
 impl<E: EthSpec> EventKind<E> {
@@ -1364,6 +1443,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::ProposerPreferences(_) => "proposer_preferences",
             EventKind::PayloadAttestationMessage(_) => "payload_attestation_message",
             EventKind::FastConfirmation(_) => "fast_confirmation",
+            EventKind::InclusionList(_) => "inclusion_list",
         }
     }
 
@@ -1498,6 +1578,11 @@ impl<E: EthSpec> EventKind<E> {
                     ServerError::InvalidServerSentEvent(format!("Fast Confirmation: {:?}", e))
                 })?,
             )),
+            "inclusion_list" => Ok(EventKind::InclusionList(Box::new(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Inclusion List: {:?}", e))
+                })?,
+            ))),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -1540,6 +1625,7 @@ pub enum EventTopic {
     ProposerPreferences,
     PayloadAttestationMessage,
     FastConfirmation,
+    InclusionList,
 }
 
 impl FromStr for EventTopic {
@@ -1572,6 +1658,7 @@ impl FromStr for EventTopic {
             "proposer_preferences" => Ok(EventTopic::ProposerPreferences),
             "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessage),
             "fast_confirmation" => Ok(EventTopic::FastConfirmation),
+            "inclusion_list" => Ok(EventTopic::InclusionList),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -1609,6 +1696,7 @@ impl fmt::Display for EventTopic {
                 write!(f, "payload_attestation_message")
             }
             EventTopic::FastConfirmation => write!(f, "fast_confirmation"),
+            EventTopic::InclusionList => write!(f, "inclusion_list"),
         }
     }
 }
@@ -1959,6 +2047,11 @@ pub struct ProduceBlockV4Metadata {
     #[serde(with = "serde_utils::u256_dec")]
     pub execution_payload_value: Uint256,
     pub execution_payload_included: bool,
+    /// The URL of the winning builder when the payload bid came through the builder-API channel
+    /// (the `Eth-Builder-Url` response header). `None` for a self-built block or a p2p bid. Carried
+    /// only in the header, never the JSON body, so it's skipped by serde.
+    #[serde(skip_serializing, skip_deserializing, default)]
+    pub builder_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Encode)]
@@ -2244,12 +2337,19 @@ impl TryFrom<&HeaderMap> for ProduceBlockV4Metadata {
                 s.parse::<bool>()
                     .map_err(|e| format!("invalid {EXECUTION_PAYLOAD_INCLUDED_HEADER}: {e:?}"))
             })?;
+        // Optional; an empty or absent value means the block was self-built or a p2p bid won.
+        let builder_url = headers
+            .get(BUILDER_URL_HEADER)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned)
+            .filter(|s| !s.is_empty());
 
         Ok(ProduceBlockV4Metadata {
             consensus_version,
             consensus_block_value,
             execution_payload_value,
             execution_payload_included,
+            builder_url,
         })
     }
 }
@@ -2693,6 +2793,36 @@ mod test {
     use arbitrary::Arbitrary;
 
     use super::*;
+
+    #[test]
+    fn sse_block_json_fields() {
+        let block_hash = ExecutionBlockHash::repeat_byte(0x22);
+        let block_event = SseBlock {
+            slot: Slot::new(10),
+            block: Hash256::repeat_byte(0x11),
+            execution_optimistic: false,
+            builder_index: Some(Quoted { value: 42 }),
+            block_hash: Some(block_hash),
+        };
+
+        let gloas_json = serde_json::to_value(&block_event).unwrap();
+        assert_eq!(gloas_json["builder_index"], "42");
+        assert_eq!(
+            gloas_json["block_hash"],
+            serde_json::to_value(block_hash).unwrap()
+        );
+        assert_eq!(gloas_json.as_object().unwrap().len(), 5);
+
+        let pre_gloas_json = serde_json::to_value(SseBlock {
+            builder_index: None,
+            block_hash: None,
+            ..block_event
+        })
+        .unwrap();
+        assert!(pre_gloas_json.get("builder_index").is_none());
+        assert!(pre_gloas_json.get("block_hash").is_none());
+        assert_eq!(pre_gloas_json.as_object().unwrap().len(), 3);
+    }
 
     #[test]
     fn validator_id_serde() {

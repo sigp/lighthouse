@@ -9,12 +9,13 @@
 //! values it stores are very small, so this should not be an issue.
 
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use fork_choice::ExecutionStatus;
+use fork_choice::ExecutionVerdict;
 use hashlink::lru_cache::LruCache;
 use once_cell::sync::OnceCell;
 use parking_lot::Mutex;
 use safe_arith::SafeArith;
 use smallvec::SmallVec;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::state_advance::partial_state_advance;
 use std::sync::Arc;
 use tracing::{debug, instrument};
@@ -177,6 +178,7 @@ pub fn with_proposer_cache<Spec, V, Err>(
     proposal_epoch: Epoch,
     accessor: impl Fn(&EpochBlockProposers) -> Result<V, BeaconChainError>,
     state_provider: impl FnOnce() -> Result<(Hash256, BeaconState<Spec>), Err>,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<V, Err>
 where
@@ -203,6 +205,7 @@ where
             &mut state,
             state_root,
             proposal_epoch,
+            builder_onboarding_cache,
             spec,
         )?;
 
@@ -251,22 +254,23 @@ where
 pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
     request_epoch: Epoch,
     chain: &BeaconChain<T>,
-) -> Result<(Vec<usize>, Hash256, Hash256, ExecutionStatus, Fork), BeaconChainError> {
+) -> Result<(Vec<usize>, Hash256, Hash256, ExecutionVerdict, Fork), BeaconChainError> {
     // Atomically collect information about the head whilst holding the canonical head `Arc` as
     // short as possible.
-    let (mut state, head_state_root, head_block_root) = {
+    let (mut state, head_state_root, head_block_root, head_node) = {
         let head = chain.canonical_head.cached_head();
         // Take a copy of the head state.
         let head_state = head.snapshot.beacon_state.clone();
         let head_state_root = head.head_state_root();
         let head_block_root = head.head_block_root();
-        (head_state, head_state_root, head_block_root)
+        let head_node = head.head_node();
+        (head_state, head_state_root, head_block_root, head_node)
     };
 
     let execution_status = chain
         .canonical_head
         .fork_choice_read_lock()
-        .get_block_execution_status(&head_block_root)
+        .get_node_execution_status(head_node)?
         .ok_or(BeaconChainError::HeadMissingFromForkChoice(head_block_root))?;
 
     // Advance the state into the requested epoch.
@@ -274,6 +278,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         &mut state,
         head_state_root,
         request_epoch,
+        chain.builder_onboarding_cache.as_deref(),
         &chain.spec,
     )?;
 
@@ -317,6 +322,7 @@ pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Hash256,
     target_epoch: Epoch,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
 ) -> Result<(), BeaconChainError> {
     // The decision slot is the end of an epoch, so we add 1 to reach the first slot of the epoch
@@ -337,7 +343,13 @@ pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     } else {
         // State's current epoch is less than the minimum epoch.
         // Advance the state up to the minimum epoch.
-        partial_state_advance(state, Some(state_root), minimum_slot, spec)
-            .map_err(BeaconChainError::from)
+        partial_state_advance(
+            state,
+            Some(state_root),
+            minimum_slot,
+            builder_onboarding_cache,
+            spec,
+        )
+        .map_err(BeaconChainError::from)
     }
 }

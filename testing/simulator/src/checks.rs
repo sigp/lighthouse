@@ -537,9 +537,9 @@ pub async fn check_attestation_correctness<E: EthSpec>(
     let source_percent = source_successes / total * 100.0;
 
     eprintln!("Total Attestations: {}", total);
-    eprintln!("Head: {}: {}%", head_successes, head_percent);
-    eprintln!("Target: {}: {}%", target_successes, target_percent);
-    eprintln!("Source: {}: {}%", source_successes, source_percent);
+    eprintln!("Head: {}: {:.2}%", head_successes, head_percent);
+    eprintln!("Target: {}: {:.2}%", target_successes, target_percent);
+    eprintln!("Source: {}: {:.2}%", source_successes, source_percent);
 
     if head_percent < acceptable_attestation_performance {
         return Err("Head percent was below required level".to_string());

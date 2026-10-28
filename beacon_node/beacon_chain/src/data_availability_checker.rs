@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
-use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumn};
+use types::data::{BlobIdentifier, FixedBlobSidecarList, PartialDataColumnRef};
 use types::{
     BlobSidecar, BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar,
     DataColumnSidecarList, EthSpec, Hash256, PartialDataColumnSidecarError, PartialDataColumnView,
@@ -251,7 +251,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// do anything with the received column in that case.
     pub fn missing_cells_for_partial_column_sidecar<'a>(
         &'_ self,
-        partial_data_column: &'a PartialDataColumn<T::EthSpec>,
+        partial_data_column: PartialDataColumnRef<'a, T::EthSpec>,
     ) -> Result<Option<PartialDataColumnView<'a, T::EthSpec>>, MissingCellsError> {
         let column_index = *partial_data_column.index();
         let block_root = *partial_data_column.block_root();
@@ -508,7 +508,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         verify_columns_against_block(&self.kzg, available_block.block(), columns)?;
                     }
                 },
-                RangeSyncBlock::Gloas { block, envelope } => {
+                RangeSyncBlock::Gloas {
+                    block, envelope, ..
+                } => {
                     if let Some(envelope) = envelope {
                         verify_columns_against_block(&self.kzg, block, &envelope.columns)?;
                     }
@@ -647,14 +649,17 @@ pub fn verify_columns_against_block<E: EthSpec>(
             .message()
             .body()
             .signed_execution_payload_bid()
-            .map(|bid| bid.message.blob_kzg_commitments.to_vec())
+            .map(|bid| bid.message().blob_kzg_commitments().to_vec())
             .map_err(|_| {
                 AvailabilityCheckError::Unexpected(
                     "Gloas block missing signed_execution_payload_bid".to_string(),
                 )
             })?;
-        validate_data_columns_with_commitments(kzg, columns.iter(), &commitments)
-            .map_err(AvailabilityCheckError::InvalidColumn)
+        validate_data_columns_with_commitments(
+            kzg,
+            columns.iter().map(|c| (c, commitments.as_slice())),
+        )
+        .map_err(AvailabilityCheckError::InvalidColumn)
     } else {
         verify_kzg_for_data_column_list(columns.iter(), kzg)
             .map_err(AvailabilityCheckError::InvalidColumn)
@@ -842,12 +847,14 @@ impl<E: EthSpec> AvailableBlock<E> {
     /// - Required custody columns are complete based on the node's custody requirements
     /// - KZG commitments in blobs match those in the block
     ///
+    /// Caller must ensure that `block_root == block.canonical_root()`.
     /// Returns `AvailabilityCheckError` if:
     /// - `InvalidAvailableBlockData`: Block data is provided but not required
     /// - `MissingBlobs`: Block requires blobs but they are missing or incomplete
     /// - `MissingCustodyColumns`: Block requires custody columns but they are incomplete
     /// - `KzgCommitmentMismatch`: Blob KZG commitment doesn't match block commitment
     pub fn new<T>(
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_data: AvailableBlockData<T::EthSpec>,
         custody_context: &CustodyContext<T>,
@@ -914,17 +921,21 @@ impl<E: EthSpec> AvailableBlock<E> {
         }
 
         Ok(Self {
-            block_root: block.canonical_root(),
+            block_root,
             block,
             blob_data: block_data,
             blobs_available_timestamp: None,
         })
     }
 
-    pub fn new_gloas(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, String> {
+    /// Caller must ensure that `block_root == block.canonical_root()`.
+    pub fn new_gloas(
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<E>>,
+    ) -> Result<Self, String> {
         if block.fork_name_unchecked().gloas_enabled() {
             Ok(Self {
-                block_root: block.canonical_root(),
+                block_root,
                 block,
                 blob_data: AvailableBlockData::NoData,
                 blobs_available_timestamp: None,
@@ -1027,11 +1038,10 @@ mod test {
     use std::time::Duration;
     use types::data::DataColumn;
     use types::{
-        ChainSpec, ColumnIndex, DataColumnSidecarFulu, Epoch, EthSpec, ForkName, MainnetEthSpec,
-        Slot,
+        ChainSpec, ColumnIndex, DataColumnSidecarFulu, Epoch, EthSpec, ForkName, Slot, Spec,
     };
 
-    type E = MainnetEthSpec;
+    type E = Spec;
     type T = EphemeralHarnessType<E>;
 
     /// Test to verify any extra RPC columns received that are not part of the "effective" CGC for
@@ -1075,7 +1085,7 @@ mod test {
         let block_root = Hash256::random();
         // Get 10 columns using the "latest" CGC (head) that block lookup would use.
         // The CGC change becomes effective after CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS,
-        // which is typically epoch 2+ for MinimalEthSpec.
+        // which is typically epoch 2+ under the minimal preset.
         let future_epoch = Epoch::new(10); // Far enough in the future to have the CGC change effective
         let requested_columns = custody_context.sampling_columns_for_epoch(future_epoch);
         assert_eq!(
@@ -1159,7 +1169,7 @@ mod test {
         let block_root = Hash256::random();
         // Get 10 columns using the "latest" CGC that gossip subscriptions would use.
         // The CGC change becomes effective after CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS,
-        // which is typically epoch 2+ for MinimalEthSpec.
+        // which is typically epoch 2+ under the minimal preset.
         let future_epoch = Epoch::new(10); // Far enough in the future to have the CGC change effective
         let requested_columns = custody_context.sampling_columns_for_epoch(future_epoch);
         assert_eq!(
@@ -1244,8 +1254,14 @@ mod test {
                 };
 
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-                RangeSyncBlock::new(Arc::new(block), block_data, da_checker.custody_context())
-                    .expect("should create RPC block with custody columns")
+                let block_root = block.canonical_root();
+                RangeSyncBlock::new(
+                    block_root,
+                    Arc::new(block),
+                    block_data,
+                    da_checker.custody_context(),
+                )
+                .expect("should create RPC block with custody columns")
             })
             .collect::<Vec<_>>();
 

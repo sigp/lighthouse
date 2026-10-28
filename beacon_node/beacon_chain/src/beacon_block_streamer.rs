@@ -246,31 +246,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         Ok(bodies)
     }
 
-    // used when the execution engine doesn't support the payload bodies methods
-    async fn stream_blocks_fallback(
-        self: Arc<Self>,
-        block_roots: Vec<Hash256>,
-        sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
-    ) {
-        debug!("Using slower fallback method of eth_getBlockByHash()");
-        for root in block_roots {
-            let cached_block = self.check_caches(root);
-            let block_result = if cached_block.is_some() {
-                Ok(cached_block)
-            } else {
-                self.beacon_chain
-                    .get_block(&root)
-                    .await
-                    .map(|opt_block| opt_block.map(Arc::new))
-            };
-
-            if sender.send((root, Arc::new(block_result))).is_err() {
-                break;
-            }
-        }
-    }
-
-    async fn stream_blocks(
+    pub async fn stream(
         self: Arc<Self>,
         block_roots: Vec<Hash256>,
         sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
@@ -358,26 +334,6 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         );
     }
 
-    pub async fn stream(
-        self: Arc<Self>,
-        block_roots: Vec<Hash256>,
-        sender: UnboundedSender<(Hash256, Arc<BlockResult<T::EthSpec>>)>,
-    ) {
-        match self.execution_layer.get_engine_capabilities(None).await {
-            Ok(capabilities) if capabilities.get_payload_bodies_by_hash_v1 => {
-                self.stream_blocks(block_roots, sender).await;
-            }
-            Ok(_) => {
-                // use the fallback method
-                self.stream_blocks_fallback(block_roots, sender).await;
-            }
-            Err(e) => {
-                let error = BeaconChainError::EngineGetCapabilititesFailed(Box::new(e));
-                send_errors(block_roots, sender, error);
-            }
-        }
-    }
-
     pub fn launch_stream(
         self: Arc<Self>,
         block_roots: Vec<Hash256>,
@@ -390,19 +346,6 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         let executor = self.beacon_chain.task_executor.clone();
         executor.spawn(self.stream(block_roots, block_tx), "get_blocks_sender");
         UnboundedReceiverStream::new(block_rx)
-    }
-}
-
-fn send_errors<E: EthSpec>(
-    block_roots: Vec<Hash256>,
-    sender: UnboundedSender<(Hash256, Arc<BlockResult<E>>)>,
-    beacon_chain_error: BeaconChainError,
-) {
-    let result = Arc::new(Err(beacon_chain_error));
-    for root in block_roots {
-        if sender.send((root, result.clone())).is_err() {
-            break;
-        }
     }
 }
 
@@ -421,7 +364,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
     use tokio::sync::mpsc;
-    use types::{ChainSpec, Epoch, EthSpec, Hash256, MinimalEthSpec, Slot};
+    use types::{ChainSpec, Epoch, EthSpec, Hash256, Slot, Spec};
 
     const VALIDATOR_COUNT: usize = 48;
 
@@ -432,8 +375,8 @@ mod tests {
     fn get_harness(
         validator_count: usize,
         spec: Arc<ChainSpec>,
-    ) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    ) -> BeaconChainHarness<EphemeralHarnessType<Spec>> {
+        let harness = BeaconChainHarness::builder(Spec::default())
             .spec(spec)
             .keypairs(KEYPAIRS[0..validator_count].to_vec())
             .fresh_ephemeral_store()
@@ -448,7 +391,7 @@ mod tests {
     // TODO(EIP-7732) Extend this test for gloas
     #[tokio::test]
     async fn check_all_blocks_from_altair_to_fulu() {
-        let slots_per_epoch = MinimalEthSpec::slots_per_epoch() as usize;
+        let slots_per_epoch = Spec::slots_per_epoch() as usize;
         let num_epochs = 12;
         let bellatrix_fork_epoch = 0usize;
         let capella_fork_epoch = 4usize;
@@ -457,7 +400,7 @@ mod tests {
         let fulu_fork_epoch = 10usize;
         let num_blocks_produced = num_epochs * slots_per_epoch;
 
-        let mut spec = test_spec::<MinimalEthSpec>();
+        let mut spec = test_spec::<Spec>();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(bellatrix_fork_epoch as u64));
         spec.capella_fork_epoch = Some(Epoch::new(capella_fork_epoch as u64));
@@ -482,7 +425,7 @@ mod tests {
         );
         assert_eq!(
             state.current_epoch(),
-            num_blocks_produced as u64 / MinimalEthSpec::slots_per_epoch(),
+            num_blocks_produced as u64 / Spec::slots_per_epoch(),
             "head should be at the expected epoch"
         );
         assert_eq!(

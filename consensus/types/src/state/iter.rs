@@ -58,7 +58,7 @@ mod test {
     use crate::*;
     use fixed_bytes::FixedBytesExtended;
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn root_slot(i: usize) -> (Slot, Hash256) {
         (Slot::from(i), Hash256::from_low_u64_be(i as u64))

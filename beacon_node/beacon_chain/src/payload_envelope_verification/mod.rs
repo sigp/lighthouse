@@ -29,17 +29,26 @@ use store::Error as DBError;
 use strum::AsRefStr;
 use tracing::{instrument, warn};
 use types::{
-    BeaconState, BeaconStateError, DataColumnSidecarList, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    Slot,
+    BeaconState, BeaconStateError, BuilderIndex, DataColumnSidecarList, EthSpec,
+    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBidRef,
+    SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub mod execution_pending_envelope;
 pub mod gossip_verified_envelope;
 pub mod import;
+pub mod observed_payload_envelopes;
 mod payload_notifier;
 
 pub use execution_pending_envelope::ExecutionPendingEnvelope;
+
+/// The path through which a payload envelope reached this node.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr)]
+pub enum EnvelopeSource {
+    Gossip,
+    Rpc,
+    Http,
+}
 
 #[derive(Debug, Clone)]
 pub struct AvailableEnvelope<E: EthSpec> {
@@ -61,7 +70,7 @@ impl<E: EthSpec> AvailableEnvelope<E> {
     pub fn new<T>(
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         columns: DataColumnSidecarList<E>,
-        bid: &SignedExecutionPayloadBid<E>,
+        bid: SignedExecutionPayloadBidRef<E>,
         custody_context: &CustodyContext<T>,
     ) -> Result<Self, AvailabilityCheckError>
     where
@@ -200,6 +209,12 @@ impl<E: EthSpec> AvailableExecutedEnvelope<E> {
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown { block_root: Hash256 },
+    /// A validated envelope for this `block_root` has already been seen from the
+    /// builder with `builder_index`, so this one is a duplicate.
+    EnvelopeAlreadySeen {
+        block_root: Hash256,
+        builder_index: BuilderIndex,
+    },
     /// The signature is invalid.
     BadSignature,
     /// The builder index doesn't match the committed bid
@@ -251,8 +266,6 @@ pub enum EnvelopeError {
     EnvelopeProcessingError(EnvelopeProcessingError),
     /// Error verifying the execution payload
     ExecutionPayloadError(ExecutionPayloadError),
-    /// Optimistic sync is not supported for Gloas payload envelopes.
-    OptimisticSyncNotSupported { block_root: Hash256 },
     /// The envelope's beacon block was not present in fork choice at import time.
     ///
     /// Unlike [`EnvelopeError::BlockRootUnknown`] (raised during gossip verification, where the
@@ -285,10 +298,10 @@ impl EnvelopeError {
             | EnvelopeError::EnvelopeProcessingError(_) => true,
             EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
             EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::EnvelopeAlreadySeen { .. }
             | EnvelopeError::PriorToFinalization { .. }
             | EnvelopeError::BeaconChainError(_)
             | EnvelopeError::BeaconStateError(_)
-            | EnvelopeError::OptimisticSyncNotSupported { .. }
             | EnvelopeError::BlockRootNotInForkChoice(_)
             | EnvelopeError::InternalError(_) => false,
         }
@@ -396,10 +409,10 @@ pub fn build_new_payload_request<'a, E: EthSpec>(
         .body()
         .signed_execution_payload_bid()
         .map_err(|e| EnvelopeError::BeaconChainError(Box::new(BeaconChainError::from(e))))?
-        .message;
+        .message();
 
     let versioned_hashes = bid
-        .blob_kzg_commitments
+        .blob_kzg_commitments()
         .iter()
         .map(state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash)
         .collect();
@@ -439,11 +452,11 @@ mod payload_hash_tests {
     use types::{
         BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionPayloadEnvelope,
         ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-        Graffiti, Hash256, MinimalEthSpec, SignedBeaconBlock, SignedExecutionPayloadBid,
-        SignedExecutionPayloadEnvelope, Slot, SyncAggregate,
+        Graffiti, Hash256, SignedBeaconBlock, SignedExecutionPayloadBidGloas,
+        SignedExecutionPayloadEnvelope, Slot, Spec, SyncAggregate,
     };
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_block(slot: Slot) -> SignedBeaconBlock<E> {
         let block = BeaconBlock::Gloas(BeaconBlockGloas {
@@ -467,7 +480,7 @@ mod payload_hash_tests {
                 sync_aggregate: SyncAggregate::empty(),
                 bls_to_execution_changes: ProgressiveVariableList::empty(),
                 parent_execution_requests: ExecutionRequestsGloas::default(),
-                signed_execution_payload_bid: SignedExecutionPayloadBid::empty(),
+                signed_execution_payload_bid: SignedExecutionPayloadBidGloas::empty(),
                 payload_attestations: ProgressiveVariableList::empty(),
                 _phantom: PhantomData,
             },

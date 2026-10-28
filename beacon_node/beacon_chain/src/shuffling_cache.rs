@@ -4,6 +4,7 @@ use std::sync::Arc;
 use itertools::Itertools;
 use oneshot_broadcast::{Receiver, Sender, oneshot};
 use parking_lot::RwLock;
+use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::state_advance::partial_state_advance;
 use tracing::debug;
 use types::{
@@ -310,10 +311,12 @@ impl<E: EthSpec> ShufflingCache<E> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn with_cached_shuffling<T, F, R, Error>(
     canonical_head: &CanonicalHead<T>,
     shuffling_cache_lock: &RwLock<ShufflingCache<T::EthSpec>>,
     store: &BeaconStore<T>,
+    builder_onboarding_cache: Option<&OnboardBuildersCache>,
     spec: &ChainSpec,
     head_block_root: Hash256,
     shuffling_epoch: Epoch,
@@ -448,8 +451,14 @@ where
         if state.current_epoch() + 1 < shuffling_epoch || advance_to_gloas_fork {
             // Advance the state into the required slot, using the "partial" method since the state
             // roots are not relevant for the shuffling.
-            partial_state_advance(&mut state, Some(state_root), target_slot, spec)
-                .map_err(BeaconChainError::from)?;
+            partial_state_advance(
+                &mut state,
+                Some(state_root),
+                target_slot,
+                builder_onboarding_cache,
+                spec,
+            )
+            .map_err(BeaconChainError::from)?;
         }
         metrics::stop_timer(state_skip_timer);
 
@@ -556,7 +565,7 @@ mod test {
 
     use super::*;
 
-    type E = MinimalEthSpec;
+    type E = Spec;
     type TestBeaconChainType = EphemeralHarnessType<E>;
     type BeaconChainHarness = crate::test_utils::BeaconChainHarness<TestBeaconChainType>;
     const TEST_CACHE_SIZE: usize = 5;
@@ -582,9 +591,10 @@ mod test {
 
     /// Returns two different committee caches for testing.
     fn committee_caches() -> (Arc<CommitteeCache>, Arc<CommitteeCache>) {
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        // Gloas genesis needs at least one validator per slot.
+        let harness = BeaconChainHarness::builder(Spec::default())
             .default_spec()
-            .deterministic_keypairs(8)
+            .deterministic_keypairs(E::slots_per_epoch() as usize)
             .fresh_ephemeral_store()
             .build();
         let mut state = harness.get_current_state();
@@ -862,7 +872,7 @@ mod test {
         let gloas_fork_epoch = Epoch::new(2);
         spec.gloas_fork_epoch = Some(gloas_fork_epoch);
 
-        let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        let harness = BeaconChainHarness::builder(Spec::default())
             .spec(Arc::new(spec.clone()))
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()

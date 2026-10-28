@@ -2,6 +2,7 @@ use super::*;
 use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
+use state_processing::GloasVerificationContext;
 use state_processing::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
     upgrade_to_electra, upgrade_to_fulu, upgrade_to_gloas, upgrade_to_heze,
@@ -72,7 +73,12 @@ impl<E: EthSpec> Case for ForkTest<E> {
             ForkName::Deneb => upgrade_to_deneb(&mut result_state, spec).map(|_| result_state),
             ForkName::Electra => upgrade_to_electra(&mut result_state, spec).map(|_| result_state),
             ForkName::Fulu => upgrade_to_fulu(&mut result_state, spec).map(|_| result_state),
-            ForkName::Gloas => upgrade_to_gloas(&mut result_state, spec).map(|_| result_state),
+            ForkName::Gloas => upgrade_to_gloas(
+                &mut result_state,
+                GloasVerificationContext::FullVerification,
+                spec,
+            )
+            .map(|_| result_state),
             ForkName::Heze => upgrade_to_heze(&mut result_state, spec).map(|_| result_state),
         };
 

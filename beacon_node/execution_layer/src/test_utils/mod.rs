@@ -2,7 +2,7 @@
 
 use crate::engine_api::auth::JwtKey;
 use crate::engine_api::{
-    ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status, auth::Auth, http::JSONRPC_VERSION,
+    PayloadStatusV1, PayloadStatusV1Status, auth::Auth, http::JSONRPC_VERSION,
 };
 use crate::json_structures::JsonClientVersionV1;
 use bytes::Bytes;
@@ -44,12 +44,14 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v3: true,
     new_payload_v4: true,
     new_payload_v5: true,
+    new_payload_v6: true,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: true,
     forkchoice_updated_v3: true,
     forkchoice_updated_v4: true,
+    forkchoice_updated_v5: true,
     get_payload_bodies_by_hash_v1: true,
-    get_payload_bodies_by_range_v1: true,
+    get_payload_bodies_by_hash_v2: true,
     get_payload_v1: true,
     get_payload_v2: true,
     get_payload_v3: true,
@@ -58,7 +60,11 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     get_payload_v6: true,
     get_client_version_v1: true,
     get_blobs_v2: true,
-    get_blobs_v3: true,
+    // The mock server has no `engine_getBlobsV3` handler, so it must not advertise it: nodes
+    // prefer the advertised version and get method-not-found errors instead of blobs.
+    get_blobs_v3: false,
+    get_blobs_v4: true,
+    get_inclusion_list_v1: true,
 };
 
 pub static DEFAULT_CLIENT_VERSION: LazyLock<JsonClientVersionV1> =
@@ -162,7 +168,6 @@ impl<E: EthSpec> MockServer<E> {
             preloaded_responses,
             static_new_payload_response: <_>::default(),
             static_forkchoice_updated_response: <_>::default(),
-            static_get_block_by_hash_response: <_>::default(),
             hook: <_>::default(),
             new_payload_statuses: <_>::default(),
             fcu_payload_statuses: <_>::default(),
@@ -270,6 +275,7 @@ impl<E: EthSpec> MockServer<E> {
             status: PayloadStatusV1Status::Valid,
             latest_valid_hash: None,
             validation_error: None,
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -285,6 +291,7 @@ impl<E: EthSpec> MockServer<E> {
             status: PayloadStatusV1Status::Syncing,
             latest_valid_hash: None,
             validation_error: None,
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -300,6 +307,7 @@ impl<E: EthSpec> MockServer<E> {
             status: PayloadStatusV1Status::Invalid,
             latest_valid_hash: Some(latest_valid_hash),
             validation_error: Some("static response".into()),
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -317,6 +325,7 @@ impl<E: EthSpec> MockServer<E> {
             status: PayloadStatusV1Status::InvalidBlockHash,
             latest_valid_hash: None,
             validation_error: Some("static response".into()),
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -332,6 +341,7 @@ impl<E: EthSpec> MockServer<E> {
             status: PayloadStatusV1Status::Invalid,
             latest_valid_hash: Some(ExecutionBlockHash::zero()),
             validation_error: Some("static response".into()),
+            inclusion_list_satisfied: None,
         }
     }
 
@@ -400,16 +410,6 @@ impl<E: EthSpec> MockServer<E> {
 
     pub fn all_payloads_invalid_terminal_block_on_forkchoice_updated(&self) {
         self.set_forkchoice_updated_response(Self::invalid_terminal_block_status());
-    }
-
-    /// This will make the node appear like it is syncing.
-    pub fn all_get_block_by_hash_requests_return_none(&self) {
-        *self.ctx.static_get_block_by_hash_response.lock() = Some(None);
-    }
-
-    /// The node will respond "naturally"; it will return blocks if they're known to it.
-    pub fn all_get_block_by_hash_requests_return_natural_value(&self) {
-        *self.ctx.static_get_block_by_hash_response.lock() = None;
     }
 
     /// Disables any static payload responses so the execution block generator will do its own
@@ -536,7 +536,6 @@ pub struct Context<E: EthSpec> {
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
-    pub static_get_block_by_hash_response: Arc<Mutex<Option<Option<ExecutionBlock>>>>,
     pub hook: Arc<Mutex<Hook>>,
 
     // Canned responses by block hash.

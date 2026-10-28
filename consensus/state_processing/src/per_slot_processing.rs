@@ -38,6 +38,7 @@ impl From<ssz::BitfieldError> for Error {
 pub fn per_slot_processing<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Option<Hash256>,
+    gloas_context: GloasVerificationContext<'_>,
     spec: &ChainSpec,
 ) -> Result<Option<EpochProcessingSummary<E>>, Error> {
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
@@ -100,7 +101,7 @@ pub fn per_slot_processing<E: EthSpec>(
 
         // Gloas.
         if spec.gloas_fork_epoch == Some(state.current_epoch()) {
-            upgrade_to_gloas(state, spec)?;
+            upgrade_to_gloas(state, gloas_context, spec)?;
         }
 
         // Heze.
