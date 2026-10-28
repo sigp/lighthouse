@@ -42,6 +42,7 @@ use std::{
     fs::{self, File, OpenOptions, TryLockError},
     io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 /// Slots per data file.
@@ -119,9 +120,11 @@ pub struct StaticFile {
     root_dir: PathBuf,
     /// Max record size, an OOM guard on reads.
     max_value_bytes: u64,
-    // Writer holds this across put_batch's fsyncs, so readers block. Accepted:
-    // simplicity over read concurrency.
+    /// Writer-only; held across put_batch's fsyncs.
     state: Mutex<State>,
+    /// `state.committed.highest_slot` published for readers (`EMPTY_SLOT` =
+    /// empty), so reads never wait on the writer.
+    highest_slot: AtomicU64,
     /// Exclusive lock on the column dir, released by the OS on drop.
     _lock: File,
 }
@@ -188,6 +191,7 @@ impl StaticFile {
                 committed,
                 poisoned: false,
             }),
+            highest_slot: AtomicU64::new(committed.highest_slot.unwrap_or(EMPTY_SLOT)),
             _lock: lock,
         };
         handle.heal_to_marker(committed.highest_slot, committed.data_len)?;
@@ -197,7 +201,8 @@ impl StaticFile {
     /// Slot of the most recently committed record, if any — the resume point
     /// for interrupted migrations. Slots below it may still be gaps.
     pub fn highest_written_slot(&self) -> Option<u64> {
-        self.state.lock().committed.highest_slot
+        let slot = self.highest_slot.load(Ordering::Acquire);
+        (slot != EMPTY_SLOT).then_some(slot)
     }
 
     /// Read the record at `slot`, if present.
@@ -251,7 +256,7 @@ impl StaticFile {
 
         let mut state = self.state.lock();
         if state.poisoned {
-            state.committed = self.heal_from_disk()?;
+            self.set_committed(&mut state, self.heal_from_disk()?);
             state.poisoned = false;
         }
         let start = self.skip_committed_prefix(items, state.committed.highest_slot)?;
@@ -278,11 +283,23 @@ impl StaticFile {
             state.poisoned = true;
             return Err(e);
         }
-        state.committed = CommittedState {
-            highest_slot: Some(*last_slot),
-            data_len: last_data_len,
-        };
+        self.set_committed(
+            &mut state,
+            CommittedState {
+                highest_slot: Some(*last_slot),
+                data_len: last_data_len,
+            },
+        );
         Ok(())
+    }
+
+    /// Update the writer's marker and publish its slot to readers.
+    fn set_committed(&self, state: &mut State, committed: CommittedState) {
+        state.committed = committed;
+        self.highest_slot.store(
+            committed.highest_slot.unwrap_or(EMPTY_SLOT),
+            Ordering::Release,
+        );
     }
 
     /// Validate already-committed retry items and return the first new item.
@@ -920,6 +937,22 @@ mod tests {
         let store = open(&dir);
         assert_eq!(store.get(0).unwrap(), Some(b"a".to_vec()));
         assert!(matches!(store.get(1), Err(Error::Corrupt(_))));
+    }
+
+    #[test]
+    fn reads_do_not_wait_on_writer() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = open(&dir);
+        store.put(0, b"a").unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            // Hold the writer lock, as put_batch does across its fsyncs.
+            let _writer = store.state.lock();
+            scope.spawn(|| tx.send(store.get(0).unwrap()).unwrap());
+            let read = rx.recv_timeout(std::time::Duration::from_secs(5));
+            assert_eq!(read, Ok(Some(b"a".to_vec())));
+        });
     }
 
     #[test]
