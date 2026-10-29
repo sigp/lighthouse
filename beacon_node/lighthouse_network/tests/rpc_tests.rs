@@ -1321,12 +1321,12 @@ fn test_tcp_inclusion_lists_by_indices_chunked_rpc() {
                         info!("Sending RPC");
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         sender
-                            .send_request(peer_id, AppRequestId::Status, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        app_request_id: AppRequestId::Status,
+                        sync_request_id: None,
                         response,
                     } => match response {
                         Response::InclusionListsByIndices(Some(received)) => {

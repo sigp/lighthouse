@@ -1043,7 +1043,7 @@ mod tests {
         let slot_clock = TestingSlotClock::new(
             Slot::new(0),
             Duration::from_secs(100),
-            spec.get_slot_duration(),
+            spec.genesis_slot_duration(),
         );
         slot_clock.set_current_time(Duration::from_secs(50));
         let custody_context = CustodyContext::<T>::new(
