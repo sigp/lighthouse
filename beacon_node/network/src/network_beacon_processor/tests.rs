@@ -3212,7 +3212,9 @@ async fn test_inclusion_lists_by_indices_serves_only_requested_positions() {
         .block_root_at_slot(slot, WhenSlotSkipped::Prev)
         .unwrap()
         .unwrap();
-    let (committee, dependent_root) = rig.chain.inclusion_list_committee(anchor, slot).unwrap();
+    let key = rig.chain.inclusion_list_key(anchor, slot).unwrap();
+    let committee = rig.chain.get_inclusion_list_committee(&key).unwrap();
+    let dependent_root = key.dependent_root();
 
     // Store one inclusion list per committee member. Validators repeat across positions when the
     // slot has fewer than `INCLUSION_LIST_COMMITTEE_SIZE` members, and storing a second differing
@@ -3252,7 +3254,9 @@ async fn test_inclusion_lists_by_indices_ignores_unknown_dependent_root() {
         .block_root_at_slot(slot, WhenSlotSkipped::Prev)
         .unwrap()
         .unwrap();
-    let (committee, dependent_root) = rig.chain.inclusion_list_committee(anchor, slot).unwrap();
+    let key = rig.chain.inclusion_list_key(anchor, slot).unwrap();
+    let committee = rig.chain.get_inclusion_list_committee(&key).unwrap();
+    let dependent_root = key.dependent_root();
 
     rig.chain
         .inclusion_list_store
@@ -3290,10 +3294,12 @@ async fn test_inclusion_lists_by_indices_rejects_slots_outside_the_window() {
 /// A signed inclusion list from the first committee member for the current slot.
 fn inclusion_list_for_current_slot(rig: &TestRig, tx: u8) -> SignedInclusionList {
     let slot = rig.chain.slot().unwrap();
-    let (committee, dependent_root) = rig
+    let key = rig
         .chain
-        .inclusion_list_committee(rig.chain.head_beacon_block_root(), slot)
+        .inclusion_list_key(rig.chain.head_beacon_block_root(), slot)
         .unwrap();
+    let committee = rig.chain.get_inclusion_list_committee(&key).unwrap();
+    let dependent_root = key.dependent_root();
     let validator_index = committee[0];
 
     let message = InclusionList {

@@ -1072,10 +1072,9 @@ fn seed_inclusion_list(
     slot: Slot,
     transactions: ProgressiveTransactions,
 ) -> InsertOutcome {
-    let (committee, dependent_root) = harness
-        .chain
-        .inclusion_list_committee(head_root, slot)
-        .unwrap();
+    let key = harness.chain.inclusion_list_key(head_root, slot).unwrap();
+    let committee = harness.chain.get_inclusion_list_committee(&key).unwrap();
+    let dependent_root = key.dependent_root();
     harness
         .chain
         .inclusion_list_store

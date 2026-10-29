@@ -373,11 +373,17 @@ async fn heze_gossip_bid_missing_a_late_inclusion_list_is_skipped_at_production(
     };
 
     let inclusion_list_slot = Slot::new(0);
-    let (committee, dependent_root) = rig
+    let key = rig
         .harness
         .chain
-        .inclusion_list_committee(rig.genesis_block_root, inclusion_list_slot)
+        .inclusion_list_key(rig.genesis_block_root, inclusion_list_slot)
         .unwrap();
+    let committee = rig
+        .harness
+        .chain
+        .get_inclusion_list_committee(&key)
+        .unwrap();
+    let dependent_root = key.dependent_root();
     let late_submitter = committee[0];
     rig.harness
         .chain
@@ -445,10 +451,12 @@ async fn heze_self_build_bid_claims_held_inclusion_lists() {
 
     let inclusion_list_slot = Slot::new(0);
     let parent_root = harness.head_block_root();
-    let (committee, dependent_root) = harness
+    let key = harness
         .chain
-        .inclusion_list_committee(parent_root, inclusion_list_slot)
+        .inclusion_list_key(parent_root, inclusion_list_slot)
         .unwrap();
+    let committee = harness.chain.get_inclusion_list_committee(&key).unwrap();
+    let dependent_root = key.dependent_root();
 
     let timely_submitter = committee[0];
     let late_submitter = *committee

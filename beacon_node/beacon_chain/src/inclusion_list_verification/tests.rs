@@ -73,10 +73,15 @@ impl TestContext {
     }
 
     fn committee(&self, slot: Slot) -> Vec<u64> {
-        let (committee, _) = self
+        let key = self
             .harness
             .chain
-            .inclusion_list_committee(self.harness.head_block_root(), slot)
+            .inclusion_list_key(self.harness.head_block_root(), slot)
+            .expect("should compute inclusion list key");
+        let committee = self
+            .harness
+            .chain
+            .get_inclusion_list_committee(&key)
             .expect("should compute committee");
         committee.to_vec()
     }
@@ -504,10 +509,15 @@ async fn side_chain_inclusion_list_uses_side_chain_committee() {
     harness.chain.slot_clock.set_slot(slot.as_u64());
 
     let committee_and_dependent_root = |head_root| {
-        let (committee, dependent_root) = harness
+        let key = harness
             .chain
-            .inclusion_list_committee(head_root, slot)
+            .inclusion_list_key(head_root, slot)
+            .expect("should compute inclusion list key");
+        let committee = harness
+            .chain
+            .get_inclusion_list_committee(&key)
             .expect("should compute committee");
+        let dependent_root = key.dependent_root();
         (committee.to_vec(), dependent_root)
     };
     let (side_committee, side_dependent_root) = committee_and_dependent_root(side_head_root);
@@ -557,11 +567,17 @@ async fn inclusion_list_in_first_heze_epoch() {
     let slot = heze_fork_epoch.start_slot(E::slots_per_epoch());
     ctx.harness.extend_to_slot(slot).await;
 
-    let (committee, dependent_root) = ctx
+    let key = ctx
         .harness
         .chain
-        .inclusion_list_committee(ctx.harness.head_block_root(), slot)
+        .inclusion_list_key(ctx.harness.head_block_root(), slot)
+        .expect("should compute inclusion list key");
+    let committee = ctx
+        .harness
+        .chain
+        .get_inclusion_list_committee(&key)
         .expect("should compute committee");
+    let dependent_root = key.dependent_root();
     let dependent_slot = ctx
         .harness
         .chain

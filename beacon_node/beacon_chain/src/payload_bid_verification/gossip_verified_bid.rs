@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use crate::inclusion_list_store::{InclusionListStore, inclusion_list_bits_are_inclusive};
+use crate::inclusion_list_store::{
+    InclusionListKey, InclusionListStore, inclusion_list_bits_are_inclusive,
+};
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconStore, CachedHead, CanonicalHead,
     canonical_head::ForkChoiceReadGuard,
@@ -522,9 +524,8 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
                 .inclusion_list_store
                 .read()
                 .get_inclusion_list_bits(
-                    inclusion_list_slot,
-                    inclusion_list_dependent_root,
                     &inclusion_list_committee,
+                    &InclusionListKey::new(inclusion_list_slot, inclusion_list_dependent_root),
                     true,
                 )
                 .map_err(|e| {

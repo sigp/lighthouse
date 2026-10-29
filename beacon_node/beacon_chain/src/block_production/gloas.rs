@@ -1319,10 +1319,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let chain = self.clone();
         let parent_root = ctx.parent_root;
-        let inclusion_list_slot = ctx.slot.saturating_sub(1u64);
+        let payload_slot = ctx.slot;
         let result = self
             .spawn_blocking_handle(
-                move || chain.get_inclusion_list_bits(parent_root, inclusion_list_slot, false),
+                move || {
+                    let key = chain.inclusion_list_key_for_payload(parent_root, payload_slot)?;
+                    let committee = chain.get_inclusion_list_committee(&key)?;
+                    chain
+                        .inclusion_list_store
+                        .read()
+                        .get_inclusion_list_bits(&committee, &key, false)
+                        .map_err(Into::into)
+                },
                 "local_inclusion_list_bits",
             )
             .await;

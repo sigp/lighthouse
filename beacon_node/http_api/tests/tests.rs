@@ -1,4 +1,5 @@
 use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::inclusion_list_store::InclusionListKey;
 use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
@@ -10441,10 +10442,12 @@ impl ApiTester {
     ) -> SignedInclusionList {
         let genesis_validators_root = self.chain.genesis_validators_root;
         let head_state = self.chain.head_beacon_state_cloned();
-        let (committee, dependent_root) = self
+        let key = self
             .chain
-            .inclusion_list_committee(self.chain.head_beacon_block_root(), slot)
+            .inclusion_list_key(self.chain.head_beacon_block_root(), slot)
             .unwrap();
+        let committee = self.chain.get_inclusion_list_committee(&key).unwrap();
+        let dependent_root = key.dependent_root();
         let validator_index = committee[0];
         let sk: &SecretKey = &self.validator_keypairs()[validator_index as usize].sk;
         let inclusion_list = InclusionList {
@@ -10662,8 +10665,7 @@ impl ApiTester {
             .inclusion_list_store
             .read()
             .get_signed_inclusion_lists(
-                slot,
-                signed_il.message.dependent_root,
+                &InclusionListKey::new(slot, signed_il.message.dependent_root),
                 &[signed_il.message.validator_index],
             );
         assert_eq!(
@@ -10714,8 +10716,7 @@ impl ApiTester {
                 .inclusion_list_store
                 .read()
                 .get_signed_inclusion_lists(
-                    slot,
-                    first.message.dependent_root,
+                    &InclusionListKey::new(slot, first.message.dependent_root),
                     &[first.message.validator_index],
                 );
             assert_eq!(stored, expected_stored);
@@ -10782,8 +10783,7 @@ impl ApiTester {
                 .inclusion_list_store
                 .read()
                 .get_signed_inclusion_lists(
-                    slot,
-                    signed_il.message.dependent_root,
+                    &InclusionListKey::new(slot, signed_il.message.dependent_root),
                     &[validator_index]
                 )
                 .is_empty()
@@ -10800,10 +10800,12 @@ impl ApiTester {
         }
 
         let slot = self.chain.slot().unwrap();
-        let (committee, dependent_root) = self
+        let key = self
             .chain
-            .inclusion_list_committee(self.chain.head_beacon_block_root(), slot)
+            .inclusion_list_key(self.chain.head_beacon_block_root(), slot)
             .unwrap();
+        let committee = self.chain.get_inclusion_list_committee(&key).unwrap();
+        let dependent_root = key.dependent_root();
         let validator_index = (0..self.validator_count() as u64)
             .find(|index| !committee.contains(index))
             .expect("some validator should be outside the inclusion list committee");
@@ -10863,8 +10865,7 @@ impl ApiTester {
                 .inclusion_list_store
                 .read()
                 .get_signed_inclusion_lists(
-                    slot,
-                    signed_il.message.dependent_root,
+                    &InclusionListKey::new(slot, signed_il.message.dependent_root),
                     &[validator_index]
                 )
                 .is_empty()
