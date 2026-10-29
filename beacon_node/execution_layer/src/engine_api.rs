@@ -745,11 +745,10 @@ impl EngineCapabilities {
         }
     }
 
-    pub fn get_inclusion_list_v1(&self) -> bool {
+    pub fn get_inclusion_list_v1(&self, fork: ForkName) -> bool {
         match self {
             Self::JsonRpc(capabilities) => capabilities.get_inclusion_list_v1,
-            // Heze fork REST-SSZ spec does not exist yet
-            Self::Ssz(_) => false,
+            Self::Ssz(capabilities) => capabilities.get_inclusion_list(fork),
         }
     }
 

@@ -4,10 +4,11 @@ use crate::EngineCapabilities;
 use crate::auth::Auth;
 use crate::engine_api::{
     ClientVersionV1, ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT, ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
-    ENGINE_GET_BLOBS_TIMEOUT, ENGINE_GET_CLIENT_VERSION_TIMEOUT, ENGINE_GET_PAYLOAD_BODIES_TIMEOUT,
-    ENGINE_GET_PAYLOAD_TIMEOUT, ENGINE_NEW_PAYLOAD_TIMEOUT, Error, ExecutionPayloadBodyV1,
-    ExecutionPayloadBodyV2, ForkchoiceUpdatedResponse, GetPayloadResponse, NewPayloadRequest,
-    PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
+    ENGINE_GET_BLOBS_TIMEOUT, ENGINE_GET_CLIENT_VERSION_TIMEOUT, ENGINE_GET_INCLUSION_LIST_TIMEOUT,
+    ENGINE_GET_PAYLOAD_BODIES_TIMEOUT, ENGINE_GET_PAYLOAD_TIMEOUT, ENGINE_NEW_PAYLOAD_TIMEOUT,
+    Error, ExecutionPayloadBodyV1, ExecutionPayloadBodyV2, ForkchoiceUpdatedResponse,
+    GetPayloadResponse, NewPayloadRequest, PayloadAttributes, PayloadId, PayloadStatusV1,
+    PayloadStatusV1Status,
 };
 use crate::engines::ForkchoiceState;
 use crate::http::{CachedResponse, LIGHTHOUSE_JSON_CLIENT_VERSION};
@@ -26,7 +27,7 @@ use std::sync::{LazyLock, OnceLock};
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::{error, info};
-use types::{ColumnIndex, EthSpec, ExecutionBlockHash, ForkName, Hash256};
+use types::{ColumnIndex, EthSpec, ExecutionBlockHash, ForkName, Hash256, ProgressiveTransactions};
 
 const BASE: &str = "/engine/v1";
 const ETH_EXECUTION_VERSION: &str = "Eth-Execution-Version";
@@ -381,8 +382,8 @@ impl HttpRestSsz {
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /payloads".to_string()))?;
 
-        let status =
-            SszPayloadStatusV1::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
+        let status = SszPayloadStatus::<E>::from_ssz_bytes_by_fork(&response, fork)
+            .map_err(Error::SszDecode)?;
         PayloadStatusV1::try_from(status)
     }
 
@@ -420,8 +421,9 @@ impl HttpRestSsz {
             .await?
             .ok_or_else(|| Error::BadResponse("unexpected 204 on /forkchoice".to_string()))?;
 
-        let ssz_response = SszForkchoiceUpdatedResponse::<E>::from_ssz_bytes(&response)
-            .map_err(Error::SszDecode)?;
+        let ssz_response =
+            SszForkchoiceUpdatedResponse::<E>::from_ssz_bytes_by_fork(&response, fork)
+                .map_err(Error::SszDecode)?;
         let response = ForkchoiceUpdatedResponse::try_from(ssz_response)?;
 
         // `/forkchoice` MUST NOT return ACCEPTED; treat a `3` as a non-conformant EL error.
@@ -477,6 +479,34 @@ impl HttpRestSsz {
             .map_err(Error::SszDecode)?;
         GetPayloadResponse::try_from(built_payload)
             .map_err(|e| Error::BadResponse(format!("{e:?}")))
+    }
+
+    pub async fn get_inclusion_list<E: EthSpec>(
+        &self,
+        fork: ForkName,
+    ) -> Result<ProgressiveTransactions, Error> {
+        // The endpoint only exists from Bogota; the EL would reject earlier forks with a 400.
+        if !fork.heze_enabled() {
+            return Err(Error::UnsupportedForkVariant(format!(
+                "no inclusion list endpoint before bogota: {fork}"
+            )));
+        }
+        let response = self
+            .rest_request(
+                Method::GET,
+                "inclusion-list",
+                Some(fork),
+                None,
+                OCTET_STREAM,
+                Some(metrics::GET_INCLUSION_LIST),
+                ENGINE_GET_INCLUSION_LIST_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?
+            .ok_or_else(|| Error::BadResponse("unexpected 204 on /inclusion-list".to_string()))?;
+
+        let inclusion_list =
+            SszInclusionListResponse::<E>::from_ssz_bytes(&response).map_err(Error::SszDecode)?;
+        Ok(ProgressiveTransactions::try_from(inclusion_list)?)
     }
 
     pub async fn get_blobs_v2<E: EthSpec>(
@@ -647,8 +677,10 @@ mod tests {
     use crate::auth::JwtKey;
     use crate::engine_api::{
         NewPayloadRequestDeneb, NewPayloadRequestFulu, NewPayloadRequestGloas,
+        NewPayloadRequestHeze,
     };
     use crate::test_utils::{Config, DEFAULT_JWT_SECRET, MockExecutionConfig, MockServer};
+    use ssz_types::ProgressiveVariableList;
     use std::future::Future;
     use std::sync::Arc;
     use tokio::runtime;
@@ -880,6 +912,25 @@ mod tests {
                     method: "GET",
                     path: "/engine/v1/payloads/0x0102030405060708".to_string(),
                     fork_header: Some("cancun".to_string()),
+                    body: Bytes::new(),
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_inclusion_list_request_conformance() {
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                |client| async move {
+                    let _ = client
+                        .get_inclusion_list::<MainnetEthSpec>(ForkName::Heze)
+                        .await;
+                },
+                ExpectedRest {
+                    method: "GET",
+                    path: "/engine/v1/inclusion-list".to_string(),
+                    fork_header: Some("bogota".to_string()),
                     body: Bytes::new(),
                 },
             )
@@ -1231,6 +1282,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn new_payload_heze_request_conformance() {
+        let payload = ExecutionPayloadGloas::<MainnetEthSpec>::default();
+        let versioned_hashes = vec![Hash256::repeat_byte(7)];
+        let parent_beacon_block_root = Hash256::repeat_byte(8);
+        let execution_requests = ExecutionRequestsGloas::<MainnetEthSpec>::default();
+        let inclusion_list_transactions: ProgressiveTransactions =
+            ProgressiveVariableList::new(vec![ProgressiveVariableList::new(vec![0xaa]).unwrap()])
+                .unwrap();
+        let expected_body = Bytes::from(
+            SszExecutionPayloadEnvelopeHeze::try_from(NewPayloadRequestHeze {
+                execution_payload: &payload,
+                versioned_hashes: versioned_hashes.clone(),
+                parent_beacon_block_root,
+                execution_requests: &execution_requests,
+                inclusion_list_transactions: inclusion_list_transactions.clone(),
+            })
+            .unwrap()
+            .as_ssz_bytes(),
+        );
+        RestTester::new(true)
+            .assert_ssz_request_equals(
+                move |client| {
+                    let payload = payload.clone();
+                    let versioned_hashes = versioned_hashes.clone();
+                    let execution_requests = execution_requests.clone();
+                    let inclusion_list_transactions = inclusion_list_transactions.clone();
+                    async move {
+                        let request = NewPayloadRequest::Heze(NewPayloadRequestHeze {
+                            execution_payload: &payload,
+                            versioned_hashes,
+                            parent_beacon_block_root,
+                            execution_requests: &execution_requests,
+                            inclusion_list_transactions,
+                        });
+                        let _ = client.new_payload::<MainnetEthSpec>(request).await;
+                    }
+                },
+                ExpectedRest {
+                    method: "POST",
+                    path: "/engine/v1/payloads".to_string(),
+                    fork_header: Some("bogota".to_string()),
+                    body: expected_body,
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
     async fn new_payload_valid_round_trip() {
         let payload = ExecutionPayloadFulu::<MainnetEthSpec>::default();
         let execution_requests = ExecutionRequestsElectra::<MainnetEthSpec>::default();
@@ -1407,6 +1506,63 @@ mod tests {
                         .await
                 },
                 |blobs| assert!(blobs.is_none()),
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn new_payload_heze_round_trip_reports_inclusion_list_satisfied() {
+        let payload = ExecutionPayloadGloas::<MainnetEthSpec>::default();
+        let execution_requests = ExecutionRequestsGloas::<MainnetEthSpec>::default();
+        let tester = RestTester::new(true);
+        tester.server.all_payloads_valid_on_new_payload();
+        tester
+            .server
+            .set_new_payload_inclusion_list_satisfied(false);
+        tester
+            .assert_ssz_response(
+                move |client| {
+                    let payload = payload.clone();
+                    let execution_requests = execution_requests.clone();
+                    async move {
+                        let request = NewPayloadRequest::Heze(NewPayloadRequestHeze {
+                            execution_payload: &payload,
+                            versioned_hashes: vec![],
+                            parent_beacon_block_root: Hash256::repeat_byte(0),
+                            execution_requests: &execution_requests,
+                            inclusion_list_transactions: <_>::default(),
+                        });
+                        client.new_payload::<MainnetEthSpec>(request).await
+                    }
+                },
+                |status| {
+                    assert_eq!(status.status, PayloadStatusV1Status::Valid);
+                    assert_eq!(status.inclusion_list_satisfied, Some(false));
+                },
+            )
+            .await;
+    }
+
+    #[tokio::test]
+    async fn get_inclusion_list_round_trip() {
+        let inclusion_list: ProgressiveTransactions = ProgressiveVariableList::new(vec![
+            ProgressiveVariableList::new(vec![0xaa]).unwrap(),
+            ProgressiveVariableList::new(vec![0xbb, 0xcc]).unwrap(),
+        ])
+        .unwrap();
+        let tester = RestTester::new(true);
+        tester
+            .server
+            .execution_block_generator()
+            .set_inclusion_list(inclusion_list.clone());
+        tester
+            .assert_ssz_response(
+                |client| async move {
+                    client
+                        .get_inclusion_list::<MainnetEthSpec>(ForkName::Heze)
+                        .await
+                },
+                |transactions| assert_eq!(transactions, inclusion_list),
             )
             .await;
     }

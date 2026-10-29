@@ -1903,12 +1903,15 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
-    pub async fn get_inclusion_list_v1(&self) -> Result<ProgressiveTransactions, Error> {
+    pub async fn get_inclusion_list_v1(
+        &self,
+        fork: ForkName,
+    ) -> Result<ProgressiveTransactions, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
-        if capabilities.get_inclusion_list_v1() {
+        if capabilities.get_inclusion_list_v1(fork) {
             self.engine()
-                .request(|engine| async move { engine.api.get_inclusion_list_v1::<E>().await })
+                .request(|engine| async move { engine.api.get_inclusion_list_v1::<E>(fork).await })
                 .await
                 .map_err(Box::new)
                 .map_err(Error::EngineError)

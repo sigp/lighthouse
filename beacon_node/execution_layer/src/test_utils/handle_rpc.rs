@@ -103,6 +103,12 @@ pub async fn handle_rpc<E: EthSpec>(
                 _ => unreachable!(),
             };
 
+            if method == ENGINE_NEW_PAYLOAD_V6 {
+                let inclusion_list = get_param::<JsonInclusionListV1>(params, 4)
+                    .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+                *ctx.previous_new_payload_inclusion_list.lock() = Some(inclusion_list.0);
+            }
+
             let fork = ctx
                 .execution_block_generator
                 .read()

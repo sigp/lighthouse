@@ -9,7 +9,9 @@ use types::{
 use warp::http::Response;
 
 use crate::engine_api::rest::header_to_fork;
-use crate::engine_api::{ExecutionPayloadBodyV2, ForkchoiceUpdatedResponse, PayloadAttributes};
+use crate::engine_api::{
+    ExecutionPayloadBodyV2, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadStatusV1Status,
+};
 use crate::engines::ForkchoiceState;
 use crate::json_structures::{BlobAndProof, BlobAndProofV2, BlobCellsAndProofsV1, JsonCell};
 use crate::ssz_structures::*;
@@ -35,6 +37,16 @@ pub(crate) fn handle_rest<E: EthSpec>(
             {
                 endpoints.retain(|e| e.as_str() != Some("identity"));
             }
+            // Mirror the JSON mock: a test that switches the inclusion list capability off sees
+            // it missing on both transports.
+            if !ctx
+                .engine_capabilities
+                .read()
+                .get_inclusion_list_v1(ForkName::Heze)
+                && let Some(endpoints) = capabilities["fork_scoped_endpoints"].as_array_mut()
+            {
+                endpoints.retain(|e| e.as_str() != Some("inclusion-list"));
+            }
             json_response(Bytes::from(serde_json::to_vec(&capabilities).unwrap()))
         }
         ("GET", "/engine/v1/identity") => json_response(Bytes::from(
@@ -48,16 +60,26 @@ pub(crate) fn handle_rest<E: EthSpec>(
                 );
             };
 
-            let Ok(payload) = decode_new_payload::<E>(body, fork) else {
+            let Ok((payload, inclusion_list)) = decode_new_payload::<E>(body, fork) else {
                 return problem_response(RestProblemKind::SszDecodeError, None);
             };
+            if let Some(inclusion_list) = inclusion_list {
+                *ctx.previous_new_payload_inclusion_list.lock() = Some(inclusion_list);
+            }
 
-            let status = match ctx.core_new_payload(payload) {
+            let mut status = match ctx.core_new_payload(payload) {
                 Ok(status) => status,
                 Err(err) => return core_error_response(err),
             };
 
-            match SszPayloadStatusV1::<E>::try_from(status) {
+            // Same rule as the JSON mock's `engine_newPayloadV6`.
+            if fork.heze_enabled() && status.status == PayloadStatusV1Status::Valid {
+                status
+                    .inclusion_list_satisfied
+                    .get_or_insert(*ctx.new_payload_inclusion_list_satisfied.lock());
+            }
+
+            match SszPayloadStatus::<E>::new(fork, status) {
                 Ok(ssz) => ssz_response(Bytes::from(ssz.as_ssz_bytes())),
                 Err(e) => problem_response(RestProblemKind::Internal, Some(format!("{e:?}"))),
             }
@@ -79,9 +101,26 @@ pub(crate) fn handle_rest<E: EthSpec>(
                 Err(err) => return core_error_response(err),
             };
 
-            match SszForkchoiceUpdatedResponse::<E>::try_from(ForkchoiceUpdatedResponse::from(
-                response,
-            )) {
+            match SszForkchoiceUpdatedResponse::<E>::new(
+                fork,
+                ForkchoiceUpdatedResponse::from(response),
+            ) {
+                Ok(ssz) => ssz_response(Bytes::from(ssz.as_ssz_bytes())),
+                Err(e) => problem_response(RestProblemKind::Internal, Some(format!("{e:?}"))),
+            }
+        }
+        ("GET", "/engine/v1/inclusion-list") => {
+            // A missing, unknown or pre-Bogota fork header is an unsupported fork.
+            let fork = eth_execution_version.and_then(header_to_fork);
+            if !fork.is_some_and(ForkName::heze_enabled) {
+                return problem_response(
+                    RestProblemKind::UnsupportedFork,
+                    eth_execution_version.map(|header| header.to_string()),
+                );
+            }
+
+            let transactions = ctx.execution_block_generator.read().get_inclusion_list();
+            match SszInclusionListResponse::<E>::try_from(transactions) {
                 Ok(ssz) => ssz_response(Bytes::from(ssz.as_ssz_bytes())),
                 Err(e) => problem_response(RestProblemKind::Internal, Some(format!("{e:?}"))),
             }
@@ -200,11 +239,12 @@ fn ssz_response_no_store(body: Bytes) -> Response<Bytes> {
         .unwrap()
 }
 
+/// Decodes a `POST /payloads` body into the payload and, from Heze on, the inclusion list.
 fn decode_new_payload<E: EthSpec>(
     body: &[u8],
     fork: ForkName,
-) -> Result<ExecutionPayload<E>, DecodeError> {
-    Ok(match fork {
+) -> Result<(ExecutionPayload<E>, Option<ProgressiveTransactions>), DecodeError> {
+    let payload = match fork {
         ForkName::Bellatrix => ExecutionPayload::Bellatrix(
             SszExecutionPayloadEnvelopeBellatrix::from_ssz_bytes(body)?.execution_payload,
         ),
@@ -227,18 +267,22 @@ fn decode_new_payload<E: EthSpec>(
             // The Heze envelope carries an `ExecutionPayloadGloas`; the Heze payload has the
             // same SSZ schema. Re-decode it as `ExecutionPayload::Heze`, like the JSON mock's
             // `engine_newPayloadV6` path, so the mock core sees the payload's real fork.
-            let payload =
-                SszExecutionPayloadEnvelopeHeze::<E>::from_ssz_bytes(body)?.execution_payload;
-            ExecutionPayload::Heze(ExecutionPayloadHeze::from_ssz_bytes(
-                &payload.as_ssz_bytes(),
-            )?)
+            let envelope = SszExecutionPayloadEnvelopeHeze::<E>::from_ssz_bytes(body)?;
+            let payload = ExecutionPayload::Heze(ExecutionPayloadHeze::from_ssz_bytes(
+                &envelope.execution_payload.as_ssz_bytes(),
+            )?);
+            let inclusion_list =
+                progressive_transactions_from_wire::<E>(envelope.inclusion_list_transactions)
+                    .map_err(|e| DecodeError::BytesInvalid(format!("{e:?}")))?;
+            return Ok((payload, Some(inclusion_list)));
         }
         ForkName::Base | ForkName::Altair => {
             return Err(DecodeError::BytesInvalid(format!(
                 "unsupported fork for new_payload envelope: {fork}"
             )));
         }
-    })
+    };
+    Ok((payload, None))
 }
 
 fn decode_forkchoice_updated<E: EthSpec>(

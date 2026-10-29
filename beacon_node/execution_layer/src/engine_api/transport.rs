@@ -207,13 +207,25 @@ impl EngineApi {
 
     pub async fn get_inclusion_list_v1<E: EthSpec>(
         &self,
+        fork: ForkName,
     ) -> Result<ProgressiveTransactions, EngineApiError> {
-        match self.active_rest() {
-            Some(_) => Err(EngineApiError::RequiredMethodUnsupported(
-                "get_inclusion_list_v1 not supported for REST-SSZ",
-            )),
-            None => self.json_rpc.get_inclusion_list_v1().await,
-        }
+        let start_time = Instant::now();
+        let (transport, result) = match self.active_rest() {
+            Some(rest) => (
+                metrics::TRANSPORT_REST,
+                rest.get_inclusion_list::<E>(fork).await,
+            ),
+            None => (
+                metrics::TRANSPORT_JSON_RPC,
+                self.json_rpc.get_inclusion_list_v1().await,
+            ),
+        };
+        metrics::observe_timer_vec(
+            &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
+            &[metrics::GET_INCLUSION_LIST, transport],
+            start_time.elapsed(),
+        );
+        result
     }
 
     pub async fn get_blobs_v2<E: EthSpec>(

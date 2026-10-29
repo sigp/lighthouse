@@ -22,7 +22,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::{Arc, LazyLock};
 use tokio::{runtime, sync::oneshot};
 use tracing::info;
-use types::{EthSpec, ExecutionBlockHash, Uint256};
+use types::{EthSpec, ExecutionBlockHash, ProgressiveTransactions, Uint256};
 use warp::{Filter, Rejection, http::StatusCode};
 
 use crate::{EngineCapabilities, ForkchoiceState, JsonRpcCapabilities, PayloadAttributes};
@@ -178,6 +178,7 @@ impl<E: EthSpec> MockServer<E> {
             execution_block_generator: RwLock::new(execution_block_generator),
             previous_request: <_>::default(),
             previous_forkchoice_request: <_>::default(),
+            previous_new_payload_inclusion_list: <_>::default(),
             preloaded_responses,
             static_new_payload_response: <_>::default(),
             new_payload_inclusion_list_satisfied: Arc::new(Mutex::new(true)),
@@ -307,6 +308,11 @@ impl<E: EthSpec> MockServer<E> {
 
     pub fn take_previous_forkchoice_request(&self) -> Option<CapturedForkchoiceRequest> {
         self.ctx.previous_forkchoice_request.lock().take()
+    }
+
+    /// The inclusion list from the last Heze `newPayload`, over either transport.
+    pub fn take_previous_new_payload_inclusion_list(&self) -> Option<ProgressiveTransactions> {
+        self.ctx.previous_new_payload_inclusion_list.lock().take()
     }
 
     pub fn set_new_payload_response(&self, response: StaticNewPayloadResponse) {
@@ -602,6 +608,9 @@ pub struct Context<E: EthSpec> {
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
     pub previous_forkchoice_request: Arc<Mutex<Option<CapturedForkchoiceRequest>>>,
+    /// The inclusion list from the last Heze `newPayload`, recorded by both the JSON-RPC and the
+    /// REST handlers.
+    pub previous_new_payload_inclusion_list: Arc<Mutex<Option<ProgressiveTransactions>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     /// `inclusionListSatisfied` for VALID `engine_newPayloadV6` responses that don't set it.
     pub new_payload_inclusion_list_satisfied: Arc<Mutex<bool>>,
@@ -716,7 +725,7 @@ async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible
     Ok(warp::reply::with_status(json, code))
 }
 
-const STUB_CAPABILITIES_JSON: &str = r#"{"supported_forks":["paris","shanghai","cancun","prague","osaka","amsterdam"],"fork_scoped_endpoints":["payloads","forkchoice","bodies"],"independently_versioned":{"blobs":["v1","v2","v3","v4"]},"unscoped_endpoints":["capabilities","identity"],"limits":{"bodies.max_count":32,"blobs.max_versioned_hashes":128,"payload.max_bytes":67108864}}"#;
+const STUB_CAPABILITIES_JSON: &str = r#"{"supported_forks":["paris","shanghai","cancun","prague","osaka","amsterdam","bogota"],"fork_scoped_endpoints":["payloads","forkchoice","bodies","inclusion-list"],"independently_versioned":{"blobs":["v1","v2","v3","v4"]},"unscoped_endpoints":["capabilities","identity"],"limits":{"bodies.max_count":32,"blobs.max_versioned_hashes":128,"payload.max_bytes":67108864}}"#;
 
 /// Records the REST request into `last_rest_request`, then dispatches to `handle_rest`.
 #[allow(clippy::too_many_arguments)]

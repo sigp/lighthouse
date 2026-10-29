@@ -7,8 +7,6 @@ use beacon_chain::test_utils::{
 };
 use bls::{PublicKeyBytes, Signature};
 use eth2::types::EventKind;
-use execution_layer::http::ENGINE_NEW_PAYLOAD_V6;
-use parking_lot::Mutex;
 use proto_array::ExecutionStatus;
 use ssz_types::ProgressiveVariableList;
 use std::sync::Arc;
@@ -796,30 +794,18 @@ async fn heze_payload_is_sent_with_the_timely_inclusion_lists() {
             });
     }
 
-    let new_payload_calls = Arc::new(Mutex::new(vec![]));
-    let new_payload_calls_inner = new_payload_calls.clone();
-    harness
-        .mock_execution_layer
-        .as_ref()
-        .unwrap()
-        .server
-        .ctx
-        .hook
-        .lock()
-        .set_new_payload_hook(Box::new(move |method, params| {
-            new_payload_calls_inner
-                .lock()
-                .push((method.to_string(), params.clone()));
-        }));
+    // Both mocks record the inclusion list, so this covers JSON-RPC and REST-SSZ. Clear what the
+    // earlier Heze blocks left behind, so only this import's `newPayload` can satisfy the check.
+    let server = &harness.mock_execution_layer.as_ref().unwrap().server;
+    server.take_previous_new_payload_inclusion_list();
 
     import_block_and_envelope(&harness, slot).await;
 
-    let new_payload_calls = new_payload_calls.lock();
-    let [(method, params)] = new_payload_calls.as_slice() else {
-        panic!("expected one newPayload call, got {new_payload_calls:?}");
-    };
-    assert_eq!(method, ENGINE_NEW_PAYLOAD_V6);
-    assert_eq!(params[4], serde_json::json!(["0xaa"]));
+    let inclusion_list = server
+        .take_previous_new_payload_inclusion_list()
+        .expect("expected a Heze newPayload with an inclusion list");
+    assert_eq!(inclusion_list.len(), 1);
+    assert_eq!(inclusion_list[0].to_vec(), vec![0xaa]);
 }
 
 /// Imports a Heze block and envelope with the given `engine_newPayloadV6` verdict, then

@@ -2337,8 +2337,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?;
 
+        let fork = self.spec.fork_name_at_slot::<T::EthSpec>(request_slot);
         let inclusion_list_transactions = execution_layer
-            .get_inclusion_list_v1()
+            .get_inclusion_list_v1(fork)
             .await
             .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))?;
 

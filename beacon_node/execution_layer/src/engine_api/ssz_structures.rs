@@ -85,7 +85,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV
 // SszExecutionPayloadBodyV1 <-> ExecutionPayloadBodyV2
 
 /// Repackage the bounded SSZ wire transactions into the progressive (Gloas) container.
-fn progressive_transactions_from_wire<E: EthSpec>(
+pub(crate) fn progressive_transactions_from_wire<E: EthSpec>(
     transactions: Transactions<E>,
 ) -> Result<ProgressiveTransactions, ssz_types::Error> {
     transactions
@@ -242,6 +242,9 @@ pub struct SszExecutionPayloadEnvelope<E: EthSpec> {
     pub parent_beacon_block_root: Hash256,
     #[superstruct(only(Electra, Fulu, Gloas, Heze))]
     pub execution_requests: SszExecutionRequests<E>,
+    /// Bogota+: the inclusion list, which `engine_newPayloadV6` sends as a separate parameter.
+    #[superstruct(only(Heze))]
+    pub inclusion_list_transactions: Transactions<E>,
 }
 
 impl<'block, E: EthSpec> From<NewPayloadRequestBellatrix<'block, E>>
@@ -331,6 +334,9 @@ impl<'block, E: EthSpec> TryFrom<NewPayloadRequestHeze<'block, E>>
             execution_requests: execution_requests_to_ssz(ExecutionRequests::Gloas(
                 value.execution_requests.clone(),
             ))?,
+            inclusion_list_transactions: wire_transactions_from_progressive::<E>(
+                value.inclusion_list_transactions,
+            )?,
         })
     }
 }
@@ -501,18 +507,94 @@ where
     })
 }
 
-#[derive(Debug, PartialEq, Encode, Decode, Clone)]
-pub struct SszPayloadStatusV1<E: EthSpec> {
+/// `PayloadStatus` for `POST /payloads`. `V1` is Paris through Amsterdam; `V2` is Bogota+, which
+/// adds `inclusion_list_satisfied` (present only when the status is VALID).
+///
+/// The enum has no `Decode`: the shape depends on the fork, so decode with
+/// `from_ssz_bytes_by_fork`.
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode)),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
+#[derive(Debug, PartialEq, Clone, Encode)]
+#[ssz(enum_behaviour = "transparent")]
+pub struct SszPayloadStatus<E: EthSpec> {
+    #[superstruct(getter(copy))]
     pub payload_status: u8,
     pub latest_valid_hash: VariableList<Hash256, U1>,
     pub validation_error: VariableList<VariableList<u8, E::MaxErrorBytes>, U1>,
+    #[superstruct(only(V2))]
+    pub inclusion_list_satisfied: VariableList<bool, U1>,
 }
 
-impl<E: EthSpec> TryFrom<SszPayloadStatusV1<E>> for PayloadStatusV1 {
+impl<E: EthSpec> SszPayloadStatus<E> {
+    pub fn from_ssz_bytes_by_fork(bytes: &[u8], fork: ForkName) -> Result<Self, DecodeError> {
+        if fork.heze_enabled() {
+            SszPayloadStatusV2::from_ssz_bytes(bytes).map(Self::V2)
+        } else {
+            SszPayloadStatusV1::from_ssz_bytes(bytes).map(Self::V1)
+        }
+    }
+
+    /// Encode `status` in the shape `fork` uses. `inclusion_list_satisfied` is only sent for a
+    /// VALID status.
+    pub fn new(fork: ForkName, status: PayloadStatusV1) -> Result<Self, ssz_types::Error> {
+        let payload_status = match status.status {
+            PayloadStatusV1Status::Valid => 0,
+            PayloadStatusV1Status::Invalid => 1,
+            PayloadStatusV1Status::Syncing => 2,
+            PayloadStatusV1Status::Accepted => 3,
+            // INVALID_BLOCK_HASH is folded into INVALID on the wire
+            PayloadStatusV1Status::InvalidBlockHash => 1,
+        };
+        let latest_valid_hash = VariableList::new(
+            status
+                .latest_valid_hash
+                .map(|h| h.into_root())
+                .into_iter()
+                .collect(),
+        )?;
+
+        let validation_error = VariableList::new(
+            status
+                .validation_error
+                .map(|s| VariableList::new(s.into_bytes()))
+                .transpose()?
+                .into_iter()
+                .collect(),
+        )?;
+
+        if fork.heze_enabled() {
+            let inclusion_list_satisfied = VariableList::new(
+                status
+                    .inclusion_list_satisfied
+                    .filter(|_| status.status == PayloadStatusV1Status::Valid)
+                    .into_iter()
+                    .collect(),
+            )?;
+            Ok(Self::V2(SszPayloadStatusV2 {
+                payload_status,
+                latest_valid_hash,
+                validation_error,
+                inclusion_list_satisfied,
+            }))
+        } else {
+            Ok(Self::V1(SszPayloadStatusV1 {
+                payload_status,
+                latest_valid_hash,
+                validation_error,
+            }))
+        }
+    }
+}
+
+impl<E: EthSpec> TryFrom<SszPayloadStatus<E>> for PayloadStatusV1 {
     type Error = Error;
 
-    fn try_from(value: SszPayloadStatusV1<E>) -> Result<Self, Self::Error> {
-        let status = match value.payload_status {
+    fn try_from(value: SszPayloadStatus<E>) -> Result<Self, Self::Error> {
+        let status = match value.payload_status() {
             0 => PayloadStatusV1Status::Valid,
             1 => PayloadStatusV1Status::Invalid,
             2 => PayloadStatusV1Status::Syncing,
@@ -527,52 +609,19 @@ impl<E: EthSpec> TryFrom<SszPayloadStatusV1<E>> for PayloadStatusV1 {
         Ok(Self {
             status,
             latest_valid_hash: value
-                .latest_valid_hash
+                .latest_valid_hash()
                 .first()
                 .copied()
                 .map(ExecutionBlockHash::from_root),
             validation_error: value
-                .validation_error
+                .validation_error()
                 .first()
                 .map(|bytes| String::from_utf8_lossy(bytes).into_owned()),
-            inclusion_list_satisfied: None,
-        })
-    }
-}
-
-impl<E: EthSpec> TryFrom<PayloadStatusV1> for SszPayloadStatusV1<E> {
-    type Error = ssz_types::Error;
-
-    fn try_from(value: PayloadStatusV1) -> Result<Self, Self::Error> {
-        let status = match value.status {
-            PayloadStatusV1Status::Valid => 0,
-            PayloadStatusV1Status::Invalid => 1,
-            PayloadStatusV1Status::Syncing => 2,
-            PayloadStatusV1Status::Accepted => 3,
-            // INVALID_BLOCK_HASH is folded into INVALID on the wire
-            PayloadStatusV1Status::InvalidBlockHash => 1,
-        };
-        let latest_valid_hash = VariableList::new(
-            value
-                .latest_valid_hash
-                .map(|h| h.into_root())
-                .into_iter()
-                .collect(),
-        )?;
-
-        let validation_error = VariableList::new(
-            value
-                .validation_error
-                .map(|s| VariableList::new(s.into_bytes()))
-                .transpose()?
-                .into_iter()
-                .collect(),
-        )?;
-
-        Ok(Self {
-            payload_status: status,
-            latest_valid_hash,
-            validation_error,
+            // `V1` has no verdict, so the partial getter's `Err` maps to `None`.
+            inclusion_list_satisfied: value
+                .inclusion_list_satisfied()
+                .ok()
+                .and_then(|verdict| verdict.first().copied()),
         })
     }
 }
@@ -942,30 +991,96 @@ impl<E: EthSpec> SszForkchoiceUpdateCustodyColumns<E> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+/// `ForkchoiceUpdateResponse`. `V2` (Bogota+) carries the Bogota payload status.
+///
+/// The enum has no `Decode`: decode with `from_ssz_bytes_by_fork`.
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Debug, Clone, PartialEq, Encode, Decode)),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
+#[derive(Debug, Clone, PartialEq, Encode)]
+#[ssz(enum_behaviour = "transparent")]
 pub struct SszForkchoiceUpdatedResponse<E: EthSpec> {
+    #[superstruct(only(V1), partial_getter(rename = "payload_status_v1"))]
     pub payload_status: SszPayloadStatusV1<E>,
+    #[superstruct(only(V2), partial_getter(rename = "payload_status_v2"))]
+    pub payload_status: SszPayloadStatusV2<E>,
     pub payload_id: VariableList<PayloadId, U1>,
+}
+
+impl<E: EthSpec> SszForkchoiceUpdatedResponse<E> {
+    pub fn from_ssz_bytes_by_fork(bytes: &[u8], fork: ForkName) -> Result<Self, DecodeError> {
+        if fork.heze_enabled() {
+            SszForkchoiceUpdatedResponseV2::from_ssz_bytes(bytes).map(Self::V2)
+        } else {
+            SszForkchoiceUpdatedResponseV1::from_ssz_bytes(bytes).map(Self::V1)
+        }
+    }
+
+    /// Encode `response` in the shape `fork` uses.
+    pub fn new(
+        fork: ForkName,
+        response: ForkchoiceUpdatedResponse,
+    ) -> Result<Self, ssz_types::Error> {
+        let payload_id = VariableList::new(response.payload_id.into_iter().collect())?;
+        Ok(
+            match SszPayloadStatus::new(fork, response.payload_status)? {
+                SszPayloadStatus::V1(payload_status) => Self::V1(SszForkchoiceUpdatedResponseV1 {
+                    payload_status,
+                    payload_id,
+                }),
+                SszPayloadStatus::V2(payload_status) => Self::V2(SszForkchoiceUpdatedResponseV2 {
+                    payload_status,
+                    payload_id,
+                }),
+            },
+        )
+    }
 }
 
 impl<E: EthSpec> TryFrom<SszForkchoiceUpdatedResponse<E>> for ForkchoiceUpdatedResponse {
     type Error = Error;
 
     fn try_from(value: SszForkchoiceUpdatedResponse<E>) -> Result<Self, Self::Error> {
+        let payload_id = value.payload_id().first().copied();
+        let payload_status = match value {
+            SszForkchoiceUpdatedResponse::V1(response) => {
+                SszPayloadStatus::V1(response.payload_status)
+            }
+            SszForkchoiceUpdatedResponse::V2(response) => {
+                SszPayloadStatus::V2(response.payload_status)
+            }
+        };
         Ok(Self {
-            payload_status: PayloadStatusV1::try_from(value.payload_status)?,
-            payload_id: value.payload_id.first().copied(),
+            payload_status: PayloadStatusV1::try_from(payload_status)?,
+            payload_id,
         })
     }
 }
 
-impl<E: EthSpec> TryFrom<ForkchoiceUpdatedResponse> for SszForkchoiceUpdatedResponse<E> {
+/// `GET /inclusion-list` response: a single-field container, so it encodes as a 4-byte offset
+/// followed by the list, not as a bare list.
+#[derive(Debug, Clone, PartialEq, Encode, Decode)]
+pub struct SszInclusionListResponse<E: EthSpec> {
+    pub transactions: Transactions<E>,
+}
+
+impl<E: EthSpec> TryFrom<SszInclusionListResponse<E>> for ProgressiveTransactions {
     type Error = ssz_types::Error;
 
-    fn try_from(value: ForkchoiceUpdatedResponse) -> Result<Self, Self::Error> {
+    fn try_from(value: SszInclusionListResponse<E>) -> Result<Self, Self::Error> {
+        progressive_transactions_from_wire::<E>(value.transactions)
+    }
+}
+
+impl<E: EthSpec> TryFrom<ProgressiveTransactions> for SszInclusionListResponse<E> {
+    type Error = ssz_types::Error;
+
+    fn try_from(value: ProgressiveTransactions) -> Result<Self, Self::Error> {
         Ok(Self {
-            payload_status: SszPayloadStatusV1::try_from(value.payload_status)?,
-            payload_id: VariableList::new(value.payload_id.into_iter().collect())?,
+            transactions: wire_transactions_from_progressive::<E>(value)?,
         })
     }
 }
@@ -1260,6 +1375,7 @@ pub struct SszCapabilities {
     pub payloads: bool,
     pub forkchoice: bool,
     pub bodies: bool,
+    pub inclusion_list: bool,
     pub blobs_v1: bool,
     pub blobs_v2: bool,
     pub blobs_v3: bool,
@@ -1283,6 +1399,11 @@ impl SszCapabilities {
 
     pub fn get_payload_bodies(&self, fork: ForkName) -> bool {
         self.supported_forks.contains(&fork) && self.bodies
+    }
+
+    /// `inclusion-list` is listed once for all forks, but the endpoint only exists from Bogota.
+    pub fn get_inclusion_list(&self, fork: ForkName) -> bool {
+        self.supported_forks.contains(&fork) && self.inclusion_list
     }
 
     pub fn get_blobs_v2(&self) -> bool {
@@ -1385,6 +1506,7 @@ impl From<JsonCapabilities> for SszCapabilities {
             payloads: endpoint("payloads"),
             forkchoice: endpoint("forkchoice"),
             bodies: endpoint("bodies"),
+            inclusion_list: endpoint("inclusion-list"),
             blobs_v1: blob("v1"),
             blobs_v2: blob("v2"),
             blobs_v3: blob("v3"),
@@ -1471,10 +1593,8 @@ mod test {
         );
     }
 
-    #[test]
-    fn gloas_new_payload_envelope_folds_builder_requests() {
-        let payload = ExecutionPayloadGloas::<E>::default();
-        let requests = ExecutionRequestsGloas {
+    fn gloas_requests() -> ExecutionRequestsGloas<E> {
+        ExecutionRequestsGloas {
             deposits: ProgressiveVariableList::new(vec![deposit_request()]).unwrap(),
             withdrawals: ProgressiveVariableList::new(vec![withdrawal_request()]).unwrap(),
             consolidations: ProgressiveVariableList::new(vec![consolidation_request()]).unwrap(),
@@ -1490,7 +1610,13 @@ mod test {
                 pubkey: PublicKeyBytes::empty(),
             }])
             .unwrap(),
-        };
+        }
+    }
+
+    #[test]
+    fn gloas_new_payload_envelope_folds_builder_requests() {
+        let payload = ExecutionPayloadGloas::<E>::default();
+        let requests = gloas_requests();
         let parent_beacon_block_root = Hash256::repeat_byte(9);
 
         let request = NewPayloadRequestGloas {
@@ -1509,6 +1635,41 @@ mod test {
         assert_eq!(
             execution_requests_gloas_from_ssz(decoded.execution_requests).unwrap(),
             requests
+        );
+    }
+
+    #[test]
+    fn heze_new_payload_envelope_carries_inclusion_list() {
+        let payload = ExecutionPayloadGloas::<E>::default();
+        let requests = gloas_requests();
+        let parent_beacon_block_root = Hash256::repeat_byte(9);
+        let inclusion_list_transactions: ProgressiveTransactions =
+            ProgressiveVariableList::new(vec![
+                ProgressiveVariableList::new(vec![0xaa]).unwrap(),
+                ProgressiveVariableList::new(vec![0xbb, 0xcc]).unwrap(),
+            ])
+            .unwrap();
+
+        let request = NewPayloadRequestHeze {
+            execution_payload: &payload,
+            versioned_hashes: vec![Hash256::repeat_byte(1)],
+            parent_beacon_block_root,
+            execution_requests: &requests,
+            inclusion_list_transactions: inclusion_list_transactions.clone(),
+        };
+
+        let envelope = SszExecutionPayloadEnvelopeHeze::try_from(request).unwrap();
+        let decoded =
+            SszExecutionPayloadEnvelopeHeze::<E>::from_ssz_bytes(&envelope.as_ssz_bytes()).unwrap();
+
+        assert_eq!(decoded.parent_beacon_block_root, parent_beacon_block_root);
+        assert_eq!(
+            execution_requests_gloas_from_ssz(decoded.execution_requests).unwrap(),
+            requests
+        );
+        assert_eq!(
+            progressive_transactions_from_wire::<E>(decoded.inclusion_list_transactions).unwrap(),
+            inclusion_list_transactions
         );
     }
 }
