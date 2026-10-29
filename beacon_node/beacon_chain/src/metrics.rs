@@ -2386,11 +2386,6 @@ fn scrape_head_state<E: EthSpec>(state: &BeaconState<E>, state_root: Hash256) {
         &HEAD_STATE_ETH1_DEPOSITS_INTEROP,
         state.eth1_data().deposit_count,
     );
-    set_gauge_by_usize(&HEAD_STATE_TOTAL_VALIDATORS, state.validators().len());
-    set_gauge_by_u64(
-        &HEAD_STATE_VALIDATOR_BALANCES,
-        state.balances().iter().sum(),
-    );
 
     let mut num_active: usize = 0;
     let mut num_slashed: usize = 0;
