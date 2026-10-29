@@ -391,7 +391,6 @@ impl Scenario {
         self
     }
 
-    #[allow(clippy::large_stack_frames)]
     async fn run(self) {
         if pre_bellatrix() {
             return;
