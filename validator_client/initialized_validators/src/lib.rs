@@ -446,6 +446,7 @@ fn build_web3_signer_client(
     max_idle_connections: Option<usize>,
 ) -> Result<Client, Error> {
     let builder = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(request_timeout)
         .pool_idle_timeout(keep_alive_timeout)
         .pool_max_idle_per_host(max_idle_connections.unwrap_or(usize::MAX));
@@ -1459,5 +1460,33 @@ impl InitializedValidators {
     /// definition manually may result in inconsistencies.
     pub fn as_mut_slice_testing_only(&mut self) -> &mut [ValidatorDefinition] {
         self.definitions.as_mut_slice()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn test_web3_signer_client_does_not_follow_redirects() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf).await;
+                let response = "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:9999/redirected\r\nContent-Length: 0\r\n\r\n";
+                let _ = stream.write_all(response.as_bytes()).await;
+            }
+        });
+
+        let client =
+            build_web3_signer_client(None, None, None, Duration::from_secs(2), None, None).unwrap();
+
+        let resp = client.get(format!("http://{addr}")).send().await.unwrap();
+        assert_eq!(resp.status(), reqwest::StatusCode::TEMPORARY_REDIRECT);
     }
 }
