@@ -862,14 +862,6 @@ where
             ));
         }
 
-        // Report events queued while driving the substreams, such as closed inbound substreams,
-        // as the handler is not necessarily woken up again to report them.
-        if !self.events_out.is_empty() {
-            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                self.events_out.remove(0),
-            ));
-        }
-
         Poll::Pending
     }
 
