@@ -22,13 +22,14 @@ use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use types::{
     AbstractExecPayload, Address, AggregateAndProof, Attestation, AttestationData, BeaconBlock,
     BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec,
-    ExecutionPayloadEnvelope, Fork, FullPayload, Graffiti, Hash256, PayloadAttestationData,
-    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
-    SingleAttestation, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
-    VoluntaryExit, graffiti::GraffitiString,
+    ExecutionPayloadEnvelope, Fork, FullPayload, Graffiti, Hash256, InclusionList,
+    PayloadAttestationData, PayloadAttestationMessage, ProposerPreferences, SelectionProof,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
+    SignedExecutionPayloadEnvelope, SignedInclusionList, SignedProposerPreferences, SignedRoot,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, SingleAttestation, Slot,
+    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
+    graffiti::GraffitiString,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -1549,6 +1550,35 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
         Ok(SignedRequestAuth {
             message: request_auth_v1,
+            signature,
+        })
+    }
+
+    async fn sign_inclusion_list(
+        &self,
+        validator_pubkey: PublicKeyBytes,
+        inclusion_list: InclusionList,
+    ) -> Result<SignedInclusionList, Error> {
+        let signing_context = self.signing_context(
+            Domain::InclusionListCommittee,
+            inclusion_list.slot.epoch(E::slots_per_epoch()),
+        );
+
+        // Inclusion list signing is not slashable, bypass doppelganger protection.
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+
+        let signature = signing_method
+            .get_signature::<E, FullPayload<E>>(
+                SignableMessage::InclusionList(&inclusion_list),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await
+            .map_err(Error::SpecificError)?;
+
+        Ok(SignedInclusionList {
+            message: inclusion_list,
             signature,
         })
     }
