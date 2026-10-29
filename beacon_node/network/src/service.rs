@@ -1,20 +1,26 @@
 use crate::NetworkConfig;
 use crate::metrics;
 use crate::nat;
-use crate::network_beacon_processor::InvalidBlockStorage;
+use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
-use crate::router::{Router, RouterMessage};
+use crate::status::status_message;
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
+use crate::sync::SyncMessage;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::BeaconProcessorSend;
+use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 
 use lighthouse_network::Enr;
 use lighthouse_network::identity::Keypair;
+use lighthouse_network::rpc::BlocksByRangeRequest;
 use lighthouse_network::rpc::InboundRequestId;
+use lighthouse_network::rpc::RPCError;
 use lighthouse_network::rpc::RequestType;
+use lighthouse_network::rpc::StatusMessage;
+use lighthouse_network::rpc::methods;
 use lighthouse_network::rpc::methods::RpcResponse;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::{GossipKind, PubsubPartialMessage};
@@ -25,10 +31,11 @@ use lighthouse_network::{
 use lighthouse_network::{MessageAcceptance, prometheus_client::registry::Registry};
 use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
-    service::api_types::AppRequestId,
+    service::api_types::SyncRequestId,
     types::{GossipEncoding, GossipTopic, core_topics_to_subscribe},
 };
-use logging::crit;
+use logging::{TimeLatch, crit};
+use slot_clock::SlotClock;
 use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -36,19 +43,21 @@ use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{Span, debug, error, info, trace, warn};
 use typenum::Unsigned;
 use types::{
-    EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
-    ValidatorSubscription,
+    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, PartialDataColumn,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, ValidatorSubscription,
 };
 
 mod tests;
 
 /// The interval (in seconds) that various network metrics will update.
 const METRIC_UPDATE_INTERVAL: u64 = 5;
-/// Number of slots before the fork when we should subscribe to the new fork topics.
-const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
+/// Epochs before a fork digest change when we subscribe to its topics. Proposer preferences for
+/// the new digest arrive one epoch early.
+const SUBSCRIBE_DELAY_EPOCHS: u64 = 1;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 /// Size of the queue for validator subnet subscriptions. The number is chosen so that we may be
@@ -66,7 +75,7 @@ pub enum NetworkMessage<E: EthSpec> {
     SendRequest {
         peer_id: PeerId,
         request: RequestType<E>,
-        app_request_id: AppRequestId,
+        sync_request_id: Option<SyncRequestId>,
     },
     /// Send a successful Response to the libp2p service.
     SendResponse {
@@ -86,6 +95,13 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Publish partial data column sidecars via the partial gossipsub protocol.
     PublishPartialColumns {
         messages: Vec<PubsubPartialMessage<E>>,
+    },
+    /// Retrieve the custody columns of a block published via the HTTP API.
+    FetchBlockColumns {
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<E>>,
+        /// The span of the publishing request, to trace the retrieval within.
+        span: Span,
     },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
@@ -193,9 +209,12 @@ pub struct NetworkService<T: BeaconChainTypes> {
     network_recv: mpsc::UnboundedReceiver<NetworkMessage<T::EthSpec>>,
     /// The receiver channel for lighthouse to send validator subscription requests.
     validator_subscription_recv: mpsc::Receiver<ValidatorSubscriptionMessage>,
-    /// The sending channel for the network service to send messages to be routed throughout
-    /// lighthouse.
-    router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
+    /// A non-blocking processor for applying messages to the beacon chain.
+    network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
+    /// A channel to the syncing thread.
+    sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    /// Provides de-bounce functionality for logging.
+    logger_debounce: TimeLatch,
     /// A reference to lighthouse's database to persist the DHT.
     store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
@@ -265,9 +284,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // keep track of when our fork_id needs to be updated
         let next_digest_update = Box::pin(next_digest_delay(&beacon_chain).into());
-        // topics change when the fork digest changes
-        let next_topic_subscriptions =
-            Box::pin(next_topic_subscriptions_delay(&beacon_chain).into());
+        // topics change when the fork digest changes. If we start inside the subscribe window,
+        // `SubscribeCoreTopics` handles it.
+        let next_topic_subscriptions = Box::pin(
+            duration_to_next_topic_subscriptions(&beacon_chain)
+                .filter(|duration| !duration.is_zero())
+                .map(tokio::time::sleep)
+                .into(),
+        );
         let next_unsubscribe = Box::pin(None.into());
 
         let current_slot = beacon_chain
@@ -319,16 +343,31 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch derived network services
 
-        // router task
-        let router_send = Router::spawn(
-            beacon_chain.clone(),
-            network_globals.clone(),
-            network_senders.network_send(),
-            executor.clone(),
-            invalid_block_storage,
+        // generate the sync message channel
+        let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
+        let network_send = network_senders.network_send();
+
+        let network_beacon_processor = Arc::new(NetworkBeaconProcessor {
             beacon_processor_send,
+            duplicate_cache: DuplicateCache::default(),
+            chain: beacon_chain.clone(),
+            network_tx: network_send.clone(),
+            sync_tx: sync_send.clone(),
+            network_globals: network_globals.clone(),
+            invalid_block_storage,
+            executor: executor.clone(),
+        });
+
+        // spawn the sync thread
+        crate::sync::manager::spawn(
+            executor.clone(),
+            beacon_chain.clone(),
+            network_send.clone(),
+            network_beacon_processor.clone(),
+            sync_recv,
             fork_context.clone(),
-        )?;
+            config.unknown_root_min_peers,
+        );
 
         // attestation and sync committee subnet service
         let subnet_service = SubnetService::new(
@@ -355,7 +394,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             subnet_service,
             network_recv,
             validator_subscription_recv,
-            router_send,
+            network_beacon_processor,
+            sync_send,
+            logger_debounce: TimeLatch::default(),
             store,
             network_globals: network_globals.clone(),
             next_digest_update,
@@ -408,20 +449,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let mut result = vec![fork_context.context_bytes(current_epoch)];
 
         if let Some(next_digest_epoch) = spec.next_digest_epoch(current_epoch)
-            && current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
-                >= next_digest_epoch.start_slot(T::EthSpec::slots_per_epoch())
+            && current_epoch + SUBSCRIBE_DELAY_EPOCHS >= next_digest_epoch
         {
             let next_digest = fork_context.context_bytes(next_digest_epoch);
             result.push(next_digest);
         }
 
         result
-    }
-
-    fn send_to_router(&mut self, msg: RouterMessage<T::EthSpec>) {
-        if let Err(mpsc::error::SendError(msg)) = self.router_send.send(msg) {
-            debug!(?msg, "Failed to send msg to router");
-        }
     }
 
     fn spawn_service(mut self, executor: task_executor::TaskExecutor) {
@@ -457,9 +491,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     Some(_) = &mut self.next_digest_update => self.update_next_fork_digest(),
 
                     Some(_) = &mut self.next_unsubscribe => {
-                        let new_enr_fork_id = self.beacon_chain.enr_fork_id();
-                        self.libp2p.unsubscribe_from_fork_topics_except(new_enr_fork_id.fork_digest);
-                        info!("Unsubscribed from old fork topics");
+                        self.unsubscribe_from_old_fork_topics();
                         self.next_unsubscribe = Box::pin(None.into());
                     }
 
@@ -489,52 +521,40 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     ) {
         match ev {
             NetworkEvent::PeerConnectedOutgoing(peer_id) => {
-                self.send_to_router(RouterMessage::StatusPeer(peer_id));
+                self.send_status(&[peer_id]);
             }
             NetworkEvent::PeerConnectedIncoming(_) => {
                 // No action required for this event.
             }
             NetworkEvent::PeerDisconnected(peer_id) => {
-                self.send_to_router(RouterMessage::PeerDisconnected(peer_id));
+                self.send_to_sync(SyncMessage::Disconnect(peer_id));
             }
             NetworkEvent::PeerUpdatedCustodyGroupCount(peer_id) => {
-                self.send_to_router(RouterMessage::PeerUpdatedCustodyGroupCount(peer_id));
+                self.send_to_sync(SyncMessage::UpdatedPeerCgc(peer_id));
             }
             NetworkEvent::RequestReceived {
                 peer_id,
                 inbound_request_id,
                 request_type,
             } => {
-                self.send_to_router(RouterMessage::RPCRequestReceived {
-                    peer_id,
-                    inbound_request_id,
-                    request_type,
-                });
+                self.handle_rpc_request(peer_id, inbound_request_id, request_type);
             }
             NetworkEvent::ResponseReceived {
                 peer_id,
-                app_request_id,
+                sync_request_id,
                 response,
             } => {
-                self.send_to_router(RouterMessage::RPCResponseReceived {
-                    peer_id,
-                    app_request_id,
-                    response,
-                });
+                self.handle_rpc_response(peer_id, sync_request_id, response);
             }
             NetworkEvent::RPCFailed {
-                app_request_id,
+                sync_request_id,
                 peer_id,
                 error,
             } => {
-                self.send_to_router(RouterMessage::RPCFailed {
-                    peer_id,
-                    app_request_id,
-                    error,
-                });
+                self.on_rpc_error(peer_id, sync_request_id, error);
             }
             NetworkEvent::StatusPeer(peer_id) => {
-                self.send_to_router(RouterMessage::StatusPeer(peer_id));
+                self.send_status(&[peer_id]);
             }
             NetworkEvent::PubsubMessage {
                 id,
@@ -553,18 +573,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                             Subnet::Attestation(subnet_id),
                             &attestation.data,
                         );
-                        self.send_to_router(RouterMessage::PubsubMessage(
-                            id,
-                            source,
-                            message,
-                            should_process,
-                        ));
+                        self.handle_gossip(id, source, message, should_process);
                     }
                     _ => {
-                        // all else is sent to the router
-                        self.send_to_router(RouterMessage::PubsubMessage(
-                            id, source, message, true,
-                        ));
+                        // all else is handled by the router
+                        self.handle_gossip(id, source, message, true);
                     }
                 }
             }
@@ -573,9 +586,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 column,
                 topic,
             } => {
-                self.send_to_router(RouterMessage::PartialDataColumnSidecar(
-                    source, column, topic,
-                ));
+                self.handle_partial_data_column_sidecar(source, column, topic);
             }
             NetworkEvent::NewListenAddr(multiaddr) => {
                 self.network_globals
@@ -612,16 +623,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::SendRequest {
                 peer_id,
                 request,
-                app_request_id,
+                sync_request_id,
             } => {
-                if let Err((app_request_id, error)) =
-                    self.libp2p.send_request(peer_id, app_request_id, request)
+                if let Err((sync_request_id, error)) =
+                    self.libp2p.send_request(peer_id, sync_request_id, request)
                 {
-                    self.send_to_router(RouterMessage::RPCFailed {
-                        peer_id,
-                        app_request_id,
-                        error,
-                    });
+                    self.on_rpc_error(peer_id, sync_request_id, error);
                 }
             }
             NetworkMessage::SendResponse {
@@ -682,6 +689,18 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::PublishPartialColumns { messages } => {
                 self.libp2p.publish_partial(messages);
             }
+            NetworkMessage::FetchBlockColumns {
+                block_root,
+                block,
+                span,
+            } => {
+                self.network_beacon_processor.spawn_fetch_block_columns(
+                    block_root,
+                    block,
+                    EnvelopeSource::Http,
+                    span,
+                );
+            }
             NetworkMessage::ReportPeer {
                 peer_id,
                 action,
@@ -721,17 +740,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 }
 
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
-                for topic_kind in core_topics_to_subscribe::<T::EthSpec>(
-                    self.fork_context.current_fork_name(),
-                    &self.network_globals.as_topic_config(),
-                    &self.fork_context.spec,
-                ) {
-                    for fork_digest in self.required_gossip_fork_digests() {
-                        let topic = GossipTopic::new(
-                            topic_kind.clone(),
-                            GossipEncoding::default(),
-                            fork_digest,
-                        );
+                for fork_digest in self.required_gossip_fork_digests() {
+                    let Some(&fork_name) =
+                        self.fork_context.get_fork_from_context_bytes(fork_digest)
+                    else {
+                        continue;
+                    };
+                    for topic_kind in core_topics_to_subscribe::<T::EthSpec>(
+                        fork_name,
+                        &self.network_globals.as_topic_config(),
+                        &self.fork_context.spec,
+                    ) {
+                        let topic =
+                            GossipTopic::new(topic_kind, GossipEncoding::default(), fork_digest);
                         if self.libp2p.subscribe(topic.clone()) {
                             subscribed_topics.push(topic);
                         } else {
@@ -787,9 +808,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     .connected_peer_ids()
                     .cloned()
                     .collect::<Vec<_>>();
-                for peer_id in connected_peers {
-                    self.send_to_router(RouterMessage::StatusPeer(peer_id));
-                }
+                self.send_status(&connected_peers);
             }
         }
     }
@@ -907,8 +926,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             );
 
             // Update the `next_topic_subscriptions` timer if the next change in the fork digest is known.
-            self.next_topic_subscriptions =
-                Box::pin(next_topic_subscriptions_delay(&self.beacon_chain).into());
+            // A zero delay subscribes right away.
+            self.next_topic_subscriptions = Box::pin(
+                duration_to_next_topic_subscriptions(&self.beacon_chain)
+                    .map(tokio::time::sleep)
+                    .into(),
+            );
             self.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
             info!(
                 remaining_epochs = UNSUBSCRIBE_DELAY_EPOCHS,
@@ -923,6 +946,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         }
     }
 
+    /// Unsubscribe from topics outside `required_gossip_fork_digests`.
+    fn unsubscribe_from_old_fork_topics(&mut self) {
+        let required_digests = self.required_gossip_fork_digests();
+        self.libp2p
+            .unsubscribe_from_fork_topics_except(&required_digests);
+        info!("Unsubscribed from old fork topics");
+    }
+
     fn subscribed_core_topics(&self) -> bool {
         let core_topics = core_topics_to_subscribe::<T::EthSpec>(
             self.fork_context.current_fork_name(),
@@ -930,11 +961,700 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             &self.fork_context.spec,
         );
         let core_topics: HashSet<&GossipKind> = HashSet::from_iter(&core_topics);
+        let current_digest = self.fork_context.current_fork_digest();
         let subscriptions = self.network_globals.gossipsub_subscriptions.read();
-        let subscribed_topics: HashSet<&GossipKind> =
-            subscriptions.iter().map(|topic| topic.kind()).collect();
+        let subscribed_topics: HashSet<&GossipKind> = subscriptions
+            .iter()
+            .filter(|topic| topic.fork_digest == current_digest)
+            .map(|topic| topic.kind())
+            .collect();
 
         core_topics.is_subset(&subscribed_topics)
+    }
+
+    /// Sends a `Status` request to a peer.
+    fn send_status(&mut self, peer_ids: &[PeerId]) {
+        let status = status_message(&self.beacon_chain);
+        for peer_id in peer_ids {
+            debug!(%peer_id, ?status, "Sending Status Request");
+            if let Err((sync_request_id, error)) =
+                self.libp2p
+                    .send_request(*peer_id, None, RequestType::Status(status.clone()))
+            {
+                self.on_rpc_error(*peer_id, sync_request_id, error);
+            }
+        }
+    }
+
+    /// An error occurred during an RPC request. The state is maintained by the sync manager, so
+    /// this function notifies the sync manager of the error.
+    fn on_rpc_error(
+        &mut self,
+        peer_id: PeerId,
+        sync_request_id: Option<SyncRequestId>,
+        error: RPCError,
+    ) {
+        // Check if the failed RPC belongs to sync
+        if let Some(sync_request_id) = sync_request_id {
+            self.send_to_sync(SyncMessage::RpcError {
+                peer_id,
+                sync_request_id,
+                error,
+            });
+        }
+    }
+
+    /// A new RPC request has been received from the network.
+    fn handle_rpc_request(
+        &mut self,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId, // Use ResponseId here
+        request_type: RequestType<T::EthSpec>,
+    ) {
+        if !self.network_globals.peers.read().is_connected(&peer_id) {
+            debug!(%peer_id, request = ?request_type, "Dropping request of disconnected peer");
+            return;
+        }
+        match request_type {
+            RequestType::Status(status_message) => {
+                self.on_status_request(peer_id, inbound_request_id, status_message)
+            }
+            RequestType::BlocksByRange(request) => {
+                let mut count = *request.count();
+                if *request.step() > 1 {
+                    count = 1;
+                }
+                let blocks_request = match request {
+                    methods::OldBlocksByRangeRequest::V1(req) => {
+                        BlocksByRangeRequest::new_v1(req.start_slot, count)
+                    }
+                    methods::OldBlocksByRangeRequest::V2(req) => {
+                        BlocksByRangeRequest::new(req.start_slot, count)
+                    }
+                };
+
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_blocks_by_range_request(
+                        peer_id,
+                        inbound_request_id,
+                        blocks_request,
+                    ),
+                )
+            }
+            RequestType::BlocksByRoot(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor.send_blocks_by_roots_request(
+                    peer_id,
+                    inbound_request_id,
+                    request,
+                ),
+            ),
+            RequestType::BlocksByHead(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor.send_blocks_by_head_request(
+                    peer_id,
+                    inbound_request_id,
+                    request,
+                ),
+            ),
+            RequestType::PayloadEnvelopesByRoot(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_payload_envelopes_by_roots_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
+            RequestType::PayloadEnvelopesByRange(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_payload_envelopes_by_range_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
+            RequestType::BlobsByRange(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor.send_blobs_by_range_request(
+                    peer_id,
+                    inbound_request_id,
+                    request,
+                ),
+            ),
+            RequestType::BlobsByRoot(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor.send_blobs_by_roots_request(
+                    peer_id,
+                    inbound_request_id,
+                    request,
+                ),
+            ),
+            RequestType::DataColumnsByRoot(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_data_columns_by_roots_request(peer_id, inbound_request_id, request),
+            ),
+            RequestType::DataColumnsByRange(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_data_columns_by_range_request(peer_id, inbound_request_id, request),
+            ),
+            RequestType::LightClientBootstrap(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_light_client_bootstrap_request(peer_id, inbound_request_id, request),
+            ),
+            RequestType::LightClientOptimisticUpdate => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_light_client_optimistic_update_request(peer_id, inbound_request_id),
+            ),
+            RequestType::LightClientFinalityUpdate => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_light_client_finality_update_request(peer_id, inbound_request_id),
+            ),
+            RequestType::LightClientUpdatesByRange(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_light_client_updates_by_range_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
+            _ => {}
+        }
+    }
+
+    /// Handle a `Status` request.
+    ///
+    /// Processes the `Status` from the remote peer and sends back our `Status`.
+    fn on_status_request(
+        &mut self,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId, // Use ResponseId here
+        status: StatusMessage,
+    ) {
+        debug!(%peer_id, ?status, "Received Status Request");
+
+        // Say status back.
+        self.libp2p.send_response(
+            peer_id,
+            inbound_request_id,
+            Response::Status(status_message(&self.beacon_chain)),
+        );
+
+        self.handle_beacon_processor_send_result(
+            self.network_beacon_processor
+                .send_status_message(peer_id, status),
+        )
+    }
+
+    /// An RPC response has been received from the network.
+    fn handle_rpc_response(
+        &mut self,
+        peer_id: PeerId,
+        sync_request_id: Option<SyncRequestId>,
+        response: Response<T::EthSpec>,
+    ) {
+        match response {
+            Response::Status(status_message) => {
+                debug!(%peer_id, ?status_message,"Received Status Response");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_status_message(peer_id, status_message),
+                )
+            }
+            Response::BlocksByRange(beacon_block) => {
+                self.on_blocks_by_range_response(peer_id, sync_request_id, beacon_block);
+            }
+            Response::BlocksByRoot(beacon_block) => {
+                self.on_blocks_by_root_response(peer_id, sync_request_id, beacon_block);
+            }
+            Response::BlobsByRange(blob) => {
+                self.on_blobs_by_range_response(peer_id, sync_request_id, blob);
+            }
+            Response::BlobsByRoot(_) => {
+                crit!(%peer_id, "Unexpected BlobsByRoot response; lookup blob requests removed");
+            }
+            Response::DataColumnsByRoot(data_column) => {
+                self.on_data_columns_by_root_response(peer_id, sync_request_id, data_column);
+            }
+            Response::DataColumnsByRange(data_column) => {
+                self.on_data_columns_by_range_response(peer_id, sync_request_id, data_column);
+            }
+            Response::PayloadEnvelopesByRoot(envelope) => {
+                self.on_payload_envelopes_by_root_response(peer_id, sync_request_id, envelope);
+            }
+            Response::PayloadEnvelopesByRange(envelope) => {
+                self.on_payload_envelopes_by_range_response(peer_id, sync_request_id, envelope);
+            }
+            // Lighthouse currently only serves BlocksByHead and does not issue it as a client,
+            // so receiving a response is unexpected. Drop it without crashing.
+            Response::BlocksByHead(_) => {
+                debug!("BlocksByHead response received but not requested by lighthouse");
+            }
+            // Light client responses should not be received
+            Response::LightClientBootstrap(_)
+            | Response::LightClientOptimisticUpdate(_)
+            | Response::LightClientFinalityUpdate(_)
+            | Response::LightClientUpdatesByRange(_) => {
+                tracing::error!("Should not have reached this match bracket");
+            }
+        }
+    }
+
+    /// Handle a `BlocksByRange` response from the peer.
+    /// A `beacon_block` behaves as a stream which is terminated on a `None` response.
+    fn on_blocks_by_range_response(
+        &mut self,
+        peer_id: PeerId,
+        sync_request_id: Option<SyncRequestId>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) {
+        let sync_request_id = match sync_request_id {
+            Some(id @ SyncRequestId::BlocksByRange { .. }) => id,
+            Some(other) => {
+                crit!(request = ?other, "BlocksByRange response on incorrect request");
+                return;
+            }
+            None => {
+                crit!(%peer_id, "All BBRange requests belong to sync");
+                return;
+            }
+        };
+
+        trace!(
+            %peer_id,
+            "Received BlocksByRange Response"
+
+        );
+
+        self.send_to_sync(SyncMessage::RpcBlock {
+            peer_id,
+            sync_request_id,
+            beacon_block,
+        });
+    }
+
+    fn on_blobs_by_range_response(
+        &mut self,
+        peer_id: PeerId,
+        sync_request_id: Option<SyncRequestId>,
+        blob_sidecar: Option<Arc<BlobSidecar<T::EthSpec>>>,
+    ) {
+        trace!(
+            %peer_id,
+            "Received BlobsByRange Response"
+        );
+
+        if let Some(sync_request_id) = sync_request_id {
+            self.send_to_sync(SyncMessage::RpcBlob {
+                peer_id,
+                sync_request_id,
+                blob_sidecar,
+            });
+        } else {
+            crit!("All blobs by range responses should belong to sync");
+        }
+    }
+
+    /// Handle a `BlocksByRoot` response from the peer.
+    fn on_blocks_by_root_response(
+        &mut self,
+        peer_id: PeerId,
+        sync_request_id: Option<SyncRequestId>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) {
+        let sync_request_id = match sync_request_id {
+            Some(id @ SyncRequestId::SingleBlock { .. }) => id,
+            Some(other) => {
+                crit!(request = ?other, "BlocksByRoot response on incorrect request");
+                return;
+            }
+            None => {
+                crit!(%peer_id, "All BBRoot requests belong to sync");
+                return;
+            }
+        };
+
+        trace!(
+            %peer_id,
+            "Received BlocksByRoot Response"
+        );
+        self.send_to_sync(SyncMessage::RpcBlock {
+            peer_id,
+            sync_request_id,
+            beacon_block,
+        });
+    }
+
+    /// Handle a `DataColumnsByRoot` response from the peer.
+    fn on_data_columns_by_root_response(
+        &mut self,
+        peer_id: PeerId,
+        sync_request_id: Option<SyncRequestId>,
+        data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) {
+        let sync_request_id = match sync_request_id {
+            Some(id @ SyncRequestId::DataColumnsByRoot { .. }) => id,
+            Some(other) => {
+                crit!(request = ?other, "DataColumnsByRoot response on incorrect request");
+                return;
+            }
+            None => {
+                crit!(%peer_id, "All DataColumnsByRoot requests belong to sync");
+                return;
+            }
+        };
+
+        trace!(
+            %peer_id,
+            "Received DataColumnsByRoot Response"
+        );
+        self.send_to_sync(SyncMessage::RpcDataColumn {
+            sync_request_id,
+            peer_id,
+            data_column,
+        });
+    }
+
+    fn on_data_columns_by_range_response(
+        &mut self,
+        peer_id: PeerId,
+        sync_request_id: Option<SyncRequestId>,
+        data_column: Option<Arc<DataColumnSidecar<T::EthSpec>>>,
+    ) {
+        trace!(
+            %peer_id,
+            "Received DataColumnsByRange Response"
+        );
+
+        if let Some(sync_request_id) = sync_request_id {
+            self.send_to_sync(SyncMessage::RpcDataColumn {
+                peer_id,
+                sync_request_id,
+                data_column,
+            });
+        } else {
+            crit!("All data columns by range responses should belong to sync");
+        }
+    }
+
+    /// Handle a `PayloadEnvelopesByRoot` response from the peer.
+    fn on_payload_envelopes_by_root_response(
+        &mut self,
+        peer_id: PeerId,
+        sync_request_id: Option<SyncRequestId>,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) {
+        let sync_request_id = match sync_request_id {
+            Some(id @ SyncRequestId::SinglePayloadEnvelope { .. }) => id,
+            other => {
+                crit!(request = ?other, %peer_id, "PayloadEnvelopesByRoot response on incorrect request");
+                return;
+            }
+        };
+
+        self.send_to_sync(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope,
+        });
+    }
+
+    /// Handle a `PayloadEnvelopesByRange` response from the peer.
+    fn on_payload_envelopes_by_range_response(
+        &mut self,
+        peer_id: PeerId,
+        sync_request_id: Option<SyncRequestId>,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+    ) {
+        let sync_request_id = match sync_request_id {
+            Some(id @ SyncRequestId::PayloadEnvelopesByRange { .. }) => id,
+            other => {
+                crit!(request = ?other, %peer_id, "PayloadEnvelopesByRange response on incorrect request");
+                return;
+            }
+        };
+
+        self.send_to_sync(SyncMessage::RpcPayloadEnvelope {
+            sync_request_id,
+            peer_id,
+            envelope,
+        });
+    }
+
+    /// Sends a message to the sync manager.
+    fn send_to_sync(&mut self, message: SyncMessage<T::EthSpec>) {
+        self.sync_send.send(message).unwrap_or_else(|e| {
+            warn!(
+                error = %e,
+                "Could not send message to the sync service"
+            )
+        });
+    }
+
+    /// A partial data column sidecar has been received via gossipsub partial protocol.
+    fn handle_partial_data_column_sidecar(
+        &mut self,
+        peer_id: PeerId,
+        column: Box<PartialDataColumn<T::EthSpec>>,
+        topic: GossipTopic,
+    ) {
+        self.handle_beacon_processor_send_result(
+            self.network_beacon_processor
+                .send_gossip_partial_data_column_sidecar(
+                    peer_id,
+                    column,
+                    self.beacon_chain
+                        .slot_clock
+                        .now_duration()
+                        .unwrap_or_default(),
+                    topic,
+                ),
+        )
+    }
+
+    /// Handle RPC messages.
+    /// Note: `should_process` is currently only useful for the `Attestation` variant.
+    /// if `should_process` is `false`, we only propagate the message on successful verification,
+    /// else, we propagate **and** import into the beacon chain.
+    fn handle_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        gossip_message: PubsubMessage<T::EthSpec>,
+        should_process: bool,
+    ) {
+        let seen_timestamp = self
+            .beacon_chain
+            .slot_clock
+            .now_duration()
+            .unwrap_or_default();
+        match gossip_message {
+            PubsubMessage::AggregateAndProofAttestation(aggregate_and_proof) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_aggregated_attestation(
+                        message_id,
+                        peer_id,
+                        *aggregate_and_proof,
+                        seen_timestamp,
+                    ),
+                ),
+            PubsubMessage::Attestation(subnet_attestation) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_unaggregated_attestation(
+                        message_id,
+                        peer_id,
+                        subnet_attestation.1,
+                        subnet_attestation.0,
+                        should_process,
+                        seen_timestamp,
+                    ),
+                ),
+            PubsubMessage::BeaconBlock(block) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor.send_gossip_beacon_block(
+                    message_id,
+                    peer_id,
+                    self.network_globals.client(&peer_id),
+                    block,
+                    seen_timestamp,
+                ),
+            ),
+            PubsubMessage::DataColumnSidecar(data) => {
+                let (subnet_id, column_sidecar) = *data;
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_data_column_sidecar(
+                            message_id,
+                            peer_id,
+                            subnet_id,
+                            column_sidecar,
+                            seen_timestamp,
+                            true,
+                        ),
+                )
+            }
+            PubsubMessage::VoluntaryExit(exit) => {
+                debug!(%peer_id, "Received a voluntary exit");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_voluntary_exit(message_id, peer_id, exit),
+                )
+            }
+            PubsubMessage::ProposerSlashing(proposer_slashing) => {
+                debug!(
+                    %peer_id,
+                    "Received a proposer slashing"
+                );
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_proposer_slashing(
+                        message_id,
+                        peer_id,
+                        proposer_slashing,
+                    ),
+                )
+            }
+            PubsubMessage::AttesterSlashing(attester_slashing) => {
+                debug!(
+                    %peer_id,
+                    "Received a attester slashing"
+                );
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_attester_slashing(
+                        message_id,
+                        peer_id,
+                        attester_slashing,
+                    ),
+                )
+            }
+            PubsubMessage::SignedContributionAndProof(contribution_and_proof) => {
+                trace!(
+                    %peer_id,
+                    "Received sync committee aggregate"
+                );
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_sync_contribution(
+                        message_id,
+                        peer_id,
+                        *contribution_and_proof,
+                        seen_timestamp,
+                    ),
+                )
+            }
+            PubsubMessage::SyncCommitteeMessage(sync_committtee_msg) => {
+                trace!(
+                    %peer_id,
+                    "Received sync committee signature"
+                );
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_sync_signature(
+                        message_id,
+                        peer_id,
+                        sync_committtee_msg.1,
+                        sync_committtee_msg.0,
+                        seen_timestamp,
+                    ),
+                )
+            }
+            PubsubMessage::LightClientFinalityUpdate(light_client_finality_update) => {
+                trace!(
+                    %peer_id,
+                    "Received light client finality update"
+                );
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_light_client_finality_update(
+                            message_id,
+                            peer_id,
+                            *light_client_finality_update,
+                            seen_timestamp,
+                        ),
+                )
+            }
+            PubsubMessage::LightClientOptimisticUpdate(light_client_optimistic_update) => {
+                trace!(
+                    %peer_id,
+                    "Received light client optimistic update"
+
+                );
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_light_client_optimistic_update(
+                            message_id,
+                            peer_id,
+                            *light_client_optimistic_update,
+                            seen_timestamp,
+                        ),
+                )
+            }
+            PubsubMessage::BlsToExecutionChange(bls_to_execution_change) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_bls_to_execution_change(
+                            message_id,
+                            peer_id,
+                            bls_to_execution_change,
+                        ),
+                ),
+            PubsubMessage::ExecutionPayload(signed_execution_payload_envelope) => {
+                trace!(%peer_id, "Received a signed execution payload envelope");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_execution_payload(
+                        message_id,
+                        peer_id,
+                        signed_execution_payload_envelope,
+                        seen_timestamp,
+                    ),
+                )
+            }
+            PubsubMessage::ExecutionProof(execution_proof) => {
+                trace!(%peer_id, "Received an execution proof");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_execution_proof(
+                        message_id,
+                        peer_id,
+                        execution_proof,
+                    ),
+                )
+            }
+            PubsubMessage::PayloadAttestation(payload_attestation_message) => {
+                trace!(%peer_id, "Received a payload attestation message");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_payload_attestation(
+                            message_id,
+                            peer_id,
+                            payload_attestation_message,
+                        ),
+                )
+            }
+            PubsubMessage::ExecutionPayloadBid(execution_payload_bid) => {
+                trace!(%peer_id, "Received a signed execution payload bid");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_execution_payload_bid(
+                            message_id,
+                            peer_id,
+                            execution_payload_bid,
+                        ),
+                )
+            }
+            PubsubMessage::ProposerPreferences(proposer_preferences) => {
+                trace!(%peer_id, "Received signed proposer preferences");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_gossip_proposer_preferences(
+                            message_id,
+                            peer_id,
+                            proposer_preferences,
+                        ),
+                )
+            }
+            PubsubMessage::InclusionList(inclusion_list) => {
+                trace!(%peer_id, "Received a signed inclusion list");
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_inclusion_list(
+                        message_id,
+                        peer_id,
+                        inclusion_list,
+                        seen_timestamp,
+                    ),
+                )
+            }
+        }
+    }
+
+    fn handle_beacon_processor_send_result(
+        &mut self,
+        result: Result<(), crate::network_beacon_processor::Error<T::EthSpec>>,
+    ) {
+        if let Err(e) = result {
+            let work_type = match e.as_ref() {
+                mpsc::error::TrySendError::Closed(work) | mpsc::error::TrySendError::Full(work) => {
+                    work.work_type_str()
+                }
+            };
+
+            if self.logger_debounce.elapsed() {
+                error!(error = %e, work_type, "Unable to send message to the beacon processor")
+            }
+        }
     }
 }
 
@@ -948,20 +1668,15 @@ fn next_digest_delay<T: BeaconChainTypes>(
         .map(|(_, until_epoch)| tokio::time::sleep(until_epoch))
 }
 
-/// Returns a `Sleep` that triggers `SUBSCRIBE_DELAY_SLOTS` before the next fork digest changes.
-/// Returns `None` if there are no scheduled forks or we are already past `current_slot + SUBSCRIBE_DELAY_SLOTS > fork_slot`.
-fn next_topic_subscriptions_delay<T: BeaconChainTypes>(
+/// Time until we subscribe to the next fork digest topics. Zero if that time has passed. `None` if
+/// no fork digest change is scheduled.
+fn duration_to_next_topic_subscriptions<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
-) -> Option<tokio::time::Sleep> {
-    if let Some((_, duration_to_epoch)) = beacon_chain.duration_to_next_digest() {
-        let duration_to_subscription = duration_to_epoch.saturating_sub(Duration::from_secs(
-            beacon_chain.spec.get_slot_duration().as_secs() * SUBSCRIBE_DELAY_SLOTS,
-        ));
-        if !duration_to_subscription.is_zero() {
-            return Some(tokio::time::sleep(duration_to_subscription));
-        }
-    }
-    None
+) -> Option<Duration> {
+    let (_, duration_to_digest) = beacon_chain.duration_to_next_digest()?;
+    let subscribe_delay = beacon_chain.spec.get_slot_duration()
+        * (SUBSCRIBE_DELAY_EPOCHS * T::EthSpec::slots_per_epoch()) as u32;
+    Some(duration_to_digest.saturating_sub(subscribe_delay))
 }
 
 impl<T: BeaconChainTypes> Drop for NetworkService<T> {

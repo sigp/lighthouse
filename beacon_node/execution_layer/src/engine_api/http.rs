@@ -21,6 +21,8 @@ use std::time::{Duration, Instant};
 
 pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
+use tracing::error;
+use types::ColumnIndex;
 
 const STATIC_ID: u32 = 1;
 pub const JSONRPC_VERSION: &str = "2.0";
@@ -38,6 +40,7 @@ pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
 pub const ENGINE_NEW_PAYLOAD_V4: &str = "engine_newPayloadV4";
 pub const ENGINE_NEW_PAYLOAD_V5: &str = "engine_newPayloadV5";
+pub const ENGINE_NEW_PAYLOAD_V6: &str = "engine_newPayloadV6";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
@@ -52,6 +55,7 @@ pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_V2: &str = "engine_forkchoiceUpdatedV2";
 pub const ENGINE_FORKCHOICE_UPDATED_V3: &str = "engine_forkchoiceUpdatedV3";
 pub const ENGINE_FORKCHOICE_UPDATED_V4: &str = "engine_forkchoiceUpdatedV4";
+pub const ENGINE_FORKCHOICE_UPDATED_V5: &str = "engine_forkchoiceUpdatedV5";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1: &str = "engine_getPayloadBodiesByHashV1";
@@ -66,6 +70,7 @@ pub const ENGINE_GET_CLIENT_VERSION_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_GET_BLOBS_V2: &str = "engine_getBlobsV2";
 pub const ENGINE_GET_BLOBS_V3: &str = "engine_getBlobsV3";
+pub const ENGINE_GET_BLOBS_V4: &str = "engine_getBlobsV4";
 pub const ENGINE_GET_BLOBS_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub const ENGINE_GET_INCLUSION_LIST_V1: &str = "engine_getInclusionListV1";
@@ -83,6 +88,7 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V3,
     ENGINE_NEW_PAYLOAD_V4,
     ENGINE_NEW_PAYLOAD_V5,
+    ENGINE_NEW_PAYLOAD_V6,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3,
@@ -93,11 +99,13 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_FORKCHOICE_UPDATED_V2,
     ENGINE_FORKCHOICE_UPDATED_V3,
     ENGINE_FORKCHOICE_UPDATED_V4,
+    ENGINE_FORKCHOICE_UPDATED_V5,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
     ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
     ENGINE_GET_CLIENT_VERSION_V1,
     ENGINE_GET_BLOBS_V2,
     ENGINE_GET_BLOBS_V3,
+    ENGINE_GET_BLOBS_V4,
     ENGINE_GET_INCLUSION_LIST_V1,
 ];
 
@@ -190,7 +198,7 @@ pub mod deposit_log {
     #[cfg(test)]
     pub mod tests {
         use super::*;
-        use types::{EthSpec, MainnetEthSpec};
+        use types::{EthSpec, Spec};
 
         /// The data from a deposit event, using the v0.8.3 version of the deposit contract.
         pub const EXAMPLE_LOG: &[u8] = &[
@@ -225,7 +233,7 @@ pub mod deposit_log {
                 block_number: 42,
                 data: EXAMPLE_LOG.to_vec(),
             };
-            log.to_deposit_log(&MainnetEthSpec::default_spec())
+            log.to_deposit_log(&Spec::default_spec())
                 .expect("should decode log");
         }
     }
@@ -757,6 +765,21 @@ impl HttpJsonRpc {
         .await
     }
 
+    pub async fn get_blobs_v4<E: EthSpec>(
+        &self,
+        versioned_hashes: Vec<Hash256>,
+        indices_bitarray: CustodyColumnsBitArray,
+    ) -> Result<Option<GetBlobsV4List<E>>, Error> {
+        let params = json!([versioned_hashes, indices_bitarray]);
+
+        self.rpc_request(
+            ENGINE_GET_BLOBS_V4,
+            params,
+            ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
+        )
+        .await
+    }
+
     pub async fn get_inclusion_list_v1(&self) -> Result<ProgressiveTransactions, Error> {
         self.rpc_request::<JsonInclusionListV1>(
             ENGINE_GET_INCLUSION_LIST_V1,
@@ -925,6 +948,33 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn new_payload_v6_heze<E: EthSpec>(
+        &self,
+        new_payload_request_heze: NewPayloadRequestHeze<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::Heze(
+                new_payload_request_heze
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
+            new_payload_request_heze.versioned_hashes,
+            new_payload_request_heze.parent_beacon_block_root,
+            types::ExecutionRequestsRef::Gloas(new_payload_request_heze.execution_requests)
+                .get_execution_requests_list(),
+            JsonInclusionListV1(new_payload_request_heze.inclusion_list_transactions),
+        ]);
+        let response: JsonPayloadStatusV2 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V6,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+        Ok(response.into())
+    }
+
     pub async fn get_payload_v1<E: EthSpec>(
         &self,
         payload_id: PayloadId,
@@ -1076,7 +1126,9 @@ impl HttpJsonRpc {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         match fork_name {
-            ForkName::Gloas => {
+            // TODO(heze): deliberately reusing the Gloas response containers while the Heze
+            // payload is identical to the Gloas one. Switch to the Heze types if it diverges
+            ForkName::Gloas | ForkName::Heze => {
                 let response: JsonGetPayloadResponseGloas<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V6,
@@ -1088,7 +1140,6 @@ impl HttpJsonRpc {
                     .try_into()
                     .map_err(Error::BadResponse)
             }
-            // TODO(heze): add a Heze arm once Heze payload retrieval is implemented.
             _ => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload_v6 with {}",
                 fork_name
@@ -1159,19 +1210,71 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    /// Encode the custody column indices as the `custodyColumns` bitarray parameter of
+    /// `engine_forkchoiceUpdatedV4` and later (EIP-8070).
+    ///
+    /// Returns `None` when no custody columns were supplied or when the conversion failed.
+    /// The EL treats `null` as a no-op for its custody set.
+    fn custody_columns_param(
+        custody_columns: Option<&[ColumnIndex]>,
+        method: &'static str,
+    ) -> Option<CustodyColumnsBitArray> {
+        custody_columns
+            .map(CustodyColumnsBitArray::try_from)
+            .transpose()
+            .unwrap_or_else(|err| {
+                error!(
+                    ?err,
+                    method, "Failed to convert custody columns for forkchoice update"
+                );
+                None
+            })
+    }
+
     pub async fn forkchoice_updated_v4(
         &self,
         forkchoice_state: ForkchoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let custody_columns =
+            Self::custody_columns_param(custody_columns, ENGINE_FORKCHOICE_UPDATED_V4);
+
         let params = json!([
             JsonForkchoiceStateV1::from(forkchoice_state),
-            payload_attributes.map(JsonPayloadAttributes::from)
+            payload_attributes.map(JsonPayloadAttributes::from),
+            custody_columns
         ]);
 
         let response: JsonForkchoiceUpdatedV1Response = self
             .rpc_request(
                 ENGINE_FORKCHOICE_UPDATED_V4,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn forkchoice_updated_v5(
+        &self,
+        forkchoice_state: ForkchoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let custody_columns =
+            Self::custody_columns_param(custody_columns, ENGINE_FORKCHOICE_UPDATED_V5);
+
+        let params = json!([
+            JsonForkchoiceStateV1::from(forkchoice_state),
+            payload_attributes.map(JsonPayloadAttributes::from),
+            custody_columns
+        ]);
+
+        let response: JsonForkchoiceUpdatedV2Response = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V5,
                 params,
                 ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
             )
@@ -1204,13 +1307,13 @@ impl HttpJsonRpc {
             .collect::<Result<Vec<_>, _>>()
     }
 
-    pub async fn get_payload_bodies_by_hash_v2(
+    pub async fn get_payload_bodies_by_hash_v2<E: EthSpec>(
         &self,
         block_hashes: Vec<ExecutionBlockHash>,
-    ) -> Result<Vec<Option<ExecutionPayloadBodyV2>>, Error> {
+    ) -> Result<Vec<Option<ExecutionPayloadBodyV2<E>>>, Error> {
         let params = json!([block_hashes]);
 
-        let response: Vec<Option<JsonExecutionPayloadBodyV2>> = self
+        let response: Vec<Option<JsonExecutionPayloadBodyV2<E>>> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V2,
                 params,
@@ -1220,8 +1323,8 @@ impl HttpJsonRpc {
 
         Ok(response
             .into_iter()
-            .map(|body| body.map(Into::into))
-            .collect())
+            .map(|body| body.map(TryInto::try_into).transpose())
+            .collect::<Result<_, _>>()?)
     }
 
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {
@@ -1241,10 +1344,12 @@ impl HttpJsonRpc {
             new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
             new_payload_v4: capabilities.contains(ENGINE_NEW_PAYLOAD_V4),
             new_payload_v5: capabilities.contains(ENGINE_NEW_PAYLOAD_V5),
+            new_payload_v6: capabilities.contains(ENGINE_NEW_PAYLOAD_V6),
             forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
             forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
             forkchoice_updated_v3: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V3),
             forkchoice_updated_v4: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V4),
+            forkchoice_updated_v5: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V5),
             get_payload_bodies_by_hash_v1: capabilities
                 .contains(ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1),
             get_payload_bodies_by_hash_v2: capabilities
@@ -1258,6 +1363,7 @@ impl HttpJsonRpc {
             get_client_version_v1: capabilities.contains(ENGINE_GET_CLIENT_VERSION_V1),
             get_blobs_v2: capabilities.contains(ENGINE_GET_BLOBS_V2),
             get_blobs_v3: capabilities.contains(ENGINE_GET_BLOBS_V3),
+            get_blobs_v4: capabilities.contains(ENGINE_GET_BLOBS_V4),
             get_inclusion_list_v1: capabilities.contains(ENGINE_GET_INCLUSION_LIST_V1),
         })
     }
@@ -1405,11 +1511,13 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV5"))
                 }
             }
-            // TODO(heze): implement the Heze newPayload path once the engine API for Heze
-            // is specified.
-            NewPayloadRequest::Heze(_) => Err(Error::UnsupportedForkVariant(
-                "newPayload not implemented for Heze".to_string(),
-            )),
+            NewPayloadRequest::Heze(new_payload_request_heze) => {
+                if engine_capabilities.new_payload_v6 {
+                    self.new_payload_v6_heze(new_payload_request_heze).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV6"))
+                }
+            }
         }
     }
 
@@ -1452,18 +1560,13 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
                 }
             }
-            ForkName::Gloas => {
+            ForkName::Gloas | ForkName::Heze => {
                 if engine_capabilities.get_payload_v6 {
                     self.get_payload_v6(fork_name, payload_id).await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadV6"))
                 }
             }
-            // TODO(heze): implement the Heze getPayload path once the engine API for Heze
-            // is specified.
-            ForkName::Heze => Err(Error::UnsupportedForkVariant(
-                "getPayload not implemented for Heze".to_string(),
-            )),
             ForkName::Base | ForkName::Altair => Err(Error::UnsupportedForkVariant(format!(
                 "called get_payload with {}",
                 fork_name
@@ -1477,6 +1580,7 @@ impl HttpJsonRpc {
         &self,
         forkchoice_state: ForkchoiceState,
         maybe_payload_attributes: Option<PayloadAttributes>,
+        custody_columns: Option<&[ColumnIndex]>,
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         if let Some(payload_attributes) = maybe_payload_attributes.as_ref() {
@@ -1504,17 +1608,38 @@ impl HttpJsonRpc {
                 }
                 PayloadAttributes::V4(_) => {
                     if engine_capabilities.forkchoice_updated_v4 {
-                        self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes)
-                            .await
+                        self.forkchoice_updated_v4(
+                            forkchoice_state,
+                            maybe_payload_attributes,
+                            custody_columns,
+                        )
+                        .await
                     } else {
                         Err(Error::RequiredMethodUnsupported(
                             "engine_forkchoiceUpdatedV4",
                         ))
                     }
                 }
+                PayloadAttributes::V5(_) => {
+                    if engine_capabilities.forkchoice_updated_v5 {
+                        self.forkchoice_updated_v5(
+                            forkchoice_state,
+                            maybe_payload_attributes,
+                            custody_columns,
+                        )
+                        .await
+                    } else {
+                        Err(Error::RequiredMethodUnsupported(
+                            "engine_forkchoiceUpdatedV5",
+                        ))
+                    }
+                }
             }
+        } else if engine_capabilities.forkchoice_updated_v5 {
+            self.forkchoice_updated_v5(forkchoice_state, maybe_payload_attributes, custody_columns)
+                .await
         } else if engine_capabilities.forkchoice_updated_v4 {
-            self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes)
+            self.forkchoice_updated_v4(forkchoice_state, maybe_payload_attributes, custody_columns)
                 .await
         } else if engine_capabilities.forkchoice_updated_v3 {
             self.forkchoice_updated_v3(forkchoice_state, maybe_payload_attributes)
@@ -1542,10 +1667,10 @@ mod test {
     use std::str::FromStr;
     use std::sync::Arc;
     use typenum::Unsigned;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
     struct Tester {
-        server: MockServer<MainnetEthSpec>,
+        server: MockServer<Spec>,
         rpc_client: Arc<HttpJsonRpc>,
         echo_client: Arc<HttpJsonRpc>,
     }
@@ -1720,7 +1845,8 @@ mod test {
     fn generate_progressive_transactions(spec: &[usize]) -> ProgressiveTransactions {
         let mut txs = ProgressiveTransactions::empty();
         for &num_bytes in spec {
-            txs.push(ProgressiveVariableList::new(vec![0; num_bytes]));
+            txs.push(ProgressiveVariableList::new(vec![0; num_bytes]).unwrap())
+                .unwrap();
         }
 
         txs
@@ -1728,34 +1854,30 @@ mod test {
 
     #[test]
     fn transaction_serde() {
-        assert_transactions_serde::<MainnetEthSpec>(
-            "empty",
-            generate_transactions::<MainnetEthSpec>(&[]),
-            json!([]),
-        );
-        assert_transactions_serde::<MainnetEthSpec>(
+        assert_transactions_serde::<Spec>("empty", generate_transactions::<Spec>(&[]), json!([]));
+        assert_transactions_serde::<Spec>(
             "one empty tx",
-            generate_transactions::<MainnetEthSpec>(&[0]),
+            generate_transactions::<Spec>(&[0]),
             json!(["0x"]),
         );
-        assert_transactions_serde::<MainnetEthSpec>(
+        assert_transactions_serde::<Spec>(
             "two empty txs",
-            generate_transactions::<MainnetEthSpec>(&[0, 0]),
+            generate_transactions::<Spec>(&[0, 0]),
             json!(["0x", "0x"]),
         );
-        assert_transactions_serde::<MainnetEthSpec>(
+        assert_transactions_serde::<Spec>(
             "one one-byte tx",
-            generate_transactions::<MainnetEthSpec>(&[1]),
+            generate_transactions::<Spec>(&[1]),
             json!(["0x00"]),
         );
-        assert_transactions_serde::<MainnetEthSpec>(
+        assert_transactions_serde::<Spec>(
             "two one-byte txs",
-            generate_transactions::<MainnetEthSpec>(&[1, 1]),
+            generate_transactions::<Spec>(&[1, 1]),
             json!(["0x00", "0x00"]),
         );
-        assert_transactions_serde::<MainnetEthSpec>(
+        assert_transactions_serde::<Spec>(
             "mixed bag",
-            generate_transactions::<MainnetEthSpec>(&[0, 1, 3, 0]),
+            generate_transactions::<Spec>(&[0, 1, 3, 0]),
             json!(["0x", "0x00", "0x000000", "0x"]),
         );
 
@@ -1763,15 +1885,12 @@ mod test {
          * Check for too many transactions
          */
 
-        let num_max_txs = <MainnetEthSpec as EthSpec>::MaxTransactionsPerPayload::to_usize();
+        let num_max_txs = <Spec as EthSpec>::MaxTransactionsPerPayload::to_usize();
         let max_txs = (0..num_max_txs).map(|_| "0x00").collect::<Vec<_>>();
         let too_many_txs = (0..=num_max_txs).map(|_| "0x00").collect::<Vec<_>>();
 
-        decode_transactions::<MainnetEthSpec>(serde_json::to_value(max_txs).unwrap()).unwrap();
-        assert!(
-            decode_transactions::<MainnetEthSpec>(serde_json::to_value(too_many_txs).unwrap())
-                .is_err()
-        );
+        decode_transactions::<Spec>(serde_json::to_value(max_txs).unwrap()).unwrap();
+        assert!(decode_transactions::<Spec>(serde_json::to_value(too_many_txs).unwrap()).is_err());
     }
 
     fn assert_inclusion_list_serde(
@@ -1917,11 +2036,131 @@ mod test {
     }
 
     #[tokio::test]
+    async fn forkchoice_updated_v5_with_payload_attributes_request() {
+        let payload_attributes = || {
+            Some(PayloadAttributes::V5(PayloadAttributesV5 {
+                timestamp: 5,
+                prev_randao: Hash256::zero(),
+                suggested_fee_recipient: Address::repeat_byte(0),
+                withdrawals: vec![],
+                parent_beacon_block_root: Hash256::zero(),
+                slot_number: 7,
+                target_gas_limit: 30_000_000,
+                inclusion_list_transactions: ProgressiveVariableList::new(vec![
+                    ProgressiveVariableList::new(vec![0x02, 0xf8, 0x6f]).unwrap(),
+                ])
+                .unwrap(),
+            }))
+        };
+
+        // Columns 0, 7, 8 and 127: first byte 0x81, second byte 0x01, last byte 0x80.
+        let custody_columns: [ColumnIndex; 4] = [0, 7, 8, 127];
+
+        Tester::new(true)
+            .assert_request_equals(
+                |client| async move {
+                    let _ = client
+                        .forkchoice_updated_v5(
+                            ForkchoiceState {
+                                head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
+                            },
+                            payload_attributes(),
+                            Some(&custody_columns),
+                        )
+                        .await;
+                },
+                json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "method": ENGINE_FORKCHOICE_UPDATED_V5,
+                    "params": [{
+                        "headBlockHash": HASH_01,
+                        "safeBlockHash": HASH_01,
+                        "finalizedBlockHash": HASH_00,
+                    },
+                    {
+                        "timestamp": "0x5",
+                        "prevRandao": HASH_00,
+                        "suggestedFeeRecipient": ADDRESS_00,
+                        "withdrawals": [],
+                        "parentBeaconBlockRoot": HASH_00,
+                        "slotNumber": "0x7",
+                        "targetGasLimit": "0x1c9c380",
+                        "inclusionListTransactions": ["0x02f86f"],
+                    },
+                    "0x81010000000000000000000000000080"]
+                }),
+            )
+            .await
+            .with_preloaded_responses(
+                // engine_forkchoiceUpdatedV5 response validation
+                vec![json!({
+                    "id": STATIC_ID,
+                    "jsonrpc": JSONRPC_VERSION,
+                    "result": {
+                        "payloadStatus": {
+                            "status": "VALID",
+                            "latestValidHash": HASH_01,
+                            "validationError": null,
+                            "inclusionListSatisfied": true,
+                        },
+                        "payloadId": "0xa247243752eb10b4"
+                    }
+                })],
+                |client| async move {
+                    let response = client
+                        .forkchoice_updated_v5(
+                            ForkchoiceState {
+                                head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
+                            },
+                            payload_attributes(),
+                            None,
+                        )
+                        .await
+                        .unwrap();
+                    assert_eq!(
+                        response,
+                        ForkchoiceUpdatedResponse {
+                            payload_status: PayloadStatusV1 {
+                                status: PayloadStatusV1Status::Valid,
+                                latest_valid_hash: Some(ExecutionBlockHash::repeat_byte(1)),
+                                validation_error: None,
+                                inclusion_list_satisfied: Some(true),
+                            },
+                            payload_id: Some(str_to_payload_id("0xa247243752eb10b4")),
+                        }
+                    );
+                },
+            )
+            .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .forkchoice_updated_v5(
+                        ForkchoiceState {
+                            head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                            safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                            finalized_block_hash: ExecutionBlockHash::zero(),
+                        },
+                        payload_attributes(),
+                        None,
+                    )
+                    .await
+            })
+            .await;
+    }
+
+    #[tokio::test]
     async fn get_payload_v1_request() {
         Tester::new(true)
             .assert_request_equals(
                 |client| async move {
-                    let _ = client.get_payload_v1::<MainnetEthSpec>([42; 8]).await;
+                    let _ = client.get_payload_v1::<Spec>([42; 8]).await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -1933,9 +2172,9 @@ mod test {
             .await;
 
         Tester::new(false)
-            .assert_auth_failure(|client| async move {
-                client.get_payload_v1::<MainnetEthSpec>([42; 8]).await
-            })
+            .assert_auth_failure(
+                |client| async move { client.get_payload_v1::<Spec>([42; 8]).await },
+            )
             .await;
     }
 
@@ -1945,7 +2184,7 @@ mod test {
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(
+                        .new_payload_v1::<Spec>(ExecutionPayload::Bellatrix(
                             ExecutionPayloadBellatrix {
                                 parent_hash: ExecutionBlockHash::repeat_byte(0),
                                 fee_recipient: Address::repeat_byte(1),
@@ -1992,7 +2231,7 @@ mod test {
         Tester::new(false)
             .assert_auth_failure(|client| async move {
                 client
-                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(
+                    .new_payload_v1::<Spec>(ExecutionPayload::Bellatrix(
                         ExecutionPayloadBellatrix {
                             parent_hash: ExecutionBlockHash::repeat_byte(0),
                             fee_recipient: Address::repeat_byte(1),
@@ -2152,6 +2391,7 @@ mod test {
                             status: PayloadStatusV1Status::Valid,
                             latest_valid_hash: Some(ExecutionBlockHash::zero()),
                             validation_error: Some(String::new()),
+                            inclusion_list_satisfied: None,
                         },
                         payload_id:
                             Some(str_to_payload_id("0xa247243752eb10b4")),
@@ -2163,7 +2403,7 @@ mod test {
                 // engine_getPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<Spec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await;
                 },
                 json!({
@@ -2198,7 +2438,7 @@ mod test {
                 })],
                 |client| async move {
                     let payload: ExecutionPayload<_> = client
-                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<Spec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await
                         .unwrap()
                         .into();
@@ -2228,7 +2468,7 @@ mod test {
                 // engine_newPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix{
+                        .new_payload_v1::<Spec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix{
                             parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
@@ -2282,7 +2522,7 @@ mod test {
                 })],
                 |client| async move {
                     let response = client
-                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()))
+                        .new_payload_v1::<Spec>(ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix::default()))
                         .await
                         .unwrap();
 
@@ -2291,6 +2531,7 @@ mod test {
                             status: PayloadStatusV1Status::Valid,
                             latest_valid_hash: Some(ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
                             validation_error: Some(String::new()),
+                            inclusion_list_satisfied: None,
                         }
                     );
                 },
@@ -2354,6 +2595,7 @@ mod test {
                             status: PayloadStatusV1Status::Valid,
                             latest_valid_hash: Some(ExecutionBlockHash::zero()),
                             validation_error: Some(String::new()),
+                            inclusion_list_satisfied: None,
                         },
                         payload_id: None,
                     });

@@ -250,6 +250,7 @@ fn build_chain_inner(
             epoch: Slot::new(CHAIN_TIP_SLOT).epoch(E::slots_per_epoch()),
         },
         total_active_balance,
+        total_unslashed_active_balance: total_active_balance,
         effective_balances: vec![BALANCE; num_validators],
         slashed: vec![false; num_validators],
     };
@@ -277,16 +278,15 @@ fn build_chain_inner(
     seed_state
         .build_all_committee_caches(&spec)
         .expect("committee caches");
-    let seed_assignments =
-        SlotAssignments::new(&seed_state, &spec, None).expect("slot assignments");
     let mut fcr = FastConfirmationRule::new(
         finalized_checkpoint.root,
         &seed_state,
-        seed_assignments,
         finalized_checkpoint,
         &seed_state,
+        None,
         25,
         40,
+        &spec,
     )
     .expect("fcr initialization");
     fcr.test_set_head_balance_source(balance_source.clone());

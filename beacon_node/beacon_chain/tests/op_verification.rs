@@ -26,7 +26,7 @@ pub const VALIDATOR_COUNT: usize = 24;
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
-type E = MinimalEthSpec;
+type E = Spec;
 type TestHarness = BeaconChainHarness<DiskHarnessType<E>>;
 type HotColdDB = store::HotColdDB<E, BeaconNodeBackend, BeaconNodeBackend>;
 
@@ -48,7 +48,7 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
 }
 
 fn get_harness(store: Arc<HotColdDB>, validator_count: usize) -> TestHarness {
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store)
@@ -183,11 +183,55 @@ async fn voluntary_exit_duplicate_in_state() {
     assert!(matches!(
         harness
             .chain
+            .verify_voluntary_exit_for_gossip(exit.clone())
+            .unwrap_err(),
+        BeaconChainError::ExitValidationError(BlockOperationError::Invalid(
+            ExitInvalid::AlreadyExited(index)
+        )) if index == exited_validator
+    ));
+
+    let state = harness.get_current_state();
+    let exit_epoch = state
+        .validators()
+        .get(exited_validator as usize)
+        .unwrap()
+        .exit_epoch;
+    let epochs_to_advance = (exit_epoch - state.current_epoch()).as_u64() + 1;
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (epochs_to_advance * E::slots_per_epoch()) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+    harness
+        .chain
+        .observed_voluntary_exits
+        .lock()
+        .__reset_for_testing_only();
+
+    assert!(matches!(
+        harness
+            .chain
             .verify_voluntary_exit_for_gossip(exit)
             .unwrap_err(),
         BeaconChainError::ExitValidationError(BlockOperationError::Invalid(
             ExitInvalid::AlreadyExited(index)
         )) if index == exited_validator
+    ));
+
+    let future_epoch = harness.get_current_state().current_epoch() + 1;
+    let future_exit = harness.make_voluntary_exit(exited_validator, future_epoch);
+    assert!(matches!(
+        harness
+            .chain
+            .verify_voluntary_exit_for_gossip(future_exit)
+            .unwrap_err(),
+        BeaconChainError::ExitValidationError(BlockOperationError::Invalid(
+            ExitInvalid::FutureEpoch { .. }
+        ))
     ));
 }
 
@@ -491,7 +535,7 @@ async fn attester_slashing_duplicate_in_state() {
 
 fn get_fork_harness(fork_name: ForkName) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let spec = Arc::new(fork_name.make_genesis_spec(E::default_spec()));
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec)
         .keypairs(KEYPAIRS.to_vec())
         .fresh_ephemeral_store()
@@ -570,8 +614,12 @@ async fn gloas_attester_slashing_included_in_electra_block() {
         panic!("expected Electra slashing variant");
     };
     let slashing_gloas = AttesterSlashing::<E>::Gloas(AttesterSlashingGloas {
-        attestation_1: IndexedAttestation::Electra(slashing.attestation_1).to_gloas(),
-        attestation_2: IndexedAttestation::Electra(slashing.attestation_2).to_gloas(),
+        attestation_1: IndexedAttestation::Electra(slashing.attestation_1)
+            .to_gloas()
+            .unwrap(),
+        attestation_2: IndexedAttestation::Electra(slashing.attestation_2)
+            .to_gloas()
+            .unwrap(),
     });
 
     let ObservationOutcome::New(verified_slashing) = harness

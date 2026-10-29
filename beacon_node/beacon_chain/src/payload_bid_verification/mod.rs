@@ -10,7 +10,7 @@
 //!    GossipVerifiedPayloadBid -------> Insert into GossipVerifiedPayloadBidCache
 //! ```
 
-use types::{BeaconStateError, ExecutionBlockHash, Hash256, Slot};
+use types::{BeaconStateError, ExecutionBlockHash, Hash256, InconsistentFork, Slot};
 
 pub mod direct_verified_bid;
 pub mod gossip_verified_bid;
@@ -72,6 +72,8 @@ pub enum PayloadBidError {
         builder_index: u64,
         builder_bid: u64,
     },
+    /// The parent's payload contains an exit request for this builder.
+    BuilderExitPending { builder_index: u64 },
     /// The bids fee recipient doesn't match the proposer preferences fee recipient.
     InvalidFeeRecipient,
     /// The bid's gas limit is not compatible with the proposer's target gas limit.
@@ -92,6 +94,8 @@ pub enum PayloadBidError {
     InvalidPrevRandao { slot: Slot },
     /// Some Beacon State error
     BeaconStateError(BeaconStateError),
+    /// The bid's variant does not match the fork at its slot.
+    InconsistentFork(InconsistentFork),
     /// Internal error
     InternalError(String),
 }

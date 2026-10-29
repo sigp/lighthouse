@@ -25,4 +25,5 @@ types = { workspace = true }
 validator_metrics = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 validator_test_rig = { workspace = true }

@@ -6,7 +6,7 @@ mod votes;
 
 use crate::error::Error;
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, PayloadStatus, ProtoArrayForkChoice};
-use crate::{InvalidationOperation, JustifiedBalances};
+use crate::{InvalidationOperation, JustifiedBalances, ParentPayloadStatus};
 use fixed_bytes::FixedBytesExtended;
 use serde::{Deserialize, Serialize};
 use ssz::BitVector;
@@ -84,8 +84,8 @@ pub enum Operation {
         expected_len: usize,
     },
     InvalidatePayload {
-        head_block_root: Hash256,
-        latest_valid_ancestor_root: Option<ExecutionBlockHash>,
+        head_hash: ExecutionBlockHash,
+        latest_valid_ancestor: Option<ExecutionBlockHash>,
     },
     AssertWeight {
         block_root: Hash256,
@@ -98,7 +98,7 @@ pub enum Operation {
     },
     AssertParentPayloadStatus {
         block_root: Hash256,
-        expected_status: PayloadStatus,
+        expected_status: ParentPayloadStatus,
     },
     SetPayloadTiebreak {
         block_root: Hash256,
@@ -204,7 +204,8 @@ impl ForkChoiceTestDefinition {
                         )
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
-                        });
+                        })
+                        .as_pair();
 
                     assert_eq!(
                         head, expected_head,
@@ -228,6 +229,7 @@ impl ForkChoiceTestDefinition {
                         op_index,
                     );
                     last_current_slot = current_slot;
+                    assert_eq!(fork_choice.balances, justified_balances);
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::ProposerBoostFindHead {
@@ -252,7 +254,8 @@ impl ForkChoiceTestDefinition {
                         )
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
-                        });
+                        })
+                        .as_pair();
 
                     assert_eq!(
                         head, expected_head,
@@ -421,19 +424,17 @@ impl ForkChoiceTestDefinition {
                     );
                 }
                 Operation::InvalidatePayload {
-                    head_block_root,
-                    latest_valid_ancestor_root,
+                    head_hash,
+                    latest_valid_ancestor,
                 } => {
-                    let op = if let Some(latest_valid_ancestor) = latest_valid_ancestor_root {
+                    let op = if let Some(latest_valid_ancestor) = latest_valid_ancestor {
                         InvalidationOperation::InvalidateMany {
-                            head_block_root,
+                            head_hash,
                             always_invalidate_head: true,
                             latest_valid_ancestor,
                         }
                     } else {
-                        InvalidationOperation::InvalidateOne {
-                            block_root: head_block_root,
-                        }
+                        InvalidationOperation::InvalidateOne { head_hash }
                     };
                     fork_choice
                         .process_execution_payload_invalidation::<MainnetEthSpec>(
@@ -576,7 +577,10 @@ impl ForkChoiceTestDefinition {
                 }
                 Operation::ProcessExecutionPayloadEnvelope { block_root } => {
                     fork_choice
-                        .on_valid_payload_envelope_received(block_root)
+                        .on_payload_envelope_received(
+                            block_root,
+                            ExecutionStatus::Valid(ExecutionBlockHash::zero()),
+                        )
                         .unwrap_or_else(|e| {
                             panic!(
                                 "on_execution_payload op at index {} returned error: {}",
