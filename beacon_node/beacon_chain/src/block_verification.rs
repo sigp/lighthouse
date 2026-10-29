@@ -1006,11 +1006,15 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 });
             }
 
-            //# [New in Gloas:EIP7732]
-            // [REJECT] If the parent is not full, the bid builds on the parent's execution head
-            if let Some(parent_full_payload_hash) = parent_block.execution_payload_block_hash
+            // [New in Gloas:EIP7732]
+            // [REJECT] If the parent is not full, the bid builds on the parent's execution head.
+            //
+            // A pre-Gloas parent embeds its payload, so both hashes are that payload's hash, which
+            // the Gloas upgrade sets as `latest_block_hash`.
+            if let PayloadBlockHash::Hash(parent_full_payload_hash) = parent_block.block_hash()
                 && !block.is_parent_block_full(parent_full_payload_hash)
-                && let Some(parent_latest_block_hash) = parent_block.execution_payload_parent_hash
+                && let PayloadBlockHash::Hash(parent_latest_block_hash) =
+                    parent_block.head_payload_block_hash(proto_array::PayloadStatus::Empty)
                 && bid.message().parent_block_hash() != parent_latest_block_hash
             {
                 return Err(BlockError::EmptyParentPayloadHashMismatch {
