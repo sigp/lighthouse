@@ -41,7 +41,7 @@ const SHUTDOWN_TIMEOUT_SECS: u64 = 15;
 const MAX_INBOUND_SUBSTREAMS: usize = 32;
 
 /// Timeout that will be used for inbound and outbound responses.
-const RESP_TIMEOUT: Duration = Duration::from_secs(10);
+pub(super) const RESP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Identifier of inbound and outbound substreams from the handler's perspective.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
