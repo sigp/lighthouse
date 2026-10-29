@@ -1325,8 +1325,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let result = self
             .spawn_blocking_handle(
                 move || {
-                    let key = chain.inclusion_list_key_for_payload(parent_root, payload_slot)?;
-                    let committee = chain.get_inclusion_list_committee(&key)?;
+                    let (key, committee) = chain
+                        .inclusion_list_key_and_committee_for_payload(parent_root, payload_slot)?;
                     chain
                         .inclusion_list_store
                         .read()
