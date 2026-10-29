@@ -3,6 +3,9 @@ name = "beacon_processor"
 version = "0.1.0"
 edition = { workspace = true }
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 fnv = { workspace = true }
 futures = { workspace = true }

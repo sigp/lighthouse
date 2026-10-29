@@ -135,6 +135,7 @@ pub struct ChainSpec {
     sync_message_due_gloas: Duration,
     contribution_and_proof_due: Duration,
     contribution_and_proof_due_gloas: Duration,
+    inclusion_list_due: Duration,
 
     /*
      * Reward and penalty quotients
@@ -1025,6 +1026,11 @@ impl ChainSpec {
         }
     }
 
+    /// Spec: `get_inclusion_list_due_ms`.
+    pub fn get_inclusion_list_due(&self) -> Duration {
+        self.inclusion_list_due
+    }
+
     /// Calculate the duration into a slot for a given slot component
     pub fn compute_slot_component_duration(
         &self,
@@ -1141,6 +1147,9 @@ impl ChainSpec {
         self.contribution_and_proof_due_gloas = self
             .compute_slot_component_duration(self.contribution_due_bps_gloas)
             .expect("invalid chain spec: cannot compute contribution_and_proof_due_gloas");
+        self.inclusion_list_due = self
+            .compute_slot_component_duration(self.inclusion_list_due_bps)
+            .expect("invalid chain spec: cannot compute inclusion_list_due");
 
         self.attestation_subnet_prefix_bits = compute_attestation_subnet_prefix_bits(
             self.attestation_subnet_count,
@@ -1271,7 +1280,7 @@ impl ChainSpec {
             sync_message_due_bps_gloas: 2500,
             contribution_due_bps: 6667,
             contribution_due_bps_gloas: 5000,
-            inclusion_list_due_bps: 6667,
+            inclusion_list_due_bps: 7500,
 
             /*
              * Derived time values (set by `compute_derived_values()`)
@@ -1286,6 +1295,7 @@ impl ChainSpec {
             sync_message_due_gloas: Duration::from_millis(3000),
             contribution_and_proof_due: Duration::from_millis(8000),
             contribution_and_proof_due_gloas: Duration::from_millis(6000),
+            inclusion_list_due: Duration::from_millis(9000),
 
             /*
              * Reward and penalty quotients
@@ -1634,6 +1644,7 @@ impl ChainSpec {
             sync_message_due_gloas: Duration::from_millis(1500),
             contribution_and_proof_due: Duration::from_millis(4000),
             contribution_and_proof_due_gloas: Duration::from_millis(3000),
+            inclusion_list_due: Duration::from_millis(4500),
 
             // Networking Fulu
             blob_schedule: BlobSchedule::default(),
@@ -1740,6 +1751,7 @@ impl ChainSpec {
             sync_message_due_gloas: Duration::from_millis(1250),
             contribution_and_proof_due: Duration::from_millis(3333),
             contribution_and_proof_due_gloas: Duration::from_millis(2500),
+            inclusion_list_due: Duration::from_millis(3750),
 
             /*
              * Reward and penalty quotients
@@ -1821,7 +1833,7 @@ impl ChainSpec {
             sync_message_due_bps_gloas: 2500,
             contribution_due_bps: 6667,
             contribution_due_bps_gloas: 5000,
-            inclusion_list_due_bps: 6667,
+            inclusion_list_due_bps: 7500,
 
             /*
              * Bellatrix hard fork params
@@ -2705,7 +2717,7 @@ const fn default_aggregate_due_bps_gloas() -> u64 {
 }
 
 const fn default_inclusion_list_due_bps() -> u64 {
-    6667
+    7500
 }
 
 const fn default_sync_message_due_bps() -> u64 {
