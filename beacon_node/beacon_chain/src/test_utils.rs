@@ -277,6 +277,7 @@ pub struct Builder<T: BeaconChainTypes> {
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     proof_engine: Option<Arc<ProofEngine>>,
+    builders: Option<Arc<builder_client::Builders<T::EthSpec>>>,
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
@@ -472,6 +473,7 @@ where
             execution_layer: None,
             mock_execution_layer: None,
             proof_engine: None,
+            builders: None,
             testing_slot_clock: None,
             validator_monitor_config: None,
             genesis_state_builder: None,
@@ -651,6 +653,12 @@ where
         self
     }
 
+    /// Run with this Gloas builder service.
+    pub fn builders(mut self, builders: Arc<builder_client::Builders<E>>) -> Self {
+        self.builders = Some(builders);
+        self
+    }
+
     /// Run with an EIP-8025 proof engine, which makes the proofs a payload's validity. The engine
     /// is never contacted.
     pub fn proof_engine(mut self) -> Self {
@@ -717,6 +725,7 @@ where
             .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
             .proof_engine(self.proof_engine)
+            .builders(self.builders)
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .node_custody_type(self.node_custody_type)
@@ -884,6 +893,38 @@ fn pack_payload_attestation_vote(
     }
 
     packs.pop().flatten()
+}
+
+/// Aggregation bits pooled for exactly `data`. Bits rather than a pool count, because aggregation
+/// on insert means a second attester voting the same `data` sets a bit in the existing aggregate
+/// instead of adding a new one.
+pub fn pooled_payload_attestation_bits<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    data: &PayloadAttestationData,
+) -> usize {
+    chain
+        .op_pool
+        .get_all_payload_attestations(|pooled| pooled == data)
+        .iter()
+        .map(|attestation| attestation.aggregation_bits.num_set_bits())
+        .sum()
+}
+
+/// Number of PTC positions held by `validator_index`, which is how many bits its message sets.
+pub fn ptc_seats<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    slot: Slot,
+    validator_index: u64,
+) -> usize {
+    chain
+        .head_snapshot()
+        .beacon_state
+        .get_ptc(slot, &chain.spec)
+        .expect("should get PTC")
+        .0
+        .iter()
+        .filter(|index| **index as u64 == validator_index)
+        .count()
 }
 
 impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
@@ -1849,7 +1890,7 @@ where
 
         let signed_block = self.sign_beacon_block(block, state);
         let block_root = signed_block.canonical_root();
-        let lookup_block = LookupBlock::new(Arc::new(signed_block));
+        let lookup_block = LookupBlock::new(block_root, Arc::new(signed_block));
         self.chain.slot_clock.set_slot(slot.as_u64());
         self.chain
             .process_block(
@@ -3333,7 +3374,7 @@ where
         let block_hash: SignedBeaconBlockHash = if !is_available {
             Box::pin(self.chain.process_block(
                 block_root,
-                LookupBlock::new(block),
+                LookupBlock::new(block_root, block),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -3388,7 +3429,7 @@ where
         } else {
             Box::pin(self.chain.process_block(
                 block_root,
-                LookupBlock::new(block),
+                LookupBlock::new(block_root, block),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -3562,9 +3603,10 @@ where
                     })
                     .transpose()
                     .unwrap();
-                RangeSyncBlock::new_gloas(block, envelope).unwrap()
+                RangeSyncBlock::new_gloas(block_root, block, envelope).unwrap()
             } else {
                 RangeSyncBlock::new(
+                    block_root,
                     block,
                     AvailableBlockData::NoData,
                     &self.chain.custody_context,
@@ -3598,10 +3640,11 @@ where
                     })
                     .transpose()
                     .unwrap();
-                RangeSyncBlock::new_gloas(block, envelope).unwrap()
+                RangeSyncBlock::new_gloas(block_root, block, envelope).unwrap()
             } else {
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-                RangeSyncBlock::new(block, block_data, &self.chain.custody_context).unwrap()
+                RangeSyncBlock::new(block_root, block, block_data, &self.chain.custody_context)
+                    .unwrap()
             }
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
@@ -3611,7 +3654,7 @@ where
                 AvailableBlockData::NoData
             };
 
-            RangeSyncBlock::new(block, block_data, &self.chain.custody_context).unwrap()
+            RangeSyncBlock::new(block_root, block, block_data, &self.chain.custody_context).unwrap()
         }
     }
 
@@ -3621,13 +3664,14 @@ where
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     ) -> Result<RangeSyncBlock<E>, BlockError> {
+        let block_root = block.canonical_root();
         if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
             let columns = blob_items
                 .map(|_| generate_data_column_sidecars_from_block(&block, &self.spec))
                 .unwrap_or_default();
             let envelope = self
                 .chain
-                .get_payload_envelope(&block.canonical_root())
+                .get_payload_envelope(&block_root)
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e)))?
                 .map(Arc::new)
                 .map(|envelope| {
@@ -3635,7 +3679,8 @@ where
                 })
                 .transpose()
                 .unwrap();
-            return RangeSyncBlock::new_gloas(block, envelope).map_err(BlockError::InternalError);
+            return RangeSyncBlock::new_gloas(block_root, block, envelope)
+                .map_err(BlockError::InternalError);
         }
 
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
@@ -3651,9 +3696,10 @@ where
                     .filter(|d| sampling_columns.contains(d.index()))
                     .collect::<Vec<_>>();
                 let block_data = AvailableBlockData::new_with_data_columns(columns);
-                RangeSyncBlock::new(block, block_data, &self.chain.custody_context)?
+                RangeSyncBlock::new(block_root, block, block_data, &self.chain.custody_context)?
             } else {
                 RangeSyncBlock::new(
+                    block_root,
                     block,
                     AvailableBlockData::NoData,
                     &self.chain.custody_context,
@@ -3672,7 +3718,7 @@ where
                 AvailableBlockData::NoData
             };
 
-            RangeSyncBlock::new(block, block_data, &self.chain.custody_context)?
+            RangeSyncBlock::new(block_root, block, block_data, &self.chain.custody_context)?
         })
     }
 

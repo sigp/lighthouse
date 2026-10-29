@@ -49,7 +49,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
-use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
+use tracing::{Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, ColumnIndex, DataColumnSidecar,
     DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
@@ -1599,24 +1599,41 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .verify_block_for_gossip(block.clone())
             .await;
 
-        let block_root = if let Ok(verified_block) = &verification_result {
-            metrics::set_gauge(
-                &metrics::BEACON_BLOCK_DELAY_GOSSIP,
-                block_delay.as_millis() as i64,
-            );
-            // Write the time the block was observed into delay cache only for gossip
-            // valid blocks.
-            self.chain.block_times_cache.write().set_time_observed(
-                verified_block.block_root,
-                block.slot(),
-                seen_duration,
-                Some(peer_id.to_string()),
-                Some(peer_client.to_string()),
-            );
-            verified_block.block_root
-        } else {
-            block.canonical_root()
+        let block_root = match &verification_result {
+            Ok(verified_block) => {
+                metrics::set_gauge(
+                    &metrics::BEACON_BLOCK_DELAY_GOSSIP,
+                    block_delay.as_millis() as i64,
+                );
+                // Write the time the block was observed into delay cache only for gossip
+                // valid blocks.
+                self.chain.block_times_cache.write().set_time_observed(
+                    verified_block.block_root,
+                    block.slot(),
+                    seen_duration,
+                    Some(peer_id.to_string()),
+                    Some(peer_client.to_string()),
+                );
+                verified_block.block_root
+            }
+            Err(error) => match error.block_root {
+                Some(block_root) => block_root,
+                None => {
+                    debug!(
+                        error = ?error.error,
+                        "Gossip block beacon chain error"
+                    );
+                    self.propagate_validation_result(
+                        message_id,
+                        peer_id,
+                        MessageAcceptance::Ignore,
+                    );
+                    return None;
+                }
+            },
         };
+
+        let verification_result = verification_result.map_err(|error| *error.error);
 
         let verified_block = match verification_result {
             Ok(verified_block) => {
@@ -1916,30 +1933,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
         // from kzg commitments, without having to wait for all blobs to be sent from the peers.
-        let publish_blobs = true;
-        let self_clone = self.clone();
-        let block_clone = block.clone();
-        let current_span = Span::current();
-        self.executor.spawn(
-            async move {
-                if let Some(header_or_bid) =
-                    PartialHeaderOrBid::try_from_block(block_clone.as_ref())
-                {
-                    self_clone
-                        .fetch_engine_blobs_and_publish_full(
-                            header_or_bid.clone(),
-                            block_root,
-                            publish_blobs,
-                            EnvelopeSource::Gossip,
-                        )
-                        .await;
-                    self_clone
-                        .publish_partial_data_columns(header_or_bid, block_root)
-                        .await
-                }
-            }
-            .instrument(current_span),
-            "fetch_blobs_gossip",
+        self.spawn_fetch_block_columns(
+            block_root,
+            block.clone(),
+            EnvelopeSource::Gossip,
+            Span::current(),
         );
 
         let result = self

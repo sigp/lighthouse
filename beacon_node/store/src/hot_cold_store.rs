@@ -3360,9 +3360,17 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         let mut blobs_db_ops = vec![];
 
         // Iterate blocks backwards until we reach a block for which we've already pruned
-        // blobs/columns.
+        // blobs/columns, or the oldest block in the database (whose parent is not stored unless
+        // we have backfilled to genesis).
+        let oldest_block_slot = self.get_anchor_info().oldest_block_slot;
         let mut child_block: Option<SignedBlindedBeaconBlock<E>> = None;
-        for tuple in ParentRootBlockIterator::new(self, end_block_root) {
+        for tuple in
+            ParentRootBlockIterator::new(self, end_block_root).take_while_inclusive(|result| {
+                result
+                    .as_ref()
+                    .map_or(true, |(_, block)| block.slot() > oldest_block_slot)
+            })
+        {
             let (block_root, blinded_block) = tuple?;
             let slot = blinded_block.slot();
             let fork_name = blinded_block.fork_name_unchecked();

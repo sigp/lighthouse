@@ -7,9 +7,9 @@ use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
 use crate::beacon_proposer_cache::{BeaconProposerCache, EpochBlockProposers};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
-    BlockError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
-    check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
-    signature_verify_chain_segment, verify_header_signature,
+    BlockError, BlockErrorWithRoot, ExecutionPendingBlock, GossipVerifiedBlock,
+    IntoExecutionPendingBlock, check_block_is_finalized_checkpoint_or_descendant,
+    check_block_relevancy, signature_verify_chain_segment, verify_header_signature,
 };
 use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RangeSyncBlock,
@@ -99,7 +99,7 @@ use crate::{
     CachedHead, ChainDumpSnapshot, metrics,
 };
 use bls::{PublicKey, PublicKeyBytes, Signature};
-use builder_client::Builders;
+use builder_client::{BidRequestContext, BidStreams, Builders};
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
     EventKind, InclusionListDuty, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
@@ -479,9 +479,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Client for the EIP-8025 proof engine, if one is configured.
     pub proof_engine: Option<Arc<ProofEngine>>,
-    /// Orchestrates direct builder bid requests and preference submissions over the Gloas Builder
-    /// API. Present only when the Gloas fork is scheduled.
-    pub builders: Option<Arc<Builders>>,
+    /// Orchestrates direct builder bid requests, preference submissions and, when enabled, bid
+    /// streams over the Gloas Builder API. Present only when the Gloas fork is scheduled.
+    pub builders: Option<Arc<Builders<T::EthSpec>>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHead<T>,
@@ -2482,7 +2482,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verified: &VerifiedPayloadAttestationMessage<T>,
     ) -> Result<(), Error> {
         self.op_pool
-            .insert_payload_attestation_message(verified.payload_attestation_message().clone())
+            .insert_payload_attestation(verified.payload_attestation_message(), verified.ptc())
             .map_err(Error::OpPoolError)?;
         Ok(())
     }
@@ -3353,6 +3353,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if let RangeSyncBlock::Gloas {
                     block,
                     envelope: Some(envelope),
+                    ..
                 } = block
                 {
                     let chain = self.clone();
@@ -3489,7 +3490,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn verify_block_for_gossip(
         self: &Arc<Self>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    ) -> Result<GossipVerifiedBlock<T>, BlockError> {
+    ) -> Result<GossipVerifiedBlock<T>, BlockErrorWithRoot> {
         let chain = self.clone();
         self.task_executor
             .clone()
@@ -3513,7 +3514,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         }
                         Err(e) => {
                             debug!(
-                                error = e.to_string(),
+                                error = e.error.to_string(),
                                 graffiti = graffiti_string,
                                 %slot,
                                 "Rejected gossip block"
@@ -4051,20 +4052,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Gloas blocks dont need to be inserted into the DA cache
-        // they are always available.
-        if !unverified_block
-            .block()
-            .fork_name_unchecked()
-            .gloas_enabled()
-        {
-            self.data_availability_checker.put_pre_execution_block(
-                block_root,
-                unverified_block.block_cloned(),
-                block_source,
-            )?;
-        }
-
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
 
@@ -4074,18 +4061,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // A small closure to group the verification and import errors.
         let chain = self.clone();
         let import_block = async move {
-            let execution_pending = unverified_block.into_execution_pending_block(
-                block_root,
-                &chain,
-                notify_execution_layer,
-            )?;
+            let execution_pending = unverified_block
+                .into_execution_pending_block(block_root, &chain, notify_execution_layer)
+                .inspect_err(|e| {
+                    // Gossip and the HTTP API cache Gloas blocks before this verification, so
+                    // that peers can fetch them by root. Stop serving a block that failed it.
+                    if !matches!(
+                        e,
+                        BlockError::DuplicateFullyImported(_)
+                            | BlockError::DuplicateImportStatusUnknown(_)
+                    ) {
+                        chain.pending_payload_cache.remove_block(&block_root);
+                    }
+                })?;
 
             let block = execution_pending.block.block_cloned();
             if block.fork_name_unchecked().gloas_enabled() {
                 chain
                     .pending_payload_cache
                     .insert_block(block_root, block, block_source);
-            }
+            } else {
+                chain.data_availability_checker.put_pre_execution_block(
+                    block_root,
+                    block,
+                    block_source,
+                )?;
+            };
 
             publish_fn()?;
 
@@ -4750,12 +4751,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     Ok(current_epoch_dependent_root),
                                     Ok(next_epoch_dependent_root),
                                 ) => {
+                                    let fork_name =
+                                        self.spec.fork_name_at_slot::<T::EthSpec>(head_slot);
                                     let head_v2 = SseHeadV2 {
                                         slot: head_slot,
                                         block: block_root,
                                         state: state_root,
-                                        // In the first emission of a new head_v2, the PayloadStatus is always Empty
-                                        payload_status: fork_choice::PayloadStatus::Empty,
+                                        // Pre-Gloas: Full for the API. Post-Gloas: use head_node.payload_status.
+                                        payload_status: if fork_name.gloas_enabled() {
+                                            head_node.payload_status()
+                                        } else {
+                                            fork_choice::PayloadStatus::Full
+                                        },
                                         epoch_transition: is_epoch_transition,
                                         current_epoch_dependent_root,
                                         next_epoch_dependent_root,
@@ -4763,9 +4770,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     };
                                     event_handler.register(EventKind::HeadV2(Box::new(
                                         ForkVersionedResponse {
-                                            version: self
-                                                .spec
-                                                .fork_name_at_slot::<T::EthSpec>(head_v2.slot),
+                                            version: fork_name,
                                             metadata: Default::default(),
                                             data: head_v2,
                                         },
@@ -6866,6 +6871,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         fcu_params.head_root,
                         &cached_head,
                     )?;
+                    let bid_stream_proposer = pre_payload_attributes
+                        .as_ref()
+                        .filter(|_| chain.builder_bid_streams().is_some())
+                        .and_then(|attributes| {
+                            let pubkey = cached_head
+                                .snapshot
+                                .beacon_state
+                                .validators()
+                                .get(attributes.proposer_index as usize)
+                                .map(|validator| validator.pubkey);
+                            if pubkey.is_none() {
+                                debug!(
+                                    proposer_index = attributes.proposer_index,
+                                    "Unknown proposer pubkey; not opening builder bid streams"
+                                );
+                            }
+                            pubkey
+                        });
                     let proposer_shuffling_decision_root = cached_head
                         .snapshot
                         .beacon_state
@@ -6942,6 +6965,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         pre_payload_attributes,
                         build_payload_status,
                         proposer_shuffling_decision_root,
+                        bid_stream_proposer,
                     )))
                 },
                 "prepare_beacon_proposer_head_read",
@@ -6953,6 +6977,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(pre_payload_attributes),
             build_payload_status,
             proposer_shuffling_decision_root,
+            bid_stream_proposer,
         )) = maybe_prep_data
         else {
             // Appropriate log messages have already been logged above and in
@@ -6969,6 +6994,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .await
         {
             return Ok(None);
+        }
+
+        // The parent this node builds the proposal on is now known, so builder bid streams for it
+        // can open.
+        if let (Some(bid_streams), Some(proposer_pubkey)) =
+            (self.builder_bid_streams(), bid_stream_proposer)
+        {
+            self.open_builder_bid_streams(
+                bid_streams,
+                current_slot,
+                prepare_slot,
+                forkchoice_update_params.head_root,
+                forkchoice_update_params.head_hash,
+                proposer_pubkey,
+            );
         }
 
         let head_root = forkchoice_update_params.head_root;
@@ -7207,6 +7247,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(Some(head_root))
     }
 
+    /// The builder bid streams, when enabled.
+    pub fn builder_bid_streams(&self) -> Option<&BidStreams<T::EthSpec>> {
+        self.builders
+            .as_ref()
+            .and_then(|builders| builders.bid_streams())
+    }
+
+    /// Open builder bid streams for the `builder_preferences` entries stored for the proposer of
+    /// `prepare_slot`, building on `parent_root` and the execution payload `parent_hash`.
+    ///
+    /// Each call for a new parent replaces that proposal's streams for the previous parent.
+    fn open_builder_bid_streams(
+        &self,
+        bid_streams: &BidStreams<T::EthSpec>,
+        current_slot: Slot,
+        prepare_slot: Slot,
+        parent_root: Hash256,
+        parent_hash: Option<ExecutionBlockHash>,
+        proposer_pubkey: PublicKeyBytes,
+    ) {
+        let Some(parent_hash) = parent_hash else {
+            return;
+        };
+        let ctx = BidRequestContext {
+            slot: prepare_slot,
+            executed_ancestor_hash: parent_hash,
+            parent_root,
+            proposer_pubkey,
+            fork_name: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
+        };
+        bid_streams.open_streams(&ctx, current_slot, &self.slot_clock);
+    }
+
     pub async fn update_execution_engine_forkchoice(
         self: &Arc<Self>,
         current_slot: Slot,
@@ -7422,34 +7495,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.spec
             .bellatrix_fork_epoch
             .is_none_or(|bellatrix| slot.epoch(T::EthSpec::slots_per_epoch()) < bellatrix)
-    }
-
-    /// Returns the value of `execution_optimistic` for `head_block`.
-    ///
-    /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionVerdict::Valid`.
-    /// Returns `Ok(true)` if the block has `ExecutionVerdict::Optimistic` or `ExecutionVerdict::Invalid`.
-    ///
-    /// This function will return an error if `head_block` is not present in the fork choice store
-    /// and so should only be used on the head block or when the block *should* be present in the
-    /// fork choice store.
-    ///
-    /// There is a potential race condition when syncing where the block_root of `head_block` could
-    /// be pruned from the fork choice store before being read.
-    pub fn is_optimistic_or_invalid_head_block<Payload: AbstractExecPayload<T::EthSpec>>(
-        &self,
-        head_block: &SignedBeaconBlock<T::EthSpec, Payload>,
-    ) -> Result<bool, BeaconChainError> {
-        // Check if the block is pre-Bellatrix.
-        if self.slot_is_prior_to_bellatrix(head_block.slot()) {
-            Ok(false)
-        } else {
-            self.canonical_head
-                .fork_choice_read_lock()
-                .is_optimistic_or_invalid_block_assuming_full_no_fallback(
-                    &head_block.canonical_root(),
-                )
-                .map_err(BeaconChainError::ForkChoiceError)
-        }
     }
 
     /// Returns the value of `execution_optimistic` for the current head block.

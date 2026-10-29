@@ -8,7 +8,8 @@ use crate::utils::{
 };
 use crate::version::{V1, V2, V3, add_ssz_content_type_header, unsupported_version_rejection};
 use crate::{
-    StateId, attester_duties, inclusion_list_duties, proposer_duties, ptc_duties, sync_committees,
+    StateId, attester_duties, inclusion_list_duties, metrics, proposer_duties, ptc_duties,
+    sync_committees,
 };
 use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::inclusion_list_store::InsertOutcome;
@@ -1045,6 +1046,25 @@ pub fn post_validator_builder_preferences<T: BeaconChainTypes>(
                             "Received submit builder preferences request"
                         );
 
+                        // Keep the entries for the bid streams of this node's upcoming proposals. A
+                        // validator client submits the current and next epoch. This is best-effort
+                        // and doesn't hold up the submission to the builders.
+                        if let Some(bid_streams) = builders.bid_streams() {
+                            match chain.slot() {
+                                Ok(current_slot) => {
+                                    let max_slot = current_slot.saturating_add(
+                                        T::EthSpec::slots_per_epoch().saturating_mul(2),
+                                    );
+                                    bid_streams.store_preferences(&entries, current_slot, max_slot);
+                                }
+                                Err(error) => debug!(
+                                    ?error,
+                                    "Unable to read the slot; not storing builder preferences \
+                                     for bid streams"
+                                ),
+                            }
+                        }
+
                         // Submitting to a builder can be slow (they frequently time out), so the
                         // fan-out runs in a detached task rather than holding a `BeaconProcessor`
                         // worker. The service submits each entry independently and best-effort,
@@ -1170,8 +1190,11 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                             })
                             .collect::<Vec<_>>();
 
-                        let current_slot =
-                            chain.slot().map_err(warp_utils::reject::unhandled_error)?;
+                        let current_slot = chain
+                            .slot_clock
+                            .now_or_genesis()
+                            .ok_or(BeaconChainError::UnableToReadSlot)
+                            .map_err(warp_utils::reject::unhandled_error)?;
                         if let Some(cgc_change) = chain
                             .custody_context
                             .register_validators(validators_and_balances, current_slot)
@@ -1638,7 +1661,7 @@ pub fn post_validator_inclusion_list<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
                     not_synced_filter?;
-                    ensure_heze_consensus_version(fork_name)?;
+                    ensure_post_heze_consensus_version(fork_name)?;
                     publish_inclusion_list(&chain, &network_tx, request_body.data)?;
                     Ok(warp::reply())
                 })
@@ -1674,7 +1697,7 @@ pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
                     not_synced_filter?;
-                    ensure_heze_consensus_version(fork_name)?;
+                    ensure_post_heze_consensus_version(fork_name)?;
                     let signed_inclusion_list = SignedInclusionList::from_ssz_bytes(&body_bytes)
                         .map_err(|e| {
                             warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
@@ -1687,7 +1710,7 @@ pub fn post_validator_inclusion_list_ssz<T: BeaconChainTypes>(
         .boxed()
 }
 
-fn ensure_heze_consensus_version(fork_name: ForkName) -> Result<(), Rejection> {
+fn ensure_post_heze_consensus_version(fork_name: ForkName) -> Result<(), Rejection> {
     if !fork_name.heze_enabled() {
         return Err(warp_utils::reject::custom_bad_request(format!(
             "Eth-Consensus-Version {fork_name} is not supported for inclusion lists"
@@ -1730,6 +1753,7 @@ fn publish_inclusion_list<T: BeaconChainTypes>(
                     network_tx,
                     PubsubMessage::InclusionList(Box::new(signed_inclusion_list)),
                 )?;
+                metrics::inc_counter(&metrics::INCLUSION_LISTS_PUBLISHED_TOTAL);
             }
             Ok(())
         }

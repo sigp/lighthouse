@@ -19,7 +19,7 @@ use beacon_chain::{
 use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
-use builder_client::{BuilderHttpClient, Builders};
+use builder_client::{BidStreams, BuilderHttpClient, Builders};
 use environment::RuntimeContext;
 use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
@@ -216,7 +216,16 @@ where
                 .unwrap_or((None, false));
             let client = BuilderHttpClient::new(user_agent, disable_ssz)
                 .map_err(|e| format!("unable to start builder client: {:?}", e))?;
-            Some(Arc::new(Builders::new(Arc::new(client))))
+            let user_agent = client.get_user_agent().to_string();
+            let mut builders = Builders::new(Arc::new(client));
+            if config.chain.builder_bid_streaming {
+                builders = builders.with_bid_streams(Arc::new(BidStreams::new(
+                    context.executor.clone(),
+                    &user_agent,
+                )?));
+                info!("Builder bid streams enabled");
+            }
+            Some(Arc::new(builders))
         } else {
             None
         };
