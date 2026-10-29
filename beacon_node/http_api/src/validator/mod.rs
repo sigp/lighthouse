@@ -948,6 +948,25 @@ pub fn post_validator_builder_preferences<T: BeaconChainTypes>(
                             "Received submit builder preferences request"
                         );
 
+                        // Keep the entries for the bid streams of this node's upcoming proposals. A
+                        // validator client submits the current and next epoch. This is best-effort
+                        // and doesn't hold up the submission to the builders.
+                        if let Some(bid_streams) = builders.bid_streams() {
+                            match chain.slot() {
+                                Ok(current_slot) => {
+                                    let max_slot = current_slot.saturating_add(
+                                        T::EthSpec::slots_per_epoch().saturating_mul(2),
+                                    );
+                                    bid_streams.store_preferences(&entries, current_slot, max_slot);
+                                }
+                                Err(error) => debug!(
+                                    ?error,
+                                    "Unable to read the slot; not storing builder preferences \
+                                     for bid streams"
+                                ),
+                            }
+                        }
+
                         // Submitting to a builder can be slow (they frequently time out), so the
                         // fan-out runs in a detached task rather than holding a `BeaconProcessor`
                         // worker. The service submits each entry independently and best-effort,
@@ -1073,8 +1092,11 @@ pub fn post_validator_prepare_beacon_proposer<T: BeaconChainTypes>(
                             })
                             .collect::<Vec<_>>();
 
-                        let current_slot =
-                            chain.slot().map_err(warp_utils::reject::unhandled_error)?;
+                        let current_slot = chain
+                            .slot_clock
+                            .now_or_genesis()
+                            .ok_or(BeaconChainError::UnableToReadSlot)
+                            .map_err(warp_utils::reject::unhandled_error)?;
                         if let Some(cgc_change) = chain
                             .custody_context
                             .register_validators(validators_and_balances, current_slot)
