@@ -90,7 +90,7 @@ use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
 use crate::validator_monitor::{
-    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, get_slot_delay_ms,
+    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, is_before_slot,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -2239,7 +2239,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // the envelopes_times_cache internally?
         // The payload is considered present only if it was observed before
         // the payload due deadline (PAYLOAD_DUE_BPS into the slot).
-        let payload_due = self.spec.get_payload_due();
+        let payload_due = self.spec.get_payload_due::<T::EthSpec>(request_slot);
         let payload_present = self
             .envelope_times_cache
             .read()
@@ -5132,12 +5132,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let block_delay_total =
-            get_slot_delay_ms(block_time_imported, block.slot(), &self.slot_clock);
-
         // Do not write to the cache for blocks older than 2 epochs, this helps reduce writes to
         // the cache during sync.
-        if block_delay_total < self.slot_clock.slot_duration() * 64 {
+        if is_before_slot(
+            block_time_imported,
+            block.slot().saturating_add(64u64),
+            &self.slot_clock,
+        ) {
             // Store the timestamp of the block being imported into the cache.
             self.block_times_cache.write().set_time_imported(
                 block_root,
@@ -5176,7 +5177,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Do not trigger light_client server update producer for old blocks, to extra work
         // during sync.
         if self.config.enable_light_client_server
-            && block_delay_total < self.slot_clock.slot_duration() * 32
+            && is_before_slot(
+                block_time_imported,
+                block.slot().saturating_add(32u64),
+                &self.slot_clock,
+            )
             && let Some(mut light_client_server_tx) = self.light_client_server_tx.clone()
             && let Ok(sync_aggregate) = block.body().sync_aggregate()
             && let Err(e) = light_client_server_tx.try_send((
@@ -5558,8 +5563,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot_delay = now.saturating_sub(slot_start);
                     let re_org_cutoff_duration = self
                         .spec
-                        .compute_slot_component_duration(self.spec.proposer_reorg_cutoff_bps)
-                        .ok()?;
+                        .get_proposer_reorg_cutoff::<T::EthSpec>(re_org_block_slot);
 
                     Some(slot_delay <= re_org_cutoff_duration)
                 })
@@ -8047,10 +8051,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // into an offence; a reveal after the deadline is one even if it was then imported.
         let envelope_observed_timely = {
             let observed = self.envelope_times_cache.read().time_observed(block_root);
-            let deadline = self
-                .slot_clock
-                .start_of(block_slot)
-                .map(|slot_start| slot_start + self.spec.get_payload_attestation_due());
+            let deadline = self.slot_clock.start_of(block_slot).map(|slot_start| {
+                slot_start
+                    + self
+                        .spec
+                        .get_payload_attestation_due::<T::EthSpec>(block_slot)
+            });
             observed
                 .zip(deadline)
                 .is_some_and(|(observed, deadline)| observed <= deadline)

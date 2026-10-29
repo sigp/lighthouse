@@ -509,7 +509,7 @@ pub async fn proposer_boost_re_org_test(
     // otherwise the late block reveal for A halfway through the slot can end up being *after*
     // the payload lookahead, which messes up our measurement of timings.
     let chain_config = ChainConfig {
-        prepare_payload_lookahead: spec.get_slot_duration()
+        prepare_payload_lookahead: spec.genesis_slot_duration()
             / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
         ..Default::default()
     };
@@ -714,7 +714,7 @@ pub async fn proposer_boost_re_org_test(
     let state_b_root = state_b.canonical_root().unwrap();
     let block_b_root = block_b.0.canonical_root();
 
-    let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.slot_duration() / 2;
+    let obs_time = slot_clock.start_of(slot_b).unwrap() + slot_clock.current_slot_duration() / 2;
     slot_clock.set_current_time(obs_time);
     harness.chain.block_times_cache.write().set_time_observed(
         block_b_root,
@@ -789,7 +789,7 @@ pub async fn proposer_boost_re_org_test(
         .into();
 
     if let Some(proposal_delay) = proposal_delay {
-        assert!(proposal_delay < slot_clock.slot_duration());
+        assert!(proposal_delay < slot_clock.slot_duration_at(slot_c));
         slot_clock.set_current_time(slot_clock.start_of(slot_c).unwrap() + proposal_delay);
         assert_eq!(harness.get_current_slot(), slot_c);
     }

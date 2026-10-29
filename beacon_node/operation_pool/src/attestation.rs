@@ -109,7 +109,9 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
 
                 let mut proposer_reward_numerator = 0;
 
-                let base_reward = state.get_base_reward(index as usize).ok()?;
+                let base_reward = state
+                    .get_base_reward_for_epoch(index as usize, att_data.target.epoch)
+                    .ok()?;
 
                 for (flag_index, weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                     if att_participation_flags.contains(&flag_index) {

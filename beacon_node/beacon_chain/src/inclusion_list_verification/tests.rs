@@ -37,11 +37,7 @@ impl TestContext {
         let mut spec = test_spec::<E>();
         spec.heze_fork_epoch = Some(heze_fork_epoch);
         let spec = Arc::new(spec);
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        );
+        let slot_clock = TestingSlotClock::from_spec::<E>(Duration::from_secs(0), &spec);
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec)
             .deterministic_keypairs(NUM_VALIDATORS)
@@ -51,10 +47,8 @@ impl TestContext {
             .build();
 
         // Advance past genesis so `now_with_past_tolerance` doesn't underflow.
-        harness
-            .chain
-            .slot_clock
-            .set_current_time(harness.spec.get_slot_duration());
+        let slot_one_start = harness.chain.slot_clock.start_of(Slot::new(1)).unwrap();
+        harness.chain.slot_clock.set_current_time(slot_one_start);
         let genesis_block_root = harness.chain.genesis_block_root;
 
         Self {
@@ -166,7 +160,7 @@ fn inclusion_list_after_deadline_is_not_timely() {
     let slot = ctx.current_slot();
     let slot_clock = &ctx.harness.chain.slot_clock;
     slot_clock.set_current_time(
-        slot_clock.start_of(slot).unwrap() + ctx.harness.spec.get_inclusion_list_due(),
+        slot_clock.start_of(slot).unwrap() + ctx.harness.spec.get_inclusion_list_due::<E>(slot),
     );
 
     let signed = ctx.valid_inclusion_list(slot, ctx.genesis_block_root, vec![vec![0xaa]]);
@@ -185,7 +179,8 @@ fn inclusion_list_seen_before_deadline_is_timely() {
     let slot = ctx.current_slot();
     let slot_clock = &ctx.harness.chain.slot_clock;
     let seen_timestamp = slot_clock.start_of(slot).unwrap();
-    slot_clock.set_current_time(seen_timestamp + ctx.harness.spec.get_inclusion_list_due());
+    slot_clock
+        .set_current_time(seen_timestamp + ctx.harness.spec.get_inclusion_list_due::<E>(slot));
 
     let signed = ctx.valid_inclusion_list(slot, ctx.genesis_block_root, vec![vec![0xaa]]);
     let verified = GossipVerifiedInclusionList::new(signed, seen_timestamp, &ctx.gossip_ctx())

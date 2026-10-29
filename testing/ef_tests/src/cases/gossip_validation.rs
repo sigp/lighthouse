@@ -267,12 +267,9 @@ impl<E: EthSpec> GossipTester<E> {
                 .build()
         } else if spec_synthetic_anchor || case.meta.topic.requires_synthetic_anchor() {
             let (state, block) = synthetic_anchor(case.state.clone(), &spec)?;
-            let slot_clock = TestingSlotClock::new(
-                spec.genesis_slot,
-                Duration::from_secs(genesis_time),
-                spec.get_slot_duration(),
-            );
-            let state_time_ms = slot_time_ms(state.slot(), &spec)?;
+            let slot_clock =
+                TestingSlotClock::from_spec::<E>(Duration::from_secs(genesis_time), &spec);
+            let state_time_ms = slot_time_ms::<E>(state.slot(), &spec)?;
             let build_time = Duration::from_secs(genesis_time)
                 .checked_add(Duration::from_millis(current_time_ms.max(state_time_ms)))
                 .ok_or_else(|| Error::FailedToParseTest("build time overflow".into()))?;
@@ -865,7 +862,7 @@ impl<E: EthSpec> GossipValidation<E> {
             .filter_map(|setup_block| blocks.get(&setup_block.block))
             .map(|block| block.slot())
             .fold(self.state.slot(), Slot::max);
-        slot_time_ms(slot, spec)
+        slot_time_ms::<E>(slot, spec)
     }
 
     fn finalized_checkpoint(
@@ -910,17 +907,14 @@ impl<E: EthSpec> GossipValidation<E> {
     }
 }
 
-fn slot_time_ms(slot: Slot, spec: &ChainSpec) -> Result<u64, Error> {
+fn slot_time_ms<E: EthSpec>(slot: Slot, spec: &ChainSpec) -> Result<u64, Error> {
     let slots_since_genesis = slot
         .as_u64()
         .checked_sub(spec.genesis_slot.as_u64())
         .ok_or_else(|| Error::FailedToParseTest("state is before genesis slot".into()))?;
-    let slot_duration_ms = u64::try_from(spec.get_slot_duration().as_millis()).map_err(|_| {
-        Error::FailedToParseTest("slot duration does not fit in milliseconds".into())
-    })?;
-    slots_since_genesis
-        .checked_mul(slot_duration_ms)
-        .ok_or_else(|| Error::FailedToParseTest("current time overflow".into()))
+    spec.slot_duration_schedule()
+        .compute_time_at_slot_ms(E::slots_per_epoch(), 0, Slot::new(slots_since_genesis))
+        .map_err(|_| Error::FailedToParseTest("current time overflow".into()))
 }
 
 impl FinalizedCheckpoint {

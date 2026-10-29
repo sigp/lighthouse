@@ -8,8 +8,12 @@ use types::*;
 pub struct BaseRewardPerIncrement(u64);
 
 impl BaseRewardPerIncrement {
-    pub fn new(total_active_balance: u64, spec: &ChainSpec) -> Result<Self, ArithError> {
-        get_base_reward_per_increment(total_active_balance, spec).map(Self)
+    pub fn new(
+        total_active_balance: u64,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Self, ArithError> {
+        get_base_reward_per_increment(total_active_balance, epoch, spec).map(Self)
     }
 
     pub fn as_u64(&self) -> u64 {
@@ -40,9 +44,12 @@ pub fn get_base_reward(
 /// Spec v1.1.0
 fn get_base_reward_per_increment(
     total_active_balance: u64,
+    epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<u64, ArithError> {
     spec.effective_balance_increment
         .safe_mul(spec.base_reward_factor)?
+        .safe_mul(spec.get_slot_duration_ms(epoch))?
+        .safe_div(spec.get_slot_duration_ms(Epoch::new(0)))?
         .safe_div(total_active_balance.integer_sqrt())
 }

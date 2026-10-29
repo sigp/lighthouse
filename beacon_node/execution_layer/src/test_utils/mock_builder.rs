@@ -869,8 +869,10 @@ impl<E: EthSpec> MockBuilder<E> {
                 .data
                 .genesis_time
         };
-        let timestamp =
-            (slots_since_genesis * self.spec.get_slot_duration().as_secs()) + genesis_time;
+        let timestamp = self
+            .spec
+            .compute_time_at_slot::<E>(genesis_time, Slot::new(slots_since_genesis))
+            .map_err(|e| format!("couldn't compute the payload timestamp: {e:?}"))?;
 
         let head_state: BeaconState<E> = self
             .beacon_client
