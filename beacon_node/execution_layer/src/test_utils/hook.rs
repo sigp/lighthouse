@@ -1,10 +1,9 @@
+use crate::engine_api::PayloadAttributes;
+use crate::engines::ForkchoiceState;
 use crate::json_structures::*;
 use serde_json::Value as JsonValue;
 
-type ForkChoiceUpdatedHook = dyn Fn(
-        JsonForkchoiceStateV1,
-        Option<JsonPayloadAttributes>,
-    ) -> Option<JsonForkchoiceUpdatedV1Response>
+type ForkChoiceUpdatedHook = dyn Fn(ForkchoiceState, Option<PayloadAttributes>) -> Option<JsonForkchoiceUpdatedV1Response>
     + Send
     + Sync;
 
@@ -19,8 +18,8 @@ pub struct Hook {
 impl Hook {
     pub fn on_forkchoice_updated(
         &self,
-        state: JsonForkchoiceStateV1,
-        payload_attributes: Option<JsonPayloadAttributes>,
+        state: ForkchoiceState,
+        payload_attributes: Option<PayloadAttributes>,
     ) -> Option<JsonForkchoiceUpdatedV1Response> {
         (self.forkchoice_updated.as_ref()?)(state, payload_attributes)
     }

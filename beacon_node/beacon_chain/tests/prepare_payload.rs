@@ -14,10 +14,6 @@ use beacon_chain::{
 };
 use bls::{Keypair, Signature};
 use eth2::types::{GraffitiPolicy, ProposerPreparationData};
-use execution_layer::http::{ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5};
-use execution_layer::json_structures::{
-    JsonForkchoiceStateV1, JsonPayloadAttributesV4, JsonPayloadAttributesV5,
-};
 use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes};
 use fork_choice::PayloadStatus;
 use logging::create_test_tracing_subscriber;
@@ -322,16 +318,14 @@ async fn prepare_payload_on_full_parent_with_negative_ptc() {
         .await
         .expect("prepare_beacon_proposer should succeed");
 
-    let request = harness
+    // Captured by the shared mock core, so this covers both JSON-RPC and REST-SSZ.
+    let (forkchoice_state, _attributes) = harness
         .mock_execution_layer
         .as_ref()
         .unwrap()
         .server
-        .take_previous_request()
+        .take_previous_forkchoice_request()
         .expect("prepare should send forkchoiceUpdated");
-    let params = request.get("params").expect("no params");
-    let forkchoice_state: JsonForkchoiceStateV1 =
-        serde_json::from_value(params.get(0).expect("no forkchoice state param").clone()).unwrap();
     assert_eq!(
         forkchoice_state.head_block_hash,
         parent_bid.parent_block_hash(),
@@ -1021,32 +1015,27 @@ async fn prepare_payload_around_heze_boundary(prepare_slot: Slot, heze_fork_epoc
         .await
         .unwrap();
 
-    // Inspect the fcU request received by the mock execution layer
-    let request = harness
+    // Inspect the fcU request received by the mock execution layer. Captured by the shared mock
+    // core, so this covers both JSON-RPC and REST-SSZ.
+    let (_state, attributes) = harness
         .mock_execution_layer
         .as_ref()
         .unwrap()
         .server
-        .take_previous_request()
-        .expect("no previous request");
-    let method = request.get("method").expect("no method");
-    let params = request.get("params").expect("no params");
-    let payload_attributes_json = params.get(1).expect("no payload attributes param");
+        .take_previous_forkchoice_request()
+        .expect("no previous forkchoice request");
+    let attributes = attributes.expect("no payload attributes");
 
     if prepare_slot_is_heze {
-        assert_eq!(method, ENGINE_FORKCHOICE_UPDATED_V5);
-        let attributes: JsonPayloadAttributesV5 =
-            serde_json::from_value(payload_attributes_json.clone()).unwrap();
+        let PayloadAttributes::V5(attributes) = &attributes else {
+            panic!("expected V5 payload attributes at heze, got {attributes:?}");
+        };
         // We are currently sending the V5 shape with an empty inclusion list
         assert!(attributes.inclusion_list_transactions.is_empty());
     } else {
-        assert_eq!(method, ENGINE_FORKCHOICE_UPDATED_V4);
-        let _attributes: JsonPayloadAttributesV4 =
-            serde_json::from_value(payload_attributes_json.clone()).unwrap();
         assert!(
-            payload_attributes_json
-                .get("inclusionListTransactions")
-                .is_none()
+            matches!(attributes, PayloadAttributes::V4(_)),
+            "expected V4 payload attributes before heze, got {attributes:?}"
         );
     }
 
@@ -1192,21 +1181,19 @@ async fn prepare_payload_inclusion_lists_around_heze_boundary(
         .await
         .unwrap();
 
-    // The fcU received by the mock execution layer must carry the expected inclusion list
-    let request = harness
+    // The fcU received by the mock execution layer must carry the expected inclusion list.
+    // Captured by the shared mock core, so this covers both JSON-RPC and REST-SSZ.
+    let (_state, attributes) = harness
         .mock_execution_layer
         .as_ref()
         .unwrap()
         .server
-        .take_previous_request()
-        .expect("no previous request");
-    let method = request.get("method").expect("no method");
-    let params = request.get("params").expect("no params");
-    let payload_attributes_json = params.get(1).expect("no payload attributes param");
-
-    assert_eq!(method, ENGINE_FORKCHOICE_UPDATED_V5);
-    let attributes: JsonPayloadAttributesV5 =
-        serde_json::from_value(payload_attributes_json.clone()).unwrap();
+        .take_previous_forkchoice_request()
+        .expect("no previous forkchoice request");
+    let attributes = attributes.expect("no payload attributes");
+    let PayloadAttributes::V5(attributes) = &attributes else {
+        panic!("expected V5 payload attributes, got {attributes:?}");
+    };
     assert_eq!(
         attributes.inclusion_list_transactions,
         expected_transactions
@@ -1274,7 +1261,7 @@ async fn prepare_payload_inclusion_lists_used_in_block_production() {
         .lock()
         .set_forkchoice_updated_hook(Box::new(move |_state, payload_attributes| {
             if let Some(attributes) = payload_attributes {
-                captured_inner.lock().push(attributes.into());
+                captured_inner.lock().push(attributes);
             }
             None
         }));
@@ -1354,7 +1341,7 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_block_production() {
         .lock()
         .set_forkchoice_updated_hook(Box::new(move |_state, payload_attributes| {
             if let Some(attributes) = payload_attributes {
-                captured_inner.lock().push(attributes.into());
+                captured_inner.lock().push(attributes);
             }
             None
         }));
@@ -1467,7 +1454,7 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_proposer_preparation(
         .lock()
         .set_forkchoice_updated_hook(Box::new(move |_state, payload_attributes| {
             if let Some(attributes) = payload_attributes {
-                captured_inner.lock().push(attributes.into());
+                captured_inner.lock().push(attributes);
             }
             None
         }));
@@ -1592,7 +1579,7 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_empty_build_parent() 
         .lock()
         .set_forkchoice_updated_hook(Box::new(move |_state, payload_attributes| {
             if let Some(attributes) = payload_attributes {
-                captured_inner.lock().push(attributes.into());
+                captured_inner.lock().push(attributes);
             }
             None
         }));
