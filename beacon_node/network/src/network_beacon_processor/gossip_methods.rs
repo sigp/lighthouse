@@ -4287,7 +4287,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 | PayloadBidError::BeaconStateError(_)
                 | PayloadBidError::InternalError(_)
                 | PayloadBidError::InvalidBidSlot { .. }
-                | PayloadBidError::UnableToReadSlot,
+                | PayloadBidError::UnableToReadSlot
+                | PayloadBidError::InclusionListBitsNotInclusive { .. },
             ) => {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
