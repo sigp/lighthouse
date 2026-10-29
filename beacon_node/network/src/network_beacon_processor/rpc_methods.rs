@@ -929,26 +929,44 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             ));
         }
 
-        // The committee maps the requested positions to validator indices. The block must not be
-        // from a later epoch than the slot, or the shuffling won't resolve.
-        let anchor_block_root = self
+        // Only lists for this exact `(slot, dependent_root)` can be served. Checking the store
+        // first also stops peers from forcing a committee computation (and possibly a state load)
+        // for an arbitrary block root.
+        if !self
             .chain
-            .block_root_at_slot(request.slot, WhenSlotSkipped::Prev)
-            .map_err(|_| (RpcErrorResponse::ServerError, "Error reading block roots"))?
-            .ok_or((
-                RpcErrorResponse::ResourceUnavailable,
-                "No block known at or before the requested slot",
-            ))?;
+            .inclusion_list_store
+            .read()
+            .has_inclusion_lists(request.slot, request.dependent_root)
+        {
+            debug!(
+                %peer_id,
+                slot = %request.slot,
+                dependent_root = ?request.dependent_root,
+                "No inclusion lists stored for InclusionListsByIndices request"
+            );
+            return Ok(());
+        }
 
-        let (committee, _) = self
+        // The committee maps the requested positions to validator indices. It must come from the
+        // requested `dependent_root`, since the positions index into that committee.
+        let (committee, dependent_root) = self
             .chain
-            .inclusion_list_committee(anchor_block_root, request.slot)
+            .inclusion_list_committee(request.dependent_root, request.slot)
             .map_err(|_| {
                 (
                     RpcErrorResponse::ServerError,
                     "Error computing the inclusion list committee",
                 )
             })?;
+
+        // A root that isn't the shuffling decision block for the slot's epoch resolves a
+        // different committee, so the positions can't be mapped.
+        if dependent_root != request.dependent_root {
+            return Err((
+                RpcErrorResponse::InvalidRequest,
+                "Dependent root is not the shuffling decision root for the slot",
+            ));
+        }
 
         let requested_validators = request
             .indices
@@ -958,8 +976,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .filter_map(|(position, _)| committee.get(position).copied())
             .collect::<Vec<_>>();
 
-        // The store is keyed by `(slot, dependent_root)`, so an unknown dependent root returns
-        // nothing rather than another committee's lists.
         let inclusion_lists = self
             .chain
             .inclusion_list_store

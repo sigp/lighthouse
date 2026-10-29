@@ -3264,6 +3264,51 @@ async fn test_inclusion_lists_by_indices_ignores_unknown_dependent_root() {
     assert!(recv_inclusion_lists(&mut rig).await.is_empty());
 }
 
+// A known block root that isn't the slot's shuffling decision root is rejected, even if lists are
+// stored under it, since the requested positions can't be mapped to its committee.
+#[tokio::test]
+async fn test_inclusion_lists_by_indices_rejects_non_decision_root() {
+    let mut rig = TestRig::new(SLOTS_PER_EPOCH).await;
+    let slot = rig.chain.slot().unwrap();
+    let anchor = rig
+        .chain
+        .block_root_at_slot(slot, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let (committee, dependent_root) = rig.chain.inclusion_list_committee(anchor, slot).unwrap();
+    let non_decision_root = rig
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    assert_ne!(non_decision_root, dependent_root);
+
+    rig.chain
+        .inclusion_list_store
+        .write()
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: signed_inclusion_list(
+                slot,
+                committee[0],
+                non_decision_root,
+                0xaa,
+            ),
+            is_timely: true,
+        });
+
+    enqueue_inclusion_lists_by_indices_request(&rig, slot, non_decision_root, &[0]);
+
+    match rig.network_rx.recv().await.expect("a network message") {
+        NetworkMessage::SendErrorResponse { error, .. } => {
+            assert_matches!(
+                error,
+                lighthouse_network::rpc::RpcErrorResponse::InvalidRequest
+            );
+        }
+        other => panic!("expected SendErrorResponse, got {:?}", other),
+    }
+}
+
 // Slots below `minimum_request_slot` are answered with `ResourceUnavailable`.
 #[tokio::test]
 async fn test_inclusion_lists_by_indices_rejects_slots_outside_the_window() {

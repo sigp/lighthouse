@@ -602,8 +602,10 @@ pub struct InclusionListsByIndicesRequest<E: EthSpec> {
 }
 
 impl<E: EthSpec> InclusionListsByIndicesRequest<E> {
+    /// At least 1, so a request with no bits set still keeps its stream open and gets a
+    /// stream termination, rather than being treated as a request that expects no response.
     pub fn max_requested(&self) -> u64 {
-        self.indices.num_set_bits() as u64
+        (self.indices.num_set_bits() as u64).max(1)
     }
 }
 
