@@ -334,6 +334,15 @@ pub enum BlockError {
         bid_parent_root: Hash256,
         block_parent_root: Hash256,
     },
+    /// The bid builds on an empty parent but does not match the expected empty block hash.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer should be penalized.
+    EmptyParentPayloadHashMismatch {
+        bid_parent_block_hash: ExecutionBlockHash,
+        parent_latest_block_hash: ExecutionBlockHash,
+    },
     /// The slot of a Gloas data column sidecar does not match the slot of its bid.
     ///
     /// ## Peer scoring
@@ -988,14 +997,27 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let (parent_block, block) =
             verify_parent_block_and_envelope_are_known::<T>(&fork_choice_read_lock, block)?;
 
-        // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
-        if let Ok(bid) = block.message().body().signed_execution_payload_bid()
-            && bid.message().parent_block_root() != block.message().parent_root()
-        {
-            return Err(BlockError::BidParentRootMismatch {
-                bid_parent_root: bid.message().parent_block_root(),
-                block_parent_root: block.message().parent_root(),
-            });
+        if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
+            // [New in Gloas]: Verify bid.parent_block_root matches block.parent_root.
+            if bid.message().parent_block_root() != block.message().parent_root() {
+                return Err(BlockError::BidParentRootMismatch {
+                    bid_parent_root: bid.message().parent_block_root(),
+                    block_parent_root: block.message().parent_root(),
+                });
+            }
+
+            //# [New in Gloas:EIP7732]
+            // [REJECT] If the parent is not full, the bid builds on the parent's execution head
+            if let Some(parent_full_payload_hash) = parent_block.execution_payload_block_hash
+                && !block.is_parent_block_full(parent_full_payload_hash)
+                && let Some(parent_latest_block_hash) = parent_block.execution_payload_parent_hash
+                && bid.message().parent_block_hash() != parent_latest_block_hash
+            {
+                return Err(BlockError::EmptyParentPayloadHashMismatch {
+                    bid_parent_block_hash: bid.message().parent_block_hash(),
+                    parent_latest_block_hash,
+                });
+            }
         }
 
         drop(fork_choice_read_lock);
