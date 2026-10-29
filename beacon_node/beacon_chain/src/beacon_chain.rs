@@ -7356,7 +7356,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match forkchoice_updated_response {
             Ok(status) => match status {
-                PayloadStatus::Valid => {
+                PayloadStatus::Valid { .. } => {
                     // EIP-8025: only the proofs promote a payload to valid.
                     if self.execution_proofs_enabled() {
                         return Ok(());

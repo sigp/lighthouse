@@ -251,10 +251,10 @@ pub async fn handle_rpc<E: EthSpec>(
             let mut response = static_response.or(dynamic_response).unwrap();
 
             if method == ENGINE_NEW_PAYLOAD_V6 {
-                // TODO(heze): make this configurable so enforcement tests can exercise an
-                // unsatisfied payload.
                 if response.status == PayloadStatusV1Status::Valid {
-                    response.inclusion_list_satisfied = Some(true);
+                    response
+                        .inclusion_list_satisfied
+                        .get_or_insert(*ctx.new_payload_inclusion_list_satisfied.lock());
                 }
                 Ok(serde_json::to_value(JsonPayloadStatusV2::from(response)).unwrap())
             } else {

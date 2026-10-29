@@ -31,6 +31,7 @@ use bls::{Keypair, Signature, SignatureBytes};
 use fixed_bytes::FixedBytesExtended;
 use fork_choice::PayloadStatus;
 use fork_choice::PayloadVerificationStatus;
+use fork_choice::ResetPayloadStatuses;
 use futures::StreamExt;
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
@@ -4571,6 +4572,7 @@ async fn weak_subjectivity_sync_test(
                 wss_block_root,
                 PayloadVerificationStatus::Verified,
                 ExecutionBlockHash::zero(),
+                true,
             )
             .unwrap();
     }
@@ -4651,6 +4653,7 @@ async fn weak_subjectivity_sync_test(
                     block_root,
                     PayloadVerificationStatus::Verified,
                     ExecutionBlockHash::zero(),
+                    true,
                 )
                 .unwrap();
         }
@@ -6310,8 +6313,50 @@ async fn payload_envelope_schema_v31_downgrade_before_gloas() {
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
 
-    migrate_schema::<DiskHarnessType<E>>(store, SchemaVersion(31), SchemaVersion(30))
+    migrate_schema::<DiskHarnessType<E>>(store, SchemaVersion(32), SchemaVersion(30))
         .expect("schema downgrade before Gloas should succeed");
+}
+
+#[tokio::test]
+async fn proto_node_schema_v33_migration() {
+    let db_path = tempdir().unwrap();
+    let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec.clone());
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    harness.extend_to_slot(Slot::new(4)).await;
+
+    // The downgrade drops the inclusion list verdict, so the upgrade records it as satisfied.
+    let head_root = harness.head_block_root();
+    {
+        let mut fork_choice = harness.chain.canonical_head.fork_choice_write_lock();
+        let proto_array = fork_choice.proto_array_mut().core_proto_array_mut();
+        let index = *proto_array.indices.get(&head_root).unwrap();
+        proto_array.nodes[index]
+            .as_v33_mut()
+            .unwrap()
+            .payload_inclusion_list_satisfied = false;
+    }
+    harness.chain.persist_fork_choice().unwrap();
+
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(33), SchemaVersion(32))
+        .expect("schema downgrade to v32 should succeed");
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), SchemaVersion(32), SchemaVersion(33))
+        .expect("schema upgrade to v33 should succeed");
+
+    let fork_choice = BeaconChain::<DiskHarnessType<E>>::load_fork_choice(
+        store,
+        ResetPayloadStatuses::OnlyWithInvalidPayload,
+        &spec,
+    )
+    .unwrap()
+    .unwrap();
+    let nodes = &fork_choice.proto_array().core_proto_array().nodes;
+    assert!(nodes.iter().all(|node| node.as_v33().is_ok()));
+    assert!(
+        nodes
+            .iter()
+            .all(|node| node.payload_inclusion_list_satisfied() == Ok(true))
+    );
 }
 
 /// Check that blob pruning prunes blobs older than the data availability boundary.
