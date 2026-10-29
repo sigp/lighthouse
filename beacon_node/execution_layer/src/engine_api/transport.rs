@@ -111,6 +111,9 @@ impl EngineApi {
         custody_columns: Option<&[ColumnIndex]>,
         fork: ForkName,
     ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
+        // Read before the match: `payload_attributes` is moved into both arms. Attribute-bearing
+        // calls also start payload building, which costs far more than a bare head update.
+        let has_attributes = payload_attributes.is_some();
         let start_time = Instant::now();
         let (transport, result) = match self.active_rest() {
             Some(rest) => {
@@ -134,9 +137,14 @@ impl EngineApi {
                     .await,
             ),
         };
+        let method = if has_attributes {
+            metrics::FORKCHOICE_UPDATED_WITH_ATTRIBUTES
+        } else {
+            metrics::FORKCHOICE_UPDATED
+        };
         metrics::observe_timer_vec(
             &metrics::EXECUTION_LAYER_ENGINE_REQUEST_TIMES,
-            &[metrics::FORKCHOICE_UPDATED, transport],
+            &[method, transport],
             start_time.elapsed(),
         );
         result

@@ -11,6 +11,7 @@ pub const GET_BLINDED_PAYLOAD_BUILDER: &str = "get_blinded_payload_builder";
 pub const POST_BLINDED_PAYLOAD_BUILDER: &str = "post_blinded_payload_builder";
 pub const NEW_PAYLOAD: &str = "new_payload";
 pub const FORKCHOICE_UPDATED: &str = "forkchoice_updated";
+pub const FORKCHOICE_UPDATED_WITH_ATTRIBUTES: &str = "forkchoice_updated_with_attributes";
 pub const LOCAL: &str = "local";
 pub const BUILDER: &str = "builder";
 pub const SUCCESS: &str = "success";
