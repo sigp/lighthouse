@@ -715,6 +715,36 @@ impl BeaconNodeHttpClient {
         self.get_opt(path).await
     }
 
+    /// `GET beacon/states/{state_id}/validator_balances?id`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_states_validator_balances_ssz(
+        &self,
+        state_id: StateId,
+        ids: Option<&[ValidatorId]>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validator_balances");
+
+        if let Some(ids) = ids {
+            let id_string = ids
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut().append_pair("id", &id_string);
+        }
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
+    }
+
     /// TESTING ONLY: This request should fail with a 415 response code.
     pub async fn post_beacon_states_validator_balances_with_ssz_header(
         &self,
@@ -756,6 +786,29 @@ impl BeaconNodeHttpClient {
         let request = ValidatorBalancesRequestBody { ids };
 
         self.post_with_opt_response(path, &request).await
+    }
+
+    /// `POST beacon/states/{state_id}/validator_balances`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_states_validator_balances_ssz(
+        &self,
+        state_id: StateId,
+        ids: Vec<ValidatorId>,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validator_balances");
+
+        let request = ValidatorBalancesRequestBody { ids };
+
+        self.post_bytes_opt_accept_header(path, &request, Accept::Ssz, self.timeouts.default)
+            .await
     }
 
     /// `POST beacon/states/{state_id}/validator_identities`
@@ -3761,6 +3814,48 @@ impl BeaconNodeHttpClient {
         let response_bytes = opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))?;
 
         AttestationData::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
+    }
+
+    /// `POST validator/inclusion_list`
+    pub async fn post_validator_inclusion_list(
+        &self,
+        signed_inclusion_list: &SignedInclusionList,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("inclusion_list");
+
+        // The request body is wrapped in a `data` object, per the beacon-APIs specs
+        let body = serde_json::json!({ "data": signed_inclusion_list });
+        self.post_generic_with_consensus_version(path, &body, None, fork_name)
+            .await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/inclusion_list` (SSZ)
+    pub async fn post_validator_inclusion_list_ssz(
+        &self,
+        signed_inclusion_list: &SignedInclusionList,
+        fork_name: ForkName,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("inclusion_list");
+
+        let ssz_body = signed_inclusion_list.as_ssz_bytes();
+
+        self.post_generic_with_consensus_version_and_ssz_body(path, ssz_body, None, fork_name)
+            .await?;
+
+        Ok(())
     }
 
     /// `GET validator/payload_attestation_data?slot`

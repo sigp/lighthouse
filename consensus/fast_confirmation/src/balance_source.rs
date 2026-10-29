@@ -2,7 +2,7 @@
 
 use crate::Error;
 use safe_arith::SafeArith;
-use types::{BeaconState, Epoch, EthSpec, Hash256};
+use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256};
 
 /// Cache key identifying the validator-set view a `BalanceSourceData` was built from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,7 +50,13 @@ impl BalanceSourceKey {
 #[derive(Clone, Debug)]
 pub struct BalanceSourceData {
     pub key: BalanceSourceKey,
+    /// Total effective balance of active validators, slashed included.
+    /// Spec: `get_total_active_balance(balance_source)`.
     pub total_active_balance: u64,
+    /// Total effective balance of active validators that are not slashed.
+    /// Spec: `get_total_balance(state, unslashed_and_active_indices)` inside
+    /// `calculate_committee_fraction`, used by `compute_proposer_score` (consensus-specs#5679).
+    pub total_unslashed_active_balance: u64,
     /// Effective balance per validator index. 0 for inactive.
     pub effective_balances: Vec<u64>,
     /// Used to filter support votes
@@ -65,6 +71,7 @@ impl BalanceSourceData {
     pub(crate) fn new<E: EthSpec>(
         state: &BeaconState<E>,
         block_root: Hash256,
+        spec: &ChainSpec,
     ) -> Result<Self, Error> {
         let current_epoch = state.current_epoch();
         let key = BalanceSourceKey::compute(state, block_root)?;
@@ -72,6 +79,7 @@ impl BalanceSourceData {
         let mut effective_balances = Vec::with_capacity(validators.len());
         let mut slashed = Vec::with_capacity(validators.len());
         let mut total_active_balance = 0u64;
+        let mut total_unslashed_active_balance = 0u64;
 
         for validator in validators.iter() {
             slashed.push(validator.slashed);
@@ -79,14 +87,24 @@ impl BalanceSourceData {
                 effective_balances.push(validator.effective_balance);
                 total_active_balance =
                     total_active_balance.saturating_add(validator.effective_balance);
+                if !validator.slashed {
+                    total_unslashed_active_balance =
+                        total_unslashed_active_balance.saturating_add(validator.effective_balance);
+                }
             } else {
                 effective_balances.push(0);
             }
         }
 
+        // Spec: `get_total_balance` floors every total at `EFFECTIVE_BALANCE_INCREMENT`.
+        let total_active_balance = total_active_balance.max(spec.effective_balance_increment);
+        let total_unslashed_active_balance =
+            total_unslashed_active_balance.max(spec.effective_balance_increment);
+
         Ok(Self {
             key,
             total_active_balance,
+            total_unslashed_active_balance,
             effective_balances,
             slashed,
         })
