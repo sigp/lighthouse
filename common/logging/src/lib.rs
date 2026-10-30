@@ -30,9 +30,9 @@ impl TimeLatch {
     pub fn elapsed(&mut self) -> bool {
         let now = Instant::now();
 
-        let is_elapsed = self.0.is_some_and(|elapse_time| now > elapse_time);
+        let is_elapsed = self.0.is_none_or(|elapse_time| now > elapse_time);
 
-        if is_elapsed || self.0.is_none() {
+        if is_elapsed {
             self.0 = Some(now + LOG_DEBOUNCE_INTERVAL);
         }
 
@@ -53,4 +53,20 @@ pub fn create_test_tracing_subscriber() {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug")),
         )
         .try_init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn time_latch_fires_on_first_call_then_debounces() {
+        let mut latch = TimeLatch::default();
+        assert!(latch.elapsed());
+        assert!(!latch.elapsed());
+
+        latch.0 = Some(Instant::now() - Duration::from_secs(1));
+        assert!(latch.elapsed());
+        assert!(!latch.elapsed());
+    }
 }
