@@ -71,6 +71,7 @@ pub async fn handle_rpc<E: EthSpec>(
         | ENGINE_NEW_PAYLOAD_V4
         | ENGINE_NEW_PAYLOAD_V5
         | ENGINE_NEW_PAYLOAD_V6 => {
+            ctx.hook.lock().on_new_payload(method, params);
             let request = match method {
                 ENGINE_NEW_PAYLOAD_V1 => JsonExecutionPayload::Bellatrix(
                     get_param::<JsonExecutionPayloadBellatrix<E>>(params, 0)
@@ -209,9 +210,7 @@ pub async fn handle_rpc<E: EthSpec>(
                     }
                 }
                 ForkName::Heze => {
-                    // TODO(heze): drop V5 here once `NewPayloadRequest::Heze` is constructed. The
-                    // payload notifier still builds the Gloas request, so Heze blocks send V5.
-                    if method != ENGINE_NEW_PAYLOAD_V5 && method != ENGINE_NEW_PAYLOAD_V6 {
+                    if method != ENGINE_NEW_PAYLOAD_V6 {
                         return Err((
                             format!("{} called after Heze fork!", method),
                             GENERIC_ERROR_CODE,
@@ -252,10 +251,10 @@ pub async fn handle_rpc<E: EthSpec>(
             let mut response = static_response.or(dynamic_response).unwrap();
 
             if method == ENGINE_NEW_PAYLOAD_V6 {
-                // TODO(heze): make this configurable so enforcement tests can exercise an
-                // unsatisfied payload.
                 if response.status == PayloadStatusV1Status::Valid {
-                    response.inclusion_list_satisfied = Some(true);
+                    response
+                        .inclusion_list_satisfied
+                        .get_or_insert(*ctx.new_payload_inclusion_list_satisfied.lock());
                 }
                 Ok(serde_json::to_value(JsonPayloadStatusV2::from(response)).unwrap())
             } else {
@@ -740,36 +739,48 @@ pub async fn handle_rpc<E: EthSpec>(
             let head_block_hash = forkchoice_state.head_block_hash;
 
             // Canned responses set by block hash take priority.
-            if let Some(status) = ctx.get_fcu_payload_status(&head_block_hash) {
-                return status
-                    .map(|status| {
-                        let response = JsonForkchoiceUpdatedV1Response {
-                            payload_status: JsonPayloadStatusV1::from(status),
-                            payload_id: None,
-                        };
-                        serde_json::to_value(response).unwrap()
-                    })
-                    .map_err(|message| (message, GENERIC_ERROR_CODE));
-            }
-
-            let mut response = ctx
-                .execution_block_generator
-                .write()
-                .forkchoice_updated(
-                    forkchoice_state.into(),
-                    payload_attributes.map(|json| json.into()),
+            let (payload_status, payload_id) = if let Some(status) =
+                ctx.get_fcu_payload_status(&head_block_hash)
+            {
+                (
+                    status.map_err(|message| (message, GENERIC_ERROR_CODE))?,
+                    None,
                 )
-                .map_err(|s| (s, GENERIC_ERROR_CODE))?;
+            } else {
+                let response = ctx
+                    .execution_block_generator
+                    .write()
+                    .forkchoice_updated(
+                        forkchoice_state.into(),
+                        payload_attributes.map(|json| json.into()),
+                    )
+                    .map_err(|s| (s, GENERIC_ERROR_CODE))?;
 
-            if let Some(mut status) = ctx.static_forkchoice_updated_response.lock().clone() {
-                if status.status == PayloadStatusV1Status::Valid {
-                    status.latest_valid_hash = Some(head_block_hash)
-                }
+                let payload_status = match ctx.static_forkchoice_updated_response.lock().clone() {
+                    Some(mut status) => {
+                        if status.status == PayloadStatusV1Status::Valid {
+                            status.latest_valid_hash = Some(head_block_hash)
+                        }
+                        status
+                    }
+                    None => response.payload_status.into(),
+                };
+                (payload_status, response.payload_id)
+            };
 
-                response.payload_status = status.into();
+            if method == ENGINE_FORKCHOICE_UPDATED_V5 {
+                let response = JsonForkchoiceUpdatedV2Response {
+                    payload_status: payload_status.into(),
+                    payload_id,
+                };
+                Ok(serde_json::to_value(response).unwrap())
+            } else {
+                let response = JsonForkchoiceUpdatedV1Response {
+                    payload_status: payload_status.into(),
+                    payload_id,
+                };
+                Ok(serde_json::to_value(response).unwrap())
             }
-
-            Ok(serde_json::to_value(response).unwrap())
         }
         ENGINE_EXCHANGE_CAPABILITIES => {
             let engine_capabilities = ctx.engine_capabilities.read();

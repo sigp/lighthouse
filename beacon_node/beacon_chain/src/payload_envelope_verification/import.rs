@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use eth2::types::{EventKind, SseExecutionPayload, SseExecutionPayloadAvailable};
 use execution_layer::PayloadStatus;
-use fork_choice::PayloadVerificationStatus;
 use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
 use store::StoreOp;
@@ -19,7 +18,7 @@ use super::{
 };
 use crate::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
-    ExecutionPayloadError, NotifyExecutionLayer,
+    ExecutionPayloadError, NotifyExecutionLayer, PayloadVerificationOutcome,
     block_verification_types::AvailableBlockData,
     metrics,
     payload_envelope_verification::{
@@ -229,7 +228,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain.import_execution_payload_envelope(
                         envelope,
                         block_root,
-                        payload_verification_outcome.payload_verification_status,
+                        payload_verification_outcome,
                     )
                 },
                 "payload_verification_handle",
@@ -251,7 +250,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         signed_envelope: AvailableEnvelope<T::EthSpec>,
         block_root: Hash256,
-        payload_verification_status: PayloadVerificationStatus,
+        payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Result<Hash256, EnvelopeError> {
         // Everything in this initial section is on the hot path for processing the envelope.
         // Take an upgradable read lock on fork choice so we can check if this block has already
@@ -274,8 +273,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         fork_choice
             .on_payload_envelope_received(
                 block_root,
-                payload_verification_status,
+                payload_verification_outcome.payload_verification_status,
                 signed_envelope.message().payload.block_hash,
+                payload_verification_outcome.inclusion_list_satisfied,
             )
             .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
@@ -451,7 +451,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             NotifyExecutionLayer::Yes,
         )?;
 
-        let payload_verification_status = payload_notifier.notify_new_payload().await?;
+        let payload_verification_outcome = payload_notifier.notify_new_payload().await?;
 
         // Import directly — we already have all components (envelope + columns).
         let chain = self.clone();
@@ -462,7 +462,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 chain.import_execution_payload_envelope(
                     available_envelope,
                     block_root,
-                    payload_verification_status,
+                    payload_verification_outcome,
                 )
             },
             "range_sync_envelope_import",

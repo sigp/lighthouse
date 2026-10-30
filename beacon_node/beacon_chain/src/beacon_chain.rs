@@ -7210,7 +7210,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match forkchoice_updated_response {
             Ok(status) => match status {
-                PayloadStatus::Valid => {
+                PayloadStatus::Valid {
+                    inclusion_list_satisfied,
+                } => {
                     // EIP-8025: only the proofs promote a payload to valid.
                     if self.execution_proofs_enabled() {
                         return Ok(());
@@ -7226,7 +7228,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 chain
                                     .canonical_head
                                     .fork_choice_write_lock()
-                                    .on_valid_execution_payload(head_hash)
+                                    .on_valid_execution_payload(head_hash, inclusion_list_satisfied)
                             },
                             "update_execution_engine_valid_payload",
                         )
@@ -7665,6 +7667,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 only_timely,
             )
             .map_err(Into::into)
+    }
+
+    /// Provides the timely inclusion list transactions for a payload built on `parent_root` at
+    /// `slot + 1`, falling back to an empty list if they can't be read.
+    pub fn payload_inclusion_list_transactions(
+        &self,
+        parent_root: Hash256,
+        slot: Slot,
+    ) -> ProgressiveTransactions {
+        self.get_inclusion_list_transactions(parent_root, slot, true)
+            .and_then(|transactions| ProgressiveTransactions::new(transactions).map_err(Into::into))
+            .unwrap_or_else(|e| {
+                warn!(
+                    ?parent_root,
+                    %slot,
+                    error = ?e,
+                    "Failed to read inclusion lists, verifying payload without them"
+                );
+                ProgressiveTransactions::empty()
+            })
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.

@@ -106,7 +106,7 @@ pub enum Operation {
         is_data_available: bool,
     },
     /// Simulate receiving and validating an execution payload for `block_root`.
-    /// Sets `payload_received = true` on the V29 node via the live validation path.
+    /// Sets `payload_received = true` on the V33 node via the live validation path.
     ProcessExecutionPayloadEnvelope {
         block_root: Hash256,
     },
@@ -474,19 +474,19 @@ impl ForkChoiceTestDefinition {
                                 op_index
                             )
                         });
-                    let v29 = node.as_v29().unwrap_or_else(|_| {
+                    let v33 = node.as_v33().unwrap_or_else(|_| {
                         panic!(
-                            "AssertPayloadWeights: node is not V29 at op index {}",
+                            "AssertPayloadWeights: node is not V33 at op index {}",
                             op_index
                         )
                     });
                     assert_eq!(
-                        v29.full_payload_weight, expected_full_weight,
+                        v33.full_payload_weight, expected_full_weight,
                         "full_payload_weight mismatch at op index {}",
                         op_index
                     );
                     assert_eq!(
-                        v29.empty_payload_weight, expected_empty_weight,
+                        v33.empty_payload_weight, expected_empty_weight,
                         "empty_payload_weight mismatch at op index {}",
                         op_index
                     );
@@ -515,14 +515,14 @@ impl ForkChoiceTestDefinition {
                                 op_index
                             )
                         });
-                    let v29 = node.as_v29().unwrap_or_else(|_| {
+                    let v33 = node.as_v33().unwrap_or_else(|_| {
                         panic!(
-                            "AssertParentPayloadStatus: node is not V29 at op index {}",
+                            "AssertParentPayloadStatus: node is not V33 at op index {}",
                             op_index
                         )
                     });
                     assert_eq!(
-                        v29.parent_payload_status, expected_status,
+                        v33.parent_payload_status, expected_status,
                         "parent_payload_status mismatch at op index {}",
                         op_index
                     );
@@ -552,34 +552,35 @@ impl ForkChoiceTestDefinition {
                                 op_index
                             )
                         });
-                    let node_v29 = node.as_v29_mut().unwrap_or_else(|_| {
+                    let node_v33 = node.as_v33_mut().unwrap_or_else(|_| {
                         panic!(
-                            "SetPayloadTiebreak: node is not V29 at op index {}",
+                            "SetPayloadTiebreak: node is not V33 at op index {}",
                             op_index
                         )
                     });
                     // Set all bits (exceeds any threshold) or clear all bits.
                     let fill = if is_timely { 0xFF } else { 0x00 };
-                    node_v29.payload_timeliness_votes =
+                    node_v33.payload_timeliness_votes =
                         BitVector::from_bytes(smallvec::smallvec![fill; 64])
                             .expect("valid 512-bit bitvector");
                     let fill = if is_data_available { 0xFF } else { 0x00 };
-                    node_v29.payload_data_availability_votes =
+                    node_v33.payload_data_availability_votes =
                         BitVector::from_bytes(smallvec::smallvec![fill; 64])
                             .expect("valid 512-bit bitvector");
                     // Mark all PTC members as having participated.
-                    node_v29.ptc_participation =
+                    node_v33.ptc_participation =
                         BitVector::from_bytes(smallvec::smallvec![0xFF; 64])
                             .expect("valid 512-bit bitvector");
                     // Per spec, payload_timeliness/payload_data_availability require
                     // the payload to be in payload_states (payload_received).
-                    node_v29.payload_received = is_timely || is_data_available;
+                    node_v33.payload_received = is_timely || is_data_available;
                 }
                 Operation::ProcessExecutionPayloadEnvelope { block_root } => {
                     fork_choice
                         .on_payload_envelope_received(
                             block_root,
                             ExecutionStatus::Valid(ExecutionBlockHash::zero()),
+                            true,
                         )
                         .unwrap_or_else(|e| {
                             panic!(

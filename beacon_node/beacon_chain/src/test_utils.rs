@@ -30,7 +30,7 @@ use bls::{
 use eth2::types::{GraffitiPolicy, SignedBlockContentsTuple};
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
-    ExecutionLayer, NewPayloadRequest, NewPayloadRequestGloas,
+    ExecutionLayer, NewPayloadRequest, NewPayloadRequestGloas, NewPayloadRequestHeze,
     auth::JwtKey,
     test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
@@ -3477,20 +3477,44 @@ where
             .map(kzg_commitment_to_versioned_hash)
             .collect();
 
-        let request = NewPayloadRequest::Gloas(NewPayloadRequestGloas {
-            execution_payload: &signed_envelope.message.payload,
-            versioned_hashes,
-            parent_beacon_block_root: block.message().parent_root(),
-            execution_requests: &signed_envelope.message.execution_requests,
-        });
+        let request = if self
+            .spec
+            .fork_name_at_slot::<E>(block.slot())
+            .heze_enabled()
+        {
+            NewPayloadRequest::Heze(NewPayloadRequestHeze {
+                execution_payload: &signed_envelope.message.payload,
+                versioned_hashes,
+                parent_beacon_block_root: block.message().parent_root(),
+                execution_requests: &signed_envelope.message.execution_requests,
+                inclusion_list_transactions: self.chain.payload_inclusion_list_transactions(
+                    block.parent_root(),
+                    block.slot().saturating_sub(1_u64),
+                ),
+            })
+        } else {
+            NewPayloadRequest::Gloas(NewPayloadRequestGloas {
+                execution_payload: &signed_envelope.message.payload,
+                versioned_hashes,
+                parent_beacon_block_root: block.message().parent_root(),
+                execution_requests: &signed_envelope.message.execution_requests,
+            })
+        };
 
-        self.chain
+        let payload_status = self
+            .chain
             .execution_layer
             .as_ref()
             .expect("harness should have execution layer")
             .notify_new_payload(request)
             .await
             .expect("newPayload should succeed");
+        let inclusion_list_satisfied = match payload_status {
+            execution_layer::PayloadStatus::Valid {
+                inclusion_list_satisfied,
+            } => inclusion_list_satisfied.unwrap_or(true),
+            _ => true,
+        };
 
         // Store the envelope and the data columns derived from the block.
         //
@@ -3537,6 +3561,7 @@ where
                 block_root,
                 PayloadVerificationStatus::Verified,
                 payload_block_hash,
+                inclusion_list_satisfied,
             )
             .expect("should update fork choice with envelope");
 

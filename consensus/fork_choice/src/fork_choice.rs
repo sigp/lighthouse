@@ -706,6 +706,7 @@ where
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
         payload_block_hash: ExecutionBlockHash,
+        inclusion_list_satisfied: bool,
     ) -> Result<(), Error<T::Error>> {
         let execution_status = match payload_verification_status {
             PayloadVerificationStatus::Verified => ExecutionStatus::Valid(payload_block_hash),
@@ -725,7 +726,7 @@ where
         // `on_payload_envelope_received` promotes the ancestry itself, starting at this node's
         // own `FULL` side.
         self.proto_array
-            .on_payload_envelope_received(block_root, execution_status)
+            .on_payload_envelope_received(block_root, execution_status, inclusion_list_satisfied)
             .map_err(Error::FailedToProcessValidExecutionPayload)?;
 
         Ok(())
@@ -737,9 +738,10 @@ where
     pub fn on_valid_execution_payload(
         &mut self,
         block_hash: ExecutionBlockHash,
+        inclusion_list_satisfied: Option<bool>,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_validation(block_hash)
+            .process_execution_payload_validation(block_hash, inclusion_list_satisfied)
             .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
