@@ -1565,6 +1565,78 @@ async fn attestation_to_finalized_block() {
     );
 }
 
+/// Shuffling lookup for a block not exposed by fork choice returns
+/// `MissingBeaconBlockFromForkChoice`, mapped to `HeadBlockFinalized`.
+#[tokio::test]
+async fn shuffling_lookup_missing_from_fork_choice_is_head_block_finalized() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            Spec::slots_per_epoch() as usize * 4 + 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let finalized_checkpoint = harness
+        .chain
+        .with_head(|head| Ok::<_, BeaconChainError>(head.beacon_state.finalized_checkpoint()))
+        .unwrap();
+    assert!(finalized_checkpoint.epoch > 0);
+
+    let earlier_slot = finalized_checkpoint
+        .epoch
+        .start_slot(Spec::slots_per_epoch())
+        - 1;
+    let earlier_block = harness
+        .chain
+        .block_at_slot(earlier_slot, WhenSlotSkipped::Prev)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot");
+    let earlier_block_root = earlier_block.canonical_root();
+    assert_ne!(earlier_block_root, finalized_checkpoint.root);
+
+    assert!(
+        !harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&earlier_block_root)
+    );
+
+    let shuffling_error = harness
+        .chain
+        .with_committee_cache(earlier_block_root, finalized_checkpoint.epoch, |_, _| {
+            Ok::<_, BeaconChainError>(())
+        })
+        .expect_err("block should not be exposed by fork choice");
+    assert!(matches!(
+        &shuffling_error,
+        BeaconChainError::MissingBeaconBlockFromForkChoice(block_root)
+            if *block_root == earlier_block_root
+    ));
+    assert!(matches!(
+        AttnError::from(shuffling_error),
+        AttnError::HeadBlockFinalized { beacon_block_root }
+            if beacon_block_root == earlier_block_root
+    ));
+}
+
+#[test]
+fn missing_beacon_block_from_store_remains_internal() {
+    let block_root = Hash256::repeat_byte(42);
+    let error = AttnError::from(BeaconChainError::MissingBeaconBlock(block_root));
+
+    let AttnError::BeaconChainError(error) = error else {
+        panic!("store block miss should remain an internal beacon chain error");
+    };
+    assert!(matches!(
+        *error,
+        BeaconChainError::MissingBeaconBlock(error_root) if error_root == block_root
+    ));
+}
+
 #[tokio::test]
 async fn verify_aggregate_for_gossip_doppelganger_detection() {
     let harness = get_harness(VALIDATOR_COUNT);

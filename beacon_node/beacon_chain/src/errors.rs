@@ -65,6 +65,8 @@ pub enum BeaconChainError {
     ForkChoiceError(ForkChoiceError),
     ForkChoiceStoreError(ForkChoiceStoreError),
     MissingBeaconBlock(Hash256),
+    /// Not present in fork choice (unknown or not a finalized descendant).
+    MissingBeaconBlockFromForkChoice(Hash256),
     MissingBeaconState(Hash256),
     MissingExecutionPayloadEnvelope(Hash256),
     MissingHotStateSummary(Hash256),
