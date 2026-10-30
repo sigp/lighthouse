@@ -999,7 +999,7 @@ async fn poll_indices_or_wait<S: ValidatorStore, T: SlotClock + 'static>(
 
 /// Iterate through all the voting pubkeys in the `ValidatorStore` and attempt to learn any unknown
 /// validator indices.
-async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
+pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
     duties_service: &DutiesService<S, T>,
 ) {
     let _timer = validator_metrics::start_timer_vec(
@@ -1023,7 +1023,7 @@ async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
             .is_some();
 
         if !is_known {
-            let current_slot_opt = duties_service.slot_clock.now();
+            let current_slot_opt = duties_service.slot_clock.now_or_genesis();
 
             if let Some(current_slot) = current_slot_opt {
                 let is_first_slot_of_epoch = current_slot % S::E::slots_per_epoch() == 0;

@@ -27,10 +27,15 @@ pub const FINALIZED_CHECKPOINT_FIELD_INDEX: usize = 20;
 pub const CURRENT_SYNC_COMMITTEE_FIELD_INDEX: usize = 22;
 pub const NEXT_SYNC_COMMITTEE_FIELD_INDEX: usize = 23;
 
+pub const FINALIZED_ROOT_PROOF_LEN_GLOAS: usize = 9;
+pub const CURRENT_SYNC_COMMITTEE_PROOF_LEN_GLOAS: usize = 11;
+pub const NEXT_SYNC_COMMITTEE_PROOF_LEN_GLOAS: usize = 11;
+
 // [New in Gloas:EIP7732] the block no longer contains the execution payload, so the light client
 // proves `signed_execution_payload_bid.message.parent_block_hash` instead. Note that this is the
 // *parent* block hash: the payload for this block is not yet revealed when the block is signed.
 pub const EXECUTION_BLOCK_HASH_INDEX_GLOAS: usize = 2856;
+pub const EXECUTION_BLOCK_HASH_PROOF_LEN_GLOAS: usize = 11;
 
 // Field offset of `signed_execution_payload_bid` within the Gloas `BeaconBlockBody`.
 pub const SIGNED_EXECUTION_PAYLOAD_BID_FIELD_INDEX: usize = 10;
