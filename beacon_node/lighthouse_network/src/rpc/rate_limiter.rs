@@ -318,17 +318,6 @@ impl<E: EthSpec> RateLimiterItem for super::RequestType<E> {
     }
 }
 
-impl<E: EthSpec> RateLimiterItem for (super::RpcResponse<E>, Protocol) {
-    fn protocol(&self) -> Protocol {
-        self.1
-    }
-
-    fn max_responses(&self, _digest_epoch: Epoch, _spec: &ChainSpec) -> u64 {
-        // A response chunk consumes one token of the rate limiter.
-        1
-    }
-}
-
 impl RPCRateLimiter {
     pub fn new_with_config(
         config: RateLimiterConfig,
