@@ -1,5 +1,5 @@
 use arbitrary::Arbitrary;
-use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::data_column_verification::{ColumnBid, GossipVerifiedDataColumn};
 use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
@@ -38,7 +38,7 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
 
     // build and process a gossip verified data column
     let mut u = types::test_utils::test_unstructured();
-    let sidecar = {
+    let (sidecar, bid) = {
         let slot = Slot::new(10);
         let fork_name = harness.spec.fork_name_at_slot::<E>(slot);
         // DA checker only accepts sampling columns, so we need to create one with a sampling index.
@@ -51,15 +51,15 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
                 .custody_context
                 .sampling_columns_for_epoch(epoch)[0];
 
-            // For gloas, the bid must be known, e.g. in the pending payload cache
+            // For gloas, the column carries the bid into the pending payload cache.
             let mut bid = SignedExecutionPayloadBidGloas::<E>::empty();
             bid.message.slot = Slot::new(10);
-            harness.chain.pending_payload_cache.insert_bid(
-                random_sidecar.beacon_block_root,
-                Arc::new(SignedExecutionPayloadBid::Gloas(bid)),
-            );
+            let bid = Arc::new(SignedExecutionPayloadBid::Gloas(bid));
 
-            DataColumnSidecar::Gloas(random_sidecar)
+            (
+                DataColumnSidecar::Gloas(random_sidecar),
+                ColumnBid::Bid(bid),
+            )
         } else {
             let mut random_sidecar = DataColumnSidecarFulu::arbitrary(&mut u).unwrap();
             let epoch = slot.epoch(E::slots_per_epoch());
@@ -68,11 +68,11 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
                 .chain
                 .custody_context
                 .sampling_columns_for_epoch(epoch)[0];
-            DataColumnSidecar::Fulu(random_sidecar)
+            (DataColumnSidecar::Fulu(random_sidecar), ColumnBid::PreGloas)
         }
     };
     let gossip_verified_data_column =
-        GossipVerifiedDataColumn::__new_for_testing(Arc::new(sidecar));
+        GossipVerifiedDataColumn::__new_for_testing(Arc::new(sidecar), bid);
     let expected_sse_data_column = SseDataColumnSidecar::from_data_column_sidecar(
         gossip_verified_data_column.as_data_column(),
     );

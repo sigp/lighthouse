@@ -33,7 +33,7 @@ mod pending_column;
 mod pending_components;
 
 use crate::data_column_verification::{
-    GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
+    ColumnBid, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
     KzgVerifiedCustodyPartialDataColumnGloas, KzgVerifiedDataColumn,
 };
 use crate::metrics::{
@@ -277,13 +277,6 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
     /// Inserts a bid into the pending payload cache.
     /// This will silently drop the bid if a bid for this block root already exists in the cache.
-    pub fn insert_bid(&self, block_root: Hash256, bid: Arc<SignedExecutionPayloadBid<T::EthSpec>>) {
-        let mut write_lock = self.availability_cache.write();
-        write_lock
-            .entry(block_root)
-            .or_insert_with(|| PendingComponents::new(block_root, bid));
-    }
-
     /// Inserts a beacon block (and its bid) into the pending payload cache.
     /// This will silently drop the block if one for this block root already exists in the cache.
     /// No-ops if the block has no execution payload bid.
@@ -354,9 +347,14 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         block_root: Hash256,
         data_columns: Vec<GossipVerifiedDataColumn<T, O>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let bid = self
-            .get_bid(&block_root)
-            .ok_or(AvailabilityCheckError::MissingBid(block_root))?;
+        // Take the bid from the columns, not a cache lookup: a bid is cached only together with the
+        // columns it was validated against.
+        let bid = match data_columns.first().map(|column| column.bid()) {
+            Some(ColumnBid::Bid(bid)) => bid.clone(),
+            Some(ColumnBid::PreGloas) | None => {
+                return Err(AvailabilityCheckError::MissingBid(block_root));
+            }
+        };
         let epoch = bid.message().slot().epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self.custody_context.sampling_columns_for_epoch(epoch);
         let custody_columns = data_columns
@@ -747,9 +745,8 @@ mod data_availability_checker_tests {
                 .expect("Gloas block has bid")
                 .clone_as_signed_execution_payload_bid(),
         );
-        cache.insert_bid(block_root, bid.clone());
-
         let epoch = bid.message().slot().epoch(E::slots_per_epoch());
+        cache.insert_block(block_root, Arc::new(block), BlockImportSource::Gossip);
         let sampling = cache.custody_context().sampling_columns_for_epoch(epoch);
         let custody = columns
             .into_iter()
