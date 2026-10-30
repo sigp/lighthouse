@@ -115,16 +115,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         debug!(?block_root, "Execution proofs complete, validating payload");
         let chain = self.clone();
-        self.spawn_blocking_handle(
-            move || {
-                chain
-                    .canonical_head
-                    .fork_choice_write_lock()
-                    .on_valid_execution_payload_by_block_root(block_root)
-                    .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))
-            },
-            "validate_proven_payload",
-        )
-        .await?
+        let promoted = self
+            .spawn_blocking_handle(
+                move || {
+                    chain
+                        .canonical_head
+                        .fork_choice_write_lock()
+                        .on_valid_execution_payload_by_block_root(block_root)
+                        .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))
+                },
+                "validate_proven_payload",
+            )
+            .await??;
+
+        // A promotion can move the head, and no block import is due until the next slot.
+        if promoted {
+            self.recompute_head_at_current_slot().await;
+        }
+
+        Ok(())
     }
 }
