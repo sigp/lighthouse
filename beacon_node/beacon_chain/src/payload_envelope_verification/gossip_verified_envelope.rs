@@ -171,15 +171,17 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         drop(fork_choice_read_lock);
 
         let block_slot = proto_block.slot;
+        // `observed_payload_envelopes` is empty immediately after a reboot, so also trust the
+        // `payload_received` flag that fork choice restores from disk.
         if ctx.source == EnvelopeSource::Gossip
-            && ctx.observed_payload_envelopes.envelope_has_been_observed(
-                block_slot,
-                beacon_block_root,
-                builder_index,
-            )
+            && (proto_block.payload_received
+                || ctx.observed_payload_envelopes.envelope_has_been_observed(
+                    block_slot,
+                    beacon_block_root,
+                    builder_index,
+                ))
         {
-            // If we've already seen a valid envelope for this beacon block from this
-            // builder, ignore the duplicate
+            // If we've already seen a valid envelope for this beacon block, ignore the duplicate
             return Err(EnvelopeError::EnvelopeAlreadySeen {
                 block_root: beacon_block_root,
                 builder_index,
