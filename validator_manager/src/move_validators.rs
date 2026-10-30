@@ -672,7 +672,7 @@ mod test {
     use tempfile::{TempDir, tempdir};
     use validator_http_api::{
         Config as HttpConfig,
-        test_utils::{ApiTester, Web3SignerValidatorScenario},
+        test_utils::{ApiTester, KeystoreValidatorScenario, Web3SignerValidatorScenario},
     };
 
     const SRC_VC_TOKEN_FILE_NAME: &str = "src_vc_token.json";
@@ -975,11 +975,18 @@ mod test {
                 ApiTester::new_with_http_config(self.http_config.clone()).await
             };
 
+            // Add a local validator after the web3signer validators, so that a move which stops
+            // at the first read-only validator leaves it behind.
             let src_vc = if self.src_web3signer_validators > 0 {
                 src_vc
                     .create_web3signer_validators(Web3SignerValidatorScenario {
                         count: self.src_web3signer_validators,
                         enabled: true,
+                    })
+                    .await
+                    .create_keystore_validators(KeystoreValidatorScenario {
+                        enabled: true,
+                        correct_password: true,
                     })
                     .await
             } else {
