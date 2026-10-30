@@ -11,6 +11,7 @@ use crate::{
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
 use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas};
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
@@ -19,13 +20,15 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
+use bls::Signature;
 use enr::{self, CombinedKey};
 use itertools::Itertools;
 use libp2p::gossipsub::MessageAcceptance;
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, BlocksByHeadRequest, DataColumnsByRangeRequest,
-    MetaDataV3, PayloadEnvelopesByRangeRequest, PayloadEnvelopesByRootRequest,
+    InclusionListsByIndicesRequest, MetaDataV3, PayloadEnvelopesByRangeRequest,
+    PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::{
     Client, MessageId, NetworkConfig, NetworkGlobals, PeerAction, PeerId, Response,
@@ -42,8 +45,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch, EthSpec,
-    Hash256, InclusionList, PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    Hash256, InclusionList, InclusionListBits, PayloadAttestationData, PayloadAttestationMessage,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
     SignedInclusionList, SignedRoot, SignedVoluntaryExit, SingleAttestation, Slot, Spec, SubnetId,
     data::BlobIdentifier,
 };
@@ -3124,6 +3127,196 @@ async fn test_blocks_by_head_finalized_root() {
 async fn test_blocks_by_head_unknown_root() {
     let mut rig = TestRig::new(SLOTS_PER_EPOCH).await;
     rig.enqueue_blocks_by_head_request(Hash256::repeat_byte(0xab), 4);
+
+    match rig.network_rx.recv().await.expect("a network message") {
+        NetworkMessage::SendErrorResponse { error, .. } => {
+            assert_matches!(
+                error,
+                lighthouse_network::rpc::RpcErrorResponse::ResourceUnavailable
+            );
+        }
+        other => panic!("expected SendErrorResponse, got {:?}", other),
+    }
+}
+
+fn signed_inclusion_list(
+    slot: Slot,
+    validator_index: u64,
+    dependent_root: Hash256,
+    transaction_byte: u8,
+) -> SignedInclusionList {
+    SignedInclusionList {
+        message: InclusionList {
+            slot,
+            validator_index,
+            dependent_root,
+            transactions: vec![vec![transaction_byte].try_into().unwrap()]
+                .try_into()
+                .unwrap(),
+        },
+        signature: Signature::empty(),
+    }
+}
+
+fn enqueue_inclusion_lists_by_indices_request(
+    rig: &TestRig,
+    slot: Slot,
+    dependent_root: Hash256,
+    positions: &[usize],
+) {
+    let mut indices = InclusionListBits::<E>::new();
+    for position in positions {
+        indices.set(*position, true).unwrap();
+    }
+    rig.network_beacon_processor
+        .send_inclusion_lists_by_indices_request(
+            PeerId::random(),
+            InboundRequestId::new_unchecked(42, 24),
+            InclusionListsByIndicesRequest {
+                slot,
+                dependent_root,
+                indices,
+            },
+        )
+        .unwrap();
+}
+
+async fn recv_inclusion_lists(rig: &mut TestRig) -> Vec<SignedInclusionList> {
+    let mut received = vec![];
+    while let Some(next) = rig.network_rx.recv().await {
+        match next {
+            NetworkMessage::SendResponse {
+                response: Response::InclusionListsByIndices(Some(il)),
+                ..
+            } => received.push(il.as_ref().clone()),
+            NetworkMessage::SendResponse {
+                response: Response::InclusionListsByIndices(None),
+                ..
+            } => break,
+            other => panic!("expected an inclusion list response, got {:?}", other),
+        }
+    }
+    received
+}
+
+// Only the inclusion lists at the requested committee positions are served.
+#[tokio::test]
+async fn test_inclusion_lists_by_indices_serves_only_requested_positions() {
+    let mut rig = TestRig::new(SLOTS_PER_EPOCH).await;
+    let slot = rig.chain.slot().unwrap();
+    let anchor = rig
+        .chain
+        .block_root_at_slot(slot, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let (committee, dependent_root) = rig.chain.inclusion_list_committee(anchor, slot).unwrap();
+
+    // Store one inclusion list per committee member. Validators repeat across positions when the
+    // slot has fewer than `INCLUSION_LIST_COMMITTEE_SIZE` members, and storing a second differing
+    // list for the same validator would flag it as an equivocator.
+    {
+        let mut store = rig.chain.inclusion_list_store.write();
+        for validator_index in committee.iter().collect::<HashSet<_>>() {
+            store.process_inclusion_list(GossipVerifiedInclusionList {
+                signed_inclusion_list: signed_inclusion_list(
+                    slot,
+                    *validator_index,
+                    dependent_root,
+                    0xaa,
+                ),
+                is_timely: true,
+            });
+        }
+    }
+
+    // Requesting no positions serves nothing, even though the store holds lists for this slot.
+    enqueue_inclusion_lists_by_indices_request(&rig, slot, dependent_root, &[]);
+    assert!(recv_inclusion_lists(&mut rig).await.is_empty());
+
+    enqueue_inclusion_lists_by_indices_request(&rig, slot, dependent_root, &[0]);
+    let received = recv_inclusion_lists(&mut rig).await;
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].message.validator_index, committee[0]);
+}
+
+// An unknown dependent root serves nothing, not another committee's lists.
+#[tokio::test]
+async fn test_inclusion_lists_by_indices_ignores_unknown_dependent_root() {
+    let mut rig = TestRig::new(SLOTS_PER_EPOCH).await;
+    let slot = rig.chain.slot().unwrap();
+    let anchor = rig
+        .chain
+        .block_root_at_slot(slot, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let (committee, dependent_root) = rig.chain.inclusion_list_committee(anchor, slot).unwrap();
+
+    rig.chain
+        .inclusion_list_store
+        .write()
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: signed_inclusion_list(slot, committee[0], dependent_root, 0xaa),
+            is_timely: true,
+        });
+
+    enqueue_inclusion_lists_by_indices_request(&rig, slot, Hash256::repeat_byte(0xff), &[0]);
+
+    assert!(recv_inclusion_lists(&mut rig).await.is_empty());
+}
+
+// A known block root that isn't the slot's shuffling decision root is rejected, even if lists are
+// stored under it, since the requested positions can't be mapped to its committee.
+#[tokio::test]
+async fn test_inclusion_lists_by_indices_rejects_non_decision_root() {
+    let mut rig = TestRig::new(SLOTS_PER_EPOCH).await;
+    let slot = rig.chain.slot().unwrap();
+    let anchor = rig
+        .chain
+        .block_root_at_slot(slot, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+    let (committee, dependent_root) = rig.chain.inclusion_list_committee(anchor, slot).unwrap();
+    let non_decision_root = rig
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    assert_ne!(non_decision_root, dependent_root);
+
+    rig.chain
+        .inclusion_list_store
+        .write()
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: signed_inclusion_list(
+                slot,
+                committee[0],
+                non_decision_root,
+                0xaa,
+            ),
+            is_timely: true,
+        });
+
+    enqueue_inclusion_lists_by_indices_request(&rig, slot, non_decision_root, &[0]);
+
+    match rig.network_rx.recv().await.expect("a network message") {
+        NetworkMessage::SendErrorResponse { error, .. } => {
+            assert_matches!(
+                error,
+                lighthouse_network::rpc::RpcErrorResponse::InvalidRequest
+            );
+        }
+        other => panic!("expected SendErrorResponse, got {:?}", other),
+    }
+}
+
+// Slots below `minimum_request_slot` are answered with `ResourceUnavailable`.
+#[tokio::test]
+async fn test_inclusion_lists_by_indices_rejects_slots_outside_the_window() {
+    let mut rig = TestRig::new(SLOTS_PER_EPOCH).await;
+    let slot = rig.chain.slot().unwrap();
+    let too_old = slot - (rig.chain.spec.min_slots_for_inclusion_lists_requests + 1);
+
+    enqueue_inclusion_lists_by_indices_request(&rig, too_old, Hash256::ZERO, &[0]);
 
     match rig.network_rx.recv().await.expect("a network message") {
         NetworkMessage::SendErrorResponse { error, .. } => {
