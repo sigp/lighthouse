@@ -1399,6 +1399,7 @@ impl<E: EthSpec> Tester<E> {
                 finalized,
                 proposer_boost_root,
                 &justified_balances,
+                fork_choice.fc_store().equivocating_committee_weights(),
                 &self.spec,
             )
             .map_err(|e| {

@@ -68,6 +68,7 @@ use ssz_derive::{Decode, Encode};
 use state_processing::AllCaches;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::state_advance::complete_state_advance;
+use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 use std::panic::Location;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -860,6 +861,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let old_forkchoice_update_parameters = old_cached_head.forkchoice_update_parameters();
 
         let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
+
+        // Compute under the write lock so the weights and `get_head` see one consistent view
+        // of the equivocating indices and justified balances.
+        match self.compute_equivocating_committee_weights(&fork_choice_write_lock, current_slot) {
+            Ok(weights) => fork_choice_write_lock.set_equivocating_committee_weights(weights),
+            Err(e) => {
+                error!(
+                    error = ?e,
+                    "Failed to update equivocating committee weights"
+                );
+                fork_choice_write_lock.set_equivocating_committee_weights(None);
+            }
+        }
 
         // Recompute the current head via the fork choice algorithm.
         let new_head_node = fork_choice_write_lock.get_head(current_slot, &self.spec)?;
@@ -1786,6 +1800,82 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             fork_choice_store: fork_choice.fc_store().to_persisted(),
         };
         persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY, store_config)
+    }
+
+    /// Compute the justified effective balances of equivocating validators, summed
+    /// per attestation duty slot. Used by the post-Gloas `is_head_weak` check.
+    ///
+    /// Duties come from the head state's committee caches. Returns `Ok(None)` if the head
+    /// state's current epoch committee cache is not built.
+    fn compute_equivocating_committee_weights(
+        &self,
+        fork_choice: &BeaconForkChoice<T>,
+        current_slot: Slot,
+    ) -> Result<Option<BTreeMap<Slot, u64>>, Error> {
+        // Don't keep track of pre-gloas equivocating committee weight. This ensures
+        // that pre-gloas `is_head_weak` is correctly calculated.
+        if !self
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(current_slot)
+            .gloas_enabled()
+        {
+            return Ok(Some(BTreeMap::new()));
+        }
+
+        let fc_store = fork_choice.fc_store();
+        let equivocating_indices = fc_store.equivocating_indices();
+        if equivocating_indices.is_empty() {
+            return Ok(Some(BTreeMap::new()));
+        }
+        let justified_balances = fc_store.justified_balances();
+
+        let head_snapshot = self.canonical_head.cached_head().snapshot;
+        let head_state = &head_snapshot.beacon_state;
+        let Ok(current_committee_cache) = head_state.committee_cache(RelativeEpoch::Current) else {
+            debug!(
+                %current_slot,
+                head_slot = %head_state.slot(),
+                "Head committee cache not built; equivocating committee weights unknown"
+            );
+            return Ok(None);
+        };
+        // At genesis the previous epoch saturates to the current one; count it once.
+        let previous_committee_cache = if head_state.previous_epoch() == head_state.current_epoch()
+        {
+            None
+        } else {
+            head_state.committee_cache(RelativeEpoch::Previous).ok()
+        };
+        let committee_caches = [previous_committee_cache, Some(current_committee_cache)];
+
+        let mut equivocating_committee_weights = BTreeMap::new();
+        for &index in equivocating_indices {
+            // Validators activated after the justified epoch count as zero weight (spec reads their raw balance).
+            let balance = justified_balances
+                .effective_balances
+                .get(index as usize)
+                .copied()
+                .filter(|balance| *balance != 0)
+                .or_else(|| justified_balances.slashed_balances.get(&index).copied())
+                .unwrap_or(0);
+            if balance == 0 {
+                continue;
+            }
+            for committee_cache in committee_caches.iter().flatten() {
+                let Some(duty) = committee_cache
+                    .get_attestation_duties(index as usize)
+                    .map_err(BeaconStateError::ArithError)?
+                else {
+                    continue;
+                };
+                let entry = equivocating_committee_weights
+                    .entry(duty.slot)
+                    .or_insert(0u64);
+                *entry = entry.saturating_add(balance);
+            }
+        }
+
+        Ok(Some(equivocating_committee_weights))
     }
 }
 

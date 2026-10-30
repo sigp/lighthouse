@@ -9,7 +9,7 @@ use ssz::BitVector;
 use ssz::Encode;
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::Duration;
 use superstruct::superstruct;
 use typenum::U512;
@@ -173,11 +173,6 @@ pub struct ProtoNode {
     /// to detect equivocations at the parent's slot.
     #[superstruct(only(V29), partial_getter(copy))]
     pub proposer_index: u64,
-    /// Weight from equivocating validators that voted for this block.
-    /// Used by `is_head_weak` to match the spec's monotonicity guarantee:
-    /// more attestations can only increase head weight, never decrease it.
-    #[superstruct(only(V29), partial_getter(copy))]
-    pub equivocating_attestation_score: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Encode, Decode, Serialize, Deserialize)]
@@ -221,6 +216,27 @@ impl ProtoNode {
                 .unwrap_or_else(|_| self.weight()),
             PayloadStatus::Full => self.full_payload_weight().unwrap_or_else(|_| self.weight()),
         }
+    }
+
+    /// Head weight for re-org checks, including equivocating validators' weight
+    pub fn head_weight_for_reorg(&self, equivocating_committee_weight: u64) -> u64 {
+        self.attestation_score(PayloadStatus::Pending)
+            .saturating_add(equivocating_committee_weight)
+    }
+
+    /// Spec: `is_head_weak`.
+    pub fn is_head_weak(
+        &self,
+        re_org_head_weight_threshold: u64,
+        equivocating_committee_weight: u64,
+    ) -> bool {
+        self.head_weight_for_reorg(equivocating_committee_weight) < re_org_head_weight_threshold
+    }
+
+    /// Spec: `is_parent_strong`. `PayloadStatus::Pending` measures support regardless
+    /// of payload status. https://github.com/ethereum/consensus-specs/issues/5305
+    pub fn is_parent_strong(&self, re_org_parent_weight_threshold: u64) -> bool {
+        self.attestation_score(PayloadStatus::Pending) > re_org_parent_weight_threshold
     }
 
     /// Whether the execution payload this node commits to was found invalid.
@@ -378,8 +394,6 @@ pub struct NodeDelta {
     pub empty_delta: i64,
     /// Weight change from `PayloadStatus::Full` votes.
     pub full_delta: i64,
-    /// Weight from equivocating validators that voted for this node.
-    pub equivocating_attestation_delta: u64,
 }
 
 impl NodeDelta {
@@ -412,7 +426,6 @@ impl NodeDelta {
             delta,
             empty_delta: 0,
             full_delta: 0,
-            equivocating_attestation_delta: 0,
         }
     }
 
@@ -526,10 +539,7 @@ impl ProtoArray {
                     }
                 }
                 ProtoNode::V29(node) => {
-                    // The empty side and equivocation score stay live whatever the verdict.
-                    node.equivocating_attestation_score = node
-                        .equivocating_attestation_score
-                        .saturating_add(node_delta.equivocating_attestation_delta);
+                    // The empty side stays live whatever the verdict.
                     node.empty_payload_weight = apply_delta(
                         node.empty_payload_weight,
                         node_delta.empty_delta,
@@ -731,7 +741,6 @@ impl ProtoArray {
                         && time_into_slot < spec.get_attestation_due::<E>(current_slot)),
                 block_timeliness_ptc_threshold: is_anchor
                     || (is_current_slot && time_into_slot < spec.get_payload_attestation_due()),
-                equivocating_attestation_score: 0,
             })
         };
 
@@ -789,35 +798,6 @@ impl ProtoArray {
         Ok(())
     }
 
-    /// Spec: `is_head_weak`.
-    // TODO(gloas): the spec adds weight from equivocating validators in the
-    // head slot's *committees*, regardless of who they voted for. We approximate
-    // with `equivocating_attestation_score` which only tracks equivocating
-    // validators whose vote pointed at this block. This under-counts when an
-    // equivocating validator is in the committee but voted for a different fork,
-    // which could allow a re-org the spec wouldn't. In practice the deviation
-    // is small — it requires equivocating validators voting for competing forks
-    // AND the head weight to be exactly at the reorg threshold boundary.
-    // Fixing this properly requires committee computation from BeaconState,
-    // which is not available in proto_array. The fix would be to pass
-    // pre-computed equivocating committee weight from the beacon_chain caller.
-    fn is_head_weak<E: EthSpec>(
-        &self,
-        head_node: &ProtoNode,
-        justified_balances: &JustifiedBalances,
-        spec: &ChainSpec,
-    ) -> bool {
-        let reorg_threshold =
-            calculate_committee_fraction::<E>(justified_balances, spec.reorg_head_weight_threshold)
-                .unwrap_or(0);
-
-        let head_weight = head_node
-            .attestation_score(PayloadStatus::Pending)
-            .saturating_add(head_node.equivocating_attestation_score().unwrap_or(0));
-
-        head_weight < reorg_threshold
-    }
-
     /// Spec's `should_apply_proposer_boost` for Gloas.
     ///
     /// Returns `true` if the proposer boost should be kept. Returns `false` if the
@@ -827,6 +807,7 @@ impl ProtoArray {
         &self,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         spec: &ChainSpec,
     ) -> Result<bool, Error> {
         if proposer_boost_root.is_zero() {
@@ -856,7 +837,20 @@ impl ProtoArray {
         }
 
         // Apply proposer boost if `parent` is not weak
-        if !self.is_head_weak::<E>(parent, justified_balances, spec) {
+        let re_org_head_weight_threshold =
+            calculate_committee_fraction::<E>(justified_balances, spec.reorg_head_weight_threshold)
+                .unwrap_or(0);
+
+        // With unknown weights we can't tell whether the head is weak, so keep the boost.
+        let Some(equivocating_committee_weights) = equivocating_committee_weights else {
+            return Ok(true);
+        };
+        let equivocating_committee_weight = equivocating_committee_weights
+            .get(&parent.slot())
+            .copied()
+            .unwrap_or(0);
+
+        if !parent.is_head_weak(re_org_head_weight_threshold, equivocating_committee_weight) {
             return Ok(true);
         }
 
@@ -1260,6 +1254,7 @@ impl ProtoArray {
         best_finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         spec: &ChainSpec,
     ) -> Result<(Hash256, PayloadStatus), Error> {
         let justified_index = self
@@ -1275,6 +1270,7 @@ impl ProtoArray {
             best_finalized_checkpoint,
             proposer_boost_root,
             justified_balances,
+            equivocating_committee_weights,
             spec,
         )?;
 
@@ -1453,6 +1449,7 @@ impl ProtoArray {
         best_finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         spec: &ChainSpec,
     ) -> Result<IndexedForkChoiceNode, Error> {
         let mut head = IndexedForkChoiceNode {
@@ -1475,8 +1472,12 @@ impl ProtoArray {
         }
 
         // Compute once rather than per-child per-level.
-        let apply_proposer_boost =
-            self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
+        let apply_proposer_boost = self.should_apply_proposer_boost::<E>(
+            proposer_boost_root,
+            justified_balances,
+            equivocating_committee_weights,
+            spec,
+        )?;
 
         loop {
             let children: Vec<_> = self
@@ -1534,6 +1535,7 @@ impl ProtoArray {
         finalized_checkpoint: Checkpoint,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         spec: &ChainSpec,
     ) -> Result<Vec<(Hash256, PayloadStatus, u64)>, Error> {
         let start_index = self
@@ -1549,8 +1551,12 @@ impl ProtoArray {
             finalized_checkpoint,
         )?;
 
-        let apply_proposer_boost =
-            self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
+        let apply_proposer_boost = self.should_apply_proposer_boost::<E>(
+            proposer_boost_root,
+            justified_balances,
+            equivocating_committee_weights,
+            spec,
+        )?;
 
         let mut leaves = Vec::new();
         let mut stack = vec![IndexedForkChoiceNode {
@@ -1682,6 +1688,7 @@ impl ProtoArray {
         current_slot: Slot,
         proposer_boost_root: Hash256,
         justified_balances: &JustifiedBalances,
+        equivocating_committee_weights: Option<&BTreeMap<Slot, u64>>,
         spec: &ChainSpec,
     ) -> Result<PayloadStatus, Error> {
         let proto_node_index = *self.indices.get(&root).ok_or(Error::NodeUnknown(root))?;
@@ -1712,8 +1719,12 @@ impl ProtoArray {
 
         // Matches the hoisting optimization in `find_head`: `get_weight`'s spec-level
         // `should_apply_proposer_boost` check is precomputed once.
-        let apply_proposer_boost =
-            self.should_apply_proposer_boost::<E>(proposer_boost_root, justified_balances, spec)?;
+        let apply_proposer_boost = self.should_apply_proposer_boost::<E>(
+            proposer_boost_root,
+            justified_balances,
+            equivocating_committee_weights,
+            spec,
+        )?;
 
         let full_weight = self.get_weight::<E>(
             &full_fc,
