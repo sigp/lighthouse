@@ -1,7 +1,7 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{GoodbyeReason, RpcErrorResponse, RpcResponse};
+use super::methods::{GoodbyeReason, RpcResponse};
 use super::outbound::OutboundRequestContainer;
 use super::protocol::{InboundOutput, Protocol, RPCError, RPCProtocol, RequestType};
 use super::{RPCReceived, RPCSend, ReqId};
@@ -175,7 +175,7 @@ struct InboundInfo<E: EthSpec> {
     /// BlocksByRange.
     request_start_time: Instant,
     /// Key to keep track of the substream's timeout via `self.inbound_substreams_delay`.
-    delay_key: Option<delay_queue::Key>,
+    delay_key: delay_queue::Key,
 }
 
 /// Contains the information the handler keeps on established outbound substreams.
@@ -411,32 +411,28 @@ where
             };
         }
 
-        // purge expired inbound substreams and send an error
+        // Purge expired inbound substreams: report the timeout and reclaim the substream
+        // immediately.
+        while let Poll::Ready(Some(expired)) = self.inbound_substreams_delay.poll_expired(cx) {
+            let substream_id = expired.into_inner();
+            let Some(protocol) = self
+                .inbound_substreams
+                .get(&substream_id)
+                .map(|info| info.protocol)
+            else {
+                // The substream has already been removed.
+                continue;
+            };
 
-        while let Poll::Ready(Some(inbound_id)) = self.inbound_substreams_delay.poll_expired(cx) {
-            // handle a stream timeout for various states
-            if let Some(info) = self.inbound_substreams.get_mut(inbound_id.get_ref()) {
-                // the delay has been removed
-                info.delay_key = None;
-                self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
-                    error: RPCError::StreamTimeout,
-                    proto: info.protocol,
-                    id: *inbound_id.get_ref(),
-                }));
+            self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                error: RPCError::StreamTimeout,
+                proto: protocol,
+                id: substream_id,
+            }));
 
-                if info
-                    .pending_items
-                    .back()
-                    .map(|response| !response.close_after())
-                    .unwrap_or(true)
-                {
-                    // If there is no response that closes the stream, append an error.
-                    info.pending_items.push_back(RpcResponse::Error(
-                        RpcErrorResponse::ServerError,
-                        "Request timed out".into(),
-                    ));
-                }
-            }
+            self.inbound_substreams.remove(&substream_id);
+            self.events_out
+                .push(HandlerEvent::InboundStreamClosed(substream_id));
         }
 
         // purge expired outbound substreams
@@ -501,9 +497,7 @@ where
                                 // The substream closed, we remove it from the mapping and remove
                                 // the timeout
                                 substreams_to_remove.push(*id);
-                                if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay.remove(delay_key);
-                                }
+                                self.inbound_substreams_delay.remove(&info.delay_key);
                                 // If there was an error in shutting down the substream report the
                                 // error
                                 if let Err(error) = res {
@@ -547,9 +541,8 @@ where
 
                                 // If this substream has not ended, we reset the timer.
                                 // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
-                                if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay.reset(delay_key, RESP_TIMEOUT);
-                                }
+                                self.inbound_substreams_delay
+                                    .reset(&info.delay_key, RESP_TIMEOUT);
 
                                 // The stream may be currently idle. Attempt to process more
                                 // elements
@@ -578,9 +571,7 @@ where
                                 // The substream has closed. Remove the timeout related to the
                                 // substream.
                                 substreams_to_remove.push(*id);
-                                if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay.remove(delay_key);
-                                }
+                                self.inbound_substreams_delay.remove(&info.delay_key);
 
                                 // BlocksByRange is the one that typically consumes the most time.
                                 // Its useful to log when the request was completed.
@@ -614,9 +605,7 @@ where
                             Poll::Ready(Err(error)) => {
                                 // Remove the stream timeout from the mapping
                                 substreams_to_remove.push(*id);
-                                if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay.remove(delay_key);
-                                }
+                                self.inbound_substreams_delay.remove(&info.delay_key);
                                 // Report the error that occurred during the send process
                                 self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
                                     error,
@@ -1015,7 +1004,7 @@ where
                         pending_items: VecDeque::with_capacity(
                             std::cmp::min(max_responses, 128) as usize
                         ),
-                        delay_key: Some(delay_key),
+                        delay_key,
                         protocol: req.versioned_protocol().protocol(),
                         request_start_time: Instant::now(),
                         max_remaining_chunks: max_responses,
