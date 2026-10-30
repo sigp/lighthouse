@@ -295,6 +295,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
         published_preferences: &mut PublishedBuilderPreferencesCache,
     ) {
         let candidates = self.inner.beacon_nodes.candidates.read().await.clone();
+        let mut last_error = None;
 
         for candidate in candidates {
             let beacon_node = candidate.beacon_node;
@@ -372,8 +373,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
                             error = ?indexed_error,
                             "Beacon node returned invalid builder preference failure indices"
                         );
+                        last_error = Some(BeaconNodeError::ServerIndexedMessage(indexed_error));
                         continue;
                     };
+
+                    debug!(
+                        endpoint = %beacon_node,
+                        failed = failed_indices.len(),
+                        submitted = pending_entries.len(),
+                        failures = ?indexed_error.failures,
+                        "Beacon node failed to submit some builder preferences"
+                    );
 
                     let mut failed_entries = Vec::with_capacity(failed_indices.len());
                     for (index, entry) in pending_entries.drain(..).enumerate() {
@@ -384,13 +394,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
                         }
                     }
                     pending_entries = failed_entries;
+                    last_error = Some(BeaconNodeError::ServerIndexedMessage(indexed_error));
                 }
                 Err(e) => {
                     debug!(
                         endpoint = %beacon_node,
                         error = %e,
-                        "Failed to publish builder preferences"
+                        "Beacon node rejected builder preferences"
                     );
+                    last_error = Some(e);
                 }
             }
         }
@@ -398,6 +410,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BuilderPreferencesServ
         error!(
             remaining = pending_entries.len(),
             %fork_name,
+            error = ?last_error,
             "Failed to publish builder preferences"
         );
     }
