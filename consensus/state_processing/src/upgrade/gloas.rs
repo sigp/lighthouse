@@ -317,7 +317,8 @@ fn onboard_builders_from_pending_deposits<E: EthSpec>(
     Ok(())
 }
 
-#[cfg(all(test, not(feature = "fake_crypto")))]
+// Too slow in debug builds.
+#[cfg(all(test, not(debug_assertions), not(feature = "fake_crypto")))]
 mod tests {
     use super::*;
     use crate::builder_deposits_cache::OnboardBuildersCache;
@@ -325,11 +326,10 @@ mod tests {
     use bls::{Keypair, SignatureBytes};
     use std::sync::Arc;
     use types::{
-        DepositData, Epoch, ForkName, MinimalEthSpec, Slot,
-        test_utils::generate_deterministic_keypairs,
+        DepositData, Epoch, ForkName, Slot, Spec, test_utils::generate_deterministic_keypairs,
     };
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn validator_count() -> usize {
         E::slots_per_epoch() as usize

@@ -584,7 +584,7 @@ pub fn get_ffg_case_03_test_definition() -> ForkChoiceTestDefinition {
             finalized_checkpoint: get_checkpoint(0),
             justified_state_balances: balances,
             expected_head: get_root(1),
-            current_slot: Slot::new(4 * MainnetEthSpec::slots_per_epoch()),
+            current_slot: Slot::new(4 * Spec::slots_per_epoch()),
             expected_payload_status: Some(PayloadStatus::Empty),
         },
     ];

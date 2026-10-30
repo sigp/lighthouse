@@ -241,9 +241,9 @@ mod tests {
     use fixed_bytes::FixedBytesExtended;
     use std::sync::LazyLock;
     use types::test_utils::generate_deterministic_keypairs;
-    use types::{ForkName, MainnetEthSpec};
+    use types::{ForkName, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     const VALIDATOR_COUNT: usize = 32;
 

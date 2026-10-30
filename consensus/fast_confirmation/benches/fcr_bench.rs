@@ -3,7 +3,7 @@
 //! Measures performance of the core FCR algorithms at various validator set sizes using a
 //! synthetic linear chain built via `ProtoArrayForkChoice`.
 //!
-//! All benchmarks run on `MainnetEthSpec` (32 slots/epoch). The chain spans three epochs so the
+//! All benchmarks assume the mainnet preset (32 slots/epoch). The chain spans three epochs so the
 //! FCR state machine has a real epoch boundary and a fully-populated previous epoch to act on.
 //! `get_latest_confirmed` is measured across a table of realistic (chain position, FCR run slot)
 //! scenarios — see `SCENARIOS`.
@@ -21,7 +21,7 @@ use proto_array::core::{ProtoArray, VoteTracker};
 use proto_array::{Block, ExecutionStatus, JustifiedBalances, ProtoArrayForkChoice};
 use types::*;
 
-type E = MainnetEthSpec;
+type E = Spec;
 
 const GWEI_PER_ETH: u64 = 1_000_000_000;
 const BALANCE: u64 = 32 * GWEI_PER_ETH;

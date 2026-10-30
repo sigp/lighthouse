@@ -76,9 +76,9 @@ impl JustifiedBalances {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{ChainSpec, Epoch, MinimalEthSpec, Validator};
+    use types::{ChainSpec, Epoch, Spec, Validator};
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn push_validator(
         state: &mut BeaconState<E>,
