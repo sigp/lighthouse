@@ -1,6 +1,7 @@
 use crate::cli::ValidatorClient;
 use beacon_node_fallback::ApiTopic;
 use beacon_node_fallback::beacon_node_health::BeaconNodeSyncDistanceTiers;
+use builder_store::{BuilderDefinition, Config as BuilderStoreConfig};
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_required};
 use directory::{
@@ -75,6 +76,9 @@ pub struct Config {
     pub enable_high_validator_count_metrics: bool,
     /// Enable use of the blinded block endpoints during proposals.
     pub builder_registration_timestamp_override: Option<u64>,
+    /// Process-wide defaults for omitted global Gloas builder configuration fields.
+    #[serde(default)]
+    pub builder_config: BuilderStoreConfig,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
@@ -138,6 +142,7 @@ impl Default for Config {
             enable_high_validator_count_metrics: false,
             beacon_nodes_tls_certs: None,
             builder_registration_timestamp_override: None,
+            builder_config: BuilderStoreConfig::default(),
             broadcast_topics: vec![ApiTopic::Subscriptions],
             enable_latency_measurement_service: true,
             enable_beacon_head_monitor: true,
@@ -388,6 +393,37 @@ impl Config {
             validator_client_config.builder_registration_timestamp_override;
 
         config.validator_store.builder_boost_factor = validator_client_config.builder_boost_factor;
+        config.builder_config = BuilderStoreConfig {
+            min_bid: validator_client_config.builder_min_bid,
+            builder_boost_factor: validator_client_config.builder_boost_factor,
+            builders: validator_client_config
+                .builder_urls
+                .as_ref()
+                .map(|urls| {
+                    urls.iter()
+                        .map(|url| {
+                            Ok(BuilderDefinition {
+                                enabled: true,
+                                url: url
+                                    .parse()
+                                    .map_err(|e| format!("Unable to parse builder URL: {e:?}"))?,
+                                auth_data: None,
+                                builder_pubkeys: vec![],
+                                max_execution_payment: validator_client_config
+                                    .builder_max_execution_payment
+                                    .unwrap_or_default(),
+                                min_bid: None,
+                                builder_boost_factor: None,
+                            })
+                        })
+                        .collect::<Result<_, String>>()
+                })
+                .transpose()?,
+        };
+        config
+            .builder_config
+            .validate()
+            .map_err(|e| format!("Invalid builder configuration: {e:?}"))?;
         config.enable_latency_measurement_service =
             !validator_client_config.disable_latency_measurement_service;
         config.enable_beacon_head_monitor = !validator_client_config.disable_beacon_head_monitor;

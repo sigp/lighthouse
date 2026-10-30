@@ -614,13 +614,142 @@ fn builder_boost_factor_flag() {
     CommandLineTest::new()
         .flag("builder-boost-factor", Some("150"))
         .run()
-        .with_config(|config| assert_eq!(config.validator_store.builder_boost_factor, Some(150)));
+        .with_config(|config| {
+            assert_eq!(config.validator_store.builder_boost_factor, Some(150));
+            assert_eq!(config.builder_config.builder_boost_factor, Some(150));
+        });
 }
 #[test]
 fn no_builder_boost_factor_flag() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert_eq!(config.validator_store.builder_boost_factor, None);
+        assert_eq!(config.builder_config.builder_boost_factor, None);
+    });
+}
+
+#[test]
+fn builder_cli_flags() {
     CommandLineTest::new()
+        .flag(
+            "builder-urls",
+            Some("http://builder-a.example,https://builder-b.example/path"),
+        )
+        .flag("builder-min-bid", Some("500000000"))
+        .flag("builder-boost-factor", Some("120"))
+        .flag("builder-max-execution-payment", Some("1000000000"))
         .run()
-        .with_config(|config| assert_eq!(config.validator_store.builder_boost_factor, None));
+        .with_config(|config| {
+            assert_eq!(config.builder_config.min_bid, Some(500_000_000));
+            assert_eq!(config.builder_config.builder_boost_factor, Some(120));
+            let builders = config.builder_config.builders.as_ref().unwrap();
+            assert_eq!(builders.len(), 2);
+            for (builder, url) in builders
+                .iter()
+                .zip(["http://builder-a.example", "https://builder-b.example/path"])
+            {
+                assert_eq!(builder.url.as_str().unwrap(), url);
+                assert!(builder.enabled);
+                assert_eq!(builder.max_execution_payment, 1_000_000_000);
+                assert!(builder.auth_data.is_none());
+                assert!(builder.builder_pubkeys.is_empty());
+            }
+        });
+}
+
+#[test]
+fn builder_cli_defaults() {
+    CommandLineTest::new().run().with_config(|config| {
+        assert!(config.builder_config.builders.is_none());
+        assert!(config.builder_config.min_bid.is_none());
+        assert!(config.builder_config.builder_boost_factor.is_none());
+    });
+    CommandLineTest::new()
+        .flag("builder-urls", Some("https://builder.example"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.builder_config.builders.as_ref().unwrap()[0].max_execution_payment,
+                0
+            );
+            assert!(!config.validator_store.builder_proposals);
+        });
+}
+
+#[test]
+fn builder_min_bid_without_urls() {
+    for min_bid in ["0", "18446744073709551615"] {
+        CommandLineTest::new()
+            .flag("builder-min-bid", Some(min_bid))
+            .run()
+            .with_config(|config| {
+                assert_eq!(
+                    config.builder_config.min_bid,
+                    Some(min_bid.parse().unwrap())
+                );
+                assert!(config.builder_config.builders.is_none());
+            });
+    }
+}
+
+#[test]
+fn invalid_builder_cli_flags() {
+    let too_many_builders = (0..65)
+        .map(|index| format!("https://builder-{index}.example"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let too_long_url = format!("https://builder.example/{}", "a".repeat(2048));
+    let cases: &[(&[&str], &str)] = &[
+        (&["--builder-urls", ""], "InvalidBuilderUrl"),
+        (&["--builder-urls", "not-a-url"], "InvalidBuilderUrl"),
+        (
+            &["--builder-urls", "ftp://builder.example"],
+            "UnsupportedUrlScheme",
+        ),
+        (
+            &[
+                "--builder-urls",
+                "https://builder.example,https://builder.example",
+            ],
+            "DuplicateBuilderAuth",
+        ),
+        (
+            &["--builder-urls", &too_many_builders],
+            "TooManyEnabledBuilders",
+        ),
+        (&["--builder-urls", &too_long_url], "TooLong"),
+        (&["--builder-min-bid", "-1"], "error:"),
+        (&["--builder-min-bid", "0.5"], "invalid value"),
+        (
+            &["--builder-min-bid", "18446744073709551616"],
+            "invalid value",
+        ),
+        (&["--builder-max-execution-payment", "1"], "--builder-urls"),
+        (
+            &[
+                "--builder-urls",
+                "https://builder.example",
+                "--builder-max-execution-payment",
+                "0.5",
+            ],
+            "invalid value",
+        ),
+    ];
+    for &(flags, expected_error) in cases {
+        let directory = TempDir::new().unwrap();
+        let output = base_cmd()
+            .args(flags)
+            .arg("--datadir")
+            .arg(directory.path())
+            .arg("--immediate-shutdown")
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "accepted invalid flags: {flags:?}"
+        );
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains(expected_error), "{flags:?}: {stderr}");
+    }
 }
 #[test]
 fn prefer_builder_proposals_flag() {
