@@ -2337,8 +2337,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?;
 
+        let fork = self.spec.fork_name_at_slot::<T::EthSpec>(request_slot);
         let inclusion_list_transactions = execution_layer
-            .get_inclusion_list_v1()
+            .get_inclusion_list_v1(fork)
             .await
             .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))?;
 
@@ -7343,6 +7344,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Ok(());
             };
 
+        let prepare_fork = self.spec.fork_name_at_slot::<T::EthSpec>(current_slot + 1);
+
         let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(
                 head_hash,
@@ -7352,6 +7355,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head_block_root,
                 head_payload_status,
                 custody_columns,
+                prepare_fork,
             )
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
