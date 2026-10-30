@@ -61,6 +61,8 @@ pub enum HandlerEvent<Id, E: EthSpec> {
     Ok(RPCReceived<Id, E>),
     Err(HandlerErr<Id>),
     /// An inbound substream closed and no more responses can be sent for its request.
+    /// This is emitted for every inbound request reported to the behaviour,
+    /// unless the connection closes first.
     InboundStreamClosed(SubstreamId),
     Close(RPCError),
 }
@@ -989,40 +991,54 @@ where
             &self.fork_context.spec,
         );
 
-        // store requests that expect responses
-        if max_responses > 0 {
-            if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
-                // Store the stream and tag the output.
-                let delay_key = self
-                    .inbound_substreams_delay
-                    .insert(self.current_inbound_substream_id, RESP_TIMEOUT);
-                let awaiting_stream = InboundState::Idle(substream);
-                self.inbound_substreams.insert(
-                    self.current_inbound_substream_id,
-                    InboundInfo {
-                        state: awaiting_stream,
-                        pending_items: VecDeque::with_capacity(
-                            std::cmp::min(max_responses, 128) as usize
-                        ),
-                        delay_key,
-                        protocol: req.versioned_protocol().protocol(),
-                        request_start_time: Instant::now(),
-                        max_remaining_chunks: max_responses,
-                    },
-                );
-            } else {
-                self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
-                    id: self.current_inbound_substream_id,
-                    proto: req.versioned_protocol().protocol(),
-                    error: RPCError::HandlerRejected,
-                }));
-                return self.shutdown(None);
-            }
-        }
-
         // If we received a goodbye, shutdown the connection.
         if let RequestType::Goodbye(_) = req {
             self.shutdown(None);
+        }
+
+        // Requests that expect no responses (goodbye and degenerate zero-count requests) do not
+        // keep their substream: report the request, then immediately report the stream as closed.
+        if max_responses == 0 {
+            self.events_out.push(HandlerEvent::Ok(RPCReceived::Request(
+                super::InboundRequestId {
+                    connection_id: self.connection_id,
+                    substream_id: self.current_inbound_substream_id,
+                },
+                req,
+            )));
+            self.events_out.push(HandlerEvent::InboundStreamClosed(
+                self.current_inbound_substream_id,
+            ));
+            self.current_inbound_substream_id.0 += 1;
+            return;
+        }
+
+        // Store the stream and tag the output.
+        if self.inbound_substreams.len() < MAX_INBOUND_SUBSTREAMS {
+            let delay_key = self
+                .inbound_substreams_delay
+                .insert(self.current_inbound_substream_id, RESP_TIMEOUT);
+            let awaiting_stream = InboundState::Idle(substream);
+            self.inbound_substreams.insert(
+                self.current_inbound_substream_id,
+                InboundInfo {
+                    state: awaiting_stream,
+                    pending_items: VecDeque::with_capacity(
+                        std::cmp::min(max_responses, 128) as usize
+                    ),
+                    delay_key,
+                    protocol: req.versioned_protocol().protocol(),
+                    request_start_time: Instant::now(),
+                    max_remaining_chunks: max_responses,
+                },
+            );
+        } else {
+            self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                id: self.current_inbound_substream_id,
+                proto: req.versioned_protocol().protocol(),
+                error: RPCError::HandlerRejected,
+            }));
+            return self.shutdown(None);
         }
 
         self.events_out.push(HandlerEvent::Ok(RPCReceived::Request(
