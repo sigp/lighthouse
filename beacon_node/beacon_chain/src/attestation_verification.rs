@@ -295,7 +295,12 @@ pub enum Error {
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
-        Self::BeaconChainError(Box::new(e))
+        match e {
+            BeaconChainError::MissingBeaconBlockFromForkChoice(beacon_block_root) => {
+                Self::HeadBlockFinalized { beacon_block_root }
+            }
+            e => Self::BeaconChainError(Box::new(e)),
+        }
     }
 }
 
