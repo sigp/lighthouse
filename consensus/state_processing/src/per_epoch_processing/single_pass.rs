@@ -90,6 +90,7 @@ struct StateContext {
 struct RewardsAndPenaltiesContext {
     unslashed_participating_increments_array: [u64; NUM_FLAG_INDICES],
     active_increments: u64,
+    inactivity_penalty_denominator: u64,
 }
 
 struct SlashingsContext {
@@ -265,7 +266,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             || (validator.slashed && previous_epoch.safe_add(1)? < validator.withdrawable_epoch);
 
         let base_reward = if is_eligible {
-            epoch_cache.get_base_reward(index)?
+            epoch_cache.get_base_reward_for_epoch(index, previous_epoch)?
         } else {
             0
         };
@@ -301,7 +302,6 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                     validator_info,
                     rewards_ctxt,
                     state_ctxt,
-                    spec,
                 )?;
             }
         }
@@ -407,6 +407,16 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                 state
                     .get_balance_mut(validator_index)?
                     .safe_add_assign(deposit_data.amount)?;
+            } else if fork_name.heze_enabled()
+                && deposit_data
+                    .withdrawal_credentials
+                    .as_slice()
+                    .first()
+                    .map(|byte| *byte == spec.bls_withdrawal_prefix_byte)
+                    .unwrap_or(false)
+            {
+                // [New in Heze:EIP8365] Do not create validators with BLS withdrawal credentials.
+                continue;
             } else if is_valid_deposit_signature(&deposit_data, spec).is_ok() {
                 // Apply the new deposit to the state
                 let validator_index = state.add_validator_to_registry(
@@ -670,7 +680,6 @@ fn process_single_reward_and_penalty(
     validator_info: &ValidatorInfo,
     rewards_ctxt: &RewardsAndPenaltiesContext,
     state_ctxt: &StateContext,
-    spec: &ChainSpec,
 ) -> Result<(), Error> {
     if !validator_info.is_eligible {
         return Ok(());
@@ -686,13 +695,7 @@ fn process_single_reward_and_penalty(
             state_ctxt,
         )?;
     }
-    get_inactivity_penalty_delta(
-        &mut delta,
-        validator_info,
-        inactivity_score,
-        state_ctxt,
-        spec,
-    )?;
+    get_inactivity_penalty_delta(&mut delta, validator_info, inactivity_score, rewards_ctxt)?;
 
     if delta.rewards != 0 || delta.penalties != 0 {
         let balance = balance.make_mut()?;
@@ -746,17 +749,13 @@ fn get_inactivity_penalty_delta(
     delta: &mut Delta,
     validator_info: &ValidatorInfo,
     inactivity_score: &u64,
-    state_ctxt: &StateContext,
-    spec: &ChainSpec,
+    rewards_ctxt: &RewardsAndPenaltiesContext,
 ) -> Result<(), Error> {
     if !validator_info.is_unslashed_participating_index(TIMELY_TARGET_FLAG_INDEX)? {
         let penalty_numerator = validator_info
             .effective_balance
             .safe_mul(*inactivity_score)?;
-        let penalty_denominator = spec
-            .inactivity_score_bias
-            .safe_mul(spec.inactivity_penalty_quotient_for_fork(state_ctxt.fork_name))?;
-        delta.penalize(penalty_numerator.safe_div(penalty_denominator)?)?;
+        delta.penalize(penalty_numerator.safe_div(rewards_ctxt.inactivity_penalty_denominator)?)?;
     }
     Ok(())
 }
@@ -781,10 +780,19 @@ impl RewardsAndPenaltiesContext {
         let active_increments = state_ctxt
             .total_active_balance
             .safe_div(spec.effective_balance_increment)?;
+        let previous_epoch = state_ctxt.current_epoch.saturating_sub(1u64);
+        let base_slot_duration_ms = spec.slot_duration_ms();
+        let previous_slot_duration_ms = spec.get_slot_duration_ms(previous_epoch);
+        let inactivity_penalty_denominator = spec
+            .inactivity_score_bias
+            .safe_mul(spec.inactivity_penalty_quotient_for_fork(state_ctxt.fork_name))?
+            .safe_mul(base_slot_duration_ms.safe_mul(base_slot_duration_ms)?)?
+            .safe_div(previous_slot_duration_ms.safe_mul(previous_slot_duration_ms)?)?;
 
         Ok(Self {
             unslashed_participating_increments_array,
             active_increments,
+            inactivity_penalty_denominator,
         })
     }
 
@@ -994,13 +1002,8 @@ fn get_activation_exit_churn_limit(
     state_ctxt: &StateContext,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
-    let max_limit = if state_ctxt.fork_name.gloas_enabled() {
-        spec.max_per_epoch_activation_churn_limit_gloas
-    } else {
-        spec.max_per_epoch_activation_exit_churn_limit
-    };
     Ok(std::cmp::min(
-        max_limit,
+        spec.max_per_epoch_activation_exit_churn_limit,
         get_balance_churn_limit(state_ctxt, spec)?,
     ))
 }
@@ -1016,6 +1019,13 @@ fn get_balance_churn_limit(state_ctxt: &StateContext, spec: &ChainSpec) -> Resul
         spec.min_per_epoch_churn_limit_electra,
         total_active_balance.safe_div(quotient)?,
     );
+    let churn = if state_ctxt.fork_name.gloas_enabled() {
+        churn
+            .safe_mul(spec.get_slot_duration_ms(state_ctxt.current_epoch))?
+            .safe_div(spec.slot_duration_ms())?
+    } else {
+        churn
+    };
 
     Ok(churn.safe_sub(churn.safe_rem(spec.effective_balance_increment)?)?)
 }
@@ -1108,7 +1118,7 @@ impl PendingDepositsContext {
             // Support for the former Eth1 bridge deposit mechanism was removed in Fulu.
             if !state.fork_name_unchecked().fulu_enabled()
                 && deposit.slot > spec.genesis_slot
-                && state.eth1_deposit_index() < state.deposit_requests_start_index()?
+                && state.eth1_deposit_index()? < state.deposit_requests_start_index()?
             {
                 break;
             }

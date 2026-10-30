@@ -1070,7 +1070,7 @@ where
             graffiti_calculator: GraffitiCalculator::new(
                 self.beacon_graffiti,
                 self.execution_layer,
-                slot_clock.slot_duration() * E::slots_per_epoch() as u32,
+                slot_clock.current_slot_duration() * E::slots_per_epoch() as u32,
             ),
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
@@ -1212,19 +1212,16 @@ where
     TColdStore: ItemStore + 'static,
     E: EthSpec + 'static,
 {
-    /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
+    /// Sets the `BeaconChain` slot clock to a `TestingSlotClock` that follows the spec.
     ///
     /// Requires the state to be initialized.
-    pub fn testing_slot_clock(self, slot_duration: Duration) -> Result<Self, String> {
+    pub fn testing_slot_clock(self) -> Result<Self, String> {
         let genesis_time = self
             .genesis_time
             .ok_or("testing_slot_clock requires an initialized state")?;
 
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(genesis_time),
-            slot_duration,
-        );
+        let slot_clock =
+            TestingSlotClock::from_spec::<E>(Duration::from_secs(genesis_time), &self.spec);
 
         Ok(self.slot_clock(slot_clock))
     }
@@ -1568,7 +1565,6 @@ mod test {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use ssz::Encode;
-    use std::time::Duration;
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
     use task_executor::test_utils::TestRuntime;
@@ -1605,7 +1601,7 @@ mod test {
             .task_executor(runtime.task_executor.clone())
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
-            .testing_slot_clock(Duration::from_secs(1))
+            .testing_slot_clock()
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
             .rng(Box::new(StdRng::seed_from_u64(42)))
@@ -1668,7 +1664,7 @@ mod test {
         .expect("should build state");
 
         assert_eq!(
-            state.eth1_data().block_hash,
+            state.eth1_data().unwrap().block_hash,
             Hash256::from_slice(&[0x42; 32]),
             "eth1 block hash should be co-ordinated junk"
         );

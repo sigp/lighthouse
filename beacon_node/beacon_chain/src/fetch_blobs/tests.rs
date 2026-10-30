@@ -279,7 +279,7 @@ mod get_blobs_v4 {
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::time::Duration;
     use types::test_utils::test_unstructured;
-    use types::{Cell, ColumnIndex, PartialDataColumnHeader, Slot};
+    use types::{Cell, ColumnIndex, PartialDataColumnHeader};
 
     const CUSTODY_COLUMNS: [ColumnIndex; 3] = [0, 1, 2];
 
@@ -530,11 +530,7 @@ mod get_blobs_v4 {
 
         // Real pending payload cache: the Gloas path inserts the bid and merges partial columns into
         // it, so a mock would not exercise the actual merge/availability logic.
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        );
+        let slot_clock = TestingSlotClock::from_spec::<E>(Duration::from_secs(0), &spec);
         let custody_context = Arc::new(CustodyContext::<T>::new(
             NodeCustodyType::Supernode,
             generate_data_column_indices_rand_order::<E>(),

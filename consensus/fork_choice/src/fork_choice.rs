@@ -536,19 +536,21 @@ where
         }
     }
 
-    /// Returns the dependent root for `block_root`, per the spec `get_shuffling_dependent_root` helper.
-    fn get_shuffling_dependent_root(
+    /// Returns the shuffling dependent root of `epoch` on the chain of `block_root`.
+    ///
+    /// Returns `None` if the dependent slot is prior to the fork choice anchor.
+    ///
+    /// ## Specification
+    ///
+    /// Equivalent to:
+    ///
+    /// https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/fork-choice.md#modified-get_shuffling_dependent_root
+    pub fn get_shuffling_dependent_root(
         &self,
         block_root: Hash256,
-        current_slot: Slot,
+        epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<Option<Hash256>, Error<T::Error>> {
-        let epoch = current_slot.epoch(E::slots_per_epoch());
-
-        if epoch <= spec.min_seed_lookahead {
-            return Ok(Some(Hash256::zero()));
-        }
-
         let dependent_slot = epoch
             .saturating_sub(spec.min_seed_lookahead)
             .start_slot(E::slots_per_epoch())
@@ -706,6 +708,7 @@ where
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
         payload_block_hash: ExecutionBlockHash,
+        inclusion_list_satisfied: bool,
     ) -> Result<(), Error<T::Error>> {
         let execution_status = match payload_verification_status {
             PayloadVerificationStatus::Verified => ExecutionStatus::Valid(payload_block_hash),
@@ -725,7 +728,7 @@ where
         // `on_payload_envelope_received` promotes the ancestry itself, starting at this node's
         // own `FULL` side.
         self.proto_array
-            .on_payload_envelope_received(block_root, execution_status)
+            .on_payload_envelope_received(block_root, execution_status, inclusion_list_satisfied)
             .map_err(Error::FailedToProcessValidExecutionPayload)?;
 
         Ok(())
@@ -888,11 +891,12 @@ where
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
 
         if is_timely && is_first_block {
+            let current_epoch = current_slot.epoch(E::slots_per_epoch());
             // The block isn't in fork choice so resolve its dependent root via its parent.
             let block_dependent_root =
-                self.get_shuffling_dependent_root(block.parent_root(), current_slot, spec)?;
+                self.get_shuffling_dependent_root(block.parent_root(), current_epoch, spec)?;
             let head_dependent_root =
-                self.get_shuffling_dependent_root(head_root, current_slot, spec)?;
+                self.get_shuffling_dependent_root(head_root, current_epoch, spec)?;
 
             // Add proposer score boost if the block is timely, not conflicting with an
             // existing block, with the same dependent root as the canonical chain head.

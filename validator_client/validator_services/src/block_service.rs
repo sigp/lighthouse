@@ -1146,13 +1146,22 @@ impl<E: EthSpec> From<&SignedBlock<E>> for BlockMetadata {
             SignedBlock::Full(block) => BlockMetadata {
                 block_type: BlockType::Full,
                 slot: block.signed_block().message().slot(),
-                num_deposits: block.signed_block().message().body().deposits().len(),
+                num_deposits: block
+                    .signed_block()
+                    .message()
+                    .body()
+                    .deposits()
+                    .map_or(0, |deposits| deposits.len()),
                 num_attestations: block.signed_block().message().body().attestations_len(),
             },
             SignedBlock::Blinded(block) => BlockMetadata {
                 block_type: BlockType::Blinded,
                 slot: block.message().slot(),
-                num_deposits: block.message().body().deposits().len(),
+                num_deposits: block
+                    .message()
+                    .body()
+                    .deposits()
+                    .map_or(0, |deposits| deposits.len()),
                 num_attestations: block.message().body().attestations_len(),
             },
         }
@@ -1251,7 +1260,7 @@ mod tests {
             // advance the time to Slot 1
             harness
                 .slot_clock
-                .advance_time(harness.spec.get_slot_duration());
+                .advance_time(harness.spec.genesis_slot_duration());
 
             let mut builder = BlockServiceBuilder::new()
                 .validator_store(Arc::new(RecordingValidatorStore::new(

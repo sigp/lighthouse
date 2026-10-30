@@ -14,7 +14,7 @@ pub fn process_eth1_data_reset<E: EthSpec>(
         .safe_rem(E::SlotsPerEth1VotingPeriod::to_u64())?
         == 0
     {
-        *state.eth1_data_votes_mut() = List::empty();
+        *state.eth1_data_votes_mut()? = List::empty();
     }
     Ok(())
 }

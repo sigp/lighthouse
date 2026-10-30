@@ -45,7 +45,7 @@ use crate::{
     beacon_chain::{BeaconForkChoice, BeaconStore, FORK_CHOICE_DB_KEY, OverrideForkchoiceUpdate},
     block_times_cache::BlockTimesCache,
     metrics,
-    validator_monitor::get_slot_delay_ms,
+    validator_monitor::{get_slot_delay_ms, is_before_slot},
 };
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
@@ -1650,7 +1650,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .epoch(T::EthSpec::slots_per_epoch());
             if let Some(min_epochs_for_blobs) = self
                 .spec
-                .min_epoch_data_availability_boundary(current_epoch)
+                .min_epoch_data_availability_boundary::<T::EthSpec>(current_epoch)
             {
                 let cutoff_epoch = std::cmp::max(finalized_epoch + 1, min_epochs_for_blobs);
                 if let Err(e) = self.pending_payload_cache.do_maintenance(cutoff_epoch) {
@@ -2071,7 +2071,11 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
 
     // Do not write to the cache for blocks older than 2 epochs, this helps reduce writes to
     // the cache during sync.
-    if block_delay_total < slot_clock.slot_duration() * 64 {
+    if is_before_slot(
+        block_time_set_as_head,
+        head_block_slot.saturating_add(64u64),
+        slot_clock,
+    ) {
         block_times_cache.set_time_set_as_head(
             head_block_root,
             head_block_slot,
@@ -2080,7 +2084,9 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     }
 
     // If a block comes in from over 4 slots ago, it is most likely a block from sync.
-    let block_from_sync = block_delay_total > slot_clock.slot_duration() * 4;
+    let block_from_sync = slot_clock
+        .start_of(head_block_slot.saturating_add(4u64))
+        .is_some_and(|sync_cutoff| block_time_set_as_head > sync_cutoff);
 
     // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
     // sync.

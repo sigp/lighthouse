@@ -41,7 +41,10 @@ use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_e
 use crate::execution_proof_verification::ObservedExecutionProofs;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiSettings};
-use crate::inclusion_list_store::{DependentRoot, InclusionListStore};
+use crate::inclusion_list_store::{InclusionListKey, InclusionListStore};
+use crate::inclusion_list_verification::{
+    verify_inclusion_list_transactions_bounds, verify_no_blob_transactions,
+};
 use crate::light_client_finality_update_verification::{
     Error as LightClientFinalityUpdateError, VerifiedLightClientFinalityUpdate,
 };
@@ -83,14 +86,12 @@ use crate::persisted_custody::persist_custody_context;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::proposer_preferences_verification::proposer_preference_cache::GossipVerifiedProposerPreferenceCache;
-use crate::shuffling_cache::{
-    BlockShufflingIds, CachedPTCs, CachedShuffling, ShufflingCache, with_cached_shuffling,
-};
+use crate::shuffling_cache::{CachedPTCs, CachedShuffling, ShufflingCache, with_cached_shuffling};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
 use crate::validator_monitor::{
-    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, get_slot_delay_ms,
+    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, is_before_slot,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
@@ -101,7 +102,7 @@ use bls::{PublicKey, PublicKeyBytes, Signature};
 use builder_client::{BidRequestContext, BidStreams, Builders};
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
-    EventKind, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
+    EventKind, InclusionListDuty, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
     SseExtendedPayloadAttributes, SseHead, SseHeadV2,
 };
 use execution_layer::{
@@ -131,7 +132,7 @@ use serde_utils::quoted_u64::Quoted;
 use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
-use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
+use ssz_types::FixedVector;
 use state_processing::per_block_processing::errors::{ExitInvalid, ExitValidationError};
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, SigVerifiedOp,
@@ -1813,6 +1814,54 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((duties, dependent_root))
     }
 
+    /// Get inclusion list committee duties for validators at a given epoch ([New in Heze:EIP7805]).
+    pub fn compute_inclusion_list_duties(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        epoch: Epoch,
+        validator_indices: &[u64],
+        dependent_block_root: Hash256,
+    ) -> Result<(Vec<Option<InclusionListDuty>>, Hash256), Error> {
+        let relative_epoch = RelativeEpoch::from_epoch(state.current_epoch(), epoch)
+            .map_err(Error::IncorrectStateForAttestation)?;
+
+        let dependent_root =
+            state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?;
+
+        // Only track the validators that were actually requested, rather than every member of
+        // every inclusion list committee in the epoch.
+        let requested_indices: HashSet<u64> = validator_indices.iter().copied().collect();
+        let mut assignments: HashMap<u64, Slot> = HashMap::new();
+        for slot in epoch.slot_iter(T::EthSpec::slots_per_epoch()) {
+            let committee = state.get_inclusion_list_committee(slot)?;
+            for validator_index in &committee {
+                if requested_indices.contains(validator_index) {
+                    assignments.entry(*validator_index).or_insert(slot);
+                }
+            }
+        }
+
+        let pubkey_cache = self.validator_pubkey_cache.read();
+
+        let duties = validator_indices
+            .iter()
+            .map(|&validator_index| {
+                let Some(&pubkey) = pubkey_cache.get_pubkey_bytes(validator_index as usize) else {
+                    return None;
+                };
+                assignments
+                    .get(&validator_index)
+                    .map(|&slot| InclusionListDuty {
+                        pubkey,
+                        validator_index,
+                        slot,
+                    })
+            })
+            .collect::<Vec<_>>();
+
+        Ok((duties, dependent_root))
+    }
+
     pub fn get_aggregated_attestation(
         &self,
         attestation: AttestationRef<T::EthSpec>,
@@ -2239,7 +2288,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // the envelopes_times_cache internally?
         // The payload is considered present only if it was observed before
         // the payload due deadline (PAYLOAD_DUE_BPS into the slot).
-        let payload_due = self.spec.get_payload_due();
+        let payload_due = self.spec.get_payload_due::<T::EthSpec>(request_slot);
         let payload_present = self
             .envelope_times_cache
             .read()
@@ -2264,6 +2313,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_present,
             blob_data_available,
         })
+    }
+
+    /// Produce the inclusion list transactions for `request_slot`.
+    ///
+    /// The transactions are requested from the execution layer via `getInclusionListV1`.
+    /// An empty list is a valid answer (nothing to include) and is returned as such, while a
+    /// list that violates the rules the engine API places on it (size bounds, no blob
+    /// transactions) is an execution layer fault and is rejected
+    pub async fn produce_inclusion_list(
+        &self,
+        request_slot: Slot,
+    ) -> Result<ProgressiveTransactions, Error> {
+        // Inclusion lists are only produced for the current slot.
+        let current_slot = self.slot()?;
+        if request_slot != current_slot {
+            return Err(Error::InvalidSlot(request_slot));
+        }
+        let _timer = metrics::start_timer(&metrics::INCLUSION_LIST_PRODUCTION_SECONDS);
+
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?;
+
+        let inclusion_list_transactions = execution_layer
+            .get_inclusion_list_v1()
+            .await
+            .map_err(|e| Error::ExecutionLayerGetInclusionListFailed(Box::new(e)))?;
+
+        verify_inclusion_list_transactions_bounds(&inclusion_list_transactions, &self.spec)
+            .and_then(|()| verify_no_blob_transactions(&inclusion_list_transactions))
+            .inspect_err(|e| {
+                warn!(
+                    error = ?e,
+                    %request_slot,
+                    "Execution layer returned an invalid inclusion list"
+                )
+            })
+            .map_err(Error::InvalidInclusionListFromExecutionLayer)?;
+
+        Ok(inclusion_list_transactions)
     }
 
     /// Performs the same validation as `Self::verify_unaggregated_attestation_for_gossip`, but for
@@ -5132,12 +5222,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let block_delay_total =
-            get_slot_delay_ms(block_time_imported, block.slot(), &self.slot_clock);
-
         // Do not write to the cache for blocks older than 2 epochs, this helps reduce writes to
         // the cache during sync.
-        if block_delay_total < self.slot_clock.slot_duration() * 64 {
+        if is_before_slot(
+            block_time_imported,
+            block.slot().saturating_add(64u64),
+            &self.slot_clock,
+        ) {
             // Store the timestamp of the block being imported into the cache.
             self.block_times_cache.write().set_time_imported(
                 block_root,
@@ -5176,7 +5267,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Do not trigger light_client server update producer for old blocks, to extra work
         // during sync.
         if self.config.enable_light_client_server
-            && block_delay_total < self.slot_clock.slot_duration() * 32
+            && is_before_slot(
+                block_time_imported,
+                block.slot().saturating_add(32u64),
+                &self.slot_clock,
+            )
             && let Some(mut light_client_server_tx) = self.light_client_server_tx.clone()
             && let Ok(sync_aggregate) = block.body().sync_aggregate()
             && let Err(e) = light_client_server_tx.try_send((
@@ -5558,8 +5653,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot_delay = now.saturating_sub(slot_start);
                     let re_org_cutoff_duration = self
                         .spec
-                        .compute_slot_component_duration(self.spec.proposer_reorg_cutoff_bps)
-                        .ok()?;
+                        .get_proposer_reorg_cutoff::<T::EthSpec>(re_org_block_slot);
 
                     Some(slot_delay <= re_org_cutoff_duration)
                 })
@@ -5928,7 +6022,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
         drop(slashings_and_exits_span);
 
-        let eth1_data = state.eth1_data().clone();
+        let eth1_data = state.eth1_data()?.clone();
 
         let deposits = vec![];
 
@@ -6916,15 +7010,78 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
+        let head_root = forkchoice_update_params.head_root;
+        let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
+
+        // The inclusion list transactions for `prepare_slot` keep updating as lists arrive towards
+        // the end of `current_slot`, so they are read on every call rather than served from the cache
+        let inclusion_list_transactions = if prepare_slot_fork.heze_enabled() {
+            let chain = self.clone();
+            let transactions = self
+                .spawn_blocking_handle(
+                    move || {
+                        let key = chain.inclusion_list_key(head_root, current_slot)?;
+                        Ok::<_, Error>(
+                            chain
+                                .inclusion_list_store
+                                .read()
+                                .get_inclusion_list_transactions(&key, false),
+                        )
+                    },
+                    "prepare_beacon_proposer_inclusion_list_transactions",
+                )
+                .await?;
+
+            match transactions.and_then(|transactions| {
+                ProgressiveTransactions::new(transactions).map_err(Into::into)
+            }) {
+                Ok(transactions) => Some(transactions),
+                Err(e) => {
+                    warn!(
+                        ?head_root,
+                        %current_slot,
+                        error = ?e,
+                        "Failed to read inclusion lists, keeping the cached ones"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         // Fetch payload attributes from the execution layer's cache, or compute them from scratch
         // if no matching entry is found. This saves recomputing the withdrawals which can take
         // considerable time to compute if a state load is required.
-        let head_root = forkchoice_update_params.head_root;
-        let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
-        let payload_attributes = if let Some(payload_attributes) = execution_layer
+        let payload_attributes = if let Some(mut payload_attributes) = execution_layer
             .payload_attributes(prepare_slot, head_root, build_payload_status)
             .await
         {
+            // The `forkchoiceUpdated` call below reads the attributes back from the cache
+            // rather than using the value here, so the entry is updated as well
+            if let PayloadAttributes::V5(attributes) = &mut payload_attributes
+                && let Some(new_inclusion_list_transactions) = inclusion_list_transactions
+                && attributes.inclusion_list_transactions != new_inclusion_list_transactions
+            {
+                attributes.inclusion_list_transactions = new_inclusion_list_transactions;
+
+                execution_layer
+                    .insert_proposer(
+                        prepare_slot,
+                        head_root,
+                        build_payload_status,
+                        proposer,
+                        payload_attributes.clone(),
+                    )
+                    .await;
+
+                debug!(
+                    %prepare_slot,
+                    validator = proposer,
+                    "Refreshed proposer inclusion list transactions"
+                );
+            }
+
             payload_attributes
         } else {
             let withdrawals = if prepare_slot_fork.capella_enabled() {
@@ -6975,13 +7132,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
-            let inclusion_list_transactions = if prepare_slot_fork.heze_enabled() {
-                // TODO(heze): populate from the inclusion list store
-                Some(ProgressiveTransactions::empty())
-            } else {
-                None
-            };
-
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6993,7 +7143,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 parent_beacon_block_root,
                 slot_number,
                 target_gas_limit,
-                inclusion_list_transactions,
+                prepare_slot_fork.heze_enabled().then(|| {
+                    inclusion_list_transactions.unwrap_or_else(ProgressiveTransactions::empty)
+                }),
             );
 
             execution_layer
@@ -7210,7 +7362,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match forkchoice_updated_response {
             Ok(status) => match status {
-                PayloadStatus::Valid => {
+                PayloadStatus::Valid { .. } => {
                     // EIP-8025: only the proofs promote a payload to valid.
                     if self.execution_proofs_enabled() {
                         return Ok(());
@@ -7561,24 +7713,63 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )
     }
 
-    /// The ordered inclusion list committee for `slot`, and the dependent root that keys it.
+    /// The inclusion list store key for `slot` on the chain of `block_root`.
     ///
-    /// `parent_block_root` must not be from a later epoch than `slot`, since `with_committee_cache`
-    /// cannot resolve a shuffling earlier than its own block's epoch.
+    /// For a payload, use `inclusion_list_key_for_payload`.
+    ///
+    /// Takes a fork choice read lock.
+    pub fn inclusion_list_key(
+        &self,
+        block_root: Hash256,
+        slot: Slot,
+    ) -> Result<InclusionListKey, Error> {
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+        let dependent_root = self
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_shuffling_dependent_root(block_root, epoch, &self.spec)?
+            .ok_or(Error::MissingShufflingDependentRoot { block_root, epoch })?;
+
+        Ok(InclusionListKey::new(slot, dependent_root))
+    }
+
+    /// The inclusion list store key for a payload at `payload_slot`, which reads the previous
+    /// slot's inclusion lists.
+    ///
+    /// `block_root` is any block on the payload's chain from its parent onwards.
+    ///
+    /// Takes a fork choice read lock.
+    pub fn inclusion_list_key_for_payload(
+        &self,
+        block_root: Hash256,
+        payload_slot: Slot,
+    ) -> Result<InclusionListKey, Error> {
+        self.inclusion_list_key(block_root, payload_slot.safe_sub(1)?)
+    }
+
+    /// The ordered inclusion list committee for `key`.
+    ///
+    /// Errors if `key.dependent_root()` is not the shuffling dependent root of `key.slot()`.
     ///
     /// Takes a fork choice read lock (via `with_committee_cache`).
-    pub fn inclusion_list_committee(
+    pub fn get_inclusion_list_committee(
         &self,
-        parent_block_root: Hash256,
-        slot: Slot,
-    ) -> Result<(InclusionListCommittee<T::EthSpec>, DependentRoot), Error> {
-        let shuffling_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+        key: &InclusionListKey,
+    ) -> Result<InclusionListCommittee<T::EthSpec>, Error> {
+        let slot = key.slot();
         let committee_size = T::EthSpec::inclusion_list_committee_size();
 
         self.with_committee_cache(
-            parent_block_root,
-            shuffling_epoch,
-            |cached_shuffling, dependent_root| {
+            key.dependent_root(),
+            slot.epoch(T::EthSpec::slots_per_epoch()),
+            |cached_shuffling, shuffling_decision_root| {
+                if shuffling_decision_root != key.dependent_root() {
+                    return Err(Error::InclusionListDependentRootMismatch {
+                        dependent_root: key.dependent_root(),
+                        shuffling_decision_root,
+                    });
+                }
+
                 let committee = cached_shuffling
                     .committee_cache
                     .get_inclusion_list_committee_at_slot(slot, committee_size)?
@@ -7586,85 +7777,62 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .map(|index| index as u64)
                     .collect::<Vec<_>>();
 
-                Ok((FixedVector::new(committee)?, dependent_root))
+                Ok(FixedVector::new(committee)?)
             },
         )
     }
 
-    /// The deduplicated transactions from the inclusion lists stored for `slot`.
-    ///
-    /// Resolves the dependent root directly, since the committee cache is not needed here.
-    ///
-    /// Takes a fork choice read lock.
-    pub fn get_inclusion_list_transactions(
+    /// Provides the timely inclusion list transactions for a payload built on `parent_root` at
+    /// `slot + 1`, falling back to an empty list if they can't be read.
+    pub fn payload_inclusion_list_transactions(
         &self,
-        parent_block_root: Hash256,
+        parent_root: Hash256,
         slot: Slot,
-        only_timely: bool,
-    ) -> Result<Vec<ProgressiveVariableList<u8>>, Error> {
-        let shuffling_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-        let parent_block = self
-            .canonical_head
-            .fork_choice_read_lock()
-            .get_block(&parent_block_root)
-            .ok_or(Error::MissingBeaconBlock(parent_block_root))?;
-
-        let dependent_root = BlockShufflingIds {
-            current: parent_block.current_epoch_shuffling_id.clone(),
-            next: parent_block.next_epoch_shuffling_id.clone(),
-            previous: None,
-            block_root: parent_block.root,
-        }
-        .id_for_epoch(shuffling_epoch)
-        .map(|id| id.shuffling_decision_block)
-        .ok_or(Error::InvalidShufflingId {
-            shuffling_epoch,
-            head_block_epoch: parent_block.slot.epoch(T::EthSpec::slots_per_epoch()),
-        })?;
-
-        Ok(self
-            .inclusion_list_store
-            .read()
-            .get_inclusion_list_transactions(slot, dependent_root, only_timely))
+    ) -> ProgressiveTransactions {
+        self.inclusion_list_key(parent_root, slot)
+            .and_then(|key| {
+                let transactions = self
+                    .inclusion_list_store
+                    .read()
+                    .get_inclusion_list_transactions(&key, true);
+                ProgressiveTransactions::new(transactions).map_err(Into::into)
+            })
+            .unwrap_or_else(|e| {
+                warn!(
+                    ?parent_root,
+                    %slot,
+                    error = ?e,
+                    "Failed to read inclusion lists, verifying payload without them"
+                );
+                ProgressiveTransactions::empty()
+            })
     }
 
-    /// The inclusion list committee bits for `slot` as observed by this node.
-    pub fn get_inclusion_list_bits(
+    /// Provides the inclusion list transactions for a payload built on `parent_root`
+    /// at `slot + 1`
+    /// The return value falls back to an empty list if fetching the inclusion list transactions fails
+    pub fn proposer_inclusion_list_transactions(
         &self,
-        parent_block_root: Hash256,
+        parent_root: Hash256,
         slot: Slot,
-        only_timely: bool,
-    ) -> Result<BitVector<<T::EthSpec as EthSpec>::InclusionListCommitteeSize>, Error> {
-        let (il_committee, dependent_root) =
-            self.inclusion_list_committee(parent_block_root, slot)?;
-
-        self.inclusion_list_store
-            .read()
-            .get_inclusion_list_bits(slot, dependent_root, &il_committee, only_timely)
-            .map_err(Into::into)
-    }
-
-    /// Whether `bits` covers every inclusion list this node observed for `slot`.
-    pub fn is_inclusion_list_bits_inclusive(
-        &self,
-        parent_block_root: Hash256,
-        slot: Slot,
-        bits: &BitVector<<T::EthSpec as EthSpec>::InclusionListCommitteeSize>,
-        only_timely: bool,
-    ) -> Result<bool, Error> {
-        let (il_committee, dependent_root) =
-            self.inclusion_list_committee(parent_block_root, slot)?;
-
-        self.inclusion_list_store
-            .read()
-            .is_inclusion_list_bits_inclusive(
-                slot,
-                dependent_root,
-                &il_committee,
-                bits,
-                only_timely,
-            )
-            .map_err(Into::into)
+    ) -> ProgressiveTransactions {
+        self.inclusion_list_key(parent_root, slot)
+            .and_then(|key| {
+                let transactions = self
+                    .inclusion_list_store
+                    .read()
+                    .get_inclusion_list_transactions(&key, false);
+                ProgressiveTransactions::new(transactions).map_err(Into::into)
+            })
+            .unwrap_or_else(|e| {
+                warn!(
+                    ?parent_root,
+                    %slot,
+                    error = ?e,
+                    "Failed to read inclusion lists, building payload without them"
+                );
+                ProgressiveTransactions::empty()
+            })
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.
@@ -8047,10 +8215,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // into an offence; a reveal after the deadline is one even if it was then imported.
         let envelope_observed_timely = {
             let observed = self.envelope_times_cache.read().time_observed(block_root);
-            let deadline = self
-                .slot_clock
-                .start_of(block_slot)
-                .map(|slot_start| slot_start + self.spec.get_payload_attestation_due());
+            let deadline = self.slot_clock.start_of(block_slot).map(|slot_start| {
+                slot_start
+                    + self
+                        .spec
+                        .get_payload_attestation_due::<T::EthSpec>(block_slot)
+            });
             observed
                 .zip(deadline)
                 .is_some_and(|(observed, deadline)| observed <= deadline)

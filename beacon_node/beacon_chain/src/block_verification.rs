@@ -541,6 +541,8 @@ impl From<ArithError> for BlockError {
 #[derive(Debug, PartialEq, Clone, Encode, Decode)]
 pub struct PayloadVerificationOutcome {
     pub payload_verification_status: PayloadVerificationStatus,
+    /// Pre-Heze and optimistic payloads count as satisfying the inclusion lists.
+    pub inclusion_list_satisfied: bool,
 }
 
 /// The set of errors that can occur while notifying the execution layer of a new payload.
@@ -945,7 +947,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 .map_err(BlockError::PerBlockProcessingError)?;
             verify_execution_request_list_lengths(parent_execution_requests)
                 .map_err(BlockError::PerBlockProcessingError)?;
-            let deposits_len = block.message().body().deposits().len();
+            let deposits_len = block
+                .message()
+                .body()
+                .deposits()
+                .map_or(0, |deposits| deposits.len());
             if deposits_len > 0 {
                 return Err(BlockError::PerBlockProcessingError(
                     BlockProcessingError::OperationListTooLong {
@@ -1556,6 +1562,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
             Ok(PayloadVerificationOutcome {
                 payload_verification_status,
+                inclusion_list_satisfied: true,
             })
         };
         // Spawn the payload verification future as a new task, but don't wait for it to complete.

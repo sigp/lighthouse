@@ -725,7 +725,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     |el| async move { el.watchdog_task().await },
                     "exec_watchdog_task",
                 );
-                sleep(slot_clock.slot_duration()).await;
+                sleep(slot_clock.current_slot_duration()).await;
             }
         };
 
@@ -767,7 +767,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
                 } else {
                     error!("Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot and retry.
-                    sleep(slot_clock.slot_duration()).await;
+                    sleep(slot_clock.current_slot_duration()).await;
                 }
             }
         };

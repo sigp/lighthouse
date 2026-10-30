@@ -12,8 +12,9 @@ use crate::{
     WhenSlotSkipped,
     inclusion_list_store::InsertOutcome,
     inclusion_list_verification::{
-        InclusionListVerificationError,
+        BLOB_TX_TYPE_ID, InclusionListTransactionsError, InclusionListVerificationError,
         gossip_verified_inclusion_list::{GossipVerificationContext, GossipVerifiedInclusionList},
+        verify_inclusion_list_transactions_bounds, verify_no_blob_transactions,
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType, fork_name_from_env, test_spec},
 };
@@ -37,24 +38,26 @@ impl TestContext {
         let mut spec = test_spec::<E>();
         spec.heze_fork_epoch = Some(heze_fork_epoch);
         let spec = Arc::new(spec);
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        );
-        let harness = BeaconChainHarness::builder(E::default())
+        let slot_clock = TestingSlotClock::from_spec::<E>(Duration::from_secs(0), &spec);
+        let mut builder = BeaconChainHarness::builder(E::default())
             .spec(spec)
-            .deterministic_keypairs(NUM_VALIDATORS)
+            .deterministic_keypairs(NUM_VALIDATORS);
+        if heze_fork_epoch > E::genesis_epoch() {
+            builder = builder.with_genesis_state_builder(|genesis_builder| {
+                genesis_builder
+                    .set_alternating_eth1_withdrawal_credentials()
+                    .set_deposit_requests_start_index(NUM_VALIDATORS as u64)
+            });
+        }
+        let harness = builder
             .fresh_ephemeral_store()
             .mock_execution_layer()
             .testing_slot_clock(slot_clock)
             .build();
 
         // Advance past genesis so `now_with_past_tolerance` doesn't underflow.
-        harness
-            .chain
-            .slot_clock
-            .set_current_time(harness.spec.get_slot_duration());
+        let slot_one_start = harness.chain.slot_clock.start_of(Slot::new(1)).unwrap();
+        harness.chain.slot_clock.set_current_time(slot_one_start);
         let genesis_block_root = harness.chain.genesis_block_root;
 
         Self {
@@ -78,10 +81,15 @@ impl TestContext {
     }
 
     fn committee(&self, slot: Slot) -> Vec<u64> {
-        let (committee, _) = self
+        let key = self
             .harness
             .chain
-            .inclusion_list_committee(self.harness.head_block_root(), slot)
+            .inclusion_list_key(self.harness.head_block_root(), slot)
+            .expect("should compute inclusion list key");
+        let committee = self
+            .harness
+            .chain
+            .get_inclusion_list_committee(&key)
             .expect("should compute committee");
         committee.to_vec()
     }
@@ -166,7 +174,7 @@ fn inclusion_list_after_deadline_is_not_timely() {
     let slot = ctx.current_slot();
     let slot_clock = &ctx.harness.chain.slot_clock;
     slot_clock.set_current_time(
-        slot_clock.start_of(slot).unwrap() + ctx.harness.spec.get_inclusion_list_due(),
+        slot_clock.start_of(slot).unwrap() + ctx.harness.spec.get_inclusion_list_due::<E>(slot),
     );
 
     let signed = ctx.valid_inclusion_list(slot, ctx.genesis_block_root, vec![vec![0xaa]]);
@@ -185,7 +193,8 @@ fn inclusion_list_seen_before_deadline_is_timely() {
     let slot = ctx.current_slot();
     let slot_clock = &ctx.harness.chain.slot_clock;
     let seen_timestamp = slot_clock.start_of(slot).unwrap();
-    slot_clock.set_current_time(seen_timestamp + ctx.harness.spec.get_inclusion_list_due());
+    slot_clock
+        .set_current_time(seen_timestamp + ctx.harness.spec.get_inclusion_list_due::<E>(slot));
 
     let signed = ctx.valid_inclusion_list(slot, ctx.genesis_block_root, vec![vec![0xaa]]);
     let verified = GossipVerifiedInclusionList::new(signed, seen_timestamp, &ctx.gossip_ctx())
@@ -508,10 +517,15 @@ async fn side_chain_inclusion_list_uses_side_chain_committee() {
     harness.chain.slot_clock.set_slot(slot.as_u64());
 
     let committee_and_dependent_root = |head_root| {
-        let (committee, dependent_root) = harness
+        let key = harness
             .chain
-            .inclusion_list_committee(head_root, slot)
+            .inclusion_list_key(head_root, slot)
+            .expect("should compute inclusion list key");
+        let committee = harness
+            .chain
+            .get_inclusion_list_committee(&key)
             .expect("should compute committee");
+        let dependent_root = key.dependent_root();
         (committee.to_vec(), dependent_root)
     };
     let (side_committee, side_dependent_root) = committee_and_dependent_root(side_head_root);
@@ -561,11 +575,17 @@ async fn inclusion_list_in_first_heze_epoch() {
     let slot = heze_fork_epoch.start_slot(E::slots_per_epoch());
     ctx.harness.extend_to_slot(slot).await;
 
-    let (committee, dependent_root) = ctx
+    let key = ctx
         .harness
         .chain
-        .inclusion_list_committee(ctx.harness.head_block_root(), slot)
+        .inclusion_list_key(ctx.harness.head_block_root(), slot)
+        .expect("should compute inclusion list key");
+    let committee = ctx
+        .harness
+        .chain
+        .get_inclusion_list_committee(&key)
         .expect("should compute committee");
+    let dependent_root = key.dependent_root();
     let dependent_slot = ctx
         .harness
         .chain
@@ -587,4 +607,69 @@ async fn inclusion_list_in_first_heze_epoch() {
     );
     let result = GossipVerifiedInclusionList::new(signed, ctx.seen_timestamp(), &ctx.gossip_ctx());
     assert!(result.is_ok(), "expected Ok, got: {:?}", result);
+}
+
+#[test]
+fn empty_inclusion_list_is_within_bounds() {
+    assert_eq!(
+        verify_inclusion_list_transactions_bounds(&transactions(vec![]), &E::default_spec()),
+        Ok(())
+    );
+}
+
+#[test]
+fn inclusion_list_over_the_size_limit_is_rejected() {
+    let spec = E::default_spec();
+    let max = spec.max_transactions_bytes_per_inclusion_list;
+    let size = max + 1;
+
+    assert_eq!(
+        verify_inclusion_list_transactions_bounds(
+            &transactions(vec![vec![0xaa; size as usize]]),
+            &spec
+        ),
+        Err(InclusionListTransactionsError::ListExceedsSizeLimit { size, max })
+    );
+}
+
+#[test]
+fn inclusion_list_at_the_size_limit_is_accepted() {
+    let spec = E::default_spec();
+    let max = spec.max_transactions_bytes_per_inclusion_list as usize;
+
+    assert_eq!(
+        verify_inclusion_list_transactions_bounds(&transactions(vec![vec![0xaa; max]]), &spec),
+        Ok(())
+    );
+}
+
+#[test]
+fn inclusion_list_with_empty_transaction_is_rejected() {
+    assert_eq!(
+        verify_inclusion_list_transactions_bounds(
+            &transactions(vec![vec![0xaa], vec![], vec![0xaa]]),
+            &E::default_spec()
+        ),
+        Err(InclusionListTransactionsError::EmptyTransaction { index: 1 })
+    );
+}
+
+#[test]
+fn inclusion_list_with_blob_transaction_is_rejected() {
+    assert_eq!(
+        verify_no_blob_transactions(&transactions(vec![
+            vec![0xaa; 10],
+            vec![BLOB_TX_TYPE_ID, 0xaa],
+            vec![0xaa; 10],
+        ])),
+        Err(InclusionListTransactionsError::BlobTransaction { index: 1 })
+    );
+}
+
+#[test]
+fn inclusion_list_without_blob_transactions_is_accepted() {
+    assert_eq!(
+        verify_no_blob_transactions(&transactions(vec![vec![0xaa; 10]; 3])),
+        Ok(())
+    );
 }

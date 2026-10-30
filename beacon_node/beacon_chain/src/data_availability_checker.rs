@@ -696,16 +696,16 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
     overflow_cache: Arc<DataAvailabilityCheckerInner<T>>,
     partial_assembler: Option<Arc<PartialDataColumnAssembler<T::EthSpec>>>,
 ) {
-    let epoch_duration = chain.slot_clock.slot_duration() * T::EthSpec::slots_per_epoch() as u32;
+    let slots_per_epoch = T::EthSpec::slots_per_epoch();
     loop {
-        match chain
-            .slot_clock
-            .duration_to_next_epoch(T::EthSpec::slots_per_epoch())
-        {
+        // this service runs 3/4 of the way through each epoch
+        let maintenance_slot = chain.slot_clock.now_or_genesis().map(|current_slot| {
+            let next_epoch = current_slot.epoch(slots_per_epoch) + 1;
+            next_epoch.start_slot(slots_per_epoch) + slots_per_epoch * 3 / 4
+        });
+        match maintenance_slot.and_then(|slot| chain.slot_clock.duration_to_slot(slot)) {
             Some(duration) => {
-                // this service should run 3/4 of the way through the epoch
-                let additional_delay = (epoch_duration * 3) / 4;
-                tokio::time::sleep(duration + additional_delay).await;
+                tokio::time::sleep(duration).await;
 
                 let Some(deneb_fork_epoch) = chain.spec.deneb_fork_epoch else {
                     // shutdown service if deneb fork epoch not set
@@ -734,7 +734,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
 
                 let Some(min_epochs_for_blobs) = chain
                     .spec
-                    .min_epoch_data_availability_boundary(current_epoch)
+                    .min_epoch_data_availability_boundary::<T::EthSpec>(current_epoch)
                 else {
                     // Shutdown service if deneb fork epoch not set. Unreachable as the same check is performed above.
                     break;
@@ -753,7 +753,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
             None => {
                 error!("Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
-                tokio::time::sleep(chain.slot_clock.slot_duration()).await;
+                tokio::time::sleep(chain.slot_clock.current_slot_duration()).await;
             }
         };
     }
@@ -1362,11 +1362,7 @@ mod test {
     }
 
     fn new_da_checker(spec: Arc<ChainSpec>) -> DataAvailabilityChecker<T> {
-        let slot_clock = TestingSlotClock::new(
-            Slot::new(0),
-            Duration::from_secs(0),
-            spec.get_slot_duration(),
-        );
+        let slot_clock = TestingSlotClock::from_spec::<E>(Duration::from_secs(0), &spec);
         let kzg = get_kzg(&spec);
         let ordered_custody_column_indices = generate_data_column_indices_rand_order::<E>();
         let complete_blob_backfill = false;

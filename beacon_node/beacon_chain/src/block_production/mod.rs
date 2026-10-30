@@ -203,10 +203,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // 1. It seems we have time to propagate and still receive the proposer boost.
         // 2. The current head block was seen late.
         // 3. The `get_proposer_head` conditions from fork choice pass.
-        let re_org_cutoff_duration = self
-            .spec
-            .compute_slot_component_duration(self.spec.proposer_reorg_cutoff_bps)
-            .ok()?;
+        let re_org_cutoff_duration = self.spec.get_proposer_reorg_cutoff::<T::EthSpec>(slot);
 
         let proposing_on_time = slot_delay < re_org_cutoff_duration;
         if !proposing_on_time {

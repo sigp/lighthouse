@@ -1,4 +1,5 @@
 use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::inclusion_list_store::InclusionListKey;
 use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
@@ -5247,6 +5248,120 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_validator_duties_inclusion_list(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap().as_u64();
+
+        let half = current_epoch / 2;
+        let first = current_epoch - half;
+        let last = current_epoch + half;
+
+        for epoch in first..=last {
+            for indices in self.interesting_validator_indices() {
+                let epoch = Epoch::from(epoch);
+
+                // The endpoint requires at least one validator index.
+                if indices.is_empty() {
+                    assert_eq!(
+                        self.client
+                            .post_validator_duties_inclusion_list(epoch, indices.as_slice())
+                            .await
+                            .unwrap_err()
+                            .status()
+                            .map(Into::into),
+                        Some(400)
+                    );
+                    continue;
+                }
+
+                // The endpoint does not allow getting duties past the next epoch.
+                if epoch > current_epoch + 1 {
+                    assert_eq!(
+                        self.client
+                            .post_validator_duties_inclusion_list(epoch, indices.as_slice())
+                            .await
+                            .unwrap_err()
+                            .status()
+                            .map(Into::into),
+                        Some(400)
+                    );
+                    continue;
+                }
+
+                let results = self
+                    .client
+                    .post_validator_duties_inclusion_list(epoch, indices.as_slice())
+                    .await
+                    .unwrap();
+
+                let dependent_root = self
+                    .chain
+                    .block_root_at_slot(
+                        (epoch - 1).start_slot(E::slots_per_epoch()) - 1,
+                        WhenSlotSkipped::Prev,
+                    )
+                    .unwrap()
+                    .unwrap_or(self.chain.head_beacon_block_root());
+
+                assert_eq!(results.dependent_root, dependent_root);
+
+                let result_duties = results.data;
+
+                let mut state = self
+                    .chain
+                    .state_at_slot(
+                        epoch.start_slot(E::slots_per_epoch()),
+                        StateSkipConfig::WithStateRoots,
+                    )
+                    .unwrap();
+                state
+                    .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
+                    .unwrap();
+
+                let slot_committees: Vec<(Slot, Vec<u64>)> = epoch
+                    .slot_iter(E::slots_per_epoch())
+                    .map(|slot| {
+                        let committee = state.get_inclusion_list_committee(slot).unwrap();
+                        (slot, committee.to_vec())
+                    })
+                    .collect();
+
+                let expected_duties: Vec<InclusionListDuty> = indices
+                    .iter()
+                    .filter_map(|&validator_index| {
+                        let validator = state.validators().get(validator_index as usize)?;
+                        let (slot, _) = slot_committees
+                            .iter()
+                            .find(|(_, committee)| committee.contains(&validator_index))?;
+                        Some(InclusionListDuty {
+                            pubkey: validator.pubkey,
+                            validator_index,
+                            slot: *slot,
+                        })
+                    })
+                    .collect();
+
+                assert_eq!(
+                    result_duties, expected_duties,
+                    "inclusion list duties should exactly match state-derived committees"
+                );
+
+                // With 32 validators there are fewer unique members per slot than
+                // INCLUSION_LIST_COMMITTEE_SIZE, so every committee here cycles
+                //
+                // ensure that the endpoint returns at most one duty per validator even in that case
+                let mut seen_validators = std::collections::HashSet::new();
+                assert!(
+                    result_duties
+                        .iter()
+                        .all(|duty| seen_validators.insert(duty.validator_index)),
+                    "each validator should appear at most once in the duties response"
+                );
+            }
+        }
+
+        self
+    }
+
     pub async fn test_block_production(self) -> Self {
         // Pre-Gloas endpoint test; post-Gloas block production is v4-only.
         if self.chain.spec.is_gloas_scheduled() {
@@ -7149,6 +7264,18 @@ impl ApiTester {
         {
             Ok(result) => panic!("query for pre-Gloas slot should fail, got: {result:?}"),
             Err(e) => assert_eq!(e.status().unwrap(), 400),
+        }
+
+        self
+    }
+
+    pub async fn test_get_validator_inclusion_list_pre_heze(self) -> Self {
+        let slot = self.chain.slot().unwrap();
+
+        // The endpoint should return a 400 error for pre-Heze forks.
+        match self.client.get_validator_inclusion_list(slot).await {
+            Ok(result) => panic!("query for a pre-Heze slot should fail, got: {result:?}"),
+            Err(e) => assert_eq!(e.status(), Some(StatusCode::BAD_REQUEST)),
         }
 
         self
@@ -10315,10 +10442,12 @@ impl ApiTester {
     ) -> SignedInclusionList {
         let genesis_validators_root = self.chain.genesis_validators_root;
         let head_state = self.chain.head_beacon_state_cloned();
-        let (committee, dependent_root) = self
+        let key = self
             .chain
-            .inclusion_list_committee(self.chain.head_beacon_block_root(), slot)
+            .inclusion_list_key(self.chain.head_beacon_block_root(), slot)
             .unwrap();
+        let committee = self.chain.get_inclusion_list_committee(&key).unwrap();
+        let dependent_root = key.dependent_root();
         let validator_index = committee[0];
         let sk: &SecretKey = &self.validator_keypairs()[validator_index as usize].sk;
         let inclusion_list = InclusionList {
@@ -10536,8 +10665,7 @@ impl ApiTester {
             .inclusion_list_store
             .read()
             .get_signed_inclusion_lists(
-                slot,
-                signed_il.message.dependent_root,
+                &InclusionListKey::new(slot, signed_il.message.dependent_root),
                 &[signed_il.message.validator_index],
             );
         assert_eq!(
@@ -10588,8 +10716,7 @@ impl ApiTester {
                 .inclusion_list_store
                 .read()
                 .get_signed_inclusion_lists(
-                    slot,
-                    first.message.dependent_root,
+                    &InclusionListKey::new(slot, first.message.dependent_root),
                     &[first.message.validator_index],
                 );
             assert_eq!(stored, expected_stored);
@@ -10656,8 +10783,7 @@ impl ApiTester {
                 .inclusion_list_store
                 .read()
                 .get_signed_inclusion_lists(
-                    slot,
-                    signed_il.message.dependent_root,
+                    &InclusionListKey::new(slot, signed_il.message.dependent_root),
                     &[validator_index]
                 )
                 .is_empty()
@@ -10674,10 +10800,12 @@ impl ApiTester {
         }
 
         let slot = self.chain.slot().unwrap();
-        let (committee, dependent_root) = self
+        let key = self
             .chain
-            .inclusion_list_committee(self.chain.head_beacon_block_root(), slot)
+            .inclusion_list_key(self.chain.head_beacon_block_root(), slot)
             .unwrap();
+        let committee = self.chain.get_inclusion_list_committee(&key).unwrap();
+        let dependent_root = key.dependent_root();
         let validator_index = (0..self.validator_count() as u64)
             .find(|index| !committee.contains(index))
             .expect("some validator should be outside the inclusion list committee");
@@ -10737,8 +10865,7 @@ impl ApiTester {
                 .inclusion_list_store
                 .read()
                 .get_signed_inclusion_lists(
-                    slot,
-                    signed_il.message.dependent_root,
+                    &InclusionListKey::new(slot, signed_il.message.dependent_root),
                     &[validator_index]
                 )
                 .is_empty()
@@ -11620,6 +11747,29 @@ async fn get_validator_duties_ptc_with_skip_slots() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_inclusion_list() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .test_get_validator_duties_inclusion_list()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_duties_inclusion_list_with_skip_slots() {
+    if !fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    ApiTester::new_with_hard_forks()
+        .await
+        .skip_slots(E::slots_per_epoch() * 2)
+        .test_get_validator_duties_inclusion_list()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn block_production() {
     ApiTester::new().await.test_block_production().await;
 }
@@ -11812,6 +11962,17 @@ async fn get_validator_payload_attestation_data_pre_gloas() {
     ApiTester::new()
         .await
         .test_get_validator_payload_attestation_data_pre_gloas()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_validator_inclusion_list_pre_heze() {
+    if fork_name_from_env().is_some_and(|f| f.heze_enabled()) {
+        return;
+    }
+    ApiTester::new()
+        .await
+        .test_get_validator_inclusion_list_pre_heze()
         .await;
 }
 

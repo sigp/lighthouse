@@ -1,16 +1,20 @@
 use beacon_chain::AvailabilityProcessingStatus::{Imported, MissingComponents};
 use beacon_chain::NotifyExecutionLayer;
+use beacon_chain::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
 };
-use bls::PublicKeyBytes;
+use bls::{PublicKeyBytes, Signature};
 use eth2::types::EventKind;
+use execution_layer::http::ENGINE_NEW_PAYLOAD_V6;
+use parking_lot::Mutex;
 use proto_array::ExecutionStatus;
+use ssz_types::ProgressiveVariableList;
 use std::sync::Arc;
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, Slot, Spec,
-    WithdrawalRequest,
+    Address, BlockImportSource, Epoch, EthSpec, ExecPayload, ForkName, Hash256, InclusionList,
+    ProgressiveTransactions, SignedInclusionList, Slot, Spec, WithdrawalRequest,
 };
 
 type E = Spec;
@@ -734,4 +738,161 @@ fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
 
 fn is_optimistic(status: ExecutionStatus) -> bool {
     matches!(status, ExecutionStatus::Optimistic(_))
+}
+
+/// A Heze payload is sent over `engine_newPayloadV6` with the timely inclusion lists from the
+/// previous slot, which is in the previous epoch here.
+#[tokio::test]
+async fn heze_payload_is_sent_with_the_timely_inclusion_lists() {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    spec.heze_fork_epoch = Some(Epoch::new(1));
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let slot = Epoch::new(2).start_slot(E::slots_per_epoch());
+    let inclusion_list_slot = slot - 1;
+    harness.extend_to_slot(inclusion_list_slot).await;
+
+    let key = harness
+        .chain
+        .inclusion_list_key(harness.head_block_root(), inclusion_list_slot)
+        .unwrap();
+    let committee = harness.chain.get_inclusion_list_committee(&key).unwrap();
+    let dependent_root = key.dependent_root();
+    let timely_submitter = committee[0];
+    let late_submitter = *committee
+        .iter()
+        .find(|index| **index != timely_submitter)
+        .unwrap();
+    for (validator_index, tx_byte, is_timely) in [
+        (timely_submitter, 0xaa, true),
+        (late_submitter, 0xbb, false),
+    ] {
+        harness
+            .chain
+            .inclusion_list_store
+            .write()
+            .process_inclusion_list(GossipVerifiedInclusionList {
+                signed_inclusion_list: SignedInclusionList {
+                    message: InclusionList {
+                        slot: inclusion_list_slot,
+                        validator_index,
+                        dependent_root,
+                        transactions: ProgressiveTransactions::new(vec![
+                            ProgressiveVariableList::new(vec![tx_byte]).unwrap(),
+                        ])
+                        .unwrap(),
+                    },
+                    signature: Signature::empty(),
+                },
+                is_timely,
+            });
+    }
+
+    let new_payload_calls = Arc::new(Mutex::new(vec![]));
+    let new_payload_calls_inner = new_payload_calls.clone();
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .ctx
+        .hook
+        .lock()
+        .set_new_payload_hook(Box::new(move |method, params| {
+            new_payload_calls_inner
+                .lock()
+                .push((method.to_string(), params.clone()));
+        }));
+
+    import_block_and_envelope(&harness, slot).await;
+
+    let new_payload_calls = new_payload_calls.lock();
+    let [(method, params)] = new_payload_calls.as_slice() else {
+        panic!("expected one newPayload call, got {new_payload_calls:?}");
+    };
+    assert_eq!(method, ENGINE_NEW_PAYLOAD_V6);
+    assert_eq!(params[4], serde_json::json!(["0xaa"]));
+}
+
+/// Imports a Heze block and envelope with the given `engine_newPayloadV6` verdict, then
+/// recomputes the head in the next slot.
+async fn import_heze_envelope_with_inclusion_list_verdict(
+    inclusion_list_satisfied: bool,
+) -> Option<(
+    BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>>,
+    Hash256,
+)> {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return None;
+    }
+    spec.heze_fork_epoch = Some(Epoch::new(1));
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let slot = Epoch::new(1).start_slot(E::slots_per_epoch()) + 1;
+    harness.extend_to_slot(slot - 1).await;
+
+    let mock_el = harness.mock_execution_layer.as_ref().unwrap();
+    mock_el
+        .server
+        .set_new_payload_inclusion_list_satisfied(inclusion_list_satisfied);
+    let block_root = import_block_and_envelope(&harness, slot).await;
+    mock_el
+        .server
+        .set_new_payload_inclusion_list_satisfied(true);
+
+    harness.advance_slot();
+    harness.chain.recompute_head_at_current_slot().await;
+
+    Some((harness, block_root))
+}
+
+#[tokio::test]
+async fn heze_payload_satisfying_inclusion_lists_is_extended() {
+    let Some((harness, block_root)) = import_heze_envelope_with_inclusion_list_verdict(true).await
+    else {
+        return;
+    };
+
+    let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(fork_choice.is_payload_received(&block_root));
+    assert!(fork_choice.should_extend_payload(&block_root).unwrap());
+    drop(fork_choice);
+
+    let head = harness.chain.canonical_head.cached_head();
+    assert_eq!(head.head_block_root(), block_root);
+    assert_eq!(head.head_payload_status(), proto_array::PayloadStatus::Full);
+}
+
+#[tokio::test]
+async fn heze_payload_not_satisfying_inclusion_lists_is_not_extended() {
+    let Some((harness, block_root)) = import_heze_envelope_with_inclusion_list_verdict(false).await
+    else {
+        return;
+    };
+
+    let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(fork_choice.is_payload_received(&block_root));
+    assert!(!fork_choice.should_extend_payload(&block_root).unwrap());
+    drop(fork_choice);
+
+    let head = harness.chain.canonical_head.cached_head();
+    assert_eq!(head.head_block_root(), block_root);
+    assert_eq!(
+        head.head_payload_status(),
+        proto_array::PayloadStatus::Empty
+    );
 }

@@ -210,7 +210,9 @@ pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     }
 
     process_randao(state, block, verify_randao, ctxt, spec)?;
-    process_eth1_data(state, block.body().eth1_data())?;
+    if !state.fork_name_unchecked().heze_enabled() {
+        process_eth1_data(state, block.body().eth1_data()?)?;
+    }
     process_operations(
         state,
         block.body(),
@@ -360,10 +362,10 @@ pub fn process_eth1_data<E: EthSpec>(
     eth1_data: &Eth1Data,
 ) -> Result<(), BeaconStateError> {
     if let Some(new_eth1_data) = get_new_eth1_data(state, eth1_data)? {
-        *state.eth1_data_mut() = new_eth1_data;
+        *state.eth1_data_mut()? = new_eth1_data;
     }
 
-    state.eth1_data_votes_mut().push(eth1_data.clone())?;
+    state.eth1_data_votes_mut()?.push(eth1_data.clone())?;
 
     Ok(())
 }
@@ -373,9 +375,9 @@ pub fn process_eth1_data<E: EthSpec>(
 pub fn get_new_eth1_data<E: EthSpec>(
     state: &BeaconState<E>,
     eth1_data: &Eth1Data,
-) -> Result<Option<Eth1Data>, ArithError> {
+) -> Result<Option<Eth1Data>, BeaconStateError> {
     let num_votes = state
-        .eth1_data_votes()
+        .eth1_data_votes()?
         .iter()
         .filter(|vote| *vote == eth1_data)
         .count();
@@ -544,10 +546,8 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
     block_slot: Slot,
     spec: &ChainSpec,
 ) -> Result<u64, ArithError> {
-    let slots_since_genesis = block_slot.as_u64().safe_sub(spec.genesis_slot.as_u64())?;
-    slots_since_genesis
-        .safe_mul(spec.get_slot_duration().as_secs())
-        .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
+    let slots_since_genesis = block_slot.safe_sub(spec.genesis_slot)?;
+    spec.compute_time_at_slot::<E>(state.genesis_time(), slots_since_genesis)
 }
 
 /// Process the parent block's deferred execution payload effects.
