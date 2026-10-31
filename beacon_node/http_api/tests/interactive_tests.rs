@@ -1,4 +1,5 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
+use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::pending_payload_envelopes::PendingEnvelopeData;
 use beacon_chain::{
@@ -1520,4 +1521,95 @@ async fn envelope_publishes_retrieved_columns_awaiting_publication() {
             "custody column {index} should be published"
         );
     }
+}
+
+// Test that next-epoch proposer duties are cached when the head is stale (#9530).
+#[tokio::test(flavor = "multi_thread")]
+async fn proposer_duties_next_epoch_cached_with_stale_head() {
+    let spec = test_spec::<E>();
+
+    // Caching next-epoch duties is only correct post-Fulu.
+    if !spec.is_fulu_scheduled() {
+        return;
+    }
+
+    let validator_count = 64;
+    let slots_per_epoch = E::slots_per_epoch();
+    let stale_epochs = 12_u64;
+
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let harness = &tester.harness;
+    let client = &tester.client;
+    let mock_el = harness.mock_execution_layer.as_ref().unwrap();
+    mock_el.server.all_payloads_valid();
+
+    let num_slots = 3 * slots_per_epoch;
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_slots as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await;
+
+    let head_slot = harness.head_slot();
+    let head_epoch = head_slot.epoch(slots_per_epoch);
+    assert_eq!(head_epoch, Epoch::new(3));
+
+    let future_slot = head_slot + Slot::new(stale_epochs * slots_per_epoch);
+    harness.set_current_slot(future_slot);
+
+    let current_epoch = harness.chain.epoch().unwrap();
+    assert_eq!(current_epoch, head_epoch + stale_epochs);
+    let next_epoch = current_epoch + 1;
+
+    let head = harness.chain.canonical_head.cached_head();
+    let head_block_root = head.head_block_root();
+    let decision_root = head
+        .snapshot
+        .beacon_state
+        .proposer_shuffling_decision_root_at_epoch(next_epoch, head_block_root, &harness.spec)
+        .unwrap();
+
+    let v2_first = client
+        .get_validator_duties_proposer_v2(next_epoch)
+        .await
+        .unwrap();
+    let v1_first = client
+        .get_validator_duties_proposer(next_epoch)
+        .await
+        .unwrap();
+
+    assert!(
+        harness
+            .chain
+            .beacon_proposer_cache
+            .lock()
+            .get_epoch::<E>(decision_root, next_epoch)
+            .is_some(),
+        "next-epoch proposer duties should prime the proposer cache for decision root {decision_root:?}"
+    );
+    assert_eq!(v1_first.data, v2_first.data);
+
+    let v2_second = client
+        .get_validator_duties_proposer_v2(next_epoch)
+        .await
+        .unwrap();
+    assert_eq!(v2_second, v2_first);
+
+    let (fresh_indices, fresh_dependent_root, fresh_legacy_root, _, _) =
+        compute_proposer_duties_from_head(next_epoch, harness.chain.as_ref()).unwrap();
+    assert_eq!(
+        v2_first
+            .data
+            .iter()
+            .map(|d| d.validator_index as usize)
+            .collect::<Vec<_>>(),
+        fresh_indices
+    );
+    assert_eq!(v2_first.dependent_root, fresh_dependent_root);
+    assert_eq!(v1_first.dependent_root, fresh_legacy_root);
 }
