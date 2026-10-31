@@ -52,6 +52,7 @@ pub fn run<E: EthSpec>(mut env: Environment<E>, matches: &ArgMatches) -> Result<
         prague_time,
         osaka_time,
         amsterdam_time,
+        serve_rest_ssz: false,
         heze_time,
     };
     let kzg = None;
