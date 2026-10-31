@@ -151,10 +151,24 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                 ));
             };
 
+            // A Gloas block whose payload was withheld has no columns on the network, even if
+            // its bid commits to blobs.
+            let expects_columns = block.num_expected_blobs() != 0
+                && (!block.fork_name_unchecked().gloas_enabled()
+                    || self
+                        .beacon_chain
+                        .store
+                        .payload_envelope_summary_exists(&block_root)
+                        .map_err(|e| {
+                            CouplingError::InternalError(format!(
+                                "Failed to read payload envelope summary: {e:?}"
+                            ))
+                        })?);
+
             let Some(columns) = received_columns_for_slot.remove(&slot) else {
                 // If at least one blob is expected for this slot but none have been served, penalize all peers
                 // The slot check ensures we arent checking a skipped slot.
-                if block.num_expected_blobs() != 0 && block.slot() == slot {
+                if expects_columns && block.slot() == slot {
                     for column in expected_custody_columns {
                         if let Some(naughty_peer) = column_to_peer.get(column) {
                             naughty_peers.push((*column, *naughty_peer));
@@ -281,7 +295,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
 
             // blobs are expected for this slot but there is at least one missing columns
             // penalize the peers responsible for those columns.
-            if block.num_expected_blobs() != 0 && !missing_columns.is_empty() {
+            if expects_columns && !missing_columns.is_empty() {
                 for column in missing_columns {
                     if let Some(naughty_peer) = column_to_peer.get(column) {
                         naughty_peers.push((*column, *naughty_peer));
@@ -380,6 +394,66 @@ mod tests {
         match request.responses() {
             Some(Ok(received_columns)) => assert_eq!(received_columns, data_columns),
             response => panic!("expected valid Gloas columns, got {response:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn withheld_gloas_payload_does_not_penalize_peers() {
+        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+            .spec(spec)
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .node_custody_type(NodeCustodyType::Supernode)
+            .build();
+        harness.execution_block_generator().set_min_blob_count(1);
+        harness.advance_slot();
+
+        // Import the block but withhold its payload envelope.
+        let slot = Slot::new(1);
+        let (block_contents, envelope, _) = harness
+            .make_block_with_envelope(harness.get_current_state(), slot)
+            .await;
+        assert!(envelope.is_some());
+        let block_root = block_contents.0.canonical_root();
+        assert_ne!(block_contents.0.num_expected_blobs(), 0);
+        harness
+            .process_block(slot, block_root, block_contents)
+            .await
+            .expect("should import block");
+        assert!(
+            !harness
+                .chain
+                .store
+                .payload_envelope_summary_exists(&block_root)
+                .unwrap()
+        );
+
+        let epoch = Epoch::new(0);
+        let peer = PeerId::random();
+        let request_id = DataColumnsByRangeRequestId {
+            id: 0,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
+                CustodyBackFillBatchRequestId {
+                    id: 0,
+                    batch_id: CustodyBackfillBatchId { epoch, run_id: 0 },
+                },
+            ),
+            peer,
+        };
+        let mut request = RangeDataColumnBatchRequest::new(
+            vec![(request_id, vec![0, 1, 2, 3])],
+            harness.chain.clone(),
+            epoch,
+        );
+        request
+            .add_custody_columns(request_id, vec![])
+            .expect("should complete request");
+
+        match request.responses() {
+            Some(Ok(received_columns)) => assert!(received_columns.is_empty()),
+            response => panic!("expected no peer failure, got {response:?}"),
         }
     }
 }
