@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, WhenSlotSkipped};
 use lighthouse_network::{
     NetworkGlobals, PeerAction, PeerId,
     service::api_types::{CustodyBackFillBatchRequestId, CustodyBackfillBatchId},
@@ -190,11 +190,31 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .finalized_checkpoint()
                 .epoch;
 
-            // Check that the earliest data column epoch is a finalized epoch.
-            return earliest_data_column_epoch <= latest_finalized_epoch;
+            // Check that the earliest data column epoch is a finalized epoch, and that a finalized
+            // block follows the epoch before it. Each block being backfilled then has a finalized
+            // child, so the payload status of Gloas blocks is final.
+            return earliest_data_column_epoch <= latest_finalized_epoch
+                && self
+                    .finalized_block_after_epoch(earliest_data_column_epoch.saturating_sub(1u64));
         }
 
         false
+    }
+
+    /// Whether a finalized block exists after the end of `epoch`.
+    fn finalized_block_after_epoch(&self, epoch: Epoch) -> bool {
+        let split = self.beacon_chain.store.get_split_info();
+        let end_slot = epoch.end_slot(T::EthSpec::slots_per_epoch());
+        if end_slot >= split.slot {
+            return false;
+        }
+        // The last block at or before `end_slot` is followed by the split block, unless it is
+        // the split block.
+        self.beacon_chain
+            .block_root_at_slot(end_slot, WhenSlotSkipped::Prev)
+            .ok()
+            .flatten()
+            .is_some_and(|block_root| block_root != split.block_root)
     }
 
     fn restart_sync(&mut self) {
