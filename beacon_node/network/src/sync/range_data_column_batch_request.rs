@@ -6,7 +6,7 @@ use itertools::Itertools;
 use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::DataColumnsByRangeRequestId;
 use std::sync::Arc;
-use types::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Slot};
+use types::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
 
 pub struct RangeDataColumnBatchRequest<T: BeaconChainTypes> {
     requests: HashMap<
@@ -124,21 +124,46 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
         let mut naughty_peers = vec![];
         let mut result: DataColumnSidecarList<T::EthSpec> = vec![];
 
+        // Iterate up to an epoch past the end to find the child of the epoch's last block.
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+        let epoch_end_slot = self.epoch.end_slot(slots_per_epoch);
         let forward_blocks_iter = self
             .beacon_chain
             .forwards_iter_block_roots_until(
-                self.epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                self.epoch.end_slot(T::EthSpec::slots_per_epoch()),
+                self.epoch.start_slot(slots_per_epoch),
+                epoch_end_slot.saturating_add(slots_per_epoch),
             )
             .map_err(|_| {
                 CouplingError::InternalError("Failed to fetch block root iterator".to_string())
             })?;
 
+        let mut block_roots = vec![];
+        let mut next_epoch_child_root = None;
         for block_iter_result in forward_blocks_iter {
             let (block_root, slot) = block_iter_result.map_err(|_| {
                 CouplingError::InternalError("Failed to iterate block roots".to_string())
             })?;
+            if slot <= epoch_end_slot {
+                block_roots.push((block_root, slot));
+            } else if block_roots
+                .last()
+                .is_some_and(|(last_root, _)| *last_root != block_root)
+            {
+                next_epoch_child_root = Some(block_root);
+                break;
+            }
+        }
 
+        // Load each block once. Skipped slots repeat the previous block root.
+        let mut blocks = HashMap::new();
+        for block_root in block_roots
+            .iter()
+            .map(|(block_root, _)| *block_root)
+            .chain(next_epoch_child_root)
+        {
+            if blocks.contains_key(&block_root) {
+                continue;
+            }
             let Some(block) = self
                 .beacon_chain
                 .get_blinded_block(&block_root)
@@ -150,20 +175,40 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                     "Block root from forwards block iterator not found in db".to_string(),
                 ));
             };
+            blocks.insert(block_root, block);
+        }
 
-            // A Gloas block whose payload was withheld has no columns on the network, even if
-            // its bid commits to blobs.
-            let expects_columns = block.num_expected_blobs() != 0
-                && (!block.fork_name_unchecked().gloas_enabled()
-                    || self
-                        .beacon_chain
-                        .store
-                        .payload_envelope_summary_exists(&block_root)
-                        .map_err(|e| {
-                            CouplingError::InternalError(format!(
-                                "Failed to read payload envelope summary: {e:?}"
-                            ))
-                        })?);
+        // The child of each block is the next distinct block root.
+        let mut child_roots = vec![None; block_roots.len()];
+        let mut later: Option<(Hash256, Option<Hash256>)> = None;
+        for (child_root, (block_root, _)) in child_roots.iter_mut().zip(&block_roots).rev() {
+            *child_root = match later {
+                Some((later_root, later_child)) if later_root == *block_root => later_child,
+                Some((later_root, _)) => Some(later_root),
+                None => next_epoch_child_root,
+            };
+            later = Some((*block_root, *child_root));
+        }
+
+        for ((block_root, slot), child_root) in block_roots.into_iter().zip(child_roots) {
+            let Some(block) = blocks.get(&block_root) else {
+                return Err(CouplingError::InternalError(
+                    "Block root from forwards block iterator not loaded".to_string(),
+                ));
+            };
+
+            // A Gloas block's payload was revealed if its child's bid builds on it. Withheld
+            // payloads have no columns on the network. Without a child the status is unknown, so
+            // no columns are expected.
+            let payload_revealed = match block.message().body().signed_execution_payload_bid() {
+                Ok(bid) => child_root
+                    .and_then(|child_root| blocks.get(&child_root))
+                    .is_some_and(|child| child.is_parent_block_full(bid.message().block_hash())),
+                // Prior to Gloas.
+                Err(_) => true,
+            };
+            let expects_columns =
+                block.slot() == slot && block.num_expected_blobs() != 0 && payload_revealed;
 
             let Some(columns) = received_columns_for_slot.remove(&slot) else {
                 // If at least one blob is expected for this slot but none have been served, penalize all peers
@@ -320,6 +365,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use beacon_chain::WhenSlotSkipped;
     use beacon_chain::custody_context::NodeCustodyType;
     use beacon_chain::test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
@@ -422,13 +468,36 @@ mod tests {
             .process_block(slot, block_root, block_contents)
             .await
             .expect("should import block");
-        assert!(
-            !harness
-                .chain
-                .store
-                .payload_envelope_summary_exists(&block_root)
-                .unwrap()
-        );
+
+        // The child builds on the EMPTY parent, which marks the payload as withheld.
+        harness.advance_slot();
+        let child_slot = Slot::new(2);
+        let (child_contents, _, _) = harness
+            .make_block_with_envelope(harness.get_current_state(), child_slot)
+            .await;
+        let child_root = child_contents.0.canonical_root();
+        harness
+            .process_block(child_slot, child_root, child_contents)
+            .await
+            .expect("should import child block");
+        let block = harness
+            .chain
+            .get_blinded_block(&block_root)
+            .unwrap()
+            .unwrap();
+        let child = harness
+            .chain
+            .get_blinded_block(&child_root)
+            .unwrap()
+            .unwrap();
+        let bid_hash = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message()
+            .block_hash();
+        assert!(!child.is_parent_block_full(bid_hash));
 
         let epoch = Epoch::new(0);
         let peer = PeerId::random();
@@ -454,6 +523,80 @@ mod tests {
         match request.responses() {
             Some(Ok(received_columns)) => assert!(received_columns.is_empty()),
             response => panic!("expected no peer failure, got {response:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn revealed_gloas_payload_with_missing_columns_penalizes_peers() {
+        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+            .spec(spec)
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .node_custody_type(NodeCustodyType::Supernode)
+            .build();
+        harness.execution_block_generator().set_min_blob_count(1);
+        harness.advance_slot();
+        // The child at slot 2 builds on the FULL parent, which marks the slot 1 payload as
+        // revealed.
+        let child_root = harness
+            .extend_chain(
+                2,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+        let block_root = harness
+            .chain
+            .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+            .unwrap()
+            .unwrap();
+        let block = harness
+            .chain
+            .get_blinded_block(&block_root)
+            .unwrap()
+            .unwrap();
+        let child = harness
+            .chain
+            .get_blinded_block(&child_root)
+            .unwrap()
+            .unwrap();
+        let bid_hash = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message()
+            .block_hash();
+        assert!(child.is_parent_block_full(bid_hash));
+
+        let epoch = Epoch::new(0);
+        let peer = PeerId::random();
+        let request_id = DataColumnsByRangeRequestId {
+            id: 0,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
+                CustodyBackFillBatchRequestId {
+                    id: 0,
+                    batch_id: CustodyBackfillBatchId { epoch, run_id: 0 },
+                },
+            ),
+            peer,
+        };
+        let mut request = RangeDataColumnBatchRequest::new(
+            vec![(request_id, vec![0, 1, 2, 3])],
+            harness.chain.clone(),
+            epoch,
+        );
+        request
+            .add_custody_columns(request_id, vec![])
+            .expect("should complete request");
+
+        match request.responses() {
+            Some(Err(CouplingError::DataColumnPeerFailure { faulty_peers, .. })) => {
+                assert!(faulty_peers.iter().any(|(_, p)| *p == peer))
+            }
+            response => panic!("expected peer failure, got {response:?}"),
         }
     }
 }
