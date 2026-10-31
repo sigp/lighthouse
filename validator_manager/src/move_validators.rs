@@ -1327,7 +1327,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn two_validators_move_all_with_web3signer_validator() {
+    async fn move_all_with_web3signer_validator() {
         TestBuilder::new()
             .await
             .with_src_validators(2, 0)
