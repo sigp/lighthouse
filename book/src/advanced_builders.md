@@ -1,5 +1,8 @@
 # Maximal Extractable Value (MEV)
 
+> This page applies only before the **Gloas** fork. Post Gloas, see
+> [Gloas Builder Configuration](./gloas_builder_config.md).
+
 Lighthouse is able to interact with servers that implement the [builder
 API](https://github.com/ethereum/builder-specs), allowing it to produce blocks without having
 knowledge of the transactions included in the block. This enables Lighthouse to outsource the job of
