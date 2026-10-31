@@ -369,6 +369,7 @@ async fn run(config: MoveConfig) -> Result<(), String> {
             .unwrap_or(true)
         {
             eprintln!("Skipping read-only validator {:?}", pubkey_to_move);
+            continue;
         }
 
         let request = DeleteKeystoresRequest {
@@ -669,7 +670,10 @@ mod test {
     use account_utils::validator_definitions::SigningDefinition;
     use std::fs;
     use tempfile::{TempDir, tempdir};
-    use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
+    use validator_http_api::{
+        Config as HttpConfig,
+        test_utils::{ApiTester, KeystoreValidatorScenario, Web3SignerValidatorScenario},
+    };
 
     const SRC_VC_TOKEN_FILE_NAME: &str = "src_vc_token.json";
     const DEST_VC_TOKEN_FILE_NAME: &str = "dest_vc_token.json";
@@ -688,6 +692,7 @@ mod test {
         passwords: HashMap<PublicKeyBytes, Vec<String>>,
         use_password_files: bool,
         reuse_password_files: Option<usize>,
+        src_web3signer_validators: usize,
     }
 
     impl TestBuilder {
@@ -705,6 +710,7 @@ mod test {
                 passwords: <_>::default(),
                 use_password_files: false,
                 reuse_password_files: None,
+                src_web3signer_validators: 0,
             }
         }
 
@@ -739,6 +745,11 @@ mod test {
                 .create_validators(count, first_index)
                 .await;
             self.dest_import_builder = Some(builder);
+            self
+        }
+
+        fn with_src_web3signer_validators(mut self, count: usize) -> Self {
+            self.src_web3signer_validators = count;
             self
         }
 
@@ -815,17 +826,22 @@ mod test {
 
                 match validators {
                     Validators::All => {
-                        assert!(
-                            src_vc_final_keystores.is_empty(),
-                            "all keystores should be removed from source vc"
+                        let (readonly_keystores, movable_keystores): (Vec<_>, Vec<_>) =
+                            src_vc_initial_keystores
+                                .iter()
+                                .partition(|k| k.readonly.unwrap_or(true));
+                        assert_eq!(
+                            src_vc_final_keystores.iter().collect::<Vec<_>>(),
+                            readonly_keystores,
+                            "only read-only keystores should remain on the source vc"
                         );
                         assert_eq!(
                             dest_vc_final_keystores.len(),
-                            dest_vc_initial_keystores.len() + src_vc_initial_keystores.len()
+                            dest_vc_initial_keystores.len() + movable_keystores.len()
                                 - self.duplicates,
                             "the correct count of keystores should have been moved to the dest"
                         );
-                        for initial_keystore in &src_vc_initial_keystores {
+                        for &initial_keystore in &movable_keystores {
                             assert!(
                                 dest_vc_final_keystores.contains(initial_keystore),
                                 "the source keystore should be present at the dest"
@@ -957,6 +973,24 @@ mod test {
                 import_test_result.vc
             } else {
                 ApiTester::new_with_http_config(self.http_config.clone()).await
+            };
+
+            // Add a local validator after the web3signer validators, so that a move which stops
+            // at the first read-only validator leaves it behind.
+            let src_vc = if self.src_web3signer_validators > 0 {
+                src_vc
+                    .create_web3signer_validators(Web3SignerValidatorScenario {
+                        count: self.src_web3signer_validators,
+                        enabled: true,
+                    })
+                    .await
+                    .create_keystore_validators(KeystoreValidatorScenario {
+                        enabled: true,
+                        correct_password: true,
+                    })
+                    .await
+            } else {
+                src_vc
             };
 
             // If enabled, set all the validator definitions on the src_vc to
@@ -1288,6 +1322,18 @@ mod test {
             .with_src_validators(2, 0)
             .await
             .run_test(|validators| Validators::Specific(validators[0..1].to_vec()))
+            .await
+            .assert_ok();
+    }
+
+    #[tokio::test]
+    async fn move_all_with_web3signer_validator() {
+        TestBuilder::new()
+            .await
+            .with_src_validators(2, 0)
+            .await
+            .with_src_web3signer_validators(1)
+            .run_test(|_| Validators::All)
             .await
             .assert_ok();
     }
