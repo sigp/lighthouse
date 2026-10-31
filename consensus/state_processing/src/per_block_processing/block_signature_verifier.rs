@@ -25,10 +25,6 @@ pub enum Error {
     /// There was an error attempting to read from a `BeaconState`. Block
     /// validity was not determined.
     BeaconStateError(BeaconStateError),
-    /// The `BeaconBlock` has a `proposer_index` that does not match the index we computed locally.
-    ///
-    /// The block is invalid.
-    IncorrectBlockProposer { block: u64, local_shuffling: u64 },
     /// Failed to load a signature set. The block may be invalid or we failed to process it.
     SignatureSetError(SignatureSetError),
     /// Error related to the consensus context, likely the proposer index or block root calc.
@@ -49,18 +45,7 @@ impl From<ContextError> for Error {
 
 impl From<SignatureSetError> for Error {
     fn from(e: SignatureSetError) -> Error {
-        match e {
-            // Make a special distinction for `IncorrectBlockProposer` since it indicates an
-            // invalid block, not an internal error.
-            SignatureSetError::IncorrectBlockProposer {
-                block,
-                local_shuffling,
-            } => Error::IncorrectBlockProposer {
-                block,
-                local_shuffling,
-            },
-            e => Error::SignatureSetError(e),
-        }
+        Error::SignatureSetError(e)
     }
 }
 
@@ -154,10 +139,8 @@ where
         ctxt: &mut ConsensusContext<E>,
     ) -> Result<()> {
         let block_root = Some(ctxt.get_current_block_root(block)?);
-        let verified_proposer_index =
-            Some(ctxt.get_proposer_index_from_epoch_state(self.state, self.spec)?);
 
-        self.include_block_proposal(block, block_root, verified_proposer_index)?;
+        self.include_block_proposal(block, block_root)?;
         self.include_all_signatures_except_proposal(block, ctxt)?;
 
         Ok(())
@@ -191,14 +174,13 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<E, Payload>,
         block_root: Option<Hash256>,
-        verified_proposer_index: Option<u64>,
     ) -> Result<()> {
         let set = block_proposal_signature_set(
-            self.state,
-            self.get_pubkey.clone(),
             block,
             block_root,
-            verified_proposer_index,
+            &self.state.fork(),
+            self.state.genesis_validators_root(),
+            self.get_pubkey.clone(),
             self.spec,
         )?;
         self.sets.push(set);

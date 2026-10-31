@@ -6,7 +6,7 @@ use fixed_bytes::FixedBytesExtended;
 use itertools::Itertools;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
-    signature_sets::{Error as SignatureSetError, block_proposal_signature_set_from_parts},
+    signature_sets::{Error as SignatureSetError, block_proposal_signature_set},
 };
 use std::borrow::Cow;
 use std::iter;
@@ -395,10 +395,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .zip_eq(block_roots)
             .filter(|&(_block, block_root)| block_root != self.genesis_block_root)
             .map(|(block, block_root)| {
-                block_proposal_signature_set_from_parts(
+                block_proposal_signature_set(
                     block,
                     Some(block_root),
-                    block.message().proposer_index(),
                     &self.spec.fork_at_epoch(block.message().epoch()),
                     self.genesis_validators_root,
                     |validator_index| pubkey_cache.get(validator_index).cloned().map(Cow::Owned),
