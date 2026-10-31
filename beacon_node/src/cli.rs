@@ -96,7 +96,7 @@ pub fn cli_app() -> Command {
                 .long("blob-publication-batches")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("Number of batches that the node splits blobs or data columns into during publication. This doesn't apply if the node is the block proposer. Used in PeerDAS only.")
+                .help("Maximum number of batches that the node splits blobs or data columns into during publication. Must be between 1 and the number of data columns (inclusive). This doesn't apply if the node is the block proposer. Used in PeerDAS only.")
                 .display_order(0)
                 .hide(true)
         )
