@@ -505,13 +505,6 @@ where
                     message: Err(err),
                 }));
             }
-            HandlerEvent::InboundStreamClosed(substream_id) => {
-                self.inbound_request_limiter
-                    .request_ended(InboundRequestId {
-                        connection_id,
-                        substream_id,
-                    });
-            }
             HandlerEvent::Close(_) => {
                 // Handle the close event here.
                 self.events.push(ToSwarm::CloseConnection {
@@ -569,7 +562,7 @@ where
 mod tests {
     use super::*;
     use crate::rpc::config::RateLimiterConfig;
-    use crate::rpc::methods::{OldBlocksByRangeRequest, StatusMessage, StatusMessageV1};
+    use crate::rpc::methods::{StatusMessage, StatusMessageV1};
     use crate::rpc::rate_limiter::Quota;
     use libp2p::Multiaddr;
     use libp2p::core::{ConnectedPoint, Endpoint};
@@ -712,32 +705,6 @@ mod tests {
                 proto: Protocol::Status,
                 error: RPCError::StreamTimeout,
             }),
-        );
-
-        assert_eq!(0, rpc.inbound_request_limiter.active_request_count());
-    }
-
-    #[tokio::test]
-    async fn test_inbound_stream_close_ends_active_request() {
-        let mut rpc = test_rpc(RateLimiterConfig::default());
-        let peer_id = PeerId::random();
-        let connection_id = ConnectionId::new_unchecked(0);
-
-        rpc.on_connection_handler_event(
-            peer_id,
-            connection_id,
-            HandlerEvent::Ok(RPCReceived::Request(
-                InboundRequestId::new_unchecked(0, 0),
-                RequestType::BlocksByRange(OldBlocksByRangeRequest::new(0, 1, 1)),
-            )),
-        );
-        assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
-        assert_eq!(1, rpc.inbound_request_limiter.active_request_count());
-
-        rpc.on_connection_handler_event(
-            peer_id,
-            connection_id,
-            HandlerEvent::InboundStreamClosed(SubstreamId::new(0)),
         );
 
         assert_eq!(0, rpc.inbound_request_limiter.active_request_count());
