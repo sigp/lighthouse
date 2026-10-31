@@ -52,15 +52,19 @@ impl Environment {
     }
 
     pub fn create_databases(&self) -> Result<OpenDatabases<'_>, Error> {
-        let indexed_attestation_db = self.create_table(INDEXED_ATTESTATION_DB)?;
-        let indexed_attestation_id_db = self.create_table(INDEXED_ATTESTATION_ID_DB)?;
-        let attesters_db = self.create_table(ATTESTERS_DB)?;
-        let attesters_max_targets_db = self.create_table(ATTESTERS_MAX_TARGETS_DB)?;
-        let min_targets_db = self.create_table(MIN_TARGETS_DB)?;
-        let max_targets_db = self.create_table(MAX_TARGETS_DB)?;
-        let current_epochs_db = self.create_table(CURRENT_EPOCHS_DB)?;
-        let proposers_db = self.create_table(PROPOSERS_DB)?;
-        let metadata_db = self.create_table(METADATA_DB)?;
+        // Create all tables in a single transaction so that the allocator state is only written
+        // once (see `begin_write`).
+        let txn = self.begin_write()?;
+        let indexed_attestation_db = Self::create_table(&txn, INDEXED_ATTESTATION_DB)?;
+        let indexed_attestation_id_db = Self::create_table(&txn, INDEXED_ATTESTATION_ID_DB)?;
+        let attesters_db = Self::create_table(&txn, ATTESTERS_DB)?;
+        let attesters_max_targets_db = Self::create_table(&txn, ATTESTERS_MAX_TARGETS_DB)?;
+        let min_targets_db = Self::create_table(&txn, MIN_TARGETS_DB)?;
+        let max_targets_db = Self::create_table(&txn, MAX_TARGETS_DB)?;
+        let current_epochs_db = Self::create_table(&txn, CURRENT_EPOCHS_DB)?;
+        let proposers_db = Self::create_table(&txn, PROPOSERS_DB)?;
+        let metadata_db = Self::create_table(&txn, METADATA_DB)?;
+        txn.commit()?;
 
         Ok(OpenDatabases {
             indexed_attestation_db,
@@ -75,14 +79,12 @@ impl Environment {
         })
     }
 
-    pub fn create_table<'env>(
-        &'env self,
+    fn create_table<'env>(
+        txn: &redb::WriteTransaction,
         table_name: &'env str,
     ) -> Result<crate::Database<'env>, Error> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(table_name);
-        let tx = self.db.begin_write()?;
-        tx.open_table(table_definition)?;
-        tx.commit()?;
+        txn.open_table(table_definition)?;
 
         Ok(crate::Database::Redb(Database {
             table_name: table_name.to_string(),
@@ -94,8 +96,24 @@ impl Environment {
         vec![config.database_path.join(REDB_DATA_FILENAME)]
     }
 
-    pub fn begin_rw_txn(&self) -> Result<RwTransaction<'_>, Error> {
+    /// Begin a write transaction with redb's quick-repair enabled.
+    ///
+    /// Quick-repair persists the allocator state with every commit, so that the database can be
+    /// reopened quickly after an unclean shutdown. Without it, redb has to re-read the entire
+    /// database file to rebuild the allocator state, which can take hours for large databases.
+    /// This matters for the slasher in particular because `SlasherDB` never drops its
+    /// `Environment`, so every shutdown is unclean from redb's perspective.
+    ///
+    /// Every write transaction must use quick-repair: a durable commit without it deletes the
+    /// saved allocator state.
+    fn begin_write(&self) -> Result<redb::WriteTransaction, Error> {
         let mut txn = self.db.begin_write()?;
+        txn.set_quick_repair(true);
+        Ok(txn)
+    }
+
+    pub fn begin_rw_txn(&self) -> Result<RwTransaction<'_>, Error> {
+        let mut txn = self.begin_write()?;
         txn.set_durability(redb::Durability::Eventual);
         Ok(RwTransaction {
             txn,
