@@ -246,7 +246,7 @@ pub enum PayloadVerificationStatus {
     /// An EL has not yet made a determination about the execution payload.
     Optimistic,
     /// The block is either pre-merge-fork, or prior to the terminal PoW block.
-    Irrelevant,
+    PreMerge,
 }
 
 /// Calculate how far `slot` lies from the start of its epoch.
@@ -431,7 +431,7 @@ where
             } else if let Ok(execution_payload) = anchor_block.message().execution_payload() {
                 // Pre-Gloas forks: do not set payload hashes, they are only used post-Gloas.
                 if execution_payload.is_default_with_empty_roots() {
-                    (ExecutionStatus::irrelevant(), None, None)
+                    (ExecutionStatus::pre_merge(), None, None)
                 } else {
                     // Assume that this payload is valid, since the anchor should be a
                     // trusted block and state.
@@ -443,7 +443,7 @@ where
                 }
             } else {
                 // Pre-merge: no execution payload at all.
-                (ExecutionStatus::irrelevant(), None, None)
+                (ExecutionStatus::pre_merge(), None, None)
             };
 
         // If the current slot is not provided, use the value that was last provided to the store.
@@ -713,7 +713,7 @@ where
                 ExecutionStatus::Optimistic(payload_block_hash)
             }
             // A revealed Gloas payload always has execution enabled, so this is a logic error.
-            PayloadVerificationStatus::Irrelevant => {
+            PayloadVerificationStatus::PreMerge => {
                 return Err(Error::InvalidPayloadStatus {
                     block_slot: Slot::new(0),
                     block_root,
@@ -1030,7 +1030,7 @@ where
             if block_hash == ExecutionBlockHash::zero() {
                 // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
                 // the payload.
-                ExecutionStatus::irrelevant()
+                ExecutionStatus::pre_merge()
             } else {
                 match payload_verification_status {
                     PayloadVerificationStatus::Verified => ExecutionStatus::Valid(block_hash),
@@ -1039,7 +1039,7 @@ where
                     }
                     // It would be a logic error to declare a block irrelevant if it has an
                     // execution payload with a non-zero block hash.
-                    PayloadVerificationStatus::Irrelevant => {
+                    PayloadVerificationStatus::PreMerge => {
                         return Err(Error::InvalidPayloadStatus {
                             block_slot: block.slot(),
                             block_root,
@@ -1050,7 +1050,7 @@ where
             }
         } else {
             // There is no payload to verify.
-            ExecutionStatus::irrelevant()
+            ExecutionStatus::pre_merge()
         };
 
         let (execution_payload_parent_hash, execution_payload_block_hash) =
