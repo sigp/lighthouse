@@ -104,17 +104,9 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
         // verified prior to consensus code running.
         let pubkey = pubkey_bytes.decompress()?;
 
-        // Ensure the state's epoch matches the message's epoch before determining the Fork.
-        if self.epoch() != state.current_epoch() {
-            return Err(BeaconStateError::SignedEnvelopeIncorrectEpoch {
-                state_epoch: state.current_epoch(),
-                envelope_epoch: self.epoch(),
-            });
-        }
-
         Ok(self.verify_signature(
             &pubkey,
-            &state.fork(),
+            &spec.fork_at_epoch(self.epoch()),
             state.genesis_validators_root(),
             spec,
         ))
