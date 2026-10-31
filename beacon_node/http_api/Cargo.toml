@@ -63,7 +63,8 @@ warp_utils = { workspace = true }
 [dev-dependencies]
 fork_choice = { workspace = true }
 genesis = { workspace = true }
-proto_array = { workspace = true }
+oas3 = { version = "0.21.0", features = ["yaml-spec"] }
+regex = { workspace = true }
 
 [[test]]
 name = "bn_http_api_tests"
