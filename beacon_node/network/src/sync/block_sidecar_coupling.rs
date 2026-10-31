@@ -23,7 +23,9 @@ use types::{
     Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
 };
 
-use crate::sync::network_context::{LookupRequestResult, PeerGroup, SyncNetworkContext};
+use crate::sync::network_context::{
+    BatchPeers, LookupRequestResult, PeerGroup, SyncNetworkContext,
+};
 
 /// Accumulates and couples beacon blocks with their associated data (blobs or data columns)
 /// from range sync network responses.
@@ -296,7 +298,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         &mut self,
         custody_context: &CustodyContext<T>,
         spec: Arc<ChainSpec>,
-    ) -> Option<(Result<Vec<RangeSyncBlock<E>>, CouplingError>, PeerId)>
+    ) -> Option<(Result<Vec<RangeSyncBlock<E>>, CouplingError>, BatchPeers)>
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
@@ -312,7 +314,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         match &self.block_data_request {
             RangeBlockDataRequest::NoData => Some((
                 Self::responses_with_blobs(blocks.to_vec(), vec![], custody_context, spec),
-                *block_peer,
+                BatchPeers::new_without_columns(*block_peer),
             )),
             RangeBlockDataRequest::Blobs(request) => {
                 let Some(blobs) = request.to_finished() else {
@@ -325,12 +327,12 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         custody_context,
                         spec,
                     ),
-                    *block_peer,
+                    BatchPeers::new_without_columns(*block_peer),
                 ))
             }
             RangeBlockDataRequest::DataColumns(state) => {
                 // Wait until the batch's custody-by-root request has resolved.
-                let DataColumnsRequest::Complete(columns, _peer_group) = state else {
+                let DataColumnsRequest::Complete(columns, column_peers) = state else {
                     return None;
                 };
 
@@ -347,7 +349,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         custody_context,
                         payload_envelopes,
                     ),
-                    *block_peer,
+                    BatchPeers::new(*block_peer, column_peers.clone()),
                 ))
             }
         }
