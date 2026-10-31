@@ -6,6 +6,7 @@ use itertools::Itertools;
 use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::DataColumnsByRangeRequestId;
 use std::sync::Arc;
+use tracing::debug;
 use types::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
 
 pub struct RangeDataColumnBatchRequest<T: BeaconChainTypes> {
@@ -209,16 +210,18 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
 
             // A Gloas block's payload was revealed if its child's bid builds on it. Withheld
             // payloads have no columns on the network. Without a finalized child the status isn't
-            // final, so no columns are expected. Custody backfill doesn't request such epochs.
+            // final (`None`), so no columns are expected. Custody backfill doesn't request such
+            // epochs.
             let payload_revealed = match block.message().body().signed_execution_payload_bid() {
                 Ok(bid) => child_root
                     .and_then(|child_root| blocks.get(&child_root))
-                    .is_some_and(|child| child.is_parent_block_full(bid.message().block_hash())),
+                    .map(|child| child.is_parent_block_full(bid.message().block_hash())),
                 // Prior to Gloas.
-                Err(_) => true,
+                Err(_) => Some(true),
             };
-            let expects_columns =
-                block.slot() == slot && block.num_expected_blobs() != 0 && payload_revealed;
+            let expects_columns = block.slot() == slot
+                && block.num_expected_blobs() != 0
+                && payload_revealed == Some(true);
 
             let Some(columns) = received_columns_for_slot.remove(&slot) else {
                 // If at least one blob is expected for this slot but none have been served, penalize all peers
@@ -245,6 +248,21 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                     }
                 }
 
+                continue;
+            }
+
+            // Columns for a payload that finalized as EMPTY belong to an abandoned payload, which
+            // finalization pruning deletes. A peer that hasn't pruned yet may still serve them, so
+            // drop them without penalizing it.
+            if payload_revealed == Some(false) {
+                if !columns.is_empty() {
+                    debug!(
+                        %block_root,
+                        %slot,
+                        count = columns.len(),
+                        "Dropping columns served for a withheld payload"
+                    );
+                }
                 continue;
             }
 
@@ -782,6 +800,93 @@ mod tests {
                 assert!(faulty_peers.iter().any(|(_, p)| *p == peer))
             }
             response => panic!("expected peer failure, got {response:?}"),
+        }
+    }
+
+    // A late reveal: the envelope and columns were imported, but the child builds on the EMPTY
+    // parent. Columns a peer serves for it are dropped without a penalty.
+    #[tokio::test]
+    async fn late_revealed_gloas_payload_columns_are_dropped() {
+        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+            .spec(spec)
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .node_custody_type(NodeCustodyType::Supernode)
+            .build();
+        harness.execution_block_generator().set_min_blob_count(1);
+        harness.advance_slot();
+
+        let slot = Slot::new(1);
+        let (block_contents, envelope, post_state) = harness
+            .make_block_with_envelope(harness.get_current_state(), slot)
+            .await;
+        let envelope = envelope.expect("should produce an envelope");
+        let block_root = block_contents.0.canonical_root();
+        let block_state_root = block_contents.0.state_root();
+        harness
+            .process_block(slot, block_root, block_contents)
+            .await
+            .expect("should import block");
+
+        // Build the child while the payload is still missing, so it builds on the EMPTY parent.
+        harness.advance_slot();
+        let child_slot = Slot::new(2);
+        let (child_contents, _, _) = harness
+            .make_block_with_envelope(post_state.clone(), child_slot)
+            .await;
+        let child_root = child_contents.0.canonical_root();
+
+        // The envelope arrives late, then the child.
+        harness
+            .process_envelope(block_root, envelope, &post_state, block_state_root)
+            .await;
+        harness
+            .process_block(child_slot, child_root, child_contents)
+            .await
+            .expect("should import child block");
+
+        let data_columns = harness
+            .chain
+            .store
+            .get_data_columns(&block_root, ForkName::Gloas)
+            .expect("should read data columns")
+            .expect("should store data columns");
+        let block = harness
+            .chain
+            .get_blinded_block(&block_root)
+            .unwrap()
+            .unwrap();
+        let child = harness
+            .chain
+            .get_blinded_block(&child_root)
+            .unwrap()
+            .unwrap();
+        let bid_hash = block
+            .message()
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message()
+            .block_hash();
+        assert!(!child.is_parent_block_full(bid_hash));
+
+        let requested_columns = data_columns
+            .iter()
+            .map(|column| *column.index())
+            .unique()
+            .collect::<Vec<_>>();
+        let peer = PeerId::random();
+        let (request_id, mut request) =
+            custody_backfill_request(&harness, Epoch::new(0), requested_columns, peer);
+        request
+            .add_custody_columns(request_id, data_columns)
+            .expect("should complete request");
+
+        match request.responses() {
+            Some(Ok(received_columns)) => assert!(received_columns.is_empty()),
+            response => panic!("expected no peer failure, got {response:?}"),
         }
     }
 }
