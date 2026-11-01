@@ -165,11 +165,9 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                     inclusion_list_satisfied,
                 })
             }
-            // An optimistic payload counts as satisfying the inclusion lists until it is validated.
-            PayloadStatus::Syncing | PayloadStatus::Accepted => Ok(PayloadVerificationOutcome {
-                payload_verification_status: PayloadVerificationStatus::Optimistic,
-                inclusion_list_satisfied: true,
-            }),
+            PayloadStatus::Syncing | PayloadStatus::Accepted => {
+                Ok(PayloadVerificationOutcome::optimistic())
+            }
             PayloadStatus::Invalid {
                 latest_valid_hash,
                 ref validation_error,

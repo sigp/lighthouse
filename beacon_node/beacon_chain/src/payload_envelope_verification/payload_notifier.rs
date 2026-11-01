@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use execution_layer::{NewPayloadRequest, NewPayloadRequestGloas, NewPayloadRequestHeze};
-use fork_choice::PayloadVerificationStatus;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use tracing::warn;
 use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
@@ -44,11 +43,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                         );
                         None
                     } else {
-                        // An optimistic payload counts as satisfying the inclusion lists.
-                        Some(PayloadVerificationOutcome {
-                            payload_verification_status: PayloadVerificationStatus::Optimistic,
-                            inclusion_list_satisfied: true,
-                        })
+                        Some(PayloadVerificationOutcome::optimistic())
                     }
                 }
                 _ => None,
@@ -68,10 +63,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
     ) -> Result<PayloadVerificationOutcome, PayloadVerificationError> {
         // EIP-8025: the proofs are this payload's validity, so the execution layer is not asked.
         if self.chain.execution_proofs_enabled() {
-            return Ok(PayloadVerificationOutcome {
-                payload_verification_status: PayloadVerificationStatus::Optimistic,
-                inclusion_list_satisfied: true,
-            });
+            return Ok(PayloadVerificationOutcome::optimistic());
         }
 
         if let Some(payload_verification_outcome) = self.payload_verification_outcome {

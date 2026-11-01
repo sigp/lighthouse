@@ -556,6 +556,16 @@ pub struct PayloadVerificationOutcome {
     pub inclusion_list_satisfied: bool,
 }
 
+impl PayloadVerificationOutcome {
+    /// An optimistic payload counts as satisfying the inclusion lists until it is validated.
+    pub fn optimistic() -> Self {
+        Self {
+            payload_verification_status: PayloadVerificationStatus::Optimistic,
+            inclusion_list_satisfied: true,
+        }
+    }
+}
+
 /// The set of errors that can occur while notifying the execution layer of a new payload.
 ///
 /// This is deliberately narrow: notifying the EL can only fail in these two ways. The type is
