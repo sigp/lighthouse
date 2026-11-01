@@ -17,7 +17,7 @@ pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    payload_verification_status: Option<PayloadVerificationStatus>,
+    payload_verification_outcome: Option<PayloadVerificationOutcome>,
 }
 
 impl<T: BeaconChainTypes> PayloadNotifier<T> {
@@ -27,7 +27,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, EnvelopeError> {
-        let payload_verification_status = {
+        let payload_verification_outcome = {
             let payload_message = &envelope.message;
 
             match notify_execution_layer {
@@ -44,7 +44,11 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                         );
                         None
                     } else {
-                        Some(PayloadVerificationStatus::Optimistic)
+                        // An optimistic payload counts as satisfying the inclusion lists.
+                        Some(PayloadVerificationOutcome {
+                            payload_verification_status: PayloadVerificationStatus::Optimistic,
+                            inclusion_list_satisfied: true,
+                        })
                     }
                 }
                 _ => None,
@@ -55,7 +59,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             chain,
             envelope,
             block,
-            payload_verification_status,
+            payload_verification_outcome,
         })
     }
 
@@ -70,11 +74,8 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             });
         }
 
-        if let Some(payload_verification_status) = self.payload_verification_status {
-            Ok(PayloadVerificationOutcome {
-                payload_verification_status,
-                inclusion_list_satisfied: true,
-            })
+        if let Some(payload_verification_outcome) = self.payload_verification_outcome {
+            Ok(payload_verification_outcome)
         } else {
             let request =
                 Self::build_new_payload_request(&self.chain, &self.envelope, &self.block)?;
