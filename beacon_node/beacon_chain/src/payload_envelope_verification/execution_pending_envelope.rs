@@ -6,18 +6,17 @@ use types::{EthSpec, SignedExecutionPayloadEnvelope};
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
-    block_verification::PayloadVerificationHandle,
     payload_envelope_verification::{
-        EnvelopeError, gossip_verified_envelope::GossipVerifiedEnvelope,
-        load_snapshot_from_state_root, payload_notifier::PayloadNotifier,
-        verify_envelope_payload_hash,
+        EnvelopeError, EnvelopeVerificationHandle,
+        gossip_verified_envelope::GossipVerifiedEnvelope, load_snapshot_from_state_root,
+        payload_notifier::PayloadNotifier, verify_envelope_payload_hash,
     },
 };
 
 pub struct ExecutionPendingEnvelope<E: EthSpec> {
     pub signed_envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub block_root: Hash256,
-    pub payload_verification_handle: PayloadVerificationHandle,
+    pub verification_handle: EnvelopeVerificationHandle,
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
@@ -56,7 +55,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         // Spawn the payload verification future as a new task, but don't wait for it to complete.
         // The `payload_verification_future` will be awaited later to ensure verification completed
         // successfully.
-        let payload_verification_handle = chain
+        let verification_handle = chain
             .task_executor
             .spawn_handle(
                 payload_verification_future,
@@ -89,7 +88,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         Ok(ExecutionPendingEnvelope {
             signed_envelope,
             block_root,
-            payload_verification_handle,
+            verification_handle,
         })
     }
 }

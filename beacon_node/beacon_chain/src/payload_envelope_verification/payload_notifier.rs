@@ -7,8 +7,8 @@ use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 use crate::{
     BeaconChain, BeaconChainTypes, NotifyExecutionLayer, PayloadVerificationError,
-    PayloadVerificationOutcome, execution_payload::notify_new_payload,
-    payload_envelope_verification::EnvelopeError,
+    execution_payload::notify_new_payload,
+    payload_envelope_verification::{EnvelopeError, EnvelopeVerificationOutcome},
 };
 
 /// Used to await the result of executing payload with a remote EE.
@@ -16,7 +16,7 @@ pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    payload_verification_outcome: Option<PayloadVerificationOutcome>,
+    verification_outcome: Option<EnvelopeVerificationOutcome>,
 }
 
 impl<T: BeaconChainTypes> PayloadNotifier<T> {
@@ -26,7 +26,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, EnvelopeError> {
-        let payload_verification_outcome = {
+        let verification_outcome = {
             let payload_message = &envelope.message;
 
             match notify_execution_layer {
@@ -43,7 +43,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                         );
                         None
                     } else {
-                        Some(PayloadVerificationOutcome::optimistic())
+                        Some(EnvelopeVerificationOutcome::optimistic())
                     }
                 }
                 _ => None,
@@ -54,20 +54,20 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             chain,
             envelope,
             block,
-            payload_verification_outcome,
+            verification_outcome,
         })
     }
 
     pub async fn notify_new_payload(
         self,
-    ) -> Result<PayloadVerificationOutcome, PayloadVerificationError> {
+    ) -> Result<EnvelopeVerificationOutcome, PayloadVerificationError> {
         // EIP-8025: the proofs are this payload's validity, so the execution layer is not asked.
         if self.chain.execution_proofs_enabled() {
-            return Ok(PayloadVerificationOutcome::optimistic());
+            return Ok(EnvelopeVerificationOutcome::optimistic());
         }
 
-        if let Some(payload_verification_outcome) = self.payload_verification_outcome {
-            Ok(payload_verification_outcome)
+        if let Some(verification_outcome) = self.verification_outcome {
+            Ok(verification_outcome)
         } else {
             let request =
                 Self::build_new_payload_request(&self.chain, &self.envelope, &self.block)?;

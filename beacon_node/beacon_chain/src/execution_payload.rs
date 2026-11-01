@@ -9,7 +9,8 @@
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
-    ExecutionPayloadError, PayloadVerificationError, PayloadVerificationOutcome,
+    ExecutionPayloadError, PayloadVerificationError,
+    payload_envelope_verification::EnvelopeVerificationOutcome,
 };
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, NewPayloadRequest, PayloadAttributes,
@@ -134,7 +135,7 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     slot: Slot,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
-) -> Result<PayloadVerificationOutcome, PayloadVerificationError> {
+) -> Result<EnvelopeVerificationOutcome, PayloadVerificationError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -160,13 +161,13 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
                 } else {
                     true
                 };
-                Ok(PayloadVerificationOutcome {
+                Ok(EnvelopeVerificationOutcome {
                     payload_verification_status: PayloadVerificationStatus::Verified,
                     inclusion_list_satisfied,
                 })
             }
             PayloadStatus::Syncing | PayloadStatus::Accepted => {
-                Ok(PayloadVerificationOutcome::optimistic())
+                Ok(EnvelopeVerificationOutcome::optimistic())
             }
             PayloadStatus::Invalid {
                 latest_valid_hash,

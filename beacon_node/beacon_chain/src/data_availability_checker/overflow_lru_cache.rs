@@ -897,7 +897,6 @@ mod test {
 
         let payload_verification_outcome = PayloadVerificationOutcome {
             payload_verification_status: PayloadVerificationStatus::Verified,
-            inclusion_list_satisfied: true,
         };
 
         let availability_pending_block = AvailabilityPendingExecutedBlock {
@@ -1167,7 +1166,6 @@ mod pending_components_tests {
             },
             payload_verification_outcome: PayloadVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,
-                inclusion_list_satisfied: true,
             },
         };
         (block, blobs, invalid_blobs)
