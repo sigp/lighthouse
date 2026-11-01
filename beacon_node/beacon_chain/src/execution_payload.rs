@@ -142,15 +142,7 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
 
     let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
     let parent_block_hash = new_payload_request.execution_payload_ref().parent_hash();
-    let checks_inclusion_lists = match new_payload_request {
-        NewPayloadRequest::Heze(_) => true,
-        NewPayloadRequest::Bellatrix(_)
-        | NewPayloadRequest::Capella(_)
-        | NewPayloadRequest::Deneb(_)
-        | NewPayloadRequest::Electra(_)
-        | NewPayloadRequest::Fulu(_)
-        | NewPayloadRequest::Gloas(_) => false,
-    };
+    let checks_inclusion_lists = new_payload_request.fork_name().heze_enabled();
     let new_payload_response = execution_layer
         .notify_new_payload(new_payload_request.clone())
         .await;

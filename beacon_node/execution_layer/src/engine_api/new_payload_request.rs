@@ -5,7 +5,7 @@ use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_h
 use superstruct::superstruct;
 use types::{
     BeaconBlockRef, BeaconStateError, EthSpec, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadRef, Hash256, VersionedHash,
+    ExecutionPayloadRef, ForkName, Hash256, VersionedHash,
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -70,6 +70,18 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
 
     pub fn block_number(&self) -> u64 {
         self.execution_payload_ref().block_number()
+    }
+
+    pub fn fork_name(&self) -> ForkName {
+        match self {
+            Self::Bellatrix(_) => ForkName::Bellatrix,
+            Self::Capella(_) => ForkName::Capella,
+            Self::Deneb(_) => ForkName::Deneb,
+            Self::Electra(_) => ForkName::Electra,
+            Self::Fulu(_) => ForkName::Fulu,
+            Self::Gloas(_) => ForkName::Gloas,
+            Self::Heze(_) => ForkName::Heze,
+        }
     }
 
     pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'block, E> {
