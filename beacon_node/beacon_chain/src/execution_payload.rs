@@ -142,7 +142,15 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
 
     let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
     let parent_block_hash = new_payload_request.execution_payload_ref().parent_hash();
-    let checks_inclusion_lists = matches!(new_payload_request, NewPayloadRequest::Heze(_));
+    let checks_inclusion_lists = match new_payload_request {
+        NewPayloadRequest::Heze(_) => true,
+        NewPayloadRequest::Bellatrix(_)
+        | NewPayloadRequest::Capella(_)
+        | NewPayloadRequest::Deneb(_)
+        | NewPayloadRequest::Electra(_)
+        | NewPayloadRequest::Fulu(_)
+        | NewPayloadRequest::Gloas(_) => false,
+    };
     let new_payload_response = execution_layer
         .notify_new_payload(new_payload_request.clone())
         .await;
@@ -152,16 +160,15 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
             PayloadStatus::Valid {
                 inclusion_list_satisfied,
             } => {
-                let inclusion_list_satisfied = inclusion_list_satisfied.unwrap_or_else(|| {
-                    if checks_inclusion_lists {
-                        warn!(
-                            ?execution_block_hash,
-                            %slot,
-                            "Execution engine did not report inclusion list satisfaction"
-                        );
-                    }
+                let inclusion_list_satisfied = if checks_inclusion_lists {
+                    inclusion_list_satisfied.ok_or(
+                        ExecutionPayloadError::MissingInclusionListSatisfaction {
+                            execution_block_hash,
+                        },
+                    )?
+                } else {
                     true
-                });
+                };
                 Ok(PayloadVerificationOutcome {
                     payload_verification_status: PayloadVerificationStatus::Verified,
                     inclusion_list_satisfied,
