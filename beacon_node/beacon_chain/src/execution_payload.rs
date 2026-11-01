@@ -142,7 +142,6 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
 
     let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
     let parent_block_hash = new_payload_request.execution_payload_ref().parent_hash();
-    let checks_inclusion_lists = new_payload_request.fork_name().heze_enabled();
     let new_payload_response = execution_layer
         .notify_new_payload(new_payload_request.clone())
         .await;
@@ -152,7 +151,7 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
             PayloadStatus::Valid {
                 inclusion_list_satisfied,
             } => {
-                let inclusion_list_satisfied = if checks_inclusion_lists {
+                let inclusion_list_satisfied = if new_payload_request.fork_name().heze_enabled() {
                     inclusion_list_satisfied.ok_or(
                         ExecutionPayloadError::MissingInclusionListSatisfaction {
                             execution_block_hash,
