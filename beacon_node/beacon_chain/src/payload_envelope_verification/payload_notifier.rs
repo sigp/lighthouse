@@ -105,10 +105,12 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             .fork_name_at_slot::<T::EthSpec>(block.slot())
             .heze_enabled()
         {
-            let inclusion_list_transactions = chain.payload_inclusion_list_transactions(
-                block.parent_root(),
-                block.slot().saturating_sub(1_u64),
-            );
+            let inclusion_list_transactions = chain
+                .payload_inclusion_list_transactions(
+                    block.parent_root(),
+                    block.slot().saturating_sub(1_u64),
+                )
+                .map_err(|e| PayloadVerificationError::BeaconChainError(Box::new(e)))?;
             Ok(NewPayloadRequest::Heze(NewPayloadRequestHeze {
                 execution_payload: &envelope.message.payload,
                 versioned_hashes,

@@ -3487,10 +3487,13 @@ where
                 versioned_hashes,
                 parent_beacon_block_root: block.message().parent_root(),
                 execution_requests: &signed_envelope.message.execution_requests,
-                inclusion_list_transactions: self.chain.payload_inclusion_list_transactions(
-                    block.parent_root(),
-                    block.slot().saturating_sub(1_u64),
-                ),
+                inclusion_list_transactions: self
+                    .chain
+                    .payload_inclusion_list_transactions(
+                        block.parent_root(),
+                        block.slot().saturating_sub(1_u64),
+                    )
+                    .expect("should read inclusion list transactions"),
             })
         } else {
             NewPayloadRequest::Gloas(NewPayloadRequestGloas {

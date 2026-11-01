@@ -7718,23 +7718,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Provides the timely inclusion list transactions for a payload built on `parent_root` at
-    /// `slot + 1`, falling back to an empty list if they can't be read.
+    /// `slot + 1`.
     pub fn payload_inclusion_list_transactions(
         &self,
         parent_root: Hash256,
         slot: Slot,
-    ) -> ProgressiveTransactions {
+    ) -> Result<ProgressiveTransactions, Error> {
         self.get_inclusion_list_transactions(parent_root, slot, true)
             .and_then(|transactions| ProgressiveTransactions::new(transactions).map_err(Into::into))
-            .unwrap_or_else(|e| {
-                warn!(
-                    ?parent_root,
-                    %slot,
-                    error = ?e,
-                    "Failed to read inclusion lists, verifying payload without them"
-                );
-                ProgressiveTransactions::empty()
-            })
     }
 
     /// Provides the inclusion list transactions for a
