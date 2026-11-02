@@ -110,6 +110,10 @@ pub enum Operation {
     ProcessExecutionPayloadEnvelope {
         block_root: Hash256,
     },
+    /// Receive the execution payload envelope for `block_root` and expect an error.
+    InvalidProcessExecutionPayloadEnvelope {
+        block_root: Hash256,
+    },
     AssertPayloadReceived {
         block_root: Hash256,
         expected: bool,
@@ -587,6 +591,18 @@ impl ForkChoiceTestDefinition {
                                 op_index, e
                             )
                         });
+                    check_bytes_round_trip(&fork_choice);
+                }
+                Operation::InvalidProcessExecutionPayloadEnvelope { block_root } => {
+                    let result = fork_choice.on_payload_envelope_received(
+                        block_root,
+                        ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
+                    );
+                    assert!(
+                        result.is_err(),
+                        "on_payload_envelope_received op at index {} should return an error",
+                        op_index
+                    );
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::AssertPayloadReceived {
