@@ -3040,6 +3040,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 return;
             }
+            AttnError::InvalidPayload { beacon_block_root } => {
+                /*
+                 * The attestation claims a payload our execution layer found invalid. Lighthouse
+                 * peers forward these while the payload is optimistic, so don't be too harsh.
+                 */
+                debug!(
+                    %peer_id,
+                    block = ?beacon_block_root,
+                    ?attestation_type,
+                    "Payload-present attestation for block with invalid payload"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "attn_invalid_payload",
+                );
+            }
             AttnError::UnknownTargetRoot(_) => {
                 /*
                  * The block indicated by the target root is not known to us.
