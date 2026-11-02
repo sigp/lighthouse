@@ -11,6 +11,7 @@ use ethereum_hashing::hash;
 use genesis::{generate_deterministic_keypairs, interop_genesis_state};
 use proto_array::PayloadStatus;
 use ssz::Encode;
+use state_processing::common::get_attesting_indices_from_state;
 use std::sync::Arc;
 use types::{
     Address, BeaconBlock, BeaconState, Checkpoint, Epoch, ExecutionBlockHash,
@@ -20,6 +21,68 @@ use types::{
 };
 
 type E = Spec;
+
+/// An invalid operation in the op pool must be dropped from the block rather than failing block
+/// production, even when `--paranoid-block-proposal` is disabled.
+#[tokio::test]
+async fn block_production_drops_invalid_op_pool_attestations() {
+    let spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).electra_enabled() {
+        return;
+    }
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    assert!(!harness.chain.config.paranoid_block_proposal);
+    harness.advance_slot();
+    harness.extend_slots_some_validators(1, vec![]).await;
+
+    let head = harness.chain.head_snapshot();
+    let head_slot = head.beacon_block.slot();
+    let attestations = harness.make_attestations(
+        &harness.get_all_validators(),
+        &head.beacon_state,
+        head.beacon_state_root(),
+        head.beacon_block_root.into(),
+        head_slot,
+    );
+
+    // A committee index of 2 is invalid in every post-Electra fork, but the op pool doesn't check
+    // it when packing attestations.
+    let mut num_inserted = 0;
+    for (mut attestation, _) in attestations
+        .into_iter()
+        .flat_map(|(committee_attestations, _)| committee_attestations)
+    {
+        attestation.data_mut().index = 2;
+        let attesting_indices =
+            get_attesting_indices_from_state(&head.beacon_state, attestation.to_ref()).unwrap();
+        harness
+            .chain
+            .op_pool
+            .insert_attestation(attestation, attesting_indices)
+            .unwrap();
+        num_inserted += 1;
+    }
+    assert!(num_inserted > 0);
+
+    harness.advance_slot();
+    let block_slot = head_slot + 1;
+    let (block_contents, _) = harness
+        .make_block(harness.get_current_state(), block_slot)
+        .await;
+    assert_eq!(block_contents.0.message().body().attestations_len(), 0);
+
+    let block_root = block_contents.0.canonical_root();
+    harness
+        .process_block(block_slot, block_root, block_contents)
+        .await
+        .expect("block without the invalid attestations should import");
+}
 
 /// Parent partial withdrawals must be accounted for when packing voluntary exits.
 /// https://github.com/sigp/lighthouse/issues/9981

@@ -16,12 +16,11 @@ use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_block_processing::is_valid_indexed_payload_attestation;
 use state_processing::per_block_processing::{
     apply_parent_execution_payload, compute_timestamp_at_slot, get_expected_withdrawals,
-    verify_attestation_for_block_inclusion,
 };
+use state_processing::state_advance::complete_state_advance;
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
 };
-use state_processing::{VerifyOperation, state_advance::complete_state_advance};
 use task_executor::JoinHandle;
 use tracing::{Instrument, debug, debug_span, error, info, instrument, trace, warn};
 use tree_hash::TreeHash;
@@ -425,7 +424,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let deposits = vec![];
 
         let bls_changes_span = debug_span!("get_bls_to_execution_changes").entered();
-        let bls_to_execution_changes = self
+        let mut bls_to_execution_changes = self
             .op_pool
             .get_bls_to_execution_changes(&state, &self.spec);
         drop(bls_changes_span);
@@ -496,103 +495,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let mut payload_attestations = self.op_pool.get_payload_attestations(&state, parent_root);
 
-        // If paranoid mode is enabled re-check the signatures of every included message.
-        // This will be a lot slower but guards against bugs in block production and can be
-        // quickly rolled out without a release.
-        if self.config.paranoid_block_proposal {
-            let mut tmp_ctxt = ConsensusContext::new(state.slot());
-            attestations.retain(|att| {
-                verify_attestation_for_block_inclusion(
-                    &state,
-                    att.to_ref(),
-                    &mut tmp_ctxt,
-                    VerifySignatures::True,
-                    &self.spec,
-                )
-                .map_err(|e| {
-                    warn!(
-                        err = ?e,
-                        block_slot = %state.slot(),
-                        attestation = ?att,
-                        "Attempted to include an invalid attestation"
-                    );
-                })
-                .is_ok()
-            });
+        self.filter_invalid_block_operations(
+            &state,
+            &mut attestations,
+            &mut proposer_slashings,
+            &mut attester_slashings,
+            &mut voluntary_exits,
+            &mut bls_to_execution_changes,
+        );
 
-            payload_attestations.retain(|att| {
-                match get_indexed_payload_attestation(&state, att, &self.spec) {
-                    Ok(indexed) => is_valid_indexed_payload_attestation(
-                        &state,
-                        &indexed,
-                        VerifySignatures::True,
-                        &self.spec,
-                    )
-                    .map_err(|e| {
-                        warn!(
-                            err = ?e,
-                            block_slot = %state.slot(),
-                            ?att,
-                            "Attempted to include a payload attestation with invalid signature"
-                        );
-                    })
-                    .is_ok(),
-                    Err(e) => {
-                        warn!(
-                            err = ?e,
-                            block_slot = %state.slot(),
-                            ?att,
-                            "Failed to index payload attestation for verification"
-                        );
-                        false
-                    }
-                }
-            });
-
-            proposer_slashings.retain(|slashing| {
-                slashing
-                    .clone()
-                    .validate(&state, &self.spec)
-                    .map_err(|e| {
-                        warn!(
-                            err = ?e,
-                            block_slot = %state.slot(),
-                            ?slashing,
-                            "Attempted to include an invalid proposer slashing"
-                        );
-                    })
-                    .is_ok()
-            });
-
-            attester_slashings.retain(|slashing| {
-                slashing
-                    .clone()
-                    .validate(&state, &self.spec)
-                    .map_err(|e| {
-                        warn!(
-                            err = ?e,
-                            block_slot = %state.slot(),
-                            ?slashing,
-                            "Attempted to include an invalid attester slashing"
-                        );
-                    })
-                    .is_ok()
-            });
-
-            voluntary_exits.retain(|exit| {
-                exit.clone()
-                    .validate(&state, &self.spec)
-                    .map_err(|e| {
-                        warn!(
-                            err = ?e,
-                            block_slot = %state.slot(),
-                            ?exit,
-                            "Attempted to include an invalid voluntary exit"
-                        );
-                    })
-                    .is_ok()
-            });
-        }
+        self.filter_invalid_payload_attestations(&state, &mut payload_attestations);
 
         let attester_slashings = attester_slashings
             .into_iter()
@@ -670,6 +582,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
             state,
         ))
+    }
+
+    /// Drop any payload attestation selected from the op pool that is invalid for inclusion in a
+    /// block on top of `state`. See `filter_invalid_block_operations`.
+    #[instrument(skip_all, level = "debug")]
+    fn filter_invalid_payload_attestations(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        payload_attestations: &mut Vec<PayloadAttestation<T::EthSpec>>,
+    ) {
+        let verify_signatures = self.block_proposal_verify_signatures();
+        payload_attestations.retain(|att| {
+            match get_indexed_payload_attestation(state, att, &self.spec) {
+                Ok(indexed) => is_valid_indexed_payload_attestation(
+                    state,
+                    &indexed,
+                    verify_signatures,
+                    &self.spec,
+                )
+                .map_err(|e| {
+                    warn!(
+                        err = ?e,
+                        block_slot = %state.slot(),
+                        ?att,
+                        "Attempted to include an invalid payload attestation"
+                    );
+                })
+                .is_ok(),
+                Err(e) => {
+                    warn!(
+                        err = ?e,
+                        block_slot = %state.slot(),
+                        ?att,
+                        "Failed to index payload attestation for verification"
+                    );
+                    false
+                }
+            }
+        });
     }
 
     /// Complete a block by computing its state root, and
