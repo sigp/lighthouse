@@ -145,6 +145,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     #[cfg(test)]
+    pub(crate) fn gloas_child_peers_len(&self, block_root: Hash256) -> Option<usize> {
+        self.single_block_lookups
+            .values()
+            .find(|lookup| lookup.block_root() == block_root)
+            .map(|lookup| lookup.gloas_child_peers_len())
+    }
+
+    #[cfg(test)]
     pub(crate) fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.single_block_lookups
             .iter()
