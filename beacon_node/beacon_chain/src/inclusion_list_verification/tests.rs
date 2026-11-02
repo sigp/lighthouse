@@ -265,7 +265,7 @@ fn slot_within_clock_disparity() {
     let verified =
         GossipVerifiedInclusionList::new(signed, ctx.seen_timestamp(), &ctx.gossip_ctx())
             .expect("should verify inclusion list for the next slot");
-    assert!(!verified.is_timely);
+    assert!(verified.is_timely);
 
     slot_clock.set_current_time(next_slot_start + Duration::from_millis(5));
     let signed = ctx.valid_inclusion_list(slot, ctx.genesis_block_root, vec![vec![0xaa]]);
