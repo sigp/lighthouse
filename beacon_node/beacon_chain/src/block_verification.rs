@@ -490,20 +490,7 @@ impl std::fmt::Display for BlockError {
 
 impl From<BlockSignatureVerifierError> for BlockError {
     fn from(e: BlockSignatureVerifierError) -> Self {
-        match e {
-            // Make a special distinction for `IncorrectBlockProposer` since it indicates an
-            // invalid block, not an internal error.
-            BlockSignatureVerifierError::IncorrectBlockProposer {
-                block,
-                local_shuffling,
-            } => BlockError::IncorrectBlockProposer {
-                block,
-                local_shuffling,
-            },
-            e => BlockError::BeaconChainError(
-                BeaconChainError::BlockSignatureVerifierError(e).into(),
-            ),
-        }
+        BlockError::BeaconChainError(BeaconChainError::BlockSignatureVerifierError(e).into())
     }
 }
 
@@ -717,6 +704,12 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     let pubkey_cache = get_validator_pubkey_cache(chain)?;
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
     for svb in &mut signature_verified_blocks {
+        check_block_proposer(
+            svb.block.as_block(),
+            &mut svb.consensus_context,
+            &state,
+            &chain.spec,
+        )?;
         signature_verifier
             .include_all_signatures(svb.block.as_block(), &mut svb.consensus_context)?;
     }
@@ -1209,6 +1202,12 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         let mut consensus_context =
             ConsensusContext::new(block.slot()).set_current_block_root(block_root);
 
+        check_block_proposer(
+            block.as_block(),
+            &mut consensus_context,
+            &state,
+            &chain.spec,
+        )?;
         signature_verifier.include_all_signatures(block.as_block(), &mut consensus_context)?;
 
         if signature_verifier.verify().is_ok() {
@@ -2216,6 +2215,25 @@ pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<'_, ValidatorPubkeyCache<T>>, BeaconChainError> {
     Ok(chain.validator_pubkey_cache.read())
+}
+
+/// Returns an error if `block` is not from the proposer that `state` expects at its slot.
+fn check_block_proposer<E: EthSpec>(
+    block: &SignedBeaconBlock<E>,
+    ctxt: &mut ConsensusContext<E>,
+    state: &BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), BlockError> {
+    let expected_proposer = ctxt
+        .get_proposer_index_from_epoch_state(state, spec)
+        .map_err(BlockSignatureVerifierError::ContextError)?;
+    if block.message().proposer_index() != expected_proposer {
+        return Err(BlockError::IncorrectBlockProposer {
+            block: block.message().proposer_index(),
+            local_shuffling: expected_proposer,
+        });
+    }
+    Ok(())
 }
 
 /// Produces an _empty_ `BlockSignatureVerifier`.

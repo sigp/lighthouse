@@ -306,14 +306,13 @@ pub fn verify_block_signature<E: EthSpec, Payload: AbstractExecPayload<E>>(
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     let block_root = Some(ctxt.get_current_block_root(block)?);
-    let proposer_index = Some(ctxt.get_proposer_index(state, spec)?);
     verify!(
         block_proposal_signature_set(
-            state,
-            |i| get_pubkey_from_state(state, i),
             block,
             block_root,
-            proposer_index,
+            &state.fork(),
+            state.genesis_validators_root(),
+            |i| get_pubkey_from_state(state, i),
             spec
         )?
         .verify(),
