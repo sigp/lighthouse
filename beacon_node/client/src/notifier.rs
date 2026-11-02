@@ -362,48 +362,63 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     head_root.short().to_string()
                 };
 
-                // `cached_head.head_hash()` is `None` only pre-merge. Default to zero (display only).
-                let head_hash = beacon_chain
-                    .canonical_head
-                    .cached_head()
-                    .head_hash()
-                    .unwrap_or_else(ExecutionBlockHash::zero);
-                let block_hash = match beacon_chain.canonical_head.head_execution_status() {
-                    Ok(ExecutionVerdict::Valid) => {
-                        metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
-                        format!("{} (verified)", head_hash)
-                    }
-                    Ok(ExecutionVerdict::Optimistic) => {
-                        metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 1);
-                        warn!(
-                            info = "chain not fully verified, \
-                            block and attestation production disabled until execution engine syncs",
-                            execution_block_hash = ?head_hash,
-                            "Head is optimistic"
-                        );
-                        format!("{} (unverified)", head_hash)
-                    }
-                    Ok(ExecutionVerdict::Invalid) => {
-                        crit!(
-                            msg = "this scenario may be unrecoverable",
-                            execution_block_hash = ?head_hash,
-                            "Head execution payload is invalid"
-                        );
-                        format!("{} (invalid)", head_hash)
-                    }
-                    Err(_) => "unknown".to_string(),
-                };
+                if beacon_chain
+                    .spec
+                    .fork_name_at_slot::<T::EthSpec>(head_slot)
+                    .gloas_enabled()
+                {
+                    info!(
+                        peers = peer_count_pretty(connected_peer_count),
+                        payload_envelope_status = ?cached_head.head_payload_status(),
+                        finalized_root = %finalized_checkpoint.root.short(),
+                        finalized_epoch = %finalized_checkpoint.epoch,
+                        epoch = %current_epoch,
+                        block = block_info,
+                        slot = %current_slot,
+                        "Synced"
+                    );
+                } else {
+                    // `cached_head.head_hash()` is `None` only pre-merge. Default to zero (display only).
+                    let head_hash = cached_head
+                        .head_hash()
+                        .unwrap_or_else(ExecutionBlockHash::zero);
+                    let block_hash = match beacon_chain.canonical_head.head_execution_status() {
+                        Ok(ExecutionVerdict::Valid) => {
+                            metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 0);
+                            format!("{} (verified)", head_hash)
+                        }
+                        Ok(ExecutionVerdict::Optimistic) => {
+                            metrics::set_gauge(&metrics::IS_OPTIMISTIC_SYNC, 1);
+                            warn!(
+                                info = "chain not fully verified, \
+                                block and attestation production disabled until execution engine syncs",
+                                execution_block_hash = ?head_hash,
+                                "Head is optimistic"
+                            );
+                            format!("{} (unverified)", head_hash)
+                        }
+                        Ok(ExecutionVerdict::Invalid) => {
+                            crit!(
+                                msg = "this scenario may be unrecoverable",
+                                execution_block_hash = ?head_hash,
+                                "Head execution payload is invalid"
+                            );
+                            format!("{} (invalid)", head_hash)
+                        }
+                        Err(_) => "unknown".to_string(),
+                    };
 
-                info!(
-                    peers = peer_count_pretty(connected_peer_count),
-                    exec_hash = block_hash,
-                    finalized_root = %finalized_checkpoint.root.short(),
-                    finalized_epoch = %finalized_checkpoint.epoch,
-                    epoch = %current_epoch,
-                    block = block_info,
-                    slot = %current_slot,
-                    "Synced"
-                );
+                    info!(
+                        peers = peer_count_pretty(connected_peer_count),
+                        exec_hash = block_hash,
+                        finalized_root = %finalized_checkpoint.root.short(),
+                        finalized_epoch = %finalized_checkpoint.epoch,
+                        epoch = %current_epoch,
+                        block = block_info,
+                        slot = %current_slot,
+                        "Synced"
+                    );
+                }
             } else {
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
