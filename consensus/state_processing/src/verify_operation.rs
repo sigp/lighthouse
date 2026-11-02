@@ -424,9 +424,9 @@ impl TransformPersist for SignedBlsToExecutionChange {
 #[cfg(all(test, not(debug_assertions)))]
 mod test {
     use super::*;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn roundtrip_test<'a, T>()
     where

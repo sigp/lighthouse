@@ -1576,9 +1576,9 @@ fn estimate_committee_weight_between_slots<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::MainnetEthSpec;
+    use types::{MainnetEthSpec, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     #[test]
     fn test_block_should_be_finalized() {
@@ -1607,10 +1607,11 @@ mod tests {
 
     #[test]
     fn test_is_start_slot_at_epoch() {
+        let slots_per_epoch = E::slots_per_epoch();
         assert!(is_start_slot_at_epoch::<E>(Slot::new(0)));
-        assert!(is_start_slot_at_epoch::<E>(Slot::new(32)));
+        assert!(is_start_slot_at_epoch::<E>(Slot::new(slots_per_epoch)));
         assert!(!is_start_slot_at_epoch::<E>(Slot::new(1)));
-        assert!(!is_start_slot_at_epoch::<E>(Slot::new(31)));
+        assert!(!is_start_slot_at_epoch::<E>(Slot::new(slots_per_epoch - 1)));
     }
 
     #[test]
@@ -1637,7 +1638,7 @@ mod tests {
     #[test]
     fn test_estimate_committee_weight_same_epoch() {
         let slots_per_epoch = E::slots_per_epoch();
-        // The total should divide evenly across the epoch. 32B gwei on Mainnet, 1B per slot.
+        // The total should divide evenly across the epoch, 1B gwei per slot.
         let total = slots_per_epoch * 1_000_000_000;
 
         let w = estimate_committee_weight_between_slots::<E>(total, Slot::new(0), Slot::new(0))
@@ -1893,8 +1894,6 @@ mod tests {
     #[test]
     fn head_balance_source_rebuilt_after_intra_epoch_slashing() {
         use state_processing::{GloasVerificationContext, per_slot_processing};
-        use types::MinimalEthSpec;
-        type E = MinimalEthSpec;
 
         let spec = E::default_spec();
         let mut state: BeaconState<E> = BeaconState::new(0, Default::default(), &spec);
