@@ -88,7 +88,7 @@ pub struct ChainConfig {
     pub enable_light_client_server: bool,
     /// The number of data columns to withhold / exclude from publishing when proposing a block.
     pub malicious_withhold_count: usize,
-    /// Number of batches that the node splits blobs or data columns into during publication.
+    /// Maximum number of batches that the node splits blobs or data columns into during publication.
     /// This doesn't apply if the node is the block proposer. For PeerDAS only.
     pub blob_publication_batches: usize,
     /// The delay in milliseconds applied by the node between sending each blob or data column batch.
