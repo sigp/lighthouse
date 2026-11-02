@@ -659,6 +659,13 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("Failed to process execution payload: {:?}", e))
     }
 
+    /// Envelope write failed. Set `payload_received` to false. Execution status is kept.
+    pub fn on_payload_envelope_write_failed(&mut self, block_root: Hash256) -> Result<(), String> {
+        self.proto_array
+            .on_payload_envelope_write_failed(block_root)
+            .map_err(|e| format!("Failed to set payload_received to false: {:?}", e))
+    }
+
     /// See `ProtoArray::propagate_execution_payload_validation` for documentation.
     pub fn process_execution_payload_validation(
         &mut self,
