@@ -93,7 +93,26 @@ impl From<ArithError> for EnvelopeProcessingError {
     }
 }
 
-/// Verifies a `SignedExecutionPayloadEnvelope` against the beacon state.
+/// Verifies a `SignedExecutionPayloadEnvelope` against the beacon state at `state.slot()`.
+pub fn verify_execution_payload_envelope<E: EthSpec>(
+    state: &BeaconState<E>,
+    signed_envelope: &SignedExecutionPayloadEnvelope<E>,
+    verify_signatures: VerifySignatures,
+    block_state_root: Hash256,
+    spec: &ChainSpec,
+) -> Result<(), EnvelopeProcessingError> {
+    verify_execution_payload_envelope_at_slot(
+        state,
+        signed_envelope,
+        verify_signatures,
+        block_state_root,
+        state.slot(),
+        spec,
+    )
+}
+
+/// Verifies a `SignedExecutionPayloadEnvelope` against the beacon state, checking the envelope's
+/// slot and timestamp against `slot`.
 ///
 /// This function performs pure verification with no state mutation. The execution requests
 /// from the envelope are deferred to be processed in the next block via
@@ -102,11 +121,12 @@ impl From<ArithError> for EnvelopeProcessingError {
 /// `block_state_root` should be the post-block state root (used to fill in the block header
 /// for beacon_block_root verification). If `None`, the latest_block_header must already have
 /// its state_root filled in.
-pub fn verify_execution_payload_envelope<E: EthSpec>(
+pub fn verify_execution_payload_envelope_at_slot<E: EthSpec>(
     state: &BeaconState<E>,
     signed_envelope: &SignedExecutionPayloadEnvelope<E>,
     verify_signatures: VerifySignatures,
     block_state_root: Hash256,
+    slot: Slot,
     spec: &ChainSpec,
 ) -> Result<(), EnvelopeProcessingError> {
     if verify_signatures.is_true() && !signed_envelope.verify_signature_with_state(state, spec)? {
@@ -140,10 +160,10 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
         }
     );
     envelope_verify!(
-        envelope.slot() == state.slot(),
+        envelope.slot() == slot,
         EnvelopeProcessingError::SlotMismatch {
             envelope_slot: envelope.slot(),
-            parent_state_slot: state.slot(),
+            parent_state_slot: slot,
         }
     );
 
@@ -209,7 +229,7 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     );
 
     // Verify timestamp
-    let state_timestamp = compute_timestamp_at_slot(state, state.slot(), spec)?;
+    let state_timestamp = compute_timestamp_at_slot(state, slot, spec)?;
     envelope_verify!(
         payload.timestamp == state_timestamp,
         EnvelopeProcessingError::TimestampMismatch {
