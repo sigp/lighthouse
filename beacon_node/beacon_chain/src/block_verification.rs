@@ -1880,25 +1880,30 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
     {
         Ok(block)
     } else {
-        // If fork choice does *not* consider the parent to be a descendant of the finalized block,
-        // then there are two more cases:
+        // If the parent is not a finalized descendant (and, when applicable, not a split
+        // descendant), then there are three cases:
         //
-        // 1. We have the parent stored in our database. Because fork-choice has confirmed the
+        // 1. The parent is still in proto-array but filtered out by `contains_block` /
+        //    `get_block` (e.g. an abandoned fork after DB prune). Use
+        //    `proto_array_contains_block` to detect this.
+        // 2. We have the parent stored in our database. Because fork-choice has confirmed the
         //    parent is *not* in our post-finalization DAG, all other blocks must be either
         //    pre-finalization or conflicting with finalization.
-        // 2. The parent is unknown to us, we probably want to download it since it might actually
+        // 3. The parent is unknown to us, we probably want to download it since it might actually
         //    descend from the finalized root.
-        if chain
-            .store
-            .block_exists(&block.parent_root())
-            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
+        let parent_root = block.parent_root();
+        if fork_choice.proto_array_contains_block(&parent_root)
+            || chain
+                .store
+                .block_exists(&parent_root)
+                .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
         {
             Err(BlockError::NotFinalizedDescendant {
-                block_parent_root: block.parent_root(),
+                block_parent_root: parent_root,
             })
         } else {
             Err(BlockError::ParentUnknown {
-                parent_root: block.parent_root(),
+                parent_root,
                 parent_block_hash: block.as_block().payload_bid_parent_block_hash().ok(),
             })
         }
