@@ -7,7 +7,7 @@ use ::fork_choice::{
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::chain_config::FastConfirmationMode;
-use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::data_column_verification::{ColumnBid, GossipVerifiedDataColumn};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
     PayloadVerificationStatus,
@@ -808,7 +808,7 @@ impl<E: EthSpec> Tester<E> {
                     GossipVerifiedDataColumn::new(column.clone(), subnet_id, &self.harness.chain)
                         .unwrap_or_else(|_| {
                             data_column_success = false;
-                            GossipVerifiedDataColumn::__new_for_testing(column)
+                            GossipVerifiedDataColumn::__new_for_testing(column, ColumnBid::PreGloas)
                         })
                 })
                 .collect();
