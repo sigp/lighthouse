@@ -2653,15 +2653,15 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         }
     }
 
-    /// Fetch all keys in the data_column column with prefix `block_root`
+    /// Fetch all data column indices stored for `block_root`.
     pub fn get_data_column_keys(&self, block_root: Hash256) -> Result<Vec<ColumnIndex>, Error> {
         self.blobs_db
-            .iter_column_from::<Vec<u8>>(DBColumn::BeaconDataColumn, block_root.as_slice())
+            .iter_column_keys_from::<Vec<u8>>(DBColumn::BeaconDataColumn, block_root.as_slice())
             .take_while(|res| {
                 res.as_ref()
-                    .is_ok_and(|(key, _)| key.starts_with(block_root.as_slice()))
+                    .is_ok_and(|key| key.starts_with(block_root.as_slice()))
             })
-            .map(|key| key.and_then(|(key, _)| parse_data_column_key(key).map(|key| key.1)))
+            .map(|res| res.and_then(|key| parse_data_column_key(key).map(|(_, index)| index)))
             .collect()
     }
 
