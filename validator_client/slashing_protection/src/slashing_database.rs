@@ -1,3 +1,4 @@
+use crate::attestation_rules::{self, AttestationRecord, Verdict};
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
 use crate::{NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot, signing_root_from_row};
@@ -394,122 +395,105 @@ impl SlashingDatabase {
         att_target_epoch: Epoch,
         att_signing_root: SigningRoot,
     ) -> Result<Safe, NotSafe> {
-        // Although it's not required to avoid slashing, we disallow attestations
-        // which are obviously invalid by virtue of their source epoch exceeding their target.
-        if att_source_epoch > att_target_epoch {
-            return Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SourceExceedsTarget,
-            ));
-        }
-
         let validator_id = self.get_validator_id_in_txn(txn, validator_pubkey)?;
 
-        // Check for a double vote. Namely, an existing attestation with the same target epoch,
-        // and a different signing root.
-        let same_target_att = txn
+        // Load this validator's attestations and check them against the slashing conditions.
+        // Only rows for `validator_id` are read, and pruning keeps one epoch's worth of
+        // attestations.
+        let history = txn
             .prepare(
                 "SELECT source_epoch, target_epoch, signing_root
                  FROM signed_attestations
-                 WHERE validator_id = ?1 AND target_epoch = ?2",
+                 WHERE validator_id = ?1",
             )?
-            .query_row(
-                params![validator_id, att_target_epoch],
-                SignedAttestation::from_row,
-            )
-            .optional()?;
+            .query_map(params![validator_id], SignedAttestation::from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
 
-        if let Some(existing_attestation) = same_target_att {
-            // If the new attestation is identical to the existing attestation, then we already
-            // know that it is safe, and can return immediately.
-            if existing_attestation.signing_root == att_signing_root {
-                return Ok(Safe::SameData);
-            // Otherwise if the hashes are different, this is a double vote.
-            } else {
-                return Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
-                    existing_attestation,
-                )));
+        let to_row = |source: Epoch, target: Epoch, root: SigningRoot| AttestationRecord {
+            source_epoch: source.as_u64(),
+            target_epoch: target.as_u64(),
+            signing_root: root.to_hash256_raw().0,
+        };
+
+        let rows = history
+            .iter()
+            .map(|att| to_row(att.source_epoch, att.target_epoch, att.signing_root))
+            .collect::<Vec<_>>();
+        let candidate = to_row(att_source_epoch, att_target_epoch, att_signing_root);
+
+        // The verdict alone decides whether the attestation is safe. The error arms below
+        // only find the conflicting row to report.
+        match attestation_rules::check_attestation(&rows, &candidate) {
+            Verdict::Valid => Ok(Safe::Valid),
+            Verdict::SameData => Ok(Safe::SameData),
+            Verdict::SourceExceedsTarget => Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SourceExceedsTarget,
+            )),
+            Verdict::DoubleVote => {
+                let existing = history
+                    .iter()
+                    .find(|att| att.target_epoch == att_target_epoch)
+                    .cloned()
+                    .ok_or(NotSafe::ConsistencyError)?;
+                Err(NotSafe::InvalidAttestation(InvalidAttestation::DoubleVote(
+                    existing,
+                )))
+            }
+            Verdict::PrevSurroundsNew => {
+                // If there is a surrounding attestation, we only return the most recent one.
+                let prev = history
+                    .iter()
+                    .filter(|att| {
+                        att.source_epoch < att_source_epoch && att.target_epoch > att_target_epoch
+                    })
+                    .max_by_key(|att| att.target_epoch)
+                    .cloned()
+                    .ok_or(NotSafe::ConsistencyError)?;
+                Err(NotSafe::InvalidAttestation(
+                    InvalidAttestation::PrevSurroundsNew { prev },
+                ))
+            }
+            Verdict::NewSurroundsPrev => {
+                // If there is a surrounded attestation, we only return the most recent one.
+                let prev = history
+                    .iter()
+                    .filter(|att| {
+                        att.source_epoch > att_source_epoch && att.target_epoch < att_target_epoch
+                    })
+                    .max_by_key(|att| att.target_epoch)
+                    .cloned()
+                    .ok_or(NotSafe::ConsistencyError)?;
+                Err(NotSafe::InvalidAttestation(
+                    InvalidAttestation::NewSurroundsPrev { prev },
+                ))
+            }
+            Verdict::SourceLessThanLowerBound => {
+                let bound_epoch = history
+                    .iter()
+                    .map(|att| att.source_epoch)
+                    .min()
+                    .ok_or(NotSafe::ConsistencyError)?;
+                Err(NotSafe::InvalidAttestation(
+                    InvalidAttestation::SourceLessThanLowerBound {
+                        source_epoch: att_source_epoch,
+                        bound_epoch,
+                    },
+                ))
+            }
+            Verdict::TargetLessThanOrEqLowerBound => {
+                let bound_epoch = history
+                    .iter()
+                    .map(|att| att.target_epoch)
+                    .min()
+                    .ok_or(NotSafe::ConsistencyError)?;
+                Err(NotSafe::InvalidAttestation(
+                    InvalidAttestation::TargetLessThanOrEqLowerBound {
+                        target_epoch: att_target_epoch,
+                        bound_epoch,
+                    },
+                ))
             }
         }
-
-        // Check that no previous vote is surrounding `attestation`.
-        // If there is a surrounding attestation, we only return the most recent one.
-        let surrounding_attestation = txn
-            .prepare(
-                "SELECT source_epoch, target_epoch, signing_root
-                 FROM signed_attestations
-                 WHERE validator_id = ?1 AND source_epoch < ?2 AND target_epoch > ?3
-                 ORDER BY target_epoch DESC
-                 LIMIT 1",
-            )?
-            .query_row(
-                params![validator_id, att_source_epoch, att_target_epoch],
-                SignedAttestation::from_row,
-            )
-            .optional()?;
-
-        if let Some(prev) = surrounding_attestation {
-            return Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::PrevSurroundsNew { prev },
-            ));
-        }
-
-        // Check that no previous vote is surrounded by `attestation`.
-        // If there is a surrounded attestation, we only return the most recent one.
-        let surrounded_attestation = txn
-            .prepare(
-                "SELECT source_epoch, target_epoch, signing_root
-                 FROM signed_attestations
-                 WHERE validator_id = ?1 AND source_epoch > ?2 AND target_epoch < ?3
-                 ORDER BY target_epoch DESC
-                 LIMIT 1",
-            )?
-            .query_row(
-                params![validator_id, att_source_epoch, att_target_epoch],
-                SignedAttestation::from_row,
-            )
-            .optional()?;
-
-        if let Some(prev) = surrounded_attestation {
-            return Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::NewSurroundsPrev { prev },
-            ));
-        }
-
-        // Check lower bounds: ensure that source is greater than or equal to min source,
-        // and target is greater than min target. This allows pruning, and compatibility
-        // with the interchange format.
-        let min_source = txn
-            .prepare("SELECT MIN(source_epoch) FROM signed_attestations WHERE validator_id = ?1")?
-            .query_row(params![validator_id], |row| row.get(0))?;
-
-        if let Some(min_source) = min_source
-            && att_source_epoch < min_source
-        {
-            return Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::SourceLessThanLowerBound {
-                    source_epoch: att_source_epoch,
-                    bound_epoch: min_source,
-                },
-            ));
-        }
-
-        let min_target = txn
-            .prepare("SELECT MIN(target_epoch) FROM signed_attestations WHERE validator_id = ?1")?
-            .query_row(params![validator_id], |row| row.get(0))?;
-
-        if let Some(min_target) = min_target
-            && att_target_epoch <= min_target
-        {
-            return Err(NotSafe::InvalidAttestation(
-                InvalidAttestation::TargetLessThanOrEqLowerBound {
-                    target_epoch: att_target_epoch,
-                    bound_epoch: min_target,
-                },
-            ));
-        }
-
-        // Everything has been checked, return Valid
-        Ok(Safe::Valid)
     }
 
     /// Insert a block proposal into the slashing database.
