@@ -247,6 +247,13 @@ impl<E: EthSpec> InclusionListStore<E> {
         Ok(true)
     }
 
+    /// Whether any inclusion list is stored for `(slot, dependent_root)`.
+    pub fn has_inclusion_lists(&self, slot: Slot, dependent_root: DependentRoot) -> bool {
+        self.slots
+            .get(&slot)
+            .is_some_and(|entry| entry.by_dependent_root.contains_key(&dependent_root))
+    }
+
     /// The stored signed inclusion lists for the given `validators`, used to serve
     /// `InclusionListsByIndices`. Equivocators and missing entries are skipped.
     pub fn get_signed_inclusion_lists(

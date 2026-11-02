@@ -114,6 +114,7 @@ pub struct RateLimiterConfig {
     pub(super) blobs_by_root_quota: Quota,
     pub(super) data_columns_by_root_quota: Quota,
     pub(super) data_columns_by_range_quota: Quota,
+    pub(super) inclusion_lists_by_indices_quota: Quota,
     pub(super) light_client_bootstrap_quota: Quota,
     pub(super) light_client_optimistic_update_quota: Quota,
     pub(super) light_client_finality_update_quota: Quota,
@@ -149,6 +150,10 @@ impl RateLimiterConfig {
         Quota::n_every(NonZeroU64::new(16384).unwrap(), 10);
     pub const DEFAULT_DATA_COLUMNS_BY_ROOT_QUOTA: Quota =
         Quota::n_every(NonZeroU64::new(16384).unwrap(), 10);
+    // A request costs at most `MAX_REQUEST_INCLUSION_LIST` (16) tokens, so this allows 8 full
+    // requests every 10 seconds.
+    pub const DEFAULT_INCLUSION_LISTS_BY_INDICES_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
     pub const DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA: Quota = Quota::one_every(10);
@@ -171,6 +176,7 @@ impl Default for RateLimiterConfig {
             blobs_by_root_quota: Self::DEFAULT_BLOBS_BY_ROOT_QUOTA,
             data_columns_by_root_quota: Self::DEFAULT_DATA_COLUMNS_BY_ROOT_QUOTA,
             data_columns_by_range_quota: Self::DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA,
+            inclusion_lists_by_indices_quota: Self::DEFAULT_INCLUSION_LISTS_BY_INDICES_QUOTA,
             light_client_bootstrap_quota: Self::DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA,
             light_client_optimistic_update_quota:
                 Self::DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA,
@@ -218,6 +224,10 @@ impl Debug for RateLimiterConfig {
                 "data_columns_by_root",
                 fmt_q!(&self.data_columns_by_root_quota),
             )
+            .field(
+                "inclusion_lists_by_indices",
+                fmt_q!(&self.inclusion_lists_by_indices_quota),
+            )
             .finish()
     }
 }
@@ -241,6 +251,7 @@ impl RateLimiterConfig {
         let mut blobs_by_root_quota = None;
         let mut data_columns_by_root_quota = None;
         let mut data_columns_by_range_quota = None;
+        let mut inclusion_lists_by_indices_quota = None;
         let mut light_client_bootstrap_quota = None;
         let mut light_client_optimistic_update_quota = None;
         let mut light_client_finality_update_quota = None;
@@ -268,6 +279,9 @@ impl RateLimiterConfig {
                 }
                 Protocol::DataColumnsByRange => {
                     data_columns_by_range_quota = data_columns_by_range_quota.or(quota)
+                }
+                Protocol::InclusionListsByIndices => {
+                    inclusion_lists_by_indices_quota = inclusion_lists_by_indices_quota.or(quota)
                 }
                 Protocol::Ping => ping_quota = ping_quota.or(quota),
                 Protocol::MetaData => meta_data_quota = meta_data_quota.or(quota),
@@ -306,6 +320,8 @@ impl RateLimiterConfig {
                 .unwrap_or(default.data_columns_by_root_quota),
             data_columns_by_range_quota: data_columns_by_range_quota
                 .unwrap_or(default.data_columns_by_range_quota),
+            inclusion_lists_by_indices_quota: inclusion_lists_by_indices_quota
+                .unwrap_or(default.inclusion_lists_by_indices_quota),
             light_client_bootstrap_quota: light_client_bootstrap_quota
                 .unwrap_or(default.light_client_bootstrap_quota),
             light_client_optimistic_update_quota: light_client_optimistic_update_quota

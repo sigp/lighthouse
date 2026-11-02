@@ -1770,6 +1770,17 @@ impl<E: EthSpec> Network<E> {
                             request_type,
                         })
                     }
+                    RequestType::InclusionListsByIndices(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["inclusion_lists_by_indices"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
                     RequestType::LightClientBootstrap(_) => {
                         metrics::inc_counter_vec(
                             &metrics::TOTAL_RPC_REQUESTS,
@@ -1872,6 +1883,11 @@ impl<E: EthSpec> Network<E> {
                         peer_id,
                         Response::DataColumnsByRange(Some(resp)),
                     )),
+                    RpcSuccessResponse::InclusionListsByIndices(resp) => Some(self.build_response(
+                        id,
+                        peer_id,
+                        Response::InclusionListsByIndices(Some(resp)),
+                    )),
                     // Should never be reached
                     RpcSuccessResponse::LightClientBootstrap(bootstrap) => Some(
                         self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap)),
@@ -1914,6 +1930,9 @@ impl<E: EthSpec> Network<E> {
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                     ResponseTermination::DataColumnsByRoot => Response::DataColumnsByRoot(None),
                     ResponseTermination::DataColumnsByRange => Response::DataColumnsByRange(None),
+                    ResponseTermination::InclusionListsByIndices => {
+                        Response::InclusionListsByIndices(None)
+                    }
                     ResponseTermination::LightClientUpdatesByRange => {
                         Response::LightClientUpdatesByRange(None)
                     }
