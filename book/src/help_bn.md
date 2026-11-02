@@ -29,7 +29,9 @@ Options:
       --builder <builder>
           The URL of a service compatible with the MEV-boost API.
       --builder-disable-ssz
-          Disables sending requests using SSZ over the builder API.
+          Disables sending requests using SSZ over the builder API. pre-Gloas,
+          this applies to the --builder URL. post-Gloas, this applies to the
+          builders configured in the validator client.
       --builder-fallback-ban-slots <builder-fallback-ban-slots>
           After the Gloas fork, a builder that fails to reveal its execution
           payload for a block that received sufficient attestations will have
@@ -66,8 +68,10 @@ Options:
           Defines a timeout value (in milliseconds) to use when fetching a block
           header from the builder API. [default: 1000]
       --builder-user-agent <STRING>
-          The HTTP user agent to send alongside requests to the builder URL. The
-          default is Lighthouse's version string.
+          The HTTP user agent to send alongside requests to the builders.
+          pre-Gloas, requests go to the --builder URL. post-Gloas, requests go
+          to the builders configured in the validator client. The default is
+          Lighthouse's version string.
       --checkpoint-blobs <BLOBS_SSZ>
           Set the checkpoint blobs to start syncing from. Must be aligned and
           match --checkpoint-block. Using --checkpoint-sync-url instead is

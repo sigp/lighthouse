@@ -420,9 +420,10 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "INTEGER",
-        requires = "builder_proposals",
-        help = "The gas limit to be used in all builder proposals for all validators managed \
-                by this validator client. If this value is not set, the gas limit schedule from \
+        help = "The gas limit for all validators managed by this validator client. \
+                pre-Gloas, it is sent to builders in the validator registration. \
+                post-Gloas, it is the target_gas_limit in proposer preferences. \
+                If this value is not set, the gas limit schedule from \
                 the network config is used, falling back to a default of 60,000,000. Note this \
                 will not necessarily be used if the gas limit set here moves too far from the \
                 previous block's gas limit.",
