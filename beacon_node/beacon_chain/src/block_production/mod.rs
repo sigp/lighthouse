@@ -320,7 +320,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         voluntary_exits: &mut Vec<SignedVoluntaryExit>,
         bls_to_execution_changes: &mut Vec<SignedBlsToExecutionChange>,
     ) {
-        let verify_signatures = self.block_proposal_verify_signatures();
+        let verify_signatures = if self.config.paranoid_block_proposal {
+            VerifySignatures::True
+        } else {
+            VerifySignatures::False
+        };
 
         let mut ctxt = ConsensusContext::new(state.slot());
         attestations.retain(|att| {
@@ -393,14 +397,5 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
                 .is_ok()
         });
-    }
-
-    /// Whether to re-check signatures of operations in a proposed block.
-    fn block_proposal_verify_signatures(&self) -> VerifySignatures {
-        if self.config.paranoid_block_proposal {
-            VerifySignatures::True
-        } else {
-            VerifySignatures::False
-        }
     }
 }

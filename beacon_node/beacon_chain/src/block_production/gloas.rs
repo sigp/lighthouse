@@ -591,7 +591,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
         payload_attestations: &mut Vec<PayloadAttestation<T::EthSpec>>,
     ) {
-        let verify_signatures = self.block_proposal_verify_signatures();
+        let verify_signatures = if self.config.paranoid_block_proposal {
+            VerifySignatures::True
+        } else {
+            VerifySignatures::False
+        };
         payload_attestations.retain(|att| {
             match get_indexed_payload_attestation(state, att, &self.spec) {
                 Ok(indexed) => is_valid_indexed_payload_attestation(
