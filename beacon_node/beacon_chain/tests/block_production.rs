@@ -22,8 +22,7 @@ use types::{
 
 type E = Spec;
 
-/// An invalid operation in the op pool must be dropped from the block rather than failing block
-/// production, even when `--paranoid-block-proposal` is disabled.
+/// Invalid op pool operations are dropped instead of failing block production.
 #[tokio::test]
 async fn block_production_drops_invalid_op_pool_attestations() {
     let spec = test_spec::<E>();
@@ -51,8 +50,7 @@ async fn block_production_drops_invalid_op_pool_attestations() {
         head_slot,
     );
 
-    // A committee index of 2 is invalid in every post-Electra fork, but the op pool doesn't check
-    // it when packing attestations.
+    // Committee index 2 is invalid post-Electra.
     let mut num_inserted = 0;
     for (mut attestation, _) in attestations
         .into_iter()

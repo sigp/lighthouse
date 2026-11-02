@@ -60,8 +60,7 @@ pub struct ChainConfig {
     /// When set to `true`, forget any valid/invalid/optimistic statuses in fork choice during start
     /// up.
     pub always_reset_payload_statuses: bool,
-    /// Whether to re-check the signatures of operations included in blocks proposed by this beacon
-    /// node. Non-signature checks are always applied.
+    /// Whether to re-check signatures of operations in blocks proposed by this node.
     pub paranoid_block_proposal: bool,
     /// Optionally set timeout for calls to checkpoint sync endpoint.
     pub checkpoint_sync_url_timeout: u64,

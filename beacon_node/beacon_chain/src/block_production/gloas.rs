@@ -584,8 +584,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ))
     }
 
-    /// Drop any payload attestation selected from the op pool that is invalid for inclusion in a
-    /// block on top of `state`. See `filter_invalid_block_operations`.
+    /// Drop op pool payload attestations that are invalid on top of `state`.
     #[instrument(skip_all, level = "debug")]
     fn filter_invalid_payload_attestations(
         &self,

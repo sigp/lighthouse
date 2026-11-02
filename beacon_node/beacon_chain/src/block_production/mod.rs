@@ -306,15 +306,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Drop any operation selected from the op pool that is invalid for inclusion in a block on
-    /// top of `state`.
+    /// Drop op pool operations that are invalid on top of `state`.
     ///
-    /// Operations are checked individually against `state`, so this cannot catch operations that
-    /// are only invalid in combination with each other. It still turns most op pool bugs into a
-    /// dropped operation rather than a failed block proposal.
-    ///
-    /// Signature checks are expensive and the op pool already verified them on insertion, so
-    /// they're only re-checked under `--paranoid-block-proposal`.
+    /// Each operation is checked independently, so invalid combinations are not caught.
+    /// Signatures are only checked under `--paranoid-block-proposal`.
     #[instrument(skip_all, level = "debug")]
     pub(crate) fn filter_invalid_block_operations(
         &self,
@@ -400,7 +395,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         });
     }
 
-    /// Whether operations included in a proposed block should have their signatures re-checked.
+    /// Whether to re-check signatures of operations in a proposed block.
     fn block_proposal_verify_signatures(&self) -> VerifySignatures {
         if self.config.paranoid_block_proposal {
             VerifySignatures::True
