@@ -435,6 +435,15 @@ pub enum ExecutionPayloadError {
     ///
     /// The peer is not necessarily invalid.
     UnverifiedNonOptimisticCandidate,
+    /// The execution engine returned `VALID` for a Heze payload without saying whether it
+    /// satisfied the inclusion lists.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The execution engine is faulty, do not penalize the peer.
+    MissingInclusionListSatisfaction {
+        execution_block_hash: ExecutionBlockHash,
+    },
 }
 
 impl ExecutionPayloadError {
@@ -460,6 +469,8 @@ impl ExecutionPayloadError {
             ExecutionPayloadError::InvalidActivationEpoch { .. } => false,
             // Do not penalize the peer since it's not their fault that *we're* optimistic.
             ExecutionPayloadError::UnverifiedNonOptimisticCandidate => false,
+            // The execution engine broke the engine API, the peer has nothing to do with it.
+            ExecutionPayloadError::MissingInclusionListSatisfaction { .. } => false,
         }
     }
 }

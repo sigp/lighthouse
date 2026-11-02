@@ -10,6 +10,7 @@
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError, PayloadVerificationError,
+    payload_envelope_verification::EnvelopeVerificationOutcome,
 };
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, NewPayloadRequest, PayloadAttributes,
@@ -116,6 +117,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                 self.block.message().try_into()?,
             )
             .await
+            .map(|outcome| outcome.payload_verification_status)
         }
     }
 }
@@ -133,7 +135,7 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     slot: Slot,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
-) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
+) -> Result<EnvelopeVerificationOutcome, PayloadVerificationError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -147,9 +149,25 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
 
     match new_payload_response {
         Ok(status) => match status {
-            PayloadStatus::Valid => Ok(PayloadVerificationStatus::Verified),
+            PayloadStatus::Valid {
+                inclusion_list_satisfied,
+            } => {
+                let inclusion_list_satisfied = if new_payload_request.fork_name().heze_enabled() {
+                    inclusion_list_satisfied.ok_or(
+                        ExecutionPayloadError::MissingInclusionListSatisfaction {
+                            execution_block_hash,
+                        },
+                    )?
+                } else {
+                    true
+                };
+                Ok(EnvelopeVerificationOutcome {
+                    payload_verification_status: PayloadVerificationStatus::Verified,
+                    inclusion_list_satisfied,
+                })
+            }
             PayloadStatus::Syncing | PayloadStatus::Accepted => {
-                Ok(PayloadVerificationStatus::Optimistic)
+                Ok(EnvelopeVerificationOutcome::optimistic())
             }
             PayloadStatus::Invalid {
                 latest_valid_hash,
