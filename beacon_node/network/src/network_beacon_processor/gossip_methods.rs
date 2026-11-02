@@ -49,7 +49,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
-use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
+use tracing::{Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, ColumnIndex, DataColumnSidecar,
     DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
@@ -1933,30 +1933,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
         // from kzg commitments, without having to wait for all blobs to be sent from the peers.
-        let publish_blobs = true;
-        let self_clone = self.clone();
-        let block_clone = block.clone();
-        let current_span = Span::current();
-        self.executor.spawn(
-            async move {
-                if let Some(header_or_bid) =
-                    PartialHeaderOrBid::try_from_block(block_clone.as_ref())
-                {
-                    self_clone
-                        .fetch_engine_blobs_and_publish_full(
-                            header_or_bid.clone(),
-                            block_root,
-                            publish_blobs,
-                            EnvelopeSource::Gossip,
-                        )
-                        .await;
-                    self_clone
-                        .publish_partial_data_columns(header_or_bid, block_root)
-                        .await
-                }
-            }
-            .instrument(current_span),
-            "fetch_blobs_gossip",
+        self.spawn_fetch_block_columns(
+            block_root,
+            block.clone(),
+            EnvelopeSource::Gossip,
+            Span::current(),
         );
 
         let result = self

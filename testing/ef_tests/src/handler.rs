@@ -1314,8 +1314,7 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {
-        // TODO(gloas): remove once we have Gloas light client tests
-        vec![ForkName::Gloas, ForkName::Heze]
+        vec![ForkName::Heze]
     }
 }
 

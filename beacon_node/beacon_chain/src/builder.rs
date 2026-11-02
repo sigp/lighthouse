@@ -97,7 +97,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     op_pool: Option<OperationPool<T::EthSpec>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     proof_engine: Option<Arc<ProofEngine>>,
-    builders: Option<Arc<Builders>>,
+    builders: Option<Arc<Builders<T::EthSpec>>>,
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
@@ -637,7 +637,7 @@ where
     }
 
     /// Sets the `BeaconChain` builder service (the Gloas Builder API client).
-    pub fn builders(mut self, builders: Option<Arc<Builders>>) -> Self {
+    pub fn builders(mut self, builders: Option<Arc<Builders<E>>>) -> Self {
         self.builders = builders;
         self
     }

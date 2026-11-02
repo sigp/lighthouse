@@ -1,12 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
     data_column_verification::verify_kzg_for_data_column_list,
+    kzg_utils::validate_data_columns_with_commitments,
 };
+use kzg::Error as KzgError;
 use store::{Error as StoreError, KeyValueStore};
 use tracing::{Span, debug, instrument};
-use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
+use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, KzgCommitment, Slot};
 
 #[derive(Debug)]
 pub enum HistoricalDataColumnError {
@@ -24,8 +26,11 @@ pub enum HistoricalDataColumnError {
         missing_slots_and_data_columns: Vec<(Slot, ColumnIndex)>,
     },
 
-    /// The provided data column sidecar list contains at least one column with an invalid kzg commitment.
-    InvalidKzg,
+    /// At least one data column failed KZG verification.
+    InvalidKzg {
+        column_index: Option<ColumnIndex>,
+        error: KzgError,
+    },
 
     /// Internal store error
     StoreError(StoreError),
@@ -132,8 +137,67 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(HistoricalDataColumnError::IndexOutOfBounds);
             }
         } else {
-            verify_kzg_for_data_column_list(historical_data_column_sidecar_list.iter(), &self.kzg)
-                .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+            if self.spec.fork_name_at_epoch(epoch).gloas_enabled() {
+                let mut columns_by_block_root: HashMap<Hash256, (Vec<KzgCommitment>, Vec<_>)> =
+                    HashMap::new();
+                for data_column in &historical_data_column_sidecar_list {
+                    let block_root = data_column.block_root();
+                    let (_, columns) = match columns_by_block_root.entry(block_root) {
+                        Entry::Occupied(entry) => entry.into_mut(),
+                        Entry::Vacant(entry) => {
+                            let block = self
+                                .get_blinded_block(&block_root)
+                                .map_err(|e| {
+                                    HistoricalDataColumnError::BeaconChainError(Box::new(e))
+                                })?
+                                .ok_or_else(|| {
+                                    HistoricalDataColumnError::BeaconChainError(Box::new(
+                                        BeaconChainError::MissingBeaconBlock(block_root),
+                                    ))
+                                })?;
+                            let bid = block
+                                .message()
+                                .body()
+                                .signed_execution_payload_bid()
+                                .map_err(|e| {
+                                    HistoricalDataColumnError::BeaconChainError(Box::new(
+                                        BeaconChainError::BeaconStateError(e),
+                                    ))
+                                })?;
+                            entry.insert((bid.message().blob_kzg_commitments().to_vec(), vec![]))
+                        }
+                    };
+                    columns.push(data_column);
+                }
+
+                let columns_with_commitments =
+                    columns_by_block_root
+                        .values()
+                        .flat_map(|(commitments, columns)| {
+                            columns
+                                .iter()
+                                .map(move |column| (*column, commitments.as_slice()))
+                        });
+
+                validate_data_columns_with_commitments(&self.kzg, columns_with_commitments)
+                    .map_err(
+                        |(column_index, error)| HistoricalDataColumnError::InvalidKzg {
+                            column_index,
+                            error,
+                        },
+                    )?;
+            } else {
+                verify_kzg_for_data_column_list(
+                    historical_data_column_sidecar_list.iter(),
+                    &self.kzg,
+                )
+                .map_err(|(column_index, error)| {
+                    HistoricalDataColumnError::InvalidKzg {
+                        column_index,
+                        error,
+                    }
+                })?;
+            }
 
             self.store.blobs_db.do_atomically(ops)?;
         }

@@ -57,11 +57,6 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/MatrixEntry/.*",
     # TODO: partial data column not implemented yet
     "tests/.*/.*/ssz_static/PartialDataColumn.*/.*",
-    # TODO(gloas): Ignore Gloas light client stuff for now
-    "tests/.*/gloas/ssz_static/LightClient.*/.*",
-    # TODO(gloas): the light client update ranking handler disables Gloas until Gloas light client
-    # updates are supported.
-    "tests/.*/gloas/light_client/update_ranking",
     # Execution payload header is irrelevant after Gloas, this type will probably be deleted.
     "tests/.*/gloas/ssz_static/ExecutionPayloadHeader/.*",
     # ForkChoiceNode is internal to fork choice and probably doesn't need SSZ tests.

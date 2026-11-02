@@ -28,9 +28,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Span, debug, error, field, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobsList, BlockImportSource, DataColumnSubnetId, EthSpec,
-    ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadBellatrix, Hash256,
-    KzgProofs, PartialDataColumn, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BlobsList, BlockImportSource, DataColumnSidecar,
+    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
+    FullPayloadBellatrix, Hash256, KzgProofs, PartialDataColumn, SignedBeaconBlock,
+    SignedBlindedBeaconBlock,
 };
 use warp::{Rejection, Reply, reply::Response};
 
@@ -164,6 +165,12 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
     let block = unverified_block.inner_block();
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
+    // Without blob data in the request (always the case for Gloas, where the builder reveals it
+    // with the payload), the node must retrieve the block's columns like it does for gossip blocks.
+    // The exception is a payload we built ourselves, whose columns the envelope endpoint publishes
+    // from the cached blobs, so retrieving them as well would only duplicate that work.
+    let fetch_columns =
+        unverified_blobs.is_none() && !chain.pending_payload_envelopes.read().has_blobs(block_root);
 
     let current_span = Span::current();
     current_span.record("provenance", provenance);
@@ -209,6 +216,22 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             builder_url.as_deref(),
         );
 
+        // Later gossip copies of this block are ignored as duplicates, so start column retrieval
+        // here. Otherwise peers never learn which cells we need via partial columns.
+        if fetch_columns
+            && let Err(e) = crate::utils::publish_network_message(
+                &sender,
+                NetworkMessage::FetchBlockColumns {
+                    block_root,
+                    block,
+                    // Trace the retrieval as part of publishing this block.
+                    span: current_span.clone(),
+                },
+            )
+        {
+            warn!(error = ?e, "Unable to start column retrieval for published block");
+        }
+
         Ok(())
     };
 
@@ -231,6 +254,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             );
             tokio::time::sleep(block_publishing_delay).await;
         }
+        // Cache Gloas blocks before their columns are published, so that peers can fetch them by
+        // root. With consensus validation, `process_block` does so before publishing.
+        chain.pending_payload_cache.insert_block(
+            block_root,
+            block.clone(),
+            BlockImportSource::HttpApi,
+        );
         publish_block_p2p(block.clone(), sender_clone.clone(), seen_timestamp)
             .map_err(|_| warp_utils::reject::custom_server_error("unable to publish".into()))?;
     }
@@ -281,7 +311,14 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 tokio::time::sleep(delay).await;
             }
         }
-        publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(|_| {
+        publish_column_sidecars(
+            network_tx,
+            gossip_verified_columns
+                .iter()
+                .map(|column| column.clone_data_column()),
+            &chain,
+        )
+        .map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
         let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
@@ -455,14 +492,11 @@ fn build_data_columns<T: BeaconChainTypes>(
 
 pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
     sender_clone: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    data_column_sidecars: &[GossipVerifiedDataColumn<T>],
+    data_column_sidecars: impl IntoIterator<Item = Arc<DataColumnSidecar<T::EthSpec>>>,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError> {
     let malicious_withhold_count = chain.config.malicious_withhold_count;
-    let mut data_column_sidecars = data_column_sidecars
-        .iter()
-        .map(|d| d.clone_data_column())
-        .collect::<Vec<_>>();
+    let mut data_column_sidecars = data_column_sidecars.into_iter().collect::<Vec<_>>();
     if malicious_withhold_count > 0 {
         let columns_to_keep = data_column_sidecars
             .len()

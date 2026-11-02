@@ -9,7 +9,7 @@ use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RequestType;
-use lighthouse_network::service::api_types::{AppRequestId, Id};
+use lighthouse_network::service::api_types::{Id, SyncRequestId};
 use lighthouse_network::{NetworkGlobals, PeerId};
 use slot_clock::ManualSlotClock;
 use std::collections::{HashMap, HashSet};
@@ -81,7 +81,7 @@ struct TestRig {
     /// All seen lookups through the test run
     seen_lookups: HashMap<Id, SeenLookup>,
     /// Registry of all requests done by the test
-    requests: Vec<(RequestType<E>, AppRequestId)>,
+    requests: Vec<(RequestType<E>, Option<SyncRequestId>)>,
     /// Persistent config on how to complete request
     complete_strategy: SimulateConfig,
     /// Metrics values to allow a reset

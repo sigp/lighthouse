@@ -26,6 +26,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+flate2 = { workspace = true }
 logging = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }

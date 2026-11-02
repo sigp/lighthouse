@@ -30,7 +30,7 @@ use lighthouse_network::rpc::{
 };
 pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
-    AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
+    BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
     CustodyBackFillBatchRequestId, CustodyBackfillBatchId, CustodyId, CustodyRequester,
     DataColumnsByRangeRequestId, DataColumnsByRangeRequester, DataColumnsByRootRequestId,
     DataColumnsByRootRequester, Id, PayloadEnvelopesByRangeRequestId, SingleLookupReqId,
@@ -449,11 +449,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             );
 
             let request = RequestType::Status(status_message.clone());
-            let app_request_id = AppRequestId::Status;
             let _ = self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id,
                 request,
-                app_request_id,
+                sync_request_id: None,
             });
         }
     }
@@ -784,7 +783,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: network_request,
-                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
+                sync_request_id: Some(SyncRequestId::SingleBlock { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
@@ -874,7 +873,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: network_request,
-                app_request_id: AppRequestId::Sync(SyncRequestId::SinglePayloadEnvelope { id }),
+                sync_request_id: Some(SyncRequestId::SinglePayloadEnvelope { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
@@ -920,7 +919,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     &self.chain.spec,
                 )?,
             ),
-            app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
+            sync_request_id: Some(SyncRequestId::DataColumnsByRoot(id)),
         })?;
 
         debug!(
@@ -1069,7 +1068,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: RequestType::BlocksByRange(request.clone().into()),
-                app_request_id: AppRequestId::Sync(SyncRequestId::BlocksByRange(id)),
+                sync_request_id: Some(SyncRequestId::BlocksByRange(id)),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
@@ -1112,7 +1111,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: RequestType::BlobsByRange(request.clone()),
-                app_request_id: AppRequestId::Sync(SyncRequestId::BlobsByRange(id)),
+                sync_request_id: Some(SyncRequestId::BlobsByRange(id)),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
@@ -1155,7 +1154,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: RequestType::DataColumnsByRange(request.clone()),
-            app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
+            sync_request_id: Some(SyncRequestId::DataColumnsByRange(id)),
         })
         .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
@@ -1201,7 +1200,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: RequestType::PayloadEnvelopesByRange(request.clone()),
-            app_request_id: AppRequestId::Sync(SyncRequestId::PayloadEnvelopesByRange(id)),
+            sync_request_id: Some(SyncRequestId::PayloadEnvelopesByRange(id)),
         })
         .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
