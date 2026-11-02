@@ -40,7 +40,7 @@ pub struct BlockDelays {
     pub execution_time: Option<Duration>,
     /// The delay from the start of the slot before the block became available
     ///
-    /// Equal to max(`observed + execution_time`, `all_blobs_observed`).
+    /// Equal to max(`executed`, `all_blobs_observed`), minus the slot start.
     pub available: Option<Duration>,
     /// Time after `available`.
     pub attestable: Option<Duration>,

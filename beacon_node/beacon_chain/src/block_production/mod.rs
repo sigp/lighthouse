@@ -201,7 +201,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Attempt a proposer re-org if:
         //
         // 1. It seems we have time to propagate and still receive the proposer boost.
-        // 2. The current head block was seen late.
+        // 2. The current head block became available late.
         // 3. The `get_proposer_head` conditions from fork choice pass.
         let re_org_cutoff_duration = self
             .spec
@@ -214,7 +214,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return None;
         }
 
-        let head_late = self.block_observed_after_attestation_deadline(canonical_head, head_slot);
+        let head_late = self.block_available_after_attestation_deadline(canonical_head, head_slot);
         if !head_late {
             debug!(reason = "head not late", "Not attempting re-org");
             return None;
