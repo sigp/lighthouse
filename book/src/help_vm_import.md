@@ -12,10 +12,11 @@ Options:
           When provided, the imported validator will use this percentage
           multiplier to apply to the builder's payload value when choosing
           between a builder payload header and payload from the local execution
-          node.
+          node. Has no effect post Gloas.
       --builder-proposals <builder-proposals>
           When provided, the imported validator will attempt to create blocks
-          via builder rather than the local EL. [possible values: true, false]
+          via builder rather than the local EL. Has no effect post Gloas.
+          [possible values: true, false]
   -d, --datadir <DIR>
           Used to specify a custom root data directory for lighthouse keys and
           databases. Defaults to $HOME/.lighthouse/{network} where network is
@@ -67,8 +68,8 @@ Options:
           Password of the keystore file.
       --prefer-builder-proposals <prefer-builder-proposals>
           When provided, the imported validator will always prefer blocks
-          constructed by builders, regardless of payload value. [possible
-          values: true, false]
+          constructed by builders, regardless of payload value. Has no effect
+          post Gloas. [possible values: true, false]
       --suggested-fee-recipient <ETH1_ADDRESS>
           When provided, the imported validator will use the suggested fee
           recipient. Omit this flag to use the default value from the VC.
