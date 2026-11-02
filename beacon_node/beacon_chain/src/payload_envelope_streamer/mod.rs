@@ -2,6 +2,7 @@ mod beacon_chain_adapter;
 #[cfg(test)]
 mod tests;
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 #[cfg_attr(test, double)]
@@ -14,7 +15,7 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, warn};
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayloadRef, ExecutionRequestsRef, Hash256,
+    EthSpec, ExecutionBlockHash, ExecutionPayloadRef, ExecutionRequestsRef, ForkName, Hash256,
     SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot,
 };
 
@@ -163,7 +164,10 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
         let payload_requests = loaded_envelopes
             .iter()
             .filter_map(|(_, loaded)| match loaded {
-                LoadedEnvelope::NeedsPayload(summary) => Some(summary.block_hash()),
+                LoadedEnvelope::NeedsPayload(summary) => Some((
+                    summary.block_hash(),
+                    self.adapter.fork_name_at_slot(summary.slot()),
+                )),
                 LoadedEnvelope::Complete(_) => None,
             })
             .collect::<Vec<_>>();
@@ -196,28 +200,49 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
             .collect())
     }
 
-    /// Fetch Gloas payload bodies using `engine_getPayloadBodiesByHashV2`.
+    /// Fetch payload bodies for `blocks` (hash + fork) using `engine_getPayloadBodiesByHashV2`
     ///
-    /// The returned vector has the same length and order as `block_hashes`. An unknown body is
-    /// represented by `None`.
+    /// The returned vector has the same length and order as `blocks`. An unknown body is
+    /// represented by `None`. Requests are grouped by fork so each REST-selected engine request
+    /// is single-fork.
     async fn fetch_payload_bodies(
         &self,
-        block_hashes: Vec<ExecutionBlockHash>,
+        blocks: Vec<(ExecutionBlockHash, ForkName)>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV2<T::EthSpec>>>, BeaconChainError> {
-        let mut payload_bodies = Vec::with_capacity(block_hashes.len());
-        for chunk in block_hashes.chunks(MAX_PAYLOAD_BODIES_PER_REQUEST) {
-            let chunk_payload_bodies = self
-                .adapter
-                .get_payload_bodies_by_hash_v2(chunk.to_vec())
-                .await?;
-            if chunk_payload_bodies.len() != chunk.len() {
-                return Err(Error::InvalidPayloadBodiesResponse {
-                    expected: chunk.len(),
-                    received: chunk_payload_bodies.len(),
+        if blocks.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Result slots by original index, so the returned order matches `blocks`.
+        let mut payload_bodies: Vec<Option<ExecutionPayloadBodyV2<T::EthSpec>>> =
+            vec![None; blocks.len()];
+
+        let mut by_fork: HashMap<ForkName, Vec<usize>> = HashMap::new();
+        for (i, (_, fork)) in blocks.iter().enumerate() {
+            by_fork.entry(*fork).or_default().push(i);
+        }
+
+        let max_count = self.adapter.max_payload_bodies_per_request().await?;
+
+        for (fork, indices) in by_fork {
+            for chunk in indices.chunks(max_count) {
+                let hashes = chunk.iter().map(|&i| blocks[i].0).collect::<Vec<_>>();
+                let chunk_payload_bodies = self
+                    .adapter
+                    .get_payload_bodies_by_hash_v2(fork, hashes)
+                    .await?;
+
+                if chunk_payload_bodies.len() != chunk.len() {
+                    return Err(Error::InvalidPayloadBodiesResponse {
+                        expected: chunk.len(),
+                        received: chunk_payload_bodies.len(),
+                    }
+                    .into());
                 }
-                .into());
+                for (&i, body) in chunk.iter().zip(chunk_payload_bodies) {
+                    payload_bodies[i] = body;
+                }
             }
-            payload_bodies.extend(chunk_payload_bodies);
         }
         Ok(payload_bodies)
     }
@@ -271,9 +296,6 @@ pub fn launch_payload_envelope_stream<T: BeaconChainTypes>(
     let adapter = beacon_chain_adapter::EnvelopeStreamerBeaconAdapter::new(chain);
     PayloadEnvelopeStreamer::new(adapter, request_source).launch_stream(block_roots)
 }
-
-/// The Engine API only guarantees support for 32 hashes per payload-body request.
-const MAX_PAYLOAD_BODIES_PER_REQUEST: usize = 32;
 
 fn reconstruct_envelope_from_body<E: EthSpec>(
     summary: SignedExecutionPayloadEnvelopeSummary<E>,
