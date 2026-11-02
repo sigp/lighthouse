@@ -583,6 +583,7 @@ where
             store.justified_balances(),
             store.proposer_boost_root(),
             store.equivocating_indices(),
+            store.equivocating_committee_weights(),
             current_slot,
             spec,
         )?;
@@ -658,6 +659,7 @@ where
                 current_slot,
                 canonical_head,
                 self.fc_store.justified_balances(),
+                self.fc_store().equivocating_committee_weights(),
                 spec,
             )
             .map_err(ProposerHeadError::convert_inner_error)
@@ -1497,6 +1499,11 @@ where
             .extend_equivocating_indices(att1_indices.intersection(&att2_indices).copied());
     }
 
+    /// Replaces the per-slot equivocating committee weights. `None` marks them unknown.
+    pub fn set_equivocating_committee_weights(&mut self, weights: Option<BTreeMap<Slot, u64>>) {
+        self.fc_store.set_equivocating_committee_weights(weights);
+    }
+
     /// Call `on_tick` for all slots between `fc_store.get_current_slot()` and the provided
     /// `current_slot`. Returns the value of `self.fc_store.get_current_slot`.
     pub fn update_time(&mut self, current_slot: Slot) -> Result<Slot, Error<T::Error>> {
@@ -1789,6 +1796,7 @@ where
                     block_root,
                     current_slot,
                     proposer_boost_root,
+                    self.fc_store().equivocating_committee_weights(),
                     spec,
                 )
                 .map_err(Error::ProtoArrayError)
