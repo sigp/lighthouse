@@ -386,6 +386,14 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         self.latest_optimistic_update.read().clone()
     }
 
+    /// Clear the latest optimistic/finality updates and their broadcasted counterparts.
+    pub fn clear_latest_updates(&self) {
+        *self.latest_optimistic_update.write() = None;
+        *self.latest_finality_update.write() = None;
+        *self.latest_broadcasted_optimistic_update.write() = None;
+        *self.latest_broadcasted_finality_update.write() = None;
+    }
+
     /// Fetches a light client bootstrap for a given finalized checkpoint `block_root`. We eagerly persist
     /// `sync_committee_branch and `sync_committee` to allow for a more efficient bootstrap construction.
     ///
