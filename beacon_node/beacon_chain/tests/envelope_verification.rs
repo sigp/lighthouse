@@ -9,8 +9,8 @@ use eth2::types::EventKind;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, Slot, Spec,
-    WithdrawalRequest,
+    Address, BlockImportSource, Domain, Epoch, EthSpec, ExecPayload, ForkName, Hash256,
+    SignedExecutionPayloadEnvelope, SignedRoot, Slot, Spec, WithdrawalRequest,
 };
 
 type E = Spec;
@@ -250,6 +250,66 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
             .get_gas_limit(block_hash),
         None
     );
+}
+
+#[tokio::test]
+async fn gossip_rejects_signed_envelope_that_does_not_hash_to_the_bid() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let harness = gloas_harness();
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let state = harness.get_current_state();
+    let target_slot = Slot::new(2);
+    harness.advance_slot();
+    let (block_contents, opt_envelope, _new_state) =
+        harness.make_block_with_envelope(state, target_slot).await;
+
+    let block_root = block_contents.0.canonical_root();
+    let proposer_index = block_contents.0.message().proposer_index() as usize;
+    harness
+        .process_block(target_slot, block_root, block_contents)
+        .await
+        .expect("block should be processed");
+
+    let signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
+    let builder_index = signed_envelope.message.builder_index;
+
+    // The builder signs an envelope with a wrong parent root under the bid's block hash.
+    let mut message = signed_envelope.message.clone();
+    message.parent_beacon_block_root = Hash256::repeat_byte(0xff);
+    let epoch = target_slot.epoch(E::slots_per_epoch());
+    let domain = harness.spec.get_domain(
+        epoch,
+        Domain::BeaconBuilder,
+        &harness.spec.fork_at_epoch(epoch),
+        harness.chain.genesis_validators_root,
+    );
+    let signature = harness.validator_keypairs[proposer_index]
+        .sk
+        .sign(message.signing_root(domain));
+    let wrong_envelope = SignedExecutionPayloadEnvelope { message, signature };
+
+    let result = harness
+        .chain
+        .verify_envelope_for_gossip(Arc::new(wrong_envelope), EnvelopeSource::Gossip)
+        .await;
+    assert!(matches!(result, Err(EnvelopeError::InvalidPayloadHash(_))));
+    assert!(
+        !harness
+            .chain
+            .observed_payload_envelopes
+            .envelope_has_been_observed(target_slot, block_root, builder_index)
+    );
+
+    harness
+        .chain
+        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
+        .await
+        .expect("the committed envelope should still pass gossip verification");
 }
 
 #[tokio::test]
