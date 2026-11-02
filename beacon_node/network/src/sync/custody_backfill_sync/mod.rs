@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, WhenSlotSkipped};
 use lighthouse_network::{
     NetworkGlobals, PeerAction, PeerId,
     service::api_types::{CustodyBackFillBatchRequestId, CustodyBackfillBatchId},
@@ -190,8 +190,13 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .finalized_checkpoint()
                 .epoch;
 
-            // Check that the earliest data column epoch is a finalized epoch.
-            return earliest_data_column_epoch <= latest_finalized_epoch;
+            // Only backfill epochs whose blocks have a finalized child, which decides their
+            // payload status.
+            return earliest_data_column_epoch <= latest_finalized_epoch
+                && finalized_block_after_epoch(
+                    &self.beacon_chain,
+                    earliest_data_column_epoch.saturating_sub(1u64),
+                );
         }
 
         false
@@ -1164,5 +1169,157 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         if matches!(self.state(), CustodyBackFillState::Pending(_)) {
             self.restart_failed_sync = true;
         }
+    }
+}
+
+/// Whether a finalized block exists after the end of `epoch`.
+fn finalized_block_after_epoch<T: BeaconChainTypes>(chain: &BeaconChain<T>, epoch: Epoch) -> bool {
+    let split = chain.store.get_split_info();
+    let end_slot = epoch.end_slot(T::EthSpec::slots_per_epoch());
+    if end_slot >= split.slot {
+        return false;
+    }
+    // If the last block of the epoch is the split block, no finalized block follows it.
+    match chain.block_root_at_slot(end_slot, WhenSlotSkipped::Prev) {
+        Ok(block_root) => block_root.is_some_and(|block_root| block_root != split.block_root),
+        Err(error) => {
+            debug!(?error, %end_slot, "Failed to read block root for custody backfill");
+            false
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beacon_chain::test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    };
+    use lighthouse_network::NetworkConfig;
+    use types::{ForkName, Slot, Spec};
+
+    type E = Spec;
+    type Harness = BeaconChainHarness<EphemeralHarnessType<E>>;
+
+    const FINALIZED_EPOCH: Epoch = Epoch::new(3);
+
+    /// Raises the custody count at genesis, then finalizes `FINALIZED_EPOCH` with
+    /// `skip_finalized_epoch_start` deciding whether its first slot has a block. Custody is
+    /// complete from `FINALIZED_EPOCH`, so earlier epochs are missing columns.
+    async fn harness_with_custody_increase(skip_finalized_epoch_start: bool) -> Harness {
+        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(spec)
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+        harness
+            .chain
+            .custody_context
+            .register_validators(vec![(1, 32_000_000_000 * 9)], Slot::new(0));
+
+        let slots_per_epoch = E::slots_per_epoch();
+        harness.advance_slot();
+        harness
+            .extend_chain(
+                (FINALIZED_EPOCH.start_slot(slots_per_epoch).as_u64() - 1) as usize,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+        if skip_finalized_epoch_start {
+            harness.advance_slot();
+        }
+        for _ in 0..slots_per_epoch * 4 {
+            if harness.finalized_checkpoint().epoch == FINALIZED_EPOCH {
+                break;
+            }
+            harness.advance_slot();
+            harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
+        }
+        assert_eq!(harness.finalized_checkpoint().epoch, FINALIZED_EPOCH);
+
+        harness
+            .chain
+            .update_data_column_custody_info(Some(FINALIZED_EPOCH.start_slot(slots_per_epoch)));
+        assert_eq!(
+            harness.chain.earliest_custodied_data_column_epoch(),
+            Some(FINALIZED_EPOCH)
+        );
+        assert!(
+            !harness
+                .chain
+                .get_missing_columns_for_epoch(Epoch::new(0))
+                .is_empty()
+        );
+        harness
+    }
+
+    fn custody_backfill_sync(harness: &Harness) -> CustodyBackFillSync<EphemeralHarnessType<E>> {
+        let network_globals = Arc::new(NetworkGlobals::new_test_globals(
+            vec![],
+            Arc::new(NetworkConfig::default()),
+            harness.chain.spec.clone(),
+        ));
+        CustodyBackFillSync::new(harness.chain.clone(), network_globals)
+    }
+
+    #[tokio::test]
+    async fn custody_backfill_starts_when_epoch_has_finalized_child() {
+        let harness = harness_with_custody_increase(false).await;
+        assert!(custody_backfill_sync(&harness).should_start_custody_backfill_sync());
+    }
+
+    // The finalized checkpoint is the last block of the previous epoch, so that block has no
+    // finalized child yet.
+    #[tokio::test]
+    async fn custody_backfill_waits_for_finalized_child() {
+        let harness = harness_with_custody_increase(true).await;
+        let split = harness.chain.store.get_split_info();
+        assert_eq!(split.slot, FINALIZED_EPOCH.start_slot(E::slots_per_epoch()));
+        assert_eq!(
+            harness
+                .chain
+                .block_root_at_slot(split.slot - 1, WhenSlotSkipped::None)
+                .unwrap(),
+            Some(split.block_root)
+        );
+        assert!(!custody_backfill_sync(&harness).should_start_custody_backfill_sync());
+    }
+
+    #[tokio::test]
+    async fn finalized_block_after_epoch_requires_block_before_split() {
+        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
+            .spec(spec)
+            .deterministic_keypairs(8)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+        harness.advance_slot();
+        harness
+            .extend_chain(
+                E::slots_per_epoch() as usize * 5,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+
+        let split_epoch = harness
+            .chain
+            .store
+            .get_split_slot()
+            .epoch(E::slots_per_epoch());
+        assert!(split_epoch > Epoch::new(1));
+        assert!(finalized_block_after_epoch(&harness.chain, Epoch::new(0)));
+        assert!(finalized_block_after_epoch(&harness.chain, split_epoch - 1));
+        assert!(!finalized_block_after_epoch(&harness.chain, split_epoch));
     }
 }
