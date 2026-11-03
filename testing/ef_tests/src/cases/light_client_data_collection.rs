@@ -1,3 +1,4 @@
+use super::common::load_config;
 use crate::cases::{Case, LoadCase};
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::error::Error;
@@ -42,7 +43,6 @@ struct StepYaml {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct NewBlockData {
     pub fork_digest: String,
     pub data: String,
@@ -87,31 +87,53 @@ impl<E: EthSpec> LoadCase for LightClientDataCollection<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let spec = fork_name.make_genesis_spec(E::default_spec());
         let initial_state = ssz_decode_state(&path.join("initial_state.ssz_snappy"), &spec)?;
+
+        // SSZ has no embedded schema, so resolve each block's fork from the test's own
+        // `fork_digest` field rather than trial-decoding against a fixed list of forks: a
+        // vector covering a cross-fork reorg contains blocks from more than one fork, and a
+        // trial decode can silently accept a block under the wrong fork's layout.
+        //
+        // Fulu's digest also depends on BLOB_SCHEDULE (each scheduled BPO entry masks the base
+        // digest differently once its epoch is reached), so the config.yaml's blob schedule is
+        // applied before sampling every epoch `all_digest_epochs` considers relevant, not just
+        // genesis, to cover every digest a Fulu block in this test could carry.
+        let genesis_validators_root = initial_state.genesis_validators_root();
+        let config = load_config(path)?;
+        let mut digest_to_fork: Vec<([u8; 4], ForkName)> = Vec::new();
+        for f in ForkName::list_all() {
+            let mut fork_spec = f.make_genesis_spec(E::default_spec());
+            if let Some(config) = &config {
+                fork_spec.blob_schedule = config.blob_schedule.clone();
+            }
+            for epoch in fork_spec.all_digest_epochs() {
+                let digest = fork_spec.compute_fork_digest(genesis_validators_root, epoch);
+                digest_to_fork.push((digest, f));
+            }
+        }
+        let resolve_fork_digest = |fork_digest: &str| -> Result<ForkName, Error> {
+            let bytes = hex::decode(fork_digest.trim_start_matches("0x")).map_err(|e| {
+                Error::FailedToParseTest(format!("invalid fork_digest {}: {:?}", fork_digest, e))
+            })?;
+            let digest: [u8; 4] = bytes.try_into().map_err(|_| {
+                Error::FailedToParseTest(format!("fork_digest {} is not 4 bytes", fork_digest))
+            })?;
+            digest_to_fork
+                .iter()
+                .find(|(d, _)| *d == digest)
+                .map(|(_, f)| *f)
+                .ok_or_else(|| {
+                    Error::FailedToParseTest(format!("no fork matches fork_digest {}", fork_digest))
+                })
+        };
+
         let step_yamls: Vec<StepYaml> = yaml_decode_file(&path.join("steps.yaml"))?;
         let mut steps = vec![];
         for step in step_yamls {
             if let Some(new_block) = step.new_block {
+                let block_fork = resolve_fork_digest(&new_block.fork_digest)?;
                 let block_path = path.join(format!("{}.ssz_snappy", new_block.data));
                 let block = ssz_decode_file_with(&block_path, |bytes| {
-                    SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, fork_name)
-                        .or_else(|_| {
-                            SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, ForkName::Altair)
-                        })
-                        .or_else(|_| {
-                            SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, ForkName::Bellatrix)
-                        })
-                        .or_else(|_| {
-                            SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, ForkName::Capella)
-                        })
-                        .or_else(|_| {
-                            SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, ForkName::Deneb)
-                        })
-                        .or_else(|_| {
-                            SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, ForkName::Electra)
-                        })
-                        .or_else(|_| {
-                            SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, ForkName::Fulu)
-                        })
+                    SignedBeaconBlock::from_ssz_bytes_by_fork(bytes, block_fork)
                 })?;
                 steps.push(Step::NewBlock {
                     block: Box::new(block),
@@ -390,6 +412,26 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                                 "best_update mismatch for period {}",
                                 period
                             )));
+                        }
+                    }
+
+                    // SCRATCH DIAGNOSTIC: find periods with a stored update that checks.best_updates
+                    // says nothing about, to report a specific failing case to Etan.
+                    let asserted_periods: std::collections::HashSet<u64> =
+                        checks.best_updates.iter().map(|(p, _)| *p).collect();
+                    for period in 0..10u64 {
+                        if asserted_periods.contains(&period) {
+                            continue;
+                        }
+                        let updates = harness
+                            .chain
+                            .get_light_client_updates(period, 1)
+                            .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
+                        if !updates.is_empty() {
+                            eprintln!(
+                                "SCRATCH: path={:?} step_index={} total_steps={} block_id={} period={} has an unexpected stored update (checks.best_updates says nothing about this period)",
+                                self.path, step_index, self.steps.len(), block_id, period
+                            );
                         }
                     }
                 }
