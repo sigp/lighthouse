@@ -409,9 +409,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state.build_total_active_balance_cache(&self.spec)?;
         initialize_epoch_cache(&mut state, &self.spec)?;
 
-        // [New in Gloas:EIP7732] Block processing applies the parent's deferred execution payload
-        // before operations, so pack and verify operations against a state that has it applied.
-        // `state` itself is returned untouched since block processing re-applies the payload.
+        // Block processing applies the parent payload before operations.
         let mut ops_state = state.clone();
         if should_build_on_full {
             apply_parent_execution_payload(&mut ops_state, parent_execution_requests, &self.spec)?;
