@@ -1,6 +1,7 @@
 mod activation_queue;
 mod balance;
 mod beacon_state;
+pub mod scalar_list;
 #[macro_use]
 mod committee_cache;
 mod epoch_cache;
