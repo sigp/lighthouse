@@ -166,7 +166,7 @@ Commonly used features include:
 - `gnosis`: support for the Gnosis Beacon Chain.
 - `portable`: the default feature as Lighthouse now uses runtime detection of hardware CPU features.
 - `slasher-lmdb`: support for the LMDB slasher backend. Enabled by default.
-- `slasher-mdbx`: support for the MDBX slasher backend.
+- `slasher-redb`: support for the redb slasher backend.
 - `beacon-node-leveldb`: support for the leveldb backend. Enabled by default.
 - `sysmalloc`: use the system memory allocator rather than jemalloc. This is always enabled on
   Windows.

@@ -1,6 +1,6 @@
 #![deny(missing_debug_implementations)]
 #![cfg_attr(
-    not(any(feature = "mdbx", feature = "lmdb", feature = "redb")),
+    not(any(feature = "lmdb", feature = "redb")),
     allow(unused, clippy::drop_non_drop)
 )]
 
@@ -21,7 +21,7 @@ pub use crate::slasher::Slasher;
 pub use attestation_queue::{AttestationBatch, AttestationQueue, SimpleBatch};
 pub use attester_record::{AttesterRecord, CompactAttesterRecord, IndexedAttesterRecord};
 pub use block_queue::BlockQueue;
-pub use config::{Config, DatabaseBackend, DatabaseBackendOverride};
+pub use config::{Config, DatabaseBackend};
 pub use database::{
     IndexedAttestationId, SlasherDB,
     interface::{Database, Environment, RwTransaction},
