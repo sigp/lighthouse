@@ -118,6 +118,12 @@ pub fn testing_client_config() -> ClientConfig {
     // Simulator tests expect historic states to be available for post-run checks.
     client_config.chain.archive = true;
 
+    // A node needs an engine. Port 0 is unroutable, so the EL stays offline as it was before.
+    client_config.execution_layer = Some(execution_layer::Config {
+        execution_endpoint: Some(SensitiveUrl::parse("http://127.0.0.1:0").unwrap()),
+        ..Default::default()
+    });
+
     // Specify a constant count of beacon processor workers. Having this number
     // too low can cause annoying HTTP timeouts, especially on Github runners
     // with 2 logical CPUs.

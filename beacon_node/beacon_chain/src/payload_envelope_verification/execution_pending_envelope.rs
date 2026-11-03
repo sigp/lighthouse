@@ -85,8 +85,8 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             &chain.spec,
         )?;
 
-        // EIP-8025: execution layer verifications must be done on the CL.
-        if chain.execution_proofs_enabled() && chain.config.verify_envelope_payload_hash_on_cl {
+        // No execution layer to check the payload hash, so check it here.
+        if chain.execution_layer.is_none() {
             verify_envelope_payload_hash(&signed_envelope, &self.block)?;
         }
 
