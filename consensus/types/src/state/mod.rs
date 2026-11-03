@@ -20,8 +20,8 @@ pub use beacon_state::{
     BeaconStateBase, BeaconStateBellatrix, BeaconStateCapella, BeaconStateDeneb,
     BeaconStateElectra, BeaconStateError, BeaconStateFulu, BeaconStateGloas, BeaconStateHash,
     BeaconStateHeze, BeaconStateRef, CACHED_EPOCHS, DEFAULT_PRE_ELECTRA_WS_PERIOD,
-    EpochParticipation, ParticipationMut, ParticipationRef, Validators, ValidatorsGloas,
-    ValidatorsMut, ValidatorsOwned, ValidatorsRef,
+    EpochParticipation, InactivityScores, ParticipationMut, ParticipationRef, Validators,
+    ValidatorsGloas, ValidatorsMut, ValidatorsOwned, ValidatorsRef,
 };
 pub use committee_cache::{
     CommitteeCache, compute_committee_index_in_epoch, compute_committee_range_in_epoch,

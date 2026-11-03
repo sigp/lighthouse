@@ -14,7 +14,7 @@ use typenum::Unsigned;
 use types::{
     Address, Balances, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
     BuilderPendingPayment, ChainSpec, EpochParticipation, EthSpec, ExecutionPayloadBidGloas,
-    ExecutionRequestsGloas, Fork, PendingDeposit, ProgressiveKzgCommitments,
+    ExecutionRequestsGloas, Fork, InactivityScores, PendingDeposit, ProgressiveKzgCommitments,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
     is_builder_withdrawal_credential,
 };
@@ -118,7 +118,10 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         current_justified_checkpoint: pre.current_justified_checkpoint,
         finalized_checkpoint: pre.finalized_checkpoint,
         // Inactivity
-        inactivity_scores: ProgressiveList::try_from_iter(pre.inactivity_scores.iter().copied())?,
+        inactivity_scores: InactivityScores::<E>::try_from_iter(
+            pre.inactivity_scores.iter(),
+            HashFormat::Progressive,
+        )?,
         // Sync committees
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),

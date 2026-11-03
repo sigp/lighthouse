@@ -208,7 +208,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         balances,
         previous_epoch_participation,
         current_epoch_participation,
-        mut inactivity_scores,
+        inactivity_scores,
         progressive_balances,
         exit_cache,
         epoch_cache,
@@ -245,7 +245,6 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
     // Iterate over the validators and related fields in one pass.
     let mut validators_iter = validators.iter_cow();
-    let mut inactivity_scores_iter = inactivity_scores.iter_cow();
 
     for (index, previous_epoch_participation, current_epoch_participation) in izip!(
         0..num_validators,
@@ -258,8 +257,8 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         let mut balance = balances
             .get(index)
             .ok_or(BeaconStateError::UnknownValidator(index))?;
-        let (_, mut inactivity_score) = inactivity_scores_iter
-            .next_cow()
+        let mut inactivity_score = inactivity_scores
+            .get(index)
             .ok_or(BeaconStateError::UnknownValidator(index))?;
 
         let is_active_current_epoch = validator.is_active_at(current_epoch);
@@ -365,6 +364,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
         }
 
         balances.set(index, balance)?;
+        inactivity_scores.set(index, inactivity_score)?;
     }
 
     if conf.registry_updates && fork_name.electra_enabled() {
@@ -635,7 +635,7 @@ fn process_builder_pending_payments<E: EthSpec>(
 }
 
 fn process_single_inactivity_update(
-    inactivity_score: &mut Cow<u64>,
+    inactivity_score: &mut u64,
     validator_info: &ValidatorInfo,
     state_ctxt: &StateContext,
     spec: &ChainSpec,
@@ -648,20 +648,18 @@ fn process_single_inactivity_update(
     if validator_info.is_unslashed_participating_index(TIMELY_TARGET_FLAG_INDEX)? {
         // Avoid mutating when the inactivity score is 0 and can't go any lower -- the common
         // case.
-        if **inactivity_score == 0 {
+        if *inactivity_score == 0 {
             return Ok(());
         }
-        inactivity_score.make_mut()?.safe_sub_assign(1)?;
+        inactivity_score.safe_sub_assign(1)?;
     } else {
-        inactivity_score
-            .make_mut()?
-            .safe_add_assign(spec.inactivity_score_bias)?;
+        inactivity_score.safe_add_assign(spec.inactivity_score_bias)?;
     }
 
     // Decrease the score of all validators for forgiveness when not during a leak
     if !state_ctxt.is_in_inactivity_leak {
-        let deduction = min(spec.inactivity_score_recovery_rate, **inactivity_score);
-        inactivity_score.make_mut()?.safe_sub_assign(deduction)?;
+        let deduction = min(spec.inactivity_score_recovery_rate, *inactivity_score);
+        inactivity_score.safe_sub_assign(deduction)?;
     }
 
     Ok(())

@@ -8,8 +8,8 @@ use std::mem;
 use std::sync::Arc;
 use types::{
     BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EpochCache,
-    EpochParticipation, EthSpec, Fork, ParticipationFlags, PendingAttestation, RelativeEpoch,
-    SyncCommittee,
+    EpochParticipation, EthSpec, Fork, InactivityScores, ParticipationFlags, PendingAttestation,
+    RelativeEpoch, SyncCommittee,
 };
 
 /// Translate the participation information from the epoch prior to the fork into Altair's format.
@@ -63,7 +63,8 @@ pub fn upgrade_to_altair<E: EthSpec>(
         vec![ParticipationFlags::default(); pre.validators.len()],
         HashFormat::Fixed,
     )?;
-    let inactivity_scores = List::new(vec![0; pre.validators.len()])?;
+    let inactivity_scores =
+        InactivityScores::<E>::new(vec![0; pre.validators.len()], HashFormat::Fixed)?;
 
     let temp_sync_committee = Arc::new(SyncCommittee::temporary());
 

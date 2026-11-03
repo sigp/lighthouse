@@ -79,6 +79,7 @@ pub type Validators<E> =
 pub type Balances<E> = ScalarList<u64, <E as EthSpec>::ValidatorRegistryLimit>;
 pub type EpochParticipation<E> =
     ScalarList<ParticipationFlags, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type InactivityScores<E> = ScalarList<u64, <E as EthSpec>::ValidatorRegistryLimit>;
 
 // Progressive (EIP-7688) variants of the above, used from Gloas onwards.
 pub type ValidatorsGloas = ProgressiveList<Validator, BTreeMap<usize, Validator>>;
@@ -617,20 +618,17 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(
-        only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        partial_getter(rename = "inactivity_scores_basic")
-    )]
+    #[serde(with = "crate::state::scalar_list::quoted_u64")]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu), no_getter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
-    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(
-        only(Gloas, Heze),
-        partial_getter(rename = "inactivity_scores_progressive")
-    )]
+    #[metastruct(exclude_from(tree_lists))]
+    pub inactivity_scores: InactivityScores<E>,
+    #[ssz(with = "progressive")]
+    #[serde(with = "progressive::quoted_u64")]
+    #[superstruct(only(Gloas, Heze), no_getter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub inactivity_scores: ProgressiveList<u64>,
+    #[metastruct(exclude_from(tree_lists))]
+    pub inactivity_scores: InactivityScores<E>,
 
     // Light-client sync committees
     #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
@@ -976,14 +974,13 @@ impl<E: EthSpec> BeaconState<E> {
         ),
         absent(Base)
     );
-
-    impl_any_list_accessors!(
+    impl_scalar_list_accessors!(
         inactivity_scores,
         inactivity_scores_mut,
-        AnyListRef<'_, u64, E::ValidatorRegistryLimit>,
-        AnyListMut<'_, u64, E::ValidatorRegistryLimit>,
-        basic(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        progressive(Gloas, Heze),
+        InactivityScores<E>,
+        present(
+            Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze
+        ),
         absent(Base)
     );
 
@@ -993,6 +990,9 @@ impl<E: EthSpec> BeaconState<E> {
             list.commit();
         }
         if let Ok(list) = self.current_epoch_participation_mut() {
+            list.commit();
+        }
+        if let Ok(list) = self.inactivity_scores_mut() {
             list.commit();
         }
     }
@@ -1005,6 +1005,10 @@ impl<E: EthSpec> BeaconState<E> {
                 .is_none_or(|l| l.is_committed())
             && self
                 .current_epoch_participation()
+                .ok()
+                .is_none_or(|l| l.is_committed())
+            && self
+                .inactivity_scores()
                 .ok()
                 .is_none_or(|l| l.is_committed())
     }
@@ -2202,7 +2206,7 @@ impl<E: EthSpec> BeaconState<E> {
             BalancesMut<'_, E>,
             ParticipationRef<'_, E>,
             ParticipationRef<'_, E>,
-            AnyListMut<'_, u64, E::ValidatorRegistryLimit>,
+            BalancesMut<'_, E>,
             &mut ProgressiveBalancesCache,
             &mut ExitCache,
             &mut EpochCache,
@@ -2216,7 +2220,7 @@ impl<E: EthSpec> BeaconState<E> {
                     &mut $state.balances,
                     &$state.previous_epoch_participation,
                     &$state.current_epoch_participation,
-                    AnyListMut::$list_variant(&mut $state.inactivity_scores),
+                    &mut $state.inactivity_scores,
                     &mut $state.progressive_balances_cache,
                     &mut $state.exit_cache,
                     &mut $state.epoch_cache,
@@ -2291,30 +2295,13 @@ impl<E: EthSpec> BeaconState<E> {
     /// Take ownership of the inactivity scores list, leaving an empty list in its place.
     ///
     /// Used by the database layer for efficient diffing. Errors on Base states (no such field).
-    pub fn take_inactivity_scores(
-        &mut self,
-    ) -> Result<AnyList<u64, E::ValidatorRegistryLimit>, BeaconStateError> {
-        match self {
-            Self::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
-            Self::Altair(state) => Ok(AnyList::Basic(std::mem::take(&mut state.inactivity_scores))),
-            Self::Bellatrix(state) => {
-                Ok(AnyList::Basic(std::mem::take(&mut state.inactivity_scores)))
-            }
-            Self::Capella(state) => {
-                Ok(AnyList::Basic(std::mem::take(&mut state.inactivity_scores)))
-            }
-            Self::Deneb(state) => Ok(AnyList::Basic(std::mem::take(&mut state.inactivity_scores))),
-            Self::Electra(state) => {
-                Ok(AnyList::Basic(std::mem::take(&mut state.inactivity_scores)))
-            }
-            Self::Fulu(state) => Ok(AnyList::Basic(std::mem::take(&mut state.inactivity_scores))),
-            Self::Gloas(state) => Ok(AnyList::Progressive(std::mem::take(
-                &mut state.inactivity_scores,
-            ))),
-            Self::Heze(state) => Ok(AnyList::Progressive(std::mem::take(
-                &mut state.inactivity_scores,
-            ))),
-        }
+    pub fn take_inactivity_scores(&mut self) -> Result<InactivityScores<E>, BeaconStateError> {
+        let scores = self.inactivity_scores_mut()?;
+        let format = scores.format();
+        Ok(std::mem::replace(
+            scores,
+            InactivityScores::<E>::new(Vec::new(), format).expect("empty list fits"),
+        ))
     }
 
     /// Rotate the participation flags at the epoch boundary.
@@ -2357,17 +2344,8 @@ impl<E: EthSpec> BeaconState<E> {
         &mut self,
         iter: impl IntoIterator<Item = u64>,
     ) -> Result<(), BeaconStateError> {
-        match self {
-            Self::Base(_) => return Err(BeaconStateError::IncorrectStateVariant),
-            Self::Altair(state) => state.inactivity_scores = List::try_from_iter(iter)?,
-            Self::Bellatrix(state) => state.inactivity_scores = List::try_from_iter(iter)?,
-            Self::Capella(state) => state.inactivity_scores = List::try_from_iter(iter)?,
-            Self::Deneb(state) => state.inactivity_scores = List::try_from_iter(iter)?,
-            Self::Electra(state) => state.inactivity_scores = List::try_from_iter(iter)?,
-            Self::Fulu(state) => state.inactivity_scores = List::try_from_iter(iter)?,
-            Self::Gloas(state) => state.inactivity_scores = ProgressiveList::try_from_iter(iter)?,
-            Self::Heze(state) => state.inactivity_scores = ProgressiveList::try_from_iter(iter)?,
-        }
+        let scores = self.inactivity_scores_mut()?;
+        *scores = InactivityScores::<E>::try_from_iter(iter, scores.format())?;
         Ok(())
     }
 
@@ -2476,7 +2454,7 @@ impl<E: EthSpec> BeaconState<E> {
         if let Ok(current_epoch_participation) = self.current_epoch_participation_mut() {
             current_epoch_participation.push(ParticipationFlags::default())?;
         }
-        if let Ok(mut inactivity_scores) = self.inactivity_scores_mut() {
+        if let Ok(inactivity_scores) = self.inactivity_scores_mut() {
             inactivity_scores.push(0)?;
         }
 
@@ -2564,26 +2542,22 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// Will error if the state lacks an `inactivity_scores` field.
     pub fn get_inactivity_score(&self, validator_index: usize) -> Result<u64, BeaconStateError> {
-        self.inactivity_scores()?
-            .get(validator_index)
-            .copied()
-            .ok_or(BeaconStateError::InactivityScoresOutOfBounds(
-                validator_index,
-            ))
+        self.inactivity_scores()?.get(validator_index).ok_or(
+            BeaconStateError::InactivityScoresOutOfBounds(validator_index),
+        )
     }
 
-    /// Get a mutable reference to the inactivity score for a single validator.
+    /// Set the inactivity score for a single validator.
     ///
     /// Will error if the state lacks an `inactivity_scores` field.
-    pub fn get_inactivity_score_mut(
+    pub fn set_inactivity_score(
         &mut self,
         validator_index: usize,
-    ) -> Result<&mut u64, BeaconStateError> {
+        score: u64,
+    ) -> Result<(), BeaconStateError> {
         self.inactivity_scores_mut()?
-            .into_get_mut(validator_index)
-            .ok_or(BeaconStateError::InactivityScoresOutOfBounds(
-                validator_index,
-            ))
+            .set(validator_index, score)
+            .map_err(|_| BeaconStateError::InactivityScoresOutOfBounds(validator_index))
     }
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.

@@ -100,7 +100,7 @@ fn append_validator(state: &mut BeaconState<E>, mut rng: impl Rng) {
         .balances_mut()
         .push(32_000_000_000 + rng.random_range(1..=1_000_000_000))
         .unwrap();
-    if let Ok(mut inactivity_scores) = state.inactivity_scores_mut() {
+    if let Ok(inactivity_scores) = state.inactivity_scores_mut() {
         inactivity_scores.push(0).unwrap();
     }
     state
