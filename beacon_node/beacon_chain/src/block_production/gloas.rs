@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
 use proto_array::PayloadStatus;
 
-use bls::{PublicKeyBytes, Signature};
+use bls::Signature;
 use execution_layer::{BlockProposalContentsGloas, PayloadAttributes, PayloadParameters};
 use futures::future::OptionFuture;
 use operation_pool::CompactAttestationRef;
@@ -405,18 +405,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
         state.apply_pending_mutations()?;
 
+        // Epoch cache and total balance cache are required for op pool packing.
+        state.build_total_active_balance_cache(&self.spec)?;
+        initialize_epoch_cache(&mut state, &self.spec)?;
+
+        // [New in Gloas:EIP7732] Block processing applies the parent's deferred execution payload
+        // before operations, so pack and verify operations against a state that has it applied.
+        // `state` itself is returned untouched since block processing re-applies the payload.
+        let mut ops_state = state.clone();
+        if should_build_on_full {
+            apply_parent_execution_payload(&mut ops_state, parent_execution_requests, &self.spec)?;
+        }
+
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
         let slashings_and_exits_span = debug_span!("get_slashings_and_exits").entered();
         let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
-            self.op_pool.get_slashings_and_exits(&state, &self.spec);
-
-        filter_voluntary_exits_for_parent_execution_requests(
-            &mut voluntary_exits,
-            parent_execution_requests,
-            |idx| state.validators().get(idx as usize).map(|v| v.pubkey),
-        );
-
+            self.op_pool.get_slashings_and_exits(&ops_state, &self.spec);
         drop(slashings_and_exits_span);
 
         let eth1_data = state.eth1_data().clone();
@@ -426,7 +431,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let bls_changes_span = debug_span!("get_bls_to_execution_changes").entered();
         let mut bls_to_execution_changes = self
             .op_pool
-            .get_bls_to_execution_changes(&state, &self.spec);
+            .get_bls_to_execution_changes(&ops_state, &self.spec);
         drop(bls_changes_span);
 
         // Iterate through the naive aggregation pool and ensure all the attestations from there
@@ -438,7 +443,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             for attestation in self.naive_aggregation_pool.read().iter() {
                 let import = |attestation: &Attestation<T::EthSpec>| {
                     let attesting_indices =
-                        get_attesting_indices_from_state(&state, attestation.to_ref())?;
+                        get_attesting_indices_from_state(&ops_state, attestation.to_ref())?;
                     self.op_pool
                         .insert_attestation(attestation.clone(), attesting_indices)
                 };
@@ -457,35 +462,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let _attestation_packing_timer =
                 metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
 
-            // Epoch cache and total balance cache are required for op pool packing.
-            state.build_total_active_balance_cache(&self.spec)?;
-            initialize_epoch_cache(&mut state, &self.spec)?;
-
-            // [New in Gloas:EIP7732] Since payload processing is deferred to the next block, the
-            // state doesn't have the parent's payload availability bit set yet. Set it here (if
-            // building on the parent's payload) so that attestation packing scores head votes like
-            // block processing does.
-            if should_build_on_full {
-                let parent_slot = state.latest_execution_payload_bid()?.slot();
-                let availability_index =
-                    parent_slot.as_usize() % T::EthSpec::slots_per_historical_root();
-                state
-                    .execution_payload_availability_mut()?
-                    .set(availability_index, true)?;
-            }
-
             let mut prev_filter_cache = HashMap::new();
             let prev_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
-                self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
+                self.filter_op_pool_attestation(&mut prev_filter_cache, att, &ops_state)
             };
             let mut curr_filter_cache = HashMap::new();
             let curr_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
-                self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
+                self.filter_op_pool_attestation(&mut curr_filter_cache, att, &ops_state)
             };
 
             self.op_pool
                 .get_attestations(
-                    &state,
+                    &ops_state,
                     prev_attestation_filter,
                     curr_attestation_filter,
                     &self.spec,
@@ -493,10 +481,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BlockProductionError::OpPoolError)?
         };
 
-        let mut payload_attestations = self.op_pool.get_payload_attestations(&state, parent_root);
+        let mut payload_attestations = self
+            .op_pool
+            .get_payload_attestations(&ops_state, parent_root);
 
         self.filter_invalid_block_operations(
-            &state,
+            &ops_state,
             &mut attestations,
             &mut proposer_slashings,
             &mut attester_slashings,
@@ -504,7 +494,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &mut bls_to_execution_changes,
         );
 
-        self.filter_invalid_payload_attestations(&state, &mut payload_attestations);
+        self.filter_invalid_payload_attestations(&ops_state, &mut payload_attestations);
 
         let attester_slashings = attester_slashings
             .into_iter()
@@ -1528,180 +1518,4 @@ where
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
     Ok(block_contents)
-}
-
-/// Drop voluntary exits whose target validators will be made ineligible to exit by the parent
-/// envelope's execution requests.
-///
-/// In Gloas the parent execution payload is processed before voluntary exits during block
-/// processing. EL-triggered withdrawal requests (EIP-7002) can completely exit validators or
-/// add pending partial withdrawals, making voluntary exits fail with `AlreadyExited` or
-/// `PendingWithdrawalInQueue`, respectively.
-///
-/// Similarly consolidation request processing (EIP-7251) can call `initiate_validator_exit`,
-/// setting the target's `exit_epoch`. A voluntary exit for the same validator would then fail with
-/// `AlreadyExited`.
-///
-/// This filter is conservative: it excludes matching exits even if request processing would
-/// ignore the request after checking the validator's credentials, balance, or other conditions.
-fn filter_voluntary_exits_for_parent_execution_requests<E: EthSpec>(
-    voluntary_exits: &mut Vec<SignedVoluntaryExit>,
-    parent_execution_requests: &ExecutionRequestsGloas<E>,
-    pubkey_at_index: impl Fn(u64) -> Option<PublicKeyBytes>,
-) {
-    let mut ineligible_pubkeys = HashSet::with_capacity(
-        parent_execution_requests.withdrawals.len()
-            + parent_execution_requests.consolidations.len(),
-    );
-    for req in &parent_execution_requests.withdrawals {
-        // Any withdrawal amount can make a validator ineligible to exit.
-        ineligible_pubkeys.insert(req.validator_pubkey);
-    }
-    for req in &parent_execution_requests.consolidations {
-        if req.source_pubkey != req.target_pubkey {
-            ineligible_pubkeys.insert(req.source_pubkey);
-        }
-    }
-    if !ineligible_pubkeys.is_empty() {
-        voluntary_exits.retain(|exit| {
-            pubkey_at_index(exit.message.validator_index)
-                .map(|pk| !ineligible_pubkeys.contains(&pk))
-                .unwrap_or(false)
-        });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ssz_types::ProgressiveVariableList;
-    use types::{ConsolidationRequest, Epoch, Spec, VoluntaryExit, WithdrawalRequest};
-
-    type TestSpec = Spec;
-
-    fn pubkey(byte: u8) -> PublicKeyBytes {
-        PublicKeyBytes::deserialize(&[byte; 48]).expect("valid pubkey byte length")
-    }
-
-    fn exit(validator_index: u64) -> SignedVoluntaryExit {
-        SignedVoluntaryExit {
-            message: VoluntaryExit {
-                epoch: Epoch::new(0),
-                validator_index,
-            },
-            signature: Signature::empty(),
-        }
-    }
-
-    fn requests(
-        withdrawals: Vec<WithdrawalRequest>,
-        consolidations: Vec<ConsolidationRequest>,
-    ) -> ExecutionRequestsGloas<TestSpec> {
-        ExecutionRequestsGloas {
-            deposits: ProgressiveVariableList::empty(),
-            withdrawals: ProgressiveVariableList::new(withdrawals).unwrap(),
-            consolidations: ProgressiveVariableList::new(consolidations).unwrap(),
-            builder_deposits: ProgressiveVariableList::empty(),
-            builder_exits: ProgressiveVariableList::empty(),
-        }
-    }
-
-    fn run_filter(
-        exits: &mut Vec<SignedVoluntaryExit>,
-        requests: &ExecutionRequestsGloas<TestSpec>,
-        validator_pubkeys: &[PublicKeyBytes],
-    ) {
-        filter_voluntary_exits_for_parent_execution_requests(exits, requests, |idx| {
-            validator_pubkeys.get(idx as usize).copied()
-        });
-    }
-
-    #[test]
-    fn full_exit_withdrawal_request_filters_matching_voluntary_exit() {
-        let spec = TestSpec::default_spec();
-        let validators = vec![pubkey(1), pubkey(2)];
-        let mut exits = vec![exit(0), exit(1)];
-        let reqs = requests(
-            vec![WithdrawalRequest {
-                source_address: Address::repeat_byte(0xaa),
-                validator_pubkey: validators[0],
-                amount: spec.full_exit_request_amount,
-            }],
-            vec![],
-        );
-
-        run_filter(&mut exits, &reqs, &validators);
-
-        assert_eq!(exits.len(), 1);
-        assert_eq!(exits[0].message.validator_index, 1);
-    }
-
-    #[test]
-    fn partial_withdrawal_request_filters_matching_voluntary_exit() {
-        let spec = TestSpec::default_spec();
-        let validators = vec![pubkey(1), pubkey(2)];
-        let mut exits = vec![exit(0), exit(1)];
-        let reqs = requests(
-            vec![WithdrawalRequest {
-                source_address: Address::repeat_byte(0xaa),
-                validator_pubkey: validators[0],
-                amount: spec.full_exit_request_amount + 1,
-            }],
-            vec![],
-        );
-
-        run_filter(&mut exits, &reqs, &validators);
-
-        assert_eq!(exits.len(), 1);
-        assert_eq!(exits[0].message.validator_index, 1);
-    }
-
-    #[test]
-    fn cross_pubkey_consolidation_filters_voluntary_exit_for_source_only() {
-        let validators = vec![pubkey(1), pubkey(2), pubkey(3)];
-        let mut exits = vec![exit(0), exit(1), exit(2)];
-        let reqs = requests(
-            vec![],
-            vec![ConsolidationRequest {
-                source_address: Address::repeat_byte(0xaa),
-                source_pubkey: validators[1],
-                target_pubkey: validators[2],
-            }],
-        );
-
-        run_filter(&mut exits, &reqs, &validators);
-
-        // The source (validator 1) is exited; the target (validator 2) is not.
-        let remaining: Vec<u64> = exits.iter().map(|e| e.message.validator_index).collect();
-        assert_eq!(remaining, vec![0, 2]);
-    }
-
-    #[test]
-    fn self_consolidation_does_not_filter_voluntary_exit() {
-        let validators = vec![pubkey(1)];
-        let mut exits = vec![exit(0)];
-        let reqs = requests(
-            vec![],
-            vec![ConsolidationRequest {
-                source_address: Address::repeat_byte(0xaa),
-                source_pubkey: validators[0],
-                target_pubkey: validators[0],
-            }],
-        );
-
-        run_filter(&mut exits, &reqs, &validators);
-
-        assert_eq!(exits.len(), 1);
-    }
-
-    #[test]
-    fn empty_parent_requests_preserve_voluntary_exits() {
-        let validators = vec![pubkey(1), pubkey(2)];
-        let mut exits = vec![exit(0), exit(1)];
-        let reqs = requests(vec![], vec![]);
-
-        run_filter(&mut exits, &reqs, &validators);
-
-        assert_eq!(exits.len(), 2);
-    }
 }
