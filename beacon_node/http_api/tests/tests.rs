@@ -26,7 +26,7 @@ use execution_layer::test_utils::{
     MockBuilder, Operation, mock_builder_extra_data, mock_el_extra_data,
 };
 use fixed_bytes::FixedBytesExtended;
-use fork_choice::PayloadStatus;
+use fork_choice::{ForkChoiceStore, PayloadStatus};
 use futures::FutureExt;
 use futures::stream::{Stream, StreamExt};
 use http_api::{
@@ -9586,30 +9586,10 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_events(self) -> Self {
-        // Subscribe to all events
-        let topics = vec![
-            EventTopic::SingleAttestation,
-            EventTopic::VoluntaryExit,
-            EventTopic::Block,
-            EventTopic::BlockGossip,
-            EventTopic::Head,
-            EventTopic::FinalizedCheckpoint,
-            EventTopic::AttesterSlashing,
-            EventTopic::ProposerSlashing,
-            EventTopic::BlsToExecutionChange,
-        ];
-        let mut events_future = self
-            .client
-            .get_events::<E>(topics.as_slice())
-            .await
-            .unwrap();
-
-        let expected_attestation_len = self.attestations.len();
-
+    /// `self.attestations` as single attestations, for any fork.
+    fn attestations_as_single(&self) -> Vec<SingleAttestation> {
         let state = self.harness.get_current_state();
-        let attestations = self
-            .attestations
+        self.attestations
             .clone()
             .into_iter()
             .map(|attn| {
@@ -9639,7 +9619,95 @@ impl ApiTester {
                 attn.to_single_attestation_with_attester_index(attester_index as u64)
                     .unwrap()
             })
-            .collect::<Vec<_>>();
+            .collect()
+    }
+
+    pub async fn test_get_events_attestation_weight(self) -> Self {
+        let mut events_future = self
+            .client
+            .get_events::<E>(&[EventTopic::AttestationWeight])
+            .await
+            .unwrap();
+
+        let attestations = self.attestations_as_single();
+        let block_root = attestations.first().unwrap().data.beacon_block_root;
+        assert!(
+            attestations
+                .iter()
+                .all(|attestation| attestation.data.beacon_block_root == block_root),
+            "precondition: every attestation votes for the same block"
+        );
+        let state = self.harness.get_current_state();
+        let expected_weight: u64 = attestations
+            .iter()
+            .map(|attestation| {
+                state
+                    .get_effective_balance(attestation.attester_index as usize)
+                    .unwrap()
+            })
+            .sum();
+        let slot = attestations.first().unwrap().data.slot;
+        let expected_committee_weight = self
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .fc_store()
+            .justified_balances()
+            .total_effective_balance
+            / E::slots_per_epoch();
+
+        let fork_name = self.chain.spec.fork_name_at_slot::<E>(slot);
+        self.client
+            .post_beacon_pool_attestations_v2::<E>(attestations.clone(), fork_name)
+            .await
+            .unwrap();
+
+        // The stream sends the weights each time they change; wait until every attester is counted.
+        let (committee_weight_gwei, slot_weight) =
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    if let EventKind::AttestationWeight(weight) =
+                        events_future.next().await.unwrap().unwrap()
+                        && let Some(slot_weight) = weight.slots.iter().find(|s| s.slot == slot)
+                        && slot_weight.voters == attestations.len() as u64
+                    {
+                        return (weight.committee_weight_gwei, slot_weight.clone());
+                    }
+                }
+            })
+            .await
+            .expect("attestation_weight event not received");
+
+        assert_eq!(committee_weight_gwei, expected_committee_weight);
+        assert_eq!(slot_weight.weights.len(), 1);
+        assert_eq!(slot_weight.weights[0].block_root, block_root);
+        assert_eq!(slot_weight.weights[0].weight_gwei, expected_weight);
+
+        self
+    }
+
+    pub async fn test_get_events(self) -> Self {
+        // Subscribe to all events
+        let topics = vec![
+            EventTopic::SingleAttestation,
+            EventTopic::VoluntaryExit,
+            EventTopic::Block,
+            EventTopic::BlockGossip,
+            EventTopic::Head,
+            EventTopic::FinalizedCheckpoint,
+            EventTopic::AttesterSlashing,
+            EventTopic::ProposerSlashing,
+            EventTopic::BlsToExecutionChange,
+        ];
+        let mut events_future = self
+            .client
+            .get_events::<E>(topics.as_slice())
+            .await
+            .unwrap();
+
+        let expected_attestation_len = self.attestations.len();
+
+        let attestations = self.attestations_as_single();
 
         let fork_name = self
             .chain
@@ -11016,6 +11084,14 @@ async fn poll_events<S: Stream<Item = Result<EventKind<E>, eth2::Error>> + Unpin
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_events() {
     ApiTester::new().await.test_get_events().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_events_attestation_weight() {
+    ApiTester::new()
+        .await
+        .test_get_events_attestation_weight()
+        .await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

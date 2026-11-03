@@ -142,6 +142,27 @@ An example of response is:
 data:{"version":"capella","data":{"proposal_slot":"11047","proposer_index":"336057","parent_block_root":"0x26f8999d270dd4677c2a1c815361707157a531f6c599f78fa942c98b545e1799","parent_block_number":"9259","parent_block_hash":"0x7fb788cd7afa814e578afa00a3edd250cdd4c8e35c22badd327d981b5bda33d2","payload_attributes":{"timestamp":"1696034964","prev_randao":"0xeee34d7a3f6b99ade6c6a881046c9c0e96baab2ed9469102d46eb8d6e4fde14c","suggested_fee_recipient":"0x0000000000000000000000000000000000000001","withdrawals":[{"index":"40705","validator_index":"360712","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1202941"},{"index":"40706","validator_index":"360713","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1201138"},{"index":"40707","validator_index":"360714","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1215255"},{"index":"40708","validator_index":"360715","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1161977"},{"index":"40709","validator_index":"360716","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1257278"},{"index":"40710","validator_index":"360717","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1247740"},{"index":"40711","validator_index":"360718","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1204337"},{"index":"40712","validator_index":"360719","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1183575"},{"index":"40713","validator_index":"360720","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1157785"},{"index":"40714","validator_index":"360721","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1143371"},{"index":"40715","validator_index":"360722","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1234787"},{"index":"40716","validator_index":"360723","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1286673"},{"index":"40717","validator_index":"360724","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1419241"},{"index":"40718","validator_index":"360725","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1231015"},{"index":"40719","validator_index":"360726","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1304321"},{"index":"40720","validator_index":"360727","address":"0x73b2e0e54510239e22cc936f0b4a6de1acf0abde","amount":"1236543"}]}}}
 ```
 
+Lighthouse also serves an `attestation_weight` topic, which is not part of the Beacon API. For each block voted for in the previous, current and next slot, it sends the justified effective balance of the validators whose votes the beacon node has verified. Each validator counts once per slot, whether its vote came on its own or in an aggregate.
+
+Votes are only counted while a stream with this topic is open. The weights are sent when they change, at most every 100 ms by default. Set `weight_interval_ms` to change that; values below 50 or above 10000 are clamped to those limits:
+
+```bash
+curl -X 'GET' \
+'http://localhost:5052/eth/v1/events?topics=attestation_weight&weight_interval_ms=200' \
+-H 'accept: text/event-stream'
+```
+
+An example of response is:
+
+```json
+event:attestation_weight
+data:{"committee_weight_gwei":"1100000000000000","slots":[{"slot":"11495845","complete":true,"voters":"30712","weights":[{"block_root":"0x26f8999d270dd4677c2a1c815361707157a531f6c599f78fa942c98b545e1799","payload_present":null,"weight_gwei":"982784000000000"}]}]}
+```
+
+`committee_weight_gwei` is the justified total effective balance divided by slots per epoch, so spec thresholds such as `REORG_HEAD_WEIGHT_THRESHOLD` (20%) are percentages of it. From Gloas, `payload_present` splits the votes by whether they say the block's payload is present. It is `null` for votes on the block of their own slot, which say nothing about the payload. `complete` is `false` when some of a slot's votes may be missing, for example for the slot the stream was opened in.
+
+The weight is the beacon node's local view: it counts the votes this node verified. To see single votes from every subnet early in the slot, run the beacon node with `--subscribe-all-subnets`; without it, most of the weight arrives with the aggregates. Votes for a block the node has not imported yet count once it is imported, and equivocating validators are not discounted.
+
 ## Serving the HTTP API over TLS
 >
 > **Warning**: This feature is currently experimental.
