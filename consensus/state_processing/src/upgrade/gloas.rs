@@ -13,8 +13,8 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     Address, Balances, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
-    BuilderPendingPayment, ChainSpec, EthSpec, ExecutionPayloadBidGloas, ExecutionRequestsGloas,
-    Fork, PendingDeposit, ProgressiveKzgCommitments,
+    BuilderPendingPayment, ChainSpec, EpochParticipation, EthSpec, ExecutionPayloadBidGloas,
+    ExecutionRequestsGloas, Fork, PendingDeposit, ProgressiveKzgCommitments,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
     is_builder_withdrawal_credential,
 };
@@ -104,11 +104,13 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         // Slashings
         slashings: pre.slashings.clone(),
         // Participation
-        previous_epoch_participation: ProgressiveList::try_from_iter(
-            pre.previous_epoch_participation.iter().cloned(),
+        previous_epoch_participation: EpochParticipation::<E>::try_from_iter(
+            pre.previous_epoch_participation.iter(),
+            HashFormat::Progressive,
         )?,
-        current_epoch_participation: ProgressiveList::try_from_iter(
-            pre.current_epoch_participation.iter().cloned(),
+        current_epoch_participation: EpochParticipation::<E>::try_from_iter(
+            pre.current_epoch_participation.iter(),
+            HashFormat::Progressive,
         )?,
         // Finality
         justification_bits: pre.justification_bits.clone(),

@@ -77,6 +77,8 @@ const SAFETY_DECAY: u64 = 10;
 pub type Validators<E> =
     List<Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
 pub type Balances<E> = ScalarList<u64, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type EpochParticipation<E> =
+    ScalarList<ParticipationFlags, <E as EthSpec>::ValidatorRegistryLimit>;
 
 // Progressive (EIP-7688) variants of the above, used from Gloas onwards.
 pub type ValidatorsGloas = ProgressiveList<Validator, BTreeMap<usize, Validator>>;
@@ -89,6 +91,8 @@ pub type ValidatorsMut<'a, E> =
     AnyListMut<'a, Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
 pub type BalancesRef<'a, E> = &'a Balances<E>;
 pub type BalancesMut<'a, E> = &'a mut Balances<E>;
+pub type ParticipationRef<'a, E> = &'a EpochParticipation<E>;
+pub type ParticipationMut<'a, E> = &'a mut EpochParticipation<E>;
 pub type ValidatorsOwned<E> =
     AnyList<Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
 pub type BalancesOwned<E> = Balances<E>;
@@ -577,32 +581,26 @@ where
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[compare_fields(as_iter)]
-    #[superstruct(
-        only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        partial_getter(rename = "previous_epoch_participation_basic")
-    )]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu), no_getter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[compare_fields(as_iter)]
-    #[superstruct(
-        only(Gloas, Heze),
-        partial_getter(rename = "previous_epoch_participation_progressive")
-    )]
+    #[metastruct(exclude_from(tree_lists))]
+    pub previous_epoch_participation: EpochParticipation<E>,
+    #[ssz(with = "progressive")]
+    #[serde(with = "progressive")]
+    #[superstruct(only(Gloas, Heze), no_getter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub previous_epoch_participation: ProgressiveList<ParticipationFlags>,
-    #[superstruct(
-        only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        partial_getter(rename = "current_epoch_participation_basic")
-    )]
+    #[metastruct(exclude_from(tree_lists))]
+    pub previous_epoch_participation: EpochParticipation<E>,
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu), no_getter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(
-        only(Gloas, Heze),
-        partial_getter(rename = "current_epoch_participation_progressive")
-    )]
+    #[metastruct(exclude_from(tree_lists))]
+    pub current_epoch_participation: EpochParticipation<E>,
+    #[ssz(with = "progressive")]
+    #[serde(with = "progressive")]
+    #[superstruct(only(Gloas, Heze), no_getter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub current_epoch_participation: ProgressiveList<ParticipationFlags>,
+    #[metastruct(exclude_from(tree_lists))]
+    pub current_epoch_participation: EpochParticipation<E>,
 
     // Finality
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -921,6 +919,22 @@ macro_rules! impl_scalar_list_accessors {
             }
         }
     };
+    ($field:ident, $field_mut:ident, $ty:ty, present($($present:ident),* $(,)?),
+     absent($($absent:ident),* $(,)?)) => {
+        pub fn $field(&self) -> Result<&$ty, BeaconStateError> {
+            match self {
+                $( Self::$absent(_) => Err(BeaconStateError::IncorrectStateVariant), )*
+                $( Self::$present(state) => Ok(&state.$field), )*
+            }
+        }
+
+        pub fn $field_mut(&mut self) -> Result<&mut $ty, BeaconStateError> {
+            match self {
+                $( Self::$absent(_) => Err(BeaconStateError::IncorrectStateVariant), )*
+                $( Self::$present(state) => Ok(&mut state.$field), )*
+            }
+        }
+    };
 }
 
 impl<E: EthSpec> BeaconState<E> {
@@ -944,24 +958,22 @@ impl<E: EthSpec> BeaconState<E> {
             Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze
         )
     );
-
-    impl_any_list_accessors!(
+    impl_scalar_list_accessors!(
         previous_epoch_participation,
         previous_epoch_participation_mut,
-        AnyListRef<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
-        AnyListMut<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
-        basic(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        progressive(Gloas, Heze),
+        EpochParticipation<E>,
+        present(
+            Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze
+        ),
         absent(Base)
     );
-
-    impl_any_list_accessors!(
+    impl_scalar_list_accessors!(
         current_epoch_participation,
         current_epoch_participation_mut,
-        AnyListRef<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
-        AnyListMut<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
-        basic(Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        progressive(Gloas, Heze),
+        EpochParticipation<E>,
+        present(
+            Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze
+        ),
         absent(Base)
     );
 
@@ -977,10 +989,24 @@ impl<E: EthSpec> BeaconState<E> {
 
     fn commit_scalar_lists(&mut self) {
         self.balances_mut().commit();
+        if let Ok(list) = self.previous_epoch_participation_mut() {
+            list.commit();
+        }
+        if let Ok(list) = self.current_epoch_participation_mut() {
+            list.commit();
+        }
     }
 
     fn scalar_lists_committed(&self) -> bool {
         self.balances().is_committed()
+            && self
+                .previous_epoch_participation()
+                .ok()
+                .is_none_or(|l| l.is_committed())
+            && self
+                .current_epoch_participation()
+                .ok()
+                .is_none_or(|l| l.is_committed())
     }
 
     impl_any_list_accessors!(
@@ -2174,8 +2200,8 @@ impl<E: EthSpec> BeaconState<E> {
         (
             ValidatorsMut<'_, E>,
             BalancesMut<'_, E>,
-            AnyListRef<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
-            AnyListRef<'_, ParticipationFlags, E::ValidatorRegistryLimit>,
+            ParticipationRef<'_, E>,
+            ParticipationRef<'_, E>,
             AnyListMut<'_, u64, E::ValidatorRegistryLimit>,
             &mut ProgressiveBalancesCache,
             &mut ExitCache,
@@ -2188,8 +2214,8 @@ impl<E: EthSpec> BeaconState<E> {
                 Ok((
                     AnyListMut::$list_variant(&mut $state.validators),
                     &mut $state.balances,
-                    AnyListRef::$list_variant(&$state.previous_epoch_participation),
-                    AnyListRef::$list_variant(&$state.current_epoch_participation),
+                    &$state.previous_epoch_participation,
+                    &$state.current_epoch_participation,
                     AnyListMut::$list_variant(&mut $state.inactivity_scores),
                     &mut $state.progressive_balances_cache,
                     &mut $state.exit_cache,
@@ -2297,39 +2323,13 @@ impl<E: EthSpec> BeaconState<E> {
     /// participation to default flags for every validator.
     pub fn rotate_participation_flags(&mut self) -> Result<(), BeaconStateError> {
         let num_validators = self.validators().len();
-
-        macro_rules! rotate_basic {
-            ($state:expr) => {{
-                $state.previous_epoch_participation =
-                    std::mem::take(&mut $state.current_epoch_participation);
-                $state.current_epoch_participation =
-                    List::repeat(ParticipationFlags::default(), num_validators)?;
-            }};
-        }
-
-        match self {
-            Self::Base(_) => return Err(BeaconStateError::IncorrectStateVariant),
-            Self::Altair(state) => rotate_basic!(state),
-            Self::Bellatrix(state) => rotate_basic!(state),
-            Self::Capella(state) => rotate_basic!(state),
-            Self::Deneb(state) => rotate_basic!(state),
-            Self::Electra(state) => rotate_basic!(state),
-            Self::Fulu(state) => rotate_basic!(state),
-            Self::Gloas(state) => {
-                state.previous_epoch_participation =
-                    std::mem::take(&mut state.current_epoch_participation);
-                state.current_epoch_participation = ProgressiveList::try_from_iter(
-                    std::iter::repeat_n(ParticipationFlags::default(), num_validators),
-                )?;
-            }
-            Self::Heze(state) => {
-                state.previous_epoch_participation =
-                    std::mem::take(&mut state.current_epoch_participation);
-                state.current_epoch_participation = ProgressiveList::try_from_iter(
-                    std::iter::repeat_n(ParticipationFlags::default(), num_validators),
-                )?;
-            }
-        }
+        let current = self.current_epoch_participation_mut()?;
+        let format = current.format();
+        let rotated = std::mem::replace(
+            current,
+            EpochParticipation::<E>::repeat(ParticipationFlags::default(), num_validators, format)?,
+        );
+        *self.previous_epoch_participation_mut()? = rotated;
         Ok(())
     }
 
@@ -2470,10 +2470,10 @@ impl<E: EthSpec> BeaconState<E> {
         self.balances_mut().push(amount)?;
 
         // Altair or later initializations.
-        if let Ok(mut previous_epoch_participation) = self.previous_epoch_participation_mut() {
+        if let Ok(previous_epoch_participation) = self.previous_epoch_participation_mut() {
             previous_epoch_participation.push(ParticipationFlags::default())?;
         }
-        if let Ok(mut current_epoch_participation) = self.current_epoch_participation_mut() {
+        if let Ok(current_epoch_participation) = self.current_epoch_participation_mut() {
             current_epoch_participation.push(ParticipationFlags::default())?;
         }
         if let Ok(mut inactivity_scores) = self.inactivity_scores_mut() {
@@ -2761,8 +2761,7 @@ impl<E: EthSpec> BeaconState<E> {
         epoch: Epoch,
         previous_epoch: Epoch,
         current_epoch: Epoch,
-    ) -> Result<AnyListMut<'_, ParticipationFlags, E::ValidatorRegistryLimit>, BeaconStateError>
-    {
+    ) -> Result<ParticipationMut<'_, E>, BeaconStateError> {
         if epoch == current_epoch {
             self.current_epoch_participation_mut()
         } else if epoch == previous_epoch {

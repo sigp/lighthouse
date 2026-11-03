@@ -263,19 +263,22 @@ pub mod altair_deneb {
             let validator_slashed = state.slashings_cache().is_slashed(index);
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let mut epoch_participation = state.get_epoch_participation_mut(
+                let epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
                     previous_epoch,
                     current_epoch,
                 )?;
 
                 if participation_flag_indices.contains(&flag_index) {
-                    let validator_participation = epoch_participation
-                        .get_mut(index)
+                    let mut validator_participation = epoch_participation
+                        .get(index)
                         .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
 
                     if !validator_participation.has_flag(flag_index)? {
                         validator_participation.add_flag(flag_index)?;
+                        epoch_participation
+                            .set(index, validator_participation)
+                            .map_err(|_| BeaconStateError::ParticipationOutOfBounds(index))?;
                         proposer_reward_numerator
                             .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
 
@@ -404,19 +407,22 @@ pub mod gloas {
             let mut will_set_new_flag = false;
 
             for (flag_index, &weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
-                let mut epoch_participation = state.get_epoch_participation_mut(
+                let epoch_participation = state.get_epoch_participation_mut(
                     data.target.epoch,
                     previous_epoch,
                     current_epoch,
                 )?;
 
                 if participation_flag_indices.contains(&flag_index) {
-                    let validator_participation = epoch_participation
-                        .get_mut(index)
+                    let mut validator_participation = epoch_participation
+                        .get(index)
                         .ok_or(BeaconStateError::ParticipationOutOfBounds(index))?;
 
                     if !validator_participation.has_flag(flag_index)? {
                         validator_participation.add_flag(flag_index)?;
+                        epoch_participation
+                            .set(index, validator_participation)
+                            .map_err(|_| BeaconStateError::ParticipationOutOfBounds(index))?;
                         proposer_reward_numerator
                             .safe_add_assign(state.get_base_reward(index)?.safe_mul(weight)?)?;
                         will_set_new_flag = true;

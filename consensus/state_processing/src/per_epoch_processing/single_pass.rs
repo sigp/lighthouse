@@ -198,6 +198,10 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let mut exit_balance_to_consume = state.exit_balance_to_consume().ok();
     let validators_in_consolidations = get_validators_in_consolidations(state);
 
+    // The summary below shares the participation lists, which needs them committed.
+    state.previous_epoch_participation_mut()?.commit();
+    state.current_epoch_participation_mut()?.commit();
+
     // Split the state into several disjoint mutable borrows.
     let (
         mut validators,
@@ -216,8 +220,8 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     // informational purposes (e.g. by the validator monitor).
     let summary = ParticipationEpochSummary::new(
         validators.as_ref().to_owned_list(),
-        previous_epoch_participation.to_owned_list(),
-        current_epoch_participation.to_owned_list(),
+        previous_epoch_participation.clone(),
+        current_epoch_participation.clone(),
         previous_epoch,
         current_epoch,
     );
@@ -243,7 +247,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     let mut validators_iter = validators.iter_cow();
     let mut inactivity_scores_iter = inactivity_scores.iter_cow();
 
-    for (index, &previous_epoch_participation, &current_epoch_participation) in izip!(
+    for (index, previous_epoch_participation, current_epoch_participation) in izip!(
         0..num_validators,
         previous_epoch_participation.iter(),
         current_epoch_participation.iter(),
@@ -436,7 +440,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
                 let mut validator = validators
                     .get_cow(*validator_index)
                     .ok_or(BeaconStateError::UnknownValidator(*validator_index))?;
-                let validator_current_epoch_participation = *current_epoch_participation
+                let validator_current_epoch_participation = current_epoch_participation
                     .get(*validator_index)
                     .ok_or(BeaconStateError::UnknownValidator(*validator_index))?;
                 process_single_effective_balance_update(
@@ -1308,7 +1312,7 @@ fn process_pending_consolidations<E: EthSpec>(
         let mut validator = validators
             .get_cow(validator_index)
             .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
-        let validator_current_epoch_participation = *current_epoch_participation
+        let validator_current_epoch_participation = current_epoch_participation
             .get(validator_index)
             .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
 
