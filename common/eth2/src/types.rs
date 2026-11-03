@@ -1262,9 +1262,6 @@ pub struct SseAttestationWeight {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SlotAttestationWeight {
     pub slot: Slot,
-    /// False when some of the slot's votes may be missing: counting started during or after the
-    /// slot, or votes arrived before the node had balances to weigh them.
-    pub complete: bool,
     /// Distinct validators counted for this slot.
     #[serde(with = "serde_utils::quoted_u64")]
     pub voters: u64,
@@ -1274,9 +1271,9 @@ pub struct SlotAttestationWeight {
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct BlockAttestationWeight {
     pub block_root: Hash256,
-    /// From Gloas, whether the votes say the block's payload is present (`data.index == 1`). `None`
-    /// before Gloas and for votes on the block of their own slot, which say nothing about the
-    /// payload.
+    /// From Gloas, `data.index == 1`: whether the votes say the block's payload is present. Votes
+    /// for the block of their own slot always have index 0 and say nothing about the payload.
+    /// `None` before Gloas.
     pub payload_present: Option<bool>,
     #[serde(with = "serde_utils::quoted_u64")]
     pub weight_gwei: u64,

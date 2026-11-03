@@ -2398,38 +2398,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let Ok(current_slot) = self.slot() else {
             return;
         };
-        let attestations = attestations.collect::<Vec<_>>();
-        let head = self.canonical_head.cached_head();
-        // Only a Gloas index 0 vote for a block other than the head needs fork choice to find its
-        // block's slot.
-        let needs_fork_choice = attestations.iter().any(|attestation| {
+        let votes = attestations.map(|attestation| {
             let data = attestation.data();
-            data.index == 0
-                && data.beacon_block_root != head.head_block_root()
-                && self
+            AttestationVote {
+                slot: data.slot,
+                block_root: data.beacon_block_root,
+                payload_present: self
                     .spec
                     .fork_name_at_slot::<T::EthSpec>(data.slot)
                     .gloas_enabled()
+                    .then_some(data.index == 1),
+                attesting_indices: attestation.attesting_indices_iter().as_slice(),
+            }
         });
-        let fork_choice = needs_fork_choice.then(|| self.canonical_head.fork_choice_read_lock());
-        let votes = attestations
-            .iter()
-            .map(|attestation| {
-                let data = attestation.data();
-                AttestationVote {
-                    slot: data.slot,
-                    block_root: data.beacon_block_root,
-                    payload_present: self.vote_payload_present(data, &head, fork_choice.as_deref()),
-                    attesting_indices: attestation.attesting_indices_iter().as_slice(),
-                }
-            })
-            .collect::<Vec<_>>();
-        drop(fork_choice);
-
         self.attestation_weight_tracker.observe(
             votes,
             current_slot,
-            head.justified_checkpoint(),
+            self.canonical_head.cached_head().justified_checkpoint(),
             || {
                 let fork_choice = self.canonical_head.fork_choice_read_lock();
                 let store = fork_choice.fc_store();
@@ -2444,31 +2429,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
             },
         );
-    }
-
-    /// The `payload_present` of a vote, see `BlockAttestationWeight::payload_present`.
-    fn vote_payload_present(
-        &self,
-        data: &AttestationData,
-        head: &CachedHead<T::EthSpec>,
-        fork_choice: Option<&BeaconForkChoice<T>>,
-    ) -> Option<bool> {
-        if !self
-            .spec
-            .fork_name_at_slot::<T::EthSpec>(data.slot)
-            .gloas_enabled()
-        {
-            return None;
-        }
-        if data.index == 1 {
-            return Some(true);
-        }
-        let block_slot = if data.beacon_block_root == head.head_block_root() {
-            head.head_slot()
-        } else {
-            fork_choice?.get_block(&data.beacon_block_root)?.slot
-        };
-        (block_slot < data.slot).then_some(false)
     }
 
     pub fn apply_payload_attestation_to_fork_choice(

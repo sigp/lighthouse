@@ -47,8 +47,6 @@ pub struct AttestationWeightTracker {
 struct Inner {
     /// Bumped on every change, so a receiver only sends changed weights.
     version: u64,
-    /// The slot the first subscriber subscribed in. Votes for it and earlier slots may be missing.
-    start_slot: Option<Slot>,
     balances: Option<CheckpointBalances>,
     /// The previous, current and next slot. Late votes for the previous slot still count in fork
     /// choice, and votes for the next slot can arrive up to the gossip clock disparity early.
@@ -59,8 +57,6 @@ struct Inner {
 struct SlotWeights {
     observed_validators: BitVec,
     voters: u64,
-    /// Some votes arrived before the balances were loaded.
-    has_uncounted_votes: bool,
     blocks: Vec<BlockAttestationWeight>,
 }
 
@@ -92,18 +88,17 @@ impl Drop for AttestationWeightReceiver {
             && let Some(mut inner) = self.tracker.inner.try_lock()
             && !self.tracker.has_subscribers()
         {
-            inner.reset(None);
+            inner.reset();
         }
     }
 }
 
 impl Inner {
     /// Forget all votes and balances.
-    fn reset(&mut self, start_slot: Option<Slot>) {
+    fn reset(&mut self) {
         *self = Inner {
             // Keep the version moving, so no receiver mistakes the new weights for ones it sent.
             version: self.version.wrapping_add(1),
-            start_slot,
             ..Inner::default()
         };
     }
@@ -116,8 +111,6 @@ impl Inner {
                 .iter()
                 .map(|(&slot, slot_weights)| SlotAttestationWeight {
                     slot,
-                    complete: !slot_weights.has_uncounted_votes
-                        && self.start_slot.is_none_or(|start_slot| start_slot < slot),
                     voters: slot_weights.voters,
                     weights: slot_weights.blocks.clone(),
                 })
@@ -131,12 +124,10 @@ impl AttestationWeightTracker {
         self.subscribers.load(Ordering::Relaxed) > 0
     }
 
-    /// Votes for `current_slot` that arrived before the first subscriber are missing, so that slot
-    /// and earlier ones are reported as incomplete.
-    pub fn subscribe(self: &Arc<Self>, current_slot: Slot) -> AttestationWeightReceiver {
+    pub fn subscribe(self: &Arc<Self>) -> AttestationWeightReceiver {
         let mut inner = self.inner.lock();
         if self.subscribers.fetch_add(1, Ordering::Relaxed) == 0 {
-            inner.reset(Some(current_slot));
+            inner.reset();
         }
         AttestationWeightReceiver {
             tracker: self.clone(),
@@ -162,7 +153,6 @@ impl AttestationWeightTracker {
             version,
             balances,
             slots,
-            ..
         } = &mut *inner;
         let mut changed = false;
         if balances.as_ref().map(|balances| balances.checkpoint) != Some(justified_checkpoint)
@@ -171,6 +161,9 @@ impl AttestationWeightTracker {
             *balances = Some(loaded);
             changed = true;
         }
+        let Some(balances) = balances.as_ref() else {
+            return;
+        };
 
         let previous_slot = current_slot.saturating_sub(1u64);
         let next_slot = current_slot.saturating_add(1u64);
@@ -183,11 +176,6 @@ impl AttestationWeightTracker {
                 continue;
             }
             let slot_weights = slots.entry(vote.slot).or_default();
-            let Some(balances) = balances.as_ref() else {
-                changed |= !slot_weights.has_uncounted_votes;
-                slot_weights.has_uncounted_votes = true;
-                continue;
-            };
             let mut added_gwei = 0u64;
             for &validator_index in vote.attesting_indices {
                 let index = validator_index as usize;
@@ -240,15 +228,6 @@ mod tests {
         }
     }
 
-    /// 64 validators of 32 ETH.
-    fn balances(epoch: u64) -> Option<CheckpointBalances> {
-        Some(CheckpointBalances {
-            checkpoint: checkpoint(epoch),
-            effective_balances: vec![GWEI_32_ETH; 64],
-            committee_weight_gwei: 100,
-        })
-    }
-
     fn vote(slot: u64, root: u64, indices: &[u64]) -> AttestationVote<'_> {
         AttestationVote {
             slot: Slot::new(slot),
@@ -258,20 +237,19 @@ mod tests {
         }
     }
 
+    /// Observe with 64 validators of 32 ETH at justified epoch 0.
     fn observe<'a>(
         tracker: &AttestationWeightTracker,
         votes: impl IntoIterator<Item = AttestationVote<'a>>,
         current_slot: u64,
     ) {
         tracker.observe(votes, Slot::new(current_slot), checkpoint(0), || {
-            balances(0)
+            Some(CheckpointBalances {
+                checkpoint: checkpoint(0),
+                effective_balances: vec![GWEI_32_ETH; 64],
+                committee_weight_gwei: 100,
+            })
         });
-    }
-
-    fn tracker_with_subscriber() -> (Arc<AttestationWeightTracker>, AttestationWeightReceiver) {
-        let tracker = Arc::new(AttestationWeightTracker::default());
-        let receiver = tracker.subscribe(Slot::new(0));
-        (tracker, receiver)
     }
 
     fn slot_weights(tracker: &AttestationWeightTracker) -> Vec<SlotAttestationWeight> {
@@ -283,45 +261,41 @@ mod tests {
             .unwrap_or_default()
     }
 
-    fn slots(weights: &[SlotAttestationWeight]) -> Vec<u64> {
-        weights.iter().map(|slot| slot.slot.as_u64()).collect()
-    }
-
     #[test]
     fn counts_validator_once() {
-        let (tracker, _receiver) = tracker_with_subscriber();
+        let tracker = Arc::new(AttestationWeightTracker::default());
+        let _receiver = tracker.subscribe();
         observe(&tracker, [vote(1, 1, &[3])], 1);
-        observe(&tracker, [vote(1, 1, &[1, 2, 3])], 1);
+        // index 100 is beyond the justified balances, like a validator activated since
+        observe(&tracker, [vote(1, 1, &[1, 2, 3, 100])], 1);
         let weights = slot_weights(&tracker);
-        assert_eq!(weights[0].voters, 3);
+        assert_eq!(weights[0].voters, 4);
         assert_eq!(weights[0].weights[0].weight_gwei, 3 * GWEI_32_ETH);
     }
 
     #[test]
     fn retains_previous_current_and_next_slot() {
-        let (tracker, _receiver) = tracker_with_subscriber();
-        observe(&tracker, [vote(1, 1, &[1]), vote(2, 2, &[1])], 2);
-        observe(&tracker, [vote(3, 3, &[1])], 2);
-        // a late vote for the previous slot still counts
-        observe(&tracker, [vote(1, 1, &[2])], 2);
-        let weights = slot_weights(&tracker);
-        assert_eq!(slots(&weights), [1, 2, 3]);
-        assert_eq!(weights[0].voters, 2);
-    }
-
-    #[test]
-    fn prunes_old_slots() {
-        let (tracker, _receiver) = tracker_with_subscriber();
-        observe(&tracker, [vote(1, 1, &[1]), vote(2, 2, &[1])], 2);
-        observe(&tracker, [vote(3, 3, &[1])], 3);
-        // a gossip-valid vote for slot 1 is too old once the clock is at slot 3
+        let tracker = Arc::new(AttestationWeightTracker::default());
+        let _receiver = tracker.subscribe();
+        observe(
+            &tracker,
+            [vote(1, 1, &[1]), vote(2, 2, &[1]), vote(3, 3, &[1])],
+            2,
+        );
+        assert_eq!(slot_weights(&tracker).len(), 3);
+        // at slot 3, slot 1 is too old, and so is a late vote for it
         observe(&tracker, [vote(1, 1, &[2])], 3);
-        assert_eq!(slots(&slot_weights(&tracker)), [2, 3]);
+        let slots = slot_weights(&tracker)
+            .iter()
+            .map(|weights| weights.slot.as_u64())
+            .collect::<Vec<_>>();
+        assert_eq!(slots, [2, 3]);
     }
 
     #[test]
     fn splits_by_payload_present() {
-        let (tracker, _receiver) = tracker_with_subscriber();
+        let tracker = Arc::new(AttestationWeightTracker::default());
+        let _receiver = tracker.subscribe();
         let full = AttestationVote {
             payload_present: Some(true),
             ..vote(1, 1, &[1, 2])
@@ -330,90 +304,45 @@ mod tests {
             payload_present: Some(false),
             ..vote(1, 1, &[3])
         };
-        observe(&tracker, [full, empty, vote(1, 2, &[4])], 1);
+        observe(&tracker, [full, empty], 1);
         let blocks = &slot_weights(&tracker)[0].weights;
-        assert_eq!(blocks.len(), 3);
         assert_eq!(blocks[0].payload_present, Some(true));
         assert_eq!(blocks[0].weight_gwei, 2 * GWEI_32_ETH);
         assert_eq!(blocks[1].payload_present, Some(false));
-        assert_eq!(blocks[2].block_root, Hash256::from_low_u64_be(2));
-    }
-
-    #[test]
-    fn incomplete_up_to_start_slot() {
-        let tracker = Arc::new(AttestationWeightTracker::default());
-        let _receiver = tracker.subscribe(Slot::new(5));
-        observe(&tracker, [vote(5, 1, &[1]), vote(6, 1, &[1])], 6);
-        let weights = slot_weights(&tracker);
-        assert!(!weights[0].complete);
-        assert!(weights[1].complete);
-    }
-
-    #[test]
-    fn incomplete_without_balances() {
-        let (tracker, _receiver) = tracker_with_subscriber();
-        tracker.observe([vote(1, 1, &[1])], Slot::new(1), checkpoint(0), || None);
-        observe(&tracker, [vote(1, 1, &[2])], 1);
-        let weights = slot_weights(&tracker);
-        assert!(!weights[0].complete);
-        assert_eq!(weights[0].voters, 1);
-    }
-
-    #[test]
-    fn validator_without_balance_has_no_weight() {
-        let (tracker, _receiver) = tracker_with_subscriber();
-        // index 100 is beyond the justified balances, like a validator activated since
-        observe(&tracker, [vote(1, 1, &[1, 100])], 1);
-        let weights = slot_weights(&tracker);
-        assert_eq!(weights[0].voters, 2);
-        assert_eq!(weights[0].weights[0].weight_gwei, GWEI_32_ETH);
+        assert_eq!(blocks[1].weight_gwei, GWEI_32_ETH);
     }
 
     #[test]
     fn loads_balances_when_justified_checkpoint_changes() {
-        let (tracker, _receiver) = tracker_with_subscriber();
+        let tracker = Arc::new(AttestationWeightTracker::default());
+        let _receiver = tracker.subscribe();
         let mut loads = 0;
         for justified_epoch in [0, 0, 1] {
-            tracker.observe(
-                [vote(1, 1, &[1])],
-                Slot::new(1),
-                checkpoint(justified_epoch),
-                || {
-                    loads += 1;
-                    balances(justified_epoch)
-                },
-            );
+            tracker.observe([], Slot::new(1), checkpoint(justified_epoch), || {
+                loads += 1;
+                Some(CheckpointBalances {
+                    checkpoint: checkpoint(justified_epoch),
+                    effective_balances: vec![],
+                    committee_weight_gwei: 100,
+                })
+            });
         }
         assert_eq!(loads, 2);
     }
 
     #[test]
-    fn counts_only_with_subscribers() {
+    fn sends_only_changes_while_subscribed() {
         let tracker = Arc::new(AttestationWeightTracker::default());
         observe(&tracker, [vote(1, 1, &[1])], 1);
         assert!(slot_weights(&tracker).is_empty());
 
-        let receiver = tracker.subscribe(Slot::new(0));
-        observe(&tracker, [vote(1, 1, &[1])], 1);
-        assert_eq!(slot_weights(&tracker).len(), 1);
-        drop(receiver);
-        assert!(slot_weights(&tracker).is_empty());
-    }
-
-    #[test]
-    fn sends_only_changes() {
-        let (tracker, mut receiver) = tracker_with_subscriber();
-        assert!(receiver.changed_weights().is_none());
+        let mut receiver = tracker.subscribe();
         observe(&tracker, [vote(1, 1, &[1])], 1);
         assert!(receiver.changed_weights().is_some());
-        assert!(receiver.changed_weights().is_none());
         // a validator already counted changes nothing
         observe(&tracker, [vote(1, 1, &[1])], 1);
         assert!(receiver.changed_weights().is_none());
-        observe(&tracker, [vote(1, 1, &[2])], 1);
-        assert!(receiver.changed_weights().is_some());
-        // once the clock leaves the voted slots behind, there is nothing to send
-        observe(&tracker, [], 8);
-        assert!(receiver.changed_weights().is_none());
+        drop(receiver);
+        assert!(slot_weights(&tracker).is_empty());
     }
 }

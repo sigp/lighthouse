@@ -111,7 +111,7 @@ use tokio_stream::{
 use tracing::{debug, info, warn};
 use types::{
     BeaconStateError, Checkpoint, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
-    SignedBlindedBeaconBlock, Slot,
+    SignedBlindedBeaconBlock,
 };
 use validator::execution_payload_envelopes::get_validator_execution_payload_envelopes;
 use version::{
@@ -3772,9 +3772,7 @@ fn attestation_weight_stream<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     interval: Duration,
 ) -> impl Stream<Item = Result<Event, Infallible>> + Send + 'static {
-    // No votes exist before genesis.
-    let current_slot = chain.slot().unwrap_or(Slot::new(0));
-    let mut receiver = chain.attestation_weight_tracker.subscribe(current_slot);
+    let mut receiver = chain.attestation_weight_tracker.subscribe();
     let mut ticks = tokio::time::interval(interval);
     ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     IntervalStream::new(ticks)
