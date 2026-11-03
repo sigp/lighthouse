@@ -437,7 +437,7 @@ where
                 );
 
                 debug!("Downloading finalized state");
-                let state = remote
+                let mut state = remote
                     .get_debug_beacon_states_ssz::<E>(StateId::Finalized, &spec)
                     .await
                     .map_err(|e| format!("Error loading checkpoint state from remote: {:?}", e))?
@@ -461,6 +461,54 @@ where
                     })?
                     .ok_or("Finalized block missing from remote, it returned 404")?;
                 let block_root = block.canonical_root();
+
+                // Verify the downloaded state actually corresponds to the downloaded block before
+                // using either to verify --wss-checkpoint below: otherwise a checkpoint provider
+                // could serve a state that satisfies --wss-checkpoint's root but does not match
+                // the block whose slot/blobs we go on to use.
+                let state_root = state
+                    .canonical_root()
+                    .map_err(|e| format!("Error computing checkpoint state root: {:?}", e))?;
+                if block.state_root() != state_root {
+                    return Err(format!(
+                        "Checkpoint state does not match checkpoint block. Block's state_root: \
+                         {:?}, downloaded state's root: {:?}",
+                        block.state_root(),
+                        state_root
+                    ));
+                }
+
+                // If --wss-checkpoint was provided, verify it against the downloaded checkpoint
+                // before initializing the chain from it. --wss-checkpoint's epoch may be older
+                // than the downloaded state's own finalized epoch (the same tolerance that
+                // `verify_weak_subjectivity_checkpoint` already applies once the chain is
+                // running), so look up the root at that epoch instead of only ever comparing
+                // against the freshest downloaded block.
+                if let Some(wss_checkpoint) = config.chain.weak_subjectivity_checkpoint {
+                    let finalized_checkpoint = state.finalized_checkpoint();
+                    let verified_root = if wss_checkpoint.epoch < finalized_checkpoint.epoch {
+                        let target_slot = wss_checkpoint.epoch.start_slot(E::slots_per_epoch());
+                        *state.get_block_root(target_slot).map_err(|e| {
+                            format!(
+                                "Unable to find block root for --wss-checkpoint epoch {:?}: {:?}",
+                                wss_checkpoint.epoch, e
+                            )
+                        })?
+                    } else {
+                        block_root
+                    };
+                    if verified_root != wss_checkpoint.root {
+                        return Err(format!(
+                            "Checkpoint sync block root mismatch. Expected (from --wss-checkpoint): {:?}, \
+                             Found: {:?}. The checkpoint provider may be serving a different chain.",
+                            wss_checkpoint.root, verified_root
+                        ));
+                    }
+                    info!(
+                        block_root = ?verified_root,
+                        "Verified checkpoint block root matches --wss-checkpoint"
+                    );
+                }
 
                 debug!("Downloaded finalized block");
 
