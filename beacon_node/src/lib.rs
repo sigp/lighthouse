@@ -11,7 +11,7 @@ use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use lighthouse_network::load_private_key;
 use network_utils::enr_ext::peer_id_to_node_id;
-use slasher::{DatabaseBackendOverride, Slasher};
+use slasher::Slasher;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use store::database::interface::BeaconNodeBackend;
@@ -81,24 +81,14 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .http_api_config(client_config.http_api.clone())
             .disk_store(&db_path, &freezer_db_path, &blobs_db_path, store_config)?;
 
-        let builder = if let Some(mut slasher_config) = client_config.slasher.clone() {
-            match slasher_config.override_backend() {
-                DatabaseBackendOverride::Success(old_backend) => {
-                    info!(
-                        reason = "database exists",
-                        configured_backend = %old_backend,
-                        override_backend = %slasher_config.backend,
-                        "Slasher backend overridden"
-                    );
-                }
-                DatabaseBackendOverride::Failure(path) => {
-                    warn!(
-                        advice = "delete old MDBX database or enable MDBX backend",
-                        path = %path.display(),
-                        "Slasher backend override failed"
-                    );
-                }
-                _ => {}
+        let builder = if let Some(slasher_config) = client_config.slasher.clone() {
+            if let Some(path) = slasher_config.legacy_mdbx_database() {
+                warn!(
+                    reason = "MDBX backend has been removed",
+                    advice = "delete mdbx.dat and mdbx.lck to free disk space",
+                    path = %path.display(),
+                    "Ignoring old MDBX slasher database"
+                );
             }
             let slasher = Arc::new(
                 Slasher::open(slasher_config, spec)

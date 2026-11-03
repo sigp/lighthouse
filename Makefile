@@ -16,7 +16,7 @@ BUILD_PATH_RISCV64 = "target/$(RISCV64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,beacon-node-leveldb,beacon-node-redb
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-redb,beacon-node-leveldb,beacon-node-redb
 
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release
@@ -282,8 +282,7 @@ test-network-%:
 test-slasher:
 	cargo nextest run --release -p slasher --features "lmdb,$(TEST_FEATURES)"
 	cargo nextest run --release -p slasher --no-default-features --features "redb,$(TEST_FEATURES)"
-	cargo nextest run --release -p slasher --no-default-features --features "mdbx,$(TEST_FEATURES)"
-	cargo nextest run --release -p slasher --features "lmdb,mdbx,redb,$(TEST_FEATURES)" # all backends enabled
+	cargo nextest run --release -p slasher --features "lmdb,redb,$(TEST_FEATURES)" # all backends enabled
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:

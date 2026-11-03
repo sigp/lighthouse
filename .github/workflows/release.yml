@@ -61,7 +61,7 @@ jobs:
 
             - name: Build Lighthouse for ${{ matrix.arch }}
               if:   contains(matrix.arch, 'unknown-linux-gnu')
-              run:  scripts/ci/build-linux.sh lighthouse ${{ matrix.profile }} gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,beacon-node-leveldb,beacon-node-redb
+              run:  scripts/ci/build-linux.sh lighthouse ${{ matrix.profile }} gnosis,slasher-lmdb,slasher-redb,beacon-node-leveldb,beacon-node-redb
 
             - name: Move Linux binary
               if:  contains(matrix.arch, 'unknown-linux-gnu')
