@@ -190,13 +190,32 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .finalized_checkpoint()
                 .epoch;
 
-            // Only backfill epochs whose blocks have a finalized child, which decides their
-            // payload status.
-            return earliest_data_column_epoch <= latest_finalized_epoch
-                && finalized_block_after_epoch(
-                    &self.beacon_chain,
-                    earliest_data_column_epoch.saturating_sub(1u64),
-                );
+            if earliest_data_column_epoch > latest_finalized_epoch {
+                return false;
+            }
+
+            // Only backfill epochs whose blocks have a finalized child. Post gloas
+            // this ensures that we only backfill blocks with a finalized payload status.
+            let split = self.beacon_chain.store.get_split_info();
+            let end_slot = earliest_data_column_epoch
+                .saturating_sub(1u64)
+                .end_slot(T::EthSpec::slots_per_epoch());
+            if end_slot >= split.slot {
+                return false;
+            }
+            // If the last block of the epoch is the split block, it has no finalized child.
+            return match self
+                .beacon_chain
+                .block_root_at_slot(end_slot, WhenSlotSkipped::Prev)
+            {
+                Ok(block_root) => {
+                    block_root.is_some_and(|block_root| block_root != split.block_root)
+                }
+                Err(error) => {
+                    debug!(?error, %end_slot, "Failed to read block root for custody backfill");
+                    false
+                }
+            };
         }
 
         false
@@ -1172,23 +1191,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     }
 }
 
-/// Whether a finalized block exists after the end of `epoch`.
-fn finalized_block_after_epoch<T: BeaconChainTypes>(chain: &BeaconChain<T>, epoch: Epoch) -> bool {
-    let split = chain.store.get_split_info();
-    let end_slot = epoch.end_slot(T::EthSpec::slots_per_epoch());
-    if end_slot >= split.slot {
-        return false;
-    }
-    // If the last block of the epoch is the split block, no finalized block follows it.
-    match chain.block_root_at_slot(end_slot, WhenSlotSkipped::Prev) {
-        Ok(block_root) => block_root.is_some_and(|block_root| block_root != split.block_root),
-        Err(error) => {
-            debug!(?error, %end_slot, "Failed to read block root for custody backfill");
-            false
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1292,34 +1294,5 @@ mod tests {
             Some(split.block_root)
         );
         assert!(!custody_backfill_sync(&harness).should_start_custody_backfill_sync());
-    }
-
-    #[tokio::test]
-    async fn finalized_block_after_epoch_requires_block_before_split() {
-        let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-            .spec(spec)
-            .deterministic_keypairs(8)
-            .fresh_ephemeral_store()
-            .mock_execution_layer()
-            .build();
-        harness.advance_slot();
-        harness
-            .extend_chain(
-                E::slots_per_epoch() as usize * 5,
-                BlockStrategy::OnCanonicalHead,
-                AttestationStrategy::AllValidators,
-            )
-            .await;
-
-        let split_epoch = harness
-            .chain
-            .store
-            .get_split_slot()
-            .epoch(E::slots_per_epoch());
-        assert!(split_epoch > Epoch::new(1));
-        assert!(finalized_block_after_epoch(&harness.chain, Epoch::new(0)));
-        assert!(finalized_block_after_epoch(&harness.chain, split_epoch - 1));
-        assert!(!finalized_block_after_epoch(&harness.chain, split_epoch));
     }
 }
