@@ -125,8 +125,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
         let mut naughty_peers = vec![];
         let mut result: DataColumnSidecarList<T::EthSpec> = vec![];
 
-        // Look past the epoch for its last block's child. Stopping before the split slot avoids
-        // cloning the head state.
+        // Look past the epoch for its last block's child.
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let epoch_end_slot = self.epoch.end_slot(slots_per_epoch);
         let split = self.beacon_chain.store.get_split_info();
@@ -206,8 +205,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                 ));
             };
 
-            // A Gloas payload was revealed if the child's bid builds on it. `None` without a
-            // child: expect nothing, accept what's served.
+            // A Gloas payload was revealed if the child's bid builds on it.
             let payload_revealed = match block.message().body().signed_execution_payload_bid() {
                 Ok(bid) => child_roots
                     .get(&block_root)
@@ -215,7 +213,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                     .flatten()
                     .and_then(|child_root| blocks.get(&child_root))
                     .map(|child| child.is_parent_block_full(bid.message().block_hash())),
-                // Prior to Gloas.
+                // Pre-gloas
                 Err(_) => Some(true),
             };
             let expects_columns = block.slot() == slot
