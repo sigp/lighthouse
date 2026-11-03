@@ -16,8 +16,8 @@ mod slashings_cache;
 pub use activation_queue::ActivationQueue;
 pub use balance::Balance;
 pub use beacon_state::{
-    Balances, BalancesGloas, BalancesMut, BalancesOwned, BalancesRef, BeaconState,
-    BeaconStateAltair, BeaconStateBase, BeaconStateBellatrix, BeaconStateCapella, BeaconStateDeneb,
+    Balances, BalancesMut, BalancesOwned, BalancesRef, BeaconState, BeaconStateAltair,
+    BeaconStateBase, BeaconStateBellatrix, BeaconStateCapella, BeaconStateDeneb,
     BeaconStateElectra, BeaconStateError, BeaconStateFulu, BeaconStateGloas, BeaconStateHash,
     BeaconStateHeze, BeaconStateRef, CACHED_EPOCHS, DEFAULT_PRE_ELECTRA_WS_PERIOD, Validators,
     ValidatorsGloas, ValidatorsMut, ValidatorsOwned, ValidatorsRef,

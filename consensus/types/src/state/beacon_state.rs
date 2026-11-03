@@ -1,5 +1,6 @@
 use std::{fmt, hash::Hash, mem, sync::Arc};
 
+use super::scalar_list::{ScalarList, progressive};
 use bls::{AggregatePublicKey, PublicKeyBytes, Signature};
 use compare_fields::CompareFields;
 use context_deserialize::ContextDeserialize;
@@ -75,11 +76,10 @@ const SAFETY_DECAY: u64 = 10;
 
 pub type Validators<E> =
     List<Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
-pub type Balances<E> = List<u64, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type Balances<E> = ScalarList<u64, <E as EthSpec>::ValidatorRegistryLimit>;
 
 // Progressive (EIP-7688) variants of the above, used from Gloas onwards.
 pub type ValidatorsGloas = ProgressiveList<Validator, BTreeMap<usize, Validator>>;
-pub type BalancesGloas = ProgressiveList<u64>;
 
 // Views over list fields that are (fixed-capacity) `List`s pre-Gloas and `ProgressiveList`s
 // from Gloas onwards (EIP-7688).
@@ -87,11 +87,11 @@ pub type ValidatorsRef<'a, E> =
     AnyListRef<'a, Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
 pub type ValidatorsMut<'a, E> =
     AnyListMut<'a, Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
-pub type BalancesRef<'a, E> = AnyListRef<'a, u64, <E as EthSpec>::ValidatorRegistryLimit>;
-pub type BalancesMut<'a, E> = AnyListMut<'a, u64, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type BalancesRef<'a, E> = &'a Balances<E>;
+pub type BalancesMut<'a, E> = &'a mut Balances<E>;
 pub type ValidatorsOwned<E> =
     AnyList<Validator, <E as EthSpec>::ValidatorRegistryLimit, BTreeMap<usize, Validator>>;
-pub type BalancesOwned<E> = AnyList<u64, <E as EthSpec>::ValidatorRegistryLimit>;
+pub type BalancesOwned<E> = Balances<E>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum BeaconStateError {
@@ -544,19 +544,20 @@ where
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas, Heze), partial_getter(rename = "validators_progressive"))]
     pub validators: ValidatorsGloas,
-    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[compare_fields(as_iter)]
-    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[serde(with = "crate::state::scalar_list::quoted_u64")]
     #[superstruct(
         only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        partial_getter(rename = "balances_basic")
+        no_getter
     )]
-    pub balances: List<u64, E::ValidatorRegistryLimit>,
-    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[compare_fields(as_iter)]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    #[superstruct(only(Gloas, Heze), partial_getter(rename = "balances_progressive"))]
-    pub balances: BalancesGloas,
+    #[metastruct(exclude_from(tree_lists))]
+    pub balances: Balances<E>,
+    #[ssz(with = "progressive")]
+    #[serde(with = "progressive::quoted_u64")]
+    #[superstruct(only(Gloas, Heze), no_getter)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[metastruct(exclude_from(tree_lists))]
+    pub balances: Balances<E>,
 
     // Randomness
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -904,6 +905,24 @@ macro_rules! impl_any_list_accessors {
     };
 }
 
+/// Accessors for a field declared once per hash format with the same type,
+/// which `superstruct` can only expose as partial getters.
+macro_rules! impl_scalar_list_accessors {
+    ($field:ident, $field_mut:ident, $ty:ty, present($($present:ident),* $(,)?)) => {
+        pub fn $field(&self) -> &$ty {
+            match self {
+                $( Self::$present(state) => &state.$field, )*
+            }
+        }
+
+        pub fn $field_mut(&mut self) -> &mut $ty {
+            match self {
+                $( Self::$present(state) => &mut state.$field, )*
+            }
+        }
+    };
+}
+
 impl<E: EthSpec> BeaconState<E> {
     // Accessors for the dual-representation (EIP-7688) list fields. These intentionally use the
     // same names as the getters superstruct used to generate, so that call sites which only use
@@ -917,13 +936,13 @@ impl<E: EthSpec> BeaconState<E> {
         progressive(Gloas, Heze)
     );
 
-    impl_any_list_accessors!(
+    impl_scalar_list_accessors!(
         balances,
         balances_mut,
-        BalancesRef<'_, E>,
-        BalancesMut<'_, E>,
-        basic(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
-        progressive(Gloas, Heze)
+        Balances<E>,
+        present(
+            Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze
+        )
     );
 
     impl_any_list_accessors!(
@@ -955,6 +974,14 @@ impl<E: EthSpec> BeaconState<E> {
         progressive(Gloas, Heze),
         absent(Base)
     );
+
+    fn commit_scalar_lists(&mut self) {
+        self.balances_mut().commit();
+    }
+
+    fn scalar_lists_committed(&self) -> bool {
+        self.balances().is_committed()
+    }
 
     impl_any_list_accessors!(
         pending_deposits,
@@ -1015,7 +1042,7 @@ impl<E: EthSpec> BeaconState<E> {
 
             // Validator registry
             validators: List::default(), // Set later.
-            balances: List::default(),   // Set later.
+            balances: <_>::default(),    // Set later.
 
             // Randomness
             randao_mixes: Vector::default(),
@@ -2121,7 +2148,7 @@ impl<E: EthSpec> BeaconState<E> {
             ($state:expr, $list_variant:ident) => {
                 (
                     AnyListMut::$list_variant(&mut $state.validators),
-                    AnyListMut::$list_variant(&mut $state.balances),
+                    &mut $state.balances,
                     &mut $state.progressive_balances_cache,
                 )
             };
@@ -2160,7 +2187,7 @@ impl<E: EthSpec> BeaconState<E> {
             ($state:expr, $list_variant:ident) => {
                 Ok((
                     AnyListMut::$list_variant(&mut $state.validators),
-                    AnyListMut::$list_variant(&mut $state.balances),
+                    &mut $state.balances,
                     AnyListRef::$list_variant(&$state.previous_epoch_participation),
                     AnyListRef::$list_variant(&$state.current_epoch_participation),
                     AnyListMut::$list_variant(&mut $state.inactivity_scores),
@@ -2216,11 +2243,13 @@ impl<E: EthSpec> BeaconState<E> {
     /// Take ownership of the balances list, leaving an empty list in its place.
     ///
     /// Used by the database layer for efficient diffing.
-    pub fn take_balances<'a>(&'a mut self) -> BalancesOwned<E> {
-        map_beacon_state_ref_mut!(&'a _, self.to_mut(), |inner, cons| {
-            let _: fn(_) -> BeaconStateRefMut<'a, E> = cons;
-            std::mem::take(&mut inner.balances).into()
-        })
+    pub fn take_balances(&mut self) -> BalancesOwned<E> {
+        let balances = self.balances_mut();
+        let format = balances.format();
+        std::mem::replace(
+            balances,
+            Balances::<E>::new(Vec::new(), format).expect("empty list fits"),
+        )
     }
 
     /// Replace the balances list, preserving the fork-appropriate representation.
@@ -2228,17 +2257,8 @@ impl<E: EthSpec> BeaconState<E> {
         &mut self,
         iter: impl IntoIterator<Item = u64>,
     ) -> Result<(), BeaconStateError> {
-        match self {
-            Self::Base(state) => state.balances = List::try_from_iter(iter)?,
-            Self::Altair(state) => state.balances = List::try_from_iter(iter)?,
-            Self::Bellatrix(state) => state.balances = List::try_from_iter(iter)?,
-            Self::Capella(state) => state.balances = List::try_from_iter(iter)?,
-            Self::Deneb(state) => state.balances = List::try_from_iter(iter)?,
-            Self::Electra(state) => state.balances = List::try_from_iter(iter)?,
-            Self::Fulu(state) => state.balances = List::try_from_iter(iter)?,
-            Self::Gloas(state) => state.balances = ProgressiveList::try_from_iter(iter)?,
-            Self::Heze(state) => state.balances = ProgressiveList::try_from_iter(iter)?,
-        }
+        let balances = self.balances_mut();
+        *balances = Balances::<E>::try_from_iter(iter, balances.format())?;
         Ok(())
     }
 
@@ -2356,17 +2376,17 @@ impl<E: EthSpec> BeaconState<E> {
         self.balances()
             .get(validator_index)
             .ok_or(BeaconStateError::BalancesOutOfBounds(validator_index))
-            .copied()
     }
 
-    /// Get a mutable reference to the balance of a single validator.
-    pub fn get_balance_mut(
+    /// Set the balance of a single validator.
+    pub fn set_balance(
         &mut self,
         validator_index: usize,
-    ) -> Result<&mut u64, BeaconStateError> {
+        balance: u64,
+    ) -> Result<(), BeaconStateError> {
         self.balances_mut()
-            .into_get_mut(validator_index)
-            .ok_or(BeaconStateError::BalancesOutOfBounds(validator_index))
+            .set(validator_index, balance)
+            .map_err(|_| BeaconStateError::BalancesOutOfBounds(validator_index))
     }
 
     /// Generate a seed for the given `epoch`.
@@ -3055,7 +3075,7 @@ impl<E: EthSpec> BeaconState<E> {
                 });
             }
         };
-        any_pending_mutations
+        any_pending_mutations || !self.scalar_lists_committed()
     }
 
     /// Completely drops the `progressive_balances_cache` cache, replacing it with a new, empty cache.
@@ -3276,12 +3296,12 @@ impl<E: EthSpec> BeaconState<E> {
         spec: &ChainSpec,
     ) -> Result<(), BeaconStateError> {
         let balance = self
-            .balances_mut()
-            .into_get_mut(validator_index)
+            .balances()
+            .get(validator_index)
             .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
-        if *balance > spec.min_activation_balance {
+        if balance > spec.min_activation_balance {
             let excess_balance = balance.safe_sub(spec.min_activation_balance)?;
-            *balance = spec.min_activation_balance;
+            self.set_balance(validator_index, spec.min_activation_balance)?;
             let validator = self.get_validator(validator_index)?.clone();
             self.pending_deposits_mut()?.push(PendingDeposit {
                 pubkey: validator.pubkey,
@@ -3879,6 +3899,7 @@ impl<E: EthSpec> BeaconState<E> {
                 map_beacon_state_heze_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
         }
+        self.commit_scalar_lists();
         Ok(())
     }
 

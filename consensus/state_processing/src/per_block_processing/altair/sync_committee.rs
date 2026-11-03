@@ -50,7 +50,7 @@ pub fn process_sync_aggregate<E: EthSpec>(
     let committee_indices = state.get_sync_committee_indices(&current_sync_committee)?;
 
     let proposer_index = proposer_index as usize;
-    let mut proposer_balance = *state
+    let mut proposer_balance = state
         .balances()
         .get(proposer_index)
         .ok_or(BeaconStateError::BalancesOutOfBounds(proposer_index))?;
@@ -75,7 +75,7 @@ pub fn process_sync_aggregate<E: EthSpec>(
         }
     }
 
-    *state.get_balance_mut(proposer_index)? = proposer_balance;
+    state.set_balance(proposer_index, proposer_balance)?;
 
     Ok(())
 }

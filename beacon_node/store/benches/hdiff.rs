@@ -26,8 +26,9 @@ pub fn all_benches(c: &mut Criterion) {
         let mut target_state = source_state.clone();
         // Change all balances
         for i in 0..n {
-            let balance = target_state.balances_mut().into_get_mut(i).unwrap();
-            *balance += rng.random_range(1..=1_000_000);
+            let balances = target_state.balances_mut();
+            let balance = balances.get(i).unwrap() + rng.random_range(1..=1_000_000);
+            balances.set(i, balance).unwrap();
         }
         // And some validator records
         for _ in 0..validator_mutations {

@@ -2,6 +2,7 @@ use crate::builder_deposits_cache::{OnboardBuildersCache, is_valid_deposit_signa
 use bls::PublicKeyBytes;
 use milhouse::{ProgressiveList, Vector};
 use safe_arith::SafeArith;
+use silver_hashing::HashFormat;
 use ssz_types::{BitVector, FixedVector};
 use std::{
     collections::{HashMap, HashSet},
@@ -11,7 +12,7 @@ use tracing::debug;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
-    Address, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
+    Address, Balances, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
     BuilderPendingPayment, ChainSpec, EthSpec, ExecutionPayloadBidGloas, ExecutionRequestsGloas,
     Fork, PendingDeposit, ProgressiveKzgCommitments,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
@@ -97,7 +98,7 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         eth1_deposit_index: pre.eth1_deposit_index,
         // Registry
         validators: ProgressiveList::try_from_iter(pre.validators.iter().cloned())?,
-        balances: ProgressiveList::try_from_iter(pre.balances.iter().copied())?,
+        balances: Balances::<E>::try_from_iter(pre.balances.iter(), HashFormat::Progressive)?,
         // Randomness
         randao_mixes: pre.randao_mixes.clone(),
         // Slashings

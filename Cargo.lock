@@ -9636,6 +9636,7 @@ dependencies = [
  "rand 0.9.5",
  "rayon",
  "safe_arith",
+ "silver_hashing",
  "smallvec",
  "ssz_types",
  "state_processing",
