@@ -3767,7 +3767,7 @@ pub async fn serve<T: BeaconChainTypes>(
 }
 
 /// The `attestation_weight` event stream: the attestation weights, sent when they change, at most
-/// every `interval`. Votes are only counted while such a stream is open.
+/// every `interval`.
 fn attestation_weight_stream<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     interval: Duration,

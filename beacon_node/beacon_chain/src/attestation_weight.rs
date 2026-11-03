@@ -60,7 +60,7 @@ struct SlotWeights {
     blocks: Vec<BlockAttestationWeight>,
 }
 
-/// A subscriber to the tracker. Votes are counted while any receiver exists.
+/// A subscriber to the tracker.
 pub struct AttestationWeightReceiver {
     tracker: Arc<AttestationWeightTracker>,
     sent_version: Option<u64>,

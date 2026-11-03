@@ -1248,7 +1248,7 @@ pub struct BlockGossip {
 }
 
 /// Lighthouse-only `attestation_weight` event: the justified effective balance of verified votes per
-/// block for the latest attestation slots.
+/// block for the previous, current and next slot.
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseAttestationWeight {
     /// The justified total effective balance divided by slots per epoch, which spec thresholds such

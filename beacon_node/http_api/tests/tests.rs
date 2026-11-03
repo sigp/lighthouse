@@ -9593,7 +9593,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let attestations = self.single_attestations.clone();
+        let attestations = &self.single_attestations;
         let slot = attestations[0].data.slot;
         let (expected_weight, expected_committee_weight) = {
             let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
@@ -9617,23 +9617,24 @@ impl ApiTester {
             .unwrap();
 
         // Wait until every attester is counted.
-        let weights = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                if let EventKind::AttestationWeight(weights) = events.next().await.unwrap().unwrap()
-                    && weights
-                        .slots
-                        .iter()
-                        .any(|s| s.slot == slot && s.voters == attestations.len() as u64)
-                {
-                    return weights;
+        let (committee_weight_gwei, slot_weights) =
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    if let EventKind::AttestationWeight(weights) =
+                        events.next().await.unwrap().unwrap()
+                        && let Some(slot_weights) = weights
+                            .slots
+                            .iter()
+                            .find(|s| s.slot == slot && s.voters == attestations.len() as u64)
+                    {
+                        return (weights.committee_weight_gwei, slot_weights.clone());
+                    }
                 }
-            }
-        })
-        .await
-        .expect("attestation_weight event not received");
+            })
+            .await
+            .expect("attestation_weight event not received");
 
-        let slot_weights = weights.slots.iter().find(|s| s.slot == slot).unwrap();
-        assert_eq!(weights.committee_weight_gwei, expected_committee_weight);
+        assert_eq!(committee_weight_gwei, expected_committee_weight);
         assert_eq!(slot_weights.weights.len(), 1);
         assert_eq!(
             slot_weights.weights[0].block_root,
