@@ -54,6 +54,12 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         }
     }
 
+    pub fn reset_cache(&self) {
+        *self.latest_finality_update.write() = None;
+        *self.latest_optimistic_update.write() = None;
+        *self.latest_light_client_update.write() = None;
+    }
+
     /// Compute and cache state proofs for latter production of light-client messages. Does not
     /// trigger block replay.
     pub(crate) fn cache_state_data(
@@ -132,10 +138,16 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
+        let max_participants = sync_aggregate.sync_committee_bits.len();
+        let new_participants = sync_aggregate.sync_committee_bits.num_set_bits();
+        let new_has_supermajority = new_participants * 3 >= max_participants * 2;
         let is_latest_optimistic = match &self.latest_optimistic_update.read().clone() {
-            Some(latest_optimistic_update) => {
-                latest_optimistic_update.is_latest(attested_slot, signature_slot)
-            }
+            Some(latest_optimistic_update) => latest_optimistic_update.is_latest(
+                attested_slot,
+                new_has_supermajority,
+                new_participants,
+                signature_slot,
+            ),
             None => true,
         };
         if is_latest_optimistic {
@@ -149,30 +161,54 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         };
 
         // Spec: Full nodes SHOULD provide the LightClientFinalityUpdate with the highest
-        // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
+        // finalized_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
         let is_latest_finality = match &self.latest_finality_update.read().clone() {
             Some(latest_finality_update) => {
-                latest_finality_update.is_latest(attested_slot, signature_slot)
+                let max_participants = sync_aggregate.sync_committee_bits.len();
+                let new_participants = sync_aggregate.sync_committee_bits.num_set_bits();
+                let new_has_supermajority = new_participants * 3 >= max_participants * 2;
+                let finalized_slot = cached_parts
+                    .finalized_checkpoint
+                    .epoch
+                    .start_slot(T::EthSpec::slots_per_epoch());
+                latest_finality_update.is_latest(
+                    finalized_slot,
+                    new_has_supermajority,
+                    new_participants,
+                    signature_slot,
+                )
             }
             None => true,
         };
-
-        if is_latest_finality & !cached_parts.finalized_block_root.is_zero() {
-            // Immediately after checkpoint sync the finalized block may not be available yet.
-            if let Some(finalized_block) = maybe_finalized_block.as_ref() {
-                *self.latest_finality_update.write() = Some(LightClientFinalityUpdate::new(
+        if is_latest_finality {
+            let update = if cached_parts.finalized_block_root.is_zero() {
+                // When finalized_checkpoint.root is ZERO_HASH, hash_tree_root(finalized_header)
+                // cannot be proven, so finalized_header must be empty/default initialized.
+                Some(LightClientFinalityUpdate::new_with_empty_finalized_header(
+                    &attested_block,
+                    cached_parts.finality_branch.clone(),
+                    sync_aggregate.clone(),
+                    signature_slot,
+                    chain_spec,
+                )?)
+            } else if let Some(finalized_block) = maybe_finalized_block.as_ref() {
+                Some(LightClientFinalityUpdate::new(
                     &attested_block,
                     finalized_block,
                     cached_parts.finality_branch.clone(),
                     sync_aggregate.clone(),
                     signature_slot,
                     chain_spec,
-                )?);
+                )?)
             } else {
                 debug!(
                     finalized_block_root = %cached_parts.finalized_block_root,
                     "Finalized block not available in store for light_client server"
                 );
+                None
+            };
+            if let Some(update) = update {
+                *self.latest_finality_update.write() = Some(update);
             }
         }
 
@@ -183,17 +219,28 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             cached_parts.next_sync_committee_branch,
             cached_parts.finality_branch,
             &attested_block,
-            maybe_finalized_block.as_ref(),
+            if cached_parts.finalized_block_root.is_zero() {
+                None
+            } else {
+                maybe_finalized_block.as_ref()
+            },
             chain_spec,
         )?;
 
         // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update)
         // for each sync committee period
+        //
+        // Spec: an update with fewer than MIN_SYNC_COMMITTEE_PARTICIPANTS signers is unusable
+        // outright (see validate_light_client_update), not just a tiebreak loss against no
+        // previous update, so it must never be the first update persisted for a period either.
+        let meets_min_participants =
+            (new_participants as u64) >= chain_spec.min_sync_committee_participants;
+
         let prev_light_client_update =
             self.get_light_client_update(&store, sync_period, chain_spec)?;
 
-        let should_persist_light_client_update =
-            if let Some(prev_light_client_update) = prev_light_client_update {
+        let should_persist_light_client_update = meets_min_participants
+            && if let Some(prev_light_client_update) = prev_light_client_update {
                 prev_light_client_update
                     .is_better_light_client_update(&new_light_client_update, chain_spec)?
             } else {
