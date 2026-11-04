@@ -6,6 +6,7 @@ use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::status::status_message;
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
 use crate::sync::SyncMessage;
+use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::channel::mpsc::Sender;
@@ -42,12 +43,12 @@ use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{Span, debug, error, info, trace, warn};
 use typenum::Unsigned;
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, PartialDataColumn, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
-    ValidatorSubscription,
+    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, PartialDataColumn,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelope, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, ValidatorSubscription,
 };
 
 mod tests;
@@ -94,6 +95,13 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Publish partial data column sidecars via the partial gossipsub protocol.
     PublishPartialColumns {
         messages: Vec<PubsubPartialMessage<E>>,
+    },
+    /// Retrieve the custody columns of a block published via the HTTP API.
+    FetchBlockColumns {
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<E>>,
+        /// The span of the publishing request, to trace the retrieval within.
+        span: Span,
     },
     /// Validates a received gossipsub message. This will propagate the message on the network.
     ValidationResult {
@@ -680,6 +688,18 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
             NetworkMessage::PublishPartialColumns { messages } => {
                 self.libp2p.publish_partial(messages);
+            }
+            NetworkMessage::FetchBlockColumns {
+                block_root,
+                block,
+                span,
+            } => {
+                self.network_beacon_processor.spawn_fetch_block_columns(
+                    block_root,
+                    block,
+                    EnvelopeSource::Http,
+                    span,
+                );
             }
             NetworkMessage::ReportPeer {
                 peer_id,

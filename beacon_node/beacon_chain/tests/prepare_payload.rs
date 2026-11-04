@@ -1,6 +1,8 @@
 #![cfg(not(debug_assertions))]
 #![allow(clippy::result_large_err)]
 
+use beacon_chain::inclusion_list_store::InsertOutcome;
+use beacon_chain::inclusion_list_verification::gossip_verified_inclusion_list::GossipVerifiedInclusionList;
 use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
@@ -11,6 +13,11 @@ use beacon_chain::{
     graffiti_calculator::GraffitiSettings,
 };
 use bls::{Keypair, Signature};
+use builder_client::{BidStreams, BuilderHttpClient, Builders};
+use eth2::types::{
+    BuilderConfig, BuilderEntry, BuilderPreferenceEntry, BuilderPubkeys, RequestAuth,
+    RequestAuthData, SignedRequestAuth,
+};
 use eth2::types::{GraffitiPolicy, ProposerPreparationData};
 use execution_layer::http::{ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5};
 use execution_layer::json_structures::{
@@ -18,7 +25,9 @@ use execution_layer::json_structures::{
 };
 use execution_layer::{DEFAULT_GAS_LIMIT, PayloadAttributes};
 use fork_choice::PayloadStatus;
+use futures::{SinkExt, StreamExt};
 use logging::create_test_tracing_subscriber;
+use parking_lot::Mutex;
 use ssz_types::ProgressiveVariableList;
 use state_processing::{
     per_block_processing::{
@@ -27,10 +36,18 @@ use state_processing::{
     },
     state_advance::complete_state_advance,
 };
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
+use std::time::Duration;
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
+use task_executor::test_utils::TestRuntime;
 use tempfile::{TempDir, tempdir};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio_tungstenite::accept_hdr_async;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
 use types::*;
 
 // Should ideally be divisible by 3.
@@ -953,7 +970,7 @@ async fn prepare_payload_around_heze_boundary(prepare_slot: Slot, heze_fork_epoc
 
     let prepare_slot_is_heze = spec.fork_name_at_slot::<E>(prepare_slot).heze_enabled();
 
-    // Only produce blocks up to the parent slot, so no Heze block production is required
+    // Only produce blocks up to the parent slot
     let num_blocks_produced = (prepare_slot - 1).as_u64();
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path, spec.clone());
@@ -1043,6 +1060,602 @@ async fn prepare_payload_around_heze_boundary(prepare_slot: Slot, heze_fork_epoc
     } else {
         assert!(matches!(attributes, PayloadAttributes::V4(_)));
     }
+}
+
+/// Store one inclusion list for `slot`, holding `transactions`, from the first member of the
+/// inclusion list committee that the chain resolves for `head_root`
+fn seed_inclusion_list(
+    harness: &TestHarness,
+    head_root: Hash256,
+    slot: Slot,
+    transactions: ProgressiveTransactions,
+) -> InsertOutcome {
+    let (committee, dependent_root) = harness
+        .chain
+        .inclusion_list_committee(head_root, slot)
+        .unwrap();
+    harness
+        .chain
+        .inclusion_list_store
+        .write()
+        .process_inclusion_list(GossipVerifiedInclusionList {
+            signed_inclusion_list: SignedInclusionList {
+                message: InclusionList {
+                    slot,
+                    validator_index: committee[0],
+                    dependent_root,
+                    transactions,
+                },
+                signature: Signature::empty(),
+            },
+            is_timely: true,
+        })
+}
+
+#[tokio::test]
+async fn prepare_payload_inclusion_lists_on_heze_boundary() {
+    let heze_fork_epoch = Epoch::new(1);
+    prepare_payload_inclusion_lists_around_heze_boundary(
+        heze_fork_epoch.start_slot(E::slots_per_epoch()),
+        heze_fork_epoch,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn prepare_payload_inclusion_lists_after_heze_boundary() {
+    let heze_fork_epoch = Epoch::new(1);
+    prepare_payload_inclusion_lists_around_heze_boundary(
+        heze_fork_epoch.start_slot(E::slots_per_epoch()) + 1,
+        heze_fork_epoch,
+    )
+    .await;
+}
+
+/// Prepare a payload for a Heze `prepare_slot` on a chain with a Heze fork at `heze_fork_epoch`,
+/// seed the inclusion list store for `prepare_slot - 1`, and verify which inclusion list
+/// transactions reach the execution layer in `PayloadAttributesV5`.
+///
+/// Inclusion lists only exist for Heze slots: the store refuses a list for a pre-Heze slot, so
+/// the first Heze proposer sends an empty list, and the transactions only flow once
+/// `prepare_slot - 1` is itself a Heze slot.
+async fn prepare_payload_inclusion_lists_around_heze_boundary(
+    prepare_slot: Slot,
+    heze_fork_epoch: Epoch,
+) {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+    let spec = Arc::new(spec);
+    assert!(spec.fork_name_at_slot::<E>(prepare_slot).heze_enabled());
+
+    // Derive the expectations from where the inclusion list slot sits relative to the fork
+    let il_slot = prepare_slot - 1;
+    let il_transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::<u8>::new(vec![0xaa]).unwrap(),
+    ])
+    .unwrap();
+    let (expected_insert_outcome, expected_transactions) =
+        if spec.fork_name_at_slot::<E>(il_slot).heze_enabled() {
+            (InsertOutcome::New, il_transactions.clone())
+        } else {
+            (InsertOutcome::Old, ProgressiveTransactions::empty())
+        };
+
+    // Produce blocks up to the parent slot, which is a Heze block when preparing for a slot
+    // after the first fork slot
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store, LOW_VALIDATOR_COUNT);
+    harness
+        .extend_chain(
+            il_slot.as_usize(),
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    let cached_head = harness.chain.canonical_head.cached_head();
+    let parent_payload_status = cached_head.head_payload_status();
+    let head_root = cached_head.head_block_root();
+    let mut advanced_state = cached_head.snapshot.beacon_state.clone();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, None, &spec).unwrap();
+
+    // Seed the store with one inclusion list
+    let insert_outcome = seed_inclusion_list(&harness, head_root, il_slot, il_transactions.clone());
+    assert_eq!(insert_outcome, expected_insert_outcome);
+
+    // Register the proposer, otherwise `prepare_beacon_proposer` skips the slot
+    let proposer_index = advanced_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &None,
+        )],
+    )
+    .await;
+
+    // Move the clock into the lookahead window, then prepare for `prepare_slot`
+    // This sends a fcU carrying the payload attributes to the execution layer
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+    harness
+        .chain
+        .prepare_beacon_proposer(il_slot)
+        .await
+        .unwrap();
+
+    // The fcU received by the mock execution layer must carry the expected inclusion list
+    let request = harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .take_previous_request()
+        .expect("no previous request");
+    let method = request.get("method").expect("no method");
+    let params = request.get("params").expect("no params");
+    let payload_attributes_json = params.get(1).expect("no payload attributes param");
+
+    assert_eq!(method, ENGINE_FORKCHOICE_UPDATED_V5);
+    let attributes: JsonPayloadAttributesV5 =
+        serde_json::from_value(payload_attributes_json.clone()).unwrap();
+    assert_eq!(
+        attributes.inclusion_list_transactions,
+        expected_transactions
+    );
+
+    // The cached payload attributes must carry the same inclusion list as the fcU
+    let attributes = el
+        .payload_attributes(prepare_slot, head_root, parent_payload_status)
+        .await
+        .unwrap();
+    let PayloadAttributes::V5(cached) = attributes else {
+        panic!("expected V5 payload attributes, got {attributes:?}");
+    };
+    assert_eq!(cached.inclusion_list_transactions, expected_transactions);
+}
+
+#[tokio::test]
+async fn prepare_payload_inclusion_lists_used_in_block_production() {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    let heze_fork_epoch = Epoch::new(1);
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+    let spec = Arc::new(spec);
+
+    // Prepare for the slot after the first Heze slot, so the inclusion list slot is a Heze slot
+    // and a stored list is expected to reach the EL
+    let prepare_slot = heze_fork_epoch.start_slot(E::slots_per_epoch()) + 1;
+    let il_slot = prepare_slot - 1;
+    let il_transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::<u8>::new(vec![0xaa]).unwrap(),
+    ])
+    .unwrap();
+
+    // Produce blocks up to the parent slot, including one Heze block
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store, LOW_VALIDATOR_COUNT);
+    harness
+        .extend_chain(
+            il_slot.as_usize(),
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    let cached_head = harness.chain.canonical_head.cached_head();
+    let head_root = cached_head.head_block_root();
+    let head_state = &cached_head.snapshot.beacon_state;
+
+    // Seed the store with one inclusion list
+    let insert_outcome = seed_inclusion_list(&harness, head_root, il_slot, il_transactions.clone());
+    assert_eq!(insert_outcome, InsertOutcome::New);
+
+    // Capture the payload attributes of every fcU the mock EL receives from now on
+    let captured = Arc::new(Mutex::new(Vec::<PayloadAttributes>::new()));
+    let captured_inner = captured.clone();
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .ctx
+        .hook
+        .lock()
+        .set_forkchoice_updated_hook(Box::new(move |_state, payload_attributes| {
+            if let Some(attributes) = payload_attributes {
+                captured_inner.lock().push(attributes.into());
+            }
+            None
+        }));
+
+    // Produce the block for `prepare_slot`
+    let proposer_index = head_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+    let randao_reveal = harness.sign_randao_reveal(head_state, proposer_index, prepare_slot);
+    harness
+        .chain
+        .produce_block_with_verification_gloas(
+            randao_reveal,
+            prepare_slot,
+            GraffitiSettings::new(None, None),
+            ProduceBlockVerification::VerifyRandao,
+            eth2::types::BuilderConfig::empty(),
+        )
+        .await
+        .unwrap();
+
+    // Block production sent one fcU with payload attributes, carrying the stored list
+    let captured = captured.lock();
+    let [PayloadAttributes::V5(attributes)] = captured.as_slice() else {
+        panic!("expected one V5 fcU with payload attributes, got {captured:?}");
+    };
+    assert_eq!(attributes.inclusion_list_transactions, il_transactions);
+}
+
+#[tokio::test]
+async fn prepare_payload_inclusion_lists_late_list_reaches_block_production() {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    let heze_fork_epoch = Epoch::new(1);
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+    let spec = Arc::new(spec);
+
+    // Prepare for the slot after the first Heze slot, so the inclusion list slot is a Heze slot
+    // and a list stored after the warm-up is expected to reach the EL at block production
+    let prepare_slot = heze_fork_epoch.start_slot(E::slots_per_epoch()) + 1;
+    let il_slot = prepare_slot - 1;
+    let il_transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::<u8>::new(vec![0xaa]).unwrap(),
+    ])
+    .unwrap();
+
+    // Produce blocks up to the parent slot, including one Heze block
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store, LOW_VALIDATOR_COUNT);
+    harness
+        .extend_chain(
+            il_slot.as_usize(),
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    let cached_head = harness.chain.canonical_head.cached_head();
+    let head_root = cached_head.head_block_root();
+    let head_state = &cached_head.snapshot.beacon_state;
+    let proposer_index = head_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+
+    // Capture the payload attributes of every fcU the mock EL receives from now on
+    let captured = Arc::new(Mutex::new(Vec::<PayloadAttributes>::new()));
+    let captured_inner = captured.clone();
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .ctx
+        .hook
+        .lock()
+        .set_forkchoice_updated_hook(Box::new(move |_state, payload_attributes| {
+            if let Some(attributes) = payload_attributes {
+                captured_inner.lock().push(attributes.into());
+            }
+            None
+        }));
+
+    // Register the proposer, otherwise `prepare_beacon_proposer` skips the slot
+    harness
+        .chain
+        .execution_layer
+        .as_ref()
+        .unwrap()
+        .update_proposer_preparation(
+            prepare_slot.epoch(E::slots_per_epoch()),
+            [(
+                &ProposerPreparationData {
+                    validator_index: proposer_index as u64,
+                    fee_recipient: Address::repeat_byte(42),
+                },
+                &None,
+            )],
+        )
+        .await;
+
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+    harness
+        .chain
+        .prepare_beacon_proposer(il_slot)
+        .await
+        .unwrap();
+
+    // The inclusion list arrives after the beacon proposer preparation
+    let insert_outcome = seed_inclusion_list(&harness, head_root, il_slot, il_transactions.clone());
+    assert_eq!(insert_outcome, InsertOutcome::New);
+
+    // Produce the block for `prepare_slot`
+    let randao_reveal = harness.sign_randao_reveal(head_state, proposer_index, prepare_slot);
+    harness
+        .chain
+        .produce_block_with_verification_gloas(
+            randao_reveal,
+            prepare_slot,
+            GraffitiSettings::new(None, None),
+            ProduceBlockVerification::VerifyRandao,
+            eth2::types::BuilderConfig::empty(),
+        )
+        .await
+        .unwrap();
+
+    // The warm-up fcU carried an empty list
+    // Block production sent a fresh fcU with the stored list instead of reusing the warm-up's payload
+    let captured = captured.lock();
+    let [
+        PayloadAttributes::V5(warm_up),
+        PayloadAttributes::V5(production),
+    ] = captured.as_slice()
+    else {
+        panic!("expected two V5 fcUs with payload attributes, got {captured:?}");
+    };
+    assert!(warm_up.inclusion_list_transactions.is_empty());
+    assert_eq!(production.inclusion_list_transactions, il_transactions);
+}
+
+#[tokio::test]
+async fn prepare_payload_inclusion_lists_late_list_reaches_proposer_preparation() {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    let heze_fork_epoch = Epoch::new(1);
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+    let spec = Arc::new(spec);
+
+    // Prepare for the slot after the first Heze slot, so the inclusion list slot is a Heze slot
+    // and a list stored after the warm-up is expected to reach the EL on the next preparation
+    let prepare_slot = heze_fork_epoch.start_slot(E::slots_per_epoch()) + 1;
+    let il_slot = prepare_slot - 1;
+    let il_transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::<u8>::new(vec![0xaa]).unwrap(),
+    ])
+    .unwrap();
+
+    // Produce blocks up to the parent slot, including one Heze block
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store, LOW_VALIDATOR_COUNT);
+    harness
+        .extend_chain(
+            il_slot.as_usize(),
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    let cached_head = harness.chain.canonical_head.cached_head();
+    let head_root = cached_head.head_block_root();
+    let proposer_index = cached_head
+        .snapshot
+        .beacon_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+
+    // Capture the payload attributes of every fcU the mock EL receives from now on
+    let captured = Arc::new(Mutex::new(Vec::<PayloadAttributes>::new()));
+    let captured_inner = captured.clone();
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .ctx
+        .hook
+        .lock()
+        .set_forkchoice_updated_hook(Box::new(move |_state, payload_attributes| {
+            if let Some(attributes) = payload_attributes {
+                captured_inner.lock().push(attributes.into());
+            }
+            None
+        }));
+
+    // Register the proposer so prepare_beacon_proposer doesn't skip it.
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &None,
+        )],
+    )
+    .await;
+
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+    // First beacon proposer preparation call, with the inclusion list not in the store
+    harness
+        .chain
+        .prepare_beacon_proposer(il_slot)
+        .await
+        .unwrap();
+
+    // The inclusion list arrives after the initial beacon proposer preparation
+    let insert_outcome = seed_inclusion_list(&harness, head_root, il_slot, il_transactions.clone());
+    assert_eq!(insert_outcome, InsertOutcome::New);
+
+    // Prepare the same slot again, as fork choice does later in the slot
+    harness
+        .chain
+        .prepare_beacon_proposer(il_slot)
+        .await
+        .unwrap();
+
+    // The warm-up fcU carried an empty list
+    // The second preparation sent the stored list instead of reusing the cached attributes
+    let captured = captured.lock();
+    let [
+        PayloadAttributes::V5(warm_up),
+        PayloadAttributes::V5(refreshed),
+    ] = captured.as_slice()
+    else {
+        panic!("expected two V5 fcUs with payload attributes, got {captured:?}");
+    };
+    assert!(warm_up.inclusion_list_transactions.is_empty());
+    assert_eq!(refreshed.inclusion_list_transactions, il_transactions);
+}
+
+#[tokio::test]
+async fn prepare_payload_inclusion_lists_late_list_reaches_empty_build_parent() {
+    let mut spec = test_spec::<E>();
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+    let heze_fork_epoch = Epoch::new(1);
+    spec.heze_fork_epoch = Some(heze_fork_epoch);
+    let spec = Arc::new(spec);
+
+    // Prepare for the slot after the first Heze slot, so the inclusion list slot is a Heze slot
+    let prepare_slot = heze_fork_epoch.start_slot(E::slots_per_epoch()) + 1;
+    let il_slot = prepare_slot - 1;
+    let il_transactions = ProgressiveTransactions::new(vec![
+        ProgressiveVariableList::<u8>::new(vec![0xaa]).unwrap(),
+    ])
+    .unwrap();
+
+    // Produce blocks up to the parent slot, including one Heze block
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store, LOW_VALIDATOR_COUNT);
+    harness
+        .extend_chain(
+            il_slot.as_usize(),
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // The PTC votes against the parent's payload, so the head stays Full while the proposer
+    // builds on the Empty parent
+    let parent_root = harness.head_block_root();
+    let parent_state = harness.get_current_state();
+    let (messages, _) = harness.make_payload_attestation_messages(
+        &parent_state,
+        parent_root,
+        parent_state.slot(),
+        vec![PayloadAttestationVote {
+            validator_count: E::ptc_size(),
+            payload_present: false,
+            blob_data_available: false,
+        }],
+    );
+    harness
+        .import_payload_attestation_messages(messages)
+        .unwrap();
+    harness.chain.recompute_head_at_current_slot().await;
+
+    // The canonical head is still the Full parent
+    let cached_head = harness.chain.canonical_head.cached_head();
+    assert_eq!(cached_head.head_block_root(), parent_root);
+    assert_eq!(cached_head.head_payload_status(), PayloadStatus::Full);
+    let proposer_index = cached_head
+        .snapshot
+        .beacon_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+    drop(cached_head);
+
+    // Capture the payload attributes of every fcU the mock EL receives from now on
+    let captured = Arc::new(Mutex::new(Vec::<PayloadAttributes>::new()));
+    let captured_inner = captured.clone();
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .ctx
+        .hook
+        .lock()
+        .set_forkchoice_updated_hook(Box::new(move |_state, payload_attributes| {
+            if let Some(attributes) = payload_attributes {
+                captured_inner.lock().push(attributes.into());
+            }
+            None
+        }));
+
+    // Register the proposer so prepare_beacon_proposer doesn't skip it
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &None,
+        )],
+    )
+    .await;
+
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+    // First beacon proposer preparation call, with the inclusion list not in the store
+    // The attributes are cached under the Empty build payload status
+    harness
+        .chain
+        .prepare_beacon_proposer(il_slot)
+        .await
+        .unwrap();
+
+    // The inclusion list arrives after the initial beacon proposer preparation
+    let insert_outcome =
+        seed_inclusion_list(&harness, parent_root, il_slot, il_transactions.clone());
+    assert_eq!(insert_outcome, InsertOutcome::New);
+
+    // Prepare the same slot again, as fork choice does later in the slot
+    harness
+        .chain
+        .prepare_beacon_proposer(il_slot)
+        .await
+        .unwrap();
+
+    // The warm-up fcU carried an empty list
+    // The second preparation sent the stored list instead of reusing the cached attributes
+    {
+        let captured = captured.lock();
+        let [
+            PayloadAttributes::V5(warm_up),
+            PayloadAttributes::V5(refreshed),
+        ] = captured.as_slice()
+        else {
+            panic!("expected two V5 fcUs with payload attributes, got {captured:?}");
+        };
+        assert!(warm_up.inclusion_list_transactions.is_empty());
+        assert_eq!(refreshed.inclusion_list_transactions, il_transactions);
+    }
+
+    // The refreshed attributes replaced the ones cached under the Empty build payload status,
+    // rather than being written under the head's Full status
+    let Some(PayloadAttributes::V5(cached)) = el
+        .payload_attributes(prepare_slot, parent_root, PayloadStatus::Empty)
+        .await
+    else {
+        panic!("attributes should be cached under the Empty build payload status");
+    };
+    assert_eq!(cached.inclusion_list_transactions, il_transactions);
 }
 
 #[tokio::test]
@@ -1350,4 +1963,296 @@ async fn prepare_payload_gas_limit_generic(
         panic!("expected V4 payload attributes, got {attributes:?}");
     };
     assert_eq!(attributes.target_gas_limit, expected_gas_limit);
+}
+
+/// A builder serving bid streams and bid requests on one address. It records the path of each
+/// stream and bid request, answers bid requests with 204, and sends no bids.
+struct MockBuilder {
+    url: String,
+    stream_paths: Arc<Mutex<Vec<String>>>,
+    bid_paths: Arc<Mutex<Vec<String>>>,
+    /// Streams the client is reading: it answered a ping.
+    reading: Arc<AtomicUsize>,
+}
+
+async fn mock_builder() -> MockBuilder {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let builder = MockBuilder {
+        url: format!("http://{}", listener.local_addr().unwrap()),
+        stream_paths: Arc::new(Mutex::new(Vec::new())),
+        bid_paths: Arc::new(Mutex::new(Vec::new())),
+        reading: Arc::new(AtomicUsize::new(0)),
+    };
+    let stream_paths = builder.stream_paths.clone();
+    let bid_paths = builder.bid_paths.clone();
+    let reading = builder.reading.clone();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let stream_paths = stream_paths.clone();
+            let bid_paths = bid_paths.clone();
+            let reading = reading.clone();
+            tokio::spawn(async move {
+                let mut prefix = [0u8; 4];
+                loop {
+                    match stream.peek(&mut prefix).await {
+                        Ok(n) if n >= prefix.len() => break,
+                        Ok(0) | Err(_) => return,
+                        Ok(_) => tokio::time::sleep(Duration::from_millis(1)).await,
+                    }
+                }
+                if &prefix == b"POST" {
+                    let mut head = Vec::new();
+                    let mut chunk = [0u8; 4096];
+                    while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+                        match stream.read(&mut chunk).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => head.extend_from_slice(&chunk[..n]),
+                        }
+                    }
+                    let request = String::from_utf8_lossy(&head);
+                    if let Some(path) = request.split_whitespace().nth(1) {
+                        bid_paths.lock().push(path.to_string());
+                    }
+                    let _ = stream
+                        .write_all(b"HTTP/1.1 204 No Content\r\nconnection: close\r\n\r\n")
+                        .await;
+                    return;
+                }
+                let callback = move |request: &Request, response: Response| {
+                    stream_paths.lock().push(request.uri().path().to_string());
+                    Ok(response)
+                };
+                let Ok(mut ws_stream) = accept_hdr_async(stream, callback).await else {
+                    return;
+                };
+                let _ = ws_stream.send(Message::Ping(Default::default())).await;
+                while let Some(Ok(message)) = ws_stream.next().await {
+                    if message.is_pong() {
+                        reading.fetch_add(1, Ordering::SeqCst);
+                    }
+                }
+            });
+        }
+    });
+    builder
+}
+
+async fn wait_for(mut condition: impl FnMut() -> bool) {
+    for _ in 0..500 {
+        if condition() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("condition not met in time");
+}
+
+/// Proposer prep opens the bid stream for the proposal block production makes.
+#[tokio::test]
+async fn bid_stream_matches_block_production() {
+    bid_stream_generic(false, true).await;
+}
+
+/// As above, building on the Empty parent of a Full head after PTC votes.
+#[tokio::test]
+async fn bid_stream_matches_block_production_on_empty_parent() {
+    bid_stream_generic(true, true).await;
+}
+
+/// Block production without direct builders closes the proposal's bid streams.
+#[tokio::test]
+async fn bid_stream_closed_when_production_skips_direct_bids() {
+    bid_stream_generic(false, false).await;
+}
+
+async fn bid_stream_generic(negative_ptc: bool, direct_bids: bool) {
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return;
+    }
+
+    let runtime = TestRuntime::default();
+    let bid_streams =
+        Arc::new(BidStreams::<E>::new(runtime.task_executor.clone(), "test-user-agent").unwrap());
+    let builders = Arc::new(
+        Builders::new(Arc::new(BuilderHttpClient::new(None, false).unwrap()))
+            .with_bid_streams(bid_streams.clone()),
+    );
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = TestHarness::builder(Spec::default())
+        .spec(store.get_chain_spec().clone())
+        .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .chain_config(ChainConfig {
+            archive: true,
+            ..ChainConfig::default()
+        })
+        .node_custody_type(NodeCustodyType::Fullnode)
+        .builders(builders)
+        .build();
+    harness.advance_slot();
+    harness
+        .execution_block_generator()
+        .set_generate_blobs(false);
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let parent_root = harness.head_block_root();
+    let parent_state = harness.get_current_state();
+    let parent_slot = parent_state.slot();
+    let prepare_slot = parent_slot + 1;
+    let current_slot = prepare_slot - 1;
+    let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
+    // The Full and Empty parents must build on different hashes for the comparison to mean
+    // anything.
+    assert_ne!(parent_bid.block_hash(), parent_bid.parent_block_hash());
+    if negative_ptc {
+        let (messages, _) = harness.make_payload_attestation_messages(
+            &parent_state,
+            parent_root,
+            parent_slot,
+            vec![PayloadAttestationVote {
+                validator_count: E::ptc_size(),
+                payload_present: false,
+                blob_data_available: false,
+            }],
+        );
+        harness
+            .import_payload_attestation_messages(messages)
+            .unwrap();
+    }
+    harness.set_current_slot(current_slot);
+    harness.chain.recompute_head_at_current_slot().await;
+    // The head is still Full; only the negative PTC makes the proposer build on Empty.
+    assert_eq!(
+        harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_payload_status(),
+        PayloadStatus::Full
+    );
+    let executed_ancestor_hash = if negative_ptc {
+        parent_bid.parent_block_hash()
+    } else {
+        parent_bid.block_hash()
+    };
+
+    let mut advanced_state = harness.get_current_state();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, None, &spec).unwrap();
+    let proposer_index = advanced_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+    let proposer_pubkey = advanced_state.get_validator(proposer_index).unwrap().pubkey;
+
+    let fee_recipient = Address::repeat_byte(42);
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient,
+            },
+            &None,
+        )],
+    )
+    .await;
+    insert_proposer_preferences(
+        &harness,
+        prepare_slot,
+        proposer_index as u64,
+        fee_recipient,
+        DEFAULT_GAS_LIMIT,
+    );
+
+    // The validator client's `builder_preferences` entry for the proposal.
+    let builder = mock_builder().await;
+    let auth = SignedRequestAuth {
+        message: RequestAuth {
+            data: RequestAuthData::new(b"request auth data".to_vec()).unwrap(),
+            slot: prepare_slot,
+        },
+        signature: Signature::empty(),
+    };
+    let preference = BuilderPreferenceEntry {
+        proposer_pubkey,
+        url: builder.url.parse().unwrap(),
+        auth: auth.clone(),
+        max_execution_payment: 0,
+    };
+    assert_eq!(
+        bid_streams.store_preferences(&[preference], current_slot, prepare_slot),
+        1
+    );
+
+    // Streams connect a second before the slot starts. With a 4s lookahead, block production runs
+    // before the stream connects.
+    let lookahead = Duration::from_secs(if direct_bids { 2 } else { 4 });
+    harness.advance_to_slot_lookahead(prepare_slot, lookahead);
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+    let expected_path = format!(
+        "{prepare_slot}/{executed_ancestor_hash:?}/{parent_root:?}/{}",
+        proposer_pubkey.as_hex_string()
+    );
+    if direct_bids {
+        wait_for(|| builder.reading.load(Ordering::SeqCst) == 1).await;
+        assert_eq!(
+            *builder.stream_paths.lock(),
+            vec![format!(
+                "/eth/v1/builder/execution_payload_bid_stream/{expected_path}"
+            )]
+        );
+    }
+
+    let mut builder_config = BuilderConfig::empty();
+    if direct_bids {
+        builder_config.builders = vec![BuilderEntry {
+            url: builder.url.parse().unwrap(),
+            auth,
+            builder_pubkeys: BuilderPubkeys::default(),
+            max_execution_payment: 0,
+            min_bid: 0,
+            builder_boost_factor: 100,
+        }]
+        .try_into()
+        .unwrap();
+    }
+    let randao_reveal = harness.sign_randao_reveal(&advanced_state, proposer_index, prepare_slot);
+    harness
+        .chain
+        .produce_block_with_verification_gloas(
+            randao_reveal,
+            prepare_slot,
+            GraffitiSettings::Unspecified,
+            ProduceBlockVerification::VerifyRandao,
+            builder_config,
+        )
+        .await
+        .unwrap();
+
+    // A stream for the produced proposal that connected without a bid means no bid request. A
+    // stream for another proposal or parent would have been requested over HTTP.
+    assert!(builder.bid_paths.lock().is_empty());
+
+    // Block production forgot the proposal's entries, so preparing again opens no stream. When
+    // production skipped direct bids before the stream connected, it closed that stream too.
+    harness
+        .chain
+        .prepare_beacon_proposer(current_slot)
+        .await
+        .unwrap();
+    tokio::time::sleep(lookahead).await;
+    assert_eq!(builder.stream_paths.lock().len(), usize::from(direct_bids));
 }

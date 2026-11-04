@@ -98,7 +98,7 @@ use crate::{
     CachedHead, ChainDumpSnapshot, metrics,
 };
 use bls::{PublicKey, PublicKeyBytes, Signature};
-use builder_client::Builders;
+use builder_client::{BidRequestContext, BidStreams, Builders};
 use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
     EventKind, PtcDuty, SseBlobSidecar, SseBlock, SseDataColumnSidecar,
@@ -478,9 +478,9 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Client for the EIP-8025 proof engine, if one is configured.
     pub proof_engine: Option<Arc<ProofEngine>>,
-    /// Orchestrates direct builder bid requests and preference submissions over the Gloas Builder
-    /// API. Present only when the Gloas fork is scheduled.
-    pub builders: Option<Arc<Builders>>,
+    /// Orchestrates direct builder bid requests, preference submissions and, when enabled, bid
+    /// streams over the Gloas Builder API. Present only when the Gloas fork is scheduled.
+    pub builders: Option<Arc<Builders<T::EthSpec>>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHead<T>,
@@ -2391,7 +2391,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verified: &VerifiedPayloadAttestationMessage<T>,
     ) -> Result<(), Error> {
         self.op_pool
-            .insert_payload_attestation_message(verified.payload_attestation_message().clone())
+            .insert_payload_attestation(verified.payload_attestation_message(), verified.ptc())
             .map_err(Error::OpPoolError)?;
         Ok(())
     }
@@ -3970,11 +3970,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // A small closure to group the verification and import errors.
         let chain = self.clone();
         let import_block = async move {
-            let execution_pending = unverified_block.into_execution_pending_block(
-                block_root,
-                &chain,
-                notify_execution_layer,
-            )?;
+            let execution_pending = unverified_block
+                .into_execution_pending_block(block_root, &chain, notify_execution_layer)
+                .inspect_err(|e| {
+                    // Gossip and the HTTP API cache Gloas blocks before this verification, so
+                    // that peers can fetch them by root. Stop serving a block that failed it.
+                    if !matches!(
+                        e,
+                        BlockError::DuplicateFullyImported(_)
+                            | BlockError::DuplicateImportStatusUnknown(_)
+                    ) {
+                        chain.pending_payload_cache.remove_block(&block_root);
+                    }
+                })?;
 
             let block = execution_pending.block.block_cloned();
             if block.fork_name_unchecked().gloas_enabled() {
@@ -6768,6 +6776,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         fcu_params.head_root,
                         &cached_head,
                     )?;
+                    let bid_stream_proposer = pre_payload_attributes
+                        .as_ref()
+                        .filter(|_| chain.builder_bid_streams().is_some())
+                        .and_then(|attributes| {
+                            let pubkey = cached_head
+                                .snapshot
+                                .beacon_state
+                                .validators()
+                                .get(attributes.proposer_index as usize)
+                                .map(|validator| validator.pubkey);
+                            if pubkey.is_none() {
+                                debug!(
+                                    proposer_index = attributes.proposer_index,
+                                    "Unknown proposer pubkey; not opening builder bid streams"
+                                );
+                            }
+                            pubkey
+                        });
                     let proposer_shuffling_decision_root = cached_head
                         .snapshot
                         .beacon_state
@@ -6844,6 +6870,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         pre_payload_attributes,
                         build_payload_status,
                         proposer_shuffling_decision_root,
+                        bid_stream_proposer,
                     )))
                 },
                 "prepare_beacon_proposer_head_read",
@@ -6855,6 +6882,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Some(pre_payload_attributes),
             build_payload_status,
             proposer_shuffling_decision_root,
+            bid_stream_proposer,
         )) = maybe_prep_data
         else {
             // Appropriate log messages have already been logged above and in
@@ -6873,15 +6901,85 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         }
 
+        // The parent this node builds the proposal on is now known, so builder bid streams for it
+        // can open.
+        if let (Some(bid_streams), Some(proposer_pubkey)) =
+            (self.builder_bid_streams(), bid_stream_proposer)
+        {
+            self.open_builder_bid_streams(
+                bid_streams,
+                current_slot,
+                prepare_slot,
+                forkchoice_update_params.head_root,
+                forkchoice_update_params.head_hash,
+                proposer_pubkey,
+            );
+        }
+
+        let head_root = forkchoice_update_params.head_root;
+        let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
+
+        // The inclusion list transactions for `prepare_slot` keep updating as lists arrive towards
+        // the end of `current_slot`, so they are read on every call rather than served from the cache
+        let inclusion_list_transactions = if prepare_slot_fork.heze_enabled() {
+            let chain = self.clone();
+            let transactions = self
+                .spawn_blocking_handle(
+                    move || chain.get_inclusion_list_transactions(head_root, current_slot, false),
+                    "prepare_beacon_proposer_inclusion_list_transactions",
+                )
+                .await?;
+
+            match transactions.and_then(|transactions| {
+                ProgressiveTransactions::new(transactions).map_err(Into::into)
+            }) {
+                Ok(transactions) => Some(transactions),
+                Err(e) => {
+                    warn!(
+                        ?head_root,
+                        %current_slot,
+                        error = ?e,
+                        "Failed to read inclusion lists, keeping the cached ones"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         // Fetch payload attributes from the execution layer's cache, or compute them from scratch
         // if no matching entry is found. This saves recomputing the withdrawals which can take
         // considerable time to compute if a state load is required.
-        let head_root = forkchoice_update_params.head_root;
-        let prepare_slot_fork = self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot);
-        let payload_attributes = if let Some(payload_attributes) = execution_layer
+        let payload_attributes = if let Some(mut payload_attributes) = execution_layer
             .payload_attributes(prepare_slot, head_root, build_payload_status)
             .await
         {
+            // The `forkchoiceUpdated` call below reads the attributes back from the cache
+            // rather than using the value here, so the entry is updated as well
+            if let PayloadAttributes::V5(attributes) = &mut payload_attributes
+                && let Some(new_inclusion_list_transactions) = inclusion_list_transactions
+                && attributes.inclusion_list_transactions != new_inclusion_list_transactions
+            {
+                attributes.inclusion_list_transactions = new_inclusion_list_transactions;
+
+                execution_layer
+                    .insert_proposer(
+                        prepare_slot,
+                        head_root,
+                        build_payload_status,
+                        proposer,
+                        payload_attributes.clone(),
+                    )
+                    .await;
+
+                debug!(
+                    %prepare_slot,
+                    validator = proposer,
+                    "Refreshed proposer inclusion list transactions"
+                );
+            }
+
             payload_attributes
         } else {
             let withdrawals = if prepare_slot_fork.capella_enabled() {
@@ -6932,13 +7030,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None
             };
 
-            let inclusion_list_transactions = if prepare_slot_fork.heze_enabled() {
-                // TODO(heze): populate from the inclusion list store
-                Some(ProgressiveTransactions::empty())
-            } else {
-                None
-            };
-
             let payload_attributes = PayloadAttributes::new(
                 self.slot_clock
                     .start_of(prepare_slot)
@@ -6950,7 +7041,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 parent_beacon_block_root,
                 slot_number,
                 target_gas_limit,
-                inclusion_list_transactions,
+                prepare_slot_fork.heze_enabled().then(|| {
+                    inclusion_list_transactions.unwrap_or_else(ProgressiveTransactions::empty)
+                }),
             );
 
             execution_layer
@@ -7049,6 +7142,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         Ok(Some(head_root))
+    }
+
+    /// The builder bid streams, when enabled.
+    pub fn builder_bid_streams(&self) -> Option<&BidStreams<T::EthSpec>> {
+        self.builders
+            .as_ref()
+            .and_then(|builders| builders.bid_streams())
+    }
+
+    /// Open builder bid streams for the `builder_preferences` entries stored for the proposer of
+    /// `prepare_slot`, building on `parent_root` and the execution payload `parent_hash`.
+    ///
+    /// Each call for a new parent replaces that proposal's streams for the previous parent.
+    fn open_builder_bid_streams(
+        &self,
+        bid_streams: &BidStreams<T::EthSpec>,
+        current_slot: Slot,
+        prepare_slot: Slot,
+        parent_root: Hash256,
+        parent_hash: Option<ExecutionBlockHash>,
+        proposer_pubkey: PublicKeyBytes,
+    ) {
+        let Some(parent_hash) = parent_hash else {
+            return;
+        };
+        let ctx = BidRequestContext {
+            slot: prepare_slot,
+            executed_ancestor_hash: parent_hash,
+            parent_root,
+            proposer_pubkey,
+            fork_name: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
+        };
+        bid_streams.open_streams(&ctx, current_slot, &self.slot_clock);
     }
 
     pub async fn update_execution_engine_forkchoice(
@@ -7589,6 +7715,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 only_timely,
             )
             .map_err(Into::into)
+    }
+
+    /// Provides the inclusion list transactions for a
+    /// payload built on `parent_root` for `proposal_slot`
+    /// The return value falls back to an empty list if fetching the inclusion list transactions fails
+    pub fn proposer_inclusion_list_transactions(
+        &self,
+        parent_root: Hash256,
+        proposal_slot: Slot,
+    ) -> ProgressiveTransactions {
+        let il_slot = proposal_slot.saturating_sub(1u64);
+        self.get_inclusion_list_transactions(parent_root, il_slot, false)
+            .and_then(|transactions| ProgressiveTransactions::new(transactions).map_err(Into::into))
+            .unwrap_or_else(|e| {
+                warn!(
+                    ?parent_root,
+                    %il_slot,
+                    error = ?e,
+                    "Failed to read inclusion lists, building payload without them"
+                );
+                ProgressiveTransactions::empty()
+            })
     }
 
     /// Dumps the entire canonical chain, from the head to genesis to a vector for analysis.

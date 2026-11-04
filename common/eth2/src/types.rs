@@ -16,6 +16,7 @@ use enr::{CombinedKey, Enr};
 use fork_choice::PayloadStatus;
 #[cfg(feature = "network")]
 use libp2p::multiaddr::Multiaddr;
+use lighthouse_version::{COMMIT_PREFIX, client_name};
 use mediatype::{MediaType, MediaTypeList, names};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -359,7 +360,7 @@ pub struct ValidatorData {
     pub validator: Validator,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 pub struct ValidatorBalanceData {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
@@ -566,6 +567,11 @@ pub struct ProposerPreferencesQuery {
     pub dependent_root: Option<Hash256>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct PayloadAttestationPoolQuery {
+    pub slot: Option<Slot>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ValidatorsQuery {
@@ -693,6 +699,33 @@ pub struct MetaData {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VersionData {
     pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VersionDataV2 {
+    pub beacon_node: JsonClientVersion,
+    // The execution_client field will not be shown if it is offline, to conform to the spec
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_client: Option<JsonClientVersion>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JsonClientVersion {
+    pub code: String,
+    #[serde(default)]
+    pub name: String,
+    pub version: String,
+    pub commit: String,
+}
+
+/// Returns Lighthouse client version information
+pub fn version_with_commit() -> JsonClientVersion {
+    JsonClientVersion {
+        code: "LH".to_string(),
+        name: client_name().to_string(),
+        version: format!("v{}", lighthouse_version::version()),
+        commit: format!("0x{}", COMMIT_PREFIX),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

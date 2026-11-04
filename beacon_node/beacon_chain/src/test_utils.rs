@@ -281,6 +281,7 @@ pub struct Builder<T: BeaconChainTypes> {
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     proof_engine: Option<Arc<ProofEngine>>,
+    builders: Option<Arc<builder_client::Builders<T::EthSpec>>>,
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
@@ -476,6 +477,7 @@ where
             execution_layer: None,
             mock_execution_layer: None,
             proof_engine: None,
+            builders: None,
             testing_slot_clock: None,
             validator_monitor_config: None,
             genesis_state_builder: None,
@@ -655,6 +657,12 @@ where
         self
     }
 
+    /// Run with this Gloas builder service.
+    pub fn builders(mut self, builders: Arc<builder_client::Builders<E>>) -> Self {
+        self.builders = Some(builders);
+        self
+    }
+
     /// Run with an EIP-8025 proof engine, which makes the proofs a payload's validity. The engine
     /// is never contacted.
     pub fn proof_engine(mut self) -> Self {
@@ -721,6 +729,7 @@ where
             .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
             .proof_engine(self.proof_engine)
+            .builders(self.builders)
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .node_custody_type(self.node_custody_type)
@@ -882,6 +891,38 @@ fn pack_payload_attestation_vote(
     }
 
     packs.pop().flatten()
+}
+
+/// Aggregation bits pooled for exactly `data`. Bits rather than a pool count, because aggregation
+/// on insert means a second attester voting the same `data` sets a bit in the existing aggregate
+/// instead of adding a new one.
+pub fn pooled_payload_attestation_bits<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    data: &PayloadAttestationData,
+) -> usize {
+    chain
+        .op_pool
+        .get_all_payload_attestations(|pooled| pooled == data)
+        .iter()
+        .map(|attestation| attestation.aggregation_bits.num_set_bits())
+        .sum()
+}
+
+/// Number of PTC positions held by `validator_index`, which is how many bits its message sets.
+pub fn ptc_seats<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    slot: Slot,
+    validator_index: u64,
+) -> usize {
+    chain
+        .head_snapshot()
+        .beacon_state
+        .get_ptc(slot, &chain.spec)
+        .expect("should get PTC")
+        .0
+        .iter()
+        .filter(|index| **index as u64 == validator_index)
+        .count()
 }
 
 impl<E, Hot, Cold> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>>
