@@ -18,7 +18,7 @@ use eth2::types::{
     BuilderConfig, BuilderEntry, BuilderPreferenceEntry, BuilderPubkeys, RequestAuth,
     RequestAuthData, SignedRequestAuth,
 };
-use eth2::types::{GraffitiPolicy, ProposerPreparationData};
+use eth2::types::{EventKind, GraffitiPolicy, ProposerPreparationData};
 use execution_layer::http::{ENGINE_FORKCHOICE_UPDATED_V4, ENGINE_FORKCHOICE_UPDATED_V5};
 use execution_layer::json_structures::{
     JsonForkchoiceStateV1, JsonPayloadAttributesV4, JsonPayloadAttributesV5,
@@ -45,6 +45,7 @@ use task_executor::test_utils::TestRuntime;
 use tempfile::{TempDir, tempdir};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::time::timeout;
 use tokio_tungstenite::accept_hdr_async;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
@@ -345,6 +346,392 @@ async fn prepare_payload_on_full_parent_with_negative_ptc() {
             .await
             .is_some(),
         "prepare should cache attributes under Empty when PTC votes against a Full payload"
+    );
+}
+
+/// A Gloas chain two blocks long whose head payload was received, with no PTC votes yet.
+async fn gloas_chain_with_full_head() -> Option<(TempDir, TestHarness)> {
+    let spec = Arc::new(test_spec::<E>());
+    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+        return None;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path, spec.clone());
+    let harness = get_harness(store, LOW_VALIDATOR_COUNT);
+    harness
+        .execution_block_generator()
+        .set_generate_blobs(false);
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    assert_eq!(
+        harness
+            .chain
+            .canonical_head
+            .cached_head()
+            .head_payload_status(),
+        PayloadStatus::Full
+    );
+    Some((db_path, harness))
+}
+
+/// Registers the proposer of `prepare_slot` with the execution layer, so proposer prep runs.
+async fn register_proposer(harness: &TestHarness, state: &BeaconState<E>, prepare_slot: Slot) {
+    let mut advanced_state = state.clone();
+    complete_state_advance(&mut advanced_state, None, prepare_slot, None, &harness.spec).unwrap();
+    let proposer_index = advanced_state
+        .get_beacon_proposer_index(prepare_slot, &harness.spec)
+        .unwrap();
+    harness
+        .chain
+        .execution_layer
+        .as_ref()
+        .unwrap()
+        .update_proposer_preparation(
+            prepare_slot.epoch(E::slots_per_epoch()),
+            [(
+                &ProposerPreparationData {
+                    validator_index: proposer_index as u64,
+                    fee_recipient: Address::repeat_byte(42),
+                },
+                &None,
+            )],
+        )
+        .await;
+}
+
+/// Each PTC member for `slot` with the number of PTC positions it holds, in PTC order.
+fn ptc_weights(state: &BeaconState<E>, slot: Slot, spec: &ChainSpec) -> Vec<(usize, usize)> {
+    let mut weights: Vec<(usize, usize)> = vec![];
+    for &validator_index in state.get_ptc(slot, spec).unwrap().0.iter() {
+        match weights
+            .iter_mut()
+            .find(|(index, _)| *index == validator_index)
+        {
+            Some((_, weight)) => *weight += 1,
+            None => weights.push((validator_index, 1)),
+        }
+    }
+    weights
+}
+
+/// Imports PTC votes against the head's payload one PTC member at a time. Proposer prep must send
+/// payload attributes and an fcU on the empty parent once the votes against the payload pass the
+/// threshold, not before, and the remaining votes must not prepare the proposer again.
+async fn ptc_votes_against_full_parent_prepare_proposer(
+    payload_present: bool,
+    blob_data_available: bool,
+) {
+    let Some((_db_path, harness)) = gloas_chain_with_full_head().await else {
+        return;
+    };
+    let head = harness.chain.canonical_head.cached_head();
+    let parent_root = head.head_block_root();
+    let parent_state = head.snapshot.beacon_state.clone();
+    drop(head);
+    let parent_slot = parent_state.slot();
+    let prepare_slot = parent_slot + 1;
+    let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
+    assert_ne!(parent_bid.block_hash(), parent_bid.parent_block_hash());
+    register_proposer(&harness, &parent_state, prepare_slot).await;
+
+    // Inside the lookahead, so the prep run the votes start also sends an fcU.
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+    let mock_execution_layer = &harness.mock_execution_layer.as_ref().unwrap().server;
+    mock_execution_layer.take_previous_request();
+
+    let threshold = if payload_present {
+        E::data_availability_timely_threshold()
+    } else {
+        E::payload_timely_threshold()
+    };
+    let fork = harness
+        .spec
+        .fork_at_epoch(parent_slot.epoch(E::slots_per_epoch()));
+    let data = PayloadAttestationData {
+        beacon_block_root: parent_root,
+        slot: parent_slot,
+        payload_present,
+        blob_data_available,
+    };
+    let mut payload_attributes_events = harness
+        .chain
+        .event_handler
+        .as_ref()
+        .unwrap()
+        .subscribe_payload_attributes();
+
+    let mut votes_against = 0;
+    let mut prepared = false;
+    for (validator_index, weight) in ptc_weights(&parent_state, parent_slot, &harness.spec) {
+        harness
+            .import_payload_attestation_message(harness.make_payload_attestation_message(
+                validator_index,
+                data.clone(),
+                &fork,
+            ))
+            .unwrap();
+        votes_against += weight;
+
+        if votes_against <= threshold || prepared {
+            assert!(
+                timeout(Duration::from_millis(100), payload_attributes_events.recv())
+                    .await
+                    .is_err(),
+                "no payload attributes expected with {votes_against} PTC votes against the payload"
+            );
+            continue;
+        }
+
+        let event = timeout(Duration::from_secs(5), payload_attributes_events.recv())
+            .await
+            .expect("PTC votes passing the threshold should prepare the proposer")
+            .unwrap();
+        let EventKind::PayloadAttributes(attributes) = event else {
+            panic!("unexpected event {event:?}");
+        };
+        assert_eq!(attributes.data.proposal_slot, prepare_slot);
+        assert_eq!(attributes.data.parent_block_root, parent_root);
+        assert_eq!(
+            attributes.data.parent_block_hash,
+            parent_bid.parent_block_hash(),
+            "payload attributes must build on the empty parent"
+        );
+
+        let forkchoice_updated = timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(request) = mock_execution_layer.take_previous_request()
+                    && request["method"]
+                        .as_str()
+                        .is_some_and(|method| method.starts_with("engine_forkchoiceUpdated"))
+                {
+                    return request;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("prep should send forkchoiceUpdated");
+        let forkchoice_state: JsonForkchoiceStateV1 =
+            serde_json::from_value(forkchoice_updated["params"][0].clone()).unwrap();
+        assert_eq!(
+            forkchoice_state.head_block_hash,
+            parent_bid.parent_block_hash(),
+            "prep fcU must build on the empty parent"
+        );
+        prepared = true;
+    }
+    assert!(
+        prepared,
+        "PTC votes against the payload never passed the threshold"
+    );
+}
+
+#[tokio::test]
+async fn ptc_votes_against_timeliness_prepare_proposer_on_empty_parent() {
+    ptc_votes_against_full_parent_prepare_proposer(false, true).await;
+}
+
+#[tokio::test]
+async fn ptc_votes_against_data_availability_prepare_proposer_on_empty_parent() {
+    ptc_votes_against_full_parent_prepare_proposer(true, false).await;
+}
+
+/// Imports PTC votes against `block_root`'s payload from the whole PTC and checks that proposer
+/// prep sends no payload attributes.
+async fn assert_ptc_votes_do_not_prepare_proposer(
+    harness: &TestHarness,
+    block_root: Hash256,
+    block_state: &BeaconState<E>,
+) {
+    let slot = block_state.slot();
+    register_proposer(harness, block_state, slot + 1).await;
+    let mut payload_attributes_events = harness
+        .chain
+        .event_handler
+        .as_ref()
+        .unwrap()
+        .subscribe_payload_attributes();
+
+    let (messages, _) = harness.make_payload_attestation_messages(
+        block_state,
+        block_root,
+        slot,
+        vec![PayloadAttestationVote {
+            validator_count: E::ptc_size(),
+            payload_present: false,
+            blob_data_available: false,
+        }],
+    );
+    harness
+        .import_payload_attestation_messages(messages)
+        .unwrap();
+    assert!(
+        !harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .should_build_on_full(&block_root, PayloadStatus::Full, slot + 1)
+            .unwrap(),
+        "the votes should count against the payload"
+    );
+
+    assert!(
+        timeout(Duration::from_millis(500), payload_attributes_events.recv())
+            .await
+            .is_err(),
+        "no payload attributes expected"
+    );
+}
+
+#[tokio::test]
+async fn ptc_votes_against_a_block_that_is_not_the_head_do_not_prepare_proposer() {
+    let Some((_db_path, harness)) = gloas_chain_with_full_head().await else {
+        return;
+    };
+    let parent_state = harness.get_current_state();
+    let slot = parent_state.slot() + 1;
+    harness.set_current_slot(slot);
+
+    // Two blocks for `slot`, on the full and on the empty parent. One of them becomes the head.
+    let mut children = vec![];
+    for parent_payload_status in [PayloadStatus::Full, PayloadStatus::Empty] {
+        let (block_contents, envelope, state) = harness
+            .make_block_with_envelope_on(parent_state.clone(), slot, parent_payload_status)
+            .await;
+        let block_root = block_contents.0.canonical_root();
+        let block_state_root = block_contents.0.state_root();
+        harness
+            .process_block(slot, block_root, block_contents)
+            .await
+            .unwrap();
+        harness
+            .process_envelope(block_root, envelope.unwrap(), &state, block_state_root)
+            .await;
+        children.push((block_root, state));
+    }
+    let head_root = harness.head_block_root();
+    let (block_root, block_state) = children
+        .into_iter()
+        .find(|(block_root, _)| *block_root != head_root)
+        .expect("one block should not be the head");
+
+    assert_ptc_votes_do_not_prepare_proposer(&harness, block_root, &block_state).await;
+}
+
+#[tokio::test]
+async fn ptc_votes_against_a_payload_that_was_not_received_do_not_prepare_proposer() {
+    let Some((_db_path, harness)) = gloas_chain_with_full_head().await else {
+        return;
+    };
+    let parent_state = harness.get_current_state();
+    let slot = parent_state.slot() + 1;
+    harness.set_current_slot(slot);
+
+    let (block_contents, _envelope, state) = harness
+        .make_block_with_envelope_on(parent_state, slot, PayloadStatus::Full)
+        .await;
+    let block_root = block_contents.0.canonical_root();
+    harness
+        .process_block(slot, block_root, block_contents)
+        .await
+        .unwrap();
+    assert_eq!(harness.head_block_root(), block_root);
+
+    assert_ptc_votes_do_not_prepare_proposer(&harness, block_root, &state).await;
+}
+
+// A prep run that read fork choice before PTC votes moved the build parent to empty must send
+// neither payload attributes nor an fcU, leaving both to the run the votes started.
+#[tokio::test]
+async fn proposer_prep_run_started_before_ptc_votes_sends_nothing() {
+    let Some((_db_path, harness)) = gloas_chain_with_full_head().await else {
+        return;
+    };
+    let parent_root = harness.head_block_root();
+    let parent_state = harness.get_current_state();
+    let parent_slot = parent_state.slot();
+    let prepare_slot = parent_slot + 1;
+    let parent_bid = parent_state.latest_execution_payload_bid().unwrap();
+    register_proposer(&harness, &parent_state, prepare_slot).await;
+    harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
+
+    let forkchoice_updated_head_hashes = Arc::new(Mutex::new(vec![]));
+    let head_hashes = forkchoice_updated_head_hashes.clone();
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .ctx
+        .hook
+        .lock()
+        .set_forkchoice_updated_hook(Box::new(move |state, payload_attributes| {
+            if payload_attributes.is_some() {
+                head_hashes.lock().push(state.head_block_hash);
+            }
+            None
+        }));
+    let mut payload_attributes_events = harness
+        .chain
+        .event_handler
+        .as_ref()
+        .unwrap()
+        .subscribe_payload_attributes();
+
+    // Poll the run once, so it reads its generation before the votes arrive. It then waits on a
+    // blocking task, and can't send anything until it is polled again.
+    let mut stale_run = Box::pin(harness.chain.prepare_beacon_proposer(parent_slot));
+    assert!(futures::poll!(&mut stale_run).is_pending());
+    let (messages, _) = harness.make_payload_attestation_messages(
+        &parent_state,
+        parent_root,
+        parent_slot,
+        vec![PayloadAttestationVote {
+            validator_count: E::ptc_size(),
+            payload_present: false,
+            blob_data_available: false,
+        }],
+    );
+    harness
+        .import_payload_attestation_messages(messages)
+        .unwrap();
+    assert_eq!(stale_run.await.unwrap(), None);
+
+    let event = timeout(Duration::from_secs(5), payload_attributes_events.recv())
+        .await
+        .expect("PTC votes against the payload should prepare the proposer")
+        .unwrap();
+    let EventKind::PayloadAttributes(attributes) = event else {
+        panic!("unexpected event {event:?}");
+    };
+    assert_eq!(
+        attributes.data.parent_block_hash,
+        parent_bid.parent_block_hash()
+    );
+    assert!(
+        timeout(Duration::from_millis(200), payload_attributes_events.recv())
+            .await
+            .is_err(),
+        "only the run the votes started should send payload attributes"
+    );
+    timeout(Duration::from_secs(5), async {
+        while forkchoice_updated_head_hashes.lock().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the run the votes started should send an fcU");
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        *forkchoice_updated_head_hashes.lock(),
+        vec![parent_bid.parent_block_hash()],
+        "only the run the votes started should send an fcU, on the empty parent"
     );
 }
 
@@ -1549,10 +1936,34 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_empty_build_parent() 
         )
         .await;
 
-    // The PTC votes against the parent's payload, so the head stays Full while the proposer
-    // builds on the Empty parent
+    // Register the proposer so prepare_beacon_proposer doesn't skip it
     let parent_root = harness.head_block_root();
     let parent_state = harness.get_current_state();
+    let proposer_index = parent_state
+        .get_beacon_proposer_index(prepare_slot, &spec)
+        .unwrap();
+    let el = harness.chain.execution_layer.as_ref().unwrap();
+    el.update_proposer_preparation(
+        prepare_slot.epoch(E::slots_per_epoch()),
+        [(
+            &ProposerPreparationData {
+                validator_index: proposer_index as u64,
+                fee_recipient: Address::repeat_byte(42),
+            },
+            &None,
+        )],
+    )
+    .await;
+
+    // The PTC votes against the parent's payload, so the head stays Full while the proposer
+    // builds on the Empty parent. The votes start a prep run, which caches the attributes under
+    // the Empty build payload status; wait for it so it can't send a later fcU.
+    let mut payload_attributes_events = harness
+        .chain
+        .event_handler
+        .as_ref()
+        .unwrap()
+        .subscribe_payload_attributes();
     let (messages, _) = harness.make_payload_attestation_messages(
         &parent_state,
         parent_root,
@@ -1566,17 +1977,16 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_empty_build_parent() 
     harness
         .import_payload_attestation_messages(messages)
         .unwrap();
+    timeout(Duration::from_secs(5), payload_attributes_events.recv())
+        .await
+        .expect("PTC votes against the payload should prepare the proposer")
+        .unwrap();
     harness.chain.recompute_head_at_current_slot().await;
 
     // The canonical head is still the Full parent
     let cached_head = harness.chain.canonical_head.cached_head();
     assert_eq!(cached_head.head_block_root(), parent_root);
     assert_eq!(cached_head.head_payload_status(), PayloadStatus::Full);
-    let proposer_index = cached_head
-        .snapshot
-        .beacon_state
-        .get_beacon_proposer_index(prepare_slot, &spec)
-        .unwrap();
     drop(cached_head);
 
     // Capture the payload attributes of every fcU the mock EL receives from now on
@@ -1597,23 +2007,8 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_empty_build_parent() 
             None
         }));
 
-    // Register the proposer so prepare_beacon_proposer doesn't skip it
-    let el = harness.chain.execution_layer.as_ref().unwrap();
-    el.update_proposer_preparation(
-        prepare_slot.epoch(E::slots_per_epoch()),
-        [(
-            &ProposerPreparationData {
-                validator_index: proposer_index as u64,
-                fee_recipient: Address::repeat_byte(42),
-            },
-            &None,
-        )],
-    )
-    .await;
-
     harness.advance_to_slot_lookahead(prepare_slot, harness.chain.config.prepare_payload_lookahead);
     // First beacon proposer preparation call, with the inclusion list not in the store
-    // The attributes are cached under the Empty build payload status
     harness
         .chain
         .prepare_beacon_proposer(il_slot)
