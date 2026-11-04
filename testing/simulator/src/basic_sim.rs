@@ -332,7 +332,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
                 slot_duration,
                 latest_fork_version,
             ),
-            // Check that all sync aggregates are full.
+            // Check that sync aggregates are full, allowing a few that are not.
             checks::verify_full_sync_aggregates_up_to(
                 network.clone(),
                 // Start checking for sync_aggregates at `FORK_EPOCH + 1` to account for
