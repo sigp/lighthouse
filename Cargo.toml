@@ -231,7 +231,7 @@ serde_json = "1"
 serde_repr = "0.1"
 sha2 = "0.10"
 signing_method = { path = "validator_client/signing_method" }
-silver_hashing = { git = "https://github.com/gattaca-com/silver", rev = "0896b4ddc9c94ee30f3f91fde6f29ffd5a402668", features = ["multi-owner"] }
+silver_hashing = { git = "https://github.com/gattaca-com/silver", rev = "0dd9321d04327c43f1316e0e12e94374052a9837", features = ["multi-owner"] }
 slasher = { path = "slasher", default-features = false }
 slashing_protection = { path = "validator_client/slashing_protection" }
 slot_clock = { path = "common/slot_clock" }
@@ -293,10 +293,6 @@ incremental = false
 [profile.release-debug]
 inherits = "release"
 debug = true
-
-# FIXME(silver-hashing): local crate until the checked SharedList API is on silver main.
-[patch."https://github.com/gattaca-com/silver"]
-silver_hashing = { path = "../silver/crates/hashing" }
 
 [patch.crates-io]
 # FIXME(eip-7688): EIP-7688 development patches

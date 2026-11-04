@@ -9328,7 +9328,8 @@ dependencies = [
 
 [[package]]
 name = "silver_hashing"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.11"
+source = "git+https://github.com/gattaca-com/silver?rev=0dd9321d04327c43f1316e0e12e94374052a9837#0dd9321d04327c43f1316e0e12e94374052a9837"
 dependencies = [
  "bytesize",
  "hashtree-rs",
