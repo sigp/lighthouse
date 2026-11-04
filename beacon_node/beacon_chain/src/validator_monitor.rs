@@ -511,7 +511,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 // Cache relevant validator info.
                 if let Some(balance) = state.balances().get(i) {
                     monitored_validator.with_epoch_summary(current_epoch, |summary| {
-                        summary.register_validator_total_balance(*balance)
+                        summary.register_validator_total_balance(balance)
                     });
                 }
 
@@ -526,7 +526,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_BALANCE_GWEI,
                         &[id],
-                        *balance as i64,
+                        balance as i64,
                     );
                 }
 
@@ -2222,7 +2222,7 @@ mod tests {
             assert_eq!(monitor.indices, expected_indices);
 
             // A shorter registry must still update the monitored validators' balances.
-            *shorter_state.balances_mut().get_mut(31).unwrap() = 123;
+            shorter_state.balances_mut().set(31, 123).unwrap();
             monitor.process_valid_state(Epoch::new(0), &shorter_state, &spec);
             assert_eq!(monitor.indices, expected_indices);
             assert_eq!(
@@ -2235,7 +2235,7 @@ mod tests {
             assert_eq!(monitor.indices, expected_indices);
             assert_eq!(
                 monitor.validators[&validators[31].pubkey].get_total_balance(Epoch::new(0)),
-                state.balances().get(31).copied()
+                state.balances().get(31)
             );
         }
     }

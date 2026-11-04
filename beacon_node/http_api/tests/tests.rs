@@ -964,7 +964,7 @@ impl ApiTester {
                             .enumerate()
                             .map(|(index, balance)| ValidatorBalanceData {
                                 index: index as u64,
-                                balance: *balance,
+                                balance,
                             })
                             .collect()
                     } else {
@@ -975,7 +975,7 @@ impl ApiTester {
                             if i < state.balances().len() as u64 {
                                 validators.push(ValidatorBalanceData {
                                     index: i,
-                                    balance: *state.balances().get(i as usize).unwrap(),
+                                    balance: state.balances().get(i as usize).unwrap(),
                                 });
                             }
                         }
@@ -1019,7 +1019,7 @@ impl ApiTester {
                     .enumerate()
                     .map(|(index, balance)| ValidatorBalanceData {
                         index: index as u64,
-                        balance: *balance,
+                        balance,
                     })
                     .collect();
 
@@ -1108,7 +1108,7 @@ impl ApiTester {
                             .enumerate()
                             .map(|(index, balance)| ValidatorBalanceData {
                                 index: index as u64,
-                                balance: *balance,
+                                balance,
                             })
                             .collect()
                     } else {
@@ -1117,7 +1117,7 @@ impl ApiTester {
                             if i < state.balances().len() as u64 {
                                 validators.push(ValidatorBalanceData {
                                     index: i,
-                                    balance: *state.balances().get(i as usize).unwrap(),
+                                    balance: state.balances().get(i as usize).unwrap(),
                                 });
                             }
                         }
@@ -1402,7 +1402,7 @@ impl ApiTester {
                             {
                                 validators.push(ValidatorData {
                                     index: i,
-                                    balance: *state.balances().get(i as usize).unwrap(),
+                                    balance: state.balances().get(i as usize).unwrap(),
                                     status,
                                     validator,
                                 });
@@ -1687,7 +1687,7 @@ impl ApiTester {
 
                         ValidatorData {
                             index: i as u64,
-                            balance: *state.balances().get(i).unwrap(),
+                            balance: state.balances().get(i).unwrap(),
                             status: ValidatorStatus::from_validator(
                                 &validator,
                                 epoch,

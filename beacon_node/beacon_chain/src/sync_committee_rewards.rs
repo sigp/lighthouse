@@ -41,7 +41,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for &validator_index in &sync_committee_indices {
             balances.insert(
                 validator_index,
-                *state
+                state
                     .balances()
                     .get(validator_index)
                     .ok_or(BeaconChainError::SyncCommitteeRewardsSyncError)?,
@@ -51,7 +51,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let proposer_index = block.proposer_index() as usize;
         balances.insert(
             proposer_index,
-            *state
+            state
                 .balances()
                 .get(proposer_index)
                 .ok_or(BeaconChainError::SyncCommitteeRewardsSyncError)?,
@@ -85,7 +85,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(balances
             .iter()
             .filter_map(|(&i, &new_balance)| {
-                let initial_balance = *state.balances().get(i)? as i64;
+                let initial_balance = state.balances().get(i)? as i64;
                 let reward = if i != proposer_index {
                     new_balance as i64 - initial_balance
                 } else if sync_committee_indices.contains(&i) {

@@ -1,5 +1,6 @@
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
+use silver_hashing::SszScalar;
 use ssz::{Decode, DecodeError, Encode};
 use tree_hash::{PackedEncoding, TreeHash, TreeHashType};
 
@@ -8,6 +9,7 @@ use crate::core::{Hash256, consts::altair::NUM_FLAG_INDICES};
 #[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(transparent)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[repr(transparent)]
 pub struct ParticipationFlags {
     #[serde(with = "serde_utils::quoted_u8")]
     bits: u8,
@@ -88,5 +90,22 @@ impl TreeHash for ParticipationFlags {
 
     fn tree_hash_root(&self) -> Hash256 {
         self.bits.tree_hash_root()
+    }
+}
+
+impl SszScalar for ParticipationFlags {
+    #[inline]
+    fn read_ssz_slice(dst: &mut [Self], src: &[u8]) {
+        for (flags, bits) in dst.iter_mut().zip(src) {
+            *flags = Self { bits: *bits };
+        }
+    }
+
+    #[inline]
+    fn write_ssz_slice<W: std::io::Write>(data: &[Self], w: &mut W) -> std::io::Result<()> {
+        for flags in data {
+            w.write_all(&[flags.bits])?;
+        }
+        Ok(())
     }
 }

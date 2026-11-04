@@ -1,6 +1,7 @@
 mod activation_queue;
 mod balance;
 mod beacon_state;
+pub mod scalar_list;
 #[macro_use]
 mod committee_cache;
 mod epoch_cache;
@@ -15,10 +16,11 @@ mod slashings_cache;
 pub use activation_queue::ActivationQueue;
 pub use balance::Balance;
 pub use beacon_state::{
-    Balances, BalancesGloas, BalancesMut, BalancesOwned, BalancesRef, BeaconState,
-    BeaconStateAltair, BeaconStateBase, BeaconStateBellatrix, BeaconStateCapella, BeaconStateDeneb,
+    Balances, BalancesMut, BalancesOwned, BalancesRef, BeaconState, BeaconStateAltair,
+    BeaconStateBase, BeaconStateBellatrix, BeaconStateCapella, BeaconStateDeneb,
     BeaconStateElectra, BeaconStateError, BeaconStateFulu, BeaconStateGloas, BeaconStateHash,
-    BeaconStateHeze, BeaconStateRef, CACHED_EPOCHS, DEFAULT_PRE_ELECTRA_WS_PERIOD, Validators,
+    BeaconStateHeze, BeaconStateRef, CACHED_EPOCHS, DEFAULT_PRE_ELECTRA_WS_PERIOD,
+    EpochParticipation, InactivityScores, ParticipationMut, ParticipationRef, Validators,
     ValidatorsGloas, ValidatorsMut, ValidatorsOwned, ValidatorsRef,
 };
 pub use committee_cache::{
