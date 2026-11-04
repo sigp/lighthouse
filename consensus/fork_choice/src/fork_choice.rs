@@ -309,9 +309,8 @@ impl<'a, E: EthSpec> From<IndexedAttestationRef<'a, E>> for QueuedAttestation {
 /// Cap on parked attesting indices (~one per mainnet active validator).
 const MAX_INDICES_AWAITING_PAYLOAD: usize = 1_000_000;
 
-/// Block-carried `payload_present` attestations awaiting a payload envelope, keyed by block root.
-///
-/// Bounded by a cap on the total number of attesting indices.
+/// Block-carried `payload_present` attestations awaiting a payload envelope, keyed by block
+/// root and bounded by a cap on total attesting indices.
 #[derive(PartialEq)]
 pub struct AttestationsAwaitingPayload {
     by_root: HashMap<Hash256, Vec<QueuedAttestation>>,
@@ -474,7 +473,8 @@ pub struct ForkChoice<T, E> {
     /// Attestations that arrived at the current slot and must be queued for later processing,
     /// keyed by their slot.
     queued_attestations: BTreeMap<Slot, Vec<QueuedAttestation>>,
-    /// Block-carried `payload_present` attestations awaiting a payload envelope.
+    /// Block-carried `payload_present` attestations awaiting a payload envelope, keyed by
+    /// attested block root.
     attestations_awaiting_payload: AttestationsAwaitingPayload,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
@@ -1470,13 +1470,17 @@ where
             Ok(()) => (),
             Err(invalid @ InvalidAttestation::PayloadNotReceived { .. }) => {
                 match is_from_block {
-                    // Defer until `on_payload_envelope_received`.
-                    AttestationFromBlock::True => {
+                    // Park until `on_payload_envelope_received`. Gossip uses the reprocess
+                    // queue for this case instead. Reject in `spec_test_mode` to match the
+                    // spec's `assert is_payload_verified` (no retry on envelope import).
+                    AttestationFromBlock::True if !self.spec_test_mode => {
                         self.attestations_awaiting_payload
                             .insert(QueuedAttestation::from(attestation));
                         return Ok(());
                     }
-                    AttestationFromBlock::False => return Err(invalid.into()),
+                    AttestationFromBlock::True | AttestationFromBlock::False => {
+                        return Err(invalid.into());
+                    }
                 }
             }
             Err(invalid) => return Err(invalid.into()),
