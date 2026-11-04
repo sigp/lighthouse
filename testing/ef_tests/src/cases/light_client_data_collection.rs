@@ -33,7 +33,8 @@ pub struct Checks {
     pub latest_finality_update: Option<String>,
     pub latest_optimistic_update: Option<String>,
     pub bootstraps: Vec<(String, String)>,
-    pub best_updates: Vec<(u64, String)>,
+    /// `None` means the test asserts no update is stored for this period yet.
+    pub best_updates: Vec<(u64, Option<String>)>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,9 +161,11 @@ impl<E: EthSpec> LoadCase for LightClientDataCollection<E> {
                     .checks
                     .best_updates
                     .into_iter()
-                    .filter_map(|u| {
-                        u.update
-                            .map(|fd| (u.period, format!("{}.ssz_snappy", fd.data)))
+                    .map(|u| {
+                        (
+                            u.period,
+                            u.update.map(|fd| format!("{}.ssz_snappy", fd.data)),
+                        )
                     })
                     .collect();
                 steps.push(Step::NewHead {
@@ -403,35 +406,27 @@ impl<E: EthSpec> Case for LightClientDataCollection<E> {
                             .get_light_client_updates(*period, 1)
                             .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
                         let actual = updates.into_iter().next();
-                        let expected =
-                            ssz_decode_file_with(&self.path.join(expected_path), |bytes| {
-                                LightClientUpdate::from_ssz_bytes(bytes, &fork_name)
-                            })?;
-                        if actual.as_ref() != Some(&expected) {
-                            return Err(Error::NotEqual(format!(
-                                "best_update mismatch for period {}",
-                                period
-                            )));
-                        }
-                    }
-
-                    // SCRATCH DIAGNOSTIC: find periods with a stored update that checks.best_updates
-                    // says nothing about, to report a specific failing case to Etan.
-                    let asserted_periods: std::collections::HashSet<u64> =
-                        checks.best_updates.iter().map(|(p, _)| *p).collect();
-                    for period in 0..10u64 {
-                        if asserted_periods.contains(&period) {
-                            continue;
-                        }
-                        let updates = harness
-                            .chain
-                            .get_light_client_updates(period, 1)
-                            .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))?;
-                        if !updates.is_empty() {
-                            eprintln!(
-                                "SCRATCH: path={:?} step_index={} total_steps={} block_id={} period={} has an unexpected stored update (checks.best_updates says nothing about this period)",
-                                self.path, step_index, self.steps.len(), block_id, period
-                            );
+                        match expected_path {
+                            Some(expected_path) => {
+                                let expected = ssz_decode_file_with(
+                                    &self.path.join(expected_path),
+                                    |bytes| LightClientUpdate::from_ssz_bytes(bytes, &fork_name),
+                                )?;
+                                if actual.as_ref() != Some(&expected) {
+                                    return Err(Error::NotEqual(format!(
+                                        "best_update mismatch for period {}",
+                                        period
+                                    )));
+                                }
+                            }
+                            None => {
+                                if actual.is_some() {
+                                    return Err(Error::NotEqual(format!(
+                                        "expected no stored update for period {}, but one exists",
+                                        period
+                                    )));
+                                }
+                            }
                         }
                     }
                 }

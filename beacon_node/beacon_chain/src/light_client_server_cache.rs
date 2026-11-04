@@ -229,11 +229,18 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         // Spec: Full nodes SHOULD provide the best derivable LightClientUpdate (according to is_better_update)
         // for each sync committee period
+        //
+        // Spec: an update with fewer than MIN_SYNC_COMMITTEE_PARTICIPANTS signers is unusable
+        // outright (see validate_light_client_update), not just a tiebreak loss against no
+        // previous update, so it must never be the first update persisted for a period either.
+        let meets_min_participants =
+            (new_participants as u64) >= chain_spec.min_sync_committee_participants;
+
         let prev_light_client_update =
             self.get_light_client_update(&store, sync_period, chain_spec)?;
 
-        let should_persist_light_client_update =
-            if let Some(prev_light_client_update) = prev_light_client_update {
+        let should_persist_light_client_update = meets_min_participants
+            && if let Some(prev_light_client_update) = prev_light_client_update {
                 prev_light_client_update
                     .is_better_light_client_update(&new_light_client_update, chain_spec)?
             } else {
