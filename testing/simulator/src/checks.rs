@@ -175,8 +175,13 @@ pub async fn verify_fork_version<E: EthSpec>(
     Ok(())
 }
 
-/// A late block makes some or all of the sync committee sign the grandparent root, so the next
-/// block's aggregate comes out partial or empty. Tolerate a few of those, whatever the cause.
+/// The simulator runs several beacon nodes and validator clients on a single CI runner with
+/// short slots, so under load a block can be produced or imported late. Each validator client
+/// reads the head from a different beacon node, so a late block can make some or all of the sync
+/// committee sign the grandparent root, and the next block's aggregate comes out partial or empty.
+/// Tolerate a few of those so a slow runner doesn't fail the run. This can't tell a late block
+/// from lost contributions, but a regression that leaves more than a few aggregates short still
+/// fails.
 const MAX_NON_FULL_SYNC_AGGREGATES: usize = 3;
 
 /// Verify that the sync aggregates from `sync_committee_start_slot` until `upto_slot` are full,
