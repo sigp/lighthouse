@@ -132,12 +132,24 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         // Spec: Full nodes SHOULD provide the LightClientOptimisticUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
-        let is_latest_optimistic = match &self.latest_optimistic_update.read().clone() {
-            Some(latest_optimistic_update) => {
-                latest_optimistic_update.is_latest(attested_slot, signature_slot)
-            }
-            None => true,
-        };
+        let max_participants = sync_aggregate.sync_committee_bits.len();
+        let new_participants = sync_aggregate.sync_committee_bits.num_set_bits();
+        let new_has_supermajority =
+            new_participants.saturating_mul(3) >= max_participants.saturating_mul(2);
+        // Spec (validate_light_client_update): sync committee participation below
+        // MIN_SYNC_COMMITTEE_PARTICIPANTS makes an update unusable outright, not just a tiebreak loss.
+        let meets_min_participants =
+            new_participants >= chain_spec.min_sync_committee_participants as usize;
+        let is_latest_optimistic = meets_min_participants
+            && match &self.latest_optimistic_update.read().clone() {
+                Some(latest_optimistic_update) => latest_optimistic_update.is_latest(
+                    attested_slot,
+                    new_has_supermajority,
+                    new_participants,
+                    signature_slot,
+                ),
+                None => true,
+            };
         if is_latest_optimistic {
             // can create an optimistic update, that is more recent
             *self.latest_optimistic_update.write() = Some(LightClientOptimisticUpdate::new(
@@ -150,19 +162,40 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
 
         // Spec: Full nodes SHOULD provide the LightClientFinalityUpdate with the highest
         // attested_header.beacon.slot (if multiple, highest signature_slot) as selected by fork choice
-        let is_latest_finality = match &self.latest_finality_update.read().clone() {
-            Some(latest_finality_update) => {
-                latest_finality_update.is_latest(attested_slot, signature_slot)
-            }
-            None => true,
-        };
+        let is_latest_finality = meets_min_participants
+            && match &self.latest_finality_update.read().clone() {
+                Some(latest_finality_update) => match maybe_finalized_block.as_ref() {
+                    // The finality branch only proves the finalized block's own slot, not the
+                    // checkpoint epoch's start slot (an earlier slot in that epoch may have been
+                    // missed), so compare against the finalized block's actual slot.
+                    Some(finalized_block) => latest_finality_update.is_latest(
+                        finalized_block.slot(),
+                        new_has_supermajority,
+                        new_participants,
+                        signature_slot,
+                    ),
+                    None => false,
+                },
+                None => true,
+            };
 
-        if is_latest_finality & !cached_parts.finalized_block_root.is_zero() {
-            // Immediately after checkpoint sync the finalized block may not be available yet.
-            if let Some(finalized_block) = maybe_finalized_block.as_ref() {
+        if is_latest_finality {
+            // Spec: finalized_checkpoint.root being zero (not the finalized block's slot) is what
+            // determines whether the finalized header must be empty, see consensus-specs#5707.
+            if cached_parts.finalized_block_root.is_zero() {
                 *self.latest_finality_update.write() = Some(LightClientFinalityUpdate::new(
                     &attested_block,
-                    finalized_block,
+                    None,
+                    cached_parts.finality_branch.clone(),
+                    sync_aggregate.clone(),
+                    signature_slot,
+                    chain_spec,
+                )?);
+            } else if let Some(finalized_block) = maybe_finalized_block.as_ref() {
+                // Immediately after checkpoint sync the finalized block may not be available yet.
+                *self.latest_finality_update.write() = Some(LightClientFinalityUpdate::new(
+                    &attested_block,
+                    Some(finalized_block),
                     cached_parts.finality_branch.clone(),
                     sync_aggregate.clone(),
                     signature_slot,
