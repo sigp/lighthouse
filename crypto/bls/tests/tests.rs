@@ -372,6 +372,85 @@ macro_rules! test_suite {
             PublicKey::deserialize(&bls::INFINITY_PUBLIC_KEY).unwrap_err();
         }
 
+        /// The 96 and 192 byte encodings of one valid signature.
+        fn valid_signature_encodings() -> (Signature, [u8; 96], [u8; 192]) {
+            let sig = secret_from_u64(0).sign(Hash256::from_low_u64_be(42));
+            let uncompressed = sig.serialize_uncompressed().unwrap();
+            (sig.clone(), sig.serialize(), uncompressed)
+        }
+
+        #[test]
+        fn signature_deserialize_accepts_compressed_bytes() {
+            let (sig, compressed, _) = valid_signature_encodings();
+            assert_eq!(Signature::deserialize(&compressed).unwrap(), sig);
+        }
+
+        #[test]
+        fn signature_deserialize_rejects_uncompressed_bytes() {
+            let (_, _, uncompressed) = valid_signature_encodings();
+            assert!(Signature::deserialize(&uncompressed).is_err());
+        }
+
+        #[test]
+        fn signature_deserialize_rejects_wrong_lengths() {
+            let (_, compressed, _) = valid_signature_encodings();
+            assert!(Signature::deserialize(&compressed[..95]).is_err());
+            assert!(Signature::deserialize(&[&compressed[..], &[0]].concat()).is_err());
+            assert!(Signature::deserialize(&[]).is_err());
+        }
+
+        #[test]
+        fn signature_from_str_rejects_uncompressed_hex() {
+            let (sig, compressed, uncompressed) = valid_signature_encodings();
+            let compressed_hex = format!("0x{}", hex::encode(compressed));
+            let uncompressed_hex = format!("0x{}", hex::encode(uncompressed));
+            assert_eq!(compressed_hex.parse::<Signature>().unwrap(), sig);
+            assert!(uncompressed_hex.parse::<Signature>().is_err());
+        }
+
+        #[test]
+        fn signature_deserialize_uncompressed_accepts_only_uncompressed_bytes() {
+            let (sig, compressed, uncompressed) = valid_signature_encodings();
+            assert_eq!(
+                Signature::deserialize_uncompressed(&uncompressed).unwrap(),
+                sig
+            );
+            assert!(Signature::deserialize_uncompressed(&compressed).is_err());
+            assert!(Signature::deserialize_uncompressed(&uncompressed[..191]).is_err());
+        }
+
+        #[test]
+        fn aggregate_signature_deserialize_accepts_compressed_bytes() {
+            let (sig, compressed, _) = valid_signature_encodings();
+            let mut expected = AggregateSignature::infinity();
+            expected.add_assign(&sig);
+            assert_eq!(
+                AggregateSignature::deserialize(&compressed).unwrap(),
+                expected
+            );
+        }
+
+        #[test]
+        fn aggregate_signature_deserialize_rejects_uncompressed_bytes() {
+            let (_, _, uncompressed) = valid_signature_encodings();
+            assert!(AggregateSignature::deserialize(&uncompressed).is_err());
+        }
+
+        #[test]
+        fn aggregate_signature_deserialize_rejects_wrong_lengths() {
+            let (_, compressed, _) = valid_signature_encodings();
+            assert!(AggregateSignature::deserialize(&compressed[..95]).is_err());
+            assert!(AggregateSignature::deserialize(&[&compressed[..], &[0]].concat()).is_err());
+            assert!(AggregateSignature::deserialize(&[]).is_err());
+        }
+
+        #[test]
+        fn aggregate_signature_from_str_rejects_uncompressed_hex() {
+            let (_, _, uncompressed) = valid_signature_encodings();
+            let uncompressed_hex = format!("0x{}", hex::encode(uncompressed));
+            assert!(uncompressed_hex.parse::<AggregateSignature>().is_err());
+        }
+
         /// A helper struct to make it easer to deal with `SignatureSet` lifetimes.
         struct OwnedSignatureSet {
             signature: AggregateSignature,

@@ -193,11 +193,27 @@ impl TSignature<blst_core::PublicKey> for blst_core::Signature {
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        // `from_bytes` accepts uncompressed bytes too so enforce byte length here.
+        if bytes.len() != SIGNATURE_BYTES_LEN {
+            return Err(Error::InvalidByteLength {
+                got: bytes.len(),
+                expected: SIGNATURE_BYTES_LEN,
+            });
+        }
         Self::from_bytes(bytes).map_err(Into::into)
     }
 
     fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error> {
-        Self::deserialize(bytes).map_err(Into::into)
+        if bytes.len() != SIGNATURE_UNCOMPRESSED_BYTES_LEN {
+            return Err(Error::InvalidByteLength {
+                got: bytes.len(),
+                expected: SIGNATURE_UNCOMPRESSED_BYTES_LEN,
+            });
+        }
+        // Ensure we use the `blst` function rather than the one from this trait.
+        let result: Result<Self, BlstError> = Self::deserialize(bytes);
+        let signature = result?;
+        Ok(signature)
     }
 
     fn verify(&self, pubkey: &blst_core::PublicKey, msg: Hash256) -> bool {
@@ -248,6 +264,13 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
     }
 
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
+        // `from_bytes` accepts uncompressed bytes too so enforce byte length here.
+        if bytes.len() != SIGNATURE_BYTES_LEN {
+            return Err(Error::InvalidByteLength {
+                got: bytes.len(),
+                expected: SIGNATURE_BYTES_LEN,
+            });
+        }
         blst_core::Signature::from_bytes(bytes)
             .map_err(Into::into)
             .map(|sig| blst_core::AggregateSignature::from_signature(&sig))
