@@ -368,7 +368,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // Initialize the number of connected, synced beacon nodes to 0.
         set_gauge(&validator_metrics::ETH2_FALLBACK_CONNECTED, 0);
         set_gauge(&validator_metrics::SYNCED_BEACON_NODES_COUNT, 0);
-        // Initialize the number of connected, avaliable beacon nodes to 0.
+        // Initialize the number of connected, available beacon nodes to 0.
         set_gauge(&validator_metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
 
         let mut beacon_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
