@@ -35,9 +35,15 @@ HEADERS = {
 
 def get_commits_between(base, head):
     url = f'https://api.github.com/repos/{OWNER}/{REPO}/compare/{base}...{head}'
-    response = requests.get(url, headers=HEADERS)
-    response.raise_for_status()
-    return response.json()['commits']
+    commits = []
+    # An unpaginated comparison is limited to 250 commits.
+    url += '?per_page=100'
+    while url:
+        response = requests.get(url, headers=HEADERS)
+        response.raise_for_status()
+        commits.extend(response.json()['commits'])
+        url = response.links.get('next', {}).get('url')
+    return commits
 
 def has_backwards_incompat_label(pr_number):
     url = f'https://api.github.com/repos/{OWNER}/{REPO}/issues/{pr_number}'
