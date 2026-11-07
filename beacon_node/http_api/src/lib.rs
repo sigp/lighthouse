@@ -24,6 +24,7 @@ mod proposer_duties;
 mod ptc_duties;
 mod publish_attestations;
 mod publish_blocks;
+mod publish_payload_attestations;
 mod standard_block_rewards;
 mod state_id;
 mod sync_committee_rewards;

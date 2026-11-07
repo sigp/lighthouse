@@ -6,10 +6,13 @@ use beacon_chain::{
     chain_config::DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
     test_utils::{
         AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy,
-        fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
+        fork_name_from_env, generate_data_column_sidecars_from_block,
+        pooled_payload_attestation_bits, test_spec,
     },
 };
-use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
+use beacon_processor::{
+    WORKER_FREED, Work, WorkEvent, WorkType, work_reprocessing_queue::ReprocessQueueMessage,
+};
 use eth2::types::DepositContractData;
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{
@@ -30,7 +33,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Address, BlobsList, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256,
-    ProposerPreparationData, Slot, Spec,
+    PayloadAttestationData, ProposerPreparationData, Slot, Spec,
 };
 
 type E = Spec;
@@ -963,6 +966,120 @@ async fn queue_attestations_from_http() {
         .unwrap();
 
     attestation_future.await.unwrap();
+}
+
+// Test that payload attestations to unknown blocks are requeued and processed when their block arrives.
+// Uses the work journal so verify/requeue completes before the block is imported.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queue_payload_attestations_from_http() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+
+    let validator_count = 128;
+    let mut tester = InteractiveTester::<E>::new_with_work_journal(None, validator_count).await;
+    let client = tester.client.clone();
+    let chain = tester.harness.chain.clone();
+
+    let num_initial = 5;
+
+    // Slot of the block referenced by the payload attestation.
+    let payload_attestation_slot = Slot::new(num_initial) + 1;
+
+    // Make some initial blocks.
+    tester.harness.advance_slot();
+    tester
+        .harness
+        .extend_chain(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    tester.harness.advance_slot();
+    assert_eq!(tester.harness.get_current_slot(), payload_attestation_slot);
+
+    // Make the referenced block without applying it.
+    let pre_state = tester.harness.get_current_state();
+    let (block, post_state) = tester
+        .harness
+        .make_block(pre_state, payload_attestation_slot)
+        .await;
+    let block_root = block.0.canonical_root();
+    let fork_name = tester
+        .harness
+        .spec
+        .fork_name_at_slot::<E>(payload_attestation_slot);
+
+    let ptc = post_state
+        .get_ptc(payload_attestation_slot, &tester.harness.spec)
+        .expect("should get PTC");
+    let validator_index = *ptc
+        .0
+        .first()
+        .expect("PTC should contain at least one validator");
+    let expected_data = PayloadAttestationData {
+        beacon_block_root: block_root,
+        slot: payload_attestation_slot,
+        payload_present: true,
+        blob_data_available: true,
+    };
+    let message = tester.harness.make_payload_attestation_message(
+        validator_index,
+        expected_data.clone(),
+        &post_state.fork(),
+    );
+    let bits_before = pooled_payload_attestation_bits(&chain, &expected_data);
+
+    // POST the payload attestation while the block is still unknown.
+    let publish_future = tokio::spawn(async move {
+        client
+            .post_beacon_pool_payload_attestations(std::slice::from_ref(&message), fork_name)
+            .await
+            .expect("payload attestations should be processed successfully")
+    });
+
+    // Wait for the verify/requeue ApiRequestP0 to finish. Reprocess enqueue is not journaled.
+    let api_request_p0: &str = WorkType::ApiRequestP0.into();
+    tester
+        .wait_for_journal_events(&[api_request_p0, WORKER_FREED], Duration::from_secs(5))
+        .await;
+
+    assert_eq!(
+        pooled_payload_attestation_bits(&chain, &expected_data),
+        bits_before,
+        "payload attestation must stay unpooled until the block arrives"
+    );
+    assert!(
+        !publish_future.is_finished(),
+        "POST must remain pending while waiting for the referenced block"
+    );
+
+    // Apply the block. Manually notify the reprocess queue, because the `beacon_chain` does not
+    // know about the queue and will not update it for us.
+    tester
+        .harness
+        .process_block(payload_attestation_slot, block_root, block)
+        .await
+        .unwrap();
+    tester
+        .ctx
+        .beacon_processor_send
+        .as_ref()
+        .unwrap()
+        .try_send(WorkEvent {
+            drop_during_sync: false,
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported { block_root }),
+        })
+        .unwrap();
+
+    publish_future.await.unwrap();
+
+    assert!(
+        pooled_payload_attestation_bits(&chain, &expected_data) > bits_before,
+        "payload attestation should be added to the op pool after reprocess"
+    );
 }
 
 // Test that a request for next epoch proposer duties suceeds when the current slot clock is within
