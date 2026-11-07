@@ -129,7 +129,7 @@ impl<E: EthSpec> InteractiveTester<E> {
 
         tokio::spawn(server);
 
-        // Late-initalize the mock builder now that the mock execution node and beacon API ports
+        // Late-initialize the mock builder now that the mock execution node and beacon API ports
         // have been allocated.
         let beacon_api_ip = listening_socket.ip();
         let beacon_api_port = listening_socket.port();
