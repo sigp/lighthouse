@@ -29,7 +29,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Address, BlobsList, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256,
+    Address, BlobsList, Epoch, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256,
     ProposerPreparationData, Slot, Spec,
 };
 
@@ -1173,6 +1173,50 @@ async fn proposer_duties_v2_with_gossip_tolerance() {
     assert_eq!(
         proposer_duties_tolerant_current_epoch,
         proposer_duties_current_epoch
+    );
+}
+
+// Test that proposer preparations sent before genesis set the custody group count from epoch 0.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn prepare_beacon_proposer_before_genesis_sets_cgc_from_genesis() {
+    let spec = test_spec::<E>();
+
+    // Skip pre-Fulu.
+    if !spec.is_fulu_scheduled() {
+        return;
+    }
+
+    let validator_count = 64;
+
+    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let harness = &tester.harness;
+    let chain = &harness.chain;
+    let custody_context = &chain.custody_context;
+
+    chain
+        .slot_clock
+        .set_current_time(*chain.slot_clock.genesis_duration() - Duration::from_secs(10));
+    assert_eq!(chain.slot_clock.is_prior_to_genesis(), Some(true));
+
+    let preparation_data = (0..validator_count as u64)
+        .map(|validator_index| ProposerPreparationData {
+            validator_index,
+            fee_recipient: Address::repeat_byte(1),
+        })
+        .collect::<Vec<_>>();
+    tester
+        .client
+        .post_validator_prepare_beacon_proposer(&preparation_data)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        custody_context.custody_group_count_at_epoch(Epoch::new(0)),
+        validator_count as u64
+    );
+    assert_eq!(
+        chain.earliest_custodied_data_column_epoch(),
+        Some(Epoch::new(0))
     );
 }
 
