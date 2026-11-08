@@ -754,7 +754,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     ///
     /// This method replaces the old `BeaconChain::fork_choice` method.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(name = "lh_recompute_head_at_current_slot", skip_all, level = "debug")]
     pub async fn recompute_head_at_current_slot(self: &Arc<Self>) {
         match self.slot() {
             Ok(current_slot) => self.recompute_head_at_slot(current_slot).await,
