@@ -175,6 +175,10 @@ impl<E: EthSpec> OperationPool<E> {
             .get(&id)
             .map(|contributions| SyncAggregate::from_contributions(contributions))
             .transpose()
+            .map(|sync_aggregate| {
+                sync_aggregate
+                    .filter(|sync_aggregate| !sync_aggregate.sync_committee_signature.is_infinity())
+            })
             .map_err(|e| e.into())
     }
 
@@ -249,6 +253,7 @@ impl<E: EthSpec> OperationPool<E> {
             data.slot == target_slot && data.beacon_block_root == parent_root
         });
 
+        payload_attestations.retain(|attestation| !attestation.signature.is_infinity());
         payload_attestations.sort_by(|a, b| {
             b.aggregation_bits
                 .num_set_bits()
@@ -331,6 +336,7 @@ impl<E: EthSpec> OperationPool<E> {
                     && state.slot() <= att.data.slot + E::slots_per_epoch()
             })
             .filter(validity_filter)
+            .filter(|att| !att.indexed.signature().is_infinity())
             .filter_map(move |att| {
                 AttMaxCover::new(att, state, reward_cache, total_active_balance, spec)
             })
@@ -2303,7 +2309,7 @@ mod release_tests {
                 payload_present,
                 blob_data_available,
             },
-            signature: bls::Signature::empty(),
+            signature: KEYPAIRS[validator_index as usize].sk.sign(Hash256::ZERO),
         }
     }
 
