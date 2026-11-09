@@ -243,7 +243,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                     "fork_choice_advance_signal_tx",
                 );
             }
-            .instrument(debug_span!("fork_choice_advance")),
+            .instrument(debug_span!("lh_fork_choice_advance")),
             "fork_choice_advance",
         );
     }
