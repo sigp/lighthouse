@@ -29,6 +29,7 @@ pub enum Error {
     },
     Web3SignerRequestFailed(String),
     Web3SignerJsonParsingFailed(String),
+    Web3SignerSignatureVerificationFailed,
     ShuttingDown,
     TokioJoin(String),
     MergeForkNotSupported,
@@ -205,7 +206,7 @@ impl SigningMethod {
             SigningMethod::Web3Signer {
                 signing_url,
                 http_client,
-                ..
+                voting_public_key,
             } => {
                 let _timer = validator_metrics::start_timer_vec(
                     &validator_metrics::SIGNING_TIMES,
@@ -286,8 +287,82 @@ impl SigningMethod {
                     .await
                     .map_err(|e| Error::Web3SignerJsonParsingFailed(e.to_string()))?;
 
+                if !response.signature.verify(voting_public_key, signing_root) {
+                    return Err(Error::Web3SignerSignatureVerificationFailed);
+                }
+
                 Ok(response.signature)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use task_executor::test_utils::TestRuntime;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn web3_signer_signature_verification() {
+        let keypair = Keypair::random();
+        let wrong_keypair = Keypair::random();
+        let signing_root = Hash256::repeat_byte(42);
+
+        let valid_sig = keypair.sk.sign(signing_root);
+        let invalid_sig = wrong_keypair.sk.sign(signing_root);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let sigs = [valid_sig.clone(), invalid_sig];
+        tokio::spawn(async move {
+            for sig in sigs {
+                if let Ok((mut stream, _)) = listener.accept().await {
+                    let mut buf = [0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let response_body =
+                        serde_json::to_string(&SigningResponse { signature: sig }).unwrap();
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                        response_body.len(),
+                        response_body
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                }
+            }
+        });
+
+        let signing_method = SigningMethod::Web3Signer {
+            signing_url: Url::parse(&format!("http://{addr}/sign")).unwrap(),
+            http_client: Client::new(),
+            voting_public_key: keypair.pk,
+        };
+
+        let test_runtime = TestRuntime::default();
+        let executor = &test_runtime.task_executor;
+
+        // First call receives valid signature -> Ok
+        let res = signing_method
+            .get_signature_from_root::<MainnetEthSpec, FullPayload<MainnetEthSpec>>(
+                SignableMessage::RandaoReveal(Epoch::new(1)),
+                signing_root,
+                executor,
+                None,
+            )
+            .await;
+        assert_eq!(res, Ok(valid_sig));
+
+        // Second call receives invalid signature -> Err(Error::Web3SignerSignatureVerificationFailed)
+        let res = signing_method
+            .get_signature_from_root::<MainnetEthSpec, FullPayload<MainnetEthSpec>>(
+                SignableMessage::RandaoReveal(Epoch::new(1)),
+                signing_root,
+                executor,
+                None,
+            )
+            .await;
+        assert_eq!(res, Err(Error::Web3SignerSignatureVerificationFailed));
     }
 }
