@@ -297,7 +297,7 @@ where
                 || matches!(client_genesis, ClientGenesis::CheckpointSyncUrl { .. })
             {
                 info!(
-                    msg = "database already exists, use --purge-db to force checkpoint sync",
+                    msg = "database already exists, use --purge-db-force to force checkpoint sync",
                     "Refusing to checkpoint sync"
                 );
             }
