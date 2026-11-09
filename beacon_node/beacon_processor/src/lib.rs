@@ -629,6 +629,23 @@ fn notify_ignored_rpc_block<E: EthSpec>(work: Work<E>) {
     }
 }
 
+/// Send `message` to the reprocess queue. If the queue is full, notify sync of a dropped RPC
+/// block.
+fn send_to_reprocess_queue(
+    reprocess_work_tx: &mpsc::Sender<ReprocessQueueMessage>,
+    message: ReprocessQueueMessage,
+    debounce: &mut TimeLatch,
+) {
+    if let Err(e) = reprocess_work_tx.try_send(message) {
+        if debounce.elapsed() {
+            error!(error = ?e, "Failed to reprocess work event");
+        }
+        if let ReprocessQueueMessage::RpcBlock(block) = e.into_inner() {
+            (block.ignore_fn)();
+        }
+    }
+}
+
 #[derive(Clone)]
 struct WorkerCompletion {
     work_type: WorkType,
@@ -1213,19 +1230,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         let work_type = work.to_type();
 
                         match work {
-                            Work::Reprocess(work_event) => {
-                                if let Err(e) = reprocess_work_tx.try_send(work_event)
-                                    && reprocess_queue_debounce.elapsed()
-                                {
-                                    error!(
-                                        error = ?e,
-                                        "Failed to reprocess work event"
-                                    );
-                                    if let ReprocessQueueMessage::RpcBlock(block) = e.into_inner() {
-                                        (block.ignore_fn)();
-                                    }
-                                }
-                            }
+                            Work::Reprocess(work_event) => send_to_reprocess_queue(
+                                &reprocess_work_tx,
+                                work_event,
+                                &mut reprocess_queue_debounce,
+                            ),
                             // If we can spawn and the task can be dispatched, dispatch immediately
                             Work::GossipBlock { peer_id, .. } if can_spawn => {
                                 match work_queues
@@ -1903,6 +1912,35 @@ mod tests {
         assert!(matches!(&event.work, Work::RpcBlock { peer_id, .. } if *peer_id == peer));
         notify_ignored_rpc_block(event.work);
         assert_eq!(ignored.load(Ordering::SeqCst), 1);
+    }
+
+    fn queued_rpc_block(ignored: Arc<AtomicUsize>) -> ReprocessQueueMessage {
+        ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+            peer_id: PeerId::random(),
+            beacon_block_root: Hash256::ZERO,
+            process_fn: Box::pin(async {}),
+            ignore_fn: Box::new(move || {
+                ignored.fetch_add(1, Ordering::SeqCst);
+            }),
+        })
+    }
+
+    /// Every RPC block dropped because the reprocess queue is full notifies sync, including those
+    /// whose log is de-bounced.
+    #[test]
+    fn full_reprocess_queue_notifies_every_dropped_rpc_block() {
+        let ignored = Arc::new(AtomicUsize::new(0));
+        let (tx, _rx) = mpsc::channel(1);
+        let mut debounce = TimeLatch::default();
+
+        // The first block fits in the queue.
+        send_to_reprocess_queue(&tx, queued_rpc_block(ignored.clone()), &mut debounce);
+        assert_eq!(ignored.load(Ordering::SeqCst), 0);
+
+        // The queue is now full, and both drops fall in one de-bounce window.
+        send_to_reprocess_queue(&tx, queued_rpc_block(ignored.clone()), &mut debounce);
+        send_to_reprocess_queue(&tx, queued_rpc_block(ignored.clone()), &mut debounce);
+        assert_eq!(ignored.load(Ordering::SeqCst), 2);
     }
 
     #[test]
