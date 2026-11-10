@@ -460,6 +460,39 @@ impl InvalidPayloadRig {
             .await
             .unwrap();
     }
+
+    /// Recompute light client updates from `signature_block_root`'s sync aggregate (attested =
+    /// parent), matching the production producer path.
+    fn populate_light_client_cache_from_block(&self, signature_block_root: Hash256) {
+        let block = self
+            .harness
+            .chain
+            .get_blinded_block(&signature_block_root)
+            .unwrap()
+            .expect("signature block should exist");
+        let sync_aggregate = block
+            .message()
+            .body()
+            .sync_aggregate()
+            .expect("post-altair block should have a sync aggregate")
+            .clone();
+        self.harness
+            .chain
+            .recompute_and_cache_light_client_updates((
+                block.message().parent_root(),
+                block.slot(),
+                sync_aggregate,
+            ))
+            .expect("light client recompute should succeed");
+    }
+
+    fn assert_light_client_latest_caches_empty(&self) {
+        let cache = &self.harness.chain.light_client_server_cache;
+        assert!(cache.get_latest_optimistic_update().is_none());
+        assert!(cache.get_latest_finality_update().is_none());
+        assert!(cache.get_latest_broadcasted_optimistic_update().is_none());
+        assert!(cache.get_latest_broadcasted_finality_update().is_none());
+    }
 }
 
 /// Simple test of the different import types.
@@ -1957,6 +1990,135 @@ async fn gloas_latest_valid_hash_keeps_its_child_on_empty() {
         cached_head.head_payload_status(),
         proto_array::PayloadStatus::Empty
     );
+}
+
+/// Ensure light client caches are cleared when the attested header is invalidated.
+#[tokio::test]
+async fn light_client_cache_cleared_on_payload_invalidation() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new();
+    rig.import_block(Payload::Valid).await;
+
+    let parent_root = rig.import_block(Payload::Syncing).await;
+    let child_root = rig.import_block(Payload::Syncing).await;
+    assert!(is_optimistic(rig.execution_status(parent_root)));
+
+    rig.populate_light_client_cache_from_block(child_root);
+
+    let optimistic = rig
+        .harness
+        .chain
+        .light_client_server_cache
+        .get_latest_optimistic_update()
+        .expect("optimistic update should be cached");
+    assert_eq!(optimistic.get_canonical_root(), parent_root);
+
+    // Ensure the broadcasted optimistic cache is cleared too.
+    rig.harness
+        .chain
+        .light_client_server_cache
+        .set_latest_broadcasted_optimistic_update(optimistic);
+
+    rig.invalidate_manually(rig.block_hash(parent_root)).await;
+    assert!(rig.execution_status(parent_root).is_invalid());
+    rig.assert_light_client_latest_caches_empty();
+}
+
+/// Ensure the cache can be repopulated after an invalidation clear.
+#[tokio::test]
+async fn light_client_cache_refills_after_invalidation_clear() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
+    // Avoid PriorAttestationKnown when importing after the invalidation reorg.
+    let mut rig = InvalidPayloadRig::new();
+    rig.import_block(Payload::Valid).await;
+
+    let parent_root = rig.import_block(Payload::Syncing).await;
+    let child_root = rig.import_block(Payload::Syncing).await;
+    rig.populate_light_client_cache_from_block(child_root);
+    assert!(
+        rig.harness
+            .chain
+            .light_client_server_cache
+            .get_latest_optimistic_update()
+            .is_some()
+    );
+
+    rig.invalidate_manually(rig.block_hash(parent_root)).await;
+    assert!(rig.execution_status(parent_root).is_invalid());
+    rig.assert_light_client_latest_caches_empty();
+
+    let new_parent = rig.harness.head_block_root();
+    let new_child = rig.import_block(Payload::Syncing).await;
+    assert!(
+        is_optimistic(rig.execution_status(new_parent))
+            || is_valid_and_post_bellatrix(rig.execution_status(new_parent))
+    );
+    rig.populate_light_client_cache_from_block(new_child);
+    let optimistic = rig
+        .harness
+        .chain
+        .light_client_server_cache
+        .get_latest_optimistic_update()
+        .expect("cache should refill after a usable recompute");
+    assert_eq!(optimistic.get_canonical_root(), new_parent);
+}
+
+/// Ensure invalidating a descendant tip does not clear a still-usable attested header.
+#[tokio::test]
+async fn light_client_cache_kept_when_descendant_tip_invalidated() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new();
+    rig.import_block(Payload::Valid).await;
+
+    let parent_root = rig.import_block(Payload::Syncing).await;
+    let child_root = rig.import_block(Payload::Syncing).await;
+    let tip_root = rig.import_block(Payload::Syncing).await;
+    rig.populate_light_client_cache_from_block(child_root);
+    let cached_before = rig
+        .harness
+        .chain
+        .light_client_server_cache
+        .get_latest_optimistic_update()
+        .expect("optimistic update should be cached");
+    assert_eq!(cached_before.get_canonical_root(), parent_root);
+
+    // Tip only; attested parent remains optimistic.
+    rig.invalidate_manually(rig.block_hash(tip_root)).await;
+    assert!(rig.execution_status(tip_root).is_invalid());
+    assert!(is_optimistic(rig.execution_status(parent_root)));
+
+    let cached_after = rig
+        .harness
+        .chain
+        .light_client_server_cache
+        .get_latest_optimistic_update()
+        .expect("descendant tip invalidation must not clear the cache");
+    assert_eq!(cached_after, cached_before);
+}
+
+/// Ensure the producer skips an attested header that is already Invalid.
+#[tokio::test]
+async fn light_client_producer_skips_invalid_attested_header() {
+    if fork_name_from_env().is_some_and(|f| !f.bellatrix_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new();
+    rig.import_block(Payload::Valid).await;
+
+    let parent_root = rig.import_block(Payload::Syncing).await;
+    let child_root = rig.import_block(Payload::Syncing).await;
+    rig.invalidate_manually(rig.block_hash(parent_root)).await;
+    assert!(rig.execution_status(parent_root).is_invalid());
+    rig.assert_light_client_latest_caches_empty();
+
+    rig.populate_light_client_cache_from_block(child_root);
+    rig.assert_light_client_latest_caches_empty();
 }
 
 fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
