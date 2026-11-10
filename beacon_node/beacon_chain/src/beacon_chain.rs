@@ -135,14 +135,14 @@ use ssz_types::{BitVector, FixedVector, ProgressiveVariableList};
 use state_processing::per_block_processing::errors::{ExitInvalid, ExitValidationError};
 use state_processing::{
     BlockSignatureStrategy, ConsensusContext, GloasVerificationContext, SigVerifiedOp,
-    VerifyBlockRoot, VerifyOperation,
+    VerifyBlockRoot,
     builder_deposits_cache::OnboardBuildersCache,
     common::get_attesting_indices_from_state,
     epoch_cache::initialize_epoch_cache,
     per_block_processing,
     per_block_processing::{
-        VerifySignatures, apply_parent_execution_payload, errors::AttestationValidationError,
-        get_expected_withdrawals, verify_attestation_for_block_inclusion,
+        apply_parent_execution_payload, errors::AttestationValidationError,
+        get_expected_withdrawals,
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
@@ -5933,7 +5933,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let deposits = vec![];
 
         let bls_changes_span = debug_span!("get_bls_to_execution_changes").entered();
-        let bls_to_execution_changes = self
+        let mut bls_to_execution_changes = self
             .op_pool
             .get_bls_to_execution_changes(&state, &self.spec);
         drop(bls_changes_span);
@@ -5989,74 +5989,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BlockProductionError::OpPoolError)?
         };
 
-        // If paranoid mode is enabled re-check the signatures of every included message.
-        // This will be a lot slower but guards against bugs in block production and can be
-        // quickly rolled out without a release.
-        if self.config.paranoid_block_proposal {
-            let mut tmp_ctxt = ConsensusContext::new(state.slot());
-            attestations.retain(|att| {
-                verify_attestation_for_block_inclusion(
-                    &state,
-                    att.to_ref(),
-                    &mut tmp_ctxt,
-                    VerifySignatures::True,
-                    &self.spec,
-                )
-                .map_err(|e| {
-                    warn!(
-                        err = ?e,
-                        block_slot = %state.slot(),
-                        attestation = ?att,
-                        "Attempted to include an invalid attestation"
-                    );
-                })
-                .is_ok()
-            });
-
-            proposer_slashings.retain(|slashing| {
-                slashing
-                    .clone()
-                    .validate(&state, &self.spec)
-                    .map_err(|e| {
-                        warn!(
-                            err = ?e,
-                            block_slot = %state.slot(),
-                            ?slashing,
-                            "Attempted to include an invalid proposer slashing"
-                        );
-                    })
-                    .is_ok()
-            });
-
-            attester_slashings.retain(|slashing| {
-                slashing
-                    .clone()
-                    .validate(&state, &self.spec)
-                    .map_err(|e| {
-                        warn!(
-                            err = ?e,
-                            block_slot = %state.slot(),
-                            ?slashing,
-                            "Attempted to include an invalid attester slashing"
-                        );
-                    })
-                    .is_ok()
-            });
-
-            voluntary_exits.retain(|exit| {
-                exit.clone()
-                    .validate(&state, &self.spec)
-                    .map_err(|e| {
-                        warn!(
-                            err = ?e,
-                            block_slot = %state.slot(),
-                            ?exit,
-                            "Attempted to include an invalid voluntary exit"
-                        );
-                    })
-                    .is_ok()
-            });
-        }
+        self.filter_invalid_block_operations(
+            &state,
+            &mut attestations,
+            &mut proposer_slashings,
+            &mut attester_slashings,
+            &mut voluntary_exits,
+            &mut bls_to_execution_changes,
+        );
 
         let slot = state.slot();
 
