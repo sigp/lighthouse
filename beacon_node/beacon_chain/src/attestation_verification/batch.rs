@@ -20,6 +20,7 @@ use state_processing::signature_sets::{
     signed_aggregate_signature_set,
 };
 use std::borrow::Cow;
+use std::collections::HashSet;
 use types::*;
 
 /// Verify aggregated attestations using batch BLS signature verification.
@@ -188,6 +189,23 @@ where
         }
 
         metrics::stop_timer(signature_setup_timer);
+
+        // Record how foldable this batch is: total signature sets vs. distinct messages. After
+        // folding the batch costs one pairing per distinct message, so `sets / distinct` is the fold
+        // ratio. The `signature_sets` spread also shows whether bigger batches would help.
+        let num_distinct_messages = signature_sets
+            .iter()
+            .map(|set| set.message())
+            .collect::<HashSet<_>>()
+            .len();
+        metrics::observe(
+            &metrics::ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_SETS,
+            signature_sets.len() as f64,
+        );
+        metrics::observe(
+            &metrics::ATTESTATION_PROCESSING_BATCH_UNAGG_DISTINCT_MESSAGES,
+            num_distinct_messages as f64,
+        );
 
         let _signature_verification_timer =
             metrics::start_timer(&metrics::ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_TIMES);
