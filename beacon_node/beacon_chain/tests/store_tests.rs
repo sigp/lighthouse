@@ -10,8 +10,8 @@ use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, get_kzg,
-    mock_execution_layer_from_parts, test_spec,
+    ABANDONED_FORK_VALIDATOR_COUNT, AttestationStrategy, BeaconChainHarness, BlockStrategy,
+    DiskHarnessType, get_kzg, mock_execution_layer_from_parts, test_spec,
 };
 use beacon_chain::test_utils::{
     SyncCommitteeStrategy, fork_name_from_env, generate_data_column_indices_rand_order,
@@ -2216,6 +2216,43 @@ async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
     assert!(!rig.knows_head(&stray_head));
 
     check_db_invariants(&rig);
+}
+
+/// A block whose parent is still in proto-array but pruned from the DB must be rejected as
+/// `NotFinalizedDescendant`, not `ParentUnknown`.
+#[tokio::test]
+async fn rejects_block_with_proto_array_known_non_finalized_parent_absent_from_db() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let rig = get_harness(store.clone(), ABANDONED_FORK_VALIDATOR_COUNT);
+    let stray_root = rig.non_finalized_parent_in_proto_array_not_db().await;
+
+    // Forge a child of the pruned stray root using the post-finalization head as a template.
+    let head_root = rig.chain.canonical_head.cached_head().head_block_root();
+    let head_block = rig
+        .chain
+        .get_block(&head_root)
+        .await
+        .expect("should load head block")
+        .expect("head block should exist");
+    let (mut block, signature) = head_block.clone().deconstruct();
+    *block.parent_root_mut() = stray_root;
+
+    let err = rig
+        .chain
+        .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)))
+        .await
+        .expect_err("should reject block with non-finalized parent")
+        .into_block_error();
+
+    assert!(
+        matches!(
+            err,
+            BlockError::NotFinalizedDescendant { block_parent_root }
+            if block_parent_root == stray_root
+        ),
+        "expected NotFinalizedDescendant, got {err:?}"
+    );
 }
 
 #[tokio::test]

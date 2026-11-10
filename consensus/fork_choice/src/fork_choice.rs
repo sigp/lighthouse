@@ -1602,6 +1602,15 @@ where
             && self.is_finalized_checkpoint_or_descendant(*block_root)
     }
 
+    /// Returns `true` if `block_root` exists in proto-array, including nodes that conflict with
+    /// finalization.
+    ///
+    /// Unlike [`Self::contains_block`] / [`Self::get_block`], this does not require the root to be
+    /// a finalized checkpoint descendant.
+    pub fn proto_array_contains_block(&self, block_root: &Hash256) -> bool {
+        self.proto_array.contains_block(block_root)
+    }
+
     /// Returns a `ProtoBlock` if the block is known **and** a descendant of the finalized root.
     pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
         if self.is_finalized_checkpoint_or_descendant(*block_root) {
