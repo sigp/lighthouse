@@ -864,6 +864,14 @@ where
             ));
         }
 
+        // Events may have been queued while driving the substreams above. Report them now, to not
+        // wait for us to be reawakened.
+        if !self.events_out.is_empty() {
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                self.events_out.remove(0),
+            ));
+        }
+
         Poll::Pending
     }
 
