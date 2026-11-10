@@ -7717,6 +7717,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Into::into)
     }
 
+    /// Provides the timely inclusion list transactions for a payload built on `parent_root` at
+    /// `slot + 1`.
+    pub fn payload_inclusion_list_transactions(
+        &self,
+        parent_root: Hash256,
+        slot: Slot,
+    ) -> Result<ProgressiveTransactions, Error> {
+        self.get_inclusion_list_transactions(parent_root, slot, true)
+            .and_then(|transactions| ProgressiveTransactions::new(transactions).map_err(Into::into))
+    }
+
     /// Provides the inclusion list transactions for a
     /// payload built on `parent_root` for `proposal_slot`
     /// The return value falls back to an empty list if fetching the inclusion list transactions fails
