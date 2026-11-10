@@ -1566,6 +1566,87 @@ async fn attestation_to_finalized_block() {
 }
 
 #[tokio::test]
+async fn attestation_to_post_finalization_store_only_block() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            Spec::slots_per_epoch() as usize * 4 + 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let finalized_checkpoint = harness
+        .chain
+        .with_head(|head| Ok::<_, BeaconChainError>(head.beacon_state.finalized_checkpoint()))
+        .unwrap();
+    assert!(finalized_checkpoint.epoch > 0);
+    let finalized_slot = finalized_checkpoint.epoch.start_slot(E::slots_per_epoch());
+
+    // Fresh slot so the produced block is not already the head.
+    harness.advance_slot();
+
+    // Post-finalization block present in the store but not fork choice.
+    let state = harness.get_current_state();
+    let slot = harness.get_current_slot();
+    let (block_contents, _) = harness.make_block(state, slot).await;
+    let signed_block = (*block_contents.0).clone();
+    let block_root = signed_block.canonical_root();
+    assert!(signed_block.slot() > finalized_slot);
+    assert!(
+        harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&block_root)
+            .is_none()
+    );
+
+    harness
+        .chain
+        .store
+        .put_block(&block_root, signed_block)
+        .expect("should put block in store");
+
+    let mut state = harness.get_current_state();
+    let state_root = state.update_tree_hash_cache().unwrap();
+    let current_slot = harness.get_current_slot();
+
+    let (attestation, subnet_id) = harness
+        .get_single_attestations(
+            &AttestationStrategy::AllValidators,
+            &state,
+            state_root,
+            block_root,
+            current_slot,
+        )
+        .first()
+        .expect("should have at least one committee")
+        .first()
+        .cloned()
+        .expect("should have at least one attestation in committee");
+    assert_eq!(attestation.data.beacon_block_root, block_root);
+
+    // Attestation should be ignored for a post-finalization store-only head.
+    let res = harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
+    assert!(
+        matches!(res, Err(AttnError::HeadBlockFinalized { beacon_block_root })
+                      if beacon_block_root == block_root)
+    );
+
+    // Pre-finalization block cache should not contain the block root.
+    assert!(
+        !harness
+            .chain
+            .pre_finalization_block_cache
+            .contains(block_root)
+    );
+}
+
+#[tokio::test]
 async fn verify_aggregate_for_gossip_doppelganger_detection() {
     let harness = get_harness(VALIDATOR_COUNT);
 

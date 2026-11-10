@@ -183,13 +183,13 @@ pub enum Error {
     /// The attestation may be valid once the payload envelope is retrieved; it's unclear if the
     /// attestation is valid or not, so it is ignored (not penalized) pending the envelope.
     UnknownPayloadEnvelope { beacon_block_root: Hash256 },
-    /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
+    /// The `attestation.data.beacon_block_root` is not a usable fork-choice head (pre-finalization
+    /// or not a finalized descendant).
     ///
     /// ## Peer scoring
     ///
-    /// The attestation is not descended from the finalized checkpoint, which is a REJECT according
-    /// to the spec. We downscore lightly because this could also happen if we are processing
-    /// attestations extremely slowly.
+    /// The gossip disposition is IGNORE. We downscore lightly because this could also happen if we
+    /// are processing attestations extremely slowly.
     HeadBlockFinalized { beacon_block_root: Hash256 },
     /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch`.
     ///
@@ -1231,7 +1231,43 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
     }
 }
 
-/// Returns `Ok(())` if the `attestation.data.beacon_block_root` is known to this chain.
+fn get_proto_block_for_attestation<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    block_root: Hash256,
+) -> Option<ProtoBlock> {
+    chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&block_root)
+        .or_else(|| chain.early_attester_cache.get_proto_block(block_root))
+}
+
+fn validate_known_head_block<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    attestation_data: &AttestationData,
+    block: ProtoBlock,
+    max_skip_slots: Option<u64>,
+) -> Result<ProtoBlock, Error> {
+    // Reject any block that exceeds our limit on skipped slots.
+    if let Some(max_skip_slots) = max_skip_slots
+        && attestation_data.slot > block.slot + max_skip_slots
+    {
+        return Err(Error::TooManySkippedSlots {
+            head_block_slot: block.slot,
+            attestation_slot: attestation_data.slot,
+        });
+    }
+
+    if !verify_attestation_is_finalized_checkpoint_or_descendant(attestation_data, chain) {
+        return Err(Error::HeadBlockFinalized {
+            beacon_block_root: attestation_data.beacon_block_root,
+        });
+    }
+
+    Ok(block)
+}
+
+/// Returns `Ok(proto_block)` if the `attestation.data.beacon_block_root` is known to this chain.
 ///
 /// The block root may not be known for two reasons:
 ///
@@ -1239,44 +1275,58 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
 /// 2. The block is prior to the latest finalized block.
 ///
 /// Case (1) is the exact thing we're trying to detect. However case (2) is a little different, but
-/// it's still fine to reject here because there's no need for us to handle attestations that are
+/// it's still fine to ignore here because there's no need for us to handle attestations that are
 /// already finalized.
+///
+/// Store presence alone does not imply pre-finalization. Only `slot <= finalized_slot` is treated
+/// that way; otherwise re-check fork choice for concurrent import before returning
+/// `HeadBlockFinalized`.
 fn verify_head_block_is_known<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation_data: &AttestationData,
     max_skip_slots: Option<u64>,
 ) -> Result<ProtoBlock, Error> {
-    let block_opt = chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .get_block(&attestation_data.beacon_block_root)
-        .or_else(|| {
-            chain
-                .early_attester_cache
-                .get_proto_block(attestation_data.beacon_block_root)
-        });
+    let block_root = attestation_data.beacon_block_root;
 
-    if let Some(block) = block_opt {
-        // Reject any block that exceeds our limit on skipped slots.
-        if let Some(max_skip_slots) = max_skip_slots
-            && attestation_data.slot > block.slot + max_skip_slots
-        {
-            return Err(Error::TooManySkippedSlots {
-                head_block_slot: block.slot,
-                attestation_slot: attestation_data.slot,
-            });
-        }
+    if let Some(block) = get_proto_block_for_attestation(chain, block_root) {
+        return validate_known_head_block(chain, attestation_data, block, max_skip_slots);
+    }
 
-        if !verify_attestation_is_finalized_checkpoint_or_descendant(attestation_data, chain) {
+    // The block may still be present in the store (e.g. pre-finalization, or imported since the
+    // first fork choice check).
+    if let Some(stored_block) = chain.get_blinded_block(&block_root)? {
+        // Classify against fork choice's finalized checkpoint and re-check for concurrent import.
+        let (finalized_slot, fc_block) = {
+            let fork_choice = chain.canonical_head.fork_choice_read_lock();
+            let finalized_slot = fork_choice
+                .finalized_checkpoint()
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch());
+            (finalized_slot, fork_choice.get_block(&block_root))
+        };
+
+        if stored_block.slot() <= finalized_slot {
+            chain.mark_pre_finalization_block(block_root);
             return Err(Error::HeadBlockFinalized {
-                beacon_block_root: attestation_data.beacon_block_root,
+                beacon_block_root: block_root,
             });
         }
 
-        Ok(block)
-    } else if chain.is_pre_finalization_block(attestation_data.beacon_block_root)? {
+        if let Some(block) =
+            fc_block.or_else(|| chain.early_attester_cache.get_proto_block(block_root))
+        {
+            return validate_known_head_block(chain, attestation_data, block, max_skip_slots);
+        }
+
+        // Known on disk but not a usable fork-choice head (e.g. pruned non-descendant).
+        return Err(Error::HeadBlockFinalized {
+            beacon_block_root: block_root,
+        });
+    }
+
+    if chain.is_pre_finalization_block(block_root)? {
         Err(Error::HeadBlockFinalized {
-            beacon_block_root: attestation_data.beacon_block_root,
+            beacon_block_root: block_root,
         })
     } else {
         // The block is either:
@@ -1286,7 +1336,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
         // 2) A post-finalization block that we don't know about yet. We'll queue
         //    the attestation until the block becomes available (or we time out).
         Err(Error::UnknownHeadBlock {
-            beacon_block_root: attestation_data.beacon_block_root,
+            beacon_block_root: block_root,
         })
     }
 }

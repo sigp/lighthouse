@@ -10,7 +10,7 @@ const BLOCK_ROOT_CACHE_LIMIT: usize = 512;
 const LOOKUP_LIMIT: usize = 8;
 const METRICS_TIMEOUT: Duration = Duration::from_millis(100);
 
-/// Cache for rejecting attestations to blocks from before finalization.
+/// Cache for ignoring attestations to blocks from before finalization.
 ///
 /// It stores a collection of block roots that are pre-finalization and therefore not known to fork
 /// choice in `verify_head_block_is_known` during attestation processing.
@@ -39,9 +39,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Check whether the block with `block_root` is known to be pre-finalization.
     ///
     /// The provided `block_root` is assumed to be unknown to fork choice. I.e., it
-    /// is not known to be a descendant of the finalized block.
+    /// is not known to be a descendant of the finalized block. Store hits are classified by
+    /// `verify_head_block_is_known` before this helper is called.
     ///
-    /// Return `true` if the attestation to this block should be rejected outright,
+    /// Return `true` if the attestation to this block should be ignored,
     /// return `false` if more information is needed from a single-block-lookup.
     pub fn is_pre_finalization_block(&self, block_root: Hash256) -> Result<bool, BeaconChainError> {
         let mut cache = self.pre_finalization_block_cache.cache.lock();
@@ -51,7 +52,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(true);
         }
 
-        // Avoid repeating the disk lookup for blocks that are already subject to a network lookup.
+        // Avoid starting another network lookup for blocks already subject to one.
         // Sync will take care of de-duplicating the single block lookups.
         if cache.in_progress_lookups.contains_key(&block_root) {
             return Ok(false);
@@ -70,13 +71,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(true);
         }
 
-        // 2. Check on disk.
-        if self.store.get_blinded_block(&block_root)?.is_some() {
-            cache.block_roots.insert(block_root, ());
-            return Ok(true);
-        }
-
-        // 3. Check the network with a single block lookup.
+        // 2. Check the network with a single block lookup.
         cache.in_progress_lookups.insert(block_root, ());
         if cache.in_progress_lookups.len() == LOOKUP_LIMIT {
             // NOTE: we expect this to occur sometimes if a lot of blocks that we look up fail to be
@@ -88,6 +83,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             debug!("Pre-finalization lookup cache is full");
         }
         Ok(false)
+    }
+
+    /// Cache a known pre-finalization block root.
+    pub(crate) fn mark_pre_finalization_block(&self, block_root: Hash256) {
+        let mut cache = self.pre_finalization_block_cache.cache.lock();
+        cache.block_roots.insert(block_root, ());
     }
 
     pub fn pre_finalization_block_rejected(&self, block_root: Hash256) {
