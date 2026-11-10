@@ -426,6 +426,44 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             })
     }
 
+    /// Return locally KZG-checked Fulu columns only when each full sidecar matches.
+    /// Clone under one read lock so pruning cannot invalidate a reused value.
+    /// Compare the large sidecars after releasing the lock.
+    pub(crate) fn matching_verified_columns(
+        &self,
+        block_root: Hash256,
+        incoming: &[Arc<DataColumnSidecar<T::EthSpec>>],
+    ) -> Vec<Option<KzgVerifiedCustodyDataColumn<T::EthSpec>>> {
+        let candidates = self.peek_pending_components(&block_root, |components| {
+            incoming
+                .iter()
+                .map(|column| {
+                    if !matches!(column.as_ref(), DataColumnSidecar::Fulu(_))
+                        || column.block_root() != block_root
+                    {
+                        return None;
+                    }
+                    components?
+                        .verified_data_columns
+                        .iter()
+                        .find(|cached| {
+                            cached.kzg_verified_locally() && cached.index() == *column.index()
+                        })
+                        .cloned()
+                })
+                .collect::<Vec<_>>()
+        });
+        #[cfg(test)]
+        test_after_snapshot::run();
+        incoming
+            .iter()
+            .zip(candidates)
+            .map(|(column, cached)| {
+                cached.filter(|value| value.as_data_column() == column.as_ref())
+            })
+            .collect()
+    }
+
     pub fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
         &self,
         block_root: &Hash256,
@@ -743,9 +781,31 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 }
 
 #[cfg(test)]
+mod test_after_snapshot {
+    use std::cell::RefCell;
+
+    thread_local! {
+        // Select an existing lock-free interleaving without adding a production await or lock.
+        static HOOK: RefCell<Option<Box<dyn FnOnce()>>> = const { RefCell::new(None) };
+    }
+
+    pub fn set(hook: impl FnOnce() + 'static) {
+        HOOK.with(|slot| assert!(slot.replace(Some(Box::new(hook))).is_none()));
+    }
+
+    pub fn run() {
+        let hook = HOOK.with(|slot| slot.take());
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+}
+
+#[cfg(test)]
 mod test {
     use super::*;
 
+    use crate::data_availability_checker::DataAvailabilityChecker;
     use crate::data_column_verification::{GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn};
     use crate::test_utils::{
         generate_data_column_indices_rand_order, generate_data_column_sidecars_from_block,
@@ -754,16 +814,17 @@ mod test {
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         custody_context::NodeCustodyType,
-        test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
+        test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType, EphemeralHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
     use logging::create_test_tracing_subscriber;
     use slot_clock::TestingSlotClock;
     use state_processing::ConsensusContext;
+    use std::collections::HashSet;
     use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
     use tempfile::{TempDir, tempdir};
     use tracing::info;
-    use types::{DataColumnSubnetId, Spec};
+    use types::{DataColumnSubnetId, ForkName, Spec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
 
@@ -1071,6 +1132,256 @@ mod test {
             cache.critical.read().len() == 2,
             "cache should still have available block"
         );
+    }
+
+    #[tokio::test]
+    async fn gossip_verified_column_is_reused_by_mixed_rpc_batch() {
+        type E = Spec;
+        type T = EphemeralHarnessType<E>;
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(ForkName::Fulu.make_genesis_spec(E::default_spec()).into())
+            .deterministic_keypairs(64)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+        harness.execution_block_generator().set_min_blob_count(1);
+        harness.advance_slot();
+        let (pending_block, gossip_columns) = availability_pending_block(&harness).await;
+        assert_eq!(gossip_columns.len(), E::number_of_columns());
+        let root = pending_block.import_data.block_root;
+        let slot = pending_block.block.slot();
+        let custody_context = Arc::new(CustodyContext::new(
+            NodeCustodyType::Fullnode,
+            generate_data_column_indices_rand_order::<E>(),
+            harness.chain.slot_clock.clone(),
+            false,
+            harness.spec.clone(),
+        ));
+        let sampling_indices =
+            custody_context.sampling_columns_for_epoch(slot.epoch(E::slots_per_epoch()));
+        let checker = DataAvailabilityChecker::<T>::new(
+            harness.chain.kzg.clone(),
+            custody_context.clone(),
+            harness.spec.clone(),
+            false,
+            false,
+        )
+        .expect("DA checker");
+        let mut sampled_columns = gossip_columns
+            .into_iter()
+            .filter(|column| sampling_indices.contains(&column.index()))
+            .collect::<Vec<_>>();
+        assert_eq!(sampled_columns.len(), sampling_indices.len());
+        assert!(sampled_columns.len() >= 2);
+        assert!(matches!(
+            checker.put_executed_block(pending_block),
+            Ok(Availability::MissingComponents(_))
+        ));
+
+        let gossip_column = sampled_columns.remove(0);
+        let gossip_index = gossip_column.index();
+        let rpc_columns = std::iter::once(gossip_column.clone_data_column())
+            .chain(
+                sampled_columns
+                    .iter()
+                    .map(GossipVerifiedDataColumn::clone_data_column),
+            )
+            .collect::<Vec<_>>();
+        assert_eq!(rpc_columns.len(), sampling_indices.len());
+        let new_column_count = sampled_columns.len();
+        assert!(matches!(
+            checker.put_gossip_verified_data_columns(root, slot, [gossip_column]),
+            Ok(Availability::MissingComponents(_))
+        ));
+        let gossip_timestamp =
+            checker
+                .availability_cache
+                .peek_pending_components(&root, |pending| {
+                    pending
+                        .expect("gossip cache entry")
+                        .verified_data_columns
+                        .iter()
+                        .find(|column| column.index() == gossip_index)
+                        .expect("gossip column in cache")
+                        .seen_timestamp()
+                });
+        crate::kzg_utils::test_full_column_kzg_calls::take();
+
+        let available = checker
+            .put_rpc_custody_columns(root, slot, rpc_columns)
+            .expect("mixed RPC batch is valid");
+        assert_eq!(
+            crate::kzg_utils::test_full_column_kzg_calls::take(),
+            vec![(new_column_count, new_column_count)],
+            "only new one-cell columns reach the real KZG API"
+        );
+        let Availability::Available(available) = available else {
+            panic!("RPC batch should complete availability")
+        };
+        let columns = available
+            .block
+            .blob_data
+            .data_columns()
+            .expect("available Fulu columns");
+        let available_indices = columns
+            .iter()
+            .map(|column| *column.index())
+            .collect::<HashSet<_>>();
+        let expected_indices = sampling_indices.iter().copied().collect::<HashSet<_>>();
+        assert_eq!(available_indices, expected_indices);
+        assert_eq!(available.import_data.block_root, root);
+        checker
+            .availability_cache
+            .peek_pending_components(&root, |pending| {
+                let cached = pending
+                    .expect("pending components")
+                    .verified_data_columns
+                    .iter()
+                    .find(|column| column.index() == gossip_index)
+                    .expect("gossip column retained");
+                assert!(cached.kzg_verified_locally());
+                assert_eq!(cached.seen_timestamp(), gossip_timestamp);
+            });
+    }
+
+    #[tokio::test]
+    async fn rpc_reuse_after_eviction_preserves_rpc_observation_time() {
+        use crate::block_times_cache::BlockTimesCache;
+        use crate::data_column_verification::{KzgVerifiedDataColumn, verify_kzg_for_data_column};
+        use slot_clock::timestamp_now;
+        use std::time::Duration;
+
+        type E = Spec;
+        type T = EphemeralHarnessType<E>;
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(ForkName::Fulu.make_genesis_spec(E::default_spec()).into())
+            .deterministic_keypairs(64)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+        harness.execution_block_generator().set_min_blob_count(1);
+        harness.advance_slot();
+        let (pending, gossip_columns) = availability_pending_block(&harness).await;
+        let root = pending.import_data.block_root;
+        let slot = pending.block.slot();
+        let context = Arc::new(CustodyContext::new(
+            NodeCustodyType::Fullnode,
+            generate_data_column_indices_rand_order::<E>(),
+            harness.chain.slot_clock.clone(),
+            false,
+            harness.spec.clone(),
+        ));
+        let sampling = context.sampling_columns_for_epoch(slot.epoch(E::slots_per_epoch()));
+        let columns = gossip_columns
+            .into_iter()
+            .map(|column| column.clone_data_column())
+            .filter(|column| sampling.contains(column.index()))
+            .collect::<Vec<_>>();
+        assert_eq!(columns.len(), 8);
+
+        for reuse in [false, true] {
+            let checker = Arc::new(
+                DataAvailabilityChecker::<T>::new(
+                    harness.chain.kzg.clone(),
+                    context.clone(),
+                    harness.spec.clone(),
+                    false,
+                    false,
+                )
+                .unwrap(),
+            );
+            // Real full KZG verification with a controlled old observation time, not an asserted flag.
+            let old_seen = Duration::from_secs(1);
+            let verified = columns
+                .iter()
+                .map(|column| {
+                    let view = column
+                        .try_filter_to_partial_view(|_, _, _| {
+                            Ok::<_, types::PartialDataColumnSidecarError>(true)
+                        })
+                        .unwrap()
+                        .unwrap();
+                    KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                        verify_kzg_for_data_column(column.clone(), view, &checker.kzg, old_seen)
+                            .unwrap(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            checker
+                .put_kzg_verified_custody_data_columns(root, verified)
+                .unwrap();
+            let evict = {
+                let checker = checker.clone();
+                move || {
+                    checker
+                        .availability_cache
+                        .do_maintenance(slot.epoch(E::slots_per_epoch()) + 1)
+                        .unwrap();
+                    assert!(checker.cached_data_column_indexes(&root).is_none());
+                }
+            };
+            if reuse {
+                test_after_snapshot::set(evict);
+            } else {
+                evict();
+            }
+            crate::kzg_utils::test_full_column_kzg_calls::take();
+            let rpc_start = timestamp_now();
+            let status = if reuse {
+                checker
+                    .put_rpc_custody_columns(root, slot, columns.clone())
+                    .unwrap()
+            } else {
+                // Original RPC verification and merge; all inputs are sampled columns.
+                let verified =
+                    KzgVerifiedDataColumn::from_batch_with_scoring(columns.clone(), &checker.kzg)
+                        .unwrap();
+                checker
+                    .put_kzg_verified_custody_data_columns(
+                        root,
+                        verified
+                            .into_iter()
+                            .map(KzgVerifiedCustodyDataColumn::from_asserted_custody),
+                    )
+                    .unwrap()
+            };
+            let rpc_end = timestamp_now();
+            assert!(matches!(status, Availability::MissingComponents(r) if r == root));
+            let calls = crate::kzg_utils::test_full_column_kzg_calls::take();
+            assert_eq!(calls, if reuse { vec![] } else { vec![(8, 8)] });
+            let pending_copy = AvailabilityPendingExecutedBlock::new(
+                pending.block.clone(),
+                pending.import_data.clone(),
+                pending.payload_verification_outcome.clone(),
+            );
+            let Availability::Available(available) =
+                checker.put_executed_block(pending_copy).unwrap()
+            else {
+                panic!("reinsertion plus executed block must complete availability");
+            };
+            assert_eq!(available.import_data.block_root, root);
+            let output = available.block.blob_data.data_columns().unwrap();
+            for column in &columns {
+                assert!(
+                    output
+                        .iter()
+                        .any(|stored| stored.as_ref() == column.as_ref())
+                );
+            }
+            let observed = available.block.blobs_available_timestamp().unwrap();
+            assert!(
+                observed >= rpc_start && observed <= rpc_end,
+                "reuse={reuse}: eviction must not resurrect the old observation time {observed:?}"
+            );
+            let mut times = BlockTimesCache::default();
+            times.set_time_executed(root, slot, rpc_start);
+            times.set_time_blob_observed(root, slot, observed);
+            times.set_time_imported(root, slot, rpc_end);
+            let delays = times.get_block_delays(root, Duration::ZERO);
+            assert_eq!(delays.all_blobs_observed, Some(observed));
+            assert_eq!(delays.available, Some(observed));
+            assert_eq!(delays.imported, Some(rpc_end - observed));
+        }
     }
 }
 
