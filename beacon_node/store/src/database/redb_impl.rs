@@ -1,10 +1,12 @@
 use crate::{ColumnIter, ColumnKeyIter, Key, metrics};
 use crate::{DBColumn, Error, KeyValueStoreOp};
 use parking_lot::RwLock;
-use redb::TableDefinition;
+use redb::{ReadableDatabase, TableDefinition};
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{borrow::BorrowMut, path::Path};
 use strum::IntoEnumIterator;
+use tracing::{info, warn};
 
 use super::interface::WriteOptions;
 
@@ -14,20 +16,10 @@ pub struct Redb {
     db: RwLock<redb::Database>,
 }
 
-impl From<WriteOptions> for redb::Durability {
-    fn from(options: WriteOptions) -> Self {
-        if options.sync {
-            redb::Durability::Immediate
-        } else {
-            redb::Durability::Eventual
-        }
-    }
-}
-
 impl Redb {
     pub fn open(path: &Path) -> Result<Self, Error> {
         let db_file = path.join(DB_FILE_NAME);
-        let db = redb::Database::create(db_file)?;
+        let db = create_or_upgrade(&db_file)?;
 
         for column in DBColumn::iter() {
             Self::create_table(&db, column.into())?;
@@ -58,7 +50,7 @@ impl Redb {
         col: DBColumn,
         key: &[u8],
         val: &[u8],
-        opts: WriteOptions,
+        _opts: WriteOptions,
     ) -> Result<(), Error> {
         metrics::inc_counter_vec(&metrics::DISK_DB_WRITE_COUNT, &[col.into()]);
         metrics::inc_counter_vec_by(
@@ -70,8 +62,7 @@ impl Redb {
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
         let open_db = self.db.read();
-        let mut tx = open_db.begin_write()?;
-        tx.set_durability(opts.into());
+        let tx = open_db.begin_write()?;
         let mut table = tx.open_table(table_definition)?;
 
         table.insert(key, val).map(|_| {
@@ -154,8 +145,7 @@ impl Redb {
 
     pub fn do_atomically(&self, ops_batch: Vec<KeyValueStoreOp>) -> Result<(), Error> {
         let open_db = self.db.read();
-        let mut tx = open_db.begin_write()?;
-        tx.set_durability(self.write_options().into());
+        let tx = open_db.begin_write()?;
         for op in ops_batch {
             match op {
                 KeyValueStoreOp::PutKeyValue(column, key, value) => {
@@ -276,7 +266,7 @@ impl Redb {
         let open_db = self.db.read();
         let mut tx = open_db.begin_write()?;
 
-        tx.set_durability(redb::Durability::None);
+        tx.set_durability(redb::Durability::None)?;
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
 
@@ -296,7 +286,7 @@ impl Redb {
         let open_db = self.db.read();
         let mut tx = open_db.begin_write()?;
 
-        tx.set_durability(redb::Durability::None);
+        tx.set_durability(redb::Durability::None)?;
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
@@ -307,5 +297,81 @@ impl Redb {
         drop(table);
         tx.commit()?;
         Ok(())
+    }
+}
+
+/// Log a full repair's progress, at most once per percent.
+///
+/// A full repair re-reads the entire database file, which can take hours for large databases.
+fn log_repair_progress(path: &str, last_logged: &AtomicU64, progress: f64) {
+    // Offset by one so that the first call is logged.
+    let marker = (progress * 100.0) as u64 + 1;
+    if last_logged.fetch_max(marker, Ordering::Relaxed) < marker {
+        info!(path, percent = marker - 1, "Repairing redb database");
+    }
+}
+
+fn builder(path: &Path) -> redb::Builder {
+    let path = path.display().to_string();
+    let last_logged = AtomicU64::new(0);
+    let mut builder = redb::Builder::new();
+    builder.set_repair_callback(move |session| {
+        log_repair_progress(&path, &last_logged, session.progress())
+    });
+    builder
+}
+
+/// Open the database file at `path`, upgrading it from the v2 file format used by redb 2.x if
+/// necessary.
+fn create_or_upgrade(path: &Path) -> Result<redb::Database, Error> {
+    match builder(path).create(path) {
+        Err(redb::DatabaseError::UpgradeRequired(version)) => {
+            let path_str = path.display().to_string();
+            warn!(
+                path = path_str,
+                version,
+                "Upgrading redb database file format. This is irreversible and may take hours"
+            );
+            let log_path = path_str.clone();
+            let last_logged = AtomicU64::new(0);
+            redb_v2::Builder::new()
+                .set_repair_callback(move |session| {
+                    log_repair_progress(&log_path, &last_logged, session.progress())
+                })
+                .open(path)?
+                .upgrade()?;
+            info!(path = path_str, "Upgraded redb database file format");
+            // The upgrade does not save the allocator state, so this open does a full repair.
+            builder(path).create(path).map_err(Into::into)
+        }
+        result => result.map_err(Into::into),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upgrade_v2_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let table_name: &str = DBColumn::Dummy.into();
+        let table: redb_v2::TableDefinition<'_, &[u8], &[u8]> =
+            redb_v2::TableDefinition::new(table_name);
+
+        let db = redb_v2::Database::create(dir.path().join(DB_FILE_NAME)).unwrap();
+        let tx = db.begin_write().unwrap();
+        tx.open_table(table)
+            .unwrap()
+            .insert(b"key".as_slice(), b"value".as_slice())
+            .unwrap();
+        tx.commit().unwrap();
+        drop(db);
+
+        let db = Redb::open(dir.path()).unwrap();
+        assert_eq!(
+            db.get_bytes(DBColumn::Dummy, b"key").unwrap(),
+            Some(b"value".to_vec())
+        );
     }
 }

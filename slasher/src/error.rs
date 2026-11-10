@@ -10,6 +10,8 @@ pub enum Error {
     DatabaseLmdbError(lmdb::Error),
     #[cfg(feature = "redb")]
     DatabaseRedbError(redb::Error),
+    #[cfg(feature = "redb")]
+    DatabaseRedbUpgradeError(Box<redb_v2::Error>),
     SlasherDatabaseBackendDisabled,
     MismatchedDatabaseVariant,
     DatabaseIOError(io::Error),
@@ -124,6 +126,20 @@ impl From<redb::StorageError> for Error {
 impl From<redb::CommitError> for Error {
     fn from(e: redb::CommitError) -> Self {
         Error::DatabaseRedbError(e.into())
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb_v2::DatabaseError> for Error {
+    fn from(e: redb_v2::DatabaseError) -> Self {
+        Error::DatabaseRedbUpgradeError(Box::new(e.into()))
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb_v2::UpgradeError> for Error {
+    fn from(e: redb_v2::UpgradeError) -> Self {
+        Error::DatabaseRedbUpgradeError(Box::new(e.into()))
     }
 }
 
