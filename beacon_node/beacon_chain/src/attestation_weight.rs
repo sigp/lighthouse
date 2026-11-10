@@ -135,8 +135,8 @@ impl AttestationWeightTracker {
         }
     }
 
-    /// Count the attesting validators of verified attestations. `load_balances` is called when the
-    /// balances in use are not for `justified_checkpoint`.
+    /// Count the attesting validators of verified attestations. `load_balances` is called when
+    /// there are no balances in use or `justified_checkpoint` is newer than theirs.
     pub fn observe<'a>(
         &self,
         votes: impl IntoIterator<Item = AttestationVote<'a>>,
@@ -155,7 +155,9 @@ impl AttestationWeightTracker {
             slots,
         } = &mut *inner;
         let mut changed = false;
-        if balances.as_ref().map(|balances| balances.checkpoint) != Some(justified_checkpoint)
+        if balances
+            .as_ref()
+            .is_none_or(|balances| justified_checkpoint.epoch > balances.checkpoint.epoch)
             && let Some(loaded) = load_balances()
         {
             *balances = Some(loaded);
@@ -317,7 +319,8 @@ mod tests {
         let tracker = Arc::new(AttestationWeightTracker::default());
         let _receiver = tracker.subscribe();
         let mut loads = 0;
-        for justified_epoch in [0, 0, 1] {
+        // a caller that read the older checkpoint before the cached head moved doesn't reload
+        for justified_epoch in [0, 0, 1, 0, 1] {
             tracker.observe([], Slot::new(1), checkpoint(justified_epoch), || {
                 loads += 1;
                 Some(CheckpointBalances {
@@ -328,6 +331,25 @@ mod tests {
             });
         }
         assert_eq!(loads, 2);
+    }
+
+    #[test]
+    fn loads_balances_once_while_fork_choice_is_ahead() {
+        let tracker = Arc::new(AttestationWeightTracker::default());
+        let _receiver = tracker.subscribe();
+        let mut loads = 0;
+        // fork choice is at epoch 1 while the cached head is still at epoch 0, then catches up
+        for justified_epoch in [0, 0, 1] {
+            tracker.observe([], Slot::new(1), checkpoint(justified_epoch), || {
+                loads += 1;
+                Some(CheckpointBalances {
+                    checkpoint: checkpoint(1),
+                    effective_balances: vec![],
+                    committee_weight_gwei: 100,
+                })
+            });
+        }
+        assert_eq!(loads, 1);
     }
 
     #[test]
