@@ -979,6 +979,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     if let Some((enqueued_at, item)) =
                                         work_queues.aggregate_queue.pop()
                                     {
+                                        metrics::observe_timer_vec(
+                                            &metrics::BEACON_PROCESSOR_QUEUE_TIME,
+                                            &[item.str_id()],
+                                            enqueued_at.elapsed(),
+                                        );
                                         match item {
                                             Work::GossipAggregate {
                                                 aggregate,
@@ -1042,6 +1047,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     if let Some((enqueued_at, item)) =
                                         work_queues.attestation_queue.pop()
                                     {
+                                        metrics::observe_timer_vec(
+                                            &metrics::BEACON_PROCESSOR_QUEUE_TIME,
+                                            &[item.str_id()],
+                                            enqueued_at.elapsed(),
+                                        );
                                         match item {
                                             Work::GossipAttestation {
                                                 attestation,
