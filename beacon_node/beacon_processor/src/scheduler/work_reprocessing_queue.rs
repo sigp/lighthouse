@@ -61,7 +61,7 @@ const QUEUED_DATA_COLUMN_DELAY_SLOTS: u32 = 1;
 
 /// Envelope timeout as a multiplier of slot duration. Envelopes waiting for their block will be
 /// sent for processing after this many slots worth of time, even if the block hasn't arrived.
-const QUEUED_ENVELOPE_DELAY_SLOTS: u32 = 1;
+pub const QUEUED_ENVELOPE_DELAY_SLOTS: u32 = 1;
 
 /// For how long to queue rpc blocks before sending them back for reprocessing.
 pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(4);
