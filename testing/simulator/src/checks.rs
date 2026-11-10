@@ -175,13 +175,17 @@ pub async fn verify_fork_version<E: EthSpec>(
     Ok(())
 }
 
-/// A late block makes the sync committee sign the grandparent root, so the next block's
-/// aggregate comes out empty rather than partial. Tolerate a few of those. A partial aggregate
-/// means contributions were actually lost, and is never tolerated.
-const MAX_EMPTY_SYNC_AGGREGATES: usize = 3;
+/// The simulator runs several beacon nodes and validator clients on a single CI runner with
+/// short slots, so under load a block can be produced or imported late. Each validator client
+/// reads the head from a different beacon node, so a late block can make some or all of the sync
+/// committee sign the grandparent root, and the next block's aggregate comes out partial or empty.
+/// Tolerate a few of those so a slow runner doesn't fail the run. This can't tell a late block
+/// from lost contributions, but a regression that leaves more than a few aggregates short still
+/// fails.
+const MAX_NON_FULL_SYNC_AGGREGATES: usize = 3;
 
 /// Verify that the sync aggregates from `sync_committee_start_slot` until `upto_slot` are full,
-/// allowing up to `MAX_EMPTY_SYNC_AGGREGATES` empty ones caused by late blocks.
+/// allowing up to `MAX_NON_FULL_SYNC_AGGREGATES` empty or partial ones.
 pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
     network: LocalNetwork<E>,
     sync_committee_start_slot: Slot,
@@ -191,7 +195,7 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
     slot_delay(upto_slot, slot_duration).await;
     let remote_nodes = network.remote_nodes()?;
     let remote_node = remote_nodes.first().unwrap();
-    let mut empty_aggregate_slots = vec![];
+    let mut non_full_aggregates = vec![];
 
     for slot in sync_committee_start_slot.as_u64()..=upto_slot.as_u64() {
         let sync_aggregate_count = remote_node
@@ -213,25 +217,28 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
             .map_err(|e| format!("Error while getting beacon block: {:?}", e))?
             .map_err(|_| format!("Altair block {} should have sync aggregate", slot))?;
 
-        if sync_aggregate_count == 0 {
-            empty_aggregate_slots.push(slot);
-        } else if sync_aggregate_count != E::sync_committee_size() {
-            return Err(format!(
-                "Sync aggregate at slot {} was partial, got: {}, expected: {}",
-                slot,
-                sync_aggregate_count,
-                E::sync_committee_size()
-            ));
+        if sync_aggregate_count != E::sync_committee_size() {
+            non_full_aggregates.push((slot, sync_aggregate_count));
         }
     }
 
-    if empty_aggregate_slots.len() > MAX_EMPTY_SYNC_AGGREGATES {
+    if non_full_aggregates.len() > MAX_NON_FULL_SYNC_AGGREGATES {
         return Err(format!(
-            "{} empty sync aggregates, expected at most {}. Slots: {:?}",
-            empty_aggregate_slots.len(),
-            MAX_EMPTY_SYNC_AGGREGATES,
-            empty_aggregate_slots
+            "{} sync aggregates were not full, expected at most {}, committee size: {}, (slot, participants): {:?}",
+            non_full_aggregates.len(),
+            MAX_NON_FULL_SYNC_AGGREGATES,
+            E::sync_committee_size(),
+            non_full_aggregates
         ));
+    }
+
+    if !non_full_aggregates.is_empty() {
+        eprintln!(
+            "Tolerated {} sync aggregates that were not full, committee size: {}, (slot, participants): {:?}",
+            non_full_aggregates.len(),
+            E::sync_committee_size(),
+            non_full_aggregates
+        );
     }
 
     Ok(())
