@@ -43,56 +43,49 @@ directory.
 ### Database Backend
 
 * Flag: `--slasher-backend NAME`
-* Argument: one of `mdbx`, `lmdb` or `disabled`
-* Default: `lmdb` for new installs, `mdbx` if an MDBX database already exists
+* Argument: one of `lmdb`, `redb` or `disabled`
+* Default: `lmdb`
 
 It is possible to use one of several database backends with the slasher:
 
 * LMDB (default)
-* MDBX
+* redb
 
-The advantage of MDBX is that it performs compaction, resulting in less disk usage over time. The
-disadvantage is that upstream MDBX is unstable, so Lighthouse is pinned to a specific version.
-If bugs are found in our pinned version of MDBX it may be deprecated in future.
+redb is only available in builds with the `slasher-redb` feature. The Linux release binaries
+include it, but the Docker images do not.
 
-LMDB does not have compaction but is more stable upstream than MDBX. If running with the LMDB
-backend on Windows it is recommended to allow extra space due to this issue:
-[sigp/lighthouse#2342](https://github.com/sigp/lighthouse/issues/2342).
+If running with the LMDB backend on Windows it is recommended to allow extra space due to this
+issue: [sigp/lighthouse#2342](https://github.com/sigp/lighthouse/issues/2342).
 
-More backends may be added in future.
+#### Old MDBX Databases
 
-#### Backend Override
-
-The default backend was changed from MDBX to LMDB in Lighthouse v4.3.0.
-
-If an MDBX database is already found on disk, then Lighthouse will try to use it. This will result
-in a log at start-up:
+Lighthouse no longer supports the MDBX backend, which was the default before v4.3.0. If an MDBX
+database is found on disk, Lighthouse ignores it and uses the configured backend, creating a new
+database if there isn't one already. The old slashing history is not carried over. A warning is
+logged at every start-up until the MDBX files are deleted:
 
 ```
-INFO Slasher backend overridden    reason: database exists, configured_backend: lmdb, overridden_backend: mdbx
+WARN Ignoring old MDBX slasher database    reason: MDBX backend has been removed, advice: delete mdbx.dat and mdbx.lck to free disk space, path: /home/user/.lighthouse/mainnet/beacon/slasher_db/mdbx.dat
 ```
 
-If the running Lighthouse binary doesn't have the MDBX backend enabled but an existing database is
-found, then a warning will be logged and Lighthouse will use the LMDB backend and create a new database:
+To reclaim the space, delete the `mdbx.dat` and `mdbx.lck` files from the directory in the `path`
+of the `WARN` log.
 
-```
-WARN Slasher backend override failed    advice: delete old MDBX database or enable MDBX backend, path: /home/user/.lighthouse/mainnet/beacon/slasher_db/mdbx.dat
-```
+If the slasher was first run with Lighthouse v2.0.1 or earlier, the directory may also hold an old
+LMDB database (`data.mdb` and `lock.mdb`). Lighthouse will fail to start with an
+`IncompatibleSchemaVersion` error when it opens this database. Delete `data.mdb` and `lock.mdb` and
+restart.
 
-In this case you should either obtain a Lighthouse binary with the MDBX backend enabled, or delete
-the files for the old backend. The pre-built Lighthouse binaries and Docker images have MDBX enabled,
-or if you're [building from source](./installation_source.md) you can enable the `slasher-mdbx` feature.
-
-To delete the files, use the `path` from the `WARN` log, and then delete the `mbdx.dat` and
-`mdbx.lck` files.
+If you set `--slasher-backend mdbx` explicitly, remove the flag or change it to another backend,
+otherwise Lighthouse will fail to start.
 
 #### Switching Backends
 
 If you change database backends and want to reclaim the space used by the old backend you can
 delete the following files from your `slasher_db` directory:
 
-* removing MDBX: delete `mdbx.dat` and `mdbx.lck`
 * removing LMDB: delete `data.mdb` and `lock.mdb`
+* removing redb: delete `slasher.redb`
 
 ### History Length
 
@@ -116,9 +109,9 @@ changed after initialization.
 * Argument: maximum size of the database in gigabytes
 * Default: 512 GB
 
-Both database backends LMDB and MDBX place a hard limit on the size of the database
-file. You can use the `--slasher-max-db-size` flag to set this limit. It can be adjusted after
-initialization if the limit is reached.
+The LMDB backend places a hard limit on the size of the database file. You can use the
+`--slasher-max-db-size` flag to set this limit. It can be adjusted after initialization if the
+limit is reached.
 
 By default the limit is set to accommodate the default history length and around 1 million validators but
 you can set it lower if running with a reduced history length. The space required scales
