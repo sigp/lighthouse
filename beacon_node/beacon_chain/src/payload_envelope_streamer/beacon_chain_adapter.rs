@@ -5,7 +5,8 @@ use execution_layer::ExecutionPayloadBodyV2;
 use mockall::automock;
 use task_executor::TaskExecutor;
 use types::{
-    ExecutionBlockHash, ExecutionPayloadBody, Hash256, SignedExecutionPayloadEnvelopeSummary, Slot,
+    ExecutionBlockHash, ExecutionPayloadBody, ForkName, Hash256,
+    SignedExecutionPayloadEnvelopeSummary, Slot,
 };
 
 use super::Error;
@@ -43,6 +44,7 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
 
     pub(crate) async fn get_payload_bodies_by_hash_v2(
         &self,
+        fork: ForkName,
         block_hashes: Vec<ExecutionBlockHash>,
     ) -> Result<Vec<Option<ExecutionPayloadBodyV2<T::EthSpec>>>, BeaconChainError> {
         let execution_layer = self
@@ -52,9 +54,26 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
             .ok_or(BeaconChainError::ExecutionLayerMissing)?;
 
         execution_layer
-            .get_payload_bodies_by_hash_v2(block_hashes)
+            .get_payload_bodies_by_hash_v2(fork, block_hashes)
             .await
             .map_err(|error| Error::PayloadBodiesByHashV2Failure(Box::new(error)).into())
+    }
+
+    pub(crate) async fn max_payload_bodies_per_request(&self) -> Result<usize, BeaconChainError> {
+        let execution_layer = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .ok_or(BeaconChainError::ExecutionLayerMissing)?;
+
+        execution_layer
+            .max_payload_bodies_per_request()
+            .await
+            .map_err(|error| Error::PayloadBodiesByHashV2Failure(Box::new(error)).into())
+    }
+
+    pub(crate) fn fork_name_at_slot(&self, slot: Slot) -> ForkName {
+        self.chain.spec.fork_name_at_slot::<T::EthSpec>(slot)
     }
 
     pub(crate) fn get_split(&self) -> (Slot, Hash256) {
