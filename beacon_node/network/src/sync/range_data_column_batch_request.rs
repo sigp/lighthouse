@@ -168,11 +168,9 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
             // didn't serve us columns for a skipped slot
             if block.slot() != slot {
                 // If we received columns for a skipped slot, punish the peer
-                if !columns.is_empty() {
-                    for column in expected_custody_columns {
-                        if let Some(naughty_peer) = column_to_peer.get(column) {
-                            naughty_peers.push((*column, *naughty_peer));
-                        }
+                for column in &columns {
+                    if let Some(naughty_peer) = column_to_peer.get(column.index()) {
+                        naughty_peers.push((*column.index(), *naughty_peer));
                     }
                 }
 
@@ -317,8 +315,7 @@ mod tests {
 
     type E = Spec;
 
-    #[tokio::test]
-    async fn valid_gloas_batch_completes_without_peer_failure() {
+    fn gloas_supernode_harness() -> BeaconChainHarness<EphemeralHarnessType<E>> {
         let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
             .spec(spec)
@@ -328,6 +325,13 @@ mod tests {
             .node_custody_type(NodeCustodyType::Supernode)
             .build();
         harness.execution_block_generator().set_min_blob_count(1);
+        harness
+    }
+
+    /// Adds a block at the next slot and returns the columns stored for it.
+    async fn extend_with_columns(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+    ) -> DataColumnSidecarList<E> {
         harness.advance_slot();
         let block_root = harness
             .extend_chain(
@@ -336,14 +340,32 @@ mod tests {
                 AttestationStrategy::AllValidators,
             )
             .await;
-
-        let epoch = Epoch::new(0);
-        let data_columns = harness
+        harness
             .chain
             .store
             .get_data_columns(&block_root, ForkName::Gloas)
             .expect("should read data columns")
-            .expect("should store data columns");
+            .expect("should store data columns")
+    }
+
+    fn backfill_request_id(peer: PeerId, epoch: Epoch) -> DataColumnsByRangeRequestId {
+        DataColumnsByRangeRequestId {
+            id: 0,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
+                CustodyBackFillBatchRequestId {
+                    id: 0,
+                    batch_id: CustodyBackfillBatchId { epoch, run_id: 0 },
+                },
+            ),
+            peer,
+        }
+    }
+
+    #[tokio::test]
+    async fn valid_gloas_batch_completes_without_peer_failure() {
+        let harness = gloas_supernode_harness();
+        let data_columns = extend_with_columns(&harness).await;
+        let epoch = Epoch::new(0);
 
         assert!(!data_columns.is_empty());
         assert!(
@@ -357,17 +379,7 @@ mod tests {
             .map(|column| *column.index())
             .unique()
             .collect::<Vec<_>>();
-        let peer = PeerId::random();
-        let request_id = DataColumnsByRangeRequestId {
-            id: 0,
-            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
-                CustodyBackFillBatchRequestId {
-                    id: 0,
-                    batch_id: CustodyBackfillBatchId { epoch, run_id: 0 },
-                },
-            ),
-            peer,
-        };
+        let request_id = backfill_request_id(PeerId::random(), epoch);
         let mut request = RangeDataColumnBatchRequest::new(
             vec![(request_id, requested_columns)],
             harness.chain.clone(),
@@ -381,5 +393,69 @@ mod tests {
             Some(Ok(received_columns)) => assert_eq!(received_columns, data_columns),
             response => panic!("expected valid Gloas columns, got {response:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn skipped_slot_column_blames_only_the_serving_peer() {
+        let harness = gloas_supernode_harness();
+        let first_columns = extend_with_columns(&harness).await;
+        // Skip a slot before the next block.
+        harness.advance_slot();
+        let second_columns = extend_with_columns(&harness).await;
+
+        let skipped_slot = first_columns[0].slot() + 1;
+        assert_eq!(second_columns[0].slot(), skipped_slot + 1);
+
+        let honest_column = *first_columns[0].index();
+        let faulty_column = *first_columns[1].index();
+        let served = |index: ColumnIndex| {
+            first_columns
+                .iter()
+                .chain(second_columns.iter())
+                .filter(|column| *column.index() == index)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        let epoch = Epoch::new(0);
+        let honest_request_id = backfill_request_id(PeerId::random(), epoch);
+        let faulty_request_id = backfill_request_id(PeerId::random(), epoch);
+
+        let mut request = RangeDataColumnBatchRequest::new(
+            vec![
+                (honest_request_id, vec![honest_column]),
+                (faulty_request_id, vec![faulty_column]),
+            ],
+            harness.chain.clone(),
+            epoch,
+        );
+
+        // The honest peer serves only the column it was assigned.
+        request
+            .add_custody_columns(honest_request_id, served(honest_column))
+            .expect("should complete honest request");
+
+        // The faulty peer serves its own column plus one at the skipped slot. The wire validator
+        // accepts that column: its slot is in range and its index was requested.
+        let mut faulty_response = served(faulty_column);
+        let skipped_slot_column = match faulty_response[0].as_ref() {
+            DataColumnSidecar::Gloas(column) => {
+                let mut column = column.clone();
+                column.slot = skipped_slot;
+                Arc::new(DataColumnSidecar::Gloas(column))
+            }
+            DataColumnSidecar::Fulu(_) => panic!("expected Gloas columns"),
+        };
+        faulty_response.push(skipped_slot_column);
+        request
+            .add_custody_columns(faulty_request_id, faulty_response)
+            .expect("should complete faulty request");
+
+        let faulty_peers = match request.responses() {
+            Some(Err(CouplingError::DataColumnPeerFailure { faulty_peers, .. })) => faulty_peers,
+            response => panic!("expected a peer failure, got {response:?}"),
+        };
+
+        assert_eq!(faulty_peers, vec![(faulty_column, faulty_request_id.peer)]);
     }
 }
