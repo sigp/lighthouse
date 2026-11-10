@@ -15,6 +15,9 @@ pub const ATTESTATIONS_HTTP_POST: &str = "attestations_http_post";
 pub const PAYLOAD_ATTESTATIONS: &str = "payload_attestations";
 pub const PAYLOAD_ATTESTATIONS_HTTP_GET: &str = "payload_attestations_http_get";
 pub const PAYLOAD_ATTESTATIONS_HTTP_POST: &str = "payload_attestations_http_post";
+pub const INCLUSION_LISTS: &str = "inclusion_lists";
+pub const INCLUSION_LISTS_HTTP_GET: &str = "inclusion_lists_http_get";
+pub const INCLUSION_LISTS_HTTP_POST: &str = "inclusion_lists_http_post";
 pub const AGGREGATES: &str = "aggregates";
 pub const AGGREGATES_HTTP_GET: &str = "aggregates_http_get";
 pub const AGGREGATES_HTTP_POST: &str = "aggregates_http_post";
@@ -126,6 +129,13 @@ pub static SIGNED_VOLUNTARY_EXITS_TOTAL: LazyLock<Result<IntCounterVec>> = LazyL
         &["status"],
     )
 });
+pub static SIGNED_INCLUSION_LISTS_TOTAL: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
+    try_create_int_counter_vec(
+        "vc_signed_inclusion_lists_total",
+        "Total count of attempted InclusionList signings",
+        &["status"],
+    )
+});
 pub static SIGNED_VALIDATOR_REGISTRATIONS_TOTAL: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
@@ -156,6 +166,13 @@ pub static PAYLOAD_ATTESTATION_SERVICE_TIMES: LazyLock<Result<HistogramVec>> =
             &["task"],
         )
     });
+pub static INCLUSION_LIST_SERVICE_TIMES: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
+    try_create_histogram_vec(
+        "vc_inclusion_list_service_task_times_seconds",
+        "Duration to perform inclusion list service tasks",
+        &["task"],
+    )
+});
 pub static SLASHING_PROTECTION_PRUNE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "vc_slashing_protection_prune_times_seconds",
