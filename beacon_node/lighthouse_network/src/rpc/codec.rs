@@ -124,12 +124,9 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
             .encode(bytes.len(), dst)
             .map_err(RPCError::from)?;
 
-        let mut writer = FrameEncoder::new(Vec::new());
+        let mut writer = FrameEncoder::new(dst.writer());
         writer.write_all(&bytes).map_err(RPCError::from)?;
         writer.flush().map_err(RPCError::from)?;
-
-        // Write compressed bytes to `dst`
-        dst.extend_from_slice(writer.get_ref());
         Ok(())
     }
 }
@@ -1155,6 +1152,61 @@ mod tests {
             custody_group_count: 1,
         })
         .into()
+    }
+
+    #[test]
+    fn response_encoding_matches_buffered_snappy_across_chunks() {
+        let spec = spec_with_all_forks_enabled();
+        let mut cases = Vec::new();
+        for cell_count in [1, 8] {
+            let mut column = empty_data_column_sidecar(&spec).as_ref().clone();
+            let DataColumnSidecar::Fulu(ref mut full) = column else {
+                unreachable!("Fulu codec fixture")
+            };
+            full.column = VariableList::new(vec![Cell::<Spec>::default(); cell_count]).unwrap();
+            full.kzg_commitments =
+                VariableList::new(vec![KzgCommitment::empty_for_testing(); cell_count]).unwrap();
+            full.kzg_proofs = VariableList::new(vec![KzgProof::empty(); cell_count]).unwrap();
+            let column = Arc::new(column);
+            cases.push((
+                SupportedProtocol::DataColumnsByRootV1,
+                ForkName::Fulu,
+                column.as_ssz_bytes(),
+                RpcSuccessResponse::DataColumnsByRoot(column),
+            ));
+        }
+        // A normal blob codec fixture also crosses Snappy's 64 KiB chunk boundary.
+        let blob = empty_blob_sidecar(&spec);
+        assert!(blob.ssz_bytes_len() > 65_536);
+        cases.push((
+            SupportedProtocol::BlobsByRootV1,
+            ForkName::Deneb,
+            blob.as_ssz_bytes(),
+            RpcSuccessResponse::BlobsByRoot(blob),
+        ));
+        for (protocol, fork, bytes, response) in cases {
+            let buffered = encode_without_length_checks(bytes, fork, &spec).unwrap();
+            let mut expected = BytesMut::from(&[0][..]);
+            expected.extend_from_slice(&buffered);
+            let mut codec = SSZSnappyInboundCodec::<Spec>::new(
+                ProtocolId::new(protocol, Encoding::SSZSnappy),
+                spec.max_payload_size as usize,
+                Arc::new(fork_context(fork, &spec)),
+            );
+            let mut output = BytesMut::new();
+            for _ in 0..2 {
+                // The public Encoder must clear the previous response and reuse its buffer.
+                codec
+                    .encode(RpcResponse::Success(response.clone()), &mut output)
+                    .unwrap();
+                assert_eq!(output, expected);
+                let mut body = output.clone().split_off(1);
+                assert_eq!(
+                    decode_response(protocol, &mut body, fork, &spec).unwrap(),
+                    Some(response.clone()),
+                );
+            }
+        }
     }
 
     /// Encodes the given protocol response as bytes.
