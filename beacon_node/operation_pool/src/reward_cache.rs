@@ -103,7 +103,7 @@ impl RewardCache {
         self.previous_epoch_participation = state
             .previous_epoch_participation()?
             .iter()
-            .map(|participation| *participation != default_participation)
+            .map(|participation| participation != default_participation)
             .collect();
         Ok(())
     }
@@ -116,7 +116,7 @@ impl RewardCache {
         self.current_epoch_participation = state
             .current_epoch_participation()?
             .iter()
-            .map(|participation| *participation != default_participation)
+            .map(|participation| participation != default_participation)
             .collect();
         Ok(())
     }

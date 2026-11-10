@@ -2,6 +2,7 @@ use crate::builder_deposits_cache::{OnboardBuildersCache, is_valid_deposit_signa
 use bls::PublicKeyBytes;
 use milhouse::{ProgressiveList, Vector};
 use safe_arith::SafeArith;
+use silver_hashing::HashFormat;
 use ssz_types::{BitVector, FixedVector};
 use std::{
     collections::{HashMap, HashSet},
@@ -11,9 +12,9 @@ use tracing::debug;
 use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
-    Address, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
-    BuilderPendingPayment, ChainSpec, EthSpec, ExecutionPayloadBidGloas, ExecutionRequestsGloas,
-    Fork, PendingDeposit, ProgressiveKzgCommitments,
+    Address, Balances, BeaconState, BeaconStateError as Error, BeaconStateGloas, Builder,
+    BuilderPendingPayment, ChainSpec, EpochParticipation, EthSpec, ExecutionPayloadBidGloas,
+    ExecutionRequestsGloas, Fork, InactivityScores, PendingDeposit, ProgressiveKzgCommitments,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
     is_builder_withdrawal_credential,
 };
@@ -97,17 +98,19 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         eth1_deposit_index: pre.eth1_deposit_index,
         // Registry
         validators: ProgressiveList::try_from_iter(pre.validators.iter().cloned())?,
-        balances: ProgressiveList::try_from_iter(pre.balances.iter().copied())?,
+        balances: Balances::<E>::try_from_iter(pre.balances.iter(), HashFormat::Progressive)?,
         // Randomness
         randao_mixes: pre.randao_mixes.clone(),
         // Slashings
         slashings: pre.slashings.clone(),
         // Participation
-        previous_epoch_participation: ProgressiveList::try_from_iter(
-            pre.previous_epoch_participation.iter().cloned(),
+        previous_epoch_participation: EpochParticipation::<E>::try_from_iter(
+            pre.previous_epoch_participation.iter(),
+            HashFormat::Progressive,
         )?,
-        current_epoch_participation: ProgressiveList::try_from_iter(
-            pre.current_epoch_participation.iter().cloned(),
+        current_epoch_participation: EpochParticipation::<E>::try_from_iter(
+            pre.current_epoch_participation.iter(),
+            HashFormat::Progressive,
         )?,
         // Finality
         justification_bits: pre.justification_bits.clone(),
@@ -115,7 +118,10 @@ pub fn upgrade_state_to_gloas<E: EthSpec>(
         current_justified_checkpoint: pre.current_justified_checkpoint,
         finalized_checkpoint: pre.finalized_checkpoint,
         // Inactivity
-        inactivity_scores: ProgressiveList::try_from_iter(pre.inactivity_scores.iter().copied())?,
+        inactivity_scores: InactivityScores::<E>::try_from_iter(
+            pre.inactivity_scores.iter(),
+            HashFormat::Progressive,
+        )?,
         // Sync committees
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),

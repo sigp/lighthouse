@@ -149,8 +149,8 @@ async fn test_sync_committee_rewards() {
             .get_validator_index(&validator.pubkey)
             .unwrap()
             .unwrap();
-        let pre_state_balance = *parent_state.balances().get(validator_index).unwrap();
-        let post_state_balance = *state.balances().get(validator_index).unwrap();
+        let pre_state_balance = parent_state.balances().get(validator_index).unwrap();
+        let post_state_balance = state.balances().get(validator_index).unwrap();
         let sync_committee_reward = rewards.get(&(validator_index as u64)).unwrap_or(&0);
 
         if validator_index == proposer_index {
@@ -764,7 +764,7 @@ async fn test_rewards_gloas_non_same_slot_attestations() {
     );
 
     let proposer_index = signed_block.message().proposer_index();
-    let balance_before = *pre_state.balances().get(proposer_index as usize).unwrap();
+    let balance_before = pre_state.balances().get(proposer_index as usize).unwrap();
 
     let block_reward = harness
         .chain
@@ -788,7 +788,7 @@ async fn test_rewards_gloas_non_same_slot_attestations() {
         .await
         .unwrap();
 
-    let balance_after = *harness
+    let balance_after = harness
         .get_current_state()
         .balances()
         .get(proposer_index as usize)

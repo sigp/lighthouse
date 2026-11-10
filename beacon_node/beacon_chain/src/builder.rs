@@ -1679,9 +1679,9 @@ mod test {
             "genesis time should be as specified"
         );
 
-        for b in state.balances() {
+        for b in state.balances().iter() {
             assert_eq!(
-                *b, spec.max_effective_balance,
+                b, spec.max_effective_balance,
                 "validator balances should be max effective balance"
             );
         }

@@ -61,7 +61,7 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                             if status_matches {
                                 Some(ValidatorData {
                                     index: index as u64,
-                                    balance: *balance,
+                                    balance,
                                     status,
                                     validator: validator.clone(),
                                 })
@@ -115,7 +115,7 @@ pub fn get_beacon_state_validator_balances<T: BeaconChainTypes>(
                         })
                         .map(|(index, (_, balance))| ValidatorBalanceData {
                             index: index as u64,
-                            balance: *balance,
+                            balance,
                         })
                         .collect::<Vec<_>>(),
                     execution_optimistic,

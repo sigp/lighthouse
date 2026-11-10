@@ -262,7 +262,6 @@ pub fn process_activations<E: EthSpec>(
         let validator = validator.into_mut()?;
         let balance = balances
             .get(index)
-            .copied()
             .ok_or(BeaconStateError::BalancesOutOfBounds(index))?;
         validator.effective_balance = std::cmp::min(
             balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
