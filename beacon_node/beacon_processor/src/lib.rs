@@ -991,10 +991,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_batch,
                                             } => {
                                                 aggregates.push(*aggregate);
-                                                // The queue is LIFO, so the last item popped
-                                                // is the oldest.
-                                                process_batch_opt =
-                                                    Some((enqueued_at, process_batch));
+                                                if process_batch_opt.is_none() {
+                                                    process_batch_opt = Some(process_batch);
+                                                }
                                             }
                                             _ => {
                                                 error!("Invalid item in aggregate queue");
@@ -1003,11 +1002,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     }
                                 }
 
-                                if let Some((oldest_enqueued_at, process_batch)) = process_batch_opt
-                                {
+                                if let Some(process_batch) = process_batch_opt {
                                     // Process all aggregates with a single worker.
                                     Some((
-                                        oldest_enqueued_at,
+                                        Instant::now(),
                                         Work::GossipAggregateBatch {
                                             aggregates,
                                             process_batch,
@@ -1059,21 +1057,19 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_batch,
                                             } => {
                                                 attestations.push(*attestation);
-                                                // The queue is LIFO, so the last item popped
-                                                // is the oldest.
-                                                process_batch_opt =
-                                                    Some((enqueued_at, process_batch));
+                                                if process_batch_opt.is_none() {
+                                                    process_batch_opt = Some(process_batch);
+                                                }
                                             }
                                             _ => error!("Invalid item in attestation queue"),
                                         }
                                     }
                                 }
 
-                                if let Some((oldest_enqueued_at, process_batch)) = process_batch_opt
-                                {
+                                if let Some(process_batch) = process_batch_opt {
                                     // Process all attestations with a single worker.
                                     Some((
-                                        oldest_enqueued_at,
+                                        Instant::now(),
                                         Work::GossipAttestationBatch {
                                             attestations,
                                             process_batch,
