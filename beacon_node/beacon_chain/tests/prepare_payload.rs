@@ -650,6 +650,17 @@ async fn ptc_votes_against_a_payload_that_was_not_received_do_not_prepare_propos
 // neither payload attributes nor an fcU, leaving both to the run the votes started.
 #[tokio::test]
 async fn proposer_prep_run_started_before_ptc_votes_sends_nothing() {
+    assert_stale_proposer_prep_run_sends_nothing(false).await;
+}
+
+// As above, but the stale run only resumes after the run the votes started has sent, and the
+// proposal slot has started.
+#[tokio::test]
+async fn proposer_prep_run_resumed_after_slot_start_sends_nothing() {
+    assert_stale_proposer_prep_run_sends_nothing(true).await;
+}
+
+async fn assert_stale_proposer_prep_run_sends_nothing(resume_late: bool) {
     let Some((_db_path, harness)) = gloas_chain_with_full_head().await else {
         return;
     };
@@ -701,7 +712,9 @@ async fn proposer_prep_run_started_before_ptc_votes_sends_nothing() {
     harness
         .import_payload_attestation_messages(messages)
         .unwrap();
-    assert_eq!(stale_run.await.unwrap(), None);
+    if !resume_late {
+        assert_eq!((&mut stale_run).await.unwrap(), None);
+    }
 
     let event = timeout(Duration::from_secs(5), payload_attributes_events.recv())
         .await
@@ -714,12 +727,6 @@ async fn proposer_prep_run_started_before_ptc_votes_sends_nothing() {
         attributes.data.parent_block_hash,
         parent_bid.parent_block_hash()
     );
-    assert!(
-        timeout(Duration::from_millis(200), payload_attributes_events.recv())
-            .await
-            .is_err(),
-        "only the run the votes started should send payload attributes"
-    );
     timeout(Duration::from_secs(5), async {
         while forkchoice_updated_head_hashes.lock().is_empty() {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -727,6 +734,16 @@ async fn proposer_prep_run_started_before_ptc_votes_sends_nothing() {
     })
     .await
     .expect("the run the votes started should send an fcU");
+    if resume_late {
+        harness.advance_to_slot_lookahead(prepare_slot, Duration::ZERO);
+        assert_eq!(stale_run.await.unwrap(), None);
+    }
+    assert!(
+        timeout(Duration::from_millis(200), payload_attributes_events.recv())
+            .await
+            .is_err(),
+        "only the run the votes started should send payload attributes"
+    );
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(
         *forkchoice_updated_head_hashes.lock(),

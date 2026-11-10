@@ -6985,11 +6985,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             } else {
                 None
             };
-            if self.is_proposer_prep_superseded(
-                proposer_prep_generation,
-                current_slot,
-                prepare_slot,
-            ) {
+            if self.is_proposer_prep_superseded(proposer_prep_generation, prepare_slot) {
                 debug!(
                     %prepare_slot,
                     parent_root = ?forkchoice_update_params.head_root,
@@ -7160,14 +7156,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // A change that can move the build parent since this run read fork choice started a newer
-        // run for the same proposal. Leave the event and fcU to that run. The check and the event
-        // share a lock, so this run can't send its event after that run's.
+        // run for this proposal or a later one. Leave the event and fcU to that run. The check and
+        // the event share a lock, so this run can't send its event after that run's.
         let send_guard = if prepare_slot_fork.gloas_enabled() {
             Some(self.proposer_prep_send_lock.lock().await)
         } else {
             None
         };
-        if self.is_proposer_prep_superseded(proposer_prep_generation, current_slot, prepare_slot) {
+        if self.is_proposer_prep_superseded(proposer_prep_generation, prepare_slot) {
             debug!(
                 %prepare_slot,
                 parent_root = ?head_root,
@@ -7238,11 +7234,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             // Without the send lock, so a slow execution engine can't hold up other prep runs.
             // Block production picks its parent again, so a rare late fcU here only costs it time.
-            if self.is_proposer_prep_superseded(
-                proposer_prep_generation,
-                current_slot,
-                prepare_slot,
-            ) {
+            if self.is_proposer_prep_superseded(proposer_prep_generation, prepare_slot) {
                 debug!(
                     %prepare_slot,
                     "Proposer prep build parent changed, skipping forkchoiceUpdate"
@@ -7274,16 +7266,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
-    /// Returns `true` if a proposer prep run for a Gloas `prepare_slot` that read `generation` has
-    /// been superseded: the build parent may have moved since, and the run started for that change
-    /// prepares the same slot because `current_slot` is still the current slot. Late in the slot
-    /// the newer run prepares the next slot instead, so this run still sends.
-    fn is_proposer_prep_superseded(
-        &self,
-        generation: u64,
-        current_slot: Slot,
-        prepare_slot: Slot,
-    ) -> bool {
+    /// Returns `true` if a Gloas proposer prep run that read `generation` has been superseded by a
+    /// newer run, which reads fork choice later and prepares the same slot or a later one.
+    fn is_proposer_prep_superseded(&self, generation: u64, prepare_slot: Slot) -> bool {
         self.spec
             .fork_name_at_slot::<T::EthSpec>(prepare_slot)
             .gloas_enabled()
@@ -7291,7 +7276,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .proposer_prep_generation
                 .load(std::sync::atomic::Ordering::SeqCst)
                 != generation
-            && self.slot_clock.now() == Some(current_slot)
     }
 
     /// The builder bid streams, when enabled.
