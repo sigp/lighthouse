@@ -27,6 +27,7 @@
   * [Beacon Node API](./api_bn.md)
     * [Lighthouse API](./api_lighthouse.md)
     * [Validator Inclusion APIs](./api_validator_inclusion.md)
+    * [SSZ Proof APIs](./api_ssz_proofs.md)
   * [Validator Client API](./api_vc.md)
     * [Endpoints](./api_vc_endpoints.md)
     * [Authorization Header](./api_vc_auth_header.md)
