@@ -894,3 +894,65 @@ async fn heze_payload_not_satisfying_inclusion_lists_is_not_extended() {
         proto_array::PayloadStatus::Empty
     );
 }
+
+/// Helper: import the stored envelope of `block_root` again over RPC, as a lookup would, and
+/// recompute the head.
+async fn reimport_envelope_over_rpc(
+    harness: &BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>>,
+    block_root: Hash256,
+) {
+    let signed_envelope = harness
+        .chain
+        .get_payload_envelope(&block_root)
+        .unwrap()
+        .expect("envelope should be stored");
+    let verified_envelope = harness
+        .chain
+        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Rpc)
+        .await
+        .expect("RPC envelope should verify");
+    let envelope_status = harness
+        .chain
+        .process_execution_payload_envelope(
+            block_root,
+            verified_envelope,
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Lookup,
+            || Ok(()),
+        )
+        .await
+        .expect("re-imported envelope should be processed");
+    assert!(matches!(envelope_status, Imported(..)));
+    harness.chain.recompute_head_at_current_slot().await;
+}
+
+#[tokio::test]
+async fn heze_reimported_envelope_keeps_unsatisfied_verdict_when_valid() {
+    let Some((harness, block_root)) = import_heze_envelope_with_inclusion_list_verdict(false).await
+    else {
+        return;
+    };
+    // The execution layer now answers that the payload satisfies the inclusion lists.
+    reimport_envelope_over_rpc(&harness, block_root).await;
+
+    let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(!fork_choice.should_extend_payload(&block_root).unwrap());
+}
+
+#[tokio::test]
+async fn heze_reimported_envelope_keeps_unsatisfied_verdict_when_syncing() {
+    let Some((harness, block_root)) = import_heze_envelope_with_inclusion_list_verdict(false).await
+    else {
+        return;
+    };
+    harness
+        .mock_execution_layer
+        .as_ref()
+        .unwrap()
+        .server
+        .all_payloads_syncing_on_new_payload(true);
+    reimport_envelope_over_rpc(&harness, block_root).await;
+
+    let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
+    assert!(!fork_choice.should_extend_payload(&block_root).unwrap());
+}

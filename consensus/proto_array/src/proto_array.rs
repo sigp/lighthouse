@@ -922,12 +922,13 @@ impl ProtoArray {
             .map_err(|_| Error::InvalidNodeVariant { block_root })?;
         // The envelope arrived: record it so sync stops fetching, whatever the verdict.
         v33.payload_received = true;
-        v33.payload_inclusion_list_satisfied = inclusion_list_satisfied;
 
         // A settled verdict is never revisited: a duplicate `Valid`, or an `Invalid` the
         // invalidation sweep already set from this payload's condemned ancestry.
         match v33.execution_status {
-            ExecutionStatus::NotYetRevealed(_) | ExecutionStatus::Optimistic(_) => {}
+            ExecutionStatus::NotYetRevealed(_) | ExecutionStatus::Optimistic(_) => {
+                v33.payload_inclusion_list_satisfied = inclusion_list_satisfied;
+            }
             ExecutionStatus::Valid(_) | ExecutionStatus::Invalid(_) => return Ok(()),
             ExecutionStatus::Irrelevant(_) => {
                 return Err(Error::Unexpected(format!(
