@@ -8,7 +8,10 @@ use types::ExecutionBlockHash;
 /// It primarily ensures that the `latest_valid_hash` is always present when relevant.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PayloadStatus {
-    Valid,
+    Valid {
+        /// Only set by `engine_newPayloadV6` and `engine_forkchoiceUpdatedV5`.
+        inclusion_list_satisfied: Option<bool>,
+    },
     Invalid {
         /// The EE will provide a `None` LVH when it is unable to determine the
         /// latest valid ancestor.
@@ -40,7 +43,9 @@ pub fn process_payload_status(
                 {
                     // The response is only valid if `latest_valid_hash` is not `null` and
                     // equal to the provided `block_hash`.
-                    Ok(PayloadStatus::Valid)
+                    Ok(PayloadStatus::Valid {
+                        inclusion_list_satisfied: response.inclusion_list_satisfied,
+                    })
                 } else {
                     let error = format!(
                         "new_payload: response.status = VALID but invalid latest_valid_hash. Expected({:?}) Found({:?})",

@@ -235,7 +235,7 @@ impl<E: EthSpec> PendingComponents<E> {
         let AvailabilityPendingExecutedEnvelope {
             envelope,
             block_root,
-            payload_verification_outcome,
+            verification_outcome,
         } = envelope;
 
         let num_columns_required = self.num_columns_required(custody_context);
@@ -282,7 +282,7 @@ impl<E: EthSpec> PendingComponents<E> {
         Ok(Some(AvailableExecutedEnvelope {
             envelope: available_envelope,
             block_root: *block_root,
-            payload_verification_outcome: payload_verification_outcome.clone(),
+            verification_outcome: verification_outcome.clone(),
         }))
     }
 
