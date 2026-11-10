@@ -1537,9 +1537,10 @@ pub fn cli_app() -> Command {
             Arg::new("builder-user-agent")
                 .long("builder-user-agent")
                 .value_name("STRING")
-                .help("The HTTP user agent to send alongside requests to the builder URL. The \
-                       default is Lighthouse's version string.")
-                .requires("builder")
+                .help("The HTTP user agent to send alongside requests to the builders. \
+                       pre-Gloas, requests go to the --builder URL. \
+                       post-Gloas, requests go to the builders configured in the validator client. \
+                       The default is Lighthouse's version string.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1547,8 +1548,9 @@ pub fn cli_app() -> Command {
             Arg::new("builder-disable-ssz")
                 .long("builder-disable-ssz")
                 .value_name("BOOLEAN")
-                .help("Disables sending requests using SSZ over the builder API.")
-                .requires("builder")
+                .help("Disables sending requests using SSZ over the builder API. \
+                       pre-Gloas, this applies to the --builder URL. \
+                       post-Gloas, this applies to the builders configured in the validator client.")
                 .action(ArgAction::SetTrue)
                 .display_order(0)
         )
