@@ -10,6 +10,8 @@ use serde::Deserialize;
 use std::time::Duration;
 use types::execution::ExecutionProof;
 
+mod metrics;
+
 pub const DEFAULT_VERIFY_TIMEOUT: Duration = Duration::from_secs(5);
 
 const PATH_PROOF_VERIFICATIONS: &str = "/v1/execution_proof_verifications";
@@ -61,6 +63,10 @@ impl ProofEngine {
         &self,
         proof: &ExecutionProof,
     ) -> Result<ProofVerificationOutcome, ProofEngineError> {
+        let _timer = metrics::start_timer_vec(
+            &metrics::PROOF_ENGINE_VERIFICATION_TIMES,
+            &[&proof.proof_type.to_string()],
+        );
         let mut url = self.url.expose_full().clone();
         url.set_path(PATH_PROOF_VERIFICATIONS);
         let response: VerifyResponse = self
