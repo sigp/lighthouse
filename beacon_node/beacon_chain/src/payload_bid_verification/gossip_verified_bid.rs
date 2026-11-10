@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::inclusion_list_store::{InclusionListStore, inclusion_list_bits_are_inclusive};
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconStore, CachedHead, CanonicalHead,
     canonical_head::ForkChoiceReadGuard,
@@ -12,6 +13,7 @@ use crate::{
 };
 use educe::Educe;
 use eth2::types::{EventKind, ForkVersionedResponse};
+use parking_lot::RwLock;
 use proto_array::{Block as ProtoBlock, PayloadBlockHash};
 use slot_clock::SlotClock;
 use state_processing::signature_sets::{
@@ -20,7 +22,7 @@ use state_processing::signature_sets::{
 use tracing::debug;
 use types::{
     BeaconState, Builder, ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionRequestsGloas,
-    SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
+    InclusionListBits, RelativeEpoch, SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
@@ -80,6 +82,35 @@ fn verify_bid_blobs<E: EthSpec>(
         });
     }
 
+    Ok(())
+}
+
+/// Reject a bid whose `inclusion_list_bits` do not cover `local_inclusion_list_bits`, the node's
+/// own view of the inclusion lists for the slot before the bid's.
+/// Pre-Heze bids carry no bits and pass.
+///
+/// Callers resolve `local_inclusion_list_bits` under their own timeliness rule.
+/// On gossip only timely inclusion lists count, while for the proposer's block production path
+/// both timely and untimely inclusion lists count.
+pub(crate) fn verify_bid_inclusion_list_bits<E: EthSpec>(
+    bid: ExecutionPayloadBidRef<E>,
+    local_inclusion_list_bits: &InclusionListBits<E>,
+) -> Result<(), PayloadBidError> {
+    let ExecutionPayloadBidRef::Heze(bid) = bid else {
+        return Ok(());
+    };
+
+    let inclusion_list_inclusive =
+        inclusion_list_bits_are_inclusive::<E>(local_inclusion_list_bits, &bid.inclusion_list_bits)
+            .map_err(|e| {
+                PayloadBidError::InternalError(format!(
+                    "inclusion list bits inclusivity check error: {e:?}"
+                ))
+            })?;
+
+    if !inclusion_list_inclusive {
+        return Err(PayloadBidError::InclusionListBitsNotInclusive { slot: bid.slot });
+    }
     Ok(())
 }
 
@@ -265,6 +296,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub observed_execution_payloads: &'a ObservedExecutionPayloads,
     pub gossip_verified_payload_bid_cache: &'a GossipVerifiedPayloadBidCache<T::EthSpec>,
     pub gossip_verified_proposer_preferences_cache: &'a GossipVerifiedProposerPreferenceCache,
+    pub inclusion_list_store: &'a RwLock<InclusionListStore<T::EthSpec>>,
     pub slot_clock: &'a T::SlotClock,
     pub spec: &'a ChainSpec,
     pub store: &'a BeaconStore<T>,
@@ -459,6 +491,48 @@ impl<E: EthSpec> GossipVerifiedPayloadBid<E> {
             });
         }
 
+        // [IGNORE] `bid.inclusion_list_bits` is inclusive of the node's view of the inclusion
+        // lists for the slot preceding the bid's slot.
+        if ctx
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(bid_slot)
+            .heze_enabled()
+        {
+            let inclusion_list_slot = bid_slot.saturating_sub(1u64);
+            let inclusion_list_epoch = inclusion_list_slot.epoch(T::EthSpec::slots_per_epoch());
+            let relative_epoch =
+                RelativeEpoch::from_epoch(head_state.current_epoch(), inclusion_list_epoch)
+                    .map_err(|e| {
+                        PayloadBidError::InternalError(format!(
+                            "inclusion list epoch {inclusion_list_epoch} out of range: {e:?}"
+                        ))
+                    })?;
+
+            // determine inclusion list dependent root and committee necessary for determining
+            // the inclusion list bits for the inclusivity check
+            let inclusion_list_dependent_root = head_state.attester_shuffling_decision_root(
+                signed_bid.message().parent_block_root(),
+                relative_epoch,
+            )?;
+            let inclusion_list_committee =
+                head_state.get_inclusion_list_committee(inclusion_list_slot)?;
+
+            // Only the timely inclusion lists count on gossip
+            let local_inclusion_list_bits = ctx
+                .inclusion_list_store
+                .read()
+                .get_inclusion_list_bits(
+                    inclusion_list_slot,
+                    inclusion_list_dependent_root,
+                    &inclusion_list_committee,
+                    true,
+                )
+                .map_err(|e| {
+                    PayloadBidError::InternalError(format!("inclusion list store: {e:?}"))
+                })?;
+            verify_bid_inclusion_list_bits(signed_bid.message(), &local_inclusion_list_bits)?;
+        }
+
         execution_payload_bid_signature_set(
             head_state,
             |i| get_builder_pubkey_from_state(head_state, i),
@@ -489,6 +563,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             gossip_verified_payload_bid_cache: &self.gossip_verified_payload_bid_cache,
             gossip_verified_proposer_preferences_cache: &self
                 .gossip_verified_proposer_preferences_cache,
+            inclusion_list_store: &self.inclusion_list_store,
             slot_clock: &self.slot_clock,
             spec: &self.spec,
             store: &self.store,
