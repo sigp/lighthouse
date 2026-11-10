@@ -901,7 +901,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     None if can_spawn => {
                         // Check for chain segments first, they're the most efficient way to get
                         // blocks into the system.
-                        let work_event: Option<Work<E>> = if let Some(item) =
+                        let work_event: Option<(Instant, Work<E>)> = if let Some(item) =
                             work_queues.chain_segment_queue.pop()
                         {
                             Some(item)
@@ -975,8 +975,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 // `Work::GossipAggregateBatch` item.
                                 let mut aggregates = Vec::with_capacity(batch_size);
                                 let mut process_batch_opt = None;
+                                let mut oldest_enqueued_at = Instant::now();
                                 for _ in 0..batch_size {
-                                    if let Some(item) = work_queues.aggregate_queue.pop() {
+                                    if let Some((enqueued_at, item)) =
+                                        work_queues.aggregate_queue.pop()
+                                    {
+                                        oldest_enqueued_at = oldest_enqueued_at.min(enqueued_at);
                                         match item {
                                             Work::GossipAggregate {
                                                 aggregate,
@@ -997,10 +1001,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                                 if let Some(process_batch) = process_batch_opt {
                                     // Process all aggregates with a single worker.
-                                    Some(Work::GossipAggregateBatch {
-                                        aggregates,
-                                        process_batch,
-                                    })
+                                    Some((
+                                        oldest_enqueued_at,
+                                        Work::GossipAggregateBatch {
+                                            aggregates,
+                                            process_batch,
+                                        },
+                                    ))
                                 } else {
                                     // There is no good reason for this to
                                     // happen, it is a serious logic error.
@@ -1031,8 +1038,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 // `Work::GossipAttestationBatch` item.
                                 let mut attestations = Vec::with_capacity(batch_size);
                                 let mut process_batch_opt = None;
+                                let mut oldest_enqueued_at = Instant::now();
                                 for _ in 0..batch_size {
-                                    if let Some(item) = work_queues.attestation_queue.pop() {
+                                    if let Some((enqueued_at, item)) =
+                                        work_queues.attestation_queue.pop()
+                                    {
+                                        oldest_enqueued_at = oldest_enqueued_at.min(enqueued_at);
                                         match item {
                                             Work::GossipAttestation {
                                                 attestation,
@@ -1051,10 +1062,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                                 if let Some(process_batch) = process_batch_opt {
                                     // Process all attestations with a single worker.
-                                    Some(Work::GossipAttestationBatch {
-                                        attestations,
-                                        process_batch,
-                                    })
+                                    Some((
+                                        oldest_enqueued_at,
+                                        Work::GossipAttestationBatch {
+                                            attestations,
+                                            process_batch,
+                                        },
+                                    ))
                                 } else {
                                     // There is no good reason for this to
                                     // happen, it is a serious logic error.
@@ -1188,9 +1202,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             None
                         };
 
-                        if let Some(work_event) = work_event {
+                        if let Some((enqueued_at, work_event)) = work_event {
                             let work_type = work_event.to_type();
-                            self.spawn_worker(work_event, created_timestamp, idle_tx);
+                            self.spawn_worker(work_event, enqueued_at, idle_tx);
                             Some(work_type)
                         } else {
                             None
@@ -1241,8 +1255,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     .gossip_block_queue
                                     .push_and_pop(peer_id, work, work_id)
                                 {
-                                    Ok(Some(work)) => {
-                                        self.spawn_worker(work, created_timestamp, idle_tx);
+                                    Ok(Some((enqueued_at, work))) => {
+                                        self.spawn_worker(work, enqueued_at, idle_tx);
                                     }
                                     Ok(None) => {}
                                     Err(_) => metrics::inc_counter_vec(
@@ -1269,8 +1283,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     .rpc_block_queue
                                     .push_and_pop(peer_id, work, work_id)
                                 {
-                                    Ok(Some(work)) => {
-                                        self.spawn_worker(work, created_timestamp, idle_tx)
+                                    Ok(Some((enqueued_at, work))) => {
+                                        self.spawn_worker(work, enqueued_at, idle_tx)
                                     }
                                     Ok(None) => {}
                                     Err(work) => notify_ignored_rpc_block(work),
