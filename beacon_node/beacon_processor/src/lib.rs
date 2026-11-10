@@ -975,12 +975,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 // `Work::GossipAggregateBatch` item.
                                 let mut aggregates = Vec::with_capacity(batch_size);
                                 let mut process_batch_opt = None;
-                                let mut oldest_enqueued_at = Instant::now();
                                 for _ in 0..batch_size {
                                     if let Some((enqueued_at, item)) =
                                         work_queues.aggregate_queue.pop()
                                     {
-                                        oldest_enqueued_at = oldest_enqueued_at.min(enqueued_at);
                                         match item {
                                             Work::GossipAggregate {
                                                 aggregate,
@@ -988,9 +986,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_batch,
                                             } => {
                                                 aggregates.push(*aggregate);
-                                                if process_batch_opt.is_none() {
-                                                    process_batch_opt = Some(process_batch);
-                                                }
+                                                // The queue is LIFO, so the last item popped
+                                                // is the oldest.
+                                                process_batch_opt =
+                                                    Some((enqueued_at, process_batch));
                                             }
                                             _ => {
                                                 error!("Invalid item in aggregate queue");
@@ -999,7 +998,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     }
                                 }
 
-                                if let Some(process_batch) = process_batch_opt {
+                                if let Some((oldest_enqueued_at, process_batch)) = process_batch_opt
+                                {
                                     // Process all aggregates with a single worker.
                                     Some((
                                         oldest_enqueued_at,
@@ -1038,12 +1038,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 // `Work::GossipAttestationBatch` item.
                                 let mut attestations = Vec::with_capacity(batch_size);
                                 let mut process_batch_opt = None;
-                                let mut oldest_enqueued_at = Instant::now();
                                 for _ in 0..batch_size {
                                     if let Some((enqueued_at, item)) =
                                         work_queues.attestation_queue.pop()
                                     {
-                                        oldest_enqueued_at = oldest_enqueued_at.min(enqueued_at);
                                         match item {
                                             Work::GossipAttestation {
                                                 attestation,
@@ -1051,16 +1049,18 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                                 process_batch,
                                             } => {
                                                 attestations.push(*attestation);
-                                                if process_batch_opt.is_none() {
-                                                    process_batch_opt = Some(process_batch);
-                                                }
+                                                // The queue is LIFO, so the last item popped
+                                                // is the oldest.
+                                                process_batch_opt =
+                                                    Some((enqueued_at, process_batch));
                                             }
                                             _ => error!("Invalid item in attestation queue"),
                                         }
                                     }
                                 }
 
-                                if let Some(process_batch) = process_batch_opt {
+                                if let Some((oldest_enqueued_at, process_batch)) = process_batch_opt
+                                {
                                     // Process all attestations with a single worker.
                                     Some((
                                         oldest_enqueued_at,
