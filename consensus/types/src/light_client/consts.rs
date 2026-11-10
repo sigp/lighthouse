@@ -39,6 +39,10 @@ pub const EXECUTION_BLOCK_HASH_PROOF_LEN_GLOAS: usize = 11;
 
 // Field offset of `signed_execution_payload_bid` within the Gloas `BeaconBlockBody`.
 pub const SIGNED_EXECUTION_PAYLOAD_BID_FIELD_INDEX: usize = 10;
+pub const EXECUTION_BLOCK_HASH_GINDEX_DENEB: usize = 812;
+
+// Field offset of `block_hash` within `ExecutionPayloadHeader`, used to upgrade pre-Gloas headers.
+pub const EXECUTION_PAYLOAD_HEADER_BLOCK_HASH_FIELD_INDEX: usize = 12;
 // Field offset of `parent_block_hash` within `ExecutionPayloadBid`.
 pub const EXECUTION_PAYLOAD_BID_PARENT_BLOCK_HASH_FIELD_INDEX: usize = 0;
 
