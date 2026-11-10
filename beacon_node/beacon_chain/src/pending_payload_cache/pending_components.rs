@@ -62,15 +62,13 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Returns the indices of columns that have all cells present.
+    ///
+    /// Like `num_completed_columns`, this does not build the sidecars.
     pub fn get_cached_data_columns_indices(&self) -> Vec<ColumnIndex> {
-        let slot = self.bid.message().slot();
-        let block_root = self.block_root;
         self.verified_data_columns
             .iter()
-            .filter_map(|(col_idx, col)| {
-                col.to_full_sidecar(*col_idx, slot, block_root)
-                    .map(|_| *col_idx)
-            })
+            .filter(|(_, column)| column.is_complete())
+            .map(|(column_index, _)| *column_index)
             .collect()
     }
 
@@ -209,8 +207,16 @@ impl<E: EthSpec> PendingComponents<E> {
         self.envelope = Some(envelope);
     }
 
+    /// Returns the number of columns that have all cells present.
+    ///
+    /// This counts without building the sidecars. A column's cells are sized from the bid's
+    /// commitments, which share the sidecar's list bound, so every complete column is also
+    /// returned by `get_cached_data_columns`.
     pub fn num_completed_columns(&self) -> usize {
-        self.get_cached_data_columns().len()
+        self.verified_data_columns
+            .values()
+            .filter(|column| column.is_complete())
+            .count()
     }
 
     /// Returns whether our custody requirement for this block's data columns has been
