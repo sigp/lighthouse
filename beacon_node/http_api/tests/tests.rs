@@ -5582,6 +5582,15 @@ impl ApiTester {
         assert_eq!(envelope.slot(), slot);
     }
 
+    /// Assert that `envelope` is of the block with root `block_root`, if it says so.
+    ///
+    /// [Modified in Heze:EIP8411] Heze envelopes don't contain the root of their block.
+    fn assert_envelope_block_root(envelope: &ExecutionPayloadEnvelope<E>, block_root: Hash256) {
+        if let Ok(envelope_block_root) = envelope.beacon_block_root() {
+            assert_eq!(envelope_block_root, block_root);
+        }
+    }
+
     /// Assert envelope fields match the expected block root and slot.
     fn assert_envelope_fields(
         &self,
@@ -6474,6 +6483,7 @@ impl ApiTester {
             } = self.unwrap_v4_block_contents(response, &metadata, slot);
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let block_root = signed_block.canonical_root();
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
             if ssz {
@@ -7110,6 +7120,15 @@ impl ApiTester {
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block)).unwrap();
+            // [New in Heze:EIP8411] The beacon node publishes the payloads of the blocks it built
+            // right after importing the block. Forget the envelope, as a beacon node that did
+            // not build the block, so that it is withheld.
+            if fork_name.heze_enabled() {
+                self.chain
+                    .pending_payload_envelopes
+                    .write()
+                    .remove(block_root);
+            }
             self.client
                 .post_beacon_blocks_v2(&signed_block_request, None)
                 .await

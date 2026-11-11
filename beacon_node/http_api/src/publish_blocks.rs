@@ -1,3 +1,4 @@
+use crate::beacon::execution_payload_envelopes::publish_self_built_payload;
 use crate::metrics;
 use std::future::Future;
 
@@ -15,7 +16,7 @@ use eth2::types::{
 use futures::TryFutureExt;
 use lighthouse_network::{PubsubMessage, PubsubPartialMessage};
 use logging::crit;
-use network::NetworkMessage;
+use network::{NetworkMessage, PayloadDisseminationSenders};
 use rand::prelude::SliceRandom;
 use reqwest::StatusCode;
 use sensitive_url::SensitiveUrl;
@@ -143,6 +144,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     provenanced_block: ProvenancedBlock<T, B>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    payload_dissemination: &PayloadDisseminationSenders<T::EthSpec>,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
     // The `Eth-Builder-Url` request header (beacon-APIs #630): when a direct builder won the block's
@@ -181,6 +183,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
     /* actually publish a block */
     let publish_chain = chain.clone();
+    let publish_payload_dissemination = payload_dissemination.clone();
     let publish_block_p2p = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
                                   sender,
                                   seen_timestamp|
@@ -206,6 +209,10 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             .map_err(|_| {
                 BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish))
             })?;
+
+        // [New in Heze:EIP8411] Start collecting the chunks of the payload the block commits to.
+        // The block is already published, so this does not fail the publication.
+        publish_payload_dissemination.new_payload_of_block(block_root, &block);
 
         // If a direct builder won this block's payload bid, forward the signed block to it so it
         // reveals the execution payload envelope.
@@ -358,6 +365,18 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 publish_fn,
             ))
             .await;
+            // [New in Heze:EIP8411] Publish the payload of a self-built block once the block is
+            // imported, without waiting for the validator client.
+            if import_result.is_ok() {
+                publish_self_built_payload(
+                    block_root,
+                    &block,
+                    chain.clone(),
+                    network_tx,
+                    payload_dissemination,
+                )
+                .await;
+            }
             post_block_import_logging_and_response(
                 import_result,
                 validation_level,
@@ -409,6 +428,18 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 publish_fn,
             ))
             .await;
+            // [New in Heze:EIP8411] Publish the payload of a self-built block once the block is
+            // imported, without waiting for the validator client.
+            if import_result.is_ok() {
+                publish_self_built_payload(
+                    block_root,
+                    &block,
+                    chain.clone(),
+                    network_tx,
+                    payload_dissemination,
+                )
+                .await;
+            }
             post_block_import_logging_and_response(
                 import_result,
                 validation_level,
@@ -658,6 +689,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+    payload_dissemination: &PayloadDisseminationSenders<T::EthSpec>,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
 ) -> Result<Response, Rejection> {
@@ -670,6 +702,7 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
             full_block,
             chain,
             network_tx,
+            payload_dissemination,
             validation_level,
             duplicate_status_code,
             // Blinded (mev-boost) publish predates the Gloas builder-URL round-trip.

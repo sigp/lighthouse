@@ -8,6 +8,7 @@ use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use fixed_bytes::FixedBytesExtended;
 use http_api::test_utils::InteractiveTester;
 use http_api::{Config, ProvenancedBlock, publish_block};
+use network::PayloadDisseminationSenders;
 use reqwest::{Response, StatusCode};
 use std::collections::HashSet;
 use types::{ColumnIndex, Epoch, EthSpec, ForkName, Hash256, Slot, Spec};
@@ -429,6 +430,7 @@ pub async fn consensus_partial_pass_only_consensus() {
         ProvenancedBlock::local(gossip_block_b.unwrap(), blobs_b),
         tester.harness.chain.clone(),
         &channel.0,
+        &PayloadDisseminationSenders::disabled(),
         validation_level,
         StatusCode::ACCEPTED,
         None,
@@ -760,6 +762,7 @@ pub async fn equivocation_consensus_late_equivocation() {
         ProvenancedBlock::local(gossip_block_b.unwrap(), blobs_b),
         tester.harness.chain,
         &channel.0,
+        &PayloadDisseminationSenders::disabled(),
         validation_level,
         StatusCode::ACCEPTED,
         None,
