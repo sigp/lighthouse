@@ -4486,7 +4486,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let _timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_PUBKEY_CACHE_LOCK);
             let pubkey_cache = self.validator_pubkey_cache.upgradable_read();
 
-            // Only take a write lock if there are new keys to import.
+            // Only take a write lock if there might be new keys to import.
             if state.validators().len() > pubkey_cache.len() {
                 let _pubkey_span = debug_span!(
                     "pubkey_cache_update",

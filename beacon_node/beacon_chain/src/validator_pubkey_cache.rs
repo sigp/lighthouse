@@ -80,9 +80,20 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         })
     }
 
-    /// Scan the given `state` and add any new validator public keys.
+    /// Scan the given `state` and add the public keys of any new validators that are finalized.
+    ///
+    /// A validator is finalized if its activation eligibility epoch is finalized, or if it comes
+    /// before such a validator in the registry.
     ///
     /// Does not delete any keys from `self` if they don't appear in `state`.
+    ///
+    /// NOTE: This method used to import all new pubkeys from that state that were not present in
+    /// the cache, under the assumption that once a deposit is finalized, its processing always
+    /// leads to the same validator set. This turns out not to be true at the Gloas epoch boundary
+    /// where a deposit for a 0xB0 credential can either create a validator (if processed before
+    /// the fork) or a builder (if processed at the boundary).
+    ///
+    /// See: FIXME(sproul) add issue/PR number once PR is opened
     ///
     /// NOTE: The caller *must* commit the returned I/O batch as part of the block import process.
     #[instrument(skip_all)]
@@ -90,26 +101,38 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         &mut self,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError> {
-        if state.validators().len() > self.pubkeys.len() {
-            self.import(
-                state
-                    .validators()
-                    .iter_from(self.pubkeys.len())?
-                    .map(|v| v.pubkey),
-            )
+        // If any key from the state is not present, there could be new eligible keys, so perform the
+        // scan.
+        if self.pubkeys.len() < state.validators().len() {
+            let finalized_epoch = state.finalized_checkpoint().epoch;
+
+            // Import every new validator up to and including the last one with a finalized
+            // activation eligibility epoch. The validators before it are in the finalized registry
+            // too, even if they are not eligible themselves (e.g. a deposit of less than 32 ETH).
+            // They can't be skipped because the cache is indexed by position.
+            let mut new_pubkeys = vec![];
+            let mut num_finalized = 0;
+            for validator in state.validators().iter_from(self.pubkeys.len())? {
+                new_pubkeys.push(validator.pubkey);
+                if validator.activation_eligibility_epoch <= finalized_epoch {
+                    num_finalized = new_pubkeys.len();
+                }
+            }
+            new_pubkeys.truncate(num_finalized);
+
+            self.import(new_pubkeys)
         } else {
+            // Fast path for the case where there are no new deposits: all keys from state are
+            // already known (which implies they are all finalized).
             Ok(vec![])
         }
     }
 
     /// Adds zero or more validators to `self`.
-    fn import<I>(
+    fn import(
         &mut self,
-        validator_keys: I,
-    ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError>
-    where
-        I: Iterator<Item = PublicKeyBytes> + ExactSizeIterator,
-    {
+        validator_keys: Vec<PublicKeyBytes>,
+    ) -> Result<Vec<StoreOp<'static, T::EthSpec>>, BeaconChainError> {
         self.pubkey_bytes.reserve(validator_keys.len());
         self.pubkeys.reserve(validator_keys.len());
         self.indices.reserve(validator_keys.len());
@@ -144,9 +167,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
 
         if is_initial_import {
             // On first startup, decompress keys in parallel for better performance
-            let validator_keys_vec: Vec<PublicKeyBytes> = validator_keys.collect();
-
-            let decompressed: Vec<(PublicKeyBytes, PublicKey)> = validator_keys_vec
+            let decompressed: Vec<(PublicKeyBytes, PublicKey)> = validator_keys
                 .into_par_iter()
                 .map(|pubkey_bytes| {
                     let pubkey = (&pubkey_bytes)
@@ -271,7 +292,7 @@ mod test {
     use logging::create_test_tracing_subscriber;
     use std::sync::Arc;
     use store::HotColdDB;
-    use types::{EthSpec, Spec};
+    use types::{Epoch, EthSpec, Spec};
 
     type E = Spec;
     type T = EphemeralHarnessType<E>;
@@ -410,5 +431,71 @@ mod test {
 
         // Verify all 100 validators are correctly indexed
         check_cache_get(&cache, &keypairs2[..]);
+    }
+
+    #[test]
+    fn unfinalized_validators_not_imported() {
+        let (mut state, keypairs) = get_state(48);
+
+        // Give the last 8 validators an activation eligibility epoch that is not finalized yet.
+        for i in 40..48 {
+            let validator = state.get_validator_mut(i).unwrap();
+            validator.activation_eligibility_epoch = Epoch::new(1);
+        }
+        assert_eq!(state.finalized_checkpoint().epoch, Epoch::new(0));
+
+        let mut cache = ValidatorPubkeyCache::<T>::new(&state, get_store()).unwrap();
+        check_cache_get(&cache, &keypairs[..40]);
+
+        // Importing again without finality advancing does nothing.
+        assert!(cache.import_new_pubkeys(&state).unwrap().is_empty());
+        check_cache_get(&cache, &keypairs[..40]);
+
+        // Once the eligibility epoch is finalized the remaining validators are imported.
+        state.finalized_checkpoint_mut().epoch = Epoch::new(1);
+        assert_eq!(cache.import_new_pubkeys(&state).unwrap().len(), 8);
+        check_cache_get(&cache, &keypairs[..]);
+    }
+
+    #[test]
+    fn ineligible_validator_does_not_block_initial_import() {
+        let (mut state, keypairs) = get_state(48);
+
+        // A validator that never becomes eligible for activation (e.g. a deposit of less than
+        // 32 ETH) is still imported when a later validator is finalized.
+        let validator = state.get_validator_mut(10).unwrap();
+        validator.activation_eligibility_epoch = E::default_spec().far_future_epoch;
+
+        let cache = ValidatorPubkeyCache::<T>::new(&state, get_store()).unwrap();
+        check_cache_get(&cache, &keypairs[..]);
+    }
+
+    #[test]
+    fn ineligible_validator_does_not_block_incremental_import() {
+        let (state, keypairs) = get_state(32);
+        let mut cache = ValidatorPubkeyCache::<T>::new(&state, get_store()).unwrap();
+        check_cache_get(&cache, &keypairs[..]);
+
+        // Add 16 more validators, one of which never becomes eligible for activation.
+        let (mut state, keypairs) = get_state(48);
+        let validator = state.get_validator_mut(40).unwrap();
+        validator.activation_eligibility_epoch = E::default_spec().far_future_epoch;
+
+        assert_eq!(cache.import_new_pubkeys(&state).unwrap().len(), 16);
+        check_cache_get(&cache, &keypairs[..]);
+    }
+
+    #[test]
+    fn trailing_ineligible_validators_not_imported() {
+        let (mut state, keypairs) = get_state(48);
+
+        // With no finalized validator after them, ineligible validators are left out.
+        for i in 46..48 {
+            let validator = state.get_validator_mut(i).unwrap();
+            validator.activation_eligibility_epoch = E::default_spec().far_future_epoch;
+        }
+
+        let cache = ValidatorPubkeyCache::<T>::new(&state, get_store()).unwrap();
+        check_cache_get(&cache, &keypairs[..46]);
     }
 }
