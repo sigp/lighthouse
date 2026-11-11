@@ -92,7 +92,11 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
     }
 
     if fork_name.gloas_enabled() {
-        topics.push(GossipKind::ExecutionPayload);
+        // [Modified in Heze:EIP8411] Execution payload envelopes are disseminated as chunks over
+        // waggle (`WaggleKind::ExecutionPayload`), the gossipsub topic is deprecated.
+        if !fork_name.heze_enabled() {
+            topics.push(GossipKind::ExecutionPayload);
+        }
         topics.push(GossipKind::ExecutionPayloadBid);
         topics.push(GossipKind::PayloadAttestation);
         topics.push(GossipKind::ProposerPreferences);
@@ -711,6 +715,33 @@ mod tests {
             core_topics_to_subscribe::<E>(ForkName::Fulu, &topic_config, &spec)
                 .contains(&GossipKind::DataColumnSidecar(0.into()))
         );
+    }
+
+    #[test]
+    fn execution_payload_is_only_subscribed_in_gloas() {
+        let spec = get_spec();
+        let s = get_sampling_subnets();
+        let topic_config = get_topic_config(&s);
+        for fork in ForkName::list_all() {
+            let topics = core_topics_to_subscribe::<E>(fork, &topic_config, &spec);
+            assert_eq!(
+                topics.contains(&GossipKind::ExecutionPayload),
+                fork.gloas_enabled() && !fork.heze_enabled(),
+                "{fork}"
+            );
+            // The bid stays on gossipsub.
+            assert_eq!(
+                topics.contains(&GossipKind::ExecutionPayloadBid),
+                fork.gloas_enabled(),
+                "{fork}"
+            );
+            // From Heze, the payload is on waggle instead.
+            assert_eq!(
+                WaggleKind::ExecutionPayload.exists_at(fork),
+                fork.heze_enabled(),
+                "{fork}"
+            );
+        }
     }
 
     #[test]

@@ -4161,7 +4161,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     EnvelopeError::PriorToFinalization { .. }
                     | EnvelopeError::EnvelopeAlreadySeen { .. }
                     // Heze envelopes don't contain the root of their block, so they can't be
-                    // verified on this topic (EIP-8411).
+                    // verified on this topic (EIP-8411). We don't subscribe to it from Heze, so
+                    // this is not expected.
                     | EnvelopeError::MissingBlockRoot
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
