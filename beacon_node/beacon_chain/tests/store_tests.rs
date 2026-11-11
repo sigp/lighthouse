@@ -2746,6 +2746,7 @@ async fn gloas_payload_database_invariants() {
             &db_path,
             StoreConfig {
                 prune_payloads,
+                block_cache_size: 64,
                 ..StoreConfig::default()
             },
             ForkName::Gloas.make_genesis_spec(E::default_spec()),
@@ -2807,6 +2808,12 @@ async fn gloas_payload_database_invariants() {
             .unwrap()
             .clone();
         let column_index = *column.index();
+        assert!(
+            store
+                .get_data_column(&block_root, &column_index, ForkName::Gloas)
+                .unwrap()
+                .is_some()
+        );
         store
             .do_atomically_with_block_and_blobs_cache(vec![StoreOp::DeleteDataColumns(
                 block_root,
@@ -2814,6 +2821,12 @@ async fn gloas_payload_database_invariants() {
                 ForkName::Gloas,
             )])
             .unwrap();
+        assert!(
+            store
+                .get_data_column(&block_root, &column_index, ForkName::Gloas)
+                .unwrap()
+                .is_none()
+        );
         let result = rig.chain.check_database_invariants().unwrap();
         assert_eq!(result.violations.len(), 1, "{:#?}", result.violations);
         assert!(matches!(
