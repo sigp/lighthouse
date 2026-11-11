@@ -2069,9 +2069,6 @@ async fn invalid_fulu_ancestor_under_justified_checkpoint(
     let mut rig = InvalidPayloadRig::new_with_spec(gloas_after_fulu_spec()).enable_attestations();
     let slots_per_epoch = E::slots_per_epoch();
 
-    let latest_valid_root = rig.import_block(Payload::Valid).await;
-    let latest_valid_hash = rig.block_hash(latest_valid_root);
-
     let last_fulu_slot = Slot::new(slots_per_epoch - 1);
     while rig.harness.head_slot() < last_fulu_slot {
         rig.import_block(Payload::Syncing).await;
@@ -2086,6 +2083,12 @@ async fn invalid_fulu_ancestor_under_justified_checkpoint(
             .gloas_enabled(),
         "A is the last pre-Gloas block"
     );
+    let parent_root_of_a = rig
+        .harness
+        .get_block(ancestor_root.into())
+        .unwrap()
+        .parent_root();
+    let latest_valid_hash = rig.block_hash(parent_root_of_a);
 
     let justified_root = rig.import_block(Payload::Syncing).await;
     assert_eq!(rig.harness.head_slot(), Slot::new(slots_per_epoch));
