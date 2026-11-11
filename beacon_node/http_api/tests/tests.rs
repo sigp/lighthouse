@@ -4228,6 +4228,7 @@ impl ApiTester {
                     blob_kzg_commitments: Default::default(),
                     execution_requests_root: Hash256::zero(),
                     inclusion_list_bits: Default::default(),
+                    payload_chunks_root: Hash256::zero(),
                 },
                 signature,
             })

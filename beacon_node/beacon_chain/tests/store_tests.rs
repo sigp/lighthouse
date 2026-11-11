@@ -2107,13 +2107,24 @@ async fn heze_block_production_across_boundary() {
         matches!(head_block, SignedBeaconBlock::Heze(_)),
         "the head block should be a Heze block"
     );
-    assert!(
-        harness
-            .chain
-            .get_payload_envelope(&head_block_root)
-            .unwrap()
-            .is_some(),
-        "the Heze block's execution payload envelope should be stored"
+    let envelope = harness
+        .chain
+        .get_payload_envelope(&head_block_root)
+        .unwrap()
+        .expect("the Heze block's execution payload envelope should be stored");
+
+    // EIP-8411: the self-built bid commits to the chunks of the envelope revealed for the block.
+    let payload_chunks_root = head_block
+        .message()
+        .body()
+        .signed_execution_payload_bid()
+        .unwrap()
+        .message()
+        .payload_chunks_root()
+        .unwrap();
+    assert_eq!(
+        envelope.message.compute_payload_chunks_root().unwrap(),
+        payload_chunks_root
     );
 }
 

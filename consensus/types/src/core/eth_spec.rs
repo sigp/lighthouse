@@ -6,14 +6,15 @@ use std::{
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use typenum::{
-    U0, U1, U2, U4, U8, U16, U17, U24, U32, U48, U64, U96, U128, U256, U512, U625, U1024, U2048,
-    U4096, U8192, U16384, U65536, U131072, U262144, U1048576, U16777216, U33554432, U134217728,
-    U1073741824, U1099511627776, UInt, Unsigned, bit::B0,
+    Prod, U0, U1, U2, U4, U6, U8, U10, U16, U17, U24, U32, U48, U64, U96, U128, U256, U512, U625,
+    U1024, U2048, U4096, U8192, U16384, U65536, U131072, U262144, U1048576, U16777216, U33554432,
+    U134217728, U1073741824, U1099511627776, UInt, Unsigned, bit::B0,
 };
 
 use crate::core::{ChainSpec, Epoch};
 
 type U5000 = UInt<UInt<UInt<U625, B0>, B0>, B0>; // 625 * 8 = 5000
+type U163840 = Prod<U10, U16384>; // 10 * 16384 = 163840
 
 const MAINNET: &str = "mainnet";
 const MINIMAL: &str = "minimal";
@@ -183,6 +184,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
      * New in Heze
      */
     type InclusionListCommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    // [New in Heze:EIP8411]
+    type TotalExecutionPayloadChunks: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type ChunkInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /// Must be set to `MAX_PAYLOAD_SIZE // TOTAL_EXECUTION_PAYLOAD_CHUNKS`.
+    type MaxPayloadChunkSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     fn default_spec() -> ChainSpec;
 
@@ -480,6 +486,21 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn inclusion_list_committee_size() -> usize {
         Self::InclusionListCommitteeSize::to_usize()
     }
+
+    /// Returns the `TOTAL_EXECUTION_PAYLOAD_CHUNKS` constant for this specification.
+    fn total_execution_payload_chunks() -> usize {
+        Self::TotalExecutionPayloadChunks::to_usize()
+    }
+
+    /// Returns the `CHUNK_INCLUSION_PROOF_DEPTH` constant for this specification.
+    fn chunk_inclusion_proof_depth() -> usize {
+        Self::ChunkInclusionProofDepth::to_usize()
+    }
+
+    /// Returns the `MAX_PAYLOAD_CHUNK_SIZE` constant for this specification.
+    fn max_payload_chunk_size() -> usize {
+        Self::MaxPayloadChunkSize::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -557,6 +578,9 @@ impl EthSpec for MainnetEthSpec {
     type MaxBuilderDepositRequestsPerPayload = U64;
     type MaxBuilderExitRequestsPerPayload = U16;
     type InclusionListCommitteeSize = U16;
+    type TotalExecutionPayloadChunks = U64;
+    type ChunkInclusionProofDepth = U6;
+    type MaxPayloadChunkSize = U163840;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::mainnet()
@@ -579,7 +603,7 @@ impl EthSpec for MainnetEthSpec {
     }
 
     fn max_signed_execution_payload_bid_size_heze() -> usize {
-        196934
+        196966
     }
 
     fn max_signed_inclusion_list_size() -> usize {
@@ -655,7 +679,10 @@ impl EthSpec for MinimalEthSpec {
         MaxPayloadAttestations,
         MaxBuilderDepositRequestsPerPayload,
         MaxBuilderExitRequestsPerPayload,
-        InclusionListCommitteeSize
+        InclusionListCommitteeSize,
+        TotalExecutionPayloadChunks,
+        ChunkInclusionProofDepth,
+        MaxPayloadChunkSize
     });
 
     fn default_spec() -> ChainSpec {
@@ -679,7 +706,7 @@ impl EthSpec for MinimalEthSpec {
     }
 
     fn max_signed_execution_payload_bid_size_heze() -> usize {
-        196934
+        196966
     }
 
     fn max_signed_inclusion_list_size() -> usize {
@@ -754,6 +781,9 @@ impl EthSpec for GnosisEthSpec {
     type MaxBuilderDepositRequestsPerPayload = U64;
     type MaxBuilderExitRequestsPerPayload = U16;
     type InclusionListCommitteeSize = U16;
+    type TotalExecutionPayloadChunks = U64;
+    type ChunkInclusionProofDepth = U6;
+    type MaxPayloadChunkSize = U163840;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
@@ -776,7 +806,7 @@ impl EthSpec for GnosisEthSpec {
     }
 
     fn max_signed_execution_payload_bid_size_heze() -> usize {
-        196934
+        196966
     }
 
     fn max_signed_inclusion_list_size() -> usize {
@@ -802,6 +832,16 @@ mod test {
             E::ptc_window_length(),
             (spec.min_seed_lookahead.as_usize() + 2) * E::slots_per_epoch() as usize,
             "PtcWindowLength must equal (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH"
+        );
+        assert_eq!(
+            E::max_payload_chunk_size(),
+            spec.max_payload_size as usize / E::total_execution_payload_chunks(),
+            "MaxPayloadChunkSize must equal MAX_PAYLOAD_SIZE // TOTAL_EXECUTION_PAYLOAD_CHUNKS"
+        );
+        assert_eq!(
+            1 << E::chunk_inclusion_proof_depth(),
+            E::total_execution_payload_chunks(),
+            "ChunkInclusionProofDepth must equal log2(TOTAL_EXECUTION_PAYLOAD_CHUNKS)"
         );
     }
 

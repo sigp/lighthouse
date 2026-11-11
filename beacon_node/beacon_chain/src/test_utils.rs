@@ -1376,6 +1376,9 @@ where
                 // Commit to empty execution requests so an envelope answering this bid can exist.
                 execution_requests_root: ExecutionRequestsGloas::<E>::default().tree_hash_root(),
                 inclusion_list_bits: BitVector::new(),
+                // TODO(heze): Commit to the chunks of the envelope revealed by
+                // `make_builder_envelope_for_block` once chunks are validated against the bid.
+                payload_chunks_root: Hash256::ZERO,
             }),
             _ => ExecutionPayloadBid::Gloas(ExecutionPayloadBidGloas {
                 parent_block_hash,

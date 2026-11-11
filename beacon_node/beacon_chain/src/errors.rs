@@ -338,6 +338,7 @@ pub enum BlockProductionError {
     MissingExecutionRequests,
     SszTypesError(ssz_types::Error),
     EnvelopeProcessingError(EnvelopeProcessingError),
+    PayloadChunkError(types::PayloadChunkError),
     BlsError(bls::Error),
     MissingParentExecutionPayload,
     MissingExecutionPayloadEnvelope(Hash256),

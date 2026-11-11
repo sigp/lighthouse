@@ -2,7 +2,7 @@ use ssz_types::BitVector;
 use std::mem;
 use types::{
     BeaconState, BeaconStateError as Error, BeaconStateHeze, ChainSpec, EthSpec,
-    ExecutionPayloadBidHeze, Fork,
+    ExecutionPayloadBidHeze, Fork, Hash256,
 };
 
 /// Transform a `Gloas` state into a `Heze` state.
@@ -70,6 +70,8 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
         // Execution Bid
         // [New in Heze:EIP7805] the bid gains `inclusion_list_bits`; carry the shared Gloas
         // fields forward and default the new field to empty (no bits computed at upgrade).
+        // [New in Heze:EIP8411] the bid gains `payload_chunks_root`; the Gloas bid committed to
+        // no chunks, so it defaults to zero.
         latest_execution_payload_bid: {
             let pre_bid = &pre.latest_execution_payload_bid;
             ExecutionPayloadBidHeze {
@@ -86,6 +88,7 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
                 blob_kzg_commitments: pre_bid.blob_kzg_commitments.clone(),
                 execution_requests_root: pre_bid.execution_requests_root,
                 inclusion_list_bits: BitVector::new(),
+                payload_chunks_root: Hash256::ZERO,
             }
         },
         // Capella
