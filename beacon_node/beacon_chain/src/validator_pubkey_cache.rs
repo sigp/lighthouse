@@ -7,6 +7,8 @@ use rayon::prelude::*;
 use smallvec::SmallVec;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use state_processing::per_block_processing::signature_sets::get_pubkey_from_state;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use store::{DBColumn, Error as StoreError, StoreItem, StoreOp};
@@ -175,6 +177,25 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         self.pubkeys.get(i)
     }
 
+    /// Get the public key for the validator with index `i` in `state`.
+    ///
+    /// Keys for validators in the cache are borrowed from the cache, whilst keys for validators
+    /// beyond the end of the cache are decompressed from `state`.
+    ///
+    /// Returns `None` if `state` does not contain a validator with index `i`.
+    pub fn get_for_state<'a>(
+        &'a self,
+        state: &'a BeaconState<T::EthSpec>,
+        i: usize,
+    ) -> Option<Cow<'a, PublicKey>> {
+        if i >= state.validators().len() {
+            return None;
+        }
+        self.get(i)
+            .map(Cow::Borrowed)
+            .or_else(|| get_pubkey_from_state(state, i))
+    }
+
     /// Get the `PublicKey` for a validator with `PublicKeyBytes`.
     pub fn get_pubkey_from_pubkey_bytes(&self, pubkey: &PublicKeyBytes) -> Option<&PublicKey> {
         self.get_index(pubkey).and_then(|index| self.get(index))
@@ -250,13 +271,13 @@ mod test {
     use logging::create_test_tracing_subscriber;
     use std::sync::Arc;
     use store::HotColdDB;
-    use types::{EthSpec, MainnetEthSpec};
+    use types::{EthSpec, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
     type T = EphemeralHarnessType<E>;
 
     fn get_state(validator_count: usize) -> (BeaconState<E>, Vec<Keypair>) {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let harness = BeaconChainHarness::builder(Spec::default())
             .default_spec()
             .deterministic_keypairs(validator_count)
             .fresh_ephemeral_store()
@@ -302,7 +323,7 @@ mod test {
 
     #[test]
     fn basic_operation() {
-        // >= 32 validators required for Gloas genesis with MainnetEthSpec (32 slots/epoch).
+        // >= 32 validators required for Gloas genesis under the mainnet preset (32 slots/epoch).
         let (state, keypairs) = get_state(32);
 
         let store = get_store();

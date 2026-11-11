@@ -1,17 +1,17 @@
 use crate::task_spawner::{Priority, TaskSpawner};
 use crate::utils::{
-    ChainFilter, EthV1Filter, NetworkTxFilter, ResponseFilter, TaskSpawnerFilter,
-    publish_pubsub_message,
+    ChainFilter, ConsensusVersionHeaderFilter, EthV1Filter, NetworkTxFilter, ResponseFilter,
+    TaskSpawnerFilter, publish_pubsub_message,
 };
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use bytes::Bytes;
+use context_deserialize::ContextDeserialize;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use ssz::Decode;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, warn};
-use types::SignedExecutionPayloadBid;
+use types::{ForkName, ForkVersionDecode, SignedExecutionPayloadBid};
 use warp::{
     Filter, Rejection,
     reply::{Reply, Response},
@@ -20,6 +20,7 @@ use warp::{
 // POST /eth/v1/beacon/execution_payload_bids (SSZ)
 pub(crate) fn post_beacon_execution_payload_bids_ssz<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
+    consensus_version_header_filter: ConsensusVersionHeaderFilter,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
     network_tx_filter: NetworkTxFilter<T>,
@@ -29,19 +30,24 @@ pub(crate) fn post_beacon_execution_payload_bids_ssz<T: BeaconChainTypes>(
         .and(warp::path("execution_payload_bids"))
         .and(warp::path::end())
         .and(warp::body::bytes())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter)
         .and(chain_filter)
         .and(network_tx_filter)
         .then(
             |body_bytes: Bytes,
+             consensus_version: ForkName,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
-                    let bid = SignedExecutionPayloadBid::<T::EthSpec>::from_ssz_bytes(&body_bytes)
-                        .map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
-                        })?;
+                    let bid = SignedExecutionPayloadBid::<T::EthSpec>::from_ssz_bytes_by_fork(
+                        &body_bytes,
+                        consensus_version,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
+                    })?;
                     publish_execution_payload_bid(bid, &chain, &network_tx)
                 })
             },
@@ -52,6 +58,7 @@ pub(crate) fn post_beacon_execution_payload_bids_ssz<T: BeaconChainTypes>(
 // POST /eth/v1/beacon/execution_payload_bids
 pub(crate) fn post_beacon_execution_payload_bids<T: BeaconChainTypes>(
     eth_v1: EthV1Filter,
+    consensus_version_header_filter: ConsensusVersionHeaderFilter,
     task_spawner_filter: TaskSpawnerFilter<T>,
     chain_filter: ChainFilter<T>,
     network_tx_filter: NetworkTxFilter<T>,
@@ -61,15 +68,24 @@ pub(crate) fn post_beacon_execution_payload_bids<T: BeaconChainTypes>(
         .and(warp::path("execution_payload_bids"))
         .and(warp::path::end())
         .and(warp::body::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter)
         .and(chain_filter)
         .and(network_tx_filter)
         .then(
-            |bid: SignedExecutionPayloadBid<T::EthSpec>,
+            |value: serde_json::Value,
+             consensus_version: ForkName,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
+                    let bid = SignedExecutionPayloadBid::<T::EthSpec>::context_deserialize(
+                        &value,
+                        consensus_version,
+                    )
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                    })?;
                     publish_execution_payload_bid(bid, &chain, &network_tx)
                 })
             },
@@ -83,7 +99,7 @@ pub fn publish_execution_payload_bid<T: BeaconChainTypes>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
 ) -> Result<Response, Rejection> {
     let slot = bid.slot();
-    let builder_index = bid.message.builder_index;
+    let builder_index = bid.message().builder_index();
 
     if !chain.spec.is_gloas_scheduled() {
         return Err(warp_utils::reject::custom_bad_request(

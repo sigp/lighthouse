@@ -332,12 +332,12 @@ mod tests {
     use crate::rpc::rate_limiter::Quota;
     use crate::rpc::self_limiter::SelfRateLimiter;
     use crate::rpc::{Ping, Protocol, RPCSend, RequestType};
-    use crate::service::api_types::{AppRequestId, SingleLookupReqId, SyncRequestId};
+    use crate::service::api_types::{SingleLookupReqId, SyncRequestId};
     use libp2p::PeerId;
     use logging::create_test_tracing_subscriber;
     use std::num::NonZeroU64;
     use std::time::Duration;
-    use types::{EthSpec, ForkContext, Hash256, MainnetEthSpec, Slot};
+    use types::{EthSpec, ForkContext, Hash256, Slot, Spec};
 
     /// Test that `next_peer_request_ready` correctly maintains the queue.
     #[tokio::test]
@@ -347,12 +347,12 @@ mod tests {
             ping_quota: Quota::n_every(NonZeroU64::new(1).unwrap(), 2),
             ..Default::default()
         });
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new::<Spec>(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<Option<SyncRequestId>, Spec> =
             SelfRateLimiter::new(Some(config), fork_context).unwrap();
         let peer_id = PeerId::random();
         let lookup_id = 0;
@@ -360,7 +360,7 @@ mod tests {
         for i in 1..=5u32 {
             let _ = limiter.allows(
                 peer_id,
-                AppRequestId::Sync(SyncRequestId::SingleBlock {
+                Some(SyncRequestId::SingleBlock {
                     id: SingleLookupReqId {
                         lookup_id,
                         req_id: i,
@@ -382,7 +382,7 @@ mod tests {
             for i in 2..=5u32 {
                 assert!(matches!(
                     iter.next().unwrap().request_id,
-                    AppRequestId::Sync(SyncRequestId::SingleBlock {
+                    Some(SyncRequestId::SingleBlock {
                         id: SingleLookupReqId { req_id, .. },
                     }) if req_id == i,
                 ));
@@ -407,7 +407,7 @@ mod tests {
             for i in 3..=5 {
                 assert!(matches!(
                     iter.next().unwrap().request_id,
-                    AppRequestId::Sync(SyncRequestId::SingleBlock {
+                    Some(SyncRequestId::SingleBlock {
                         id: SingleLookupReqId { req_id, .. },
                     }) if req_id == i,
                 ));
@@ -420,19 +420,19 @@ mod tests {
     /// Test that `next_peer_request_ready` correctly maintains the queue when using the self-limiter without rate limiting.
     #[tokio::test]
     async fn test_next_peer_request_ready_concurrent_requests() {
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new::<Spec>(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<Option<SyncRequestId>, Spec> =
             SelfRateLimiter::new(None, fork_context).unwrap();
         let peer_id = PeerId::random();
 
         for i in 1..=5u32 {
             let result = limiter.allows(
                 peer_id,
-                AppRequestId::Sync(SyncRequestId::SingleBlock {
+                Some(SyncRequestId::SingleBlock {
                     id: SingleLookupReqId {
                         lookup_id: i,
                         req_id: i,
@@ -488,7 +488,7 @@ mod tests {
 
             assert!(matches!(
                 request_id,
-                AppRequestId::Sync(SyncRequestId::SingleBlock {
+                Some(SyncRequestId::SingleBlock {
                     id: SingleLookupReqId { req_id, .. },
                 }) if *req_id == i
             ));
@@ -497,12 +497,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_peer_disconnected() {
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new::<Spec>(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<Option<SyncRequestId>, Spec> =
             SelfRateLimiter::new(None, fork_context).unwrap();
         let peer1 = PeerId::random();
         let peer2 = PeerId::random();
@@ -511,7 +511,7 @@ mod tests {
             for i in 1..=5u32 {
                 let result = limiter.allows(
                     peer,
-                    AppRequestId::Sync(SyncRequestId::SingleBlock {
+                    Some(SyncRequestId::SingleBlock {
                         id: SingleLookupReqId {
                             lookup_id: i,
                             req_id: i,
@@ -548,7 +548,7 @@ mod tests {
             let (request_id, _) = failed_requests.remove(0);
             assert!(matches!(
                 request_id,
-                AppRequestId::Sync(SyncRequestId::SingleBlock {
+                Some(SyncRequestId::SingleBlock {
                         id: SingleLookupReqId { req_id, .. },
                 }) if req_id == i
             ));
@@ -574,23 +574,23 @@ mod tests {
     #[tokio::test]
     async fn test_peer_disconnected_returns_failed_requests() {
         const REPLENISH_DURATION: u64 = 50;
-        let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
+        let fork_context = std::sync::Arc::new(ForkContext::new::<Spec>(
             Slot::new(0),
             Hash256::ZERO,
-            &MainnetEthSpec::default_spec(),
+            &Spec::default_spec(),
         ));
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
             ping_quota: Quota::n_every_millis(NonZeroU64::new(1).unwrap(), REPLENISH_DURATION),
             ..Default::default()
         });
-        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+        let mut limiter: SelfRateLimiter<Option<SyncRequestId>, Spec> =
             SelfRateLimiter::new(Some(config), fork_context).unwrap();
         let peer_id = PeerId::random();
 
         for i in 1..=5u32 {
             let result = limiter.allows(
                 peer_id,
-                AppRequestId::Sync(SyncRequestId::SingleBlock {
+                Some(SyncRequestId::SingleBlock {
                     id: SingleLookupReqId {
                         req_id: i,
                         lookup_id: i,
@@ -630,7 +630,7 @@ mod tests {
             let (request_id, protocol) = failed_requests.remove(0);
             assert!(matches!(
                 request_id,
-                AppRequestId::Sync(SyncRequestId::SingleBlock {
+                Some(SyncRequestId::SingleBlock {
                     id: SingleLookupReqId { req_id, .. },
                 }) if req_id == i
             ));

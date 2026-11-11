@@ -22,6 +22,12 @@ pub enum BlockProcessingError {
         expected: usize,
         found: usize,
     },
+    /// [New in Gloas:EIP7688] An operation list exceeds the spec's runtime limit.
+    OperationListTooLong {
+        kind: &'static str,
+        length: usize,
+        max: usize,
+    },
     HeaderInvalid {
         reason: HeaderInvalid,
     },
@@ -421,6 +427,8 @@ impl From<BlockOperationError<IndexedAttestationInvalid>>
 pub enum IndexedAttestationInvalid {
     /// The number of indices is 0.
     IndicesEmpty,
+    /// [New in Gloas:EIP7688] The number of indices exceeds the runtime maximum.
+    IndicesExceedMaxLength { length: usize, max: usize },
     /// The validator indices were not in increasing order.
     ///
     /// The error occurred between the given `index` and `index + 1`
@@ -542,6 +550,8 @@ pub enum ExecutionPayloadBidInvalid {
         state_block_hash: ExecutionBlockHash,
         bid_parent_hash: ExecutionBlockHash,
     },
+    /// The bid's block hash equals its parent block hash
+    BlockHashEqualsParentBlockHash { block_hash: ExecutionBlockHash },
     /// The bid's parent block root doesn't match the block's parent root
     ParentBlockRootMismatch {
         block_parent_root: Hash256,

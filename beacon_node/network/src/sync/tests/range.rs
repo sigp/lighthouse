@@ -21,16 +21,25 @@
 use super::lookups::SimulateConfig;
 use super::*;
 use crate::status::ToStatusMessage;
-use crate::sync::SyncMessage;
-use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
-use crate::sync::range_sync::RangeSyncType;
-use lighthouse_network::rpc::RPCError;
-use lighthouse_network::rpc::methods::StatusMessageV2;
-use lighthouse_network::{PeerId, SyncInfo};
-use std::collections::HashSet;
-use types::{Epoch, EthSpec, Hash256, MinimalEthSpec as E, Slot};
+use crate::sync::{
+    SyncMessage, block_sidecar_coupling::CouplingError, manager::SLOT_IMPORT_TOLERANCE,
+    network_context::RpcResponseError, range_sync::RangeSyncType,
+};
+use lighthouse_network::{
+    PeerId, SyncInfo,
+    rpc::{
+        RPCError, RequestType,
+        methods::{DataColumnsByRangeRequest, StatusMessageV2},
+    },
+    service::api_types::{
+        CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequestId,
+        DataColumnsByRangeRequester,
+    },
+};
+use std::collections::{HashMap, HashSet};
+use types::{DataColumnSubnetId, Epoch, EthSpec, ForkName, Hash256, Slot, Spec as E};
 
-/// MinimalEthSpec has 8 slots per epoch
+/// The minimal preset has 8 slots per epoch
 const SLOTS_PER_EPOCH: usize = 8;
 
 impl TestRig {
@@ -108,6 +117,20 @@ impl TestRig {
         if let Some(chain) = self.sync_manager.get_range_sync_chains().unwrap() {
             panic!("There still exists a chain {chain:?}");
         }
+    }
+
+    /// Number of `BlocksByRange` requests sent for the batch starting at `start_slot`.
+    fn blocks_by_range_requests_from(&self, start_slot: u64) -> usize {
+        self.requests
+            .iter()
+            .filter(|(request, _)| {
+                if let RequestType::BlocksByRange(req) = request {
+                    *req.start_slot() == start_slot
+                } else {
+                    false
+                }
+            })
+            .count()
     }
 
     fn assert_no_failed_chains(&mut self) {
@@ -241,14 +264,280 @@ impl TestRig {
         self.assert_no_chains_exist();
     }
 
-    /// Assert a new peer with a blacklisted root gets disconnected
-    fn assert_peer_blacklisted(&mut self, remote_info: SyncInfo) {
+    /// Assert a new peer with a blacklisted root is ignored, without being disconnected
+    fn assert_peer_ignored(&mut self, remote_info: SyncInfo) {
         let new_peer = self.add_supernode_peer(remote_info);
-        self.pop_received_network_event(|ev| match ev {
-            NetworkMessage::GoodbyePeer { peer_id, .. } if *peer_id == new_peer => Some(()),
+        assert!(
+            self.pop_received_network_event(|ev| match ev {
+                NetworkMessage::GoodbyePeer { peer_id, .. } if *peer_id == new_peer => Some(()),
+                _ => None,
+            })
+            .is_err(),
+            "Peer with blacklisted root should not be disconnected"
+        );
+        self.assert_no_chains_exist();
+    }
+
+    async fn assert_custody_backfill_peer_failure_cleans_up_request(&mut self) {
+        self.build_chain(1).await;
+        self.import_blocks_up_to_slot(1).await;
+        let good_peer = self.new_connected_supernode_peer();
+        let bad_peer = self.new_connected_supernode_peer();
+        let columns = self
+            .network_blocks_by_slot
+            .get(&Slot::new(1))
+            .and_then(|block| block.data_columns())
+            .expect("slot 1 should have data columns");
+        let mut columns = columns.iter();
+        let good_column = columns
+            .next()
+            .expect("slot 1 should have two columns")
+            .clone();
+        let good_column_index = *good_column.index();
+        let missing_column_index = *columns
+            .next()
+            .expect("slot 1 should have two columns")
+            .index();
+
+        let batch_request_id = CustodyBackFillBatchRequestId {
+            id: 999,
+            batch_id: CustodyBackfillBatchId {
+                epoch: Epoch::new(0),
+                run_id: 1,
+            },
+        };
+        let good_request_id = DataColumnsByRangeRequestId {
+            id: 1000,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(batch_request_id),
+            peer: good_peer,
+        };
+        let bad_request_id = DataColumnsByRangeRequestId {
+            id: 1001,
+            parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(batch_request_id),
+            peer: bad_peer,
+        };
+
+        let context = self.sync_manager.network_context();
+        context.insert_test_custody_backfill_entry(
+            batch_request_id,
+            vec![
+                (good_request_id, vec![good_column_index]),
+                (bad_request_id, vec![missing_column_index]),
+            ],
+        );
+        assert_eq!(context.custody_backfill_batch_request_count(), 1);
+
+        let pending_response = context.custody_backfill_data_columns_response(
+            batch_request_id,
+            good_request_id,
+            Ok(vec![good_column]),
+        );
+        assert!(pending_response.is_none());
+        assert_eq!(context.custody_backfill_batch_request_count(), 1);
+
+        let response = context.custody_backfill_data_columns_response(
+            batch_request_id,
+            bad_request_id,
+            Ok(vec![]),
+        );
+
+        assert!(
+            matches!(
+                response,
+                Some(Err(RpcResponseError::BlockComponentCouplingError(
+                    CouplingError::DataColumnPeerFailure { .. }
+                )))
+            ),
+            "expected DataColumnPeerFailure, got {response:?}",
+        );
+        assert_eq!(context.custody_backfill_batch_request_count(), 0);
+    }
+
+    fn assert_custody_backfill_requests_have_disjoint_columns(&mut self) {
+        // Force one peer per column so we exercise multi-peer requests.
+        let column_a = 0_u64;
+        let column_b = 1_u64;
+        let peer_a = self.new_connected_supernode_peer();
+        let peer_b = self.new_connected_supernode_peer();
+        let subnet_a = DataColumnSubnetId::from_column_index(column_a, &self.harness.spec);
+        let subnet_b = DataColumnSubnetId::from_column_index(column_b, &self.harness.spec);
+        self.network_globals
+            .peers
+            .write()
+            .__set_custody_subnets(&peer_a, HashSet::from([subnet_a]))
+            .expect("peer_a should exist");
+        self.network_globals
+            .peers
+            .write()
+            .__set_custody_subnets(&peer_b, HashSet::from([subnet_b]))
+            .expect("peer_b should exist");
+
+        let peers: HashSet<_> = [peer_a, peer_b].into_iter().collect();
+        let columns = vec![column_a, column_b];
+        let request = DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: SLOTS_PER_EPOCH as u64,
+            columns: columns.clone(),
+        };
+        let batch_id = CustodyBackfillBatchId {
+            epoch: Epoch::new(0),
+            run_id: 1,
+        };
+
+        {
+            let context = self.sync_manager.network_context();
+            context
+                .custody_backfill_data_columns_batch_request(
+                    request.clone(),
+                    batch_id,
+                    &peers,
+                    &HashSet::new(),
+                )
+                .expect("should find custody peers and send requests");
+            assert_eq!(context.custody_backfill_batch_request_count(), 1);
+        }
+
+        let mut columns_by_peer = HashMap::new();
+        while let Ok((peer_id, req)) = self.pop_received_network_event(|ev| match ev {
+            NetworkMessage::SendRequest {
+                peer_id,
+                request: RequestType::DataColumnsByRange(req),
+                ..
+            } => Some((*peer_id, req.clone())),
             _ => None,
-        })
-        .expect("Peer with blacklisted root should receive Goodbye");
+        }) {
+            assert_eq!(req.start_slot, request.start_slot);
+            assert_eq!(req.count, request.count);
+            assert!(
+                peers.contains(&peer_id),
+                "request sent to unexpected peer {peer_id}"
+            );
+            assert!(
+                columns_by_peer.insert(peer_id, req.columns).is_none(),
+                "duplicate request to peer {peer_id}"
+            );
+        }
+
+        assert_eq!(
+            columns_by_peer.len(),
+            2,
+            "expected one request per custody peer, got {columns_by_peer:?}"
+        );
+        assert_eq!(
+            columns_by_peer.get(&peer_a),
+            Some(&vec![column_a]),
+            "peer_a should only be asked for column {column_a}"
+        );
+        assert_eq!(
+            columns_by_peer.get(&peer_b),
+            Some(&vec![column_b]),
+            "peer_b should only be asked for column {column_b}"
+        );
+
+        let union: HashSet<_> = columns_by_peer
+            .values()
+            .flat_map(|c| c.iter().copied())
+            .collect();
+        let expected: HashSet<_> = columns.into_iter().collect();
+        assert_eq!(
+            union, expected,
+            "union of requested columns must match input"
+        );
+    }
+
+    fn assert_custody_backfill_selects_peers_by_request_columns_not_sampling(&mut self) {
+        let epoch = Epoch::new(0);
+        let sampling_columns = self
+            .harness
+            .chain
+            .custody_context
+            .sampling_columns_for_epoch(epoch);
+        let custody_columns = self
+            .harness
+            .chain
+            .custody_context
+            .custody_columns_for_epoch(None);
+
+        assert!(
+            sampling_columns.len() > custody_columns.len(),
+            "test requires sampling > custody (got sampling={}, custody={})",
+            sampling_columns.len(),
+            custody_columns.len()
+        );
+
+        let request_columns: Vec<_> = custody_columns.iter().copied().take(2).collect();
+        assert_eq!(
+            request_columns.len(),
+            2,
+            "expected at least two custody columns"
+        );
+
+        let request_column_set: HashSet<_> = request_columns.iter().copied().collect();
+        let sampling_only_without_peers = sampling_columns
+            .iter()
+            .copied()
+            .filter(|column| !request_column_set.contains(column))
+            .collect::<Vec<_>>();
+        assert!(
+            !sampling_only_without_peers.is_empty(),
+            "expected sampling-only columns with no peers"
+        );
+
+        // Peers only for requested columns; sampling-only columns have none.
+        let mut peers = HashSet::new();
+        for &column in &request_columns {
+            let peer = self.new_connected_supernode_peer();
+            let subnet = DataColumnSubnetId::from_column_index(column, &self.harness.spec);
+            self.network_globals
+                .peers
+                .write()
+                .__set_custody_subnets(&peer, HashSet::from([subnet]))
+                .expect("peer should exist");
+            peers.insert(peer);
+        }
+
+        let request = DataColumnsByRangeRequest {
+            start_slot: 0,
+            count: SLOTS_PER_EPOCH as u64,
+            columns: request_columns.clone(),
+        };
+        let batch_id = CustodyBackfillBatchId { epoch, run_id: 1 };
+
+        {
+            let context = self.sync_manager.network_context();
+            context
+                .custody_backfill_data_columns_batch_request(
+                    request,
+                    batch_id,
+                    &peers,
+                    &HashSet::new(),
+                )
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "should succeed with peers only for request columns; \
+                         sampling-only columns without peers were {sampling_only_without_peers:?}: {e:?}"
+                    )
+                });
+            assert_eq!(context.custody_backfill_batch_request_count(), 1);
+        }
+
+        let mut requested_columns = HashSet::new();
+        while let Ok(req) = self.pop_received_network_event(|ev| match ev {
+            NetworkMessage::SendRequest {
+                request: RequestType::DataColumnsByRange(req),
+                ..
+            } => Some(req.clone()),
+            _ => None,
+        }) {
+            for column in req.columns {
+                assert!(
+                    request_column_set.contains(&column),
+                    "must not request sampling-only column {column}"
+                );
+                requested_columns.insert(column);
+            }
+        }
+        assert_eq!(requested_columns, request_column_set);
     }
 }
 
@@ -367,6 +656,19 @@ async fn batch_non_faulty_failure_retries() {
     r.assert_range_sync_completed();
 }
 
+/// A peer keeps serving a segment whose parent roots do not chain. `NonLinearParentRoots` is
+/// attributable, so the batch is penalized and gives up after MAX_BATCH_PROCESSING_ATTEMPTS (3)
+/// instead of redownloading without bound.
+#[tokio::test]
+async fn batch_gapped_blocks_penalized_and_bounded() {
+    let mut r = TestRig::default();
+    r.setup_finalized_sync().await;
+    r.simulate(SimulateConfig::happy_path().with_gapped_range_blocks_n_times(20))
+        .await;
+    assert_eq!(r.blocks_by_range_requests_from(0), 3);
+    r.assert_range_sync_chain_failed();
+}
+
 /// Batch processing returns FaultyFailure once. Peer penalized with "faulty_batch",
 /// batch redownloaded from a different peer, sync completes.
 #[tokio::test]
@@ -391,7 +693,7 @@ async fn batch_max_failures_removes_chain() {
 }
 
 /// Chain fails via max faulty retries → finalized root added to failed_chains LRU.
-/// A new peer advertising the same finalized root gets disconnected with GoodbyeReason.
+/// A new peer advertising the same finalized root does not start a chain, and stays connected.
 #[tokio::test]
 async fn failed_chain_blacklisted() {
     let mut r = TestRig::default();
@@ -399,7 +701,7 @@ async fn failed_chain_blacklisted() {
     r.simulate(SimulateConfig::happy_path().with_range_faulty_failures(3))
         .await;
     r.assert_range_sync_chain_failed();
-    r.assert_peer_blacklisted(remote_info);
+    r.assert_peer_ignored(remote_info);
 }
 
 /// All peers disconnect before any request is fulfilled → chain removed (EmptyPeerPool).
@@ -549,4 +851,34 @@ async fn finalized_sync_not_enough_custody_peers_resume_after_peer_cgc_update() 
 
     r.simulate(SimulateConfig::happy_path()).await;
     r.assert_range_sync_completed();
+}
+
+#[tokio::test]
+async fn custody_backfill_entry_cleaned_up_on_peer_failure() {
+    let mut r = TestRig::default();
+    if r.fork_name != ForkName::Fulu {
+        return;
+    }
+    r.assert_custody_backfill_peer_failure_cleans_up_request()
+        .await;
+}
+
+/// Custody backfill sends each peer only its assigned columns.
+#[tokio::test]
+async fn custody_backfill_requests_have_disjoint_columns() {
+    let mut r = TestRig::default();
+    if r.fork_name != ForkName::Fulu {
+        return;
+    }
+    r.assert_custody_backfill_requests_have_disjoint_columns();
+}
+
+/// Custody backfill selects peers using request.columns, not sampling columns.
+#[tokio::test]
+async fn custody_backfill_selects_peers_by_request_columns_not_sampling() {
+    let mut r = TestRig::default();
+    if r.fork_name != ForkName::Fulu {
+        return;
+    }
+    r.assert_custody_backfill_selects_peers_by_request_columns_not_sampling();
 }

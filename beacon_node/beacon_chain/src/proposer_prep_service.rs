@@ -15,7 +15,7 @@ pub fn start_proposer_prep_service<T: BeaconChainTypes>(
     executor: TaskExecutor,
     chain: Arc<BeaconChain<T>>,
 ) {
-    // Avoid spawning the service if there's no EL, it'll just error anyway.
+    // Avoid spawning the service if there's no EL, it'd have nothing to prepare.
     if chain.execution_layer.is_some() {
         executor.clone().spawn(
             async move { proposer_prep_service(executor, chain).await },

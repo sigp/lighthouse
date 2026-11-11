@@ -9,6 +9,7 @@ beacon_node = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
+enr = { workspace = true }
 eth2_network_config = { workspace = true }
 ethereum_ssz = { workspace = true }
 hex = { workspace = true }

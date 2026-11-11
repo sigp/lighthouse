@@ -421,9 +421,8 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
     "state_upper_limit": "7454720",
     "state_lower_limit": "0"
   },
-  "blob_info": {
-    "oldest_blob_slot": "7413769",
-    "blobs_db": true
+  "data_info": {
+    "oldest_data_slot": "7413769"
   }
 }
 ```

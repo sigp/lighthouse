@@ -157,9 +157,9 @@ impl ForkContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{BlobParameters, BlobSchedule, MainnetEthSpec};
+    use crate::core::{BlobParameters, BlobSchedule, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn make_chain_spec() -> ChainSpec {
         let blob_parameters = vec![
@@ -311,7 +311,7 @@ mod tests {
         let genesis_root = Hash256::ZERO;
         let current_slot = Slot::new(20);
 
-        let context = ForkContext::new::<MainnetEthSpec>(current_slot, genesis_root, &spec);
+        let context = ForkContext::new::<Spec>(current_slot, genesis_root, &spec);
 
         // Get all enabled fork digests
         let fork_digests = context.all_fork_digests();

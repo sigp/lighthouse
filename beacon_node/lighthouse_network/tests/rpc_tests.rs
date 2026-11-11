@@ -8,7 +8,7 @@ use fixed_bytes::FixedBytesExtended;
 use libp2p::PeerId;
 use lighthouse_network::rpc::{RequestType, methods::*};
 use lighthouse_network::service::api_types::{
-    AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
+    BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
     CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequestId,
     DataColumnsByRangeRequester, RangeRequestId, SyncRequestId,
 };
@@ -24,10 +24,11 @@ use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas,
     DataColumnsByRootIdentifier, EmptyBlock, Epoch, EthSpec, ForkName, Hash256, KzgCommitment,
-    KzgProof, MinimalEthSpec, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    KzgProof, LightClientUpdate, LightClientUpdateCapella, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot, Spec, SyncAggregate, SyncCommittee,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 /// Bellatrix block with length < max_rpc_size.
 fn bellatrix_block_small(spec: &ChainSpec) -> BeaconBlock<E> {
@@ -112,12 +113,12 @@ fn test_tcp_status_rpc() {
                         // Send a STATUS message
                         debug!("Sending RPC");
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        app_request_id: AppRequestId::Router,
+                        sync_request_id: None,
                         response,
                     } => {
                         // Should receive the RPC response
@@ -220,12 +221,12 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
                         // Send a STATUS message
                         debug!("Sending RPC");
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        app_request_id: _,
+                        sync_request_id: _,
                         response,
                     } => {
                         warn!("Sender received a response");
@@ -307,6 +308,130 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
     })
 }
 
+// Tests a streamed LightClientUpdatesByRange RPC Message
+#[test]
+fn test_tcp_light_client_updates_by_range_chunked_rpc() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = false;
+    let _subscriber = build_tracing_subscriber(log_level, enable_logging);
+
+    let messages_to_send = 3;
+
+    let rt = Arc::new(Runtime::new().unwrap());
+
+    let spec = Arc::new(spec_with_all_forks_enabled());
+
+    rt.block_on(async {
+        // get sender/receiver
+        let response_slot = spec
+            .capella_fork_epoch
+            .expect("Capella fork is configured")
+            .start_slot(E::slots_per_epoch());
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            ForkName::Capella,
+            spec.clone(),
+            Protocol::Tcp,
+            false,
+            None,
+        )
+        .await;
+
+        // LightClientUpdatesByRange Request
+        let rpc_request =
+            RequestType::LightClientUpdatesByRange(LightClientUpdatesByRangeRequest {
+                start_period: 0,
+                count: messages_to_send,
+            });
+
+        // LightClientUpdatesByRange Response
+        let mut attested_header = types::LightClientHeaderCapella::default();
+        attested_header.beacon.slot = response_slot;
+        let light_client_update = LightClientUpdate::Capella(LightClientUpdateCapella {
+            attested_header,
+            next_sync_committee: Arc::new(SyncCommittee::temporary()),
+            next_sync_committee_branch: Default::default(),
+            finalized_header: Default::default(),
+            finality_branch: Default::default(),
+            sync_aggregate: SyncAggregate::empty(),
+            signature_slot: response_slot,
+        });
+        let rpc_response = Response::LightClientUpdatesByRange(Some(Arc::new(light_client_update)));
+
+        // keep count of the number of messages received
+        let mut messages_received = 0;
+        // build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        debug!("Sending RPC");
+                        sender
+                            .send_request(peer_id, None, rpc_request.clone())
+                            .unwrap();
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id: _,
+                        sync_request_id: None,
+                        response,
+                    } => match response {
+                        Response::LightClientUpdatesByRange(Some(_)) => {
+                            assert_eq!(response, rpc_response);
+                            messages_received += 1;
+                            warn!("Chunk received");
+                        }
+                        Response::LightClientUpdatesByRange(None) => {
+                            // should be exactly `messages_to_send` messages before terminating
+                            assert_eq!(messages_received, messages_to_send);
+                            // end the test
+                            return;
+                        }
+                        _ => panic!("Invalid RPC received"),
+                    },
+                    NetworkEvent::RPCFailed { error, .. } => panic!("RPC failed: {error:?}"),
+                    _ => {} // Ignore other behaviour events
+                }
+            }
+        }
+        .instrument(info_span!("Sender"));
+
+        // build the receiver future
+        let receiver_future = async {
+            loop {
+                if let NetworkEvent::RequestReceived {
+                    peer_id,
+                    inbound_request_id,
+                    request_type,
+                } = receiver.next_event().await
+                    && request_type == rpc_request
+                {
+                    // send the response
+                    warn!("Receiver got request");
+                    for _ in 0..messages_to_send {
+                        receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                    }
+                    // send the stream termination
+                    receiver.send_response(
+                        peer_id,
+                        inbound_request_id,
+                        Response::LightClientUpdatesByRange(None),
+                    );
+                }
+            }
+        }
+        .instrument(info_span!("Receiver"));
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                    panic!("Future timed out");
+            }
+        }
+    })
+}
+
 // Tests a streamed BlobsByRange RPC Message
 #[test]
 #[allow(clippy::single_match)]
@@ -360,12 +485,12 @@ fn test_blobs_by_range_chunked_rpc() {
                         // Send a STATUS message
                         debug!("Sending RPC");
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        app_request_id: _,
+                        sync_request_id: _,
                         response,
                     } => {
                         warn!("Sender received a response");
@@ -482,12 +607,14 @@ fn test_tcp_blocks_by_range_over_limit() {
                         // Send a STATUS message
                         debug!("Sending RPC");
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
                     // The request will fail because the sender will refuse to send anything > MAX_RPC_SIZE
-                    NetworkEvent::RPCFailed { app_request_id, .. } => {
-                        assert!(matches!(app_request_id, AppRequestId::Router));
+                    NetworkEvent::RPCFailed {
+                        sync_request_id, ..
+                    } => {
+                        assert!(sync_request_id.is_none());
                         return;
                     }
                     _ => {} // Ignore other behaviour events
@@ -588,12 +715,12 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                         // Send a STATUS message
                         debug!("Sending RPC");
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        app_request_id: _,
+                        sync_request_id: _,
                         response,
                     } =>
                     // Should receive the RPC response
@@ -723,12 +850,12 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
                         // Send a STATUS message
                         debug!("Sending RPC");
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        app_request_id: AppRequestId::Router,
+                        sync_request_id: None,
                         response,
                     } => match response {
                         Response::BlocksByRange(Some(_)) => {
@@ -862,12 +989,12 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                         // Send a STATUS message
                         debug!("Sending RPC");
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        app_request_id: AppRequestId::Router,
+                        sync_request_id: None,
                         response,
                     } => match response {
                         Response::BlocksByRoot(Some(_)) => {
@@ -1048,12 +1175,12 @@ fn test_tcp_columns_by_root_chunked_rpc_for_fork(fork_name: ForkName) {
                         info!("Sending RPC");
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        app_request_id: AppRequestId::Router,
+                        sync_request_id: None,
                         response,
                     } => match response {
                         Response::DataColumnsByRoot(Some(sidecar)) => {
@@ -1215,12 +1342,12 @@ fn test_tcp_columns_by_range_chunked_rpc_for_fork(fork_name: ForkName) {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         info!("Sending RPC");
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        app_request_id: AppRequestId::Router,
+                        sync_request_id: None,
                         response,
                     } => match response {
                         Response::DataColumnsByRange(Some(sidecar)) => {
@@ -1355,12 +1482,12 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                         // Send a STATUS message
                         debug!("Sending RPC");
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id: _,
-                        app_request_id: AppRequestId::Router,
+                        sync_request_id: None,
                         response,
                     } => {
                         debug!("Sender received a response");
@@ -1577,13 +1704,13 @@ fn test_delayed_rpc_response() {
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         debug!(%request_id, "Sending RPC request");
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                         request_sent_at = Instant::now();
                     }
                     NetworkEvent::ResponseReceived {
                         peer_id,
-                        app_request_id: _,
+                        sync_request_id: _,
                         response,
                     } => {
                         debug!(%request_id, elapsed = ?request_sent_at.elapsed(), "Sender received response");
@@ -1616,12 +1743,12 @@ fn test_delayed_rpc_response() {
                         request_id += 1;
                         debug!(%request_id, "Sending RPC request");
                         sender
-                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .send_request(peer_id, None, rpc_request.clone())
                             .unwrap();
                         request_sent_at = Instant::now();
                     }
                     NetworkEvent::RPCFailed {
-                        app_request_id: _,
+                        sync_request_id: _,
                         peer_id: _,
                         error,
                     } => {
@@ -1713,7 +1840,7 @@ fn test_active_requests() {
                         // Send requests in quick succession to intentionally trigger request queueing in the self-limiter.
                         for _ in 0..REQUESTS {
                             sender
-                                .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                                .send_request(peer_id, None, rpc_request.clone())
                                 .unwrap();
                         }
                     }
@@ -1724,7 +1851,7 @@ fn test_active_requests() {
                         }
                     }
                     NetworkEvent::RPCFailed {
-                        app_request_id: _,
+                        sync_request_id: _,
                         peer_id: _,
                         error,
                     } => panic!("RPC failed: {:?}", error),
@@ -1777,7 +1904,7 @@ fn test_request_too_large_blocks_by_range() {
     let spec = Arc::new(spec_with_all_forks_enabled());
 
     test_request_too_large(
-        AppRequestId::Sync(SyncRequestId::BlocksByRange(BlocksByRangeRequestId {
+        Some(SyncRequestId::BlocksByRange(BlocksByRangeRequestId {
             id: 1,
             parent_request_id: ComponentsByRangeRequestId {
                 id: 1,
@@ -1804,7 +1931,7 @@ fn test_request_too_large_blobs_by_range() {
     let max_request_blobs_count = spec.max_request_blob_sidecars(ForkName::Base) as u64
         / spec.max_blobs_per_block_within_fork(ForkName::Base);
     test_request_too_large(
-        AppRequestId::Sync(SyncRequestId::BlobsByRange(BlobsByRangeRequestId {
+        Some(SyncRequestId::BlobsByRange(BlobsByRangeRequestId {
             id: 1,
             parent_request_id: ComponentsByRangeRequestId {
                 id: 1,
@@ -1826,7 +1953,7 @@ fn test_request_too_large_blobs_by_range() {
 #[test]
 fn test_request_too_large_data_columns_by_range() {
     test_request_too_large(
-        AppRequestId::Sync(SyncRequestId::DataColumnsByRange(
+        Some(SyncRequestId::DataColumnsByRange(
             DataColumnsByRangeRequestId {
                 id: 1,
                 parent_request_id: DataColumnsByRangeRequester::CustodyBackfillSync(
@@ -1850,7 +1977,7 @@ fn test_request_too_large_data_columns_by_range() {
     );
 }
 
-fn test_request_too_large(app_request_id: AppRequestId, request: RequestType<E>) {
+fn test_request_too_large(sync_request_id: Option<SyncRequestId>, request: RequestType<E>) {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = true;
@@ -1876,15 +2003,15 @@ fn test_request_too_large(app_request_id: AppRequestId, request: RequestType<E>)
                     NetworkEvent::PeerConnectedOutgoing(peer_id) => {
                         debug!(?request, %peer_id, "Sending RPC request");
                         sender
-                            .send_request(peer_id, app_request_id, request.clone())
+                            .send_request(peer_id, sync_request_id, request.clone())
                             .unwrap();
                     }
                     NetworkEvent::ResponseReceived {
-                        app_request_id,
+                        sync_request_id,
                         response,
                         ..
                     } => {
-                        debug!(?app_request_id, ?response, "Received response");
+                        debug!(?sync_request_id, ?response, "Received response");
                     }
                     NetworkEvent::RPCFailed { error, .. } => {
                         // This variant should be unreachable, as the receiver doesn't respond with an error when a request exceeds the limit.

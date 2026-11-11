@@ -1,4 +1,4 @@
-use crate::{Address, Epoch, ForkName};
+use crate::{Address, BeaconStateError, ChainSpec, Epoch, ForkName, Hash256};
 use bls::PublicKeyBytes;
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
@@ -19,4 +19,32 @@ pub struct Builder {
     pub balance: u64,
     pub deposit_epoch: Epoch,
     pub withdrawable_epoch: Epoch,
+}
+
+impl Builder {
+    /// Construct a new registry entry from deposit data, extracting the execution address
+    /// from the withdrawal credentials.
+    pub fn from_deposit(
+        pubkey: PublicKeyBytes,
+        version: u8,
+        withdrawal_credentials: Hash256,
+        amount: u64,
+        deposit_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Self, BeaconStateError> {
+        let execution_address = withdrawal_credentials
+            .as_slice()
+            .get(12..)
+            .and_then(|bytes| Address::try_from(bytes).ok())
+            .ok_or(BeaconStateError::WithdrawalCredentialMissingAddress)?;
+
+        Ok(Self {
+            pubkey,
+            version,
+            execution_address,
+            balance: amount,
+            deposit_epoch,
+            withdrawable_epoch: spec.far_future_epoch,
+        })
+    }
 }

@@ -1,59 +1,31 @@
-use context_deserialize::ContextDeserialize;
-use serde::{Deserialize, Deserializer};
+use crate::decode::yaml_decode_file;
+use crate::{Error, testing_spec};
 use ssz::Encode;
-use ssz_derive::{Decode, Encode};
 use std::fmt::Debug;
+use std::path::Path;
+use types::{ChainSpec, Config, EthSpec, ForkName};
 
-/// Macro to wrap U128 and U256 so they deserialize correctly.
-macro_rules! uint_wrapper {
-    ($wrapper_name:ident, $wrapped_type:ty) => {
-        #[derive(Debug, Clone, Copy, Default, PartialEq, Decode, Encode, Deserialize)]
-        #[serde(try_from = "String")]
-        pub struct $wrapper_name {
-            pub x: $wrapped_type,
-        }
-
-        impl TryFrom<String> for $wrapper_name {
-            type Error = String;
-
-            fn try_from(s: String) -> Result<Self, Self::Error> {
-                <$wrapped_type>::from_str_radix(&s, 10)
-                    .map(|x| Self { x })
-                    .map_err(|e| format!("{:?}", e))
-            }
-        }
-
-        impl tree_hash::TreeHash for $wrapper_name {
-            fn tree_hash_type() -> tree_hash::TreeHashType {
-                <$wrapped_type>::tree_hash_type()
-            }
-
-            fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
-                self.x.tree_hash_packed_encoding()
-            }
-
-            fn tree_hash_packing_factor() -> usize {
-                <$wrapped_type>::tree_hash_packing_factor()
-            }
-
-            fn tree_hash_root(&self) -> tree_hash::Hash256 {
-                self.x.tree_hash_root()
-            }
-        }
-
-        impl<'de, T> ContextDeserialize<'de, T> for $wrapper_name {
-            fn context_deserialize<D>(deserializer: D, _context: T) -> Result<Self, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                <$wrapper_name>::deserialize(deserializer)
-            }
-        }
-    };
+pub(super) fn load_config(path: &Path) -> Result<Option<Config>, Error> {
+    let config_path = path.join("config.yaml");
+    if config_path.is_file() {
+        yaml_decode_file(&config_path).map(Some)
+    } else {
+        Ok(None)
+    }
 }
 
-uint_wrapper!(DecimalU128, alloy_primitives::U128);
-uint_wrapper!(DecimalU256, alloy_primitives::U256);
+pub(super) fn testing_spec_with_config<E: EthSpec>(
+    fork_name: ForkName,
+    config: Option<&Config>,
+) -> Result<ChainSpec, Error> {
+    let spec = testing_spec::<E>(fork_name);
+    match config {
+        Some(config) => config.apply_to_chain_spec::<E>(&spec).ok_or_else(|| {
+            Error::FailedToParseTest("config does not match the preset or slot duration".into())
+        }),
+        None => Ok(spec),
+    }
+}
 
 /// Trait for types that can be used in SSZ static tests.
 pub trait SszStaticType: Encode + Clone + PartialEq + Debug + Sync {}

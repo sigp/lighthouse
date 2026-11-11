@@ -242,6 +242,15 @@ impl ValidatorStatuses {
         &mut self,
         state: &BeaconState<E>,
     ) -> Result<(), BeaconStateError> {
+        // The `validator_statuses` in `process_epoch` are used in three functions:
+        // 1. `process_justification_and_finalization` - this function is a no-operation at the genesis_epoch
+        // 2. `process_rewards_and_penalties` - this function is also a no-operation at the genesis epoch
+        // 3. `process_slashings` - the `total_balances.current_epoch()` is calculated with ValidatorStatuses::new(), not in process_attestation
+        // therefore, it is safe to return early this function at the genesis_epoch
+        if state.current_epoch() == E::genesis_epoch() {
+            return Ok(());
+        }
+
         let base_state = state.as_base()?;
         for a in base_state
             .previous_epoch_attestations

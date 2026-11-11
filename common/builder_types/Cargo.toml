@@ -1,0 +1,42 @@
+[package]
+name = "builder_types"
+version = "0.1.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition = { workspace = true }
+
+# The `arbitrary`-enabled self dependency below is only used to turn the feature on for the
+# SSZ/tree-hash test macros, so `cargo-udeps` can't see it being used.
+[package.metadata.cargo-udeps.ignore]
+development = ["builder_types"]
+
+[features]
+default = []
+arbitrary = [
+    "dep:arbitrary",
+    "types/arbitrary",
+    "bls/arbitrary",
+    "ethereum_ssz/arbitrary",
+    "ssz_types/arbitrary",
+]
+
+[dependencies]
+arbitrary = { workspace = true, features = ["derive"], optional = true }
+bls = { workspace = true }
+context_deserialize = { workspace = true }
+ethereum_serde_utils = { workspace = true }
+ethereum_ssz = { workspace = true }
+ethereum_ssz_derive = { workspace = true }
+sensitive_url = { workspace = true }
+serde = { workspace = true }
+ssz_types = { workspace = true }
+tree_hash = { workspace = true }
+tree_hash_derive = { workspace = true }
+typenum = { workspace = true }
+types = { workspace = true }
+
+[dev-dependencies]
+# Self-dependency with the `arbitrary` feature enabled so the SSZ/tree-hash test macros (which build
+# instances via `types::test_utils::test_arbitrary_instance`) work in unit tests. Mirrors the pattern
+# in `consensus/types`.
+builder_types = { path = ".", features = ["arbitrary"] }
+serde_json = { workspace = true }

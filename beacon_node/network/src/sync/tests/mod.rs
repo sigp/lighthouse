@@ -9,7 +9,7 @@ use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;
 use lighthouse_network::rpc::RequestType;
-use lighthouse_network::service::api_types::{AppRequestId, Id};
+use lighthouse_network::service::api_types::{Id, SyncRequestId};
 use lighthouse_network::{NetworkGlobals, PeerId};
 use slot_clock::ManualSlotClock;
 use std::collections::{HashMap, HashSet};
@@ -21,7 +21,7 @@ use tokio::sync::mpsc;
 use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use types::{ForkName, Hash256, MinimalEthSpec as E, Slot};
+use types::{ForkName, Hash256, Slot, Spec as E};
 
 mod lookups;
 mod range;
@@ -36,23 +36,23 @@ type T = Witness<ManualSlotClock, E, MemoryStore, MemoryStore>;
 /// 3. Making assertion on `NetworkMessage` received from sync (Outgoing RPC requests).
 ///
 /// The test utility covers testing the interactions from and to `SyncManager`. In diagram form:
-///                      +-----------------+
-///                      | BeaconProcessor |
-///                      +---------+-------+
-///                             ^  |
-///                             |  |
-///                   WorkEvent |  | SyncMsg
-///                             |  | (Result)
-///                             |  v
-/// +--------+            +-----+-----------+             +----------------+
-/// | Router +----------->|  SyncManager    +------------>| NetworkService |
-/// +--------+  SyncMsg   +-----------------+ NetworkMsg  +----------------+
-///           (RPC resp)  |  - RangeSync    |  (RPC req)
-///                       +-----------------+
-///                       |  - BackFillSync |
-///                       +-----------------+
-///                       |  - BlockLookups |
-///                       +-----------------+
+///                               +-----------------+
+///                               | BeaconProcessor |
+///                               +---------+-------+
+///                                      ^  |
+///                                      |  |
+///                            WorkEvent |  | SyncMsg
+///                                      |  | (Result)
+///                                      |  v
+/// +----------------+   SyncMsg +-----------------+
+/// | NetworkService  +---------->|  SyncManager    |
+/// |                |  SyncMsg   +-----------------+
+/// |                | (RPC resp) |  - RangeSync    |
+/// |                |<-----------+-----------------+
+/// |   (dispatch)   | NetworkMsg |  - BackFillSync |
+/// +----------------+  (RPC req) +-----------------+
+///                               |  - BlockLookups |
+///                               +-----------------+
 struct TestRig {
     /// Receiver for `BeaconProcessor` events (e.g. block processing results).
     beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
@@ -81,7 +81,7 @@ struct TestRig {
     /// All seen lookups through the test run
     seen_lookups: HashMap<Id, SeenLookup>,
     /// Registry of all requests done by the test
-    requests: Vec<(RequestType<E>, AppRequestId)>,
+    requests: Vec<(RequestType<E>, Option<SyncRequestId>)>,
     /// Persistent config on how to complete request
     complete_strategy: SimulateConfig,
     /// Metrics values to allow a reset

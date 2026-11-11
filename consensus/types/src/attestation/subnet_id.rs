@@ -168,7 +168,7 @@ impl AsRef<str> for SubnetId {
 
 #[cfg(test)]
 mod tests {
-    use crate::Uint256;
+    use crate::{MainnetEthSpec, Uint256};
 
     use super::*;
 
@@ -196,7 +196,7 @@ mod tests {
         ];
 
         // Test mainnet
-        let spec = ChainSpec::mainnet();
+        let spec = MainnetEthSpec::default_spec();
 
         for x in 0..node_ids.len() {
             println!("Test: {}", x);

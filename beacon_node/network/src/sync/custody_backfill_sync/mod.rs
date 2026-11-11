@@ -923,7 +923,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             match batch.state() {
                 BatchState::Downloading(..) | BatchState::AwaitingValidation(..) => {}
                 BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
-                    crit!("Batch indicates inconsistent data columns while advancing custody sync")
+                    crit!("Batch indicates inconsistent data columns while advancing custody sync");
                 }
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(..) => {

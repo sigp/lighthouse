@@ -47,6 +47,7 @@ use crate::work_reprocessing_queue::{
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
+use logging::TimeLatch;
 use logging::crit;
 use parking_lot::Mutex;
 pub use scheduler::work_reprocessing_queue;
@@ -273,14 +274,17 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                 },
             },
             ReadyWork::RpcBlock(QueuedRpcBlock {
+                peer_id,
                 beacon_block_root,
                 process_fn,
-                ignore_fn: _,
+                ignore_fn,
             }) => Self {
                 drop_during_sync: false,
                 work: Work::RpcBlock {
+                    peer_id,
                     process_fn,
                     beacon_block_root,
+                    ignore_fn,
                 },
             },
             ReadyWork::IgnoredRpcBlock(IgnoredRpcBlock { process_fn }) => Self {
@@ -361,7 +365,7 @@ pub struct GossipAggregatePackage<E: EthSpec> {
 pub struct BeaconProcessorSend<E: EthSpec>(pub mpsc::Sender<WorkEvent<E>>);
 
 impl<E: EthSpec> BeaconProcessorSend<E> {
-    pub fn try_send(&self, message: WorkEvent<E>) -> Result<(), TrySendError<WorkEvent<E>>> {
+    pub fn try_send(&self, message: WorkEvent<E>) -> Result<(), Box<TrySendError<WorkEvent<E>>>> {
         let work_type = message.work_type();
         match self.0.try_send(message) {
             Ok(res) => Ok(res),
@@ -370,7 +374,7 @@ impl<E: EthSpec> BeaconProcessorSend<E> {
                     &metrics::BEACON_PROCESSOR_SEND_ERROR_PER_WORK_TYPE,
                     &[work_type.into()],
                 );
-                Err(e)
+                Err(Box::new(e))
             }
         }
     }
@@ -423,7 +427,10 @@ pub enum Work<E: EthSpec> {
         aggregates: Vec<GossipAggregatePackage<E>>,
         process_batch: Box<dyn FnOnce(Vec<GossipAggregatePackage<E>>) + Send + Sync>,
     },
-    GossipBlock(AsyncFn),
+    GossipBlock {
+        peer_id: PeerId,
+        process_fn: AsyncFn,
+    },
     GossipDataColumnSidecar(AsyncFn),
     GossipPartialDataColumnSidecar(AsyncFn),
     DelayedImportBlock {
@@ -444,8 +451,13 @@ pub enum Work<E: EthSpec> {
     GossipLightClientFinalityUpdate(BlockingFn),
     GossipLightClientOptimisticUpdate(BlockingFn),
     RpcBlock {
+        peer_id: PeerId,
         beacon_block_root: Hash256,
         process_fn: AsyncFn,
+        /// Cheap, notification-only callback used when processing is rejected.
+        /// This is used by the sync service to do any required cleanup associated
+        /// with the work.
+        ignore_fn: BlockingFn,
     },
     RpcBlobs {
         process_fn: AsyncFn,
@@ -474,9 +486,11 @@ pub enum Work<E: EthSpec> {
     DataColumnsByRangeRequest(BlockingFn),
     GossipBlsToExecutionChange(BlockingFn),
     GossipExecutionPayload(AsyncFn),
+    GossipExecutionProof(AsyncFn),
     GossipExecutionPayloadBid(BlockingFn),
     GossipPayloadAttestation(BlockingFn),
     GossipProposerPreferences(BlockingFn),
+    GossipInclusionList(BlockingFn),
     LightClientBootstrapRequest(BlockingFn),
     LightClientOptimisticUpdateRequest(BlockingFn),
     LightClientFinalityUpdateRequest(BlockingFn),
@@ -536,9 +550,11 @@ pub enum WorkType {
     DataColumnsByRangeRequest,
     GossipBlsToExecutionChange,
     GossipExecutionPayload,
+    GossipExecutionProof,
     GossipExecutionPayloadBid,
     GossipPayloadAttestation,
     GossipProposerPreferences,
+    GossipInclusionList,
     LightClientBootstrapRequest,
     LightClientOptimisticUpdateRequest,
     LightClientFinalityUpdateRequest,
@@ -560,7 +576,7 @@ impl<E: EthSpec> Work<E> {
             Work::GossipAttestationBatch { .. } => WorkType::GossipAttestationBatch,
             Work::GossipAggregate { .. } => WorkType::GossipAggregate,
             Work::GossipAggregateBatch { .. } => WorkType::GossipAggregateBatch,
-            Work::GossipBlock(_) => WorkType::GossipBlock,
+            Work::GossipBlock { .. } => WorkType::GossipBlock,
             Work::GossipDataColumnSidecar(_) => WorkType::GossipDataColumnSidecar,
             Work::GossipPartialDataColumnSidecar(_) => WorkType::GossipPartialDataColumnSidecar,
             Work::DelayedImportBlock { .. } => WorkType::DelayedImportBlock,
@@ -576,9 +592,11 @@ impl<E: EthSpec> Work<E> {
             }
             Work::GossipBlsToExecutionChange(_) => WorkType::GossipBlsToExecutionChange,
             Work::GossipExecutionPayload(_) => WorkType::GossipExecutionPayload,
+            Work::GossipExecutionProof(_) => WorkType::GossipExecutionProof,
             Work::GossipExecutionPayloadBid(_) => WorkType::GossipExecutionPayloadBid,
             Work::GossipPayloadAttestation(_) => WorkType::GossipPayloadAttestation,
             Work::GossipProposerPreferences(_) => WorkType::GossipProposerPreferences,
+            Work::GossipInclusionList(_) => WorkType::GossipInclusionList,
             Work::RpcBlock { .. } => WorkType::RpcBlock,
             Work::RpcBlobs { .. } => WorkType::RpcBlobs,
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
@@ -617,10 +635,50 @@ impl<E: EthSpec> Work<E> {
     }
 }
 
+/// Count ignored RPC block work and notify sync without queuing another task.
+fn notify_ignored_rpc_block<E: EthSpec>(work: Work<E>) {
+    if let Work::RpcBlock { ignore_fn, .. } = work {
+        metrics::inc_counter_vec(
+            &metrics::BEACON_PROCESSOR_WORK_EVENTS_IGNORED_COUNT,
+            &["rpc_block"],
+        );
+        ignore_fn();
+    }
+}
+
+/// Send `message` to the reprocess queue. If the queue is full, notify sync of a dropped RPC
+/// block.
+fn send_to_reprocess_queue(
+    reprocess_work_tx: &mpsc::Sender<ReprocessQueueMessage>,
+    message: ReprocessQueueMessage,
+    debounce: &mut TimeLatch,
+) {
+    if let Err(e) = reprocess_work_tx.try_send(message) {
+        if debounce.elapsed() {
+            error!(error = ?e, "Failed to reprocess work event");
+        }
+        if let ReprocessQueueMessage::RpcBlock(block) = e.into_inner() {
+            (block.ignore_fn)();
+        }
+    }
+}
+
+#[derive(Clone)]
+struct WorkerCompletion {
+    work_type: WorkType,
+    peer_id: Option<PeerId>,
+}
+
+/// Returns true if the `peer_id` is connected and false otherwise.
+fn is_connected<E: EthSpec>(network_globals: &NetworkGlobals<E>, peer_id: &PeerId) -> bool {
+    network_globals.peers.read().is_connected(peer_id)
+}
+
 /// Unifies all the messages processed by the `BeaconProcessor`.
 enum InboundEvent<E: EthSpec> {
     /// A worker has completed a task and is free.
-    WorkerIdle,
+    /// Returns the `WorkType` that completed and an optional peer id associated with that work.
+    WorkerFinished(WorkerCompletion),
     /// The oldest queued attestation reached its max age and should be dispatched even though
     /// fewer than `attestation_batch_trigger` are queued.
     AttestationBatchTimeout,
@@ -636,7 +694,7 @@ enum InboundEvent<E: EthSpec> {
 /// control (specifically in the ordering of event processing).
 struct InboundEvents<E: EthSpec> {
     /// Used by workers when they finish a task.
-    idle_rx: mpsc::Receiver<WorkType>,
+    idle_rx: mpsc::Receiver<WorkerCompletion>,
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
     event_rx: mpsc::Receiver<WorkEvent<E>>,
     /// Used internally for queuing work ready to be re-processed.
@@ -672,8 +730,8 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
         // Always check for idle workers before anything else. This allows us to ensure that a big
         // stream of new events doesn't suppress the processing of existing events.
         match self.idle_rx.poll_recv(cx) {
-            Poll::Ready(Some(_)) => {
-                return Poll::Ready(Some(InboundEvent::WorkerIdle));
+            Poll::Ready(Some(completion)) => {
+                return Poll::Ready(Some(InboundEvent::WorkerFinished(completion)));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -724,24 +782,29 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
 /// `unpack` pulls the package and batch closure out of the queue's work variant; items of any
 /// other variant are logged and dropped. Returns `None` if the queue is empty.
 fn take_work_batch<E: EthSpec, Item, BatchFn>(
-    queue: &mut LifoQueue<(Instant, Work<E>)>,
+    queue: &mut LifoQueue<Work<E>>,
     batch_cap: usize,
     invalid_item_msg: &'static str,
     missing_work_msg: &'static str,
     unpack: impl Fn(Work<E>) -> Option<(Item, BatchFn)>,
     make_batch: impl FnOnce(Vec<Item>, BatchFn) -> Work<E>,
-) -> Option<Work<E>> {
+) -> Option<(Instant, Work<E>)> {
     let batch_size = cmp::min(queue.len(), batch_cap.max(1));
 
     // Zero or one item: pop the single item (or `None` if the queue is empty).
     if batch_size < 2 {
-        return queue.pop().map(|(_, work)| work);
+        return queue.pop();
     }
 
     let mut items = Vec::with_capacity(batch_size);
     let mut process_batch_opt = None;
     for _ in 0..batch_size {
-        if let Some((_, work)) = queue.pop() {
+        if let Some((enqueued_at, work)) = queue.pop() {
+            metrics::observe_timer_vec(
+                &metrics::BEACON_PROCESSOR_QUEUE_TIME,
+                &[work.str_id()],
+                enqueued_at.elapsed(),
+            );
             if let Some((item, process_batch)) = unpack(work) {
                 items.push(item);
                 process_batch_opt.get_or_insert(process_batch);
@@ -752,7 +815,7 @@ fn take_work_batch<E: EthSpec, Item, BatchFn>(
     }
 
     if let Some(process_batch) = process_batch_opt {
-        Some(make_batch(items, process_batch))
+        Some((Instant::now(), make_batch(items, process_batch)))
     } else {
         // We only batch when two or more items exist, so a closure should always be present.
         // Missing one is a serious logic error.
@@ -764,9 +827,9 @@ fn take_work_batch<E: EthSpec, Item, BatchFn>(
 /// Take up to `batch_cap` attestations as one `Work` item: a `GossipAttestation` if only one is
 /// taken, otherwise a folded `GossipAttestationBatch`. `None` if the queue is empty.
 fn take_attestation_batch<E: EthSpec>(
-    attestation_queue: &mut LifoQueue<(Instant, Work<E>)>,
+    attestation_queue: &mut LifoQueue<Work<E>>,
     batch_cap: usize,
-) -> Option<Work<E>> {
+) -> Option<(Instant, Work<E>)> {
     take_work_batch(
         attestation_queue,
         batch_cap,
@@ -790,9 +853,9 @@ fn take_attestation_batch<E: EthSpec>(
 /// Take up to `batch_cap` aggregates as one `Work` item: a `GossipAggregate` if only one is taken,
 /// otherwise a folded `GossipAggregateBatch`. `None` if the queue is empty.
 fn take_aggregate_batch<E: EthSpec>(
-    aggregate_queue: &mut LifoQueue<(Instant, Work<E>)>,
+    aggregate_queue: &mut LifoQueue<Work<E>>,
     batch_cap: usize,
-) -> Option<Work<E>> {
+) -> Option<(Instant, Work<E>)> {
     take_work_batch(
         aggregate_queue,
         batch_cap,
@@ -816,7 +879,7 @@ fn take_aggregate_batch<E: EthSpec>(
 /// Whether the attestation queue should be flushed now: at least `trigger` are pending (a
 /// `trigger` of `1` means any non-empty queue), or the oldest reached `max_age`.
 fn attestation_flush_ready<E: EthSpec>(
-    attestation_queue: &LifoQueue<(Instant, Work<E>)>,
+    attestation_queue: &LifoQueue<Work<E>>,
     trigger: usize,
     max_age: Option<Duration>,
 ) -> bool {
@@ -836,11 +899,11 @@ fn attestation_flush_ready<E: EthSpec>(
 /// Flush the attestation queue if the batch-collection trigger or age bound is met, taking up to
 /// `batch_cap` attestations as a single `Work` item.
 fn take_ready_attestation_batch<E: EthSpec>(
-    attestation_queue: &mut LifoQueue<(Instant, Work<E>)>,
+    attestation_queue: &mut LifoQueue<Work<E>>,
     trigger: usize,
     max_age: Option<Duration>,
     batch_cap: usize,
-) -> Option<Work<E>> {
+) -> Option<(Instant, Work<E>)> {
     if attestation_flush_ready(attestation_queue, trigger, max_age) {
         take_attestation_batch(attestation_queue, batch_cap)
     } else {
@@ -881,7 +944,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         queue_lengths: BeaconProcessorQueueLengths,
     ) -> Result<(), String> {
         // Used by workers to communicate that they are finished a task.
-        let (idle_tx, idle_rx) = mpsc::channel::<WorkType>(MAX_IDLE_QUEUE_LEN);
+        let (idle_tx, idle_rx) = mpsc::channel::<WorkerCompletion>(MAX_IDLE_QUEUE_LEN);
 
         // Initialize the worker queues.
         let mut work_queues: WorkQueues<E> = WorkQueues::new(queue_lengths);
@@ -945,16 +1008,26 @@ impl<E: EthSpec> BeaconProcessor<E> {
             };
             let att_batch_trigger_enabled = att_batch_trigger > 1;
 
+            // De-bounce for the log emitted when the reprocess queue is full.
+            let mut reprocess_queue_debounce = TimeLatch::default();
+
             loop {
                 let mut attestation_timer_fired = false;
                 let (work_event, created_timestamp) = match inbound_events.next().await {
-                    Some(InboundEvent::WorkerIdle) => {
+                    Some(InboundEvent::WorkerFinished(completion)) => {
                         self.current_workers = self.current_workers.saturating_sub(1);
+                        if let Some(peer_id) = completion.peer_id {
+                            if completion.work_type == WorkType::GossipBlock {
+                                work_queues.gossip_block_queue.worker_finished(&peer_id)
+                            } else if completion.work_type == WorkType::RpcBlock {
+                                work_queues.rpc_block_queue.worker_finished(&peer_id)
+                            }
+                        }
                         (None, Instant::now())
                     }
                     // The age bound elapsed. Fall through to the dispatch ladder (as if a worker
                     // freed) to flush the oldest attestations. A no-op if no worker is free; the
-                    // batch then waits for the next `WorkerIdle`.
+                    // batch then waits for the next `WorkerFinished`.
                     Some(InboundEvent::AttestationBatchTimeout) => {
                         attestation_timer_fired = true;
                         (None, Instant::now())
@@ -1056,13 +1129,16 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     None if can_spawn => {
                         // Check for chain segments first, they're the most efficient way to get
                         // blocks into the system.
-                        let work_event: Option<Work<E>> = if let Some(item) =
+                        let work_event: Option<(Instant, Work<E>)> = if let Some(item) =
                             work_queues.chain_segment_queue.pop()
                         {
                             Some(item)
                         // Check sync blocks before gossip blocks, since we've already explicitly
                         // requested these blocks.
-                        } else if let Some(item) = work_queues.rpc_block_queue.pop() {
+                        } else if let Some(item) = work_queues.rpc_block_queue.pop(
+                            |peer_id| is_connected(&self.network_globals, peer_id),
+                            notify_ignored_rpc_block,
+                        ) {
                             Some(item)
                         } else if let Some(item) = work_queues.rpc_blob_queue.pop() {
                             Some(item)
@@ -1078,10 +1154,20 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         // Check gossip blocks and payloads before gossip attestations, since a block might be
                         // required to verify some attestations.
-                        } else if let Some(item) = work_queues.gossip_block_queue.pop() {
+                        } else if let Some(item) = work_queues.gossip_block_queue.pop(
+                            |peer_id| is_connected(&self.network_globals, peer_id),
+                            |work| {
+                                metrics::inc_counter_vec(
+                                    &metrics::BEACON_PROCESSOR_WORK_EVENTS_IGNORED_COUNT,
+                                    &[work.str_id()],
+                                );
+                            },
+                        ) {
                             Some(item)
                         } else if let Some(item) = work_queues.gossip_execution_payload_queue.pop()
                         {
+                            Some(item)
+                        } else if let Some(item) = work_queues.gossip_execution_proof_queue.pop() {
                             Some(item)
                         } else if let Some(item) = work_queues.gossip_data_column_queue.pop() {
                             Some(item)
@@ -1118,6 +1204,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         } else if let Some(item) =
                             work_queues.gossip_payload_attestation_queue.pop()
                         {
+                            Some(item)
+                        // Check inclusion lists next, they also influence fork choice.
+                        } else if let Some(item) = work_queues.gossip_inclusion_list_queue.pop() {
                             Some(item)
                         // Check sync committee messages after attestations as their rewards are lesser
                         // and they don't influence fork choice.
@@ -1233,9 +1322,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             None
                         };
 
-                        if let Some(work_event) = work_event {
+                        if let Some((enqueued_at, work_event)) = work_event {
                             let work_type = work_event.to_type();
-                            self.spawn_worker(work_event, created_timestamp, idle_tx);
+                            self.spawn_worker(work_event, enqueued_at, idle_tx);
                             Some(work_type)
                         } else {
                             None
@@ -1284,13 +1373,62 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         let work_type = work.to_type();
 
                         match work {
-                            Work::Reprocess(work_event) => {
-                                if let Err(e) = reprocess_work_tx.try_send(work_event) {
-                                    error!(
-                                        error = ?e,
-                                        "Failed to reprocess work event"
-                                    )
+                            Work::Reprocess(work_event) => send_to_reprocess_queue(
+                                &reprocess_work_tx,
+                                work_event,
+                                &mut reprocess_queue_debounce,
+                            ),
+                            // If we can spawn and the task can be dispatched, dispatch immediately
+                            Work::GossipBlock { peer_id, .. } if can_spawn => {
+                                match work_queues
+                                    .gossip_block_queue
+                                    .push_and_pop(peer_id, work, work_id)
+                                {
+                                    Ok(Some((enqueued_at, work))) => {
+                                        self.spawn_worker(work, enqueued_at, idle_tx);
+                                    }
+                                    Ok(None) => {}
+                                    Err(_) => metrics::inc_counter_vec(
+                                        &metrics::BEACON_PROCESSOR_WORK_EVENTS_IGNORED_COUNT,
+                                        &[work_id],
+                                    ),
                                 }
+                            }
+                            Work::GossipBlock { peer_id, .. } => {
+                                if work_queues
+                                    .gossip_block_queue
+                                    .push(peer_id, work, work_id)
+                                    .is_err()
+                                {
+                                    metrics::inc_counter_vec(
+                                        &metrics::BEACON_PROCESSOR_WORK_EVENTS_IGNORED_COUNT,
+                                        &[work_id],
+                                    );
+                                }
+                            }
+                            // If we can spawn and the task can be dispatched, dispatch immediately
+                            Work::RpcBlock { peer_id, .. } if can_spawn => {
+                                match work_queues
+                                    .rpc_block_queue
+                                    .push_and_pop(peer_id, work, work_id)
+                                {
+                                    Ok(Some((enqueued_at, work))) => {
+                                        self.spawn_worker(work, enqueued_at, idle_tx)
+                                    }
+                                    Ok(None) => {}
+                                    Err(work) => notify_ignored_rpc_block(work),
+                                }
+                            }
+                            Work::RpcBlock { peer_id, .. } => {
+                                if let Err(work) =
+                                    work_queues.rpc_block_queue.push(peer_id, work, work_id)
+                                {
+                                    notify_ignored_rpc_block(work);
+                                }
+                            }
+                            Work::IgnoredRpcBlock { process_fn } => {
+                                // Notifications must not wait behind the work they release.
+                                process_fn();
                             }
                             // Batch trigger disabled. Verify immediately.
                             Work::GossipAttestation { .. }
@@ -1301,40 +1439,35 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             // Otherwise queue it to join a batch, and dispatch right away if that
                             // made a batch ready and a worker is free.
                             Work::GossipAttestation { .. } => {
-                                work_queues
-                                    .attestation_queue
-                                    .push((created_timestamp, work));
+                                work_queues.attestation_queue.push(work);
                                 if can_spawn
-                                    && let Some(batch) = take_ready_attestation_batch(
+                                    && let Some((enqueued_at, batch)) = take_ready_attestation_batch(
                                         &mut work_queues.attestation_queue,
                                         att_batch_trigger,
                                         att_batch_max_age,
                                         att_batch_cap,
                                     )
                                 {
-                                    self.spawn_worker(batch, created_timestamp, idle_tx);
+                                    self.spawn_worker(batch, enqueued_at, idle_tx);
                                 }
                             }
                             _ if can_spawn => self.spawn_worker(work, created_timestamp, idle_tx),
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
-                            Work::GossipAttestationBatch { .. } => crit!(
-                                work_type = "GossipAttestationBatch",
-                                "Unsupported inbound event"
-                            ),
-                            Work::GossipAggregate { .. } => {
-                                work_queues.aggregate_queue.push((created_timestamp, work))
+                            Work::GossipAttestationBatch { .. } => {
+                                crit!(
+                                    work_type = "GossipAttestationBatch",
+                                    "Unsupported inbound event"
+                                );
                             }
+                            Work::GossipAggregate { .. } => work_queues.aggregate_queue.push(work),
                             // Aggregate batches are formed internally within the `BeaconProcessor`,
                             // they are not sent from external services.
                             Work::GossipAggregateBatch { .. } => {
                                 crit!(
                                     work_type = "GossipAggregateBatch",
                                     "Unsupported inbound event"
-                                )
-                            }
-                            Work::GossipBlock { .. } => {
-                                work_queues.gossip_block_queue.push(work, work_id)
+                                );
                             }
                             Work::GossipDataColumnSidecar { .. } => {
                                 work_queues.gossip_data_column_queue.push(work, work_id)
@@ -1369,9 +1502,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipLightClientOptimisticUpdate { .. } => work_queues
                                 .lc_gossip_optimistic_update_queue
                                 .push(work, work_id),
-                            Work::RpcBlock { .. } | Work::IgnoredRpcBlock { .. } => {
-                                work_queues.rpc_block_queue.push(work, work_id)
-                            }
                             Work::RpcBlobs { .. } => work_queues.rpc_blob_queue.push(work, work_id),
                             Work::RpcEnvelope(_) => {
                                 work_queues.rpc_envelope_queue.push(work, work_id)
@@ -1437,6 +1567,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipExecutionPayload { .. } => work_queues
                                 .gossip_execution_payload_queue
                                 .push(work, work_id),
+                            Work::GossipExecutionProof { .. } => {
+                                work_queues.gossip_execution_proof_queue.push(work, work_id)
+                            }
                             Work::GossipExecutionPayloadBid { .. } => work_queues
                                 .gossip_execution_payload_bid_queue
                                 .push(work, work_id),
@@ -1446,6 +1579,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipProposerPreferences { .. } => work_queues
                                 .gossip_proposer_preferences_queue
                                 .push(work, work_id),
+                            Work::GossipInclusionList { .. } => {
+                                work_queues.gossip_inclusion_list_queue.push(work, work_id)
+                            }
                             Work::BlobsByRootsRequest { .. } => {
                                 work_queues.blob_broots_queue.push(work, work_id)
                             }
@@ -1519,9 +1655,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             work_queues.lc_gossip_optimistic_update_queue.len()
                         }
                         WorkType::RpcBlock => work_queues.rpc_block_queue.len(),
-                        WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => {
-                            work_queues.rpc_blob_queue.len()
-                        }
+                        WorkType::RpcBlobs => work_queues.rpc_blob_queue.len(),
+                        WorkType::IgnoredRpcBlock => 0, // Notification only, never queued.
                         WorkType::RpcEnvelope => work_queues.rpc_envelope_queue.len(),
                         WorkType::RpcCustodyColumn => work_queues.rpc_custody_column_queue.len(),
                         WorkType::ColumnReconstruction => {
@@ -1549,6 +1684,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::GossipExecutionPayload => {
                             work_queues.gossip_execution_payload_queue.len()
                         }
+                        WorkType::GossipExecutionProof => {
+                            work_queues.gossip_execution_proof_queue.len()
+                        }
                         WorkType::GossipExecutionPayloadBid => {
                             work_queues.gossip_execution_payload_bid_queue.len()
                         }
@@ -1557,6 +1695,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         }
                         WorkType::GossipProposerPreferences => {
                             work_queues.gossip_proposer_preferences_queue.len()
+                        }
+                        WorkType::GossipInclusionList => {
+                            work_queues.gossip_inclusion_list_queue.len()
                         }
                         WorkType::LightClientBootstrapRequest => {
                             work_queues.lc_bootstrap_queue.len()
@@ -1627,15 +1768,19 @@ impl<E: EthSpec> BeaconProcessor<E> {
         &mut self,
         work: Work<E>,
         created_timestamp: Instant,
-        idle_tx: mpsc::Sender<WorkType>,
+        idle_tx: mpsc::Sender<WorkerCompletion>,
     ) {
         let work_id = work.str_id();
         let work_type = work.to_type();
+        let peer_id = match &work {
+            Work::GossipBlock { peer_id, .. } | Work::RpcBlock { peer_id, .. } => Some(*peer_id),
+            _ => None,
+        };
 
         // This metric tracks how long a work event has been in the queue
         metrics::observe_timer_vec(
             &metrics::BEACON_PROCESSOR_QUEUE_TIME,
-            &[work_type.into()],
+            &[work_type.clone().into()],
             Instant::now() - created_timestamp,
         );
 
@@ -1658,7 +1803,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         // As such, this instantiation should happen as early in the function as possible.
         let send_idle_on_drop = SendOnDrop {
             tx: idle_tx,
-            work_type: work.to_type(),
+            completion: WorkerCompletion { work_type, peer_id },
             _worker_timer: worker_timer,
         };
 
@@ -1725,19 +1870,20 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 beacon_block_root: _,
                 process_fn,
             } => task_spawner.spawn_async(process_fn),
-            Work::RpcBlock {
-                process_fn,
-                beacon_block_root: _,
-            }
+            Work::RpcBlock { process_fn, .. }
             | Work::RpcBlobs { process_fn }
             | Work::RpcCustodyColumn(process_fn)
             | Work::RpcEnvelope(process_fn)
             | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
-            Work::GossipBlock(work)
+            Work::GossipBlock {
+                peer_id: _,
+                process_fn: work,
+            }
             | Work::GossipDataColumnSidecar(work)
             | Work::GossipPartialDataColumnSidecar(work)
-            | Work::GossipExecutionPayload(work) => task_spawner.spawn_async(async move {
+            | Work::GossipExecutionPayload(work)
+            | Work::GossipExecutionProof(work) => task_spawner.spawn_async(async move {
                 work.await;
             }),
             Work::BlobsByRangeRequest(process_fn)
@@ -1775,6 +1921,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::GossipExecutionPayloadBid(process_fn)
             | Work::GossipPayloadAttestation(process_fn)
             | Work::GossipProposerPreferences(process_fn)
+            | Work::GossipInclusionList(process_fn)
             | Work::LightClientBootstrapRequest(process_fn)
             | Work::LightClientOptimisticUpdateRequest(process_fn)
             | Work::LightClientFinalityUpdateRequest(process_fn)
@@ -1851,8 +1998,8 @@ impl TaskSpawner {
 ///
 /// https://doc.rust-lang.org/std/ops/trait.Drop.html#panics
 pub struct SendOnDrop {
-    tx: mpsc::Sender<WorkType>,
-    work_type: WorkType,
+    tx: mpsc::Sender<WorkerCompletion>,
+    completion: WorkerCompletion,
     // The field is unused, but it's here to ensure the timer is dropped once the task has finished.
     _worker_timer: Option<metrics::HistogramTimer>,
 }
@@ -1861,10 +2008,10 @@ impl Drop for SendOnDrop {
     fn drop(&mut self) {
         metrics::dec_gauge_vec(
             &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_GAUGE_BY_TYPE,
-            &[self.work_type.clone().into()],
+            &[self.completion.work_type.clone().into()],
         );
 
-        if let Err(e) = self.tx.try_send(self.work_type.clone()) {
+        if let Err(e) = self.tx.try_send(self.completion.clone()) {
             warn!(
                 msg = "did not free worker, shutdown may be underway",
                 error = %e,
@@ -1877,7 +2024,9 @@ impl Drop for SendOnDrop {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scheduler::work_queue::PeerWorkQueue;
     use bls::AggregateSignature;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use types::{AttestationData, MainnetEthSpec};
 
     fn dummy_attestation_work(attester_index: u64) -> Work<MainnetEthSpec> {
@@ -1901,10 +2050,10 @@ mod tests {
         }
     }
 
-    fn attestation_queue_with(n: u64) -> LifoQueue<(Instant, Work<MainnetEthSpec>)> {
+    fn attestation_queue_with(n: u64) -> LifoQueue<Work<MainnetEthSpec>> {
         let mut queue = LifoQueue::new(1024);
         for i in 0..n {
-            queue.push((Instant::now(), dummy_attestation_work(i)));
+            queue.push(dummy_attestation_work(i));
         }
         queue
     }
@@ -1921,7 +2070,7 @@ mod tests {
     }
 
     /// The `attester_index` of each attestation left in the queue, in pop (front-to-back) order.
-    fn queued_attester_indices(queue: &mut LifoQueue<(Instant, Work<MainnetEthSpec>)>) -> Vec<u64> {
+    fn queued_attester_indices(queue: &mut LifoQueue<Work<MainnetEthSpec>>) -> Vec<u64> {
         std::iter::from_fn(|| queue.pop())
             .map(|(_, work)| match work {
                 Work::GossipAttestation { attestation, .. } => {
@@ -1941,7 +2090,7 @@ mod tests {
     #[test]
     fn take_attestation_batch_single_item_is_individual() {
         let mut queue = attestation_queue_with(1);
-        let work = take_attestation_batch(&mut queue, 16).expect("some work");
+        let (_, work) = take_attestation_batch(&mut queue, 16).expect("some work");
         assert!(matches!(work, Work::GossipAttestation { .. }));
         assert!(queue.is_empty());
     }
@@ -1949,7 +2098,7 @@ mod tests {
     #[test]
     fn take_attestation_batch_folds_multiple() {
         let mut queue = attestation_queue_with(5);
-        let work = take_attestation_batch(&mut queue, 16).expect("some work");
+        let (_, work) = take_attestation_batch(&mut queue, 16).expect("some work");
         // The whole queue is folded into one batch, newest (LIFO front) first.
         assert_eq!(batch_attester_indices(work), vec![4, 3, 2, 1, 0]);
         assert!(queue.is_empty());
@@ -1958,7 +2107,7 @@ mod tests {
     #[test]
     fn take_attestation_batch_caps_size_and_leaves_remainder() {
         let mut queue = attestation_queue_with(20);
-        let work = take_attestation_batch(&mut queue, 16).expect("some work");
+        let (_, work) = take_attestation_batch(&mut queue, 16).expect("some work");
         // The batch takes the 16 newest items.
         assert_eq!(
             batch_attester_indices(work),
@@ -1973,7 +2122,7 @@ mod tests {
     fn take_attestation_batch_cap_zero_is_clamped_to_one() {
         let mut queue = attestation_queue_with(3);
         // A cap of 0 must not stall the queue; it is clamped to at least 1.
-        let work = take_attestation_batch(&mut queue, 0).expect("some work");
+        let (_, work) = take_attestation_batch(&mut queue, 0).expect("some work");
         assert!(matches!(work, Work::GossipAttestation { .. }));
         assert_eq!(queue.len(), 2);
     }
@@ -1983,7 +2132,7 @@ mod tests {
         // With the cap decoupled from the trigger, a deep queue folds up to `max_batch` (64) into
         // one batch rather than being pinned at the trigger.
         let mut queue = attestation_queue_with(200);
-        match take_attestation_batch(&mut queue, 64).expect("some work") {
+        match take_attestation_batch(&mut queue, 64).expect("some work").1 {
             Work::GossipAttestationBatch { attestations, .. } => assert_eq!(attestations.len(), 64),
             other => panic!("expected a batch, got {}", other.str_id()),
         }
@@ -2027,5 +2176,116 @@ mod tests {
             Some(Duration::from_secs(3600))
         ));
         assert!(attestation_flush_ready(&queue, 16, Some(Duration::ZERO)));
+    }
+
+    fn rpc_block(peer_id: PeerId, ignored: Arc<AtomicUsize>) -> Work<MainnetEthSpec> {
+        Work::RpcBlock {
+            peer_id,
+            beacon_block_root: Hash256::ZERO,
+            process_fn: Box::pin(async {}),
+            ignore_fn: Box::new(move || {
+                ignored.fetch_add(1, Ordering::SeqCst);
+            }),
+        }
+    }
+
+    #[test]
+    fn rpc_queue_notifies_rejection_and_disconnection_once() {
+        let peer = PeerId::random();
+        let ignored = Arc::new(AtomicUsize::new(0));
+        let mut queue = PeerWorkQueue::new(10, 1, 2);
+        let active = queue
+            .push_and_pop(peer, rpc_block(peer, ignored.clone()), "rpc_block")
+            .ok()
+            .flatten()
+            .unwrap();
+        for _ in 0..2 {
+            assert!(matches!(
+                queue.push_and_pop(peer, rpc_block(peer, ignored.clone()), "rpc_block"),
+                Ok(None)
+            ));
+        }
+        let rejected = queue
+            .push(peer, rpc_block(peer, ignored.clone()), "rpc_block")
+            .err()
+            .unwrap();
+        notify_ignored_rpc_block(rejected);
+        assert_eq!(ignored.load(Ordering::SeqCst), 1);
+        assert!(queue.pop(|_| false, notify_ignored_rpc_block).is_none());
+        assert_eq!(ignored.load(Ordering::SeqCst), 3);
+        assert!(queue.pop(|_| false, notify_ignored_rpc_block).is_none());
+        queue.worker_finished(&peer);
+        drop(active);
+        assert_eq!(ignored.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn ready_rpc_block_retains_peer_and_ignore_callback() {
+        let peer = PeerId::random();
+        let ignored = Arc::new(AtomicUsize::new(0));
+        let callback_counter = ignored.clone();
+        let event: WorkEvent<MainnetEthSpec> = ReadyWork::RpcBlock(QueuedRpcBlock {
+            peer_id: peer,
+            beacon_block_root: Hash256::ZERO,
+            process_fn: Box::pin(async {}),
+            ignore_fn: Box::new(move || {
+                callback_counter.fetch_add(1, Ordering::SeqCst);
+            }),
+        })
+        .into();
+        assert!(matches!(&event.work, Work::RpcBlock { peer_id, .. } if *peer_id == peer));
+        notify_ignored_rpc_block(event.work);
+        assert_eq!(ignored.load(Ordering::SeqCst), 1);
+    }
+
+    fn queued_rpc_block(ignored: Arc<AtomicUsize>) -> ReprocessQueueMessage {
+        ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+            peer_id: PeerId::random(),
+            beacon_block_root: Hash256::ZERO,
+            process_fn: Box::pin(async {}),
+            ignore_fn: Box::new(move || {
+                ignored.fetch_add(1, Ordering::SeqCst);
+            }),
+        })
+    }
+
+    /// Every RPC block dropped because the reprocess queue is full notifies sync, including those
+    /// whose log is de-bounced.
+    #[test]
+    fn full_reprocess_queue_notifies_every_dropped_rpc_block() {
+        let ignored = Arc::new(AtomicUsize::new(0));
+        let (tx, _rx) = mpsc::channel(1);
+        let mut debounce = TimeLatch::default();
+
+        // The first block fits in the queue.
+        send_to_reprocess_queue(&tx, queued_rpc_block(ignored.clone()), &mut debounce);
+        assert_eq!(ignored.load(Ordering::SeqCst), 0);
+
+        // The queue is now full, and both drops fall in one de-bounce window.
+        send_to_reprocess_queue(&tx, queued_rpc_block(ignored.clone()), &mut debounce);
+        send_to_reprocess_queue(&tx, queued_rpc_block(ignored.clone()), &mut debounce);
+        assert_eq!(ignored.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn rpc_completion_is_sent_once_on_unwind() {
+        let peer = PeerId::random();
+        let (tx, mut rx) = mpsc::channel(2);
+        let result = std::panic::catch_unwind(|| {
+            let _guard = SendOnDrop {
+                tx,
+                completion: WorkerCompletion {
+                    work_type: WorkType::RpcBlock,
+                    peer_id: Some(peer),
+                },
+                _worker_timer: None,
+            };
+            panic!("simulated RPC worker panic");
+        });
+        assert!(result.is_err());
+        let completion = rx.try_recv().unwrap();
+        assert_eq!(completion.peer_id, Some(peer));
+        assert_eq!(completion.work_type, WorkType::RpcBlock);
+        assert!(rx.try_recv().is_err());
     }
 }

@@ -308,6 +308,21 @@ pub fn inc_counter_by(counter: &Result<IntCounter>, value: u64) {
     }
 }
 
+/// Registers the prometheus `ProcessCollector`, which exports the canonical process metrics
+/// (`process_cpu_seconds_total`, `process_resident_memory_bytes`, etc.) with correct metric
+/// types. Only supported on Linux; no-op elsewhere.
+pub fn register_process_collector() {
+    #[cfg(target_os = "linux")]
+    {
+        static REGISTER: std::sync::Once = std::sync::Once::new();
+        REGISTER.call_once(|| {
+            let _ = prometheus::register(Box::new(
+                prometheus::process_collector::ProcessCollector::for_self(),
+            ));
+        });
+    }
+}
+
 pub fn set_gauge_vec(int_gauge_vec: &Result<IntGaugeVec>, name: &[&str], value: i64) {
     if let Some(gauge) = get_int_gauge(int_gauge_vec, name) {
         gauge.set(value);

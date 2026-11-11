@@ -8,11 +8,11 @@ use beacon_processor::{
     BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig, BeaconProcessorQueueLengths,
 };
 use directory::DEFAULT_ROOT_DIR;
+use enr::CombinedKey;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::rpc::methods::MetaDataV3;
 use lighthouse_network::{
     ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
-    discv5::enr::CombinedKey,
     libp2p::swarm::{
         ConnectionId, NetworkBehaviour,
         behaviour::{ConnectionEstablished, FromSwarm},
@@ -95,16 +95,16 @@ impl<E: EthSpec> InteractiveTester<E> {
         use_mock_builder: bool,
         node_custody_type: NodeCustodyType,
     ) -> Self {
-        let mut harness_builder = BeaconChainHarness::builder(E::default())
-            .spec_or_default(spec.map(Arc::new))
-            .mock_execution_layer();
+        let harness_builder =
+            BeaconChainHarness::builder(E::default()).spec_or_default(spec.map(Arc::new));
 
-        harness_builder = if let Some(initializer) = initializer {
+        let mut harness_builder = if let Some(initializer) = initializer {
             // Apply custom initialization provided by the caller.
             initializer(harness_builder)
         } else {
             // Apply default initial configuration.
             harness_builder
+                .mock_execution_layer()
                 .deterministic_keypairs(validator_count)
                 .fresh_ephemeral_store()
         };
@@ -145,19 +145,11 @@ impl<E: EthSpec> InteractiveTester<E> {
         // write.
         let strict_registrations = false;
 
-        // Broadcast to the BN only if Fulu is scheduled. In the broadcast validation tests we want
-        // to infer things from the builder return code, and pre-Fulu it's simpler to let the BN
-        // handle broadcast and return detailed codes. Post-Fulu the builder doesn't return the
-        // block at all, so we *need* the builder to do the broadcast and return a 400 if the block
-        // is invalid.
-        let broadcast_to_bn = ctx.chain.as_ref().unwrap().spec.is_fulu_scheduled();
-
         if use_mock_builder {
             let mock_builder_server = harness.set_mock_builder(
                 beacon_url.clone(),
                 strict_registrations,
                 apply_operations,
-                broadcast_to_bn,
             );
 
             tokio::spawn(mock_builder_server);

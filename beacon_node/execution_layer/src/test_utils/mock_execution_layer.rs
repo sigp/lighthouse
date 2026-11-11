@@ -3,7 +3,6 @@ use alloy_primitives::B256 as H256;
 use fixed_bytes::FixedBytesExtended;
 use kzg::Kzg;
 use tempfile::NamedTempFile;
-use types::MainnetEthSpec;
 
 pub struct MockExecutionLayer<E: EthSpec> {
     pub server: MockServer<E>,
@@ -14,11 +13,12 @@ pub struct MockExecutionLayer<E: EthSpec> {
 
 impl<E: EthSpec> MockExecutionLayer<E> {
     pub fn default_params(executor: TaskExecutor) -> Self {
-        let mut spec = MainnetEthSpec::default_spec();
+        let mut spec = E::default_spec();
         spec.terminal_block_hash = ExecutionBlockHash::zero();
         spec.terminal_block_hash_activation_epoch = Epoch::new(0);
         Self::new(
             executor,
+            None,
             None,
             None,
             None,
@@ -38,6 +38,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
         amsterdam_time: Option<u64>,
+        heze_time: Option<u64>,
         jwt_key: Option<JwtKey>,
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
@@ -53,6 +54,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             prague_time,
             osaka_time,
             amsterdam_time,
+            heze_time,
             kzg,
         );
 
@@ -106,6 +108,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
         );
 
         // Insert a proposer to ensure the fork choice updated command works.
@@ -129,6 +132,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 slot,
                 head_block_root,
                 head_payload_status,
+                &[],
             )
             .await
             .unwrap();
@@ -144,6 +148,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             timestamp,
             prev_randao,
             suggested_fee_recipient,
+            None,
             None,
             None,
             None,
@@ -198,6 +203,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             timestamp,
             prev_randao,
             suggested_fee_recipient,
+            None,
             None,
             None,
             None,
@@ -301,6 +307,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
                 slot,
                 head_block_root,
                 fork_choice::PayloadStatus::Pending,
+                &[],
             )
             .await
             .unwrap();

@@ -6,21 +6,22 @@ use beacon_chain::{
     custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-        OP_POOL_DB_KEY,
+        MakeAttestationOptions, OP_POOL_DB_KEY,
     },
 };
 use bls::Keypair;
 use operation_pool::PersistedOperationPool;
 use state_processing::EpochProcessingError;
+use state_processing::GloasVerificationContext;
+use state_processing::common::get_attesting_indices_from_state;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use types::{
-    BeaconState, BeaconStateError, BlockImportSource, ChainSpec, Checkpoint,
-    DEFAULT_PRE_ELECTRA_WS_PERIOD, EthSpec, ForkName, Hash256, MainnetEthSpec, MinimalEthSpec,
-    RelativeEpoch, Slot,
+    BeaconState, BeaconStateError, BlockImportSource, Checkpoint, EthSpec, ForkName, Hash256,
+    RelativeEpoch, Slot, Spec,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
@@ -29,7 +30,7 @@ pub const VALIDATOR_COUNT: usize = 48;
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
     LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT));
 
-fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
+fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<Spec>> {
     get_harness_with_config(
         validator_count,
         ChainConfig {
@@ -39,32 +40,11 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     )
 }
 
-fn get_harness_with_spec(
-    validator_count: usize,
-    spec: &ChainSpec,
-) -> BeaconChainHarness<EphemeralHarnessType<MainnetEthSpec>> {
-    let chain_config = ChainConfig {
-        archive: true,
-        ..Default::default()
-    };
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec.clone().into())
-        .chain_config(chain_config)
-        .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
-
-    harness.advance_slot();
-
-    harness
-}
-
 fn get_harness_with_config(
     validator_count: usize,
     chain_config: ChainConfig,
-) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+) -> BeaconChainHarness<EphemeralHarnessType<Spec>> {
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .chain_config(chain_config)
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
@@ -81,8 +61,8 @@ fn get_harness_with_config(
 /// for sampling validation in Fulu.
 fn get_harness_semi_supernode(
     validator_count: usize,
-) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
-    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+) -> BeaconChainHarness<EphemeralHarnessType<Spec>> {
+    let harness = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .chain_config(ChainConfig {
             archive: true,
@@ -107,7 +87,12 @@ fn massive_skips() {
 
     // Run per_slot_processing until it returns an error.
     let error = loop {
-        match per_slot_processing(&mut state, None, spec) {
+        match per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            spec,
+        ) {
             Ok(_) => continue,
             Err(e) => break e,
         }
@@ -146,7 +131,7 @@ fn massive_skips() {
 
 #[tokio::test]
 async fn iterators() {
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 2 - 1;
+    let num_blocks_produced = Spec::slots_per_epoch() * 2 - 1;
 
     let harness = get_harness(VALIDATOR_COUNT);
 
@@ -224,8 +209,8 @@ async fn iterators() {
 }
 
 fn find_reorg_slot(
-    chain: &BeaconChain<EphemeralHarnessType<MinimalEthSpec>>,
-    new_state: &BeaconState<MinimalEthSpec>,
+    chain: &BeaconChain<EphemeralHarnessType<Spec>>,
+    new_state: &BeaconState<Spec>,
     new_block_root: Hash256,
 ) -> Slot {
     let (old_state, old_block_root) = {
@@ -246,7 +231,7 @@ fn find_reorg_slot(
 
 #[tokio::test]
 async fn find_reorgs() {
-    let num_blocks_produced = MinimalEthSpec::slots_per_historical_root() + 1;
+    let num_blocks_produced = Spec::slots_per_historical_root() + 1;
 
     let harness = get_harness(VALIDATOR_COUNT);
 
@@ -278,7 +263,7 @@ async fn find_reorgs() {
         head_state
             .finalized_checkpoint()
             .epoch
-            .start_slot(MinimalEthSpec::slots_per_epoch())
+            .start_slot(Spec::slots_per_epoch())
     );
 
     // test head
@@ -313,7 +298,7 @@ async fn chooses_fork() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     let two_thirds = (VALIDATOR_COUNT / 3) * 2;
-    let delay = MinimalEthSpec::default_spec().min_attestation_inclusion_delay as usize;
+    let delay = Spec::default_spec().min_attestation_inclusion_delay as usize;
 
     let honest_validators: Vec<usize> = (0..two_thirds).collect();
     let faulty_validators: Vec<usize> = (two_thirds..VALIDATOR_COUNT).collect();
@@ -360,7 +345,7 @@ async fn chooses_fork() {
 
 #[tokio::test]
 async fn finalizes_with_full_participation() {
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+    let num_blocks_produced = Spec::slots_per_epoch() * 5;
 
     let harness = get_harness(VALIDATOR_COUNT);
 
@@ -382,7 +367,7 @@ async fn finalizes_with_full_participation() {
     );
     assert_eq!(
         state.current_epoch(),
-        num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
+        num_blocks_produced / Spec::slots_per_epoch(),
         "head should be at the expected epoch"
     );
     assert_eq!(
@@ -399,7 +384,7 @@ async fn finalizes_with_full_participation() {
 
 #[tokio::test]
 async fn finalizes_with_two_thirds_participation() {
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+    let num_blocks_produced = Spec::slots_per_epoch() * 5;
 
     let harness = get_harness(VALIDATOR_COUNT);
 
@@ -424,7 +409,7 @@ async fn finalizes_with_two_thirds_participation() {
     );
     assert_eq!(
         state.current_epoch(),
-        num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
+        num_blocks_produced / Spec::slots_per_epoch(),
         "head should be at the expected epoch"
     );
 
@@ -446,7 +431,7 @@ async fn finalizes_with_two_thirds_participation() {
 
 #[tokio::test]
 async fn does_not_finalize_with_less_than_two_thirds_participation() {
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+    let num_blocks_produced = Spec::slots_per_epoch() * 5;
 
     let harness = get_harness(VALIDATOR_COUNT);
 
@@ -472,7 +457,7 @@ async fn does_not_finalize_with_less_than_two_thirds_participation() {
     );
     assert_eq!(
         state.current_epoch(),
-        num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
+        num_blocks_produced / Spec::slots_per_epoch(),
         "head should be at the expected epoch"
     );
     assert_eq!(
@@ -489,7 +474,7 @@ async fn does_not_finalize_with_less_than_two_thirds_participation() {
 
 #[tokio::test]
 async fn does_not_finalize_without_attestation() {
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+    let num_blocks_produced = Spec::slots_per_epoch() * 5;
 
     let harness = get_harness(VALIDATOR_COUNT);
 
@@ -511,7 +496,7 @@ async fn does_not_finalize_without_attestation() {
     );
     assert_eq!(
         state.current_epoch(),
-        num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
+        num_blocks_produced / Spec::slots_per_epoch(),
         "head should be at the expected epoch"
     );
     assert_eq!(
@@ -526,9 +511,108 @@ async fn does_not_finalize_without_attestation() {
     );
 }
 
+/// Checks that block production ranks attestations that vote for an available parent payload
+/// (`data.index == 1`) above ones that vote for the same block without it, when the op pool
+/// holds more attestations than fit in a block.
+#[tokio::test]
+async fn gloas_packs_attestations_voting_for_available_payload() {
+    let spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .keypairs(KEYPAIRS.to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    harness.advance_slot();
+    harness.extend_slots(1).await;
+
+    let head = harness.chain.head_snapshot();
+    let head_root = head.beacon_block_root;
+    let head_slot = head.beacon_block.slot();
+    assert_eq!(head_slot, Slot::new(1));
+    let validators = harness.get_all_validators();
+
+    let insert_attestations =
+        |attesting_validators: &[usize], slot: Slot, payload_present_override: Option<bool>| {
+            let fork = harness.spec.fork_at_epoch(slot.epoch(E::slots_per_epoch()));
+            let (attestations, _) = harness.make_attestations_with_opts(
+                attesting_validators,
+                &head.beacon_state,
+                head.beacon_state_root(),
+                head_root.into(),
+                slot,
+                MakeAttestationOptions {
+                    limit: None,
+                    fork,
+                    payload_present_override,
+                },
+            );
+            for (attestation, _) in attestations
+                .into_iter()
+                .flat_map(|(committee_attestations, _)| committee_attestations)
+            {
+                let attesting_indices =
+                    get_attesting_indices_from_state(&head.beacon_state, attestation.to_ref())
+                        .unwrap();
+                harness
+                    .chain
+                    .op_pool
+                    .insert_attestation(attestation, attesting_indices)
+                    .unwrap();
+            }
+        };
+
+    // Skip the rest of the epoch, attesting to the head at every skipped slot. Together with
+    // the head's own attestations, this fills a block's attestation limit with attestations
+    // that earn the target flag, but not the head flag.
+    let last_skipped_slot = Slot::new(E::slots_per_epoch() - 1);
+    for slot in (head_slot + 1).as_u64()..=last_skipped_slot.as_u64() {
+        harness.advance_slot();
+        insert_attestations(&validators, Slot::new(slot), None);
+    }
+
+    // At the next slot, half of the committee votes for the head's payload (`index == 1`) and
+    // the other half does not (`index == 0`). Both are non same-slot votes for the head. Only
+    // the first earns the head flag, so it must outrank the target-only attestations, and the
+    // second must not.
+    harness.advance_slot();
+    let contested_slot = last_skipped_slot + 1;
+    let mut state = head.beacon_state.clone();
+    state
+        .build_committee_cache(RelativeEpoch::Next, &harness.spec)
+        .unwrap();
+    let committees = state.get_beacon_committees_at_slot(contested_slot).unwrap();
+    assert_eq!(committees.len(), 1);
+    let committee = committees[0].committee;
+    let (payload_voters, no_payload_voters) = committee.split_at(committee.len() / 2);
+    insert_attestations(payload_voters, contested_slot, Some(true));
+    insert_attestations(no_payload_voters, contested_slot, Some(false));
+
+    harness.advance_slot();
+    let ((signed_block, _), _) = harness
+        .make_block(harness.get_current_state(), contested_slot + 1)
+        .await;
+    let attestations = signed_block
+        .message()
+        .body()
+        .attestations()
+        .collect::<Vec<_>>();
+    assert_eq!(attestations.len(), E::max_attestations_electra());
+    let contested_slot_indices = attestations
+        .iter()
+        .filter(|attestation| attestation.data().slot == contested_slot)
+        .map(|attestation| attestation.data().index)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        contested_slot_indices,
+        vec![1],
+        "the block should pack only the attestation voting for the available payload"
+    );
+}
+
 #[tokio::test]
 async fn roundtrip_operation_pool() {
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+    let num_blocks_produced = Spec::slots_per_epoch() * 5;
 
     let harness = get_harness(VALIDATOR_COUNT);
 
@@ -551,7 +635,7 @@ async fn roundtrip_operation_pool() {
     let restored_op_pool = harness
         .chain
         .store
-        .get_item::<PersistedOperationPool<MinimalEthSpec>>(&OP_POOL_DB_KEY)
+        .get_item::<PersistedOperationPool<Spec>>(&OP_POOL_DB_KEY)
         .expect("should read db")
         .expect("should find op pool")
         .into_operation_pool()
@@ -562,7 +646,7 @@ async fn roundtrip_operation_pool() {
 
 #[tokio::test]
 async fn unaggregated_attestations_added_to_fork_choice_some_none() {
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() / 2;
+    let num_blocks_produced = Spec::slots_per_epoch() / 2;
 
     let harness = get_harness(VALIDATOR_COUNT);
 
@@ -604,8 +688,8 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
                 latest_message
                     .expect("latest message should be present")
                     .slot
-                    .epoch(MinimalEthSpec::slots_per_epoch()),
-                slot.epoch(MinimalEthSpec::slots_per_epoch()),
+                    .epoch(Spec::slots_per_epoch()),
+                slot.epoch(Spec::slots_per_epoch()),
                 "Latest message epoch for {} should be equal to epoch {}.",
                 validator,
                 slot
@@ -621,7 +705,7 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
 
 #[tokio::test]
 async fn attestations_with_increasing_slots() {
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+    let num_blocks_produced = Spec::slots_per_epoch() * 5;
 
     let harness = get_harness(VALIDATOR_COUNT);
 
@@ -658,8 +742,7 @@ async fn attestations_with_increasing_slots() {
 
         let current_slot = harness.chain.slot().expect("should get slot");
         let expected_attestation_slot = attestation.data.slot;
-        let expected_earliest_permissible_slot =
-            current_slot - MinimalEthSpec::slots_per_epoch() - 1;
+        let expected_earliest_permissible_slot = current_slot - Spec::slots_per_epoch() - 1;
 
         if expected_attestation_slot < expected_earliest_permissible_slot {
             assert!(matches!(
@@ -678,7 +761,7 @@ async fn attestations_with_increasing_slots() {
 
 #[tokio::test]
 async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 2 - 1;
+    let num_blocks_produced = Spec::slots_per_epoch() * 2 - 1;
 
     let harness = get_harness(VALIDATOR_COUNT);
 
@@ -719,8 +802,8 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
             .expect("latest message should be present");
 
         assert_eq!(
-            latest_message.slot.epoch(MinimalEthSpec::slots_per_epoch()),
-            slot.epoch(MinimalEthSpec::slots_per_epoch()),
+            latest_message.slot.epoch(Spec::slots_per_epoch()),
+            slot.epoch(Spec::slots_per_epoch()),
             "Latest message slot should be equal to attester duty."
         );
 
@@ -792,7 +875,7 @@ async fn run_skip_slot_test(skip_slots: u64) {
 
 #[tokio::test]
 async fn produces_and_processes_with_genesis_skip_slots() {
-    for i in 0..MinimalEthSpec::slots_per_epoch() * 4 {
+    for i in 0..Spec::slots_per_epoch() * 4 {
         run_skip_slot_test(i).await
     }
 }
@@ -962,7 +1045,7 @@ async fn pseudo_finalize_test_generic(
     expect_true_finalization_migration: bool,
 ) {
     // This test ensures that after pseudo finalization, we can still finalize the chain without issues
-    let num_blocks_produced = MinimalEthSpec::slots_per_epoch() * 5;
+    let num_blocks_produced = Spec::slots_per_epoch() * 5;
 
     let chain_config = ChainConfig {
         archive: true,
@@ -996,7 +1079,7 @@ async fn pseudo_finalize_test_generic(
     );
     assert_eq!(
         state.current_epoch(),
-        num_blocks_produced / MinimalEthSpec::slots_per_epoch(),
+        num_blocks_produced / Spec::slots_per_epoch(),
         "head should be at the expected epoch"
     );
     assert_eq!(
@@ -1066,7 +1149,7 @@ async fn pseudo_finalize_test_generic(
     );
     assert_eq!(
         state.current_epoch(),
-        (num_blocks_produced * 2) / MinimalEthSpec::slots_per_epoch(),
+        (num_blocks_produced * 2) / Spec::slots_per_epoch(),
         "head should be at the expected epoch"
     );
     assert_eq!(
@@ -1122,29 +1205,4 @@ async fn pseudo_finalize_with_lagging_split_update() {
     let epochs_per_migration = 10;
     let expect_true_migration = false;
     pseudo_finalize_test_generic(epochs_per_migration, expect_true_migration).await;
-}
-
-#[tokio::test]
-async fn test_compute_weak_subjectivity_period() {
-    type E = MainnetEthSpec;
-    let expected_ws_period_pre_electra = DEFAULT_PRE_ELECTRA_WS_PERIOD;
-    let expected_ws_period_post_electra = 256;
-
-    // test Base variant
-    let spec = ForkName::Altair.make_genesis_spec(E::default_spec());
-    let harness = get_harness_with_spec(VALIDATOR_COUNT, &spec);
-    let head_state = harness.get_current_state();
-
-    let calculated_ws_period = head_state.compute_weak_subjectivity_period(&spec).unwrap();
-
-    assert_eq!(calculated_ws_period, expected_ws_period_pre_electra);
-
-    // test Electra variant
-    let spec = ForkName::Electra.make_genesis_spec(E::default_spec());
-    let harness = get_harness_with_spec(VALIDATOR_COUNT, &spec);
-    let head_state = harness.get_current_state();
-
-    let calculated_ws_period = head_state.compute_weak_subjectivity_period(&spec).unwrap();
-
-    assert_eq!(calculated_ws_period, expected_ws_period_post_electra);
 }

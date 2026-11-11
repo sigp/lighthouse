@@ -17,8 +17,13 @@ use tree_hash_derive::TreeHash;
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]
+#[tree_hash(
+    struct_behaviour = "progressive_container",
+    active_fields(1, 1, 1, 1, 1)
+)]
 pub struct ExecutionPayloadEnvelope<E: EthSpec> {
     pub payload: ExecutionPayloadGloas<E>,
+    // [Modified in Gloas:EIP7688]
     pub execution_requests: ExecutionRequestsGloas<E>,
     #[serde(with = "serde_utils::quoted_u64")]
     pub builder_index: u64,
@@ -72,7 +77,7 @@ impl<E: EthSpec> SignedRoot for ExecutionPayloadEnvelope<E> {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
 
-    ssz_and_tree_hash_tests!(ExecutionPayloadEnvelope<MainnetEthSpec>);
+    ssz_and_tree_hash_tests!(ExecutionPayloadEnvelope<Spec>);
 }

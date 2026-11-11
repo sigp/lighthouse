@@ -38,55 +38,55 @@ jobs:
         id: set-matrix
         run: |
           # All prior forks to cover in nightly tests. This list should be updated when we remove a fork from `RECENT_FORKS`.
-          echo 'forks=["phase0", "altair", "bellatrix", "capella", "deneb"]' >> $GITHUB_OUTPUT
+          echo 'forks=["phase0", "altair", "bellatrix", "capella", "deneb", "electra"]' >> $GITHUB_OUTPUT
 
   beacon-chain-tests:
     name: beacon-chain-tests
     needs: setup-matrix
     runs-on: 'ubuntu-latest'
     env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       matrix:
         fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
       fail-fast: false
     steps:
-    - uses: actions/checkout@v5
-      with:
-        ref: ${{ inputs.branch || 'unstable' }}
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.branch || 'unstable' }}
+      - name: Get latest version of stable Rust
+        uses: moonrepo/setup-rust@v1
+        with:
           channel: stable
           cache-target: release
           bins: cargo-nextest
-    - name: Run beacon_chain tests for ${{ matrix.fork }}
-      run: make test-beacon-chain-${{ matrix.fork }}
-      timeout-minutes: 60
+      - name: Run beacon_chain tests for ${{ matrix.fork }}
+        run: make test-beacon-chain-${{ matrix.fork }}
+        timeout-minutes: 60
 
   op-pool-tests:
     name: op-pool-tests
     needs: setup-matrix
     runs-on: ubuntu-latest
     env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       matrix:
         fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
       fail-fast: false
     steps:
-    - uses: actions/checkout@v5
-      with:
-        ref: ${{ inputs.branch || 'unstable' }}
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.branch || 'unstable' }}
+      - name: Get latest version of stable Rust
+        uses: moonrepo/setup-rust@v1
+        with:
           channel: stable
           cache-target: release
           bins: cargo-nextest
-    - name: Run operation_pool tests for ${{ matrix.fork }}
-      run: make test-op-pool-${{ matrix.fork }}
-      timeout-minutes: 60
+      - name: Run operation_pool tests for ${{ matrix.fork }}
+        run: make test-op-pool-${{ matrix.fork }}
+        timeout-minutes: 60
 
   network-tests:
     name: network-tests
@@ -99,26 +99,49 @@ jobs:
         fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
       fail-fast: false
     steps:
-    - uses: actions/checkout@v5
-      with:
-        ref: ${{ inputs.branch || 'unstable' }}
-    - name: Get latest version of stable Rust
-      uses: moonrepo/setup-rust@v1
-      with:
-        channel: stable
-        cache-target: release
-        bins: cargo-nextest
-    - name: Create CI logger dir
-      run: mkdir ${{ runner.temp }}/network_test_logs
-    - name: Run network tests for ${{ matrix.fork }}
-      run: make test-network-${{ matrix.fork }}
-      timeout-minutes: 60
-      env:
-        TEST_FEATURES: portable
-        CI_LOGGER_DIR: ${{ runner.temp }}/network_test_logs
-    - name: Upload logs
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: network_test_logs_${{ matrix.fork }}
-        path: ${{ runner.temp }}/network_test_logs
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.branch || 'unstable' }}
+      - name: Get latest version of stable Rust
+        uses: moonrepo/setup-rust@v1
+        with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+      - name: Create CI logger dir
+        run: mkdir ${{ runner.temp }}/network_test_logs
+      - name: Run network tests for ${{ matrix.fork }}
+        run: make test-network-${{ matrix.fork }}
+        timeout-minutes: 60
+        env:
+          TEST_FEATURES: portable
+          CI_LOGGER_DIR: ${{ runner.temp }}/network_test_logs
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: network_test_logs_${{ matrix.fork }}
+          path: ${{ runner.temp }}/network_test_logs
+
+  report-failure:
+    needs: [setup-matrix, beacon-chain-tests, op-pool-tests, network-tests]
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Report nightly test failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title='Nightly tests are failing'
+          issue=$(gh issue list --state open --author 'github-actions[bot]' \
+            --search "in:title \"$title\"" --limit 100 --json number,title \
+            --jq "map(select(.title == \"$title\")) | first | .number // empty")
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "Nightly tests failed: $RUN_URL"
+          else
+            gh issue create --title "$title" --body "Nightly tests failed: $RUN_URL"
+          fi

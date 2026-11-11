@@ -27,10 +27,6 @@ impl BuilderDepositRequest {
         }
     }
 
-    pub fn version(&self) -> Option<u8> {
-        self.withdrawal_credentials.as_slice().first().cloned()
-    }
-
     pub fn is_valid_builder_deposit_signature(&self, spec: &ChainSpec) -> bool {
         let Ok(pubkey) = self.pubkey.decompress() else {
             return false;

@@ -75,5 +75,15 @@ pub fn slash_validator<E: EthSpec>(
         whistleblower_reward.safe_sub(proposer_reward)?,
     )?;
 
+    // Remove pending builder payments for all blocks proposed by the slashed validator.
+    if state.fork_name_unchecked().gloas_enabled() {
+        let mut payments = state.builder_pending_payments_mut()?.iter_cow();
+        while let Some((_, mut payment)) = payments.next_cow() {
+            if payment.proposer_index == slashed_index as u64 {
+                *payment.make_mut()? = BuilderPendingPayment::default();
+            }
+        }
+    }
+
     Ok(())
 }

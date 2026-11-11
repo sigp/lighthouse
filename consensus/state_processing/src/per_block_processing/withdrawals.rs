@@ -4,7 +4,7 @@ use crate::per_block_processing::builder::{
     is_builder_index,
 };
 use crate::per_block_processing::errors::BlockProcessingError;
-use milhouse::List;
+use milhouse::ProgressiveList;
 use safe_arith::{SafeArith, SafeArithIter};
 use tree_hash::TreeHash;
 use types::{
@@ -222,12 +222,13 @@ pub fn get_builders_sweep_withdrawals<E: EthSpec>(
             .get(builder_index as usize)
             .ok_or(BeaconStateError::UnknownBuilder(builder_index))?;
 
-        if builder.withdrawable_epoch <= epoch && builder.balance > 0 {
+        let balance = get_builder_balance_after_withdrawals(state, builder_index, withdrawals)?;
+        if builder.withdrawable_epoch <= epoch && balance > 0 {
             withdrawals.push(Withdrawal {
                 index: *withdrawal_index,
                 validator_index: convert_builder_index_to_validator_index(builder_index),
                 address: builder.execution_address,
-                amount: builder.balance,
+                amount: balance,
             });
             withdrawal_index.safe_add_assign(1)?;
         }
@@ -326,6 +327,24 @@ pub fn get_balance_after_withdrawals<E: EthSpec>(
         .map_err(Into::into)
 }
 
+/// https://ethereum.github.io/consensus-specs/specs/gloas/beacon-chain/#new-get_builder_balance_after_withdrawals
+pub fn get_builder_balance_after_withdrawals<E: EthSpec>(
+    state: &BeaconState<E>,
+    builder_index: u64,
+    withdrawals: &[Withdrawal],
+) -> Result<u64, BeaconStateError> {
+    let validator_index = convert_builder_index_to_validator_index(builder_index);
+    let withdrawn = withdrawals
+        .iter()
+        .filter(|withdrawal| withdrawal.validator_index == validator_index)
+        .map(|withdrawal| withdrawal.amount)
+        .safe_sum()?;
+    Ok(state
+        .get_builder(builder_index)?
+        .balance
+        .saturating_sub(withdrawn))
+}
+
 fn is_eligible_for_partial_withdrawals(
     validator: &Validator,
     balance: u64,
@@ -354,7 +373,7 @@ fn update_payload_expected_withdrawals<E: EthSpec>(
     state: &mut BeaconState<E>,
     withdrawals: &Withdrawals<E>,
 ) -> Result<(), BlockProcessingError> {
-    *state.payload_expected_withdrawals_mut()? = List::new(withdrawals.to_vec())?;
+    *state.payload_expected_withdrawals_mut()? = ProgressiveList::new(withdrawals.to_vec())?;
     Ok(())
 }
 
@@ -495,7 +514,7 @@ pub mod gloas {
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         // Return early if the parent block is empty.
-        if *state.latest_block_hash()? != state.latest_execution_payload_bid()?.block_hash {
+        if *state.latest_block_hash()? != state.latest_execution_payload_bid()?.block_hash() {
             return Ok(());
         }
 

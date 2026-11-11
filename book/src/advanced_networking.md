@@ -202,7 +202,7 @@ In order to do so, lighthouse provides the following CLI options/parameters.
 - `--enr-tcp6-port` Use this to advertise the port that is publicly reachable
   over TCP with a publicly reachable IPv6 address. This might differ from the
   IPv6 port used to listen.
-- `--enr-addresses` Use this to advertise publicly reachable addresses. Takes at
+- `--enr-address` Use this to advertise publicly reachable addresses. Takes at
   most two values, one for IPv4 and one for IPv6. Note that a beacon node that
   advertises some address, must be
   reachable both over UDP and TCP.

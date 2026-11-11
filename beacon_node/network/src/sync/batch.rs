@@ -551,10 +551,10 @@ impl<D: Hash> BatchState<D> {
 mod tests {
     use super::*;
     use crate::sync::range_sync::RangeSyncBatchConfig;
-    use types::MinimalEthSpec;
+    use types::Spec;
 
-    type Cfg = RangeSyncBatchConfig<MinimalEthSpec>;
-    type TestBatch = BatchInfo<MinimalEthSpec, Cfg, Vec<u64>>;
+    type Cfg = RangeSyncBatchConfig<Spec>;
+    type TestBatch = BatchInfo<Spec, Cfg, Vec<u64>>;
 
     fn max_dl() -> u8 {
         Cfg::max_batch_download_attempts()

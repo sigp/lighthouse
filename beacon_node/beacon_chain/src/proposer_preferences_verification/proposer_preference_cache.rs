@@ -35,6 +35,22 @@ impl GossipVerifiedProposerPreferenceCache {
             .map(|p| p.signed_preferences.clone())
     }
 
+    pub fn get_filtered_preferences(
+        &self,
+        slot: Option<Slot>,
+        dependent_root: Option<Hash256>,
+    ) -> Vec<SignedProposerPreferences> {
+        self.preferences
+            .read()
+            .iter()
+            .filter(|((preference_slot, preference_root), _)| {
+                slot.is_none_or(|slot| slot == *preference_slot)
+                    && dependent_root.is_none_or(|root| root == *preference_root)
+            })
+            .map(|(_, p)| (*p.signed_preferences).clone())
+            .collect()
+    }
+
     pub fn insert_preferences(&self, preferences: GossipVerifiedProposerPreferences) {
         let slot = preferences.signed_preferences.message.proposal_slot;
         let dependent_root = preferences.signed_preferences.message.dependent_root;

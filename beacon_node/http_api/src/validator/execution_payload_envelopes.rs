@@ -52,9 +52,9 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
                     let envelope = chain
                         .pending_payload_envelopes
                         .read()
-                        .get(slot)
-                        .filter(|envelope| envelope.beacon_block_root == beacon_block_root)
+                        .get_by_block_root(beacon_block_root)
                         .cloned()
+                        .filter(|envelope| envelope.slot() == slot)
                         .ok_or_else(|| {
                             warp_utils::reject::custom_not_found(format!(
                                 "Execution payload envelope not available for slot {slot} and root {beacon_block_root:?}"
@@ -79,7 +79,7 @@ pub fn get_validator_execution_payload_envelopes<T: BeaconChainTypes>(
                             let json_response = ForkVersionedResponse {
                                 version: fork_name,
                                 metadata: EmptyMetadata {},
-                                data: envelope,
+                                data: envelope.as_ref(),
                             };
                             Builder::new()
                                 .status(200)

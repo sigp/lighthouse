@@ -40,7 +40,7 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
     #[allow(clippy::type_complexity)]
     blocks_request:
-        ByRangeRequest<BlocksByRangeRequestId, (Vec<Arc<SignedBeaconBlock<E>>>, PeerId)>,
+        ByRangeRequest<BlocksByRangeRequestId, (Vec<(Hash256, Arc<SignedBeaconBlock<E>>)>, PeerId)>,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
     /// Payload envelopes for Gloas blocks.
@@ -135,6 +135,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
         peer_id: PeerId,
     ) -> Result<(), String> {
+        let blocks = blocks
+            .into_iter()
+            .map(|block| (get_block_root(&block), block))
+            .collect();
         self.blocks_request.finish(req_id, (blocks, peer_id))
     }
 
@@ -207,6 +211,22 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         let Some((blocks, block_peer)) = self.blocks_request.to_finished() else {
             return Ok(());
         };
+
+        // For Gloas, wait for the envelope response before requesting custody columns. Blocks
+        // with withheld payloads have no envelope or columns on the network, and the bid alone
+        // can't tell us which blocks those are. If the envelope peer lies by omission, the
+        // reveal-status check in `import_historical_block_batch` catches it.
+        let revealed_block_roots = match &self.payloads_request {
+            Some(ByRangeRequest::Active(_)) => return Ok(()),
+            Some(ByRangeRequest::Complete(envelopes)) => Some(
+                envelopes
+                    .iter()
+                    .map(|envelope| envelope.beacon_block_root())
+                    .collect::<HashSet<_>>(),
+            ),
+            None => None,
+        };
+
         let RangeBlockDataRequest::DataColumns(state @ DataColumnsRequest::NotStarted) =
             &mut self.block_data_request
         else {
@@ -217,8 +237,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         // batch share an epoch (EPOCHS_PER_BATCH == 1).
         let block_roots = blocks
             .iter()
-            .filter(|block| block.num_expected_blobs() > 0)
-            .map(|block| get_block_root(block))
+            .filter(|(_, block)| block.num_expected_blobs() > 0)
+            .map(|(block_root, _)| *block_root)
+            .filter(|root| {
+                revealed_block_roots
+                    .as_ref()
+                    .is_none_or(|revealed| revealed.contains(root))
+            })
             .collect::<Vec<_>>();
 
         if block_roots.is_empty() {
@@ -226,7 +251,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             *state = DataColumnsRequest::Complete(vec![], PeerGroup::from_set(Default::default()));
             return Ok(());
         }
-        let block_epoch = blocks[0].slot().epoch(E::slots_per_epoch());
+        let block_epoch = blocks[0].1.slot().epoch(E::slots_per_epoch());
 
         match cx.custody_lookup_request(
             CustodyRequester::RangeSync(id),
@@ -329,7 +354,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     }
 
     fn responses_with_blobs<T>(
-        blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+        blocks: Vec<(Hash256, Arc<SignedBeaconBlock<E>>)>,
         blobs: Vec<Arc<BlobSidecar<E>>>,
         custody_context: &CustodyContext<T>,
         spec: Arc<ChainSpec>,
@@ -341,7 +366,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         // included) for a skipped slot is not permitted.
         let mut responses = Vec::with_capacity(blocks.len());
         let mut blob_iter = blobs.into_iter().peekable();
-        for block in blocks.into_iter() {
+        for (block_root, block) in blocks {
             let max_blobs_per_block = spec.max_blobs_per_block(block.epoch()) as usize;
             let mut blob_list = Vec::with_capacity(max_blobs_per_block);
             while {
@@ -380,7 +405,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             })?;
             let block_data = AvailableBlockData::new_with_blobs(blobs);
             responses.push(
-                RangeSyncBlock::new(block, block_data, custody_context)
+                RangeSyncBlock::new(block_root, block, block_data, custody_context)
                     .map_err(|e| CouplingError::BlobPeerFailure(format!("{e:?}")))?,
             )
         }
@@ -398,7 +423,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     }
 
     fn responses_with_custody_columns<T>(
-        blocks: Vec<Arc<SignedBeaconBlock<E>>>,
+        blocks: Vec<(Hash256, Arc<SignedBeaconBlock<E>>)>,
         columns: DataColumnSidecarList<E>,
         custody_context: &CustodyContext<T>,
         payload_envelopes: Option<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
@@ -426,8 +451,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
         let mut range_sync_blocks = Vec::with_capacity(blocks.len());
 
-        for block in blocks {
-            let block_root = get_block_root(&block);
+        for (block_root, block) in blocks {
             let custody_columns = if block.num_expected_blobs() > 0 {
                 columns_by_block_root
                     .remove(&block_root)
@@ -450,14 +474,19 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     .map(|env| AvailableEnvelope::new(env, custody_columns, bid, custody_context))
                     .transpose()?;
 
-                RangeSyncBlock::new_gloas(block, available_envelope)
+                RangeSyncBlock::new_gloas(block_root, block, available_envelope)
                     .map_err(CouplingError::EnvelopePeerFailure)?
             } else if custody_columns.is_empty() {
-                RangeSyncBlock::new(block, AvailableBlockData::NoData, custody_context)
-                    .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
+                RangeSyncBlock::new(
+                    block_root,
+                    block,
+                    AvailableBlockData::NoData,
+                    custody_context,
+                )
+                .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             } else {
                 let block_data = AvailableBlockData::new_with_data_columns(custody_columns);
-                RangeSyncBlock::new(block, block_data, custody_context)
+                RangeSyncBlock::new(block_root, block, block_data, custody_context)
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             };
             range_sync_blocks.push(range_sync_block);
@@ -524,9 +553,10 @@ mod tests {
     };
     use std::sync::Arc;
     use tracing::Span;
+    use tree_hash::TreeHash;
     use types::{
-        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ForkName,
-        MinimalEthSpec as E, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ExecutionRequestsGloas,
+        ForkName, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Spec as E,
     };
 
     fn components_id() -> ComponentsByRangeRequestId {
@@ -586,22 +616,22 @@ mod tests {
     }
 
     fn matching_envelope(block: &SignedBeaconBlock<E>) -> Arc<SignedExecutionPayloadEnvelope<E>> {
-        let bid = &block
+        let bid = block
             .message()
             .body()
             .signed_execution_payload_bid()
             .expect("Gloas block should have payload bid")
-            .message;
+            .message();
         let mut envelope = SignedExecutionPayloadEnvelope {
             message: ExecutionPayloadEnvelope::empty(),
             signature: Signature::empty(),
         };
         envelope.message.beacon_block_root = block.canonical_root();
         envelope.message.parent_beacon_block_root = block.parent_root();
-        envelope.message.builder_index = bid.builder_index;
+        envelope.message.builder_index = bid.builder_index();
         envelope.message.payload.slot_number = block.slot();
-        envelope.message.payload.parent_hash = bid.parent_block_hash;
-        envelope.message.payload.block_hash = bid.block_hash;
+        envelope.message.payload.parent_hash = bid.parent_block_hash();
+        envelope.message.payload.block_hash = bid.block_hash();
         Arc::new(envelope)
     }
 
@@ -617,13 +647,36 @@ mod tests {
         let mut u = types::test_utils::test_unstructured();
         (0..count)
             .map(|_| {
-                let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
+                let (mut block, data_columns) = generate_rand_block_and_data_columns::<E>(
                     ForkName::Gloas,
                     NumBlobs::Number(1),
                     &mut u,
                     spec,
                 )
                 .unwrap();
+                // Commit the (random) bid to the empty execution requests carried by
+                // `matching_envelope`, so the envelope passes `verify_envelope_consistency`.
+                if let Ok(bid) = block
+                    .message_mut()
+                    .body_mut()
+                    .signed_execution_payload_bid_gloas_mut()
+                {
+                    bid.message.execution_requests_root =
+                        ExecutionRequestsGloas::<E>::default().tree_hash_root();
+                }
+                // The bid mutation changed the block root; re-point the columns at the mutated
+                // block so column<->block pairing (by block root) still holds.
+                let new_root = block.canonical_root();
+                let data_columns = data_columns
+                    .into_iter()
+                    .map(|column| {
+                        let mut column = (*column).clone();
+                        if let types::DataColumnSidecar::Gloas(ref mut gloas_column) = column {
+                            gloas_column.beacon_block_root = new_root;
+                        }
+                        Arc::new(column)
+                    })
+                    .collect::<Vec<_>>();
                 let envelope = matching_envelope(&block);
                 (Arc::new(block), data_columns, envelope)
             })
@@ -889,6 +942,7 @@ mod tests {
                 RangeSyncBlock::Gloas {
                     block,
                     envelope: Some(envelope),
+                    ..
                 } => {
                     assert_eq!(
                         envelope.envelope().beacon_block_root(),

@@ -3,16 +3,13 @@
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
 };
-use beacon_chain::{
-    AvailabilityProcessingStatus, BlockError, ChainConfig, InvalidSignature, NotifyExecutionLayer,
-    block_verification_types::{AsBlock, LookupBlock},
-};
+use beacon_chain::{BlockError, ChainConfig, InvalidSignature, block_verification_types::AsBlock};
 use bls::{Keypair, Signature};
 use logging::create_test_tracing_subscriber;
 use std::sync::{Arc, LazyLock};
 use types::{data::FixedBlobSidecarList, *};
 
-type E = MainnetEthSpec;
+type E = Spec;
 
 // Should ideally be divisible by 3.
 const VALIDATOR_COUNT: usize = 24;
@@ -26,7 +23,7 @@ fn get_harness(
     spec: Arc<ChainSpec>,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     create_test_tracing_subscriber();
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec)
         .chain_config(ChainConfig {
             archive: true,
@@ -74,24 +71,9 @@ async fn rpc_blobs_with_invalid_header_signature() {
     assert!(!blobs.is_empty());
     let block_root = signed_block.canonical_root();
 
-    // Process the block without blobs so that it doesn't become available.
+    // Advance to the block slot, but process the invalid blobs before importing the block. This
+    // checks that invalid blob header signatures are rejected before availability caching.
     harness.advance_slot();
-    let availability = harness
-        .chain
-        .process_block(
-            block_root,
-            LookupBlock::new(signed_block.clone()),
-            NotifyExecutionLayer::Yes,
-            BlockImportSource::Lookup,
-            || Ok(()),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(
-        availability,
-        AvailabilityProcessingStatus::MissingComponents(slot, block_root)
-    );
 
     // Build blob sidecars with invalid signatures in the block header.
     let mut corrupt_block = (*signed_block).clone();

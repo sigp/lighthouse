@@ -43,6 +43,10 @@ FULU_FORK_EPOCH: 165120
 GLOAS_FORK_VERSION: 0x08017000
 GLOAS_FORK_EPOCH: 18446744073709551615
 
+# Heze
+HEZE_FORK_VERSION: 0x09017000
+HEZE_FORK_EPOCH: 18446744073709551615
+
 # Time parameters
 # ---------------------------------------------------------------
 # 12 seconds

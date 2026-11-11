@@ -15,11 +15,13 @@ use beacon_chain::{
     },
 };
 use bls::{AggregateSignature, Keypair, SecretKey};
+use eth2::types::EventKind;
 use execution_layer::test_utils::generate_genesis_header;
 use fixed_bytes::FixedBytesExtended;
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
 use int_to_bytes::int_to_bytes32;
 use slasher::{Config as SlasherConfig, Slasher};
+use state_processing::GloasVerificationContext;
 use state_processing::per_slot_processing;
 use std::sync::{Arc, LazyLock};
 use tempfile::tempdir;
@@ -27,11 +29,11 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::{
     Address, Attestation, AttestationRef, ChainSpec, Epoch, EthSpec, ForkName, Hash256,
-    MainnetEthSpec, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
+    SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, Spec, SubnetId,
     attestation::SignedAggregateAndProofRefMut, test_utils::generate_deterministic_keypair,
 };
 
-pub type E = MainnetEthSpec;
+pub type E = Spec;
 
 /// The validator count needs to be relatively high compared to other tests to ensure that we can
 /// have committees where _some_ validators are aggregators but not _all_.
@@ -55,7 +57,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     spec.target_aggregators_per_committee = 4;
     let spec = Arc::new(spec);
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec)
         .chain_config(ChainConfig {
             archive: true,
@@ -94,7 +96,7 @@ fn get_harness_capella_spec(
     )
     .unwrap();
 
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec.clone())
         .chain_config(ChainConfig {
             archive: true,
@@ -302,7 +304,7 @@ impl GossipTester {
         // Extend the chain out a few epochs so we have some chain depth to play with.
         harness
             .extend_chain(
-                MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+                Spec::slots_per_epoch() as usize * 3 - 1,
                 BlockStrategy::OnCanonicalHead,
                 AttestationStrategy::AllValidators,
             )
@@ -344,6 +346,9 @@ impl GossipTester {
                 att.message.aggregator_index = att.message.aggregator_index.checked_sub(1).unwrap();
             }
             SignedAggregateAndProofRefMut::Electra(att) => {
+                att.message.aggregator_index = att.message.aggregator_index.checked_sub(1).unwrap();
+            }
+            SignedAggregateAndProofRefMut::Gloas(att) => {
                 att.message.aggregator_index = att.message.aggregator_index.checked_sub(1).unwrap();
             }
         }
@@ -591,6 +596,9 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Electra(att) => {
                     att.message.aggregate.data.slot = tester.slot() + 1
                 }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
+                    att.message.aggregate.data.slot = tester.slot() + 1
+                }
             },
             |tester, err| {
                 assert!(matches!(
@@ -612,6 +620,11 @@ async fn aggregated_gossip_verification() {
                             too_early_slot.epoch(E::slots_per_epoch());
                     }
                     SignedAggregateAndProofRefMut::Electra(att) => {
+                        att.message.aggregate.data.slot = too_early_slot;
+                        att.message.aggregate.data.target.epoch =
+                            too_early_slot.epoch(E::slots_per_epoch());
+                    }
+                    SignedAggregateAndProofRefMut::Gloas(att) => {
                         att.message.aggregate.data.slot = too_early_slot;
                         att.message.aggregate.data.target.epoch =
                             too_early_slot.epoch(E::slots_per_epoch());
@@ -647,6 +660,9 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Electra(att) => {
                     att.message.aggregate.data.target.epoch += 1
                 }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
+                    att.message.aggregate.data.target.epoch += 1
+                }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidTargetEpoch { .. })),
         )
@@ -661,6 +677,9 @@ async fn aggregated_gossip_verification() {
                     att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
                 }
             },
@@ -678,6 +697,9 @@ async fn aggregated_gossip_verification() {
                     att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
                 }
             },
@@ -711,6 +733,12 @@ async fn aggregated_gossip_verification() {
                     assert!(aggregation_bits.is_zero());
                     att.message.aggregate.signature = AggregateSignature::infinity()
                 }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
+                    let aggregation_bits = &mut att.message.aggregate.aggregation_bits;
+                    aggregation_bits.difference_inplace(&aggregation_bits.clone());
+                    assert!(aggregation_bits.is_zero());
+                    att.message.aggregate.signature = AggregateSignature::infinity()
+                }
             },
             |_, err| assert!(matches!(err, AttnError::EmptyAggregationBitfield)),
         )
@@ -726,6 +754,9 @@ async fn aggregated_gossip_verification() {
                     att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
                 }
             },
@@ -786,6 +817,21 @@ async fn aggregated_gossip_verification() {
                             }
                         };
                     }
+                    SignedAggregateAndProofRefMut::Gloas(att) => {
+                        att.message.selection_proof = loop {
+                            i += 1;
+                            let proof: SelectionProof = tester
+                                .aggregator_sk
+                                .sign(Hash256::from_slice(&int_to_bytes32(i)))
+                                .into();
+                            if proof
+                                .is_aggregator(committee_len, &tester.harness.chain.spec)
+                                .unwrap()
+                            {
+                                break proof.into();
+                            }
+                        };
+                    }
                 }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
@@ -807,6 +853,9 @@ async fn aggregated_gossip_verification() {
                     SignedAggregateAndProofRefMut::Electra(att) => {
                         att.message.aggregate.signature = agg_sig;
                     }
+                    SignedAggregateAndProofRefMut::Gloas(att) => {
+                        att.message.aggregate.signature = agg_sig;
+                    }
                 }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
@@ -822,6 +871,10 @@ async fn aggregated_gossip_verification() {
                         <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregator_index =
+                        <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregator_index =
                         <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
                 }
@@ -848,6 +901,9 @@ async fn aggregated_gossip_verification() {
                     att.message.aggregator_index = VALIDATOR_COUNT as u64
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregator_index = VALIDATOR_COUNT as u64
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregator_index = VALIDATOR_COUNT as u64
                 }
             },
@@ -907,9 +963,12 @@ async fn aggregated_gossip_verification() {
             "gloas: aggregate with index >= 2",
             |_, a| match a.to_mut() {
                 SignedAggregateAndProofRefMut::Base(_) => {
-                    panic!("Expected Electra attestation variant");
+                    panic!("Expected Electra or Gloas attestation variant");
                 }
                 SignedAggregateAndProofRefMut::Electra(att) => {
+                    att.message.aggregate.data.index = 2;
+                }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.index = 2;
                 }
             },
@@ -962,6 +1021,9 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Electra(att) => {
                     att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
                 }
+                SignedAggregateAndProofRefMut::Gloas(att) => {
+                    att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
+                }
             },
             |tester, err| {
                 assert!(matches!(
@@ -971,6 +1033,47 @@ async fn aggregated_gossip_verification() {
                 ))
             },
         );
+}
+
+/// Ensures the batch verification paths emit SSE events for each valid attestation, just like
+/// the individual verification paths.
+#[tokio::test]
+async fn batch_verification_emits_events() {
+    let tester = GossipTester::new().await;
+    let chain = &tester.harness.chain;
+
+    let event_handler = chain.event_handler.as_ref().unwrap();
+    let mut single_attestation_receiver = event_handler.subscribe_single_attestation();
+    let mut attestation_receiver = event_handler.subscribe_attestation();
+
+    let results = chain
+        .batch_verify_unaggregated_attestations_for_gossip(
+            vec![(
+                &tester.valid_attestation,
+                Some(tester.attestation_subnet_id),
+            )]
+            .into_iter(),
+        )
+        .unwrap();
+    assert!(results.iter().all(|result| result.is_ok()));
+
+    match single_attestation_receiver.try_recv() {
+        Ok(EventKind::SingleAttestation(single_attestation)) => {
+            assert_eq!(*single_attestation, tester.valid_attestation)
+        }
+        other => panic!("expected single_attestation event, got {other:?}"),
+    }
+    assert!(attestation_receiver.try_recv().is_err());
+
+    let results = chain
+        .batch_verify_aggregated_attestations_for_gossip(vec![&tester.valid_aggregate].into_iter())
+        .unwrap();
+    assert!(results.iter().all(|result| result.is_ok()));
+
+    assert!(matches!(
+        attestation_receiver.try_recv(),
+        Ok(EventKind::Attestation(_))
+    ));
 }
 
 /// Tests the verification conditions for an unaggregated attestation on the gossip network.
@@ -1190,7 +1293,7 @@ async fn attestation_that_skips_epochs() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
+            Spec::slots_per_epoch() as usize * 3 + 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::SomeValidators(vec![]),
         )
@@ -1199,7 +1302,7 @@ async fn attestation_that_skips_epochs() {
     let current_slot = harness.chain.slot().expect("should get slot");
     let current_epoch = harness.chain.epoch().expect("should get epoch");
 
-    let earlier_slot = (current_epoch - 2).start_slot(MainnetEthSpec::slots_per_epoch());
+    let earlier_slot = (current_epoch - 2).start_slot(Spec::slots_per_epoch());
     let earlier_block = harness
         .chain
         .block_at_slot(earlier_slot, WhenSlotSkipped::Prev)
@@ -1217,7 +1320,13 @@ async fn attestation_that_skips_epochs() {
         .expect("should find state");
 
     while state.slot() < current_slot {
-        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+        per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            &harness.spec,
+        )
+        .expect("should process slot");
     }
 
     let state_root = state.update_tree_hash_cache().unwrap();
@@ -1271,7 +1380,7 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
         .extend_chain(
             // To trigger the bug we need the proposer attestation reward to be signed at a block
             // that isn't the first in the epoch.
-            MainnetEthSpec::slots_per_epoch() as usize + 1,
+            Spec::slots_per_epoch() as usize + 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::SomeValidators(attesters),
         )
@@ -1309,7 +1418,7 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
     harness.advance_slot();
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 2,
+            Spec::slots_per_epoch() as usize * 2,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::SomeValidators(vec![]),
         )
@@ -1328,7 +1437,13 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
         .expect("should find state");
 
     while state.slot() < current_slot {
-        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+        per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            &harness.spec,
+        )
+        .expect("should process slot");
     }
 
     let state_root = state.update_tree_hash_cache().unwrap();
@@ -1363,7 +1478,7 @@ async fn attestation_to_finalized_block() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 4 + 1,
+            Spec::slots_per_epoch() as usize * 4 + 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -1379,7 +1494,7 @@ async fn attestation_to_finalized_block() {
 
     let earlier_slot = finalized_checkpoint
         .epoch
-        .start_slot(MainnetEthSpec::slots_per_epoch())
+        .start_slot(Spec::slots_per_epoch())
         - 1;
     let earlier_block = harness
         .chain
@@ -1405,7 +1520,13 @@ async fn attestation_to_finalized_block() {
         .expect("should find state");
 
     while state.slot() < current_slot {
-        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+        per_slot_processing(
+            &mut state,
+            None,
+            GloasVerificationContext::FullVerification,
+            &harness.spec,
+        )
+        .expect("should process slot");
     }
 
     let state_root = state.update_tree_hash_cache().unwrap();
@@ -1451,7 +1572,7 @@ async fn verify_aggregate_for_gossip_doppelganger_detection() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            Spec::slots_per_epoch() as usize * 3 - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -1531,7 +1652,7 @@ async fn verify_attestation_for_gossip_doppelganger_detection() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            Spec::slots_per_epoch() as usize * 3 - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -1594,7 +1715,7 @@ async fn attestation_verification_use_head_state_fork() {
     // Advance to last block of the pre-Capella fork epoch. Capella is at slot 32.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
+            Spec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::SomeValidators(vec![]),
         )
@@ -1701,7 +1822,7 @@ async fn aggregated_attestation_verification_use_head_state_fork() {
     // Advance to last block of the pre-Capella fork epoch. Capella is at slot 32.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
+            Spec::slots_per_epoch() as usize * CAPELLA_FORK_EPOCH - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::SomeValidators(vec![]),
         )
@@ -1816,7 +1937,7 @@ async fn gloas_unaggregated_attestation_same_slot_index_must_be_zero() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            Spec::slots_per_epoch() as usize * 3 - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -1893,7 +2014,7 @@ async fn gloas_aggregated_attestation_same_slot_index_must_be_zero() {
     // Extend the chain out a few epochs so we have some chain depth to play with.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            Spec::slots_per_epoch() as usize * 3 - 1,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -1958,6 +2079,9 @@ async fn gloas_aggregated_attestation_same_slot_index_must_be_zero() {
         SignedAggregateAndProofRefMut::Electra(att) => {
             att.message.aggregate.data.index = 1;
         }
+        SignedAggregateAndProofRefMut::Gloas(att) => {
+            att.message.aggregate.data.index = 1;
+        }
     }
 
     let result = harness
@@ -1989,7 +2113,7 @@ async fn gloas_unaggregated_attestation_unknown_payload_envelope() {
     // produced so far has `payload_received == true`.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 2,
+            Spec::slots_per_epoch() as usize * 2,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -2070,7 +2194,7 @@ async fn gloas_aggregated_attestation_unknown_payload_envelope() {
     // produced so far has `payload_received == true`.
     harness
         .extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 2,
+            Spec::slots_per_epoch() as usize * 2,
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
@@ -2117,13 +2241,17 @@ async fn gloas_aggregated_attestation_unknown_payload_envelope() {
     let (mut valid_aggregate, _, _) =
         get_valid_aggregated_attestation(&harness.chain, aggregate_attestation);
 
-    valid_aggregate
-        .as_electra_mut()
-        .unwrap()
-        .message
-        .aggregate
-        .data
-        .index = 1;
+    match valid_aggregate.to_mut() {
+        SignedAggregateAndProofRefMut::Base(att) => {
+            att.message.aggregate.data.index = 1;
+        }
+        SignedAggregateAndProofRefMut::Electra(att) => {
+            att.message.aggregate.data.index = 1;
+        }
+        SignedAggregateAndProofRefMut::Gloas(att) => {
+            att.message.aggregate.data.index = 1;
+        }
+    }
 
     let result = harness
         .chain
@@ -2152,7 +2280,7 @@ async fn unaggregated_attestation_bogus_attester_index_not_sent_to_slasher() {
     );
 
     let inner_slasher = slasher.clone();
-    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+    let harness = BeaconChainHarness::builder(Spec::default())
         .spec(spec)
         .keypairs(KEYPAIRS[0..VALIDATOR_COUNT].to_vec())
         .fresh_ephemeral_store()

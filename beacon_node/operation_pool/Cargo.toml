@@ -7,6 +7,8 @@ edition = { workspace = true }
 [features]
 portable = ["beacon_chain/portable"]
 
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 bitvec = { workspace = true }
 bls = { workspace = true }
