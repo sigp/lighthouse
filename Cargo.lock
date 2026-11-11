@@ -1591,6 +1591,7 @@ dependencies = [
 name = "beacon_processor"
 version = "0.1.0"
 dependencies = [
+ "bls",
  "fnv",
  "futures",
  "itertools 0.14.0",

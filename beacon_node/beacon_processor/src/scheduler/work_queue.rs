@@ -264,6 +264,11 @@ impl<T> LifoQueue<T> {
         self.queue.pop_front()
     }
 
+    /// Returns a reference to the item at the back of the queue (the oldest item), if any.
+    pub fn back(&self) -> Option<&(Instant, T)> {
+        self.queue.back()
+    }
+
     /// Returns `true` if the queue is full.
     pub fn is_full(&self) -> bool {
         self.queue.len() >= self.max_length
