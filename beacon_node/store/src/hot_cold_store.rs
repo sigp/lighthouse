@@ -1481,7 +1481,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
 
         // Update database whilst holding a lock on cache, to ensure that the cache updates
         // atomically with the database.
-        let guard = self.block_cache.as_ref().map(|cache| cache.lock());
+        let mut guard = self.block_cache.as_ref().map(|cache| cache.lock());
 
         let blob_cache_ops = blobs_ops.clone();
         // Try to execute blobs store ops.
@@ -1538,12 +1538,6 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             return Err(e);
         }
 
-        if !blobs_delete_ops.is_empty() {
-            let _span = debug_span!("delete_blobs_db").entered();
-            self.blobs_db
-                .do_atomically(self.convert_to_kv_batch(blobs_delete_ops)?)?;
-        }
-
         // Delete from the state cache.
         for op in &hot_db_cache_ops {
             match op {
@@ -1558,7 +1552,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         }
 
         // If the block cache is enabled, also delete from the block cache.
-        if let Some(mut guard) = guard {
+        if let Some(guard) = guard.as_mut() {
             for op in hot_db_cache_ops {
                 match op {
                     StoreOp::PutBlock(block_root, block) => {
@@ -1597,7 +1591,10 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                 }
             }
 
-            for op in blob_cache_ops {
+            for op in blob_cache_ops
+                .into_iter()
+                .chain(blobs_delete_ops.iter().cloned())
+            {
                 match op {
                     StoreOp::PutBlobs(block_root, blobs) => {
                         guard.put_blobs(block_root, blobs);
@@ -1614,6 +1611,12 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     _ => (),
                 }
             }
+        }
+
+        if !blobs_delete_ops.is_empty() {
+            let _span = debug_span!("delete_blobs_db").entered();
+            self.blobs_db
+                .do_atomically(self.convert_to_kv_batch(blobs_delete_ops)?)?;
         }
 
         Ok(())
