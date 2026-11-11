@@ -981,9 +981,23 @@ pub struct LightClientUpdatesQuery {
     pub count: u64,
 }
 
+/// A chunk of the SSZ response to `GET /eth/v1/beacon/light_client/updates`:
+/// `response_chunk_len (u64 LE) ++ context ++ payload`, where `response_chunk_len` covers
+/// `context ++ payload`.
+///
+/// `Encode` is manual.
+/// A derived container would add offsets, and it panics on
+/// `LightClientUpdate` because some variants are fixed-size.
 pub struct LightClientUpdateResponseChunk<E: EthSpec> {
-    pub response_chunk_len: u64,
-    pub response_chunk: LightClientUpdateResponseChunkInner<E>,
+    pub context: [u8; 4],
+    pub payload: LightClientUpdate<E>,
+}
+
+impl<E: EthSpec> LightClientUpdateResponseChunk<E> {
+    /// The byte length of `context ++ payload`.
+    fn response_chunk_len(&self) -> usize {
+        self.context.len() + self.payload.ssz_bytes_len()
+    }
 }
 
 impl<E: EthSpec> Encode for LightClientUpdateResponseChunk<E> {
@@ -992,21 +1006,14 @@ impl<E: EthSpec> Encode for LightClientUpdateResponseChunk<E> {
     }
 
     fn ssz_bytes_len(&self) -> usize {
-        0_u64.ssz_bytes_len()
-            + self.response_chunk.context.len()
-            + self.response_chunk.payload.ssz_bytes_len()
+        size_of::<u64>() + self.response_chunk_len()
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
-        buf.extend_from_slice(&self.response_chunk_len.to_le_bytes());
-        buf.extend_from_slice(&self.response_chunk.context);
-        self.response_chunk.payload.ssz_append(buf);
+        buf.extend_from_slice(&(self.response_chunk_len() as u64).to_le_bytes());
+        buf.extend_from_slice(&self.context);
+        self.payload.ssz_append(buf);
     }
-}
-
-pub struct LightClientUpdateResponseChunkInner<E: EthSpec> {
-    pub context: [u8; 4],
-    pub payload: LightClientUpdate<E>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -2793,6 +2800,28 @@ mod test {
     use arbitrary::Arbitrary;
 
     use super::*;
+
+    #[test]
+    fn light_client_update_response_chunk_encoding() {
+        let mut u = types::test_utils::test_unstructured();
+        let updates: [LightClientUpdate<MainnetEthSpec>; 2] = [
+            LightClientUpdate::Altair(<_>::arbitrary(&mut u).unwrap()),
+            LightClientUpdate::Fulu(<_>::arbitrary(&mut u).unwrap()),
+        ];
+        for update in updates {
+            let context = [1, 2, 3, 4];
+            let payload = update.as_ssz_bytes();
+            let chunk = LightClientUpdateResponseChunk {
+                context,
+                payload: update,
+            };
+
+            let response_chunk_len = (context.len() + payload.len()) as u64;
+            let expected = [&response_chunk_len.to_le_bytes()[..], &context, &payload].concat();
+            assert_eq!(chunk.as_ssz_bytes(), expected);
+            assert_eq!(chunk.ssz_bytes_len(), expected.len());
+        }
+    }
 
     #[test]
     fn sse_block_json_fields() {
