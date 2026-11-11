@@ -2259,9 +2259,9 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
     impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
     impl Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 > {
-    // The pubkey cache can lag behind `state`: validators may be added to the registry by epoch
-    // processing before any block from that epoch has been imported. Keys for validators beyond the
-    // end of the cache are read from `state`, and validators that are not in `state` are rejected.
+    // The pubkey cache only holds finalized validators, so it can lag behind `state`. Keys for
+    // validators beyond the end of the cache are read from `state`, and validators that are not in
+    // `state` are rejected.
     let get_pubkey =
         move |validator_index| validator_pubkey_cache.get_for_state(state, validator_index);
 

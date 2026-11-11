@@ -1617,10 +1617,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Notes
     ///
-    /// This query uses the `validator_pubkey_cache` which contains _all_ validators ever seen,
-    /// even if those validators aren't included in the head state. It is important to remember
-    /// that just because a validator exists here, it doesn't necessarily exist in all
-    /// `BeaconStates`.
+    /// This query uses the `validator_pubkey_cache` which only contains finalized validators.
+    /// Validators that are not finalized yet will not be found, use
+    /// `Self::validator_index_for_state` to look them up. It is important to remember that just
+    /// because a validator exists here, it doesn't necessarily exist in all `BeaconStates`.
     ///
     /// ## Errors
     ///
@@ -1669,10 +1669,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Notes
     ///
-    /// This query uses the `validator_pubkey_cache` which contains _all_ validators ever seen,
-    /// even if those validators aren't included in the head state. It is important to remember
-    /// that just because a validator exists here, it doesn't necessarily exist in all
-    /// `BeaconStates`.
+    /// This query uses the `validator_pubkey_cache` which only contains finalized validators.
+    /// Validators that are not finalized yet will not be found. It is important to remember that
+    /// just because a validator exists here, it doesn't necessarily exist in all `BeaconStates`.
     ///
     /// ## Errors
     ///
@@ -4487,15 +4486,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Check against weak subjectivity checkpoint.
         self.check_block_against_weak_subjectivity_checkpoint(block, block_root, &state)?;
 
-        // If there are new validators in this block, update our pubkey cache.
+        // If there are newly finalized validators in this block's state, update our pubkey cache.
         //
-        // The only keys imported here will be ones for validators deposited in this block, because
-        // the cache *must* already have been updated for the parent block when it was imported.
-        // Newly deposited validators are not active and their keys are not required by other parts
-        // of block processing. The reason we do this here and not after making the block attestable
-        // is so we don't have to think about lock ordering with respect to the fork choice lock.
-        // There are a bunch of places where we lock both fork choice and the pubkey cache and it
-        // would be difficult to check that they all lock fork choice first.
+        // The only keys imported here will be ones for validators that are finalized according to
+        // `state`, see `ValidatorPubkeyCache::import_new_pubkeys`. Validators that are not
+        // finalized are not active, and block signature verification reads their keys from the
+        // state if they are required. The reason we do this here and not after making the block
+        // attestable is so we don't have to think about lock ordering with respect to the fork
+        // choice lock. There are a bunch of places where we lock both fork choice and the pubkey
+        // cache and it would be difficult to check that they all lock fork choice first.
         let mut ops = {
             let _timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_PUBKEY_CACHE_LOCK);
             let pubkey_cache = self.validator_pubkey_cache.upgradable_read();

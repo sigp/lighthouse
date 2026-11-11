@@ -23,6 +23,10 @@ use types::{BeaconState, Hash256};
 /// 2. To reduce the amount of public key _decompression_ required. A `BeaconState` stores public
 ///    keys in compressed form and they are needed in decompressed form for signature verification.
 ///    Decompression is expensive when many keys are involved.
+///
+/// The cache only holds finalized validators (see `Self::import_new_pubkeys`). Validators that are
+/// not finalized yet can differ between forks and must be read from a `BeaconState` (see
+/// `Self::get_for_state`).
 pub struct ValidatorPubkeyCache<T: BeaconChainTypes> {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
@@ -31,7 +35,7 @@ pub struct ValidatorPubkeyCache<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
-    /// Create a new public key cache using the keys in `state.validators`.
+    /// Create a new public key cache using the keys of the finalized validators in `state`.
     ///
     /// The new cache will be updated with the keys from `state` and immediately written to disk.
     #[instrument(name = "validator_pubkey_cache_new", skip_all)]
@@ -151,7 +155,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
                 }
 
                 // Stage the new validator key for writing to disk.
-                // It will be committed atomically when the block that introduced it is written to disk.
+                // It will be committed atomically when the block being imported is written to disk.
                 // Notably it is NOT written while the write lock on the cache is held.
                 // See: https://github.com/sigp/lighthouse/issues/2327
                 store_ops.push(StoreOp::KeyValueOp(
