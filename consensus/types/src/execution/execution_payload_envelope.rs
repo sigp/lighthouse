@@ -184,6 +184,68 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionPayloadEnvelope<E> {
     }
 }
 
+/// An execution payload envelope along with the root of its beacon block, as served by version 2 of
+/// the envelope RPCs (EIP-8411). Heze envelopes don't contain the root of their block.
+#[derive(Debug, Clone, PartialEq, Encode)]
+pub struct ExecutionPayloadEnvelopeWithRoot<E: EthSpec> {
+    pub beacon_block_root: Hash256,
+    pub envelope: ExecutionPayloadEnvelope<E>,
+}
+
+impl<E: EthSpec> ExecutionPayloadEnvelopeWithRoot<E> {
+    /// Returns the SSZ encoding of an `ExecutionPayloadEnvelopeWithRoot`, without cloning
+    /// `envelope`.
+    pub fn ssz_bytes(
+        beacon_block_root: Hash256,
+        envelope: &ExecutionPayloadEnvelope<E>,
+    ) -> Vec<u8> {
+        let offset = Self::fixed_len();
+        let mut bytes = Vec::with_capacity(offset.saturating_add(envelope.ssz_bytes_len()));
+        let mut encoder = ssz::SszEncoder::container(&mut bytes, offset);
+        encoder.append(&beacon_block_root);
+        encoder.append(envelope);
+        encoder.finalize();
+        bytes
+    }
+
+    /// Returns the minimum SSZ-encoded size of any variant.
+    pub fn min_size() -> usize {
+        Self::fixed_len().saturating_add(ExecutionPayloadEnvelope::<E>::min_size())
+    }
+
+    /// Returns the maximum SSZ-encoded size of any variant.
+    pub fn max_size() -> usize {
+        Self::fixed_len().saturating_add(ExecutionPayloadEnvelope::<E>::max_size())
+    }
+
+    /// The length of the fixed part: the root and the offset of the envelope.
+    fn fixed_len() -> usize {
+        <Hash256 as SszEncode>::ssz_fixed_len().saturating_add(BYTES_PER_LENGTH_OFFSET)
+    }
+}
+
+impl<E: EthSpec> ForkVersionDecode for ExecutionPayloadEnvelopeWithRoot<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        // The envelope decoder needs the fork, which doesn't compose with `ssz_derive`.
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+
+        builder.register_type::<Hash256>()?;
+        builder.register_anonymous_variable_length_item()?;
+
+        let mut decoder = builder.build()?;
+
+        let beacon_block_root = decoder.decode_next()?;
+        let envelope = decoder.decode_next_with(|bytes| {
+            ExecutionPayloadEnvelope::from_ssz_bytes_by_fork(bytes, fork_name)
+        })?;
+
+        Ok(Self {
+            beacon_block_root,
+            envelope,
+        })
+    }
+}
+
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadEnvelope<E> {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
@@ -246,6 +308,30 @@ mod heze_tests {
             ExecutionPayloadEnvelope::Heze(heze)
                 .beacon_block_root()
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn envelope_with_root_round_trip() {
+        let with_root = ExecutionPayloadEnvelopeWithRoot::<Spec> {
+            beacon_block_root: Hash256::repeat_byte(1),
+            envelope: ExecutionPayloadEnvelope::Heze(ExecutionPayloadEnvelopeHeze {
+                builder_index: 7,
+                parent_beacon_block_root: Hash256::repeat_byte(2),
+                ..Default::default()
+            }),
+        };
+        let bytes = with_root.as_ssz_bytes();
+        assert_eq!(
+            ExecutionPayloadEnvelopeWithRoot::ssz_bytes(
+                with_root.beacon_block_root,
+                &with_root.envelope
+            ),
+            bytes
+        );
+        assert_eq!(
+            ExecutionPayloadEnvelopeWithRoot::from_ssz_bytes_by_fork(&bytes, ForkName::Heze),
+            Ok(with_root)
         );
     }
 }

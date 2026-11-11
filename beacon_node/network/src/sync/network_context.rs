@@ -24,6 +24,7 @@ use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, DataColumnsByRangeRequest, PayloadEnvelopesByRangeRequest,
+    PayloadEnvelopesVersion,
 };
 use lighthouse_network::rpc::{
     BlocksByRangeRequest, GoodbyeReason, MAX_CONCURRENT_REQUESTS, RPCError, RequestType,
@@ -550,6 +551,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     PayloadEnvelopesByRangeRequest {
                         start_slot: *request.start_slot(),
                         count: *request.count(),
+                        // Batches don't span forks, as they are whole epochs.
+                        version:
+                            PayloadEnvelopesVersion::for_fork(
+                                self.chain.spec.fork_name_at_slot::<T::EthSpec>(Slot::new(
+                                    *request.start_slot(),
+                                )),
+                            ),
                     },
                     id,
                     new_range_request_span!(
@@ -861,7 +869,19 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             req_id: self.next_id(),
         };
 
-        let request = PayloadEnvelopesByRootSingleRequest { block_root };
+        // Lookups request the envelopes of recent blocks, so assume the current fork if the block
+        // isn't imported yet.
+        let fork_name = self
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&block_root)
+            .map(|block| self.chain.spec.fork_name_at_slot::<T::EthSpec>(block.slot))
+            .unwrap_or_else(|| self.fork_context.current_fork_name());
+        let request = PayloadEnvelopesByRootSingleRequest {
+            block_root,
+            version: PayloadEnvelopesVersion::for_fork(fork_name),
+        };
 
         let network_request = RequestType::PayloadEnvelopesByRoot(
             request

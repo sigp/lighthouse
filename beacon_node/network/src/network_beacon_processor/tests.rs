@@ -26,6 +26,7 @@ use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, BlocksByHeadRequest, DataColumnsByRangeRequest,
     MetaDataV3, PayloadEnvelopesByRangeRequest, PayloadEnvelopesByRootRequest,
+    PayloadEnvelopesVersion,
 };
 use lighthouse_network::{
     Client, MessageId, NetworkConfig, NetworkGlobals, PeerAction, PeerId, Response,
@@ -583,12 +584,22 @@ impl TestRig {
             .unwrap();
     }
 
+    /// Returns the version of the envelope RPCs that serves the envelopes of the head's fork.
+    fn payload_envelopes_version(&self) -> PayloadEnvelopesVersion {
+        let head_slot = self.chain.canonical_head.cached_head().head_slot();
+        PayloadEnvelopesVersion::for_fork(self.chain.spec.fork_name_at_slot::<E>(head_slot))
+    }
+
     pub fn enqueue_payload_envelopes_by_range_request(&self, start_slot: u64, count: u64) {
         self.network_beacon_processor
             .send_payload_envelopes_by_range_request(
                 PeerId::random(),
                 InboundRequestId::new_unchecked(42, 24),
-                PayloadEnvelopesByRangeRequest { start_slot, count },
+                PayloadEnvelopesByRangeRequest {
+                    start_slot,
+                    count,
+                    version: self.payload_envelopes_version(),
+                },
             )
             .unwrap();
     }
@@ -601,7 +612,10 @@ impl TestRig {
             .send_payload_envelopes_by_roots_request(
                 PeerId::random(),
                 InboundRequestId::new_unchecked(42, 24),
-                PayloadEnvelopesByRootRequest { beacon_block_roots },
+                PayloadEnvelopesByRootRequest {
+                    beacon_block_roots,
+                    version: self.payload_envelopes_version(),
+                },
             )
             .unwrap();
     }
@@ -2841,7 +2855,7 @@ async fn test_payload_envelopes_by_range() {
         } = next
         {
             if let Some(env) = envelope {
-                actual_roots.push(env.beacon_block_root().unwrap());
+                actual_roots.push(env.beacon_block_root);
             } else {
                 break;
             }
@@ -2882,7 +2896,7 @@ async fn test_payload_envelopes_by_root() {
         } = next
         {
             if let Some(env) = envelope {
-                actual_roots.push(env.beacon_block_root().unwrap());
+                actual_roots.push(env.beacon_block_root);
             } else {
                 break;
             }
@@ -2954,7 +2968,7 @@ async fn test_payload_envelopes_by_range_no_duplicates_with_skip_slots() {
         } = next
         {
             if let Some(env) = envelope {
-                beacon_block_roots.push(env.beacon_block_root().unwrap());
+                beacon_block_roots.push(env.beacon_block_root);
             } else {
                 break;
             }

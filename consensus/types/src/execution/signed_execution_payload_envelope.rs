@@ -28,6 +28,17 @@ pub struct SignedExecutionPayloadEnvelope<E: EthSpec> {
 }
 
 impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
+    /// Wraps an envelope without signing it, using the point at infinity as the signature.
+    ///
+    /// Heze envelopes are authenticated by the bid committing to their chunks rather than by a
+    /// signature (EIP-8411).
+    pub fn without_signature(message: ExecutionPayloadEnvelope<E>) -> Result<Self, bls::Error> {
+        Ok(Self {
+            message,
+            signature: Signature::infinity()?,
+        })
+    }
+
     /// Returns the minimum SSZ-encoded size of any variant (all variable-length fields empty).
     #[allow(clippy::arithmetic_side_effects)]
     pub fn min_size() -> usize {

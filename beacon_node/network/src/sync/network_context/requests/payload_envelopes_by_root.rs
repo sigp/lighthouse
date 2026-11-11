@@ -1,4 +1,4 @@
-use lighthouse_network::rpc::methods::PayloadEnvelopesByRootRequest;
+use lighthouse_network::rpc::methods::{PayloadEnvelopesByRootRequest, PayloadEnvelopesVersion};
 use std::sync::Arc;
 use types::{EthSpec, ForkContext, Hash256, SignedExecutionPayloadEnvelope};
 
@@ -7,6 +7,8 @@ use super::{ActiveRequestItems, LookupVerifyError};
 #[derive(Debug, Clone)]
 pub struct PayloadEnvelopesByRootSingleRequest {
     pub block_root: Hash256,
+    /// The version of the protocol serving the envelopes of the fork of the block.
+    pub version: PayloadEnvelopesVersion,
 }
 
 impl PayloadEnvelopesByRootSingleRequest {
@@ -14,7 +16,7 @@ impl PayloadEnvelopesByRootSingleRequest {
         self,
         fork_context: &ForkContext,
     ) -> Result<PayloadEnvelopesByRootRequest, String> {
-        PayloadEnvelopesByRootRequest::new(vec![self.block_root], fork_context)
+        PayloadEnvelopesByRootRequest::new(vec![self.block_root], self.version, fork_context)
     }
 }
 

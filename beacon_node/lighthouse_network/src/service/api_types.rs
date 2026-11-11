@@ -1,11 +1,12 @@
-use crate::rpc::methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage};
+use crate::rpc::methods::{
+    PayloadEnvelopeResponse, ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage,
+};
 use libp2p::PeerId;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
     BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope,
 };
 
 pub type Id = u32;
@@ -167,9 +168,9 @@ pub enum Response<E: EthSpec> {
     /// batch.
     BlocksByHead(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT` request.
-    PayloadEnvelopesByRoot(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
+    PayloadEnvelopesByRoot(Option<PayloadEnvelopeResponse<E>>),
     /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE` request.
-    PayloadEnvelopesByRange(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
+    PayloadEnvelopesByRange(Option<PayloadEnvelopeResponse<E>>),
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.

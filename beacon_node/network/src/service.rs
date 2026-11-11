@@ -1177,11 +1177,21 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             Response::DataColumnsByRange(data_column) => {
                 self.on_data_columns_by_range_response(peer_id, sync_request_id, data_column);
             }
-            Response::PayloadEnvelopesByRoot(envelope) => {
-                self.on_payload_envelopes_by_root_response(peer_id, sync_request_id, envelope);
+            // Sync doesn't need the block roots: envelopes are bound to their blocks on import, by
+            // the signature or, for Heze envelopes, by the commitment in the bid.
+            Response::PayloadEnvelopesByRoot(response) => {
+                self.on_payload_envelopes_by_root_response(
+                    peer_id,
+                    sync_request_id,
+                    response.map(|response| response.envelope),
+                );
             }
-            Response::PayloadEnvelopesByRange(envelope) => {
-                self.on_payload_envelopes_by_range_response(peer_id, sync_request_id, envelope);
+            Response::PayloadEnvelopesByRange(response) => {
+                self.on_payload_envelopes_by_range_response(
+                    peer_id,
+                    sync_request_id,
+                    response.map(|response| response.envelope),
+                );
             }
             // Lighthouse currently only serves BlocksByHead and does not issue it as a client,
             // so receiving a response is unexpected. Drop it without crashing.

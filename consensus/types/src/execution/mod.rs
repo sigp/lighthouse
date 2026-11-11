@@ -34,7 +34,7 @@ pub use execution_payload_bid::{
 };
 pub use execution_payload_envelope::{
     ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopeHeze,
-    ExecutionPayloadEnvelopeRef, ExecutionPayloadEnvelopeRefMut,
+    ExecutionPayloadEnvelopeRef, ExecutionPayloadEnvelopeRefMut, ExecutionPayloadEnvelopeWithRoot,
 };
 pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
