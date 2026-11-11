@@ -1,5 +1,6 @@
 use super::*;
 use crate::NetworkMessage;
+use crate::PayloadDisseminationSenders;
 use crate::network_beacon_processor::BlockProcessingResult;
 use crate::network_beacon_processor::sync_methods::WhichPeerToPenalize;
 use crate::network_beacon_processor::{
@@ -314,6 +315,7 @@ impl TestRig {
             // TODO: What is this sender used for?
             network_tx: mpsc::unbounded_channel().0,
             sync_tx,
+            payload_dissemination: PayloadDisseminationSenders::disabled(),
             network_globals: globals.clone(),
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor: harness.runtime.task_executor.clone(),

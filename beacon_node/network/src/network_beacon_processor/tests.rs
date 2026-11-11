@@ -7,6 +7,7 @@ use crate::{
     },
     service::NetworkMessage,
     sync::manager::BlockProcessType,
+    waggle_handlers::payload_topics::PayloadDisseminationSenders,
 };
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
@@ -346,6 +347,7 @@ impl TestRig {
             chain: harness.chain.clone(),
             network_tx,
             sync_tx,
+            payload_dissemination: PayloadDisseminationSenders::disabled(),
             network_globals: network_globals.clone(),
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor: executor.clone(),
@@ -552,6 +554,7 @@ impl TestRig {
             chain: self.chain.clone(),
             network_tx,
             sync_tx,
+            payload_dissemination: PayloadDisseminationSenders::disabled(),
             network_globals: self.network_beacon_processor.network_globals.clone(),
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor: self.network_beacon_processor.executor.clone(),

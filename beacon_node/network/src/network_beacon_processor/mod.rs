@@ -1,4 +1,5 @@
 use crate::sync::manager::BlockProcessType;
+use crate::waggle_handlers::payload_topics::PayloadDisseminationSenders;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::{LookupBlock, RangeSyncBlock};
 use beacon_chain::data_column_verification::{
@@ -72,6 +73,8 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    /// Registers the payloads of blocks with the payload dissemination services.
+    pub payload_dissemination: PayloadDisseminationSenders<T::EthSpec>,
     pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub invalid_block_storage: InvalidBlockStorage,
     pub executor: TaskExecutor,
@@ -1409,6 +1412,7 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             chain,
             network_tx,
             sync_tx,
+            payload_dissemination: PayloadDisseminationSenders::disabled(),
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor,

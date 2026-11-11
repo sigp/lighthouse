@@ -1661,6 +1661,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
+                // [New in Heze:EIP8411] Start collecting the chunks of the payload the block
+                // commits to.
+                self.payload_dissemination
+                    .new_payload_of_block(verified_block.block_root, &verified_block.block);
+
                 // Log metrics to keep track of propagation delay times.
                 if let Some(duration) = SystemTime::now()
                     .duration_since(UNIX_EPOCH)

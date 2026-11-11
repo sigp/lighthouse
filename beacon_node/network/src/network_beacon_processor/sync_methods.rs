@@ -179,6 +179,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Rpc, "block");
 
+        // [New in Heze:EIP8411] Start collecting the chunks of the payload the block commits to,
+        // like for gossip blocks. Blocks often reach us through lookups when their parent arrived
+        // late, while their payload is still being disseminated. Payloads of old blocks are
+        // ignored.
+        if result.is_ok() {
+            self.payload_dissemination
+                .new_payload_of_block(block_root, &signed_beacon_block);
+        }
+
         // RPC block imported, regardless of process type
         match result.as_ref() {
             Ok(AvailabilityProcessingStatus::Imported(slot, hash)) => {

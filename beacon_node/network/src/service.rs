@@ -371,6 +371,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             chain: beacon_chain.clone(),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
+            payload_dissemination: network_senders.payload_dissemination(),
             network_globals: network_globals.clone(),
             invalid_block_storage,
             executor: executor.clone(),
