@@ -30,8 +30,8 @@ use strum::AsRefStr;
 use tracing::{instrument, warn};
 use types::{
     BeaconState, BeaconStateError, BuilderIndex, DataColumnSidecarList, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBidRef,
-    SignedExecutionPayloadEnvelope, Slot,
+    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, InconsistentFork,
+    SignedExecutionPayloadBidRef, SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub mod execution_pending_envelope;
@@ -209,6 +209,19 @@ impl<E: EthSpec> AvailableExecutedEnvelope<E> {
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown { block_root: Hash256 },
+    /// The envelope doesn't contain the root of its block, and the caller doesn't know it either.
+    ///
+    /// Heze envelopes don't contain the root (EIP-8411).
+    MissingBlockRoot,
+    /// The envelope's block root is not the root of the block the caller expected.
+    BlockRootMismatch {
+        expected: Hash256,
+        envelope: Hash256,
+    },
+    /// The envelope's variant doesn't match the fork at its slot.
+    InconsistentFork(InconsistentFork),
+    /// The envelope is not the one the committed bid commits to with its `payload_chunks_root`.
+    PayloadChunksRootMismatch,
     /// A validated envelope for this `block_root` has already been seen from the
     /// builder with `builder_index`, so this one is a duplicate.
     EnvelopeAlreadySeen {
@@ -286,6 +299,9 @@ impl EnvelopeError {
     pub fn penalize_peer(&self) -> bool {
         match self {
             EnvelopeError::BadSignature
+            | EnvelopeError::BlockRootMismatch { .. }
+            | EnvelopeError::InconsistentFork(_)
+            | EnvelopeError::PayloadChunksRootMismatch
             | EnvelopeError::BuilderIndexMismatch { .. }
             | EnvelopeError::SlotMismatch { .. }
             | EnvelopeError::BlockHashMismatch { .. }
@@ -298,6 +314,7 @@ impl EnvelopeError {
             | EnvelopeError::EnvelopeProcessingError(_) => true,
             EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
             EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::MissingBlockRoot
             | EnvelopeError::EnvelopeAlreadySeen { .. }
             | EnvelopeError::PriorToFinalization { .. }
             | EnvelopeError::BeaconChainError(_)
@@ -353,6 +370,9 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
     fn from(e: EnvelopeProcessingError) -> Self {
         match e {
             EnvelopeProcessingError::BadSignature => EnvelopeError::BadSignature,
+            EnvelopeProcessingError::PayloadChunksRootMismatch => {
+                EnvelopeError::PayloadChunksRootMismatch
+            }
             EnvelopeProcessingError::BeaconStateError(e) => EnvelopeError::BeaconStateError(e),
             EnvelopeProcessingError::BlockHashMismatch {
                 committed_bid,

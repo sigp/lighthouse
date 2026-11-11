@@ -3,8 +3,8 @@ use crate::per_block_processing::compute_timestamp_at_slot;
 use safe_arith::ArithError;
 use tree_hash::TreeHash;
 use types::{
-    BeaconState, BeaconStateError, BuilderIndex, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
-    SignedExecutionPayloadEnvelope, Slot,
+    BeaconState, BeaconStateError, BuilderIndex, ChainSpec, EthSpec, ExecutionBlockHash, ForkName,
+    Hash256, SignedExecutionPayloadEnvelope, Slot,
 };
 
 macro_rules! envelope_verify {
@@ -19,6 +19,13 @@ macro_rules! envelope_verify {
 pub enum EnvelopeProcessingError {
     /// Bad Signature
     BadSignature,
+    /// The envelope is not the one the committed bid commits to with its `payload_chunks_root`.
+    PayloadChunksRootMismatch,
+    /// The envelope is of another fork than the state.
+    ForkMismatch {
+        envelope: ForkName,
+        state: ForkName,
+    },
     BeaconStateError(BeaconStateError),
     ArithError(ArithError),
     /// Envelope doesn't match latest beacon block header
@@ -109,8 +116,28 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     block_state_root: Hash256,
     spec: &ChainSpec,
 ) -> Result<(), EnvelopeProcessingError> {
-    if verify_signatures.is_true() && !signed_envelope.verify_signature_with_state(state, spec)? {
-        return Err(EnvelopeProcessingError::BadSignature);
+    envelope_verify!(
+        signed_envelope.fork_name_unchecked() == state.fork_name_unchecked(),
+        EnvelopeProcessingError::ForkMismatch {
+            envelope: signed_envelope.fork_name_unchecked(),
+            state: state.fork_name_unchecked(),
+        }
+    );
+
+    if verify_signatures.is_true() {
+        // [Modified in Heze:EIP8411] The committed bid commits to the chunks of the envelope, which
+        // authenticates it instead of a signature.
+        if let Ok(payload_chunks_root) = state.latest_execution_payload_bid()?.payload_chunks_root()
+        {
+            envelope_verify!(
+                signed_envelope
+                    .message
+                    .matches_payload_chunks_root(payload_chunks_root),
+                EnvelopeProcessingError::PayloadChunksRootMismatch
+            );
+        } else if !signed_envelope.verify_signature_with_state(state, spec)? {
+            return Err(EnvelopeProcessingError::BadSignature);
+        }
     }
 
     let envelope = &signed_envelope.message;

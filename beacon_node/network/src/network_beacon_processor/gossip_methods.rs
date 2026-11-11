@@ -3830,7 +3830,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let verification_result = self
             .chain
             .clone()
-            .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Gossip)
+            .verify_envelope_for_gossip(envelope.clone(), None, None, EnvelopeSource::Gossip)
             .await;
 
         let verified_envelope = match verification_result {
@@ -3869,6 +3869,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
 
                     EnvelopeError::BadSignature
+                    | EnvelopeError::BlockRootMismatch { .. }
+                    | EnvelopeError::InconsistentFork(_)
+                    | EnvelopeError::PayloadChunksRootMismatch
                     | EnvelopeError::BuilderIndexMismatch { .. }
                     | EnvelopeError::SlotMismatch { .. }
                     | EnvelopeError::BlockHashMismatch { .. }
@@ -3911,7 +3914,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         let chain = self.chain.clone();
                         let process_fn = Box::pin(async move {
                             match chain
-                                .verify_envelope_for_gossip(envelope, EnvelopeSource::Gossip)
+                                .verify_envelope_for_gossip(envelope, None, None, EnvelopeSource::Gossip)
                                 .await
                             {
                                 Ok(verified_envelope) => {
@@ -3963,6 +3966,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                     EnvelopeError::PriorToFinalization { .. }
                     | EnvelopeError::EnvelopeAlreadySeen { .. }
+                    // Heze envelopes don't contain the root of their block, so they can't be
+                    // verified on this topic (EIP-8411).
+                    | EnvelopeError::MissingBlockRoot
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
                     // The following variants are produced during envelope import, not gossip

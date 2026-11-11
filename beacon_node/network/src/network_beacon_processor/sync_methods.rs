@@ -339,7 +339,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let result = match self
             .chain
             .clone()
-            .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Rpc)
+            .verify_envelope_for_gossip(
+                envelope.clone(),
+                Some(block_root),
+                None,
+                EnvelopeSource::Rpc,
+            )
             .await
         {
             Ok(verified) => {

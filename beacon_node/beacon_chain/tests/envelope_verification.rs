@@ -9,7 +9,8 @@ use eth2::types::EventKind;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, Slot, Spec,
+    Address, BlockImportSource, Epoch, EthSpec, ExecPayload, ExecutionPayloadEnvelope,
+    ExecutionPayloadEnvelopeGloas, ForkName, Hash256, SignedExecutionPayloadEnvelope, Slot, Spec,
     WithdrawalRequest,
 };
 
@@ -171,7 +172,7 @@ async fn lookup_imports_gloas_payload_after_restart() {
     cache.do_maintenance(Epoch::new(1)).unwrap();
     assert!(cache.get_bid(&block_root).is_none());
     let verified_envelope = chain
-        .verify_envelope_for_gossip(envelope, EnvelopeSource::Rpc)
+        .verify_envelope_for_gossip(envelope, Some(block_root), None, EnvelopeSource::Rpc)
         .await
         .expect("envelope should verify");
     let envelope_status = chain
@@ -237,7 +238,12 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
 
     let result = harness
         .chain
-        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(
+            Arc::new(signed_envelope),
+            Some(block_root),
+            None,
+            EnvelopeSource::Gossip,
+        )
         .await;
     assert!(matches!(
         result,
@@ -292,7 +298,12 @@ async fn gossip_verified_envelope_records_payload_gas_limit() {
 
     harness
         .chain
-        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(
+            Arc::new(signed_envelope),
+            Some(block_root),
+            None,
+            EnvelopeSource::Gossip,
+        )
         .await
         .expect("envelope should pass gossip verification");
 
@@ -337,12 +348,17 @@ async fn gossip_ignores_subsequent_envelope_from_same_builder() {
 
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(
+            envelope.clone(),
+            Some(block_root),
+            None,
+            EnvelopeSource::Gossip,
+        )
         .await
         .expect("first envelope should pass gossip verification");
     let second_result = harness
         .chain
-        .verify_envelope_for_gossip(envelope, EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(envelope, Some(block_root), None, EnvelopeSource::Gossip)
         .await;
 
     assert!(matches!(
@@ -383,7 +399,12 @@ async fn gossip_ignores_subsequent_envelope_with_modified_slot() {
 
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(
+            envelope.clone(),
+            Some(block_root),
+            None,
+            EnvelopeSource::Gossip,
+        )
         .await
         .expect("first envelope should pass gossip verification");
 
@@ -392,7 +413,12 @@ async fn gossip_ignores_subsequent_envelope_with_modified_slot() {
 
     let second_result = harness
         .chain
-        .verify_envelope_for_gossip(Arc::new(replayed_envelope), EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(
+            Arc::new(replayed_envelope),
+            Some(block_root),
+            None,
+            EnvelopeSource::Gossip,
+        )
         .await;
 
     assert!(matches!(
@@ -433,21 +459,31 @@ async fn http_envelope_bypasses_deduplication_but_marks_seen() {
 
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Http)
+        .verify_envelope_for_gossip(
+            envelope.clone(),
+            Some(block_root),
+            None,
+            EnvelopeSource::Http,
+        )
         .await
         .expect("first HTTP publish should verify");
 
     // Re-publishing the same envelope is not rejected as a duplicate
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Http)
+        .verify_envelope_for_gossip(
+            envelope.clone(),
+            Some(block_root),
+            None,
+            EnvelopeSource::Http,
+        )
         .await
         .expect("re-published envelope should verify");
 
     // If the envelope is later published on gossip, then the call should return an error
     let gossip_result = harness
         .chain
-        .verify_envelope_for_gossip(envelope, EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(envelope, Some(block_root), None, EnvelopeSource::Gossip)
         .await;
 
     assert!(matches!(
@@ -488,21 +524,31 @@ async fn rpc_envelope_bypasses_deduplication_but_marks_seen() {
 
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Rpc)
+        .verify_envelope_for_gossip(
+            envelope.clone(),
+            Some(block_root),
+            None,
+            EnvelopeSource::Rpc,
+        )
         .await
         .expect("first RPC envelope should verify");
 
     // Re-fetching the same envelope over RPC is not rejected as a duplicate
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Rpc)
+        .verify_envelope_for_gossip(
+            envelope.clone(),
+            Some(block_root),
+            None,
+            EnvelopeSource::Rpc,
+        )
         .await
         .expect("re-fetched envelope should verify");
 
     // If the envelope is later published on gossip, then the call should return an error
     let gossip_result = harness
         .chain
-        .verify_envelope_for_gossip(envelope, EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(envelope, Some(block_root), None, EnvelopeSource::Gossip)
         .await;
 
     assert!(matches!(
@@ -545,7 +591,12 @@ async fn gossip_seen_envelope_can_be_reverified_via_non_gossip() {
 
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(
+            envelope.clone(),
+            Some(block_root),
+            None,
+            EnvelopeSource::Gossip,
+        )
         .await
         .expect("gossip envelope should verify and be marked as seen");
 
@@ -562,7 +613,12 @@ async fn gossip_seen_envelope_can_be_reverified_via_non_gossip() {
 
     harness
         .chain
-        .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Rpc)
+        .verify_envelope_for_gossip(
+            envelope.clone(),
+            Some(block_root),
+            None,
+            EnvelopeSource::Rpc,
+        )
         .await
         .expect("RPC lookup should re-verify an envelope already seen on gossip");
 
@@ -573,7 +629,7 @@ async fn gossip_seen_envelope_can_be_reverified_via_non_gossip() {
 
     harness
         .chain
-        .verify_envelope_for_gossip(envelope, EnvelopeSource::Http)
+        .verify_envelope_for_gossip(envelope, Some(block_root), None, EnvelopeSource::Http)
         .await
         .expect("HTTP publish should re-verify an envelope already seen on gossip");
 
@@ -615,7 +671,12 @@ async fn import_block_and_envelope(
     let signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
     let gossip_verified = harness
         .chain
-        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(
+            Arc::new(signed_envelope),
+            Some(block_root),
+            None,
+            EnvelopeSource::Gossip,
+        )
         .await
         .expect("envelope gossip verification should succeed");
 
@@ -734,4 +795,133 @@ fn is_valid_and_post_bellatrix(status: ExecutionStatus) -> bool {
 
 fn is_optimistic(status: ExecutionStatus) -> bool {
     matches!(status, ExecutionStatus::Optimistic(_))
+}
+
+/// Helper: build a Heze chain, import the block for slot 2 and return its root along with its
+/// envelope, which is not imported.
+async fn heze_block_and_envelope() -> (
+    BeaconChainHarness<beacon_chain::test_utils::EphemeralHarnessType<E>>,
+    Hash256,
+    SignedExecutionPayloadEnvelope<E>,
+) {
+    let spec = ForkName::Heze.make_genesis_spec(E::default_spec());
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(Arc::new(spec))
+        .deterministic_keypairs(64)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.extend_to_slot(Slot::new(1)).await;
+
+    let state = harness.get_current_state();
+    let slot = Slot::new(2);
+    harness.advance_slot();
+    let (block_contents, opt_envelope, _) = harness.make_block_with_envelope(state, slot).await;
+    let block_root = block_contents.0.canonical_root();
+    let block = block_contents.0.clone();
+    harness
+        .process_block(slot, block_root, block_contents)
+        .await
+        .expect("block should be processed");
+    harness.process_gossip_columns(&block, None).await;
+
+    let envelope = opt_envelope.expect("Heze block should produce an envelope");
+    (harness, block_root, envelope)
+}
+
+/// Heze envelopes are authenticated by the bid committing to their chunks (EIP-8411).
+#[tokio::test]
+async fn heze_envelope_verified_by_payload_chunks_root_is_imported() {
+    let (harness, block_root, mut envelope) = heze_block_and_envelope().await;
+    // Heze envelopes need no signature.
+    envelope.signature = bls::Signature::infinity().unwrap();
+
+    let gossip_verified = harness
+        .chain
+        .verify_envelope_for_gossip(
+            Arc::new(envelope),
+            Some(block_root),
+            None,
+            EnvelopeSource::Gossip,
+        )
+        .await
+        .expect("envelope gossip verification should succeed");
+    let status = harness
+        .chain
+        .process_execution_payload_envelope(
+            block_root,
+            gossip_verified,
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Gossip,
+            #[allow(clippy::result_large_err)]
+            || Ok(()),
+        )
+        .await
+        .expect("envelope should be imported");
+    assert!(matches!(status, Imported(..)), "got {status:?}");
+}
+
+/// Heze envelopes don't contain the root of their block, so it must be known.
+#[tokio::test]
+async fn heze_envelope_without_block_root_is_rejected() {
+    let (harness, _, envelope) = heze_block_and_envelope().await;
+
+    let result = harness
+        .chain
+        .verify_envelope_for_gossip(Arc::new(envelope), None, None, EnvelopeSource::Gossip)
+        .await;
+    assert!(matches!(result, Err(EnvelopeError::MissingBlockRoot)));
+}
+
+#[tokio::test]
+async fn heze_envelope_not_committed_to_by_bid_is_rejected() {
+    let (harness, block_root, mut envelope) = heze_block_and_envelope().await;
+    // Only the payload chunks root catches this: the block hash is left as is.
+    envelope.message.payload_mut().timestamp += 1;
+
+    let result = harness
+        .chain
+        .verify_envelope_for_gossip(
+            Arc::new(envelope),
+            Some(block_root),
+            None,
+            EnvelopeSource::Gossip,
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(EnvelopeError::PayloadChunksRootMismatch)
+    ));
+}
+
+/// The sender chooses the fork an envelope is decoded with, so a Gloas envelope can show up for a
+/// Heze slot.
+#[tokio::test]
+async fn heze_slot_gloas_envelope_is_rejected() {
+    let (harness, block_root, envelope) = heze_block_and_envelope().await;
+    let ExecutionPayloadEnvelope::Heze(envelope) = envelope.message else {
+        panic!("envelope should be Heze");
+    };
+    let envelope = SignedExecutionPayloadEnvelope {
+        message: ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
+            payload: envelope.payload,
+            execution_requests: envelope.execution_requests,
+            builder_index: envelope.builder_index,
+            beacon_block_root: block_root,
+            parent_beacon_block_root: envelope.parent_beacon_block_root,
+        }),
+        signature: bls::Signature::empty(),
+    };
+
+    let result = harness
+        .chain
+        .verify_envelope_for_gossip(
+            Arc::new(envelope),
+            Some(block_root),
+            None,
+            EnvelopeSource::Gossip,
+        )
+        .await;
+    assert!(matches!(result, Err(EnvelopeError::InconsistentFork(_))));
 }

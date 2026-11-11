@@ -3131,7 +3131,10 @@ async fn rpc_block_allows_construction_past_da_boundary() {
 #[tokio::test]
 async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
     let spec = test_spec::<E>();
-    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+    let fork_name = spec.fork_name_at_slot::<E>(Slot::new(0));
+    // Heze envelopes are authenticated by the bid's payload chunks root rather than by a signature
+    // (EIP-8411).
+    if !fork_name.gloas_enabled() || fork_name.heze_enabled() {
         return;
     }
 
@@ -3194,7 +3197,10 @@ async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
 #[tokio::test]
 async fn process_chain_segment_partial_import_with_invalid_envelope() {
     let spec = test_spec::<E>();
-    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+    let fork_name = spec.fork_name_at_slot::<E>(Slot::new(0));
+    // Heze envelopes are authenticated by the bid's payload chunks root rather than by a signature
+    // (EIP-8411).
+    if !fork_name.gloas_enabled() || fork_name.heze_enabled() {
         return;
     }
 

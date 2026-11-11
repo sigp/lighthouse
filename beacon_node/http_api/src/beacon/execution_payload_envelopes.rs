@@ -287,7 +287,12 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
 
     // Gossip-verify the envelope before publishing.
     let gossip_verified = chain
-        .verify_envelope_for_gossip(Arc::new(envelope), EnvelopeSource::Http)
+        .verify_envelope_for_gossip(
+            Arc::new(envelope),
+            Some(beacon_block_root),
+            None,
+            EnvelopeSource::Http,
+        )
         .await
         .map_err(|e| {
             warn!(%slot, error = ?e, "Execution payload envelope failed gossip verification");
