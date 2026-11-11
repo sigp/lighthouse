@@ -695,10 +695,15 @@ async fn assert_stale_proposer_prep_run_sends_nothing(resume_late: bool) {
         .unwrap()
         .subscribe_payload_attributes();
 
-    // Poll the run once, so it reads its generation before the votes arrive. It then waits on a
-    // blocking task, and can't send anything until it is polled again.
+    // Poll the run once, so it reads its generation before the votes arrive. Holding the fork
+    // choice lock keeps its blocking task waiting to read the build parent, so it can't send
+    // anything until it is polled again. Without the lock, a loaded machine can run the whole prep
+    // within the poll and send on the full parent before the votes exist.
     let mut stale_run = Box::pin(harness.chain.prepare_beacon_proposer(parent_slot));
-    assert!(futures::poll!(&mut stale_run).is_pending());
+    {
+        let _fork_choice = harness.chain.canonical_head.fork_choice_write_lock();
+        assert!(futures::poll!(&mut stale_run).is_pending());
+    }
     let (messages, _) = harness.make_payload_attestation_messages(
         &parent_state,
         parent_root,
