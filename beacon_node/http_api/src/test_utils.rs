@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::MemoryStore;
 use task_executor::test_utils::TestRuntime;
-use types::{ChainSpec, EthSpec};
+use types::{ChainSpec, EthSpec, ForkContext};
 
 pub const TCP_PORT: u16 = 42;
 pub const UDP_PORT: u16 = 42;
@@ -187,7 +187,12 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     // Use port 0 to allocate a new unused port.
     let port = 0;
 
-    let (network_senders, network_receivers) = NetworkSenders::new();
+    let fork_context = ForkContext::new::<T::EthSpec>(
+        chain.slot().unwrap_or(chain.spec.genesis_slot),
+        chain.genesis_validators_root,
+        &chain.spec,
+    );
+    let (network_senders, network_receivers) = NetworkSenders::new(&fork_context);
 
     // Default metadata
     let meta_data = if chain.spec.is_peer_das_scheduled() {

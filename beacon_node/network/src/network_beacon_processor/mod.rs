@@ -1386,7 +1386,7 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         (processor, beacon_processor_rx)
     }
 
-    fn null_for_testing_with_network_receiver(
+    pub(crate) fn null_for_testing_with_network_receiver(
         network_globals: Arc<NetworkGlobals<E>>,
         sync_tx: UnboundedSender<SyncMessage<E>>,
         chain: Arc<BeaconChain<TestBeaconChainType<E>>>,

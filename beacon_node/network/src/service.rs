@@ -13,6 +13,9 @@ use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 
+use crate::waggle_handlers::payload_topics::{
+    PayloadDisseminationReceivers, PayloadDisseminationSenders, PayloadDisseminationServices,
+};
 use lighthouse_network::Enr;
 use lighthouse_network::identity::Keypair;
 use lighthouse_network::rpc::BlocksByRangeRequest;
@@ -23,7 +26,7 @@ use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::methods;
 use lighthouse_network::rpc::methods::RpcResponse;
 use lighthouse_network::service::Network;
-use lighthouse_network::types::{GossipKind, PubsubPartialMessage};
+use lighthouse_network::types::{GossipKind, PubsubPartialMessage, WaggleKind, WaggleTopic};
 use lighthouse_network::{
     Context, PeerAction, PubsubMessage, ReportSource, Response, Subnet,
     rpc::{GoodbyeReason, RpcErrorResponse},
@@ -165,25 +168,33 @@ pub enum ValidatorSubscriptionMessage {
 pub struct NetworkSenders<E: EthSpec> {
     network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
     validator_subscription_send: mpsc::Sender<ValidatorSubscriptionMessage>,
+    payload_dissemination: PayloadDisseminationSenders<E>,
 }
 
 pub struct NetworkReceivers<E: EthSpec> {
     pub network_recv: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     pub validator_subscription_recv: mpsc::Receiver<ValidatorSubscriptionMessage>,
+    pub payload_dissemination_recv: PayloadDisseminationReceivers<E>,
 }
 
 impl<E: EthSpec> NetworkSenders<E> {
-    pub fn new() -> (Self, NetworkReceivers<E>) {
+    /// Creates the channels to the network service and its derived services. `fork_context`
+    /// determines the payload topics, each of which gets a channel to its dissemination service.
+    pub fn new(fork_context: &ForkContext) -> (Self, NetworkReceivers<E>) {
         let (network_send, network_recv) = mpsc::unbounded_channel::<NetworkMessage<E>>();
         let (validator_subscription_send, validator_subscription_recv) =
             mpsc::channel(VALIDATOR_SUBSCRIPTION_MESSAGE_QUEUE_SIZE);
+        let (payload_dissemination, payload_dissemination_recv) =
+            PayloadDisseminationSenders::new(fork_context);
         let senders = Self {
             network_send,
             validator_subscription_send,
+            payload_dissemination,
         };
         let receivers = NetworkReceivers {
             network_recv,
             validator_subscription_recv,
+            payload_dissemination_recv,
         };
         (senders, receivers)
     }
@@ -194,6 +205,11 @@ impl<E: EthSpec> NetworkSenders<E> {
 
     pub fn validator_subscription_send(&self) -> mpsc::Sender<ValidatorSubscriptionMessage> {
         self.validator_subscription_send.clone()
+    }
+
+    /// Returns the senders to the payload dissemination services, to register payloads with.
+    pub fn payload_dissemination(&self) -> PayloadDisseminationSenders<E> {
+        self.payload_dissemination.clone()
     }
 }
 
@@ -213,6 +229,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     /// A channel to the syncing thread.
     sync_send: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    /// Runs the payload dissemination service of each payload topic we are subscribed to.
+    payload_dissemination: PayloadDisseminationServices<T>,
     /// Provides de-bounce functionality for logging.
     logger_debounce: TimeLatch,
     /// A reference to lighthouse's database to persist the DHT.
@@ -253,8 +271,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         ),
         String,
     > {
+        let current_slot = beacon_chain
+            .slot()
+            .unwrap_or(beacon_chain.spec.genesis_slot);
+
+        // Create a fork context for the given config and genesis validators root
+        let fork_context = Arc::new(ForkContext::new::<T::EthSpec>(
+            current_slot,
+            beacon_chain.genesis_validators_root,
+            &beacon_chain.spec,
+        ));
+
         // build the channels for external comms
-        let (network_senders, network_receivers) = NetworkSenders::new();
+        let (network_senders, network_receivers) = NetworkSenders::new(&fork_context);
 
         #[cfg(feature = "disable-backfill")]
         warn!("Backfill is disabled. DO NOT RUN IN PRODUCTION");
@@ -293,17 +322,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 .into(),
         );
         let next_unsubscribe = Box::pin(None.into());
-
-        let current_slot = beacon_chain
-            .slot()
-            .unwrap_or(beacon_chain.spec.genesis_slot);
-
-        // Create a fork context for the given config and genesis validators root
-        let fork_context = Arc::new(ForkContext::new::<T::EthSpec>(
-            current_slot,
-            beacon_chain.genesis_validators_root,
-            &beacon_chain.spec,
-        ));
 
         // construct the libp2p service context
         let service_context = Context {
@@ -376,19 +394,27 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             &config,
         );
 
+        let NetworkReceivers {
+            network_recv,
+            validator_subscription_recv,
+            payload_dissemination_recv,
+        } = network_receivers;
+
+        // The payload dissemination services are started as we subscribe to their topics.
+        let payload_dissemination = PayloadDisseminationServices::new(
+            network_senders.payload_dissemination(),
+            payload_dissemination_recv,
+            network_beacon_processor.clone(),
+        );
+
         // create a timer for updating network metrics
         let metrics_update = tokio::time::interval(Duration::from_secs(METRIC_UPDATE_INTERVAL));
 
         // create a timer for updating gossipsub parameters
         let gossipsub_parameter_update = tokio::time::interval(Duration::from_secs(60));
 
-        let NetworkReceivers {
-            network_recv,
-            validator_subscription_recv,
-        } = network_receivers;
-
         // create the network service and spawn the task
-        let network_service = NetworkService {
+        let mut network_service = NetworkService {
             beacon_chain,
             libp2p,
             subnet_service,
@@ -396,6 +422,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             validator_subscription_recv,
             network_beacon_processor,
             sync_send,
+            payload_dissemination,
             logger_debounce: TimeLatch::default(),
             store,
             network_globals: network_globals.clone(),
@@ -408,6 +435,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             gossipsub_parameter_update,
             fork_context,
         };
+
+        let fork_digests = network_service.required_gossip_fork_digests();
+        network_service.subscribe_waggle_topics(&fork_digests);
 
         Ok((network_service, network_globals, network_senders))
     }
@@ -501,6 +531,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                             let fork_digest = self.beacon_chain.compute_fork_digest(epoch);
                             info!("Subscribing to new fork topics");
                             self.libp2p.subscribe_new_fork_topics(fork_name, fork_digest);
+                            self.subscribe_waggle_topics(&[fork_digest]);
                             self.next_topic_subscriptions = Box::pin(None.into());
                         }
                         else {
@@ -588,8 +619,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             } => {
                 self.handle_partial_data_column_sidecar(source, column, topic);
             }
-            // We don't subscribe to any waggle topic yet.
-            NetworkEvent::WaggleSubscribe { .. } => {}
+            NetworkEvent::WaggleSubscribe {
+                topic,
+                peer_id,
+                connection_id,
+                sender,
+            } => match topic.kind {
+                WaggleKind::ExecutionPayload => self.payload_dissemination.peer_subscribed(
+                    topic.fork_digest,
+                    peer_id,
+                    connection_id,
+                    sender,
+                ),
+            },
             NetworkEvent::NewListenAddr(multiaddr) => {
                 self.network_globals
                     .listen_multiaddrs
@@ -608,6 +650,29 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                             "failed to send a shutdown signal"
                         )
                     });
+            }
+        }
+    }
+
+    /// Subscribes to the waggle topics of the given fork digests, and hands their receivers to the
+    /// services handling them.
+    fn subscribe_waggle_topics(&mut self, fork_digests: &[[u8; 4]]) {
+        for &fork_digest in fork_digests {
+            let Some(&fork_name) = self.fork_context.get_fork_from_context_bytes(fork_digest)
+            else {
+                continue;
+            };
+            for topic in WaggleTopic::all_at_fork(fork_name, fork_digest) {
+                let Some(receiver) = self.libp2p.subscribe_waggle(topic.clone()) else {
+                    // Already subscribed.
+                    continue;
+                };
+                debug!(%topic, "Subscribed to waggle topic");
+                match topic.kind {
+                    WaggleKind::ExecutionPayload => {
+                        self.payload_dissemination.subscribed(fork_digest, receiver)
+                    }
+                }
             }
         }
     }
@@ -953,6 +1018,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let required_digests = self.required_gossip_fork_digests();
         self.libp2p
             .unsubscribe_from_fork_topics_except(&required_digests);
+        self.payload_dissemination
+            .unsubscribe_except(&required_digests);
         info!("Unsubscribed from old fork topics");
     }
 

@@ -6967,6 +6967,7 @@ dependencies = [
  "beacon_chain",
  "beacon_processor",
  "bls",
+ "bytes",
  "delay_map",
  "educe",
  "enr",
@@ -6999,10 +7000,12 @@ dependencies = [
  "serde_json",
  "slot_clock",
  "smallvec",
+ "snap",
  "ssz_types",
  "store",
  "strum",
  "task_executor",
+ "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -7010,6 +7013,7 @@ dependencies = [
  "tree_hash",
  "typenum",
  "types",
+ "waggle",
 ]
 
 [[package]]
