@@ -1580,6 +1580,14 @@ pub static INCLUSION_LIST_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock
         "Number of validators flagged for sending two different inclusion lists",
     )
 });
+pub static INCLUSION_LIST_TRANSACTIONS_PREPARE_EXECUTION_PAYLOAD_TOTAL: LazyLock<
+    Result<IntCounter>,
+> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_inclusion_list_transactions_prepare_execution_payload_total",
+        "Total number of inclusion list transactions sent when preparing execution payload",
+    )
+});
 pub static SYNC_MESSAGE_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "sync_message_equivocations_total",
