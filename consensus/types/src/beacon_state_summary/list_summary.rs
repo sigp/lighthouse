@@ -10,7 +10,17 @@ use crate::core::Hash256;
 /// the same `hash_tree_root`.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Hash, Serialize, Deserialize, Encode, Decode,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    Hash,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
     TreeHash,
 )]
 pub struct ListSummary {

@@ -8,7 +8,7 @@ use tree_hash_derive::TreeHash;
 use crate::{
     ExecutionBlockHash, ExecutionPayloadBidGloas, Fork,
     attestation::Checkpoint,
-    beacon_state_summary::ListSummary,
+    beacon_state_summary::{ListSummary, VectorSummary},
     block::BeaconBlockHeader,
     builder::{BuilderIndex, BuilderPendingPayment},
     core::{Epoch, EthSpec, Hash256, Slot},
@@ -17,11 +17,19 @@ use crate::{
 };
 
 /// Mirror of `BeaconState` (Gloas) with every `List`/`ProgressiveList` field replaced by a
-/// [`ListSummary`], and every other field left unchanged. Shares the same `hash_tree_root` as the
-/// `BeaconStateGloas` it summarizes, since `progressive_container` merkleization (like regular
-/// `Container` merkleization) depends only on the ordered sequence of field roots, and a
-/// `ListSummary` built from a list's real `items_root`/`num_items` reproduces that list's root
-/// exactly.
+/// [`ListSummary`], every large fixed-length `Vector` field replaced by a [`VectorSummary`], and
+/// every other field left unchanged. Shares the same `hash_tree_root` as the `BeaconStateGloas`
+/// it summarizes, since `progressive_container` merkleization (like regular `Container`
+/// merkleization) depends only on the ordered sequence of field roots, and both `ListSummary`
+/// (built from a list's real `items_root`/`num_items`) and `VectorSummary` (built from a
+/// vector's real `items_root`) reproduce that field's root exactly.
+///
+/// `randao_mixes`, `block_roots`, `state_roots`, `slashings`, and `ptc_window` are `Vector`
+/// fields, not `List`/`ProgressiveList`, but at mainnet preset values they dominate this
+/// summary's size (`randao_mixes` alone is 2 MiB, versus a fixed 40 bytes for every chunked
+/// `ListSummary` combined), so they're chunked via [`super::ChunkedField`] exactly like the list
+/// fields are, just without a stored length (a `Vector`'s length is a compile-time constant, and
+/// unlike `List` its `hash_tree_root` has no `mix_in_length` step).
 ///
 /// Only targets Gloas: checkpoint sync only ever needs a recent finalized state, and Gloas is
 /// already the live/rolling-out fork (`plataberget`, then `hoodi`/`sepolia`, then mainnet).
@@ -45,8 +53,8 @@ pub struct BeaconStateSummary<E: EthSpec> {
 
     // History
     pub latest_block_header: BeaconBlockHeader,
-    pub block_roots: FixedVector<Hash256, E::SlotsPerHistoricalRoot>,
-    pub state_roots: FixedVector<Hash256, E::SlotsPerHistoricalRoot>,
+    pub block_roots: VectorSummary,
+    pub state_roots: VectorSummary,
     pub historical_roots: ListSummary,
 
     // Ethereum 1.0 chain data
@@ -60,11 +68,10 @@ pub struct BeaconStateSummary<E: EthSpec> {
     pub balances: ListSummary,
 
     // Randomness
-    pub randao_mixes: FixedVector<Hash256, E::EpochsPerHistoricalVector>,
+    pub randao_mixes: VectorSummary,
 
     // Slashings
-    #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
-    pub slashings: FixedVector<u64, E::EpochsPerSlashingsVector>,
+    pub slashings: VectorSummary,
 
     // Participation (Gloas uses ProgressiveList, summarized like any other list)
     pub previous_epoch_participation: ListSummary,
@@ -120,7 +127,7 @@ pub struct BeaconStateSummary<E: EthSpec> {
     pub builder_pending_withdrawals: ListSummary,
     pub latest_execution_payload_bid: ExecutionPayloadBidGloas<E>,
     pub payload_expected_withdrawals: ListSummary,
-    pub ptc_window: FixedVector<FixedVector<u64, E::PTCSize>, E::PtcWindowLength>,
+    pub ptc_window: VectorSummary,
 }
 
 #[cfg(test)]
@@ -197,6 +204,15 @@ mod tests {
         }
     }
 
+    /// Builds a [`VectorSummary`] the same way a real `Vector[T, N]` field's `hash_tree_root`
+    /// works: `merkleize(pack(items), limit=capacity)`, no `mix_in_length`. `capacity` must equal
+    /// the field's full `N` since a `Vector` is always fully populated.
+    fn vector_summary<T: TreeHash>(items: &[T], capacity: usize) -> VectorSummary {
+        VectorSummary {
+            items_root: regular_items_root(items, capacity),
+        }
+    }
+
     /// Proves `BeaconStateSummary::tree_hash_root()` equals the real `BeaconStateGloas` it
     /// summarizes, end to end, on a randomly generated (but structurally valid) state. This is
     /// the concrete verification of the equivalence argument the whole design rests on, built
@@ -207,10 +223,15 @@ mod tests {
     fn summary_root_matches_real_gloas_state() {
         let state: BeaconStateGloas<MinimalEthSpec> = test_arbitrary_instance();
 
-        let historical_roots_limit =
-            <MinimalEthSpec as EthSpec>::HistoricalRootsLimit::to_usize();
-        let eth1_voting_period =
-            <MinimalEthSpec as EthSpec>::SlotsPerEth1VotingPeriod::to_usize();
+        let historical_roots_limit = <MinimalEthSpec as EthSpec>::HistoricalRootsLimit::to_usize();
+        let eth1_voting_period = <MinimalEthSpec as EthSpec>::SlotsPerEth1VotingPeriod::to_usize();
+        let slots_per_historical_root =
+            <MinimalEthSpec as EthSpec>::SlotsPerHistoricalRoot::to_usize();
+        let epochs_per_historical_vector =
+            <MinimalEthSpec as EthSpec>::EpochsPerHistoricalVector::to_usize();
+        let epochs_per_slashings_vector =
+            <MinimalEthSpec as EthSpec>::EpochsPerSlashingsVector::to_usize();
+        let ptc_window_length = <MinimalEthSpec as EthSpec>::PtcWindowLength::to_usize();
 
         let summary = BeaconStateSummary::<MinimalEthSpec> {
             genesis_time: state.genesis_time,
@@ -218,8 +239,8 @@ mod tests {
             slot: state.slot,
             fork: state.fork,
             latest_block_header: state.latest_block_header.clone(),
-            block_roots: FixedVector::new(state.block_roots.to_vec()).unwrap(),
-            state_roots: FixedVector::new(state.state_roots.to_vec()).unwrap(),
+            block_roots: vector_summary(&state.block_roots.to_vec(), slots_per_historical_root),
+            state_roots: vector_summary(&state.state_roots.to_vec(), slots_per_historical_root),
             historical_roots: list_summary_regular(
                 &state.historical_roots.to_vec(),
                 historical_roots_limit,
@@ -232,8 +253,11 @@ mod tests {
             eth1_deposit_index: state.eth1_deposit_index,
             validators: list_summary_progressive(&state.validators.to_vec()),
             balances: list_summary_progressive(&state.balances.to_vec()),
-            randao_mixes: FixedVector::new(state.randao_mixes.to_vec()).unwrap(),
-            slashings: FixedVector::new(state.slashings.to_vec()).unwrap(),
+            randao_mixes: vector_summary(
+                &state.randao_mixes.to_vec(),
+                epochs_per_historical_vector,
+            ),
+            slashings: vector_summary(&state.slashings.to_vec(), epochs_per_slashings_vector),
             previous_epoch_participation: list_summary_progressive(
                 &state.previous_epoch_participation.to_vec(),
             ),
@@ -280,7 +304,7 @@ mod tests {
             payload_expected_withdrawals: list_summary_progressive(
                 &state.payload_expected_withdrawals.to_vec(),
             ),
-            ptc_window: FixedVector::new(state.ptc_window.to_vec()).unwrap(),
+            ptc_window: vector_summary(&state.ptc_window.to_vec(), ptc_window_length),
         };
 
         assert_eq!(

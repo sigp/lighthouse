@@ -1,18 +1,29 @@
 use std::ops::Range;
 
+use typenum::Unsigned;
+
 use crate::{beacon_state_summary::BeaconStateSummary, core::EthSpec};
 
-/// The `List`/`ProgressiveList` fields of `BeaconStateSummary` that get split into
-/// [`BeaconStatePart`](super::BeaconStatePart) chunks, in the same order they're declared on
+/// The `List`/`ProgressiveList`/large-`Vector` fields of `BeaconStateSummary` that get split
+/// into [`BeaconStatePart`](super::BeaconStatePart) chunks, in the same order they're declared on
 /// `BeaconStateSummary` — `chunk_index` in `beacon_state_parts_by_range` is a single flat `u64`
 /// with no field selector, so client and server must agree on one global numbering, and this
 /// declaration order is the simplest scheme consistent with that request shape.
+///
+/// `BlockRoots`, `StateRoots`, `RandaoMixes`, `Slashings`, and `PtcWindow` are fixed-length
+/// `Vector` fields, not `List`/`ProgressiveList`, but at mainnet preset values they dominate
+/// `BeaconStateSummary`'s size (`randao_mixes` alone is 2 MiB), so they're chunked the same way:
+/// see [`BeaconStateSummary`]'s doc comment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ChunkedField {
+    BlockRoots,
+    StateRoots,
     HistoricalRoots,
     Eth1DataVotes,
     Validators,
     Balances,
+    RandaoMixes,
+    Slashings,
     PreviousEpochParticipation,
     CurrentEpochParticipation,
     InactivityScores,
@@ -23,15 +34,20 @@ pub enum ChunkedField {
     Builders,
     BuilderPendingWithdrawals,
     PayloadExpectedWithdrawals,
+    PtcWindow,
 }
 
 impl ChunkedField {
     /// All chunked fields, in `BeaconStateSummary`'s declaration order.
-    pub const ALL: [ChunkedField; 14] = [
+    pub const ALL: [ChunkedField; 19] = [
+        ChunkedField::BlockRoots,
+        ChunkedField::StateRoots,
         ChunkedField::HistoricalRoots,
         ChunkedField::Eth1DataVotes,
         ChunkedField::Validators,
         ChunkedField::Balances,
+        ChunkedField::RandaoMixes,
+        ChunkedField::Slashings,
         ChunkedField::PreviousEpochParticipation,
         ChunkedField::CurrentEpochParticipation,
         ChunkedField::InactivityScores,
@@ -42,6 +58,7 @@ impl ChunkedField {
         ChunkedField::Builders,
         ChunkedField::BuilderPendingWithdrawals,
         ChunkedField::PayloadExpectedWithdrawals,
+        ChunkedField::PtcWindow,
     ];
 
     /// Max items per chunk for this field: the largest power of two `P` such that
@@ -51,12 +68,23 @@ impl ChunkedField {
     /// `previous_epoch_participation` = 2^19) using each item type's real SSZ-encoded size from
     /// this crate — all three match this formula exactly. The rest of the table is derived the
     /// same way and hasn't been independently confirmed with Etan.
+    ///
+    /// `PtcWindow`'s item is `FixedVector<u64, E::PTCSize>`, whose byte size depends on
+    /// `PTCSize`, which isn't a compile-time constant here since it varies per `EthSpec` (unlike
+    /// every other chunked item's fixed SSZ size). This uses mainnet's `PTCSize` (512, so 4096
+    /// bytes/item) to derive a single preset-independent value; since that's the largest
+    /// `PTCSize` across presets, chunks on smaller presets only come out smaller than the 0.5
+    /// MiB target, never larger.
     pub const fn items_per_chunk(self) -> usize {
         match self {
+            ChunkedField::BlockRoots => 1 << 14,      // Hash256, 32B
+            ChunkedField::StateRoots => 1 << 14,      // Hash256, 32B
             ChunkedField::HistoricalRoots => 1 << 14, // Hash256, 32B
             ChunkedField::Eth1DataVotes => 1 << 12,   // Eth1Data, 72B
             ChunkedField::Validators => 1 << 12,      // Validator, 121B
             ChunkedField::Balances => 1 << 16,        // u64, 8B
+            ChunkedField::RandaoMixes => 1 << 14,     // Hash256, 32B
+            ChunkedField::Slashings => 1 << 16,       // u64, 8B
             ChunkedField::PreviousEpochParticipation => 1 << 19, // ParticipationFlags, 1B
             ChunkedField::CurrentEpochParticipation => 1 << 19, // ParticipationFlags, 1B
             ChunkedField::InactivityScores => 1 << 16, // u64, 8B
@@ -67,6 +95,7 @@ impl ChunkedField {
             ChunkedField::Builders => 1 << 12,        // Builder, 93B
             ChunkedField::BuilderPendingWithdrawals => 1 << 13, // BuilderPendingWithdrawal, 36B
             ChunkedField::PayloadExpectedWithdrawals => 1 << 13, // Withdrawal, 44B
+            ChunkedField::PtcWindow => 1 << 7,        // FixedVector<u64, 512> (mainnet), 4096B
         }
     }
 
@@ -83,28 +112,37 @@ impl ChunkedField {
     /// fold (it doesn't, in general).
     pub const fn packing_factor(self) -> usize {
         match self {
-            ChunkedField::Balances | ChunkedField::InactivityScores => 4, // u64
+            ChunkedField::Balances | ChunkedField::InactivityScores | ChunkedField::Slashings => {
+                4 // u64
+            }
             ChunkedField::PreviousEpochParticipation | ChunkedField::CurrentEpochParticipation => {
                 32 // ParticipationFlags (wraps u8)
             }
-            _ => 1, // Container-typed items never pack; plain-List fields don't use this anyway.
+            _ => 1, // Container/Vector-typed items never pack; non-progressive fields don't use this anyway.
         }
     }
 
     /// Whether this field is backed by a `ProgressiveList` (EIP-7916) in `BeaconStateGloas`, as
-    /// opposed to a plain `List`. Checked directly against `consensus/types/src/state/beacon_state.rs`'s
-    /// Gloas field declarations: `historical_roots`, `eth1_data_votes`, and `historical_summaries`
-    /// stay as plain `List`; every other chunked field is `ProgressiveList`. This matters because
-    /// a plain `List`'s tree has no progressive folding, it's one flat `merkleize(pack(items),
-    /// limit)` tree, so a uniform `items_per_chunk`-sized stride starting at item 0 already
-    /// produces valid single-subtree chunks for those three fields; the irregular first chunk
-    /// below is only needed, and only correct, for the `ProgressiveList` fields.
+    /// opposed to a plain `List` or fixed-length `Vector`. Checked directly against
+    /// `consensus/types/src/state/beacon_state.rs`'s Gloas field declarations: `historical_roots`,
+    /// `eth1_data_votes`, and `historical_summaries` stay as plain `List`; `block_roots`,
+    /// `state_roots`, `randao_mixes`, `slashings`, and `ptc_window` are fixed-length `Vector`;
+    /// every other chunked field is `ProgressiveList`. This matters because neither a plain
+    /// `List`'s nor a `Vector`'s tree has progressive folding, they're both one flat
+    /// `merkleize(pack(items), limit)` tree, so a uniform `items_per_chunk`-sized stride starting
+    /// at item 0 already produces valid single-subtree chunks for those fields; the irregular
+    /// first chunk below is only needed, and only correct, for the `ProgressiveList` fields.
     pub const fn is_progressive(self) -> bool {
         !matches!(
             self,
             ChunkedField::HistoricalRoots
                 | ChunkedField::Eth1DataVotes
                 | ChunkedField::HistoricalSummaries
+                | ChunkedField::BlockRoots
+                | ChunkedField::StateRoots
+                | ChunkedField::RandaoMixes
+                | ChunkedField::Slashings
+                | ChunkedField::PtcWindow
         )
     }
 
@@ -212,7 +250,7 @@ pub struct ChunkLayout {
 
 impl ChunkLayout {
     /// Build a layout from each chunked field's length, in [`ChunkedField::ALL`] order.
-    pub fn new(lengths: [usize; 14]) -> Self {
+    pub fn new(lengths: [usize; 19]) -> Self {
         let mut per_field = Vec::with_capacity(ChunkedField::ALL.len());
         let mut next_chunk_index: u64 = 0;
         for (field, len) in ChunkedField::ALL.into_iter().zip(lengths) {
@@ -226,13 +264,20 @@ impl ChunkLayout {
         }
     }
 
-    /// Build a layout directly from a [`BeaconStateSummary`]'s `ListSummary` lengths.
+    /// Build a layout directly from a [`BeaconStateSummary`]'s field lengths. The `ListSummary`
+    /// fields carry their own length (`num_items`); the `VectorSummary` fields don't (a
+    /// `Vector`'s length is a compile-time constant), so those come from `E`'s type-level
+    /// constants instead, ignoring `summary` entirely for them.
     pub fn from_summary<E: EthSpec>(summary: &BeaconStateSummary<E>) -> Self {
         Self::new([
+            E::SlotsPerHistoricalRoot::to_usize(), // block_roots
+            E::SlotsPerHistoricalRoot::to_usize(), // state_roots
             summary.historical_roots.num_items as usize,
             summary.eth1_data_votes.num_items as usize,
             summary.validators.num_items as usize,
             summary.balances.num_items as usize,
+            E::EpochsPerHistoricalVector::to_usize(), // randao_mixes
+            E::EpochsPerSlashingsVector::to_usize(),  // slashings
             summary.previous_epoch_participation.num_items as usize,
             summary.current_epoch_participation.num_items as usize,
             summary.inactivity_scores.num_items as usize,
@@ -243,6 +288,7 @@ impl ChunkLayout {
             summary.builders.num_items as usize,
             summary.builder_pending_withdrawals.num_items as usize,
             summary.payload_expected_withdrawals.num_items as usize,
+            E::PtcWindowLength::to_usize(), // ptc_window
         ])
     }
 
@@ -374,7 +420,29 @@ mod tests {
         let fc = ChunkedField::Validators.first_chunk_size();
         let per_chunk = ChunkedField::Validators.items_per_chunk();
         let validators_len = fc + per_chunk + 1;
-        let lengths = [0, 1, validators_len, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        // Order matches ChunkedField::ALL: BlockRoots, StateRoots, HistoricalRoots,
+        // Eth1DataVotes, Validators, Balances, RandaoMixes, Slashings, ..., PtcWindow.
+        let lengths = [
+            0,
+            0,
+            0,
+            1,
+            validators_len,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ];
         let layout = ChunkLayout::new(lengths);
         assert_eq!(layout.total_chunks(), 4);
 
