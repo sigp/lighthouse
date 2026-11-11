@@ -22,11 +22,12 @@ use crate::rpc::{
 use crate::service::partial_column_header_tracker::PartialColumnHeaderTracker;
 use crate::types::{
     GossipEncoding, GossipKind, GossipTopic, OutgoingPartialColumnFulu, OutgoingPartialColumnGloas,
-    PubsubPartialMessage, SnappyTransform, Subnet, SubnetDiscovery, all_topics_at_fork,
-    core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
+    PubsubPartialMessage, SnappyTransform, Subnet, SubnetDiscovery, WaggleTopic,
+    all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
 };
 use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, decode_partial, metrics};
 use api_types::{Response, SyncRequestId};
+use async_channel::Receiver;
 use futures::stream::StreamExt;
 use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
 use libp2p::gossipsub::{
@@ -36,11 +37,12 @@ use libp2p::gossipsub::{
 use libp2p::identity::Keypair;
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;
-use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent, dial_opts::DialOpts};
+use libp2p::swarm::{ConnectionId, NetworkBehaviour, Swarm, SwarmEvent, dial_opts::DialOpts};
 use libp2p::upnp::tokio::Behaviour as Upnp;
 use libp2p::{PeerId, SwarmBuilder, identify};
 use logging::crit;
 use network_utils::enr_ext::EnrExt;
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -49,9 +51,11 @@ use std::time::Duration;
 use tracing::{debug, info, trace, warn};
 use types::{
     ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, ForkName, PartialDataColumn,
-    PartialDataColumnRef, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+    PartialDataColumnRef, PayloadChunk, Slot, SubnetId,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
 };
 use utils::{Context as ServiceContext, build_transport, strip_peer_id};
+use waggle::handler::{PieceSender, TopicEvent};
 
 pub mod api_types;
 mod gossip_cache;
@@ -63,6 +67,17 @@ pub mod utils;
 pub const TARGET_SUBNET_PEERS: usize = 3;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
+
+/// Room for everything in a waggle message besides the payload chunk: the object id, the chunk
+/// metadata, and the protobuf framing.
+const WAGGLE_MESSAGE_OVERHEAD: usize = 1024;
+
+/// The largest waggle message we accept: a message carrying the largest possible payload chunk,
+/// compressed as badly as snappy can.
+fn max_waggle_message_size<E: EthSpec>() -> usize {
+    snap::raw::max_compress_len(PayloadChunk::<E>::max_ssz_len())
+        .saturating_add(WAGGLE_MESSAGE_OVERHEAD)
+}
 
 /// The types of events than can be obtained from polling the behaviour.
 #[derive(Debug)]
@@ -124,6 +139,14 @@ pub enum NetworkEvent<E: EthSpec> {
     ZeroListeners,
     /// A peer has an updated custody group count from MetaData.
     PeerUpdatedCustodyGroupCount(PeerId),
+    /// A peer subscribed to a waggle topic on the connection `connection_id`. Pieces queued on
+    /// `sender` are sent to it.
+    WaggleSubscribe {
+        topic: WaggleTopic,
+        peer_id: PeerId,
+        connection_id: ConnectionId,
+        sender: PieceSender,
+    },
 }
 
 pub type Gossipsub = gossipsub::Behaviour<SnappyTransform, SubscriptionFilter>;
@@ -159,6 +182,8 @@ where
     pub upnp: Toggle<Upnp>,
     /// The routing pub-sub mechanism for eth2.
     pub gossipsub: Gossipsub,
+    /// The new routing pub-sub mechanism for eth2.
+    pub waggle: waggle::behaviour::Behaviour,
 }
 
 /// Builds the network behaviour that manages the core protocols of eth2.
@@ -464,8 +489,31 @@ impl<E: EthSpec> Network<E> {
                 .upnp_enabled
                 .then(libp2p::upnp::tokio::Behaviour::default),
         );
+
+        let waggle = {
+            // Peers may only subscribe to the topics of the forks we know, each at most once.
+            let topic_whitelist = ctx
+                .fork_context
+                .all_fork_digests()
+                .into_iter()
+                .filter_map(|fork_digest| {
+                    let fork_name = *ctx.fork_context.get_fork_from_context_bytes(fork_digest)?;
+                    Some(WaggleTopic::all_at_fork(fork_name, fork_digest))
+                })
+                .flatten()
+                .map(|topic| topic.to_string().into_bytes())
+                .collect::<HashSet<_>>();
+            waggle::behaviour::Behaviour::new(
+                waggle::config::Config::default()
+                    .set_max_topic_subscription(topic_whitelist.len())
+                    .set_topic_whitelist(Some(topic_whitelist))
+                    .set_max_protobuf_size(max_waggle_message_size::<E>()),
+            )
+        };
+
         let behaviour = {
             Behaviour {
+                waggle,
                 gossipsub,
                 eth2_rpc,
                 discovery,
@@ -838,6 +886,17 @@ impl<E: EthSpec> Network<E> {
 
         debug!(%topic, "Unsubscribed to topic");
         self.gossipsub_mut().unsubscribe(&libp2p_topic)
+    }
+
+    /// Subscribes to a waggle topic, returning the receiver of its events. The subscription lasts
+    /// until the receiver is dropped.
+    ///
+    /// Returns `None` if the topic is already subscribed.
+    pub fn subscribe_waggle(&mut self, topic: WaggleTopic) -> Option<Receiver<TopicEvent>> {
+        self.swarm
+            .behaviour_mut()
+            .waggle
+            .subscribe(topic.to_string().into_bytes())
     }
 
     /// Publishes a list of messages on the pubsub (gossipsub) behaviour, choosing the encoding.
@@ -1569,6 +1628,38 @@ impl<E: EthSpec> Network<E> {
         None
     }
 
+    fn inject_waggle_event(&mut self, event: waggle::behaviour::Event) -> Option<NetworkEvent<E>> {
+        match event {
+            waggle::behaviour::Event::Subscribed {
+                peer_id,
+                connection_id,
+                topic_id,
+                sender,
+            } => {
+                let Ok(topic_id) = str::from_utf8(&topic_id) else {
+                    warn!(topic_id = hex::encode(topic_id), "Unknown non-UTF8 topic");
+                    return None;
+                };
+
+                let topic = match WaggleTopic::decode(topic_id) {
+                    Ok(topic) => topic,
+                    Err(error) => {
+                        warn!(topic_id, error, "Unknown topic");
+                        return None;
+                    }
+                };
+
+                Some(NetworkEvent::WaggleSubscribe {
+                    peer_id,
+                    connection_id,
+                    topic,
+                    sender,
+                })
+            }
+            waggle::behaviour::Event::Unsubscribed { .. } => None,
+        }
+    }
+
     /// Handle an RPC event.
     fn inject_rpc_event(
         &mut self,
@@ -2081,6 +2172,7 @@ impl<E: EthSpec> Network<E> {
         match event {
             SwarmEvent::Behaviour(behaviour_event) => match behaviour_event {
                 // Handle sub-behaviour events.
+                BehaviourEvent::Waggle(we) => self.inject_waggle_event(we),
                 BehaviourEvent::Gossipsub(ge) => self.inject_gs_event(ge),
                 BehaviourEvent::Eth2Rpc(re) => self.inject_rpc_event(re),
                 // Inform the peer manager about discovered peers.

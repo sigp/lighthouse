@@ -588,6 +588,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             } => {
                 self.handle_partial_data_column_sidecar(source, column, topic);
             }
+            // We don't subscribe to any waggle topic yet.
+            NetworkEvent::WaggleSubscribe { .. } => {}
             NetworkEvent::NewListenAddr(multiaddr) => {
                 self.network_globals
                     .listen_multiaddrs

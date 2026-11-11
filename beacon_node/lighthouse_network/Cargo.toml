@@ -9,6 +9,7 @@ autotests = false
 spec-minimal = ["types/spec-minimal"]
 
 [dependencies]
+async-channel = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
 bls = { workspace = true }
@@ -55,6 +56,7 @@ tracing-subscriber = { workspace = true }
 typenum = { workspace = true }
 types = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
+waggle = { workspace = true }
 
 [dev-dependencies]
 async-channel = { workspace = true }

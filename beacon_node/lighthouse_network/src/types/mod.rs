@@ -19,6 +19,6 @@ pub use partial::{OutgoingPartialColumnFulu, OutgoingPartialColumnGloas};
 pub use pubsub::{PubsubMessage, PubsubPartialMessage, SnappyTransform, decode_partial};
 pub use subnet::{Subnet, SubnetDiscovery};
 pub use topics::{
-    GossipEncoding, GossipKind, GossipTopic, TopicConfig, all_topics_at_fork,
-    core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
+    GossipEncoding, GossipKind, GossipTopic, TopicConfig, WaggleKind, WaggleTopic,
+    all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
 };
