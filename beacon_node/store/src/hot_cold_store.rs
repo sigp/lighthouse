@@ -2627,7 +2627,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             .iter_column_from::<Vec<u8>>(DBColumn::BeaconDataColumn, block_root.as_slice())
             .take_while(|res| {
                 res.as_ref()
-                    .is_ok_and(|(key, _)| key.starts_with(block_root.as_slice()))
+                    .map_or(true, |(key, _)| key.starts_with(block_root.as_slice()))
             })
             .map(|key| key.and_then(|(key, _)| parse_data_column_key(key).map(|key| key.1)))
             .collect()

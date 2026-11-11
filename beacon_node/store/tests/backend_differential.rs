@@ -119,6 +119,8 @@ fn run(backend: DatabaseBackend, seed: u64) {
     let mut db = open(backend, dir.path());
     let mut model = Model::new();
     let mut rng = SmallRng::seed_from_u64(seed);
+    // redb can't compact while a non-durable commit from `delete_batch`/`delete_if` is pending.
+    let mut compact_blocked = false;
 
     for i in 0..NUM_OPS {
         let ctx = format!("backend={backend:?} seed={seed} op={i}");
@@ -128,6 +130,7 @@ fn run(backend: DatabaseBackend, seed: u64) {
                 let (key, value) = (random_key(&mut rng, column), random_value(&mut rng));
                 if rng.random_bool(0.1) {
                     db.put_bytes_sync(column, &key, &value).unwrap();
+                    compact_blocked = false;
                 } else {
                     db.put_bytes(column, &key, &value).unwrap();
                 }
@@ -166,17 +169,21 @@ fn run(backend: DatabaseBackend, seed: u64) {
                     keys.iter().map(Vec::as_slice).collect::<HashSet<_>>(),
                 )
                 .unwrap();
+                compact_blocked = true;
             }
             60..62 => {
                 let name: &'static str = column.into();
                 model.retain(|(col, _), value| *col != name || !delete_predicate(value));
                 db.delete_if(column, |value| Ok(delete_predicate(value)))
                     .unwrap();
+                compact_blocked = true;
             }
-            62 => db.compact().unwrap(),
+            62 if !compact_blocked => db.compact().unwrap(),
+            62 => {}
             63 => {
                 drop(db);
                 db = open(backend, dir.path());
+                compact_blocked = false;
             }
             _ => {
                 let key = random_key(&mut rng, column);

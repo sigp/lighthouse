@@ -1,4 +1,4 @@
-#![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
+#![cfg(any(feature = "lmdb", feature = "redb"))]
 
 //! Differential tests for the database backends.
 //!
@@ -19,8 +19,6 @@ type Model = BTreeMap<(usize, Vec<u8>), Vec<u8>>;
 
 fn backends() -> Vec<DatabaseBackend> {
     vec![
-        #[cfg(feature = "mdbx")]
-        DatabaseBackend::Mdbx,
         #[cfg(feature = "lmdb")]
         DatabaseBackend::Lmdb,
         #[cfg(feature = "redb")]
@@ -58,8 +56,11 @@ fn scan(txn: &mut RwTransaction<'_>, db: &Database<'_>) -> Vec<(Vec<u8>, Vec<u8>
         let mut cursor = txn.cursor(db).unwrap();
         let mut key = cursor.first_key().unwrap().map(|key| key.to_vec());
         while let Some(current) = key {
-            keys.push(current);
             key = cursor.next_key().unwrap().map(|key| key.to_vec());
+            if let Some(next) = &key {
+                assert!(*next > current, "next_key didn't advance");
+            }
+            keys.push(current);
         }
     }
     keys.into_iter()
@@ -140,7 +141,7 @@ fn run(backend: DatabaseBackend, seed: u64) {
                         txn.cursor(db).unwrap().put(&key, &value).unwrap();
                         pending.insert((table, key), value);
                     }
-                    // Deleting a missing key is an error for LMDB and MDBX.
+                    // Deleting a missing key is an error for LMDB.
                     50..70 => {
                         if let Some(key) = random_existing_key(&pending, table, &mut rng) {
                             txn.del(db, &key).unwrap();

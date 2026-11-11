@@ -287,7 +287,9 @@ impl Redb {
 
     pub fn delete_batch(&self, col: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error> {
         let open_db = self.db.read();
-        let tx = Self::begin_write(&open_db)?;
+        let mut tx = Self::begin_write(&open_db)?;
+
+        tx.set_durability(redb::Durability::None);
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> = TableDefinition::new(col.into());
 
@@ -307,7 +309,9 @@ impl Redb {
         mut f: impl FnMut(&[u8]) -> Result<bool, Error>,
     ) -> Result<(), Error> {
         let open_db = self.db.read();
-        let tx = Self::begin_write(&open_db)?;
+        let mut tx = Self::begin_write(&open_db)?;
+
+        tx.set_durability(redb::Durability::None);
 
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
