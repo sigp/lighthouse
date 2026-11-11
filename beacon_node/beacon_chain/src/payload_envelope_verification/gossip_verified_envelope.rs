@@ -199,7 +199,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         drop(fork_choice_read_lock);
 
         let block_slot = proto_block.slot;
-        if ctx.source == EnvelopeSource::Gossip
+        if ctx.source.is_gossip()
             && ctx.observed_payload_envelopes.envelope_has_been_observed(
                 block_slot,
                 beacon_block_root,
@@ -344,7 +344,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             .observed_payload_envelopes
             .observe_envelope(&gossip_verified_envelope);
 
-        if envelope_already_seen && ctx.source == EnvelopeSource::Gossip {
+        if envelope_already_seen && ctx.source.is_gossip() {
             return Err(EnvelopeError::EnvelopeAlreadySeen {
                 block_root: beacon_block_root,
                 builder_index,

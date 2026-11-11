@@ -895,6 +895,41 @@ async fn heze_envelope_not_committed_to_by_bid_is_rejected() {
     ));
 }
 
+/// A caller that knows the root of the chunks of an envelope passes it, and it is compared to the
+/// bid instead of the root computed from the envelope.
+#[tokio::test]
+async fn heze_envelope_is_checked_against_known_payload_chunks_root() {
+    let (harness, block_root, envelope) = heze_block_and_envelope().await;
+    let payload_chunks_root = envelope.message.compute_payload_chunks_root().unwrap();
+    let envelope = Arc::new(envelope);
+
+    // A root the bid doesn't commit to.
+    let result = harness
+        .chain
+        .verify_envelope_for_gossip(
+            envelope.clone(),
+            Some(block_root),
+            Some(Hash256::repeat_byte(0xaa)),
+            EnvelopeSource::Waggle,
+        )
+        .await;
+    assert!(matches!(
+        result,
+        Err(EnvelopeError::PayloadChunksRootMismatch)
+    ));
+
+    harness
+        .chain
+        .verify_envelope_for_gossip(
+            envelope,
+            Some(block_root),
+            Some(payload_chunks_root),
+            EnvelopeSource::Waggle,
+        )
+        .await
+        .expect("envelope gossip verification should succeed");
+}
+
 /// The sender chooses the fork an envelope is decoded with, so a Gloas envelope can show up for a
 /// Heze slot.
 #[tokio::test]

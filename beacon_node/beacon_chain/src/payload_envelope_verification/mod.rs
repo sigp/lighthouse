@@ -46,8 +46,20 @@ pub use execution_pending_envelope::ExecutionPendingEnvelope;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr)]
 pub enum EnvelopeSource {
     Gossip,
+    /// Reassembled from the chunks received through waggle (EIP-8411).
+    Waggle,
     Rpc,
     Http,
+}
+
+impl EnvelopeSource {
+    /// Whether envelopes from this source are gossiped, so already seen ones are rejected.
+    pub fn is_gossip(&self) -> bool {
+        match self {
+            EnvelopeSource::Gossip | EnvelopeSource::Waggle => true,
+            EnvelopeSource::Rpc | EnvelopeSource::Http => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -43,8 +43,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch, EthSpec,
-    Hash256, InclusionList, PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    Hash256, InclusionList, PayloadAttestationData, PayloadAttestationMessage, PayloadChunk,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
     SignedInclusionList, SignedRoot, SignedVoluntaryExit, SingleAttestation, Slot, Spec, SubnetId,
     data::BlobIdentifier,
 };
@@ -465,6 +465,25 @@ impl TestRig {
                 junk_peer_id(),
                 Box::new(envelope.as_ref().clone()),
                 Duration::from_secs(0),
+            )
+            .unwrap();
+    }
+
+    /// Enqueues the payload of the next block as reassembled from its chunks, which is how
+    /// payloads arrive from Heze (EIP-8411).
+    pub fn enqueue_reassembled_payload(&self) {
+        let envelope = self
+            .next_block_envelope
+            .as_ref()
+            .expect("the next block should have an envelope post-Gloas");
+        let (chunks, payload_chunks_root) =
+            PayloadChunk::build_payload_chunks(&envelope.message).unwrap();
+        self.network_beacon_processor
+            .send_reassembled_execution_payload(
+                self.next_block.canonical_root(),
+                self.next_block.slot(),
+                payload_chunks_root,
+                chunks.into_iter().map(Arc::new).collect(),
             )
             .unwrap();
     }
@@ -1836,8 +1855,10 @@ async fn requeue_unknown_block_gossip_payload_attestation_without_import() {
 /// and re-processed once the slot arrives.
 #[tokio::test]
 async fn requeue_early_gossip_payload_envelope() {
-    // Only test when the Gloas fork is scheduled
-    if test_spec::<E>().gloas_fork_epoch.is_none() {
+    // Only test for Gloas: from Heze, envelopes are not gossiped, but reassembled from the chunks
+    // received over waggle, see `process_reassembled_payload_envelope`.
+    let spec = test_spec::<E>();
+    if !spec.is_gloas_scheduled() || spec.is_heze_scheduled() {
         return;
     }
 
@@ -1906,6 +1927,37 @@ async fn requeue_early_gossip_payload_envelope() {
             .get_executed_payload_envelope(&block_root)
             .is_some(),
         "The envelope should have been re-processed into the data availability checker."
+    );
+}
+
+/// Ensure that a payload reassembled from its chunks is verified against the bid of its block and
+/// processed, which is how payloads arrive from Heze (EIP-8411).
+#[tokio::test]
+async fn process_reassembled_payload_envelope() {
+    if !test_spec::<E>().is_heze_scheduled() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+
+    // Import the block for the next slot.
+    rig.enqueue_gossip_block();
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
+        .await;
+
+    rig.enqueue_reassembled_payload();
+    rig.assert_event_journal_completes(&[WorkType::GossipExecutionPayload])
+        .await;
+
+    // The envelope has been processed into the data availability checker, where its import
+    // remains pending on data column availability, which is not exercised here.
+    assert!(
+        rig.chain
+            .pending_payload_cache
+            .get_executed_payload_envelope(&block_root)
+            .is_some(),
+        "The reassembled envelope should have been processed into the data availability checker."
     );
 }
 
