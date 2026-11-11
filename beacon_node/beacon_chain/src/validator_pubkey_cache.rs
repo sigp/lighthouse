@@ -232,6 +232,29 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         self.indices.get(pubkey).copied()
     }
 
+    /// Get the index of the validator with `pubkey` in `state`.
+    ///
+    /// Validators in the cache are looked up in the cache, whilst validators beyond the end of the
+    /// cache are searched for in `state`.
+    ///
+    /// Returns `None` if `state` does not contain a validator with `pubkey`.
+    pub fn get_index_for_state(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        pubkey: &PublicKeyBytes,
+    ) -> Option<usize> {
+        if let Some(index) = self.get_index(pubkey) {
+            return (index < state.validators().len()).then_some(index);
+        }
+        // A validator missing from the cache can only be beyond the end of it.
+        state
+            .validators()
+            .iter_from(self.len())
+            .ok()?
+            .position(|validator| validator.pubkey == *pubkey)
+            .map(|i| self.len() + i)
+    }
+
     /// Returns the number of validators in the cache.
     pub fn len(&self) -> usize {
         self.indices.len()
@@ -497,5 +520,52 @@ mod test {
 
         let cache = ValidatorPubkeyCache::<T>::new(&state, get_store()).unwrap();
         check_cache_get(&cache, &keypairs[..46]);
+    }
+
+    #[test]
+    fn get_index_for_state_finds_uncached_validators() {
+        let (mut state, keypairs) = get_state(48);
+
+        // Leave the last 8 validators out of the cache.
+        for i in 40..48 {
+            let validator = state.get_validator_mut(i).unwrap();
+            validator.activation_eligibility_epoch = Epoch::new(1);
+        }
+        let cache = ValidatorPubkeyCache::<T>::new(&state, get_store()).unwrap();
+        assert_eq!(cache.len(), 40);
+
+        // Cached and uncached validators are both found.
+        for (i, keypair) in keypairs.iter().enumerate() {
+            let pubkey = keypair.pk.compress();
+            assert_eq!(cache.get_index_for_state(&state, &pubkey), Some(i));
+        }
+
+        // A pubkey that is not in the state is not found.
+        let (_, more_keypairs) = get_state(64);
+        let unknown_pubkey = more_keypairs[60].pk.compress();
+        assert_eq!(cache.get_index_for_state(&state, &unknown_pubkey), None);
+    }
+
+    #[test]
+    fn get_index_for_state_ignores_validators_not_in_state() {
+        let (mut state, keypairs) = get_state(48);
+        for i in 40..48 {
+            let validator = state.get_validator_mut(i).unwrap();
+            validator.activation_eligibility_epoch = Epoch::new(1);
+        }
+        let cache = ValidatorPubkeyCache::<T>::new(&state, get_store()).unwrap();
+        assert_eq!(cache.len(), 40);
+
+        // A state with fewer validators than the cache only resolves its own validators.
+        let (small_state, _) = get_state(32);
+        let in_small_state = keypairs[10].pk.compress();
+        let cached_only = keypairs[35].pk.compress();
+        let uncached = keypairs[44].pk.compress();
+        assert_eq!(
+            cache.get_index_for_state(&small_state, &in_small_state),
+            Some(10)
+        );
+        assert_eq!(cache.get_index_for_state(&small_state, &cached_only), None);
+        assert_eq!(cache.get_index_for_state(&small_state, &uncached), None);
     }
 }

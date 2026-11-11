@@ -1631,6 +1631,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(pubkey_cache.get_index(pubkey))
     }
 
+    /// Returns the index (if any) of the validator with the given public key in `state`.
+    ///
+    /// Unlike `Self::validator_index`, this also finds validators that are in `state` but not yet
+    /// in the `validator_pubkey_cache`, which only holds finalized validators.
+    pub fn validator_index_for_state(
+        &self,
+        state: &BeaconState<T::EthSpec>,
+        pubkey: &PublicKeyBytes,
+    ) -> Option<usize> {
+        self.validator_pubkey_cache
+            .read()
+            .get_index_for_state(state, pubkey)
+    }
+
     /// Return the validator indices of all public keys fetched from an iterator.
     ///
     /// If any public key doesn't belong to a known validator then an error will be returned.
