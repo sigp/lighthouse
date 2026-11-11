@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, warn};
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayloadRef, ExecutionRequestsRef, Hash256,
+    EthSpec, ExecutionBlockHash, ExecutionPayloadRef, ExecutionRequestsRef, ForkName, Hash256,
     SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot,
 };
 
@@ -105,7 +105,10 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
 
         match self.adapter.get_payload_body(beacon_block_root) {
             Ok(Some(payload_body)) => {
-                LoadedEnvelope::Complete(Ok(Some(Arc::new(summary.into_envelope(payload_body)))))
+                let fork_name = self.adapter.fork_name_at_slot(summary.slot());
+                LoadedEnvelope::Complete(Ok(Some(Arc::new(
+                    summary.into_envelope(payload_body, fork_name),
+                ))))
             }
             Ok(None) => LoadedEnvelope::NeedsPayload(Box::new(summary)),
             Err(error) => LoadedEnvelope::Complete(Err(BeaconChainError::DBError(error))),
@@ -181,7 +184,8 @@ impl<T: BeaconChainTypes> PayloadEnvelopeStreamer<T> {
                     LoadedEnvelope::NeedsPayload(summary) => match &mut payload_bodies {
                         Ok(payload_bodies) => Arc::new(match payload_bodies.next().flatten() {
                             Some(payload_body) => {
-                                reconstruct_envelope_from_body(*summary, payload_body)
+                                let fork_name = self.adapter.fork_name_at_slot(summary.slot());
+                                reconstruct_envelope_from_body(*summary, payload_body, fork_name)
                             }
                             None => Err(Error::PayloadMissingFromExecutionLayer(
                                 summary.block_hash(),
@@ -278,6 +282,7 @@ const MAX_PAYLOAD_BODIES_PER_REQUEST: usize = 32;
 fn reconstruct_envelope_from_body<E: EthSpec>(
     summary: SignedExecutionPayloadEnvelopeSummary<E>,
     payload_body: ExecutionPayloadBodyV2<E>,
+    fork_name: ForkName,
 ) -> PayloadEnvelopeResult<E> {
     let expected_payload_hash = summary.block_hash();
     let withdrawals = payload_body
@@ -293,12 +298,13 @@ fn reconstruct_envelope_from_body<E: EthSpec>(
         payload_body.transactions,
         withdrawals,
         block_access_list,
+        fork_name,
     );
     let (computed_payload_hash, _) = execution_layer::calculate_execution_block_hash(
-        ExecutionPayloadRef::Gloas(&envelope.message.payload),
-        Some(envelope.message.parent_beacon_block_root),
+        ExecutionPayloadRef::Gloas(envelope.message.payload()),
+        Some(envelope.message.parent_beacon_block_root()),
         Some(ExecutionRequestsRef::Gloas(
-            &envelope.message.execution_requests,
+            envelope.message.execution_requests(),
         )),
     );
     if expected_payload_hash != computed_payload_hash {

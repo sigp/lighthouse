@@ -69,6 +69,17 @@ pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
 pub const SSZ_CONTENT_TYPE_HEADER: &str = "application/octet-stream";
 pub const JSON_CONTENT_TYPE_HEADER: &str = "application/json";
 
+/// Parses the fork from the `Eth-Consensus-Version` header of a response.
+fn consensus_version_from_headers(headers: &HeaderMap) -> Result<ForkName, Error> {
+    headers
+        .get(CONSENSUS_VERSION_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<ForkName>().ok())
+        .ok_or_else(|| {
+            Error::InvalidHeaders("missing or invalid Eth-Consensus-Version header".into())
+        })
+}
+
 /// Specific optimized timeout constants for HTTP requests involved in different validator duties.
 /// This can help ensure that proper endpoint fallback occurs.
 const HTTP_ATTESTATION_TIMEOUT_QUOTIENT: u32 = 4;
@@ -3385,12 +3396,20 @@ impl BeaconNodeHttpClient {
             .push(&beacon_block_root.to_string());
 
         let opt_response = self
-            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_validator_block)
+            .get_response_with_response_headers(
+                path,
+                Accept::Ssz,
+                self.timeouts.get_validator_block,
+                |response, headers| async move {
+                    let fork_name = consensus_version_from_headers(&headers)?;
+                    let response_bytes = response.bytes().await?;
+                    ExecutionPayloadEnvelope::from_ssz_bytes_by_fork(&response_bytes, fork_name)
+                        .map_err(Error::InvalidSsz)
+                },
+            )
             .await?;
 
-        let response_bytes = opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))?;
-
-        ExecutionPayloadEnvelope::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
+        opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))
     }
 
     /// Path for `v1/beacon/execution_payload_envelopes`
@@ -3623,15 +3642,18 @@ impl BeaconNodeHttpClient {
         block_id: BlockId,
     ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
         let path = self.get_beacon_execution_payload_envelopes_path(block_id)?;
-        let opt_response = self
-            .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
-            .await?;
-        match opt_response {
-            Some(bytes) => SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)
-                .map(Some)
-                .map_err(Error::InvalidSsz),
-            None => Ok(None),
-        }
+        self.get_response_with_response_headers(
+            path,
+            Accept::Ssz,
+            self.timeouts.get_beacon_blocks_ssz,
+            |response, headers| async move {
+                let fork_name = consensus_version_from_headers(&headers)?;
+                let bytes = response.bytes().await?;
+                SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(&bytes, fork_name)
+                    .map_err(Error::InvalidSsz)
+            },
+        )
+        .await
     }
 
     /// `GET v2/validator/blocks/{slot}` in ssz format

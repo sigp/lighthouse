@@ -38,8 +38,11 @@ impl<E: EthSpec> ActiveRequestItems for PayloadEnvelopesByRootRequestItems<E> {
     /// Append a response to the single chunk request. We expect exactly one envelope per
     /// block root. Returns `true` when the single expected item has been received.
     fn add(&mut self, envelope: Self::Item) -> Result<bool, LookupVerifyError> {
-        let block_root = envelope.message.beacon_block_root;
-        if self.request.block_root != block_root {
+        // Heze envelopes don't contain the block root (EIP-8411). They are verified against the bid
+        // of the requested block on import instead.
+        if let Ok(block_root) = envelope.beacon_block_root()
+            && self.request.block_root != block_root
+        {
             return Err(LookupVerifyError::UnrequestedBlockRoot(block_root));
         }
 

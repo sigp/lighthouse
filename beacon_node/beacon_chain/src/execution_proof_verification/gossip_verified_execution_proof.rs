@@ -261,11 +261,13 @@ fn get_execution_proof<T: BeaconChainTypes>(
     )
     .map_err(|e| Error::BeaconChainError(Box::new(BeaconChainError::SszTypesError(e))))?;
 
+    let parent_beacon_block_root = payload_envelope.parent_beacon_block_root();
+    let (execution_payload, execution_requests) = payload_envelope.into_payload_and_requests();
     let new_payload_request = NewPayloadRequest::<T::EthSpec> {
-        execution_payload: payload_envelope.payload,
+        execution_payload,
         versioned_hashes,
-        parent_beacon_block_root: payload_envelope.parent_beacon_block_root,
-        execution_requests: payload_envelope.execution_requests,
+        parent_beacon_block_root,
+        execution_requests,
     };
 
     Ok(ExecutionProof {

@@ -264,7 +264,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             }
                         })?;
                     }
-                    if envelope.envelope().message.builder_index == BUILDER_INDEX_SELF_BUILD {
+                    if envelope.envelope().message.builder_index() == BUILDER_INDEX_SELF_BUILD {
                         envelopes_to_verify.push((
                             block_root,
                             envelope.envelope().clone(),

@@ -238,8 +238,11 @@ async fn gloas_block_production_parent_root_with_unadvanced_state() {
             parent_bid.parent_block_hash(),
         );
         let (envelope, _, _) = payload_contents.unwrap();
-        assert_eq!(envelope.parent_beacon_block_root, parent_root);
-        assert_eq!(envelope.payload.parent_hash, parent_bid.parent_block_hash());
+        assert_eq!(envelope.parent_beacon_block_root(), parent_root);
+        assert_eq!(
+            envelope.payload().parent_hash,
+            parent_bid.parent_block_hash()
+        );
     }
 }
 
@@ -498,7 +501,7 @@ async fn prepare_payload_generic(
     let mut unadvanced_full_state = unadvanced_empty_state.clone();
     apply_parent_execution_payload(
         &mut unadvanced_full_state,
-        &envelope.message.execution_requests,
+        envelope.message.execution_requests(),
         &spec,
     )
     .unwrap();
@@ -506,7 +509,7 @@ async fn prepare_payload_generic(
     let mut advanced_full_state = advanced_empty_state.clone();
     apply_parent_execution_payload(
         &mut advanced_full_state,
-        &envelope.message.execution_requests,
+        envelope.message.execution_requests(),
         &spec,
     )
     .unwrap();
@@ -682,18 +685,28 @@ async fn prepare_payload_generic(
         "block production should independently select the {parent_payload_status:?} parent"
     );
 
-    assert_eq!(local_envelope.parent_beacon_block_root, head_root);
+    assert_eq!(local_envelope.parent_beacon_block_root(), head_root);
+    // [Modified in Heze:EIP8411] The envelope doesn't contain the root of its block. The bid of
+    // the block commits to the chunks of the envelope instead.
+    if let Ok(beacon_block_root) = local_envelope.beacon_block_root() {
+        assert_eq!(beacon_block_root, produced_block.canonical_root());
+    } else {
+        let payload_chunks_root = produced_block
+            .body()
+            .signed_execution_payload_bid()
+            .unwrap()
+            .message()
+            .payload_chunks_root()
+            .unwrap();
+        assert!(local_envelope.matches_payload_chunks_root(payload_chunks_root));
+    }
     assert_eq!(
-        local_envelope.beacon_block_root,
-        produced_block.canonical_root()
-    );
-    assert_eq!(
-        local_envelope.payload.parent_hash,
+        local_envelope.payload().parent_hash,
         expected_execution_parent_hash
     );
-    assert_eq!(local_envelope.payload.slot_number, prepare_slot);
+    assert_eq!(local_envelope.payload().slot_number, prepare_slot);
 
-    let block_production_withdrawals = local_envelope.payload.withdrawals.to_vec();
+    let block_production_withdrawals = local_envelope.payload().withdrawals.to_vec();
     assert_eq!(
         block_production_withdrawals, payload_attributes_withdrawals,
         "block production and payload attributes should use identical withdrawals for the \

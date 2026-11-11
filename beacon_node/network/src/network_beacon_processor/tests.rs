@@ -2841,7 +2841,7 @@ async fn test_payload_envelopes_by_range() {
         } = next
         {
             if let Some(env) = envelope {
-                actual_roots.push(env.beacon_block_root());
+                actual_roots.push(env.beacon_block_root().unwrap());
             } else {
                 break;
             }
@@ -2882,7 +2882,7 @@ async fn test_payload_envelopes_by_root() {
         } = next
         {
             if let Some(env) = envelope {
-                actual_roots.push(env.beacon_block_root());
+                actual_roots.push(env.beacon_block_root().unwrap());
             } else {
                 break;
             }
@@ -2954,7 +2954,7 @@ async fn test_payload_envelopes_by_range_no_duplicates_with_skip_slots() {
         } = next
         {
             if let Some(env) = envelope {
-                beacon_block_roots.push(env.beacon_block_root());
+                beacon_block_roots.push(env.beacon_block_root().unwrap());
             } else {
                 break;
             }

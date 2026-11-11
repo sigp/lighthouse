@@ -1375,14 +1375,13 @@ async fn http_published_gloas_block_fetches_columns(
 
     if self_built {
         let envelope = envelope.expect("Gloas block should produce an envelope");
-        harness
-            .chain
-            .pending_payload_envelopes
-            .write()
-            .insert(PendingEnvelopeData {
+        harness.chain.pending_payload_envelopes.write().insert(
+            block_root,
+            PendingEnvelopeData {
                 envelope: Arc::new(envelope.message),
                 blobs: Some(Arc::new(BlobsList::<E>::default())),
-            });
+            },
+        );
     }
 
     tester

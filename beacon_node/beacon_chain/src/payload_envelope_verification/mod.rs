@@ -105,7 +105,7 @@ impl<E: EthSpec> AvailableEnvelope<E> {
             if num_provided_columns != filtered_columns.len() {
                 warn!(
                     message = "More columns provided than expected",
-                    envelope = %envelope.message.payload.block_hash,
+                    envelope = %envelope.message.payload().block_hash,
                     num_provided_columns = %num_provided_columns,
                     columns_expected = %columns_expected,
                 );
@@ -120,7 +120,7 @@ impl<E: EthSpec> AvailableEnvelope<E> {
         } else {
             warn!(
                 message = "Custody columns provided for envelope that does not require them",
-                envelope = %envelope.message.payload.block_hash,
+                envelope = %envelope.message.payload().block_hash,
             );
             Ok(Self {
                 envelope,
@@ -419,10 +419,10 @@ pub fn build_new_payload_request<'a, E: EthSpec>(
 
     Ok(execution_layer::NewPayloadRequest::Gloas(
         execution_layer::NewPayloadRequestGloas {
-            execution_payload: &envelope.message.payload,
+            execution_payload: envelope.message.payload(),
             versioned_hashes,
-            parent_beacon_block_root: envelope.message.parent_beacon_block_root,
-            execution_requests: &envelope.message.execution_requests,
+            parent_beacon_block_root: envelope.message.parent_beacon_block_root(),
+            execution_requests: envelope.message.execution_requests(),
         },
     ))
 }
@@ -451,9 +451,9 @@ mod payload_hash_tests {
     use std::marker::PhantomData;
     use types::{
         BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionPayloadEnvelope,
-        ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-        Graffiti, Hash256, SignedBeaconBlock, SignedExecutionPayloadBidGloas,
-        SignedExecutionPayloadEnvelope, Slot, Spec, SyncAggregate,
+        ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas, ExecutionPayloadRef,
+        ExecutionRequestsGloas, ExecutionRequestsRef, Graffiti, Hash256, SignedBeaconBlock,
+        SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope, Slot, Spec, SyncAggregate,
     };
 
     type E = Spec;
@@ -504,13 +504,13 @@ mod payload_hash_tests {
         payload.block_hash = block_hash;
 
         SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
                 payload,
                 execution_requests: requests,
                 builder_index: 0,
                 beacon_block_root: Hash256::ZERO,
                 parent_beacon_block_root,
-            },
+            }),
             signature: Signature::empty(),
         }
     }
@@ -529,7 +529,7 @@ mod payload_hash_tests {
         let block = make_block(slot);
         let mut envelope = make_consistent_envelope(slot);
         // Tamper a field that only the hash recompute can catch.
-        envelope.message.payload.timestamp += 1;
+        envelope.message.payload_mut().timestamp += 1;
         assert!(verify_envelope_payload_hash::<E>(&envelope, &block).is_err());
     }
 }

@@ -67,22 +67,22 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
     }
 
     // Builder index matches committed bid.
-    if envelope.builder_index != execution_bid.builder_index() {
+    if envelope.builder_index() != execution_bid.builder_index() {
         return Err(EnvelopeError::BuilderIndexMismatch {
             committed_bid: execution_bid.builder_index(),
-            envelope: envelope.builder_index,
+            envelope: envelope.builder_index(),
         });
     }
 
     // The block hash should match the block hash of the execution bid.
-    if envelope.payload.block_hash != execution_bid.block_hash() {
+    if envelope.payload().block_hash != execution_bid.block_hash() {
         return Err(EnvelopeError::BlockHashMismatch {
             committed_bid: execution_bid.block_hash(),
-            envelope: envelope.payload.block_hash,
+            envelope: envelope.payload().block_hash,
         });
     }
 
-    let requests = &envelope.execution_requests;
+    let requests = envelope.execution_requests();
     if requests.withdrawals.len() > E::max_withdrawal_requests_per_payload() {
         return Err(EnvelopeError::OperationListTooLong {
             kind: "withdrawal_requests",
@@ -111,10 +111,10 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
             max: E::max_builder_exit_requests_per_payload(),
         });
     }
-    if envelope.payload.withdrawals.len() > E::max_withdrawals_per_payload() {
+    if envelope.payload().withdrawals.len() > E::max_withdrawals_per_payload() {
         return Err(EnvelopeError::OperationListTooLong {
             kind: "withdrawals",
-            length: envelope.payload.withdrawals.len(),
+            length: envelope.payload().withdrawals.len(),
             max: E::max_withdrawals_per_payload(),
         });
     }
@@ -138,6 +138,8 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
 #[educe(Debug(bound = "T: BeaconChainTypes"))]
 pub struct GossipVerifiedEnvelope<T: BeaconChainTypes> {
     pub signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+    /// The root of `block`, which the envelope reveals the payload for.
+    pub beacon_block_root: Hash256,
     pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
     pub snapshot: Option<Box<EnvelopeProcessingSnapshot<T::EthSpec>>>,
 }
@@ -148,8 +150,9 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, EnvelopeError> {
         let envelope = &signed_envelope.message;
-        let beacon_block_root = envelope.beacon_block_root;
-        let builder_index = envelope.builder_index;
+        // TODO(heze): Take the block root from the caller, Heze envelopes don't contain it.
+        let beacon_block_root = envelope.beacon_block_root()?;
+        let builder_index = envelope.builder_index();
 
         // Check that we've seen the beacon block for this envelope and that it passes validation.
         // TODO(EIP-7732): We might need some type of status table in order to differentiate between:
@@ -287,6 +290,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
         let gossip_verified_envelope = Self {
             signed_envelope,
+            beacon_block_root,
             block,
             snapshot: opt_snapshot,
         };
@@ -307,7 +311,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         }
 
         if !envelope_already_seen {
-            let payload = &gossip_verified_envelope.signed_envelope.message.payload;
+            let payload = gossip_verified_envelope.signed_envelope.message.payload();
             ctx.observed_execution_payloads
                 .insert(payload.block_hash, payload.gas_limit);
 
@@ -380,7 +384,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .spawn_blocking_handle(
                 move || {
                     let slot = envelope.slot();
-                    let beacon_block_root = envelope.message.beacon_block_root;
+                    let beacon_block_root = envelope.message.beacon_block_root().ok();
 
                     let ctx = chain.payload_envelope_gossip_verification_context(source);
                     match GossipVerifiedEnvelope::new(envelope, &ctx) {
@@ -423,9 +427,9 @@ mod tests {
         Address, BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BuilderDepositRequest,
         BuilderExitRequest, ConsolidationRequest, Eth1Data, EthSpec, ExecutionBlockHash,
         ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidRef,
-        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, Graffiti, Hash256,
-        SignedBeaconBlock, SignedExecutionPayloadBidGloas, Slot, Spec, SyncAggregate, Withdrawal,
-        WithdrawalRequest,
+        ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas,
+        ExecutionRequestsGloas, Graffiti, Hash256, SignedBeaconBlock,
+        SignedExecutionPayloadBidGloas, Slot, Spec, SyncAggregate, Withdrawal, WithdrawalRequest,
     };
 
     use super::verify_envelope_consistency;
@@ -439,7 +443,7 @@ mod tests {
         builder_index: u64,
         block_hash: ExecutionBlockHash,
     ) -> ExecutionPayloadEnvelope<E> {
-        ExecutionPayloadEnvelope {
+        ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
             payload: ExecutionPayloadGloas {
                 block_hash,
                 slot_number: slot,
@@ -449,7 +453,7 @@ mod tests {
             builder_index,
             beacon_block_root: Hash256::ZERO,
             parent_beacon_block_root: Hash256::ZERO,
-        }
+        })
     }
 
     fn make_block(slot: Slot) -> SignedBeaconBlock<E> {
@@ -570,7 +574,7 @@ mod tests {
         let mut envelope = make_envelope(slot, builder_index, block_hash);
         // The block's parent root is `Hash256::ZERO`; claim a different parent beacon
         // block root in the envelope.
-        envelope.parent_beacon_block_root = Hash256::repeat_byte(0x11);
+        *envelope.parent_beacon_block_root_mut() = Hash256::repeat_byte(0x11);
         let block = make_block(slot);
         let bid = make_bid(builder_index, block_hash);
 
@@ -615,7 +619,7 @@ mod tests {
             amount: 0,
         };
         let max = E::max_withdrawals_per_payload();
-        envelope.payload.withdrawals =
+        envelope.payload_mut().withdrawals =
             ProgressiveVariableList::new(vec![withdrawal.clone(); max]).unwrap();
         assert!(
             verify_envelope_consistency::<E>(&envelope, &block, bid.to_ref(), Slot::new(0)).is_ok()
@@ -641,11 +645,11 @@ mod tests {
         let mut envelope = make_envelope(slot, builder_index, block_hash);
         let block = make_block(slot);
 
-        set_len(&mut envelope.execution_requests, max).unwrap();
+        set_len(envelope.execution_requests_mut(), max).unwrap();
         let bid = ExecutionPayloadBidGloas {
             builder_index,
             block_hash,
-            execution_requests_root: envelope.execution_requests.tree_hash_root(),
+            execution_requests_root: envelope.execution_requests().tree_hash_root(),
             ..ExecutionPayloadBidGloas::default()
         };
         assert!(
@@ -660,7 +664,7 @@ mod tests {
         );
 
         assert!(
-            set_len(&mut envelope.execution_requests, max + 1).is_err(),
+            set_len(envelope.execution_requests_mut(), max + 1).is_err(),
             "{kind} over max should be rejected during construction"
         );
     }

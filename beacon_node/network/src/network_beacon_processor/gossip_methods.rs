@@ -3801,7 +3801,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             )
             .await
         {
-            let beacon_block_root = gossip_verified_envelope.signed_envelope.beacon_block_root();
+            let beacon_block_root = gossip_verified_envelope.beacon_block_root;
 
             Span::current().record("beacon_block_root", beacon_block_root.to_string());
 
@@ -3842,7 +3842,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 // Write the time the envelope was observed into the delay cache.
                 self.chain.envelope_times_cache.write().set_time_observed(
-                    verified_envelope.signed_envelope.beacon_block_root(),
+                    verified_envelope.beacon_block_root,
                     envelope.slot(),
                     seen_duration,
                     Some(peer_id.to_string()),
@@ -3850,7 +3850,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 info!(
                     slot = %verified_envelope.signed_envelope.slot(),
-                    root = ?verified_envelope.signed_envelope.beacon_block_root(),
+                    root = ?verified_envelope.beacon_block_root,
                     "New envelope received"
                 );
 
@@ -3981,7 +3981,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         let envelope_slot = verified_envelope.signed_envelope.slot();
-        let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
+        let beacon_block_root = verified_envelope.beacon_block_root;
         match self.chain.slot() {
             // We only need to do a simple check about the envelope slot vs the current slot because
             // `verify_envelope_for_gossip` already ensures that the envelope slot is within tolerance
@@ -4063,7 +4063,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         verified_envelope: GossipVerifiedEnvelope<T>,
     ) {
         let _processing_start_time = Instant::now();
-        let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
+        let beacon_block_root = verified_envelope.beacon_block_root;
 
         #[allow(clippy::result_large_err)]
         let result = self

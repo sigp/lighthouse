@@ -275,7 +275,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .on_payload_envelope_received(
                 block_root,
                 payload_verification_status,
-                signed_envelope.message().payload.block_hash,
+                signed_envelope.message().payload().block_hash,
             )
             .map_err(|e| EnvelopeError::InternalError(format!("{e:?}")))?;
 
@@ -330,8 +330,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(fork_choice);
 
         self.observed_execution_payloads.insert(
-            signed_envelope.message.payload.block_hash,
-            signed_envelope.message.payload.gas_limit,
+            signed_envelope.message.payload().block_hash,
+            signed_envelope.message.payload().gas_limit,
         );
 
         // We're declaring the envelope "imported" at this point, since fork choice and the DB know
@@ -392,7 +392,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             event_handler.register(EventKind::ExecutionPayload(SseExecutionPayload {
                 slot: envelope_slot,
-                builder_index: signed_envelope.message.builder_index,
+                builder_index: signed_envelope.message.builder_index(),
                 block_hash: signed_envelope.block_hash(),
                 block_root,
                 execution_optimistic,

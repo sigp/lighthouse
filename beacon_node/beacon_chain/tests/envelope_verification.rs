@@ -223,10 +223,10 @@ async fn gossip_rejects_execution_requests_root_mismatch() {
         .expect("block should be processed");
 
     let mut signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
-    let block_hash = signed_envelope.message.payload.block_hash;
+    let block_hash = signed_envelope.message.payload().block_hash;
     signed_envelope
         .message
-        .execution_requests
+        .execution_requests_mut()
         .withdrawals
         .push(WithdrawalRequest {
             source_address: Address::repeat_byte(0),
@@ -280,8 +280,8 @@ async fn gossip_verified_envelope_records_payload_gas_limit() {
         .expect("block should be processed");
 
     let signed_envelope = opt_envelope.expect("Gloas block should produce an envelope");
-    let block_hash = signed_envelope.message.payload.block_hash;
-    let gas_limit = signed_envelope.message.payload.gas_limit;
+    let block_hash = signed_envelope.message.payload().block_hash;
+    let gas_limit = signed_envelope.message.payload().gas_limit;
     assert_eq!(
         harness
             .chain
@@ -388,7 +388,7 @@ async fn gossip_ignores_subsequent_envelope_with_modified_slot() {
         .expect("first envelope should pass gossip verification");
 
     let mut replayed_envelope = (*envelope).clone();
-    replayed_envelope.message.payload.slot_number += 1;
+    replayed_envelope.message.payload_mut().slot_number += 1;
 
     let second_result = harness
         .chain

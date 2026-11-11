@@ -5577,7 +5577,7 @@ impl ApiTester {
             .get_by_block_root(block_root)
             .cloned()
             .expect("envelope should exist in pending cache for local building");
-        assert_eq!(envelope.beacon_block_root, block_root);
+        Self::assert_envelope_block_root(&envelope, block_root);
         assert_eq!(envelope.slot(), slot);
     }
 
@@ -5588,9 +5588,9 @@ impl ApiTester {
         block_root: Hash256,
         slot: Slot,
     ) {
-        assert_eq!(envelope.beacon_block_root, block_root);
+        Self::assert_envelope_block_root(envelope, block_root);
         assert_eq!(envelope.slot(), slot);
-        assert_eq!(envelope.builder_index, BUILDER_INDEX_SELF_BUILD);
+        assert_eq!(envelope.builder_index(), BUILDER_INDEX_SELF_BUILD);
     }
 
     /// Sign an execution payload envelope.
@@ -5686,7 +5686,7 @@ impl ApiTester {
         let (sk, _, mut envelope) = self
             .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
             .await;
-        envelope.payload.gas_limit = envelope.payload.gas_limit.saturating_add(1);
+        envelope.payload_mut().gas_limit = envelope.payload().gas_limit.saturating_add(1);
         let signed_envelope =
             self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
 
@@ -5724,7 +5724,7 @@ impl ApiTester {
         let (sk, _, mut envelope) = self
             .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
             .await;
-        envelope.payload.gas_limit = envelope.payload.gas_limit.saturating_add(1);
+        envelope.payload_mut().gas_limit = envelope.payload().gas_limit.saturating_add(1);
         let signed_envelope =
             self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
 
@@ -6150,7 +6150,7 @@ impl ApiTester {
             .chain
             .pending_payload_envelopes
             .write()
-            .take_blobs(envelope.beacon_block_root);
+            .take_blobs(envelope.beacon_block_root().unwrap());
         assert!(
             drained_blobs.is_some_and(|blobs| !blobs.is_empty()),
             "precondition: the block should commit to blobs"
@@ -6189,7 +6189,7 @@ impl ApiTester {
         let (sk, _, envelope) = self
             .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
             .await;
-        let block_root = envelope.beacon_block_root;
+        let block_root = envelope.beacon_block_root().unwrap();
         let signed_envelope =
             self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
 
@@ -6493,7 +6493,7 @@ impl ApiTester {
             self.chain
                 .pending_payload_envelopes
                 .write()
-                .remove(envelope.beacon_block_root);
+                .remove(block_root);
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             let contents = SignedExecutionPayloadEnvelopeContents {

@@ -31,7 +31,10 @@ pub use execution_payload_bid::{
     ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
     ExecutionPayloadBidRefMut,
 };
-pub use execution_payload_envelope::ExecutionPayloadEnvelope;
+pub use execution_payload_envelope::{
+    ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopeHeze,
+    ExecutionPayloadEnvelopeRef, ExecutionPayloadEnvelopeRefMut,
+};
 pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,

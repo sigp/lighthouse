@@ -1460,12 +1460,25 @@ where
             slot_number: post_state.slot(),
             ..Default::default()
         };
-        let envelope = ExecutionPayloadEnvelope {
-            payload,
-            execution_requests: ExecutionRequestsGloas::default(),
-            builder_index: bid.builder_index(),
-            beacon_block_root: block.canonical_root(),
-            parent_beacon_block_root: post_state.latest_block_header().parent_root,
+        let envelope = if self
+            .spec
+            .fork_name_at_slot::<E>(post_state.slot())
+            .heze_enabled()
+        {
+            ExecutionPayloadEnvelope::Heze(ExecutionPayloadEnvelopeHeze {
+                payload,
+                execution_requests: ExecutionRequestsGloas::default(),
+                builder_index: bid.builder_index(),
+                parent_beacon_block_root: post_state.latest_block_header().parent_root,
+            })
+        } else {
+            ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
+                payload,
+                execution_requests: ExecutionRequestsGloas::default(),
+                builder_index: bid.builder_index(),
+                beacon_block_root: block.canonical_root(),
+                parent_beacon_block_root: post_state.latest_block_header().parent_root,
+            })
         };
 
         let builder_pubkey = post_state
@@ -3445,7 +3458,7 @@ where
             slot = %signed_envelope.slot(),
             "Processing execution payload envelope"
         );
-        let payload_block_hash = signed_envelope.message.payload.block_hash;
+        let payload_block_hash = signed_envelope.message.payload().block_hash;
 
         state_processing::envelope_processing::verify_execution_payload_envelope(
             state,
@@ -3478,10 +3491,10 @@ where
             .collect();
 
         let request = NewPayloadRequest::Gloas(NewPayloadRequestGloas {
-            execution_payload: &signed_envelope.message.payload,
+            execution_payload: signed_envelope.message.payload(),
             versioned_hashes,
             parent_beacon_block_root: block.message().parent_root(),
-            execution_requests: &signed_envelope.message.execution_requests,
+            execution_requests: signed_envelope.message.execution_requests(),
         });
 
         self.chain

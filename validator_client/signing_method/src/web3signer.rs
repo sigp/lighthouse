@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn execution_payload_envelope_request_shape() {
-        let envelope = ExecutionPayloadEnvelope::<E>::empty();
+        let envelope: ExecutionPayloadEnvelope<E> = ExecutionPayloadEnvelopeGloas::default().into();
         let value = serialize(
             MessageType::ExecutionPayloadEnvelope,
             Some(dummy_fork_info()),

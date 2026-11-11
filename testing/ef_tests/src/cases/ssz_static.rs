@@ -5,7 +5,10 @@ use context_deserialize::ContextDeserialize;
 use serde::Deserialize;
 use ssz::Decode;
 use tree_hash::TreeHash;
-use types::{BeaconBlock, BeaconState, DataColumnsByRootIdentifier, Hash256, SignedBeaconBlock};
+use types::{
+    BeaconBlock, BeaconState, DataColumnsByRootIdentifier, ExecutionPayloadEnvelope,
+    ForkVersionDecode, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+};
 
 #[derive(Debug, Clone, Deserialize)]
 struct SszStaticRoots {
@@ -161,6 +164,46 @@ impl<E: EthSpec> Case for SszStaticWithSpec<SignedBeaconBlock<E>> {
         let spec = &testing_spec::<E>(fork_name);
         check_serialization(&self.value, &self.serialized, |bytes| {
             SignedBeaconBlock::from_ssz_bytes(bytes, spec)
+        })?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> LoadCase for SszStaticWithSpec<ExecutionPayloadEnvelope<E>> {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        load_from_dir(path, fork_name).map(|(roots, serialized, value)| Self {
+            roots,
+            serialized,
+            value,
+        })
+    }
+}
+
+impl<E: EthSpec> Case for SszStaticWithSpec<ExecutionPayloadEnvelope<E>> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        check_serialization(&self.value, &self.serialized, |bytes| {
+            ExecutionPayloadEnvelope::from_ssz_bytes_by_fork(bytes, fork_name)
+        })?;
+        check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
+        Ok(())
+    }
+}
+
+impl<E: EthSpec> LoadCase for SszStaticWithSpec<SignedExecutionPayloadEnvelope<E>> {
+    fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
+        load_from_dir(path, fork_name).map(|(roots, serialized, value)| Self {
+            roots,
+            serialized,
+            value,
+        })
+    }
+}
+
+impl<E: EthSpec> Case for SszStaticWithSpec<SignedExecutionPayloadEnvelope<E>> {
+    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
+        check_serialization(&self.value, &self.serialized, |bytes| {
+            SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(bytes, fork_name)
         })?;
         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
         Ok(())

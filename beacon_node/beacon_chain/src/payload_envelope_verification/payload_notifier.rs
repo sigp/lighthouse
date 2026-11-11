@@ -35,7 +35,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                     // TODO(gloas): check and test RLP block hash calculation post-Gloas
                     if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
-                            block_number = ?payload_message.payload.block_number,
+                            block_number = ?payload_message.payload().block_number,
                             info = "you can silence this warning with --disable-optimistic-finalized-sync",
                             error = ?e,
                             "Falling back to slow block hash verification"
@@ -91,10 +91,10 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             .collect();
 
         Ok(NewPayloadRequest::Gloas(NewPayloadRequestGloas {
-            execution_payload: &envelope.message.payload,
+            execution_payload: envelope.message.payload(),
             versioned_hashes,
-            parent_beacon_block_root: envelope.message.parent_beacon_block_root,
-            execution_requests: &envelope.message.execution_requests,
+            parent_beacon_block_root: envelope.message.parent_beacon_block_root(),
+            execution_requests: envelope.message.execution_requests(),
         }))
     }
 }

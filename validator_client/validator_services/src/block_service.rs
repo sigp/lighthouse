@@ -321,11 +321,14 @@ impl<E: EthSpec> EnvelopeAction<E> {
                 // Check the pair returned by the beacon node. A different block decided by a
                 // distributed validator store is handled separately after block signing.
                 let block_root = block.canonical_root();
-                if execution_payload_envelope.beacon_block_root != block_root {
+                // TODO(heze): Heze envelopes don't contain the block root, so the pair is unchecked.
+                if let Ok(envelope_block_root) = execution_payload_envelope.beacon_block_root()
+                    && envelope_block_root != block_root
+                {
                     warn!(
                         slot = slot.as_u64(),
                         %block_root,
-                        envelope_block_root = %execution_payload_envelope.beacon_block_root,
+                        %envelope_block_root,
                         "Beacon node returned an envelope for a different block"
                     );
                 }
@@ -396,7 +399,7 @@ impl<E: EthSpec> EnvelopeAction<E> {
     /// The `hash_tree_root` of the locally built payload, when there is one.
     fn local_payload_root(&self) -> Option<Hash256> {
         match self {
-            Self::Local(contents) => Some(contents.envelope.payload.tree_hash_root()),
+            Self::Local(contents) => Some(contents.envelope.payload().tree_hash_root()),
             Self::Fetch(_) | Self::Skip => None,
         }
     }
@@ -906,9 +909,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             EnvelopeAction::Local(contents) => {
                 // A distributed validator store can sign a different block after consensus.
                 // Its unused local envelope must not be signed or published.
-                if contents.envelope.beacon_block_root != signed_block_root {
+                // TODO(heze): Heze envelopes don't contain the block root, so this is unchecked.
+                if let Ok(local_block_root) = contents.envelope.beacon_block_root()
+                    && local_block_root != signed_block_root
+                {
                     debug!(
-                        local_block_root = %contents.envelope.beacon_block_root,
+                        %local_block_root,
                         %signed_block_root,
                         "Skipping local envelope for a different block"
                     );
@@ -919,6 +925,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                         &proposer_fallback,
                         slot,
                         fork_name,
+                        signed_block_root,
                         *contents,
                         &validator_pubkey,
                     )
@@ -970,7 +977,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         info!(
             slot = slot.as_u64(),
-            beacon_block_root = %envelope.beacon_block_root,
+            %beacon_block_root,
             "Received execution payload envelope, signing"
         );
 
@@ -1019,7 +1026,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
 
         info!(
             slot = slot.as_u64(),
-            beacon_block_root = %signed_envelope.message.beacon_block_root,
+            %beacon_block_root,
             "Successfully published signed execution payload envelope"
         );
 
@@ -1034,6 +1041,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         proposer_fallback: &ProposerFallback<T>,
         slot: Slot,
         fork_name: ForkName,
+        beacon_block_root: Hash256,
         contents: LocalPayloadContents<S::E>,
         validator_pubkey: &PublicKeyBytes,
     ) -> Result<(), BlockError> {
@@ -1042,7 +1050,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             kzg_proofs,
             blobs,
         } = contents;
-        let beacon_block_root = envelope.beacon_block_root;
         info!(
             slot = slot.as_u64(),
             %beacon_block_root,
@@ -1189,7 +1196,7 @@ mod tests {
     use beacon_node_fallback::{CandidateBeaconNode, Config as BeaconNodeConfig};
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
-    use types::{Blob, KzgProof, MainnetEthSpec};
+    use types::{Blob, ExecutionPayloadEnvelopeGloas, KzgProof, MainnetEthSpec};
     use validator_test_rig::mock_beacon_node::MockBeaconNode;
     use validator_test_rig::recording_validator_store::RecordingValidatorStore;
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
@@ -1340,7 +1347,7 @@ mod tests {
 
     /// The `include_payload=true` response for a self-built `block`, with one blob and one proof.
     fn local_contents(block: &BeaconBlock<MainnetEthSpec>) -> BlockAndEnvelope<MainnetEthSpec> {
-        let mut envelope = ExecutionPayloadEnvelope::empty();
+        let mut envelope = ExecutionPayloadEnvelopeGloas::default();
         envelope.payload.slot_number = block.slot();
         envelope.payload.block_number = 7;
         envelope.builder_index = BUILDER_INDEX_SELF_BUILD;
@@ -1348,7 +1355,7 @@ mod tests {
         envelope.parent_beacon_block_root = block.parent_root();
         BlockAndEnvelope {
             block: block.clone(),
-            execution_payload_envelope: envelope,
+            execution_payload_envelope: envelope.into(),
             kzg_proofs: KzgProofs::<MainnetEthSpec>::try_from(vec![KzgProof::empty()]).unwrap(),
             blobs: BlobsList::<MainnetEthSpec>::try_from(vec![Blob::<MainnetEthSpec>::default()])
                 .unwrap(),
@@ -1388,7 +1395,7 @@ mod tests {
         let mock_get_envelope = test_harness
             .bn1()
             .mock_get_validator_execution_payload_envelope_ssz(
-                &ExecutionPayloadEnvelope::empty(),
+                &ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas::default()),
                 slot,
                 block.canonical_root(),
             );
@@ -1488,7 +1495,7 @@ mod tests {
 
         let slot = Slot::new(1);
         let block = self_build_block(&test_harness.harness.spec);
-        let envelope = ExecutionPayloadEnvelope::empty();
+        let envelope = ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas::default());
 
         test_harness
             .harness
@@ -1544,7 +1551,10 @@ mod tests {
         let slot = Slot::new(1);
         let block = self_build_block(&test_harness.harness.spec);
         let contents = local_contents(&block);
-        let expected_payload_root = contents.execution_payload_envelope.payload.tree_hash_root();
+        let expected_payload_root = contents
+            .execution_payload_envelope
+            .payload()
+            .tree_hash_root();
 
         // Production goes to a beacon node; the block and envelope must go to the proposer node.
         test_harness.bn1().mock_post_validator_blocks_v4_ssz(
@@ -1599,12 +1609,21 @@ mod tests {
         let slot = Slot::new(1);
         let block = self_build_block(&test_harness.harness.spec);
         let mut contents = local_contents(&block);
-        contents.execution_payload_envelope.beacon_block_root = Hash256::repeat_byte(42);
+        *contents
+            .execution_payload_envelope
+            .beacon_block_root_mut()
+            .unwrap() = Hash256::repeat_byte(42);
         assert_ne!(
-            contents.execution_payload_envelope.beacon_block_root,
+            contents
+                .execution_payload_envelope
+                .beacon_block_root()
+                .unwrap(),
             block.canonical_root()
         );
-        let payload_root = contents.execution_payload_envelope.payload.tree_hash_root();
+        let payload_root = contents
+            .execution_payload_envelope
+            .payload()
+            .tree_hash_root();
 
         test_harness.bn1().mock_post_validator_blocks_v4_ssz(
             &ProduceBlockV4Response::BlockAndEnvelope(contents),
@@ -1644,7 +1663,10 @@ mod tests {
             let slot = Slot::new(1);
             let block = self_build_block(&test_harness.harness.spec);
             let contents = local_contents(&block);
-            let payload_root = contents.execution_payload_envelope.payload.tree_hash_root();
+            let payload_root = contents
+                .execution_payload_envelope
+                .payload()
+                .tree_hash_root();
 
             // Model a distributed store returning the cluster's decision, which may be another
             // operator's self-build or an external bid, instead of the local candidate.
@@ -1796,7 +1818,10 @@ mod tests {
         let slot = Slot::new(1);
         let block = self_build_block(&test_harness.harness.spec);
         let contents = local_contents(&block);
-        let expected_payload_root = contents.execution_payload_envelope.payload.tree_hash_root();
+        let expected_payload_root = contents
+            .execution_payload_envelope
+            .payload()
+            .tree_hash_root();
 
         let mock_ssz_1 = test_harness
             .bn1()
@@ -1975,7 +2000,7 @@ mod tests {
         // bid was won by a builder. The builder reveals the envelope, so the proposal must succeed
         // without the VC fetching or publishing one.
         let block = BeaconBlock::empty(&test_harness.harness.spec);
-        let envelope = ExecutionPayloadEnvelope::empty();
+        let envelope = ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas::default());
 
         test_harness
             .harness
@@ -2147,7 +2172,7 @@ mod tests {
 
         let slot = Slot::new(1);
         let validator_pubkey = test_harness.harness.pubkeys[0];
-        let envelope = ExecutionPayloadEnvelope::empty();
+        let envelope = ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas::default());
 
         test_harness
             .harness

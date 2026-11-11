@@ -28,7 +28,6 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<ExecutionPendingEnvelope<T::EthSpec>, EnvelopeError> {
         let signed_envelope = self.signed_envelope;
-        let envelope = &signed_envelope.message;
 
         // Define a future that will verify the execution payload with an execution engine.
         //
@@ -40,7 +39,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             self.block.clone(),
             notify_execution_layer,
         )?;
-        let block_root = envelope.beacon_block_root;
+        let block_root = self.beacon_block_root;
         let slot = self.block.slot();
 
         let payload_verification_future = async move {

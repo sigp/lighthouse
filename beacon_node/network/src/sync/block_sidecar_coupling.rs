@@ -218,10 +218,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         // reveal-status check in `import_historical_block_batch` catches it.
         let revealed_block_roots = match &self.payloads_request {
             Some(ByRangeRequest::Active(_)) => return Ok(()),
+            // TODO(heze): Heze envelopes don't contain the block root, so they are left out.
             Some(ByRangeRequest::Complete(envelopes)) => Some(
                 envelopes
                     .iter()
-                    .map(|envelope| envelope.beacon_block_root())
+                    .filter_map(|envelope| envelope.beacon_block_root().ok())
                     .collect::<HashSet<_>>(),
             ),
             None => None,
@@ -435,7 +436,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         let mut envelopes_by_block_root = payload_envelopes.map(|envelopes| {
             envelopes
                 .into_iter()
-                .map(|e| (e.beacon_block_root(), e))
+                // TODO(heze): Heze envelopes don't contain the block root, so they are left out.
+                .filter_map(|e| Some((e.beacon_block_root().ok()?, e)))
                 .collect::<HashMap<_, _>>()
         });
 
@@ -555,8 +557,9 @@ mod tests {
     use tracing::Span;
     use tree_hash::TreeHash;
     use types::{
-        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ExecutionRequestsGloas,
-        ForkName, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Spec as E,
+        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelopeGloas,
+        ExecutionPayloadGloas, ExecutionRequestsGloas, ForkName, SignedBeaconBlock,
+        SignedExecutionPayloadEnvelope, Spec as E,
     };
 
     fn components_id() -> ComponentsByRangeRequestId {
@@ -622,17 +625,22 @@ mod tests {
             .signed_execution_payload_bid()
             .expect("Gloas block should have payload bid")
             .message();
-        let mut envelope = SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope::empty(),
-            signature: Signature::empty(),
+        let message = ExecutionPayloadEnvelopeGloas {
+            payload: ExecutionPayloadGloas {
+                slot_number: block.slot(),
+                parent_hash: bid.parent_block_hash(),
+                block_hash: bid.block_hash(),
+                ..Default::default()
+            },
+            builder_index: bid.builder_index(),
+            beacon_block_root: block.canonical_root(),
+            parent_beacon_block_root: block.parent_root(),
+            ..Default::default()
         };
-        envelope.message.beacon_block_root = block.canonical_root();
-        envelope.message.parent_beacon_block_root = block.parent_root();
-        envelope.message.builder_index = bid.builder_index();
-        envelope.message.payload.slot_number = block.slot();
-        envelope.message.payload.parent_hash = bid.parent_block_hash();
-        envelope.message.payload.block_hash = bid.block_hash();
-        Arc::new(envelope)
+        Arc::new(SignedExecutionPayloadEnvelope {
+            message: message.into(),
+            signature: Signature::empty(),
+        })
     }
 
     #[allow(clippy::type_complexity)]
@@ -945,7 +953,7 @@ mod tests {
                     ..
                 } => {
                     assert_eq!(
-                        envelope.envelope().beacon_block_root(),
+                        envelope.envelope().beacon_block_root().unwrap(),
                         block.canonical_root()
                     );
                     assert_eq!(envelope.columns.len(), expected_custody_columns.len());
@@ -995,7 +1003,7 @@ mod tests {
         } = setup_gloas_coupling(1);
 
         let mut bad_envelope = (*blocks[0].2).clone();
-        bad_envelope.message.payload.slot_number += 1;
+        bad_envelope.message.payload_mut().slot_number += 1;
         info.add_payload_envelopes(payloads_req_id, vec![Arc::new(bad_envelope)])
             .unwrap();
 

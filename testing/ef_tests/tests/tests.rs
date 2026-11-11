@@ -613,12 +613,13 @@ mod ssz_static {
 
     #[test]
     fn execution_payload_envelope() {
-        SszStaticHandler::<ExecutionPayloadEnvelope<Spec>, Spec>::gloas_and_later().run();
+        SszStaticWithSpecHandler::<ExecutionPayloadEnvelope<Spec>, Spec>::gloas_and_later().run();
     }
 
     #[test]
     fn signed_execution_payload_envelope() {
-        SszStaticHandler::<SignedExecutionPayloadEnvelope<Spec>, Spec>::gloas_and_later().run();
+        SszStaticWithSpecHandler::<SignedExecutionPayloadEnvelope<Spec>, Spec>::gloas_and_later()
+            .run();
     }
 
     #[test]

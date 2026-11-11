@@ -9,8 +9,9 @@ use std::collections::HashMap;
 use task_executor::test_utils::TestRuntime;
 use types::{
     BlockAccessList, ExecutionBlockHash, ExecutionPayloadBody, ExecutionPayloadEnvelope,
-    ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-    Hash256, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot, Spec,
+    ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas, ExecutionPayloadRef,
+    ExecutionRequestsGloas, ExecutionRequestsRef, ForkName, Hash256,
+    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot, Spec,
 };
 
 type E = Spec;
@@ -76,13 +77,13 @@ fn build_chain(
             )
             .0;
             Some(SignedExecutionPayloadEnvelope {
-                message: ExecutionPayloadEnvelope {
+                message: ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
                     payload,
                     execution_requests,
                     builder_index: 0,
                     beacon_block_root: block_root,
                     parent_beacon_block_root: Hash256::ZERO,
-                },
+                }),
                 signature: Signature::empty(),
             })
         } else {
@@ -104,6 +105,8 @@ fn mock_adapter() -> (MockEnvelopeStreamerBeaconAdapter<T>, TestRuntime) {
     let mut mock = MockEnvelopeStreamerBeaconAdapter::default();
     mock.expect_executor()
         .return_const(runtime.task_executor.clone());
+    mock.expect_fork_name_at_slot()
+        .return_const(ForkName::Gloas);
     (mock, runtime)
 }
 
@@ -120,10 +123,9 @@ fn mock_envelopes_with_pruned_payloads(
     let summary_map: HashMap<Hash256, Option<SignedExecutionPayloadEnvelopeSummary<E>>> = chain
         .iter()
         .map(|entry| {
-            let summary = entry
-                .envelope
-                .as_ref()
-                .map(SignedExecutionPayloadEnvelopeSummary::from);
+            let summary = entry.envelope.as_ref().map(|envelope| {
+                SignedExecutionPayloadEnvelopeSummary::new(envelope, entry.block_root)
+            });
             (entry.block_root, summary)
         })
         .collect();
@@ -139,7 +141,7 @@ fn mock_envelopes_with_pruned_payloads(
                     .envelope
                     .as_ref()
                     .filter(|_| !pruned_payload_slots.contains(&entry.slot.as_u64()))
-                    .map(|envelope| ExecutionPayloadBody::from(&envelope.message.payload)),
+                    .map(|envelope| ExecutionPayloadBody::from(envelope.message.payload())),
             )
         })
         .collect();
@@ -333,7 +335,7 @@ async fn stream_reconstructs_pruned_envelopes() {
         .iter()
         .filter(|entry| [2, 4].contains(&entry.slot.as_u64()))
         .map(|entry| {
-            let payload = entry.envelope.as_ref().unwrap().message.payload.clone();
+            let payload = entry.envelope.as_ref().unwrap().message.payload().clone();
             (payload.block_hash, payload_body(&payload))
         })
         .collect();
@@ -366,7 +368,7 @@ async fn stream_batches_pruned_envelope_requests() {
     let payload_bodies: HashMap<ExecutionBlockHash, ExecutionPayloadBodyV2<E>> = chain
         .iter()
         .map(|entry| {
-            let payload = entry.envelope.as_ref().unwrap().message.payload.clone();
+            let payload = entry.envelope.as_ref().unwrap().message.payload().clone();
             (payload.block_hash, payload_body(&payload))
         })
         .collect();
@@ -448,7 +450,7 @@ async fn stream_rejects_payload_body_with_wrong_hash() {
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
     mock.expect_block_has_canonical_payload().times(0);
 
-    let mut wrong_body = payload_body(&chain[0].envelope.as_ref().unwrap().message.payload);
+    let mut wrong_body = payload_body(chain[0].envelope.as_ref().unwrap().message.payload());
     wrong_body.block_access_list =
         Some(BlockAccessList::new(vec![1]).expect("valid block access list"));
     mock.expect_get_payload_bodies_by_hash_v2()
@@ -477,7 +479,7 @@ async fn stream_rejects_payload_body_without_withdrawals() {
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
     mock.expect_block_has_canonical_payload().times(0);
 
-    let mut body = payload_body(&chain[0].envelope.as_ref().unwrap().message.payload);
+    let mut body = payload_body(chain[0].envelope.as_ref().unwrap().message.payload());
     body.withdrawals = None;
     mock.expect_get_payload_bodies_by_hash_v2()
         .times(1)
@@ -505,7 +507,7 @@ async fn stream_rejects_payload_body_without_block_access_list() {
     mock_envelopes_with_pruned_payloads(&mut mock, &chain, &[1]);
     mock.expect_block_has_canonical_payload().times(0);
 
-    let mut body = payload_body(&chain[0].envelope.as_ref().unwrap().message.payload);
+    let mut body = payload_body(chain[0].envelope.as_ref().unwrap().message.payload());
     body.block_access_list = None;
     mock.expect_get_payload_bodies_by_hash_v2()
         .times(1)

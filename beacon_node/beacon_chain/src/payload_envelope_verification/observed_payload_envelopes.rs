@@ -26,12 +26,14 @@ impl ObservedPayloadEnvelopes {
         &self,
         envelope: &GossipVerifiedEnvelope<T>,
     ) -> bool {
-        let message = &envelope.signed_envelope.message;
         self.seen_envelopes
             .write()
             .entry(envelope.block.slot())
             .or_default()
-            .insert((message.beacon_block_root, message.builder_index))
+            .insert((
+                envelope.beacon_block_root,
+                envelope.signed_envelope.message.builder_index(),
+            ))
     }
 
     /// Checks if a payload envelope revealed by `builder_index` at `block_root`
@@ -65,9 +67,9 @@ mod tests {
     use bls::Signature;
     use std::sync::Arc;
     use types::{
-        BeaconBlock, BuilderIndex, EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
-        ExecutionRequestsGloas, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
-        Spec,
+        BeaconBlock, BuilderIndex, EthSpec, ExecutionPayloadEnvelope,
+        ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256,
+        SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Spec,
     };
 
     type E = Spec;
@@ -78,7 +80,7 @@ mod tests {
         builder_index: BuilderIndex,
     ) -> GossipVerifiedEnvelope<EphemeralHarnessType<E>> {
         let signed_envelope = SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
                 payload: ExecutionPayloadGloas {
                     slot_number: slot,
                     ..ExecutionPayloadGloas::default()
@@ -87,7 +89,7 @@ mod tests {
                 builder_index,
                 beacon_block_root: block_root,
                 parent_beacon_block_root: Hash256::ZERO,
-            },
+            }),
             signature: Signature::empty(),
         };
         let mut block = BeaconBlock::empty(&E::default_spec());
@@ -95,6 +97,7 @@ mod tests {
 
         GossipVerifiedEnvelope {
             signed_envelope: Arc::new(signed_envelope),
+            beacon_block_root: block_root,
             block: Arc::new(SignedBeaconBlock::from_block(block, Signature::empty())),
             snapshot: None,
         }

@@ -18,6 +18,7 @@ use beacon_chain::{
     NotifyExecutionLayer,
 };
 use bytes::Bytes;
+use context_deserialize::ContextDeserialize;
 use eth2::{
     BLOB_DATA_INCLUDED_HEADER, CONSENSUS_VERSION_HEADER,
     types::{self as api_types, BroadcastValidation, SignedExecutionPayloadEnvelopeContents},
@@ -25,14 +26,14 @@ use eth2::{
 use futures::StreamExt;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
 use types::{
-    BlockImportSource, DataColumnSidecar, EthSpec, ForkName, KzgProofs,
+    BlockImportSource, DataColumnSidecar, EthSpec, ForkName, ForkVersionDecode, Hash256, KzgProofs,
     SignedExecutionPayloadEnvelope,
 };
 use warp::{
@@ -62,32 +63,51 @@ fn ensure_gloas_consensus_version(fork_name: ForkName) -> Result<(), Rejection> 
 }
 
 impl<E: EthSpec> SignedEnvelopeSubmission<E> {
-    fn from_ssz_bytes(blob_data_included: bool, bytes: &[u8]) -> Result<Self, Rejection> {
+    fn from_ssz_bytes(
+        blob_data_included: bool,
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, Rejection> {
         let invalid_ssz = |e| warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"));
         Ok(if blob_data_included {
             Self::EnvelopeAndBlobData(Box::new(
-                SignedExecutionPayloadEnvelopeContents::from_ssz_bytes(bytes)
+                SignedExecutionPayloadEnvelopeContents::from_ssz_bytes_by_fork(bytes, fork_name)
                     .map_err(invalid_ssz)?,
             ))
         } else {
             Self::EnvelopeOnly(Box::new(
-                SignedExecutionPayloadEnvelope::from_ssz_bytes(bytes).map_err(invalid_ssz)?,
+                SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(bytes, fork_name)
+                    .map_err(invalid_ssz)?,
             ))
         })
     }
 
-    fn from_json(blob_data_included: bool, bytes: &[u8]) -> Result<Self, Rejection> {
+    fn from_json(
+        blob_data_included: bool,
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, Rejection> {
         let invalid_json =
             |e| warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"));
+        let value: serde_json::Value = serde_json::from_slice(bytes).map_err(invalid_json)?;
         Ok(if blob_data_included {
             Self::EnvelopeAndBlobData(Box::new(
-                serde_json::from_slice(bytes).map_err(invalid_json)?,
+                SignedExecutionPayloadEnvelopeContents::context_deserialize(&value, fork_name)
+                    .map_err(invalid_json)?,
             ))
         } else {
             Self::EnvelopeOnly(Box::new(
-                serde_json::from_slice(bytes).map_err(invalid_json)?,
+                SignedExecutionPayloadEnvelope::context_deserialize(&value, fork_name)
+                    .map_err(invalid_json)?,
             ))
         })
+    }
+
+    fn envelope(&self) -> &SignedExecutionPayloadEnvelope<E> {
+        match self {
+            Self::EnvelopeOnly(envelope) => envelope,
+            Self::EnvelopeAndBlobData(contents) => &contents.signed_execution_payload_envelope,
+        }
     }
 }
 
@@ -123,8 +143,11 @@ pub(crate) fn post_beacon_execution_payload_envelopes_ssz<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
                     ensure_gloas_consensus_version(fork_name)?;
-                    let submission =
-                        SignedEnvelopeSubmission::from_ssz_bytes(blob_data_included, &body_bytes)?;
+                    let submission = SignedEnvelopeSubmission::from_ssz_bytes(
+                        blob_data_included,
+                        &body_bytes,
+                        fork_name,
+                    )?;
                     publish_execution_payload_envelope(
                         submission,
                         validation_level.broadcast_validation,
@@ -170,8 +193,11 @@ pub(crate) fn post_beacon_execution_payload_envelopes<T: BeaconChainTypes>(
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
                     ensure_gloas_consensus_version(fork_name)?;
-                    let submission =
-                        SignedEnvelopeSubmission::from_json(blob_data_included, &body_bytes)?;
+                    let submission = SignedEnvelopeSubmission::from_json(
+                        blob_data_included,
+                        &body_bytes,
+                        fork_name,
+                    )?;
                     publish_execution_payload_envelope(
                         submission,
                         validation_level.broadcast_validation,
@@ -205,6 +231,7 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
         &submission,
         SignedEnvelopeSubmission::EnvelopeAndBlobData(_)
     );
+    let beacon_block_root = envelope_block_root(&chain, submission.envelope())?;
     let (envelope, blobs_and_proofs) = match submission {
         SignedEnvelopeSubmission::EnvelopeAndBlobData(contents) => {
             let SignedExecutionPayloadEnvelopeContents {
@@ -226,18 +253,17 @@ pub async fn publish_execution_payload_envelope<T: BeaconChainTypes>(
             let blobs = chain
                 .pending_payload_envelopes
                 .write()
-                .take_blobs(envelope.message.beacon_block_root);
+                .take_blobs(beacon_block_root);
             (*envelope, blobs.map(|blobs| (blobs, None)))
         }
     };
 
     let slot = envelope.slot();
-    let beacon_block_root = envelope.message.beacon_block_root;
 
     info!(
         %slot,
         %beacon_block_root,
-        builder_index = envelope.message.builder_index,
+        builder_index = envelope.message.builder_index(),
         "Publishing signed execution payload envelope to network"
     );
 
@@ -493,6 +519,30 @@ fn is_unable_to_publish(error: &BlockError) -> bool {
         ),
         _ => false,
     }
+}
+
+/// Returns the root of the block `envelope` belongs to.
+///
+/// [Modified in Heze:EIP8411] Heze envelopes don't contain the root, so it is the block whose bid
+/// commits to the envelope's payload.
+fn envelope_block_root<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
+) -> Result<Hash256, Rejection> {
+    if let Ok(block_root) = envelope.beacon_block_root() {
+        return Ok(block_root);
+    }
+    chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .proto_array()
+        .core_proto_array()
+        .execution_block_hash_to_beacon_block_root(&envelope.block_hash())
+        .ok_or_else(|| {
+            warp_utils::reject::custom_bad_request(
+                "no known block commits to the envelope's payload".to_string(),
+            )
+        })
 }
 
 fn spawn_build_gloas_data_columns_task<T: BeaconChainTypes>(

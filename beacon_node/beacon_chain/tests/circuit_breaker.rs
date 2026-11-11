@@ -237,6 +237,7 @@ async fn process_builder_envelope(
             block.root,
             GossipVerifiedEnvelope {
                 signed_envelope: Arc::new(envelope),
+                beacon_block_root: block.root,
                 block: block.block.clone(),
                 snapshot: None,
             },
