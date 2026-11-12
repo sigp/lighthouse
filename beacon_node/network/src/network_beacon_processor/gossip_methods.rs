@@ -13,6 +13,7 @@ use beacon_chain::execution_proof_verification::{Error as ExecutionProofError, P
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
+use beacon_chain::kzg_utils::min_columns_for_reconstruction;
 use beacon_chain::partial_data_column_assembler::UpdatedPartials;
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
@@ -1499,7 +1500,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .chain
                 .cached_data_column_indexes(block_root, epoch)
                 .map_or(0, |indexes| indexes.len());
-            if cached_column_count < T::EthSpec::number_of_columns() / 2 {
+            if cached_column_count < min_columns_for_reconstruction::<T::EthSpec>() {
                 return;
             }
 

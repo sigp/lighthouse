@@ -764,6 +764,15 @@ fn build_partial_column_cells<E: EthSpec>(
     Ok((bitmap, columns, column_kzg_proofs))
 }
 
+/// Returns the minimum number of data columns needed to reconstruct the remaining columns or the
+/// blobs of a block.
+///
+/// Every check of whether reconstruction is possible must use this, so that the code requesting
+/// a reconstruction and the code performing it agree.
+pub fn min_columns_for_reconstruction<E: EthSpec>() -> usize {
+    E::number_of_columns() / 2
+}
+
 fn reconstruct_blobs_with_indices<E: EthSpec>(
     kzg: &Kzg,
     mut data_columns: Vec<Arc<DataColumnSidecar<E>>>,

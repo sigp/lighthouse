@@ -11,7 +11,10 @@ use crate::{
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
-use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas};
+use beacon_chain::kzg_utils::{
+    blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas,
+    min_columns_for_reconstruction,
+};
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, get_kzg,
@@ -1159,7 +1162,7 @@ async fn data_column_reconstruction_at_deadline() {
         .slot_clock
         .set_current_time(slot_start + Duration::from_millis(reconstruction_deadline_millis));
 
-    let min_columns_for_reconstruction = E::number_of_columns() / 2;
+    let min_columns_for_reconstruction = min_columns_for_reconstruction::<E>();
 
     // Reconstruction is not scheduled while fewer than half of the columns are cached, so each
     // of these columns completes without a reconstruction event, even past the deadline.
@@ -1201,7 +1204,7 @@ async fn data_column_reconstruction_after_gossip_pause() {
     let slot_start = rig.chain.slot_clock.start_of(slot).unwrap();
     rig.chain.slot_clock.set_current_time(slot_start);
 
-    let min_columns_for_reconstruction = E::number_of_columns() / 2;
+    let min_columns_for_reconstruction = min_columns_for_reconstruction::<E>();
 
     for i in 0..min_columns_for_reconstruction - 1 {
         rig.enqueue_gossip_data_columns(i);
@@ -1254,7 +1257,7 @@ async fn data_column_reconstruction_with_concurrent_columns() {
         .slot_clock
         .set_current_time(slot_start + Duration::from_millis(reconstruction_deadline_millis));
 
-    let min_columns_for_reconstruction = E::number_of_columns() / 2;
+    let min_columns_for_reconstruction = min_columns_for_reconstruction::<E>();
     for i in 0..min_columns_for_reconstruction {
         rig.enqueue_gossip_data_columns(i);
     }

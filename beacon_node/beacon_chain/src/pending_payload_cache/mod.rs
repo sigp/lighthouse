@@ -12,6 +12,7 @@
 //! the block are rejected with `BlockRootUnknown`.
 
 use crate::data_availability_checker::{AvailabilityCheckError, MissingCellsError};
+use crate::kzg_utils::min_columns_for_reconstruction;
 use crate::payload_envelope_verification::{
     AvailabilityPendingExecutedEnvelope, AvailableExecutedEnvelope,
 };
@@ -630,7 +631,6 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 
         let epoch = pending_components.bid.epoch();
 
-        let total_column_count = T::EthSpec::number_of_columns();
         let sampling_column_count = self.custody_context.num_of_data_columns_to_sample(epoch);
 
         if pending_components.reconstruction_started {
@@ -640,7 +640,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         if received_column_count >= sampling_column_count {
             return ReconstructColumnsDecision::No("all sampling columns received");
         }
-        if received_column_count < total_column_count / 2 {
+        if received_column_count < min_columns_for_reconstruction::<T::EthSpec>() {
             return ReconstructColumnsDecision::No("not enough columns");
         }
 
@@ -898,12 +898,13 @@ mod data_availability_checker_tests {
     // Reconstruction only triggers when `total/2 ≤ received < sampling_count`. Fullnode's small
     // sampling count never satisfies this, so these tests use `Supernode`.
 
-    /// Fewer than `number_of_columns / 2` columns received → reconstruction is `NotStarted`.
+    /// Fewer than `min_columns_for_reconstruction` columns received → reconstruction is
+    /// `NotStarted`.
     #[tokio::test]
     async fn reconstruction_below_threshold_is_not_started() {
         let s = setup(NodeCustodyType::Supernode);
-        let half = E::number_of_columns() / 2;
-        s.put_columns(s.custody.iter().take(half - 1).cloned().collect());
+        let min_columns = min_columns_for_reconstruction::<E>();
+        s.put_columns(s.custody.iter().take(min_columns - 1).cloned().collect());
         assert!(matches!(
             s.reconstruct().expect("reconstruct call"),
             DataColumnReconstructionResult::NotStarted("not enough columns")

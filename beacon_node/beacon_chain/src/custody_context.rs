@@ -1,4 +1,5 @@
 use crate::BeaconChainTypes;
+use crate::kzg_utils::min_columns_for_reconstruction;
 use educe::Educe;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -490,10 +491,9 @@ impl<T: BeaconChainTypes> CustodyContext<T> {
 
     /// Returns whether the node should attempt reconstruction at a given epoch.
     pub fn should_attempt_reconstruction(&self, epoch: Epoch) -> bool {
-        let min_columns_for_reconstruction = T::EthSpec::number_of_columns() / 2;
         // performing reconstruction is not necessary if sampling column count is exactly 50%,
         // because the node doesn't need the remaining columns.
-        self.num_of_data_columns_to_sample(epoch) > min_columns_for_reconstruction
+        self.num_of_data_columns_to_sample(epoch) > min_columns_for_reconstruction::<T::EthSpec>()
     }
 
     /// Returns the ordered list of column indices that should be sampled for data availability checking at the given epoch.
