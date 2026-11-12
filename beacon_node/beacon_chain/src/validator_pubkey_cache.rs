@@ -869,4 +869,252 @@ mod test {
         assert_eq!(cache.get_index_for_state(&small_state, &cached_only), None);
         assert_eq!(cache.get_index_for_state(&small_state, &uncached), None);
     }
+
+    /// Regression test for a validator index that maps to different keys on two forks descending
+    /// from the same finalized checkpoint (see the note on `import_new_pubkeys`).
+    ///
+    /// The genesis state has three pending deposits: a top-up for validator 0, a deposit for key A
+    /// with builder (0xB0) withdrawal credentials, and a validator deposit for key B. The top-up
+    /// and the deposit for A are each as large as the deposit churn of one epoch.
+    ///
+    /// - On the canonical chain the top-up uses up the churn of the last Fulu epoch. The deposit
+    ///   for A is still pending at the Gloas fork, which onboards A as a builder. The deposit for B
+    ///   then creates validator 64.
+    /// - On the side branch validator 0 is slashed, which postpones its top-up. The deposit for A
+    ///   is processed in the last Fulu epoch instead and creates validator 64.
+    ///
+    /// A node that imports the side branch must not use A's key for validator 64 on the canonical
+    /// chain. It used to, and rejected the canonical block containing B's first attestation with
+    /// `InvalidSignature(BlockBodySignatures)`.
+    #[tokio::test]
+    async fn import_canonical_chain_after_side_branch_with_conflicting_validator() {
+        use crate::BlockError;
+        use crate::test_utils::{
+            DEFAULT_TARGET_AGGREGATORS, builder_withdrawal_credentials, fork_name_from_env,
+        };
+        use bls::SignatureBytes;
+        use eth2::types::SignedBlockContentsTuple;
+        use types::test_utils::generate_deterministic_keypairs;
+        use types::{DepositData, ForkName, PendingDeposit, SignedExecutionPayloadEnvelope, Slot};
+
+        // The scenario starts in Fulu regardless of the fork under test, so only run it once.
+        if fork_name_from_env().is_some_and(|fork| fork != ForkName::Fulu) {
+            return;
+        }
+
+        let num_initial = 64usize;
+        let new_index = num_initial;
+        let slots_per_epoch = E::slots_per_epoch();
+        let gloas_fork_epoch = Epoch::new(1);
+        let gloas_fork_slot = gloas_fork_epoch.start_slot(slots_per_epoch);
+
+        let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+        spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+        spec.target_aggregators_per_committee = DEFAULT_TARGET_AGGREGATORS;
+        let spec = Arc::new(spec);
+
+        // The harnesses sign for validator 64 with B's key, as required on the canonical chain.
+        let mut keypairs = generate_deterministic_keypairs(num_initial + 2);
+        let keypair_a = keypairs.pop().unwrap();
+        let keypair_b = keypairs[new_index].clone();
+        let pubkey_a = keypair_a.pk.compress();
+        let pubkey_b = keypair_b.pk.compress();
+
+        // Build a Fulu genesis state containing the pending deposits.
+        let tmp = BeaconChainHarness::builder(Spec::default())
+            .spec(spec.clone())
+            .keypairs(keypairs[..num_initial].to_vec())
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+        let mut genesis_state = tmp.get_current_state();
+        drop(tmp);
+
+        let churn_limit = genesis_state
+            .get_activation_exit_churn_limit(&spec)
+            .unwrap();
+        let eth1_withdrawal_credentials = {
+            let mut credentials = [0u8; 32];
+            credentials[0] = spec.eth1_address_withdrawal_prefix_byte;
+            Hash256::from_slice(&credentials)
+        };
+        let make_deposit = |keypair: &Keypair, withdrawal_credentials: Hash256, amount: u64| {
+            let mut deposit_data = DepositData {
+                pubkey: keypair.pk.compress(),
+                withdrawal_credentials,
+                amount,
+                signature: SignatureBytes::empty(),
+            };
+            deposit_data.signature = deposit_data.create_signature(&keypair.sk, &spec);
+            PendingDeposit {
+                pubkey: deposit_data.pubkey,
+                withdrawal_credentials: deposit_data.withdrawal_credentials,
+                amount: deposit_data.amount,
+                signature: deposit_data.signature,
+                slot: Slot::new(0),
+            }
+        };
+        let pending_deposits = [
+            make_deposit(
+                &keypairs[0],
+                genesis_state
+                    .get_validator(0)
+                    .unwrap()
+                    .withdrawal_credentials,
+                churn_limit,
+            ),
+            make_deposit(
+                &keypair_a,
+                builder_withdrawal_credentials(&keypair_a.pk, &spec),
+                churn_limit,
+            ),
+            make_deposit(
+                &keypair_b,
+                eth1_withdrawal_credentials,
+                spec.min_activation_balance,
+            ),
+        ];
+        for pending_deposit in pending_deposits {
+            genesis_state
+                .pending_deposits_mut()
+                .unwrap()
+                .push(pending_deposit)
+                .unwrap();
+        }
+
+        let build_harness = || {
+            BeaconChainHarness::builder(Spec::default())
+                .spec(spec.clone())
+                .keypairs(keypairs.clone())
+                .genesis_state_ephemeral_store(genesis_state.clone())
+                .mock_execution_layer()
+                .build()
+        };
+        // Builds the canonical chain and never sees the side branch.
+        let honest = build_harness();
+        // Builds the side branch.
+        let attacker = build_harness();
+        // Imports the blocks of both.
+        let victim = build_harness();
+
+        // The side branch slashes validator 0 in the last Fulu epoch, and has a block at the fork,
+        // by which time A is validator 64.
+        attacker.add_proposer_slashing(0).unwrap();
+        let (_, side_block_1, side_state) = attacker
+            .add_block_at_slot(Slot::new(1), attacker.get_current_state())
+            .await
+            .unwrap();
+        assert!(side_state.get_validator(0).unwrap().slashed);
+        let (_, side_block_2, side_state) = attacker
+            .add_block_at_slot(gloas_fork_slot, side_state)
+            .await
+            .unwrap();
+        assert!(side_state.fork_name_unchecked().gloas_enabled());
+        assert_eq!(side_state.validators().len(), num_initial + 1);
+        assert_eq!(
+            side_state.get_validator(new_index).unwrap().pubkey,
+            pubkey_a
+        );
+        let side_blocks = [side_block_1, side_block_2];
+
+        async fn import_block(
+            harness: &BeaconChainHarness<T>,
+            block_contents: &SignedBlockContentsTuple<E>,
+            envelope: &Option<SignedExecutionPayloadEnvelope<E>>,
+            post_state: &BeaconState<E>,
+        ) -> Result<(), BlockError> {
+            let block = &block_contents.0;
+            let block_root = block.canonical_root();
+            harness
+                .process_block(block.slot(), block_root, block_contents.clone())
+                .await?;
+            if let Some(envelope) = envelope {
+                harness
+                    .process_envelope(block_root, envelope.clone(), post_state, block.state_root())
+                    .await;
+            }
+            Ok(())
+        }
+        let has_attested = |state: &BeaconState<E>| {
+            [
+                state.previous_epoch_participation().unwrap(),
+                state.current_epoch_participation().unwrap(),
+            ]
+            .into_iter()
+            .filter_map(|participation| participation.get(new_index))
+            .any(|flags| flags.into_u8() != 0)
+        };
+
+        // Extend the canonical chain until it includes an attestation from validator 64, with the
+        // victim importing each block.
+        let all_validators = honest.get_all_validators();
+        let mut state = honest.get_current_state();
+        let mut slot = Slot::new(0);
+        while !has_attested(&state) {
+            slot += 1;
+            assert!(
+                slot < Epoch::new(12).start_slot(slots_per_epoch),
+                "validator {new_index} has not attested by slot {slot}"
+            );
+
+            honest.set_current_slot(slot);
+            let (block_contents, envelope, post_state) =
+                honest.make_block_with_envelope(state, slot).await;
+            let block = block_contents.0.clone();
+            import_block(&honest, &block_contents, &envelope, &post_state)
+                .await
+                .unwrap();
+            honest.attest_block(
+                &post_state,
+                block.state_root(),
+                block.canonical_root().into(),
+                &block,
+                &all_validators,
+            );
+            import_block(&victim, &block_contents, &envelope, &post_state)
+                .await
+                .unwrap_or_else(|e| {
+                    panic!("victim rejected the canonical block at slot {slot}: {e:?}")
+                });
+            state = post_state;
+
+            // The victim receives each side branch block in the slot it was proposed in: the first
+            // before the fork and the second at the fork.
+            for side_block in &side_blocks {
+                if side_block.0.slot() == slot {
+                    victim
+                        .process_block_result(side_block.clone())
+                        .await
+                        .unwrap();
+                }
+            }
+
+            if slot == gloas_fork_slot {
+                // The canonical chain onboards A as a builder at the fork, not as a validator.
+                assert!(state.fork_name_unchecked().gloas_enabled());
+                assert_eq!(state.validators().len(), num_initial);
+                assert!(
+                    state
+                        .builders()
+                        .unwrap()
+                        .iter()
+                        .any(|builder| builder.pubkey == pubkey_a)
+                );
+            }
+        }
+
+        // Validator 64 is B on the canonical chain, which the victim has followed.
+        assert_eq!(state.get_validator(new_index).unwrap().pubkey, pubkey_b);
+        assert_eq!(victim.head_block_root(), honest.head_block_root());
+
+        // The victim's cache has B's key for validator 64 and so does the copy on disk, which is
+        // what the cache is loaded from on restart.
+        assert_eq!(
+            victim.chain.validator_pubkey_cache.read().get(new_index),
+            Some(&keypair_b.pk)
+        );
+        let cache_from_disk =
+            ValidatorPubkeyCache::<T>::load_from_store(victim.chain.store.clone()).unwrap();
+        assert_eq!(cache_from_disk.get(new_index), Some(&keypair_b.pk));
+    }
 }
