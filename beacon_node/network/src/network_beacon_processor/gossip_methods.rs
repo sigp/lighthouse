@@ -13,6 +13,7 @@ use beacon_chain::execution_proof_verification::{Error as ExecutionProofError, P
 use beacon_chain::fetch_blobs::PartialHeaderOrBid;
 use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
+use beacon_chain::kzg_utils::min_columns_for_reconstruction;
 use beacon_chain::partial_data_column_assembler::UpdatedPartials;
 use beacon_chain::payload_bid_verification::PayloadBidError;
 use beacon_chain::payload_envelope_verification::{
@@ -1486,11 +1487,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     async fn check_reconstruction_trigger(self: &Arc<Self>, slot: Slot, block_root: &Hash256) {
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         if self
             .chain
             .custody_context
-            .should_attempt_reconstruction(slot.epoch(T::EthSpec::slots_per_epoch()))
+            .should_attempt_reconstruction(epoch)
         {
+            // Only request reconstruction once enough columns are cached for it. The reprocess
+            // queue dispatches a single attempt per block root, so an attempt requested with too
+            // few columns would be declined and no later column would schedule another one.
+            let cached_column_count = self
+                .chain
+                .cached_data_column_indexes(block_root, epoch)
+                .map_or(0, |indexes| indexes.len());
+            if cached_column_count < min_columns_for_reconstruction::<T::EthSpec>() {
+                return;
+            }
+
             // Instead of triggering reconstruction immediately, schedule it to be run. If
             // another column arrives, it either completes availability or pushes
             // reconstruction back a bit.

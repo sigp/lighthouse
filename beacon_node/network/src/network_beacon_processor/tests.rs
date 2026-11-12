@@ -11,7 +11,10 @@ use crate::{
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
-use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas};
+use beacon_chain::kzg_utils::{
+    blobs_to_data_column_sidecars, blobs_to_data_column_sidecars_gloas,
+    min_columns_for_reconstruction,
+};
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, get_kzg,
@@ -1159,21 +1162,122 @@ async fn data_column_reconstruction_at_deadline() {
         .slot_clock
         .set_current_time(slot_start + Duration::from_millis(reconstruction_deadline_millis));
 
-    let min_columns_for_reconstruction = E::number_of_columns() / 2;
+    let min_columns_for_reconstruction = min_columns_for_reconstruction::<E>();
 
-    // Enqueue all columns first - at deadline, reconstruction races with gossip drain
+    // Reconstruction is not scheduled while fewer than half of the columns are cached, so each
+    // of these columns completes without a reconstruction event, even past the deadline.
+    for i in 0..min_columns_for_reconstruction - 1 {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    // Wait for a while, as the columns above may complete faster than a reconstruction scheduled
+    // without a delay is dispatched.
+    rig.assert_no_events_for(QUEUED_RECONSTRUCTION_DELAY).await;
+
+    // The column that reaches half of the columns triggers reconstruction without a delay.
+    rig.enqueue_gossip_data_columns(min_columns_for_reconstruction - 1);
+    rig.assert_event_journal_contains_ordered(&[
+        WorkType::GossipDataColumnSidecar,
+        WorkType::ColumnReconstruction,
+    ])
+    .await;
+}
+
+// Test that reconstruction still runs when the columns needed for it arrive after a pause longer
+// than the reconstruction delay.
+#[tokio::test]
+async fn data_column_reconstruction_after_gossip_pause() {
+    let spec = test_spec::<E>();
+    // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
+    // harness produces no block-level data columns and this gossip/reconstruction flow doesn't apply.
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
+
+    let slot = rig.next_block.slot();
+    let block_root = rig.next_block.canonical_root();
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let slot_start = rig.chain.slot_clock.start_of(slot).unwrap();
+    rig.chain.slot_clock.set_current_time(slot_start);
+
+    let min_columns_for_reconstruction = min_columns_for_reconstruction::<E>();
+
+    for i in 0..min_columns_for_reconstruction - 1 {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    // No further column arrives for longer than the reconstruction delay. There are too few
+    // columns to reconstruct, so nothing is dispatched.
+    rig.assert_no_events_for(QUEUED_RECONSTRUCTION_DELAY * 2)
+        .await;
+
+    rig.enqueue_gossip_data_columns(min_columns_for_reconstruction - 1);
+    rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+        .await;
+    rig.assert_event_journal_completes(&[WorkType::ColumnReconstruction])
+        .await;
+
+    // Reconstruction ran, so the cache now holds every column.
+    assert_eq!(
+        rig.chain
+            .cached_data_column_indexes(&block_root, epoch)
+            .map(|indexes| indexes.len()),
+        Some(E::number_of_columns())
+    );
+}
+
+// Test that reconstruction runs when the columns needed for it are processed concurrently.
+#[tokio::test]
+async fn data_column_reconstruction_with_concurrent_columns() {
+    let spec = test_spec::<E>();
+    // Pre-Gloas data-column path: a Gloas block carries its columns in the payload envelope, so the
+    // harness produces no block-level data columns and this gossip/reconstruction flow doesn't apply.
+    if spec.fulu_fork_epoch.is_none() || spec.gloas_fork_epoch.is_some() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
+
+    let slot = rig.next_block.slot();
+    let block_root = rig.next_block.canonical_root();
+    let epoch = slot.epoch(E::slots_per_epoch());
+    let slot_start = rig.chain.slot_clock.start_of(slot).unwrap();
+
+    // Past the deadline reconstruction is dispatched without a delay.
+    let slot_duration = rig.chain.slot_clock.slot_duration().as_millis() as u64;
+    let reconstruction_deadline_millis =
+        (slot_duration * RECONSTRUCTION_DEADLINE.0) / RECONSTRUCTION_DEADLINE.1;
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start + Duration::from_millis(reconstruction_deadline_millis));
+
+    let min_columns_for_reconstruction = min_columns_for_reconstruction::<E>();
     for i in 0..min_columns_for_reconstruction {
         rig.enqueue_gossip_data_columns(i);
     }
 
-    // Expect all gossip events + reconstruction
+    // Only the column that reaches half of the columns requests reconstruction, so there is a
+    // single reconstruction event after all gossip events.
     let mut expected_events: Vec<WorkType> = (0..min_columns_for_reconstruction)
         .map(|_| WorkType::GossipDataColumnSidecar)
         .collect();
     expected_events.push(WorkType::ColumnReconstruction);
-
     rig.assert_event_journal_contains_ordered(&expected_events)
         .await;
+
+    // Reconstruction ran, so the cache now holds every column.
+    assert_eq!(
+        rig.chain
+            .cached_data_column_indexes(&block_root, epoch)
+            .map(|indexes| indexes.len()),
+        Some(E::number_of_columns())
+    );
 }
 
 // Test the column reconstruction is delayed for columns that arrive for a previous slot.

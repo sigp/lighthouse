@@ -1,6 +1,8 @@
 use crate::version::inconsistent_fork_rejection;
 use crate::{ExecutionOptimistic, state_id::checkpoint_slot_and_execution_optimistic};
-use beacon_chain::kzg_utils::{reconstruct_blob_sidecars, reconstruct_blobs};
+use beacon_chain::kzg_utils::{
+    min_columns_for_reconstruction, reconstruct_blob_sidecars, reconstruct_blobs,
+};
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::beacon_response::{ExecutionOptimisticFinalizedMetadata, UnversionedResponse};
 use eth2::types::BlockId as CoreBlockId;
@@ -510,7 +512,7 @@ impl BlockId {
         })?;
 
         let num_found_column_keys = column_indices.len();
-        let num_required_columns = T::EthSpec::number_of_columns() / 2;
+        let num_required_columns = min_columns_for_reconstruction::<T::EthSpec>();
         let is_blob_available = num_found_column_keys >= num_required_columns;
         let fork_name = chain.spec.fork_name_at_epoch(block.epoch());
 
