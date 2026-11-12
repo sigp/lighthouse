@@ -92,7 +92,7 @@ use crate::sync_committee_verification::{
 use crate::validator_monitor::{
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, get_slot_delay_ms,
 };
-use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::validator_pubkey_cache::{HeadPubkeys, ValidatorPubkeyCache};
 use crate::{
     AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot,
     CachedHead, ChainDumpSnapshot, metrics,
@@ -1665,21 +1665,31 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .collect()
     }
 
+    /// Returns the `validator_pubkey_cache` paired with the head state, for looking up the public
+    /// keys of validators that sign messages received from the network.
+    ///
+    /// See `HeadPubkeys` for details.
+    pub fn head_pubkeys(&self) -> HeadPubkeys<'_, T> {
+        HeadPubkeys::new(&self.canonical_head, &self.validator_pubkey_cache)
+    }
+
     /// Returns the validator pubkey (if any) for the given validator index.
     ///
     /// ## Notes
     ///
     /// This query uses the `validator_pubkey_cache` which only contains finalized validators.
-    /// Validators that are not finalized yet will not be found. It is important to remember that
-    /// just because a validator exists here, it doesn't necessarily exist in all `BeaconStates`.
+    /// Validators that are missing from the cache are read from the head state, see
+    /// `Self::head_pubkeys`. It is important to remember that just because a validator exists here,
+    /// it doesn't necessarily exist in all `BeaconStates`.
     ///
     /// ## Errors
     ///
     /// May return an error if acquiring a read-lock on the `validator_pubkey_cache` times out.
     pub fn validator_pubkey(&self, validator_index: usize) -> Result<Option<PublicKey>, Error> {
-        let pubkey_cache = self.validator_pubkey_cache.read();
-
-        Ok(pubkey_cache.get(validator_index).cloned())
+        Ok(self
+            .head_pubkeys()
+            .get(validator_index)
+            .map(Cow::into_owned))
     }
 
     /// As per `Self::validator_pubkey`, but returns `PublicKeyBytes`.
@@ -1687,9 +1697,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_index: usize,
     ) -> Result<Option<PublicKeyBytes>, Error> {
-        let pubkey_cache = self.validator_pubkey_cache.read();
-
-        Ok(pubkey_cache.get_pubkey_bytes(validator_index).copied())
+        Ok(self.head_pubkeys().get_pubkey_bytes(validator_index))
     }
 
     /// As per `Self::validator_pubkey_bytes` but will resolve multiple indices at once to avoid
@@ -1701,12 +1709,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         validator_indices: &[usize],
     ) -> Result<HashMap<usize, PublicKeyBytes>, Error> {
-        let pubkey_cache = self.validator_pubkey_cache.read();
+        let pubkeys = self.head_pubkeys();
 
         let mut map = HashMap::with_capacity(validator_indices.len());
         for &validator_index in validator_indices {
-            if let Some(pubkey) = pubkey_cache.get_pubkey_bytes(validator_index) {
-                map.insert(validator_index, *pubkey);
+            if let Some(pubkey) = pubkeys.get_pubkey_bytes(validator_index) {
+                map.insert(validator_index, pubkey);
             }
         }
         Ok(map)
@@ -1805,12 +1813,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             state.attester_shuffling_decision_root(dependent_block_root, relative_epoch)?
         };
 
-        let pubkey_cache = self.validator_pubkey_cache.read();
+        let pubkeys = self.head_pubkeys();
 
         let duties = validator_indices
             .iter()
             .map(|&validator_index| -> Result<Option<PtcDuty>, Error> {
-                let Some(&pubkey) = pubkey_cache.get_pubkey_bytes(validator_index as usize) else {
+                let Some(pubkey) = pubkeys.get_pubkey_bytes(validator_index as usize) else {
                     return Ok(None);
                 };
                 let slot_opt =

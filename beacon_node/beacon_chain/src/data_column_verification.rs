@@ -1,6 +1,4 @@
-use crate::block_verification::{
-    BlockSlashInfo, get_validator_pubkey_cache, process_block_slash_info,
-};
+use crate::block_verification::{BlockSlashInfo, process_block_slash_info};
 use crate::data_availability_checker::MissingCellsError;
 use crate::kzg_utils::{
     reconstruct_data_columns, validate_data_columns_with_commitments, validate_full_data_columns,
@@ -1772,14 +1770,13 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
 
     // Signature verify the signed block header.
     let signature_is_valid = {
-        let pubkey_cache = get_validator_pubkey_cache(chain)
-            .map_err(|_| GossipDataColumnError::PubkeyCacheTimeout)?;
+        let pubkeys = chain.head_pubkeys();
 
-        let pubkey = pubkey_cache
+        let pubkey = pubkeys
             .get(proposer_index)
             .ok_or_else(|| GossipDataColumnError::UnknownValidator(proposer_index as u64))?;
         signed_block_header.verify_signature::<T::EthSpec>(
-            pubkey,
+            &pubkey,
             &fork,
             chain.genesis_validators_root,
             &chain.spec,
