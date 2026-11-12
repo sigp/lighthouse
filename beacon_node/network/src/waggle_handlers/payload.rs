@@ -1,4 +1,5 @@
 use crate::NetworkBeaconProcessor;
+use crate::metrics;
 use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::BeaconChainTypes;
@@ -613,10 +614,10 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
                     return Ok(());
                 }
 
-                let payload = self
-                    .payloads
-                    .entry(block_root)
-                    .or_insert_with(|| Payload::new(payload_chunks_root, block_root, slot));
+                let payload = self.payloads.entry(block_root).or_insert_with(|| {
+                    metrics::inc_counter(&metrics::PAYLOAD_DISSEMINATION_PAYLOADS_TRACKED);
+                    Payload::new(payload_chunks_root, block_root, slot)
+                });
                 // The peers that announced the payload already track it, so we may push to them
                 // right away.
                 if let Some(unknown_payload) = unknown_payload {
@@ -645,7 +646,13 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
                     }
 
                     // No need to send the completed payload to the app, we got it from there.
-                    payload.complete = true;
+                    if !payload.complete {
+                        payload.complete = true;
+                        metrics::inc_counter_vec(
+                            &metrics::PAYLOAD_DISSEMINATION_PAYLOADS_COMPLETED,
+                            &["published"],
+                        );
+                    }
 
                     // Peers that don't track the payload yet get the chunks pushed once they tell
                     // us that they do.
@@ -676,6 +683,14 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
                 connection_id,
                 pieces,
             } => {
+                let received_bytes = [&pieces.metadata, &pieces.pieces]
+                    .into_iter()
+                    .flatten()
+                    .fold(0usize, |bytes, data| bytes.saturating_add(data.len()));
+                metrics::inc_counter_by(
+                    &metrics::PAYLOAD_DISSEMINATION_BYTES_RECEIVED,
+                    received_bytes as u64,
+                );
                 if self
                     .peers
                     .get(&peer_id)
@@ -724,6 +739,9 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
             let peer = payload.peers.entry(peer_id).or_default();
             if peer.banned {
                 debug!("Message from banned peer");
+                if message.chunk.is_some() {
+                    count_received_chunk("ignored");
+                }
                 return Ok(());
             }
 
@@ -735,6 +753,7 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
                     .unwrap_or(true)
                 {
                     // This peer sent this chunk already, or it is out of bounds.
+                    count_received_chunk("repeated");
                     self.penalize_peer(
                         peer_id,
                         Some(message.block_root),
@@ -755,6 +774,7 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
                         }
                     };
                     if !valid {
+                        count_received_chunk("invalid");
                         self.penalize_peer(
                             peer_id,
                             Some(message.block_root),
@@ -765,6 +785,7 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
                     }
 
                     if let Chunk::Unknown { requested } = local_chunk {
+                        count_received_chunk("valid");
                         // The peer we requested the chunk from, if it left the request
                         // unanswered and another peer sent the chunk.
                         let request_timeout = request_timeout(message_chunk.chunk.len());
@@ -787,6 +808,8 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
                             &self.peers,
                             &self.network_beacon_processor,
                         );
+                    } else {
+                        count_received_chunk("duplicate");
                     }
                 } else {
                     // We should be always able to take the previous branch as we preinitialize
@@ -868,6 +891,10 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
                         if !payload.send_chunk(index, peer_id, sender, &have) {
                             break;
                         }
+                        metrics::inc_counter_vec(
+                            &metrics::PAYLOAD_DISSEMINATION_CHUNKS_SENT,
+                            &["served"],
+                        );
                     }
                 }
 
@@ -903,6 +930,11 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
                 tracked_until_recently,
                 "Dropping chunk of untracked payload"
             );
+            count_received_chunk(if tracked_until_recently {
+                "untracked_recent"
+            } else {
+                "untracked"
+            });
             if !tracked_until_recently {
                 self.penalize_peer(
                     peer_id,
@@ -953,6 +985,7 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
                 continue;
             }
             payload.lookup_at = None;
+            metrics::inc_counter(&metrics::PAYLOAD_DISSEMINATION_UNKNOWN_PAYLOAD_LOOKUPS);
             debug!(%block_root, "Looking up block of unknown payload");
             for peer_id in payload.peers.keys() {
                 // Nothing to do on error, sync is shutting down.
@@ -1000,6 +1033,9 @@ impl<T: BeaconChainTypes> PayloadDisseminationService<T> {
             let tracked = is_tracked(&payload.slot);
             if !tracked {
                 previous_payloads.push((*block_root, payload.slot));
+                if !payload.complete {
+                    metrics::inc_counter(&metrics::PAYLOAD_DISSEMINATION_PAYLOADS_INCOMPLETE);
+                }
             }
             tracked
         });
@@ -1314,6 +1350,14 @@ impl<E: EthSpec> Payload<E> {
         {
             // We are complete, send to the beacon processor for reconstruction.
             self.complete = true;
+            metrics::inc_counter_vec(
+                &metrics::PAYLOAD_DISSEMINATION_PAYLOADS_COMPLETED,
+                &["reassembled"],
+            );
+            metrics::observe_duration(
+                &metrics::PAYLOAD_DISSEMINATION_REASSEMBLY_SECONDS,
+                self.registered.elapsed(),
+            );
             if let Err(err) = network_beacon_processor.send_reassembled_execution_payload(
                 self.block_root,
                 self.slot,
@@ -1396,6 +1440,10 @@ impl<E: EthSpec> Payload<E> {
                 metadata
             }
         });
+        let sent_bytes = [&metadata, &encoded_chunk]
+            .into_iter()
+            .flatten()
+            .fold(0usize, |bytes, data| bytes.saturating_add(data.len()));
         let message = ObjectPieces {
             object_id: self.object_id.clone(),
             metadata,
@@ -1403,8 +1451,10 @@ impl<E: EthSpec> Payload<E> {
         };
         if let Err(err) = sender.try_send(message) {
             debug!(%err, %peer_id, kind, index = ?chunk, "Unable to send message");
+            metrics::inc_counter_vec(&metrics::PAYLOAD_DISSEMINATION_SEND_ERRORS, &[kind]);
             return false;
         }
+        count_sent_bytes(sent_bytes);
 
         if let Some(index) = chunk {
             let _ = payload_peer.sent_to.set(index, true);
@@ -1568,6 +1618,7 @@ impl<E: EthSpec> Payload<E> {
             let _ = candidate.skip.set(index, true);
             // If the chunk can't be sent to the peer, it is pushed to another one instead.
             if self.send_chunk(index, candidate.peer_id, candidate.sender, have) {
+                metrics::inc_counter_vec(&metrics::PAYLOAD_DISSEMINATION_CHUNKS_SENT, &["pushed"]);
                 candidate.queued = candidate.queued.saturating_add(1);
                 candidate.remaining_pushes = candidate.remaining_pushes.saturating_sub(1);
                 if let Some(payload_peer) = self.peers.get_mut(&candidate.peer_id) {
@@ -1607,7 +1658,9 @@ impl<E: EthSpec> Payload<E> {
 
         // Nothing to do on error: If closed, it will be cleaned up. If full, the peer is told
         // along with our next news.
-        self.send(peer_id, sender, have, None, None, "announcement");
+        if self.send(peer_id, sender, have, None, None, "announcement") {
+            metrics::inc_counter(&metrics::PAYLOAD_DISSEMINATION_ANNOUNCEMENTS_SENT);
+        }
     }
 
     /// How long to wait for a requested chunk before requesting it again, see
@@ -1774,8 +1827,12 @@ impl<E: EthSpec> Payload<E> {
                         requested: previous_request,
                     } = chunk
                 {
+                    metrics::inc_counter(&metrics::PAYLOAD_DISSEMINATION_CHUNKS_REQUESTED);
                     // A chunk is only requested again once its previous request timed out.
                     if let Some((previous_peer, _)) = previous_request {
+                        metrics::inc_counter(
+                            &metrics::PAYLOAD_DISSEMINATION_CHUNK_REQUESTS_RETRIED,
+                        );
                         unanswered_by.push(*previous_peer);
                     }
                     *previous_request = Some((peer_id, now));
@@ -1788,6 +1845,16 @@ impl<E: EthSpec> Payload<E> {
             }
         }
     }
+}
+
+/// Counts a chunk received from a peer, by what became of it.
+fn count_received_chunk(result: &str) {
+    metrics::inc_counter_vec(&metrics::PAYLOAD_DISSEMINATION_CHUNKS_RECEIVED, &[result]);
+}
+
+/// Counts the bytes of a message queued for a peer.
+fn count_sent_bytes(bytes: usize) {
+    metrics::inc_counter_by(&metrics::PAYLOAD_DISSEMINATION_BYTES_SENT, bytes as u64);
 }
 
 /// This is just named error as it is private to this module.
@@ -2987,24 +3054,40 @@ mod tests {
             .await;
     }
 
+    /// Returns the number of chunks received so far that were counted as `result`.
+    fn received_chunks(result: &str) -> u64 {
+        metrics::PAYLOAD_DISSEMINATION_CHUNKS_RECEIVED
+            .as_ref()
+            .unwrap()
+            .with_label_values(&[result])
+            .get()
+    }
+
     async fn valid_chunks_are_kept_and_pushed_on(mut rig: Rig) {
         let (sender, sender_receiver) = rig.add_peer();
         let (tracker, tracker_receiver) = rig.add_peer();
         track(rig.payload(), tracker, &[]);
+        let (valid_before, duplicates_before) =
+            (received_chunks("valid"), received_chunks("duplicate"));
 
         let chunk = rig.chunks[3].clone();
         rig.receive(sender, None, Some(chunk.clone())).await;
 
         // The chunk is kept, and pushed to the peer that tracks the payload.
         assert!(rig.holds_chunk(3));
+        assert_eq!(received_chunks("valid"), valid_before + 1);
+        assert_eq!(received_chunks("duplicate"), duplicates_before);
         assert_eq!(pushed_chunks(&tracker_receiver), vec![3]);
         // Its sender is not told that we have it right away, but with the next announcements.
         assert!(sent(&sender_receiver).is_empty());
         assert!(rig.payload().announcement_pending);
         assert!(rig.reports().is_empty());
 
-        // Another peer may send the chunk as well, which changes nothing.
+        // Another peer may send the chunk as well, which changes nothing, and is counted as a
+        // duplicate.
         rig.receive(PeerId::random(), None, Some(chunk)).await;
+        assert_eq!(received_chunks("valid"), valid_before + 1);
+        assert_eq!(received_chunks("duplicate"), duplicates_before + 1);
         assert!(pushed_chunks(&tracker_receiver).is_empty());
         assert_eq!(pushes(rig.payload(), 3), 1);
         assert!(rig.reports().is_empty());
