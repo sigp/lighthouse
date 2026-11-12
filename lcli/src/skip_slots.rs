@@ -111,8 +111,6 @@ pub fn run<E: EthSpec>(
         }
         _ => return Err("must supply either --state-path or --beacon-url".into()),
     };
-    let mut post_state = None;
-
     let initial_slot = state.slot();
     let target_slot = initial_slot + slots;
 
@@ -127,6 +125,11 @@ pub fn run<E: EthSpec>(
             .update_tree_hash_cache()
             .map_err(|e| format!("Unable to build THC: {:?}", e))?
     };
+
+    // When `runs == 0`, no state transition is performed. Initialize `post_state`
+    // with the input state so that `--output-path` still writes it to disk, as
+    // documented in Example 2 of the module-level docs.
+    let mut post_state = Some(state.clone());
 
     for i in 0..runs {
         let mut state = state.clone();
