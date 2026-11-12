@@ -1677,10 +1677,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// ## Notes
     ///
-    /// This query uses the `validator_pubkey_cache` which only contains finalized validators.
-    /// Validators that are missing from the cache are read from the head state, see
-    /// `Self::head_pubkeys`. It is important to remember that just because a validator exists here,
-    /// it doesn't necessarily exist in all `BeaconStates`.
+    /// This query returns the validators of the head state, see `Self::head_pubkeys`. The
+    /// `validator_pubkey_cache` only contains finalized validators, so validators that are missing
+    /// from it are read from the head state. It is important to remember that just because a
+    /// validator exists here, it doesn't necessarily exist in all `BeaconStates`.
     ///
     /// ## Errors
     ///

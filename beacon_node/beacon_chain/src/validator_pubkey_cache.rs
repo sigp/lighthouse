@@ -286,11 +286,17 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
 /// A read-locked `ValidatorPubkeyCache` paired with the head state, for looking up the public keys
 /// of validators that sign messages received from the network.
 ///
-/// The cache only holds finalized validators, and only learns about them when a block is imported
-/// (see `ValidatorPubkeyCache::import_new_pubkeys`). It can therefore be missing validators that
-/// are entitled to sign messages, e.g. if no block is imported between the epoch transition that
-/// schedules a validator's activation and the activation itself. Keys that are missing from the
-/// cache are read from the head state instead.
+/// Lookups by validator index are made with respect to the head state, as per
+/// `ValidatorPubkeyCache::get_for_state`: a validator is known if and only if it is in the
+/// registry of the head state, and the cache is only a source of decompressed keys. A cached key
+/// is the head state's key for the same index, because cached validators are finalized and the
+/// head descends from the finalized checkpoint.
+///
+/// The cache is not sufficient by itself because it only holds finalized validators, and only
+/// learns about them when a block is imported (see `ValidatorPubkeyCache::import_new_pubkeys`).
+/// It can therefore be missing validators that are entitled to sign messages, e.g. if no block is
+/// imported between the epoch transition that schedules a validator's activation and the
+/// activation itself.
 ///
 /// The head state contains every such validator, even if it has not been advanced beyond the head
 /// block. A validator is only activated once its `activation_eligibility_epoch` is finalized, and
@@ -321,19 +327,19 @@ impl<'a, T: BeaconChainTypes> HeadPubkeys<'a, T> {
         }
     }
 
-    /// Get the public key for the validator with index `i`.
+    /// Get the public key for the validator with index `i` in the head state.
     ///
-    /// Unlike `ValidatorPubkeyCache::get_for_state` a validator from the cache is returned even if
-    /// it is not in the head state, because the head state is only used to fill gaps in the cache.
+    /// Returns `None` if the head state does not contain a validator with index `i`, even if the
+    /// cache does.
     pub fn get(&self, i: usize) -> Option<Cow<'_, PublicKey>> {
-        self.pubkey_cache
-            .get(i)
-            .map(Cow::Borrowed)
-            .or_else(|| get_pubkey_from_state(&self.head.beacon_state, i))
+        self.pubkey_cache.get_for_state(&self.head.beacon_state, i)
     }
 
-    /// Get the public key (in bytes form) for the validator with index `i`.
+    /// Get the public key (in bytes form) for the validator with index `i` in the head state.
     pub fn get_pubkey_bytes(&self, i: usize) -> Option<PublicKeyBytes> {
+        if !self.contains_index(i) {
+            return None;
+        }
         self.pubkey_cache.get_pubkey_bytes(i).copied().or_else(|| {
             self.head
                 .beacon_state
@@ -343,9 +349,9 @@ impl<'a, T: BeaconChainTypes> HeadPubkeys<'a, T> {
         })
     }
 
-    /// Returns `true` if `Self::get` could return a public key for the validator with index `i`.
+    /// Returns `true` if the head state contains a validator with index `i`.
     pub fn contains_index(&self, i: usize) -> bool {
-        i < self.pubkey_cache.len() || i < self.head.beacon_state.validators().len()
+        i < self.head.beacon_state.validators().len()
     }
 
     /// As per `ValidatorPubkeyCache::get_or_decompress`.
@@ -811,6 +817,34 @@ mod test {
         }
         assert!(attestations_checked);
         assert!(block_checked);
+    }
+
+    #[test]
+    fn head_pubkeys_ignores_validators_not_in_head_state() {
+        // A cache holding more validators than the head state of the chain it is paired with.
+        let (state, keypairs) = get_state(48);
+        let cache = RwLock::new(ValidatorPubkeyCache::<T>::new(&state, get_store()).unwrap());
+        assert_eq!(cache.read().len(), 48);
+
+        let harness = BeaconChainHarness::builder(Spec::default())
+            .default_spec()
+            .deterministic_keypairs(32)
+            .fresh_ephemeral_store()
+            .build();
+        assert_eq!(harness.get_current_state().validators().len(), 32);
+
+        let pubkeys = HeadPubkeys::new(&harness.chain.canonical_head, &cache);
+        assert_eq!(pubkeys.get(31).unwrap().as_ref(), &keypairs[31].pk);
+        assert_eq!(
+            pubkeys.get_pubkey_bytes(31),
+            Some(PublicKeyBytes::from(&keypairs[31].pk))
+        );
+        assert!(pubkeys.contains_index(31));
+
+        assert!(cache.read().get(32).is_some());
+        assert!(pubkeys.get(32).is_none());
+        assert!(pubkeys.get_pubkey_bytes(32).is_none());
+        assert!(!pubkeys.contains_index(32));
     }
 
     #[test]
