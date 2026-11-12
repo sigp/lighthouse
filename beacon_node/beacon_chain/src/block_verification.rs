@@ -1079,13 +1079,13 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let fork = proposer.fork;
 
         let signature_is_valid = {
-            let pubkey_cache = get_validator_pubkey_cache(chain)?;
-            let pubkey = pubkey_cache
+            let pubkeys = chain.head_pubkeys();
+            let pubkey = pubkeys
                 .get(block.message().proposer_index() as usize)
                 .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
             block.verify_signature(
                 Some(block_root),
-                pubkey,
+                &pubkey,
                 &fork,
                 chain.genesis_validators_root,
                 &chain.spec,
@@ -1247,11 +1247,11 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         } else {
             // Re-verify the proposer signature in isolation to attribute fault
             let pubkey = pubkey_cache
-                .get(block.message().proposer_index() as usize)
+                .get_for_state(&state, block.message().proposer_index() as usize)
                 .ok_or_else(|| BlockError::UnknownValidator(block.message().proposer_index()))?;
             if block.as_block().verify_signature(
                 Some(block_root),
-                pubkey,
+                &pubkey,
                 &state.fork(),
                 chain.genesis_validators_root,
                 &chain.spec,
@@ -2259,19 +2259,15 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
     impl Fn(usize) -> Option<Cow<'a, PublicKey>> + Clone,
     impl Fn(&'a PublicKeyBytes) -> Option<Cow<'a, PublicKey>>,
 > {
-    // The pubkey cache can lag behind `state`: validators may be added to the registry by epoch
-    // processing before any block from that epoch has been imported. Keys for validators beyond the
-    // end of the cache are read from `state`, and validators that are not in `state` are rejected.
+    // The pubkey cache only holds finalized validators, so it can lag behind `state`. Keys for
+    // validators beyond the end of the cache are read from `state`, and validators that are not in
+    // `state` are rejected.
     let get_pubkey =
         move |validator_index| validator_pubkey_cache.get_for_state(state, validator_index);
 
-    let decompressor = move |pk_bytes: &'a PublicKeyBytes| {
-        // Use the cached key if `pk_bytes` belongs to a cached validator, otherwise decompress it.
-        validator_pubkey_cache
-            .get_pubkey_from_pubkey_bytes(pk_bytes)
-            .map(Cow::Borrowed)
-            .or_else(|| pk_bytes.decompress().ok().map(Cow::Owned))
-    };
+    // Use the cached key if `pk_bytes` belongs to a cached validator, otherwise decompress it.
+    let decompressor =
+        move |pk_bytes: &'a PublicKeyBytes| validator_pubkey_cache.get_or_decompress(pk_bytes);
 
     BlockSignatureVerifier::new(state, get_pubkey, decompressor, spec)
 }
@@ -2283,9 +2279,9 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     chain: &BeaconChain<T>,
     header: &SignedBeaconBlockHeader,
 ) -> Result<(), Err> {
-    let proposer_pubkey = get_validator_pubkey_cache(chain)?
+    let pubkeys = chain.head_pubkeys();
+    let proposer_pubkey = pubkeys
         .get(header.message.proposer_index as usize)
-        .cloned()
         .ok_or(Err::unknown_validator_error(header.message.proposer_index))?;
     let fork = chain
         .spec

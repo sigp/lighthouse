@@ -21,7 +21,7 @@ use crate::{
     payload_envelope_verification::{
         EnvelopeError, EnvelopeProcessingSnapshot, EnvelopeSource, load_snapshot_from_state_root,
     },
-    validator_pubkey_cache::ValidatorPubkeyCache,
+    validator_pubkey_cache::{HeadPubkeys, ValidatorPubkeyCache},
 };
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 
@@ -255,14 +255,14 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
                 });
             }
 
-            let pubkey_cache = ctx.validator_pubkey_cache.read();
-            let pubkey = pubkey_cache
+            let pubkeys = HeadPubkeys::new(ctx.canonical_head, ctx.validator_pubkey_cache);
+            let pubkey = pubkeys
                 .get(block.message().proposer_index() as usize)
                 .ok_or_else(|| EnvelopeError::UnknownValidator {
                     proposer_index: block.message().proposer_index(),
                 })?;
             let is_valid = signed_envelope.verify_signature(
-                pubkey,
+                &pubkey,
                 &fork,
                 ctx.genesis_validators_root,
                 ctx.spec,

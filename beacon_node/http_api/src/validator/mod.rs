@@ -43,24 +43,16 @@ use warp_utils::reject::convert_rejection;
 
 pub mod execution_payload_envelopes;
 
-/// Uses the `chain.validator_pubkey_cache` to resolve a pubkey to a validator
-/// index and then ensures that the validator exists in the given `state`.
+/// Resolves a pubkey to the index of a validator in the given `state`.
+///
+/// Uses the `chain.validator_pubkey_cache` for finalized validators and falls back to searching
+/// `state` for validators that are not in the cache yet.
 pub fn pubkey_to_validator_index<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     pubkey: &PublicKeyBytes,
 ) -> Result<Option<usize>, Box<BeaconChainError>> {
-    chain
-        .validator_index(pubkey)
-        .map_err(Box::new)?
-        .filter(|&index| {
-            state
-                .validators()
-                .get(index)
-                .is_some_and(|v| v.pubkey == *pubkey)
-        })
-        .map(Result::Ok)
-        .transpose()
+    Ok(chain.validator_index_for_state(state, pubkey))
 }
 
 // GET validator/sync_committee_contribution
@@ -738,9 +730,10 @@ pub fn post_validator_register_validator<T: BeaconChainTypes>(
                             .into_iter()
                             .filter_map(|register_data| {
                                 chain
-                                    .validator_index(&register_data.message.pubkey)
-                                    .ok()
-                                    .flatten()
+                                    .validator_index_for_state(
+                                        &head_snapshot.beacon_state,
+                                        &register_data.message.pubkey,
+                                    )
                                     .and_then(|validator_index| {
                                         let validator = head_snapshot
                                             .beacon_state
