@@ -1269,6 +1269,7 @@ mod test {
     use bls::{PublicKeyBytes, SignatureBytes};
     use ssz::Encode;
     use ssz_types::ProgressiveVariableList;
+    use types::execution::RequestType;
     use types::{
         Address, BuilderDepositRequest, BuilderExitRequest, ConsolidationRequest, DepositRequest,
         Hash256, MainnetEthSpec, WithdrawalRequest,
@@ -1374,5 +1375,481 @@ mod test {
             execution_requests_gloas_from_ssz(decoded.execution_requests).unwrap(),
             requests
         );
+    }
+
+    fn transactions() -> Transactions<E> {
+        VariableList::new(vec![
+            VariableList::new(vec![1, 2, 3]).unwrap(),
+            VariableList::new(vec![0xff; 4]).unwrap(),
+        ])
+        .unwrap()
+    }
+
+    fn withdrawals() -> Withdrawals<E> {
+        VariableList::new(vec![
+            Withdrawal {
+                index: 7,
+                validator_index: 11,
+                address: Address::repeat_byte(4),
+                amount: 32,
+            },
+            Withdrawal {
+                index: 8,
+                validator_index: 12,
+                address: Address::repeat_byte(5),
+                amount: 33,
+            },
+        ])
+        .unwrap()
+    }
+
+    fn progressive_transactions() -> ProgressiveTransactions {
+        ProgressiveVariableList::new(
+            transactions()
+                .iter()
+                .map(|transaction| ProgressiveVariableList::new(transaction.to_vec()).unwrap())
+                .collect(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn paris_body_v1_round_trips_through_ssz() {
+        let body = ExecutionPayloadBodyV1::<E> {
+            transactions: transactions(),
+            withdrawals: None,
+        };
+
+        let ssz_body = SszExecutionPayloadBodyV1::try_from(body.clone()).unwrap();
+        let decoded =
+            SszExecutionPayloadBodyV1::<E>::from_ssz_bytes(&ssz_body.as_ssz_bytes()).unwrap();
+        assert_eq!(decoded, ssz_body);
+
+        let round_tripped = ExecutionPayloadBodyV1::from(decoded);
+        assert_eq!(round_tripped.transactions, body.transactions);
+        assert!(round_tripped.withdrawals.is_none());
+    }
+
+    #[test]
+    fn shanghai_body_v2_round_trips_through_ssz() {
+        let body = ExecutionPayloadBodyV1::<E> {
+            transactions: transactions(),
+            withdrawals: Some(withdrawals()),
+        };
+
+        let ssz_body = SszExecutionPayloadBodyV2::try_from(body.clone()).unwrap();
+        let decoded =
+            SszExecutionPayloadBodyV2::<E>::from_ssz_bytes(&ssz_body.as_ssz_bytes()).unwrap();
+        assert_eq!(decoded, ssz_body);
+
+        let round_tripped = ExecutionPayloadBodyV1::from(decoded);
+        assert_eq!(round_tripped.transactions, body.transactions);
+        assert_eq!(round_tripped.withdrawals, body.withdrawals);
+    }
+
+    #[test]
+    fn amsterdam_body_v3_round_trips_through_ssz() {
+        let body = ExecutionPayloadBodyV2::<E> {
+            transactions: progressive_transactions(),
+            withdrawals: Some(ProgressiveVariableList::new(withdrawals().to_vec()).unwrap()),
+            block_access_list: Some(ProgressiveVariableList::new(vec![0xab; 5]).unwrap()),
+        };
+
+        let ssz_body = SszExecutionPayloadBodyV3::try_from(body.clone()).unwrap();
+        let decoded =
+            SszExecutionPayloadBodyV3::<E>::from_ssz_bytes(&ssz_body.as_ssz_bytes()).unwrap();
+        assert_eq!(decoded, ssz_body);
+
+        assert_eq!(ExecutionPayloadBodyV2::try_from(decoded).unwrap(), body);
+    }
+
+    #[test]
+    fn amsterdam_body_v3_rejects_missing_withdrawals() {
+        let body = ExecutionPayloadBodyV2::<E> {
+            transactions: progressive_transactions(),
+            withdrawals: None,
+            block_access_list: Some(ProgressiveVariableList::new(vec![0xab; 5]).unwrap()),
+        };
+
+        assert!(matches!(
+            SszExecutionPayloadBodyV3::try_from(body),
+            Err(Error::UnsupportedForkVariant(_))
+        ));
+    }
+
+    #[test]
+    fn amsterdam_body_v3_rejects_missing_block_access_list() {
+        let body = ExecutionPayloadBodyV2::<E> {
+            transactions: progressive_transactions(),
+            withdrawals: Some(ProgressiveVariableList::new(withdrawals().to_vec()).unwrap()),
+            block_access_list: None,
+        };
+
+        assert!(matches!(
+            SszExecutionPayloadBodyV3::try_from(body),
+            Err(Error::UnsupportedForkVariant(_))
+        ));
+    }
+
+    #[test]
+    fn paris_body_v1_round_trips_from_body_v2() {
+        let body = ExecutionPayloadBodyV2::<E> {
+            transactions: progressive_transactions(),
+            withdrawals: None,
+            block_access_list: None,
+        };
+
+        let ssz_body = SszExecutionPayloadBodyV1::try_from(body.clone()).unwrap();
+        let decoded =
+            SszExecutionPayloadBodyV1::<E>::from_ssz_bytes(&ssz_body.as_ssz_bytes()).unwrap();
+        assert_eq!(decoded, ssz_body);
+
+        assert_eq!(ExecutionPayloadBodyV2::try_from(decoded).unwrap(), body);
+    }
+
+    #[test]
+    fn shanghai_body_v2_round_trips_from_body_v2() {
+        let body = ExecutionPayloadBodyV2::<E> {
+            transactions: progressive_transactions(),
+            withdrawals: Some(ProgressiveVariableList::new(withdrawals().to_vec()).unwrap()),
+            block_access_list: None,
+        };
+
+        let ssz_body = SszExecutionPayloadBodyV2::try_from(body.clone()).unwrap();
+        let decoded =
+            SszExecutionPayloadBodyV2::<E>::from_ssz_bytes(&ssz_body.as_ssz_bytes()).unwrap();
+        assert_eq!(decoded, ssz_body);
+
+        assert_eq!(ExecutionPayloadBodyV2::try_from(decoded).unwrap(), body);
+    }
+
+    /// `VALID` with a latest valid hash and no validation error encodes as the fixed part, then
+    /// the hash with no inner offset, with nothing for the empty error list, and decodes back.
+    #[test]
+    fn valid_payload_status_with_latest_valid_hash_encodes_and_decodes() {
+        let latest_valid_hash = Hash256::repeat_byte(0x11);
+        let status = PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: Some(ExecutionBlockHash::from_root(latest_valid_hash)),
+            validation_error: None,
+            inclusion_list_satisfied: None,
+        };
+
+        let expected = [
+            [0u8].as_slice(),             // status: VALID
+            &9u32.to_le_bytes(),          // offset of latest_valid_hash
+            &41u32.to_le_bytes(),         // offset of validation_error
+            latest_valid_hash.as_slice(), // latest_valid_hash
+        ]
+        .concat();
+
+        let encoded = SszPayloadStatusV1::try_from(status.clone())
+            .unwrap()
+            .as_ssz_bytes();
+        assert_eq!(encoded, expected);
+
+        let decoded = SszPayloadStatusV1::from_ssz_bytes(&expected).unwrap();
+        assert_eq!(PayloadStatusV1::try_from(decoded).unwrap(), status);
+    }
+
+    /// `INVALID` with no latest valid hash and a validation error encodes as the fixed part, then
+    /// nothing for the empty hash list, then the error list: an inner offset before the error text.
+    #[test]
+    fn invalid_payload_status_with_validation_error_encodes_and_decodes() {
+        let validation_error = "bad state root";
+        let status = PayloadStatusV1 {
+            status: PayloadStatusV1Status::Invalid,
+            latest_valid_hash: None,
+            validation_error: Some(validation_error.to_string()),
+            inclusion_list_satisfied: None,
+        };
+
+        let expected = [
+            [1u8].as_slice(),            // status: INVALID
+            &9u32.to_le_bytes(),         // offset of latest_valid_hash
+            &9u32.to_le_bytes(),         // offset of validation_error
+            &4u32.to_le_bytes(),         // inner offset of the error text
+            validation_error.as_bytes(), // validation_error
+        ]
+        .concat();
+
+        let encoded = SszPayloadStatusV1::try_from(status.clone())
+            .unwrap()
+            .as_ssz_bytes();
+        assert_eq!(encoded, expected);
+
+        let decoded = SszPayloadStatusV1::from_ssz_bytes(&expected).unwrap();
+        assert_eq!(PayloadStatusV1::try_from(decoded).unwrap(), status);
+    }
+
+    #[test]
+    fn get_payload_response_for_all_forks() {
+        let block_value = Uint256::from(7);
+
+        for fork in ForkName::list_all() {
+            let (bytes, expected) = match fork {
+                ForkName::Base | ForkName::Altair => {
+                    assert!(SszGetPayloadResponse::<E>::from_ssz_bytes_by_fork(&[], fork).is_err());
+                    continue;
+                }
+                ForkName::Bellatrix => {
+                    let response = SszGetPayloadResponseBellatrix {
+                        execution_payload: Default::default(),
+                        block_value,
+                    };
+                    (
+                        response.as_ssz_bytes(),
+                        SszGetPayloadResponse::Bellatrix(response),
+                    )
+                }
+                ForkName::Capella => {
+                    let response = SszGetPayloadResponseCapella {
+                        execution_payload: Default::default(),
+                        block_value,
+                    };
+                    (
+                        response.as_ssz_bytes(),
+                        SszGetPayloadResponse::Capella(response),
+                    )
+                }
+                ForkName::Deneb => {
+                    let response = SszGetPayloadResponseDeneb {
+                        execution_payload: Default::default(),
+                        block_value,
+                        blobs_bundle: BlobsBundle::default(),
+                        should_override_builder: true,
+                    };
+                    (
+                        response.as_ssz_bytes(),
+                        SszGetPayloadResponse::Deneb(response),
+                    )
+                }
+                ForkName::Electra => {
+                    let response = SszGetPayloadResponseElectra {
+                        execution_payload: Default::default(),
+                        block_value,
+                        blobs_bundle: BlobsBundle::default(),
+                        requests: VariableList::empty(),
+                        should_override_builder: true,
+                    };
+                    (
+                        response.as_ssz_bytes(),
+                        SszGetPayloadResponse::Electra(response),
+                    )
+                }
+                ForkName::Fulu => {
+                    let response = SszGetPayloadResponseFulu {
+                        execution_payload: Default::default(),
+                        block_value,
+                        blobs_bundle: BlobsBundle::default(),
+                        requests: VariableList::empty(),
+                        should_override_builder: true,
+                    };
+                    (
+                        response.as_ssz_bytes(),
+                        SszGetPayloadResponse::Fulu(response),
+                    )
+                }
+                ForkName::Gloas => {
+                    let response = SszGetPayloadResponseGloas {
+                        execution_payload: Default::default(),
+                        block_value,
+                        blobs_bundle: BlobsBundle::default(),
+                        requests: VariableList::empty(),
+                        should_override_builder: true,
+                    };
+                    (
+                        response.as_ssz_bytes(),
+                        SszGetPayloadResponse::Gloas(response),
+                    )
+                }
+                ForkName::Heze => {
+                    let response = SszGetPayloadResponseHeze {
+                        execution_payload: Default::default(),
+                        block_value,
+                        blobs_bundle: BlobsBundle::default(),
+                        requests: VariableList::empty(),
+                        should_override_builder: true,
+                    };
+                    (
+                        response.as_ssz_bytes(),
+                        SszGetPayloadResponse::Heze(response),
+                    )
+                }
+            };
+
+            assert_eq!(
+                SszGetPayloadResponse::<E>::from_ssz_bytes_by_fork(&bytes, fork).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn bodies_response_for_all_forks() {
+        let v1 = SszBodiesResponseV1::<E> {
+            entries: VariableList::new(vec![SszBodyEntryV1 {
+                available: true,
+                body: SszExecutionPayloadBodyV1 {
+                    transactions: transactions(),
+                },
+            }])
+            .unwrap(),
+        };
+        let v1 = (v1.as_ssz_bytes(), SszBodiesResponse::V1(v1));
+
+        let v2 = SszBodiesResponseV2::<E> {
+            entries: VariableList::new(vec![SszBodyEntryV2 {
+                available: true,
+                body: SszExecutionPayloadBodyV2 {
+                    transactions: transactions(),
+                    withdrawals: withdrawals(),
+                },
+            }])
+            .unwrap(),
+        };
+        let v2 = (v2.as_ssz_bytes(), SszBodiesResponse::V2(v2));
+
+        let v3 = SszBodiesResponseV3::<E> {
+            entries: VariableList::new(vec![SszBodyEntryV3 {
+                available: true,
+                body: SszExecutionPayloadBodyV3 {
+                    transactions: transactions(),
+                    withdrawals: withdrawals(),
+                    block_access_list: VariableList::new(vec![0xab; 5]).unwrap(),
+                },
+            }])
+            .unwrap(),
+        };
+        let v3 = (v3.as_ssz_bytes(), SszBodiesResponse::V3(v3));
+
+        for fork in ForkName::list_all() {
+            let (bytes, expected) = match fork {
+                ForkName::Base | ForkName::Altair => {
+                    assert!(SszBodiesResponse::<E>::from_ssz_bytes_by_fork(&[], fork).is_err());
+                    continue;
+                }
+                ForkName::Bellatrix => &v1,
+                ForkName::Capella | ForkName::Deneb | ForkName::Electra | ForkName::Fulu => &v2,
+                ForkName::Gloas | ForkName::Heze => &v3,
+            };
+
+            assert_eq!(
+                SszBodiesResponse::from_ssz_bytes_by_fork(bytes, fork).unwrap(),
+                *expected
+            );
+        }
+    }
+
+    fn request_bytes(request_type: RequestType, request: &impl Encode) -> Vec<u8> {
+        [vec![request_type.to_u8()], request.as_ssz_bytes()].concat()
+    }
+
+    fn ssz_requests(requests: Vec<Vec<u8>>) -> SszExecutionRequests<E> {
+        VariableList::new(
+            requests
+                .into_iter()
+                .map(|request| VariableList::new(request).unwrap())
+                .collect(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn execution_requests_parse_errors() {
+        let deposit = request_bytes(RequestType::Deposit, &deposit_request());
+        let withdrawal = request_bytes(RequestType::Withdrawal, &withdrawal_request());
+
+        // Empty element, and a type byte with no request data.
+        for request in [vec![], vec![RequestType::Deposit.to_u8()]] {
+            assert!(matches!(
+                execution_requests_electra_from_ssz::<E>(ssz_requests(vec![request])),
+                Err(RequestsError::EmptyRequest(0))
+            ));
+        }
+
+        // Out of order, and the same type twice.
+        for requests in [
+            vec![withdrawal, deposit.clone()],
+            vec![deposit.clone(), deposit],
+        ] {
+            assert!(matches!(
+                execution_requests_electra_from_ssz::<E>(ssz_requests(requests)),
+                Err(RequestsError::InvalidOrdering)
+            ));
+        }
+
+        // Builder requests before Gloas.
+        let builder_deposit = request_bytes(
+            RequestType::BuilderDeposit,
+            &BuilderDepositRequest {
+                pubkey: PublicKeyBytes::empty(),
+                withdrawal_credentials: Hash256::repeat_byte(4),
+                amount: 34,
+                signature: SignatureBytes::empty(),
+            },
+        );
+        let builder_exit = request_bytes(
+            RequestType::BuilderExit,
+            &BuilderExitRequest {
+                source_address: Address::repeat_byte(5),
+                pubkey: PublicKeyBytes::empty(),
+            },
+        );
+        for request in [builder_deposit, builder_exit] {
+            assert!(matches!(
+                execution_requests_electra_from_ssz::<E>(ssz_requests(vec![request])),
+                Err(RequestsError::VariantMismatch)
+            ));
+        }
+    }
+
+    #[test]
+    fn capabilities_from_json() {
+        let json = r#"{
+            "supported_forks": ["paris", "shanghai", "cancun", "prague", "osaka", "amsterdam", "bogota"],
+            "fork_scoped_endpoints": ["payloads", "forkchoice", "bodies"],
+            "independently_versioned": { "blobs": ["v1", "v2", "v3", "v4"] },
+            "unscoped_endpoints": ["identity"],
+            "limits": {
+                "bodies.max_count": 32,
+                "blobs.max_versioned_hashes": 128,
+                "payload.max_bytes": 1048576
+            }
+        }"#;
+
+        let capabilities =
+            SszCapabilities::from(serde_json::from_str::<JsonCapabilities>(json).unwrap());
+        assert_eq!(
+            capabilities,
+            SszCapabilities {
+                supported_forks: HashSet::from([
+                    ForkName::Bellatrix,
+                    ForkName::Capella,
+                    ForkName::Deneb,
+                    ForkName::Electra,
+                    ForkName::Fulu,
+                    ForkName::Gloas,
+                    ForkName::Heze,
+                ]),
+                payloads: true,
+                forkchoice: true,
+                bodies: true,
+                blobs_v1: true,
+                blobs_v2: true,
+                blobs_v3: true,
+                blobs_v4: true,
+                unscoped_endpoints: vec!["identity".to_string()],
+                limits: SszLimits {
+                    bodies_max_count: Some(32),
+                    blobs_max_versioned_hashes: Some(128),
+                    payload_max_bytes: Some(1048576),
+                },
+            }
+        );
+        assert!(capabilities.get_client_version_v1());
+
+        let empty = SszCapabilities::from(serde_json::from_str::<JsonCapabilities>("{}").unwrap());
+        assert_eq!(empty, SszCapabilities::default());
     }
 }
