@@ -166,8 +166,7 @@ impl ExecutionBlock {
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Eq, Encode, Decode, Hash, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PayloadAttributes {
     #[superstruct(getter(copy))]
     pub timestamp: u64,

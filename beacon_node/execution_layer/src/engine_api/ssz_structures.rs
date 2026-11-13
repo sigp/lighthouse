@@ -2,6 +2,7 @@ use crate::json_structures::{BlobAndProofV2, BlobAndProofV3};
 
 use super::json_structures::{
     BlobCellsAndProofsV1, CustodyColumnsBitArray, GetBlobsV4List, JsonCell, RequestsError,
+    parse_execution_requests_bytes,
 };
 use super::*;
 use serde::Deserialize;
@@ -10,12 +11,9 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::{BitVector, ProgressiveVariableList, VariableList};
 use std::collections::HashSet;
 use superstruct::superstruct;
-use typenum::{U1, U32};
+use typenum::{U1, U32, U128, U256, U1024};
 use types::data::Cell;
-use types::execution::{
-    BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
-    ExecutionRequestsElectra, ExecutionRequestsGloas, RequestType, WithdrawalRequests,
-};
+use types::execution::{ExecutionRequestsElectra, ExecutionRequestsGloas};
 use types::{EthSpec, KzgProof, ProgressiveTransactions, Transactions};
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
@@ -29,8 +27,7 @@ use types::{
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SszExecutionPayloadBody<E: EthSpec> {
     pub transactions: Transactions<E>,
     #[superstruct(only(V2, V3))]
@@ -50,11 +47,19 @@ impl<E: EthSpec> From<SszExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<E
     }
 }
 
-impl<E: EthSpec> From<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV1<E> {
-    fn from(value: ExecutionPayloadBodyV1<E>) -> Self {
-        Self {
-            transactions: value.transactions,
+impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV1<E>> for SszExecutionPayloadBodyV1<E> {
+    type Error = Error;
+
+    fn try_from(value: ExecutionPayloadBodyV1<E>) -> Result<Self, Self::Error> {
+        if value.withdrawals.is_some() {
+            return Err(Error::UnsupportedForkVariant(
+                "withdrawals in a Paris (V1) body".to_string(),
+            ));
         }
+
+        Ok(Self {
+            transactions: value.transactions,
+        })
     }
 }
 
@@ -209,7 +214,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadBodyV2<E>> for SszExecutionPayloadBodyV
 
 type SszExecutionRequests<E> = VariableList<
     VariableList<u8, <E as EthSpec>::MaxBytesPerTransaction>,
-    <E as EthSpec>::MaxExecutionRequestsPerPayload,
+    MaxExecutionRequestsPerPayload,
 >;
 
 #[superstruct(
@@ -219,8 +224,7 @@ type SszExecutionRequests<E> = VariableList<
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SszExecutionPayloadEnvelope<E: EthSpec> {
     #[superstruct(
         only(Bellatrix),
@@ -351,168 +355,49 @@ where
     VariableList::new(requests)
 }
 
-/// Parse an EIP-7685 SSZ requests list into its component request lists.
+/// Parse an EIP-7685 SSZ requests list using the request types for the fork.
 ///
-/// Returns the deposit, withdrawal, consolidation, builder deposit and builder exit lists.
-/// Builder lists are empty pre-gloas or post-gloas when no builder requests are present.
-#[allow(clippy::type_complexity)]
-fn parse_execution_requests_ssz<E>(
+/// The elements are already raw `request_type ++ request_data` bytes, so this calls the shared
+/// byte-level parser directly, without the hex step the JSON path needs.
+fn parse_execution_requests_ssz<E: EthSpec>(
+    ssz_requests: &SszExecutionRequests<E>,
+    fork_name: ForkName,
+) -> Result<ExecutionRequests<E>, RequestsError> {
+    parse_execution_requests_bytes(
+        ssz_requests.iter().map(|request| Ok::<&[u8], _>(request)),
+        fork_name,
+    )
+}
+
+fn execution_requests_electra_from_ssz<E: EthSpec>(
     ssz_requests: SszExecutionRequests<E>,
-) -> Result<
-    (
-        DepositRequests<E>,
-        WithdrawalRequests<E>,
-        ConsolidationRequests<E>,
-        BuilderDepositRequests<E>,
-        BuilderExitRequests<E>,
-    ),
-    RequestsError,
->
-where
-    E: EthSpec,
-{
-    let mut deposits = DepositRequests::<E>::default();
-    let mut withdrawals = WithdrawalRequests::<E>::default();
-    let mut consolidations = ConsolidationRequests::<E>::default();
-    let mut builder_deposits = BuilderDepositRequests::<E>::default();
-    let mut builder_exits = BuilderExitRequests::<E>::default();
-    let mut prev_prefix: Option<RequestType> = None;
-
-    for (i, request) in ssz_requests.iter().enumerate() {
-        let request_bytes: &[u8] = request;
-
-        // The first byte is the `request_type`; the remaining bytes are the `request_data`.
-        // Elements with empty `request_data` **MUST** be excluded from the list.
-        let Some((prefix_byte, request_data)) = request_bytes.split_first() else {
-            return Err(RequestsError::EmptyRequest(i));
-        };
-        if request_data.is_empty() {
-            return Err(RequestsError::EmptyRequest(i));
-        }
-
-        // Elements of the list **MUST** be ordered by `request_type` in ascending order.
-        let current_prefix =
-            RequestType::from_u8(*prefix_byte).ok_or(RequestsError::InvalidPrefix(*prefix_byte))?;
-        if let Some(prev) = prev_prefix
-            && prev.to_u8() >= current_prefix.to_u8()
-        {
-            return Err(RequestsError::InvalidOrdering);
-        }
-        prev_prefix = Some(current_prefix);
-
-        match current_prefix {
-            RequestType::Deposit => {
-                deposits = DepositRequests::<E>::from_ssz_bytes(request_data).map_err(|e| {
-                    RequestsError::DecodeError(format!(
-                        "Failed to decode DepositRequest from EL: {:?}",
-                        e
-                    ))
-                })?;
-            }
-            RequestType::Withdrawal => {
-                withdrawals =
-                    WithdrawalRequests::<E>::from_ssz_bytes(request_data).map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode WithdrawalRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::Consolidation => {
-                consolidations =
-                    ConsolidationRequests::<E>::from_ssz_bytes(request_data).map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode ConsolidationRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::BuilderDeposit => {
-                builder_deposits = BuilderDepositRequests::<E>::from_ssz_bytes(request_data)
-                    .map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode BuilderDepositRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-            RequestType::BuilderExit => {
-                builder_exits =
-                    BuilderExitRequests::<E>::from_ssz_bytes(request_data).map_err(|e| {
-                        RequestsError::DecodeError(format!(
-                            "Failed to decode BuilderExitRequest from EL: {:?}",
-                            e
-                        ))
-                    })?;
-            }
-        }
+) -> Result<ExecutionRequestsElectra<E>, RequestsError> {
+    match parse_execution_requests_ssz(&ssz_requests, ForkName::Electra)? {
+        ExecutionRequests::Electra(requests) => Ok(requests),
+        ExecutionRequests::Gloas(_) => Err(RequestsError::VariantMismatch),
     }
-
-    Ok((
-        deposits,
-        withdrawals,
-        consolidations,
-        builder_deposits,
-        builder_exits,
-    ))
 }
 
-fn execution_requests_electra_from_ssz<E>(
+fn execution_requests_gloas_from_ssz<E: EthSpec>(
     ssz_requests: SszExecutionRequests<E>,
-) -> Result<ExecutionRequestsElectra<E>, RequestsError>
-where
-    E: EthSpec,
-{
-    let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
-        parse_execution_requests_ssz::<E>(ssz_requests)?;
-    // Builder requests are not valid pre-Gloas.
-    if !builder_deposits.is_empty() || !builder_exits.is_empty() {
-        return Err(RequestsError::VariantMismatch);
+) -> Result<ExecutionRequestsGloas<E>, RequestsError> {
+    match parse_execution_requests_ssz(&ssz_requests, ForkName::Gloas)? {
+        ExecutionRequests::Gloas(requests) => Ok(requests),
+        ExecutionRequests::Electra(_) => Err(RequestsError::VariantMismatch),
     }
-    Ok(ExecutionRequestsElectra {
-        deposits,
-        withdrawals,
-        consolidations,
-    })
 }
 
-fn execution_requests_gloas_from_ssz<E>(
-    ssz_requests: SszExecutionRequests<E>,
-) -> Result<ExecutionRequestsGloas<E>, RequestsError>
-where
-    E: EthSpec,
-{
-    let (deposits, withdrawals, consolidations, builder_deposits, builder_exits) =
-        parse_execution_requests_ssz::<E>(ssz_requests)?;
-    // Gloas requests use progressive lists (deposits are unlimited; the rest carry a length bound).
-    let to_progressive = |name: &str, e: ssz_types::Error| {
-        RequestsError::DecodeError(format!("{name} exceed SSZ bound: {e:?}"))
-    };
-    Ok(ExecutionRequestsGloas {
-        deposits: ProgressiveVariableList::new(deposits.to_vec())
-            .map_err(|e| to_progressive("deposits", e))?,
-        withdrawals: ProgressiveVariableList::new(withdrawals.to_vec())
-            .map_err(|e| to_progressive("withdrawals", e))?,
-        consolidations: ProgressiveVariableList::new(consolidations.to_vec())
-            .map_err(|e| to_progressive("consolidations", e))?,
-        builder_deposits: ProgressiveVariableList::new(builder_deposits.to_vec())
-            .map_err(|e| to_progressive("builder_deposits", e))?,
-        builder_exits: ProgressiveVariableList::new(builder_exits.to_vec())
-            .map_err(|e| to_progressive("builder_exits", e))?,
-    })
-}
-
-#[derive(Debug, PartialEq, Encode, Decode, Clone)]
-pub struct SszPayloadStatusV1<E: EthSpec> {
+#[derive(Debug, PartialEq, Encode, Decode)]
+pub struct SszPayloadStatusV1 {
     pub payload_status: u8,
     pub latest_valid_hash: VariableList<Hash256, U1>,
-    pub validation_error: VariableList<VariableList<u8, E::MaxErrorBytes>, U1>,
+    pub validation_error: VariableList<VariableList<u8, MaxErrorBytes>, U1>,
 }
 
-impl<E: EthSpec> TryFrom<SszPayloadStatusV1<E>> for PayloadStatusV1 {
+impl TryFrom<SszPayloadStatusV1> for PayloadStatusV1 {
     type Error = Error;
 
-    fn try_from(value: SszPayloadStatusV1<E>) -> Result<Self, Self::Error> {
+    fn try_from(value: SszPayloadStatusV1) -> Result<Self, Self::Error> {
         let status = match value.payload_status {
             0 => PayloadStatusV1Status::Valid,
             1 => PayloadStatusV1Status::Invalid,
@@ -541,7 +426,7 @@ impl<E: EthSpec> TryFrom<SszPayloadStatusV1<E>> for PayloadStatusV1 {
     }
 }
 
-impl<E: EthSpec> TryFrom<PayloadStatusV1> for SszPayloadStatusV1<E> {
+impl TryFrom<PayloadStatusV1> for SszPayloadStatusV1 {
     type Error = ssz_types::Error;
 
     fn try_from(value: PayloadStatusV1) -> Result<Self, Self::Error> {
@@ -584,8 +469,7 @@ impl<E: EthSpec> TryFrom<PayloadStatusV1> for SszPayloadStatusV1<E> {
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, PartialEq, Encode, Decode)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Debug, PartialEq)]
 pub struct SszGetPayloadResponse<E: EthSpec> {
     #[superstruct(
         only(Bellatrix),
@@ -627,9 +511,8 @@ impl<E: EthSpec> SszGetPayloadResponse<E> {
                 SszGetPayloadResponseElectra::from_ssz_bytes(bytes).map(Self::Electra)
             }
             ForkName::Fulu => SszGetPayloadResponseFulu::from_ssz_bytes(bytes).map(Self::Fulu),
-            ForkName::Gloas | ForkName::Heze => {
-                SszGetPayloadResponseGloas::from_ssz_bytes(bytes).map(Self::Gloas)
-            }
+            ForkName::Gloas => SszGetPayloadResponseGloas::from_ssz_bytes(bytes).map(Self::Gloas),
+            ForkName::Heze => SszGetPayloadResponseHeze::from_ssz_bytes(bytes).map(Self::Heze),
             ForkName::Base | ForkName::Altair => Err(DecodeError::BytesInvalid(format!(
                 "unsupported fork for get_payload response: {fork}"
             ))),
@@ -783,8 +666,7 @@ impl<E: EthSpec> TryFrom<GetPayloadResponse<E>> for SszGetPayloadResponse<E> {
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SszForkchoiceUpdate {
     pub forkchoice_state: ForkchoiceState,
     #[superstruct(
@@ -869,8 +751,7 @@ impl SszForkchoiceUpdate {
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SszForkchoiceUpdateCustodyColumns<E: EthSpec> {
     pub forkchoice_state: ForkchoiceState,
     #[superstruct(only(Gloas), partial_getter(rename = "payload_attributes_gloas"))]
@@ -888,15 +769,14 @@ impl<E: EthSpec> SszForkchoiceUpdateCustodyColumns<E> {
         payload_attributes: Option<PayloadAttributes>,
         custody_columns: Option<CustodyColumnsBitArray>,
     ) -> Result<Self, Error> {
+        let custody_columns: Option<BitVector<E::CellsPerExtBlob>> =
+            if let Some(bit_array) = custody_columns {
+                Some(custody_columns_to_bit_vector::<E>(bit_array)?)
+            } else {
+                None
+            };
         let update = match fork {
             ForkName::Gloas => {
-                let custody_columns: Option<BitVector<E::CellsPerExtBlob>> =
-                    if let Some(bit_array) = custody_columns {
-                        Some(custody_columns_to_bit_vector::<E>(bit_array)?)
-                    } else {
-                        None
-                    };
-
                 let payload_attributes = VariableList::new(
                     payload_attributes
                         .map(|attributes| attributes.as_v4().cloned())
@@ -912,13 +792,6 @@ impl<E: EthSpec> SszForkchoiceUpdateCustodyColumns<E> {
                 })
             }
             ForkName::Heze => {
-                let custody_columns: Option<BitVector<E::CellsPerExtBlob>> =
-                    if let Some(bit_array) = custody_columns {
-                        Some(custody_columns_to_bit_vector::<E>(bit_array)?)
-                    } else {
-                        None
-                    };
-
                 let payload_attributes = VariableList::new(
                     payload_attributes
                         .map(|attributes| attributes.as_v5().cloned())
@@ -943,16 +816,16 @@ impl<E: EthSpec> SszForkchoiceUpdateCustodyColumns<E> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Encode, Decode)]
-pub struct SszForkchoiceUpdatedResponse<E: EthSpec> {
-    pub payload_status: SszPayloadStatusV1<E>,
+#[derive(Debug, PartialEq, Encode, Decode)]
+pub struct SszForkchoiceUpdatedResponse {
+    pub payload_status: SszPayloadStatusV1,
     pub payload_id: VariableList<PayloadId, U1>,
 }
 
-impl<E: EthSpec> TryFrom<SszForkchoiceUpdatedResponse<E>> for ForkchoiceUpdatedResponse {
+impl TryFrom<SszForkchoiceUpdatedResponse> for ForkchoiceUpdatedResponse {
     type Error = Error;
 
-    fn try_from(value: SszForkchoiceUpdatedResponse<E>) -> Result<Self, Self::Error> {
+    fn try_from(value: SszForkchoiceUpdatedResponse) -> Result<Self, Self::Error> {
         Ok(Self {
             payload_status: PayloadStatusV1::try_from(value.payload_status)?,
             payload_id: value.payload_id.first().copied(),
@@ -960,7 +833,7 @@ impl<E: EthSpec> TryFrom<SszForkchoiceUpdatedResponse<E>> for ForkchoiceUpdatedR
     }
 }
 
-impl<E: EthSpec> TryFrom<ForkchoiceUpdatedResponse> for SszForkchoiceUpdatedResponse<E> {
+impl TryFrom<ForkchoiceUpdatedResponse> for SszForkchoiceUpdatedResponse {
     type Error = ssz_types::Error;
 
     fn try_from(value: ForkchoiceUpdatedResponse) -> Result<Self, Self::Error> {
@@ -971,37 +844,33 @@ impl<E: EthSpec> TryFrom<ForkchoiceUpdatedResponse> for SszForkchoiceUpdatedResp
     }
 }
 
-#[superstruct(
-    variants(V1, V2),
-    variant_attributes(derive(Clone, Debug, Encode, Decode, PartialEq),),
-    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
-    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
-)]
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
-pub struct SszBlobsRequest<E: EthSpec> {
-    pub versioned_hashes: VariableList<Hash256, E::MaxVersionedHashesPerRequest>,
-    #[superstruct(only(V2))]
-    pub indices_bitarray: BitVector<E::CellsPerExtBlob>,
+#[derive(Clone, Debug, PartialEq, Encode, Decode)]
+pub struct SszBlobsRequestV1 {
+    pub versioned_hashes: VariableList<Hash256, MaxVersionedHashesPerRequest>,
 }
 
-impl<E: EthSpec> SszBlobsRequest<E> {
-    pub fn new_blobs_request_v1(
-        versioned_hashes: Vec<Hash256>,
-    ) -> Result<SszBlobsRequestV1<E>, ssz_types::Error> {
-        Ok(SszBlobsRequestV1 {
+impl SszBlobsRequestV1 {
+    pub fn new(versioned_hashes: Vec<Hash256>) -> Result<Self, ssz_types::Error> {
+        Ok(Self {
             versioned_hashes: VariableList::new(versioned_hashes)?,
         })
     }
+}
 
-    pub fn new_blobs_request_v2(
+#[derive(Clone, Debug, PartialEq, Encode, Decode)]
+pub struct SszBlobsRequestV2<E: EthSpec> {
+    pub versioned_hashes: VariableList<Hash256, MaxVersionedHashesPerRequest>,
+    pub indices_bitarray: BitVector<E::CellsPerExtBlob>,
+}
+
+impl<E: EthSpec> SszBlobsRequestV2<E> {
+    pub fn new(
         versioned_hashes: Vec<Hash256>,
         indices_bitarray: CustodyColumnsBitArray,
-    ) -> Result<SszBlobsRequestV2<E>, ssz_types::Error> {
-        let indices = custody_columns_to_bit_vector::<E>(indices_bitarray)?;
-        Ok(SszBlobsRequestV2 {
+    ) -> Result<Self, ssz_types::Error> {
+        Ok(Self {
             versioned_hashes: VariableList::new(versioned_hashes)?,
-            indices_bitarray: indices,
+            indices_bitarray: custody_columns_to_bit_vector::<E>(indices_bitarray)?,
         })
     }
 }
@@ -1012,10 +881,8 @@ impl<E: EthSpec> SszBlobsRequest<E> {
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BlobsEntry<E: EthSpec> {
-    #[superstruct(only(V2, V4))]
     pub available: bool,
     #[superstruct(only(V2), partial_getter(rename = "contents_v2"))]
     pub contents: BlobAndProofV2<E>,
@@ -1073,13 +940,12 @@ impl<E: EthSpec> TryFrom<BlobCellsAndProofsV1<E>> for SszBlobCellsAndProofs<E> {
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SszBlobsResponse<E: EthSpec> {
     #[superstruct(only(V2), partial_getter(rename = "entries_v2"))]
-    pub entries: VariableList<BlobsEntryV2<E>, E::MaxVersionedHashesPerRequest>,
+    pub entries: VariableList<BlobsEntryV2<E>, MaxVersionedHashesPerRequest>,
     #[superstruct(only(V4), partial_getter(rename = "entries_v4"))]
-    pub entries: VariableList<BlobsEntryV4<E>, E::MaxVersionedHashesPerRequest>,
+    pub entries: VariableList<BlobsEntryV4<E>, MaxVersionedHashesPerRequest>,
 }
 
 impl<E: EthSpec> SszBlobsResponseV2<E> {
@@ -1112,6 +978,9 @@ impl<E: EthSpec> SszBlobsResponseV4<E> {
 }
 
 pub type MaxBodiesRequest = U32;
+pub type MaxVersionedHashesPerRequest = U128;
+pub type MaxExecutionRequestsPerPayload = U256;
+pub type MaxErrorBytes = U1024;
 
 #[derive(Clone, Debug, Encode, Decode, PartialEq)]
 pub struct SszBodiesByHashRequest {
@@ -1134,8 +1003,7 @@ impl SszBodiesByHashRequest {
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SszBodyEntry<E: EthSpec> {
     pub available: bool,
     #[superstruct(only(V1), partial_getter(rename = "body_v1"))]
@@ -1157,8 +1025,7 @@ pub struct SszBodyEntry<E: EthSpec> {
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Clone, Debug, Encode, Decode, PartialEq)]
-#[ssz(enum_behaviour = "transparent")]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SszBodiesResponse<E: EthSpec> {
     #[superstruct(only(V1), partial_getter(rename = "entries_v1"))]
     pub entries: VariableList<SszBodyEntryV1<E>, MaxBodiesRequest>,
@@ -1270,11 +1137,7 @@ pub struct SszCapabilities {
 }
 
 impl SszCapabilities {
-    pub fn new_payload(&self, fork: ForkName) -> bool {
-        self.supported_forks.contains(&fork) && self.payloads
-    }
-
-    pub fn get_payload(&self, fork: ForkName) -> bool {
+    pub fn payloads(&self, fork: ForkName) -> bool {
         self.supported_forks.contains(&fork) && self.payloads
     }
 
