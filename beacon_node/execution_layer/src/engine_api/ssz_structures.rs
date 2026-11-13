@@ -949,11 +949,21 @@ pub struct SszBlobsResponse<E: EthSpec> {
 }
 
 impl<E: EthSpec> SszBlobsResponseV2<E> {
-    /// `/blobs/v2` (all-or-nothing): a miss is a `204`, so every entry in a `200` body is present.
-    pub fn into_v2(self) -> Vec<BlobAndProofV2<E>> {
+    /// `/blobs/v2` is all-or-nothing: a miss is a `204`, so every entry in a `200` body must be
+    /// available. An unavailable entry is rejected rather than returned as a zero-valued blob.
+    pub fn into_v2(self) -> Result<Vec<BlobAndProofV2<E>>, Error> {
         self.entries
             .into_iter()
-            .map(|entry| entry.contents)
+            .enumerate()
+            .map(|(index, entry)| {
+                if entry.available {
+                    Ok(entry.contents)
+                } else {
+                    Err(Error::BadResponse(format!(
+                        "blobs/v2 entry {index} is not available in a 200 response"
+                    )))
+                }
+            })
             .collect()
     }
 
@@ -1851,5 +1861,26 @@ mod test {
 
         let empty = SszCapabilities::from(serde_json::from_str::<JsonCapabilities>("{}").unwrap());
         assert_eq!(empty, SszCapabilities::default());
+    }
+
+    #[test]
+    fn blobs_v2_response_rejects_unavailable_entry() {
+        let entry = |available| BlobsEntryV2::<E> {
+            available,
+            contents: BlobAndProofV2 {
+                blob: Default::default(),
+                proofs: Default::default(),
+            },
+        };
+
+        let complete = SszBlobsResponseV2 {
+            entries: VariableList::new(vec![entry(true), entry(true)]).unwrap(),
+        };
+        assert_eq!(complete.into_v2().unwrap().len(), 2);
+
+        let partial = SszBlobsResponseV2 {
+            entries: VariableList::new(vec![entry(true), entry(false)]).unwrap(),
+        };
+        assert!(matches!(partial.into_v2(), Err(Error::BadResponse(_))));
     }
 }
