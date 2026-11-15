@@ -65,6 +65,15 @@ impl HttpVersion {
     }
 }
 
+/// Which h2c connection carries a request.
+#[derive(Debug, Copy, Clone)]
+pub enum ConnectionClass {
+    /// Hundreds of KiB to several MiB per body.
+    Bulk,
+    /// Sub-KiB bodies on the latency-sensitive path.
+    Control,
+}
+
 #[derive(Deserialize)]
 struct JsonProblem {
     #[serde(rename = "type")]
@@ -76,6 +85,8 @@ struct JsonProblem {
 /// `application/octet-stream` SSZ bodies and RFC 7807 problem responses.
 pub struct HttpRestSsz {
     pub client_h2c: Client,
+    /// Carries bulk bodies, so `client_h2c` is left for small latency-sensitive calls.
+    pub client_h2c_bulk: Client,
     pub client_h1: Client,
     pub http_version: OnceLock<HttpVersion>,
     pub url: SensitiveUrl,
@@ -92,11 +103,8 @@ impl HttpRestSsz {
     ) -> Result<Self, Error> {
         let execution_timeout_multiplier = execution_timeout_multiplier.unwrap_or(1);
         Ok(Self {
-            client_h2c: Client::builder()
-                .http2_prior_knowledge()
-                .http2_initial_stream_window_size(H2_STREAM_WINDOW)
-                .http2_initial_connection_window_size(H2_CONNECTION_WINDOW)
-                .build()?,
+            client_h2c: Self::h2c_client()?,
+            client_h2c_bulk: Self::h2c_client()?,
             client_h1: Client::builder().build()?,
             http_version: OnceLock::new(),
             url,
@@ -118,9 +126,22 @@ impl HttpRestSsz {
         })
     }
 
-    fn selected_client(&self) -> &Client {
+    /// One h2c client. Every h2c client is built here so the two can never drift apart.
+    fn h2c_client() -> Result<Client, Error> {
+        Ok(Client::builder()
+            .http2_prior_knowledge()
+            .http2_initial_stream_window_size(H2_STREAM_WINDOW)
+            .http2_initial_connection_window_size(H2_CONNECTION_WINDOW)
+            .build()?)
+    }
+
+    /// HTTP/1.1 ignores the class, since hyper already pools it.
+    fn selected_client(&self, class: ConnectionClass) -> &Client {
         match self.http_version.get() {
-            None | Some(HttpVersion::Http2) => &self.client_h2c,
+            None | Some(HttpVersion::Http2) => match class {
+                ConnectionClass::Bulk => &self.client_h2c_bulk,
+                ConnectionClass::Control => &self.client_h2c,
+            },
             Some(HttpVersion::Http1) => &self.client_h1,
         }
     }
@@ -161,6 +182,7 @@ impl HttpRestSsz {
         body: Option<Vec<u8>>,
         accept: &str,
         method_label: Option<&'static str>,
+        class: ConnectionClass,
         timeout: Duration,
     ) -> Result<Option<Bytes>, Error> {
         if let (Some(label), Some(body)) = (method_label, &body) {
@@ -170,7 +192,7 @@ impl HttpRestSsz {
                 body.len() as f64,
             );
         }
-        let client = self.selected_client();
+        let client = self.selected_client(class);
         let url = self
             .url
             .expose_full()
@@ -280,6 +302,7 @@ impl HttpRestSsz {
                 None,
                 APPLICATION_JSON,
                 None,
+                ConnectionClass::Control,
                 ENGINE_EXCHANGE_CAPABILITIES_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
@@ -297,6 +320,7 @@ impl HttpRestSsz {
                 None,
                 APPLICATION_JSON,
                 None,
+                ConnectionClass::Control,
                 ENGINE_GET_CLIENT_VERSION_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
@@ -377,6 +401,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::NEW_PAYLOAD),
+                ConnectionClass::Bulk,
                 ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
@@ -416,6 +441,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::FORKCHOICE_UPDATED),
+                ConnectionClass::Control,
                 ENGINE_FORKCHOICE_UPDATED_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
@@ -470,6 +496,7 @@ impl HttpRestSsz {
                 None,
                 OCTET_STREAM,
                 Some(metrics::GET_PAYLOAD),
+                ConnectionClass::Bulk,
                 ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
@@ -499,6 +526,7 @@ impl HttpRestSsz {
                 None,
                 OCTET_STREAM,
                 Some(metrics::GET_INCLUSION_LIST),
+                ConnectionClass::Control,
                 ENGINE_GET_INCLUSION_LIST_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
@@ -522,6 +550,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::GET_BLOBS_V2),
+                ConnectionClass::Bulk,
                 ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
@@ -546,6 +575,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::GET_BLOBS_V3),
+                ConnectionClass::Bulk,
                 ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
@@ -572,6 +602,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::GET_BLOBS_V4),
+                ConnectionClass::Bulk,
                 ENGINE_GET_BLOBS_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
@@ -601,6 +632,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::GET_PAYLOAD_BODIES_BY_HASH),
+                ConnectionClass::Bulk,
                 ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
@@ -629,6 +661,7 @@ impl HttpRestSsz {
                 Some(body),
                 OCTET_STREAM,
                 Some(metrics::GET_PAYLOAD_BODIES_BY_HASH),
+                ConnectionClass::Bulk,
                 ENGINE_GET_PAYLOAD_BODIES_TIMEOUT * self.execution_timeout_multiplier,
             )
             .await?
