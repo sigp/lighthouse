@@ -100,7 +100,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     /// where a deposit for a 0xB0 credential can either create a validator (if processed before
     /// the fork) or a builder (if processed at the boundary).
     ///
-    /// See: FIXME(sproul) add issue/PR number once PR is opened
+    /// See: https://github.com/sigp/lighthouse/pull/10569
     ///
     /// NOTE: The caller *must* commit the returned I/O batch as part of the block import process.
     #[instrument(skip_all)]
