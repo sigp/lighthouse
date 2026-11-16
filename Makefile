@@ -279,6 +279,10 @@ test-network-%:
 		-p network crypto_on
 
 # Run the tests in the `slasher` crate for all supported database backends.
+#
+# The vendored libmdbx C source fails to compile with optimisations under C23, which is the default
+# from GCC 15, so build C dependencies as C17.
+test-slasher: export CFLAGS += -std=gnu17
 test-slasher:
 	cargo nextest run --release -p slasher --features "lmdb,$(TEST_FEATURES)"
 	cargo nextest run --release -p slasher --no-default-features --features "redb,$(TEST_FEATURES)"
@@ -379,7 +383,9 @@ install-audit:
 	cargo install --force cargo-audit
 
 audit-CI:
-	cargo audit
+	# crypto-bigint 0.5 is used by alloy-signer via k256 0.13
+	# Remove the ignore when alloy-signer updates to k256 0.14
+	cargo audit --ignore RUSTSEC-2026-0387
 
 # Runs cargo deny (check for banned crates, duplicate versions, and source restrictions)
 deny: install-deny deny-CI

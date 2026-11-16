@@ -143,11 +143,8 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .map_err(FetchEngineBlobError::BlobProcessingError)
     }
 
-    pub(crate) fn fork_choice_contains_block(&self, block_root: &Hash256) -> bool {
-        self.chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(block_root)
+    pub(crate) fn is_block_data_imported(&self, block_root: Hash256) -> bool {
+        self.chain.is_block_data_imported(block_root)
     }
 
     pub(crate) async fn supports_get_blobs_v3(&self) -> Result<bool, FetchEngineBlobError> {

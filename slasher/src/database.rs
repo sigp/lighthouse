@@ -797,11 +797,7 @@ impl<E: EthSpec> SlasherDB<E> {
 
         let should_delete = |key: &[u8]| -> Result<bool, Error> {
             let (target_epoch, _) = IndexedAttestationIdKey::parse(Cow::from(key))?;
-            if target_epoch < min_epoch {
-                return Ok(true);
-            }
-
-            Ok(false)
+            Ok(target_epoch < min_epoch)
         };
 
         let indexed_attestation_ids = cursor
