@@ -9,7 +9,9 @@ use crate::{
 };
 use educe::Educe;
 use redb::{ReadableTable, TableDefinition};
-use std::{borrow::Cow, path::PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::{borrow::Cow, path::Path, path::PathBuf};
+use tracing::{info, warn};
 
 #[derive(Debug)]
 pub struct Environment {
@@ -27,7 +29,7 @@ pub struct Database<'env> {
 #[educe(Debug)]
 pub struct RwTransaction<'env> {
     #[educe(Debug(ignore))]
-    txn: redb::WriteTransaction,
+    txn: Box<redb::WriteTransaction>,
     _phantom: PhantomData<&'env ()>,
 }
 
@@ -43,7 +45,7 @@ pub struct Cursor<'env> {
 impl Environment {
     pub fn new(config: &Config) -> Result<Environment, Error> {
         let db_path = config.database_path.join(REDB_DATA_FILENAME);
-        let database = redb::Database::create(db_path)?;
+        let database = create_or_upgrade(&db_path)?;
 
         Ok(Environment {
             _db_count: MAX_NUM_DBS,
@@ -95,10 +97,9 @@ impl Environment {
     }
 
     pub fn begin_rw_txn(&self) -> Result<RwTransaction<'_>, Error> {
-        let mut txn = self.db.begin_write()?;
-        txn.set_durability(redb::Durability::Eventual);
+        let txn = self.db.begin_write()?;
         Ok(RwTransaction {
-            txn,
+            txn: Box::new(txn),
             _phantom: PhantomData,
         })
     }
@@ -264,5 +265,85 @@ impl<'env> Cursor<'env> {
         table.insert(key.as_ref(), value.as_ref())?;
 
         Ok(())
+    }
+}
+/// Log a full repair's progress, at most once per percent.
+///
+/// A full repair re-reads the entire database file, which can take hours for large databases.
+fn log_repair_progress(path: &str, last_logged: &AtomicU64, progress: f64) {
+    // Offset by one so that the first call is logged.
+    let marker = (progress * 100.0) as u64 + 1;
+    if last_logged.fetch_max(marker, Ordering::Relaxed) < marker {
+        info!(path, percent = marker - 1, "Repairing redb database");
+    }
+}
+
+fn builder(path: &Path) -> redb::Builder {
+    let path = path.display().to_string();
+    let last_logged = AtomicU64::new(0);
+    let mut builder = redb::Builder::new();
+    builder.set_repair_callback(move |session| {
+        log_repair_progress(&path, &last_logged, session.progress())
+    });
+    builder
+}
+
+/// Open the database file at `path`, upgrading it from the v2 file format used by redb 2.x if
+/// necessary.
+fn create_or_upgrade(path: &Path) -> Result<redb::Database, Error> {
+    match builder(path).create(path) {
+        Err(redb::DatabaseError::UpgradeRequired(version)) => {
+            let path_str = path.display().to_string();
+            warn!(
+                path = path_str,
+                version,
+                "Upgrading redb database file format. This is irreversible and may take hours"
+            );
+            let log_path = path_str.clone();
+            let last_logged = AtomicU64::new(0);
+            redb_v2::Builder::new()
+                .set_repair_callback(move |session| {
+                    log_repair_progress(&log_path, &last_logged, session.progress())
+                })
+                .open(path)?
+                .upgrade()?;
+            info!(path = path_str, "Upgraded redb database file format");
+            // The upgrade does not save the allocator state, so this open does a full repair.
+            builder(path).create(path).map_err(Into::into)
+        }
+        result => result.map_err(Into::into),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upgrade_v2_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config::new(dir.path().into());
+        let table: redb_v2::TableDefinition<'_, &[u8], &[u8]> =
+            redb_v2::TableDefinition::new(METADATA_DB);
+
+        let db = redb_v2::Database::create(dir.path().join(REDB_DATA_FILENAME)).unwrap();
+        let tx = db.begin_write().unwrap();
+        tx.open_table(table)
+            .unwrap()
+            .insert(b"key".as_slice(), b"value".as_slice())
+            .unwrap();
+        tx.commit().unwrap();
+        drop(db);
+
+        let env = Environment::new(&config).unwrap();
+        let databases = env.create_databases().unwrap();
+        let crate::Database::Redb(metadata_db) = databases.metadata_db else {
+            panic!("expected redb database");
+        };
+        let txn = env.begin_rw_txn().unwrap();
+        assert_eq!(
+            txn.get(&metadata_db, b"key").unwrap().as_deref(),
+            Some(b"value".as_slice())
+        );
     }
 }
