@@ -44,4 +44,4 @@ tracing = { workspace = true }
 types = { workspace = true }
 
 [dev-dependencies]
-node_test_rig = { path = "../testing/node_test_rig" }
+node_test_rig = { workspace = true }

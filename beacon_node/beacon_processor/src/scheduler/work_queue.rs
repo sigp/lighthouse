@@ -2,6 +2,7 @@ use crate::Work;
 use lighthouse_network::PeerId;
 use logging::TimeLatch;
 use std::collections::{HashMap, VecDeque};
+use std::time::Instant;
 use tracing::error;
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 
@@ -29,7 +30,7 @@ const MAX_PENDING_RPC_BLOCKS_PER_PEER: usize = 2;
 
 /// A simple first-in-first-out queue with a maximum length.
 pub struct FifoQueue<T> {
-    queue: VecDeque<T>,
+    queue: VecDeque<(Instant, T)>,
     max_length: usize,
 }
 
@@ -54,12 +55,12 @@ impl<T> FifoQueue<T> {
                 "Work queue is full",
             )
         } else {
-            self.queue.push_back(item);
+            self.queue.push_back((Instant::now(), item));
         }
     }
 
     /// Remove the next item from the queue.
-    pub fn pop(&mut self) -> Option<T> {
+    pub fn pop(&mut self) -> Option<(Instant, T)> {
         self.queue.pop_front()
     }
 
@@ -77,7 +78,7 @@ impl<T> FifoQueue<T> {
 struct PeerWork<T> {
     /// Items popped from the queue whose worker has not yet finished.
     active: usize,
-    queue: VecDeque<T>,
+    queue: VecDeque<(Instant, T)>,
 }
 
 impl<T> Default for PeerWork<T> {
@@ -91,7 +92,7 @@ impl<T> Default for PeerWork<T> {
 
 impl<T> PeerWork<T> {
     /// Take the next pending item if the peer is below `max_active`, counting it as active.
-    fn start_next(&mut self, max_active: usize) -> Option<T> {
+    fn start_next(&mut self, max_active: usize) -> Option<(Instant, T)> {
         if self.active >= max_active {
             return None;
         }
@@ -155,7 +156,7 @@ impl<T> PeerWorkQueue<T> {
             return Err(item);
         }
 
-        peer_work.queue.push_back(item);
+        peer_work.queue.push_back((Instant::now(), item));
         Ok(())
     }
 
@@ -172,7 +173,7 @@ impl<T> PeerWorkQueue<T> {
         peer_id: PeerId,
         item: T,
         item_desc: &str,
-    ) -> Result<Option<T>, T> {
+    ) -> Result<Option<(Instant, T)>, T> {
         self.push(peer_id, item, item_desc)?;
         Ok(self
             .peers
@@ -192,7 +193,7 @@ impl<T> PeerWorkQueue<T> {
         &mut self,
         is_connected: impl Fn(&PeerId) -> bool,
         mut cleanup: impl FnMut(T),
-    ) -> Option<T> {
+    ) -> Option<(Instant, T)> {
         let max_active = self.max_active_per_peer;
         let mut next = None;
         self.peers.retain(|peer_id, peer_work| {
@@ -200,7 +201,7 @@ impl<T> PeerWorkQueue<T> {
                 if is_connected(peer_id) {
                     next = peer_work.start_next(max_active);
                 } else {
-                    for item in peer_work.queue.drain(..) {
+                    for (_, item) in peer_work.queue.drain(..) {
                         cleanup(item);
                     }
                 }
@@ -235,7 +236,7 @@ impl<T> PeerWorkQueue<T> {
 
 /// A simple last-in-first-out queue with a maximum length.
 pub struct LifoQueue<T> {
-    queue: VecDeque<T>,
+    queue: VecDeque<(Instant, T)>,
     pub max_length: usize,
 }
 
@@ -255,11 +256,11 @@ impl<T> LifoQueue<T> {
         if self.queue.len() == self.max_length {
             self.queue.pop_back();
         }
-        self.queue.push_front(item);
+        self.queue.push_front((Instant::now(), item));
     }
 
     /// Remove the next item from the queue.
-    pub fn pop(&mut self) -> Option<T> {
+    pub fn pop(&mut self) -> Option<(Instant, T)> {
         self.queue.pop_front()
     }
 
@@ -649,6 +650,10 @@ mod tests {
         assert_eq!(queue_lengths.unknown_block_attestation_queue, MIN_QUEUE_LEN);
     }
 
+    fn pop_item(queue: &mut PeerWorkQueue<u32>) -> Option<u32> {
+        queue.pop(|_| true, drop).map(|(_, item)| item)
+    }
+
     #[test]
     fn peer_work_queue_limits_active_work_per_peer() {
         let peer_a = PeerId::random();
@@ -660,13 +665,13 @@ mod tests {
         assert_eq!(queue.push(peer_b, 3, "test"), Ok(()));
 
         // One item per peer, in either order.
-        let mut popped = [queue.pop(|_| true, drop), queue.pop(|_| true, drop)];
+        let mut popped = [pop_item(&mut queue), pop_item(&mut queue)];
         popped.sort();
         assert_eq!(popped, [Some(1), Some(3)]);
-        assert_eq!(queue.pop(|_| true, drop), None);
+        assert_eq!(pop_item(&mut queue), None);
 
         queue.worker_finished(&peer_a);
-        assert_eq!(queue.pop(|_| true, drop), Some(2));
+        assert_eq!(pop_item(&mut queue), Some(2));
     }
 
     #[test]
@@ -674,7 +679,12 @@ mod tests {
         let peer = PeerId::random();
         let mut queue = PeerWorkQueue::new(4, 1, 2);
 
-        assert_eq!(queue.push_and_pop(peer, 1, "test"), Ok(Some(1)));
+        assert_eq!(
+            queue
+                .push_and_pop(peer, 1, "test")
+                .map(|popped| popped.map(|(_, item)| item)),
+            Ok(Some(1))
+        );
 
         assert_eq!(queue.push_and_pop(peer, 2, "test"), Ok(None));
         assert_eq!(queue.push(peer, 3, "test"), Ok(()));
@@ -682,9 +692,9 @@ mod tests {
         assert_eq!(queue.len(), 2);
 
         queue.worker_finished(&peer);
-        assert_eq!(queue.pop(|_| true, drop), Some(2));
+        assert_eq!(pop_item(&mut queue), Some(2));
         queue.worker_finished(&peer);
-        assert_eq!(queue.pop(|_| true, drop), Some(3));
+        assert_eq!(pop_item(&mut queue), Some(3));
     }
 
     #[test]
@@ -701,7 +711,7 @@ mod tests {
 
         // Active work is still tracked after the peer's pending work is discarded.
         assert_eq!(queue.push(peer, 3, "test"), Ok(()));
-        assert_eq!(queue.pop(|_| true, drop), Some(3));
+        assert_eq!(pop_item(&mut queue), Some(3));
         assert_eq!(queue.push(peer, 4, "test"), Ok(()));
         assert_eq!(queue.pop(|_| false, |item| discarded.push(item)), None);
         assert_eq!(discarded, vec![1, 2, 4]);
