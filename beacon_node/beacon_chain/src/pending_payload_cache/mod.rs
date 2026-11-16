@@ -275,8 +275,6 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         self.check_availability(beacon_block_root, pending_components)
     }
 
-    /// Inserts a bid into the pending payload cache.
-    /// This will silently drop the bid if a bid for this block root already exists in the cache.
     /// Inserts a beacon block (and its bid) into the pending payload cache.
     /// This will silently drop the block if one for this block root already exists in the cache.
     /// No-ops if the block has no execution payload bid.
