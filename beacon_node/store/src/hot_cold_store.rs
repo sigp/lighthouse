@@ -1460,59 +1460,28 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         &self,
         batch: Vec<StoreOp<E>>,
     ) -> Result<(), Error> {
-        let mut blobs_to_delete = Vec::new();
-        let mut data_columns_to_delete = Vec::new();
         let (blobs_ops, hot_db_ops): (Vec<StoreOp<E>>, Vec<StoreOp<E>>) =
-            batch.into_iter().partition(|store_op| match store_op {
-                StoreOp::PutBlobs(_, _) | StoreOp::PutDataColumns(_, _) => true,
-                StoreOp::DeleteBlobs(block_root) => {
-                    match self.get_blobs(block_root) {
-                        Ok(BlobSidecarListFromRoot::Blobs(blob_sidecar_list)) => {
-                            blobs_to_delete.push((*block_root, blob_sidecar_list));
-                        }
-                        Ok(BlobSidecarListFromRoot::NoBlobs | BlobSidecarListFromRoot::NoRoot) => {}
-                        Err(e) => {
-                            error!(
-                                %block_root,
-                                error = ?e,
-                                "Error getting blobs"
-                            );
-                        }
-                    }
-                    true
-                }
-                StoreOp::DeleteDataColumns(block_root, indices, fork_name) => {
-                    match indices
-                        .iter()
-                        .map(|index| self.get_data_column(block_root, index, *fork_name))
-                        .collect::<Result<Vec<_>, _>>()
-                    {
-                        Ok(data_column_sidecar_list_opt) => {
-                            let data_column_sidecar_list = data_column_sidecar_list_opt
-                                .into_iter()
-                                .flatten()
-                                .collect::<Vec<_>>();
-                            // Must push the same number of items as StoreOp::DeleteDataColumns items to
-                            // prevent a `HotColdDBError::Rollback` error below in case of rollback
-                            data_columns_to_delete.push((*block_root, data_column_sidecar_list));
-                        }
-                        Err(e) => {
-                            error!(
-                                %block_root,
-                                error = ?e,
-                                "Error getting data columns"
-                            );
-                        }
-                    }
-                    true
-                }
-                StoreOp::PutBlock(_, _) | StoreOp::DeleteBlock(_) => false,
-                _ => false,
+            batch.into_iter().partition(|store_op| {
+                matches!(
+                    store_op,
+                    StoreOp::PutBlobs(..)
+                        | StoreOp::PutDataColumns(..)
+                        | StoreOp::DeleteBlobs(..)
+                        | StoreOp::DeleteDataColumns(..)
+                )
+            });
+        // Delete blobs after the hot DB write, so a crash can't leave a block without its blobs.
+        let (blobs_delete_ops, blobs_ops): (Vec<StoreOp<E>>, Vec<StoreOp<E>>) =
+            blobs_ops.into_iter().partition(|store_op| {
+                matches!(
+                    store_op,
+                    StoreOp::DeleteBlobs(..) | StoreOp::DeleteDataColumns(..)
+                )
             });
 
         // Update database whilst holding a lock on cache, to ensure that the cache updates
         // atomically with the database.
-        let guard = self.block_cache.as_ref().map(|cache| cache.lock());
+        let mut guard = self.block_cache.as_ref().map(|cache| cache.lock());
 
         let blob_cache_ops = blobs_ops.clone();
         // Try to execute blobs store ops.
@@ -1560,16 +1529,6 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                             None => return Err(HotColdDBError::Rollback.into()),
                         }
                     }
-                    StoreOp::DeleteBlobs(_) => match blobs_to_delete.pop() {
-                        Some((block_root, blobs)) => StoreOp::PutBlobs(block_root, blobs),
-                        None => return Err(HotColdDBError::Rollback.into()),
-                    },
-                    StoreOp::DeleteDataColumns(_, _, _) => match data_columns_to_delete.pop() {
-                        Some((block_root, data_columns)) => {
-                            StoreOp::PutDataColumns(block_root, data_columns)
-                        }
-                        None => return Err(HotColdDBError::Rollback.into()),
-                    },
                     _ => return Err(HotColdDBError::Rollback.into()),
                 };
                 *op = reverse_op;
@@ -1593,7 +1552,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         }
 
         // If the block cache is enabled, also delete from the block cache.
-        if let Some(mut guard) = guard {
+        if let Some(guard) = guard.as_mut() {
             for op in hot_db_cache_ops {
                 match op {
                     StoreOp::PutBlock(block_root, block) => {
@@ -1632,7 +1591,10 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                 }
             }
 
-            for op in blob_cache_ops {
+            for op in blob_cache_ops
+                .into_iter()
+                .chain(blobs_delete_ops.iter().cloned())
+            {
                 match op {
                     StoreOp::PutBlobs(block_root, blobs) => {
                         guard.put_blobs(block_root, blobs);
@@ -1649,6 +1611,12 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
                     _ => (),
                 }
             }
+        }
+
+        if !blobs_delete_ops.is_empty() {
+            let _span = debug_span!("delete_blobs_db").entered();
+            self.blobs_db
+                .do_atomically(self.convert_to_kv_batch(blobs_delete_ops)?)?;
         }
 
         Ok(())
