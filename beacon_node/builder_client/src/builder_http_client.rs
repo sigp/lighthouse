@@ -12,8 +12,8 @@ use eth2::{
     CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER,
     SSZ_CONTENT_TYPE_HEADER,
 };
-use reqwest::StatusCode;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderName, HeaderValue};
+use reqwest::{StatusCode, Url};
 use sensitive_url::SensitiveUrl;
 use ssz::Encode;
 use std::time::Duration;
@@ -27,9 +27,34 @@ pub const DEFAULT_GET_EXECUTION_PAYLOAD_BID_TIMEOUT_MILLIS: u64 = 400;
 pub const DEFAULT_SUBMIT_TIMEOUT_MILLIS: u64 = 1000;
 
 /// Header advertising the proposer's request timeout (in milliseconds) to the builder.
-const X_TIMEOUT_MS: HeaderName = HeaderName::from_static("x-timeout-ms");
+pub(crate) const X_TIMEOUT_MS: HeaderName = HeaderName::from_static("x-timeout-ms");
 /// Header carrying the Unix send-time (in milliseconds) so the builder can measure latency.
-const DATE_MILLISECONDS: HeaderName = HeaderName::from_static("date-milliseconds");
+pub(crate) const DATE_MILLISECONDS: HeaderName = HeaderName::from_static("date-milliseconds");
+
+/// `{builder_url}/eth/v1/builder/{endpoint}/{slot}/{parent_hash}/{parent_root}/{proposer_pubkey}`,
+/// the path of a bid request or bid stream. `None` if `builder_url` cannot be a base.
+pub(crate) fn bid_url(
+    builder_url: &SensitiveUrl,
+    endpoint: &str,
+    slot: Slot,
+    executed_ancestor_hash: ExecutionBlockHash,
+    parent_root: Hash256,
+    proposer_pubkey: &PublicKeyBytes,
+) -> Option<Url> {
+    let mut url = builder_url.expose_full().clone();
+    url.path_segments_mut()
+        .ok()?
+        .push("eth")
+        .push("v1")
+        .push("builder")
+        .push(endpoint)
+        .push(&slot.to_string())
+        // The spec names this path parameter `parent_hash`.
+        .push(&format!("{executed_ancestor_hash:?}"))
+        .push(&format!("{parent_root:?}"))
+        .push(&proposer_pubkey.as_hex_string());
+    Some(url)
+}
 
 /// A client for the Gloas (ePBS) Builder API.
 ///
@@ -145,19 +170,15 @@ impl BuilderHttpClient {
         signed_request_auth: &SignedRequestAuth,
         fork_name: ForkName,
     ) -> Result<Option<SignedExecutionPayloadBid<E>>, Error> {
-        let mut path = builder_url.expose_full().clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(builder_url.clone()))?
-            .push("eth")
-            .push("v1")
-            .push("builder")
-            .push("execution_payload_bid")
-            .push(slot.to_string().as_str())
-            // The spec names this path parameter `parent_hash`.
-            .push(format!("{executed_ancestor_hash:?}").as_str())
-            .push(format!("{parent_root:?}").as_str())
-            .push(proposer_pubkey.as_hex_string().as_str());
+        let path = bid_url(
+            builder_url,
+            "execution_payload_bid",
+            slot,
+            executed_ancestor_hash,
+            parent_root,
+            proposer_pubkey,
+        )
+        .ok_or_else(|| Error::InvalidUrl(builder_url.clone()))?;
 
         let timeout = Duration::from_millis(DEFAULT_GET_EXECUTION_PAYLOAD_BID_TIMEOUT_MILLIS);
         let headers = self.compute_get_execution_payload_bid_headers();

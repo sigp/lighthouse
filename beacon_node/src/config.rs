@@ -830,6 +830,7 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "builder-fallback-epochs-since-finalization")?;
     client_config.chain.builder_fallback_disable_checks =
         cli_args.get_flag("builder-fallback-disable-checks");
+    client_config.chain.builder_bid_streaming = cli_args.get_flag("builder-bid-streaming");
     let builder_fallback_ban_slots: u64 =
         clap_utils::parse_required(cli_args, "builder-fallback-ban-slots")?;
     if builder_fallback_ban_slots < E::slots_per_epoch() {

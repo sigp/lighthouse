@@ -267,15 +267,9 @@ impl<E: EthSpec> PeerInfo<E> {
 
         // Check if the peer has custody subnets populated and the peer is subscribed to any of
         // its custody subnets
-        let subscribed_to_any_custody_subnets = self
-            .custody_subnets
+        self.custody_subnets
             .iter()
-            .any(|subnet_id| self.subnets.contains(&Subnet::DataColumn(*subnet_id)));
-        if subscribed_to_any_custody_subnets {
-            return true;
-        }
-
-        false
+            .any(|subnet_id| self.subnets.contains(&Subnet::DataColumn(*subnet_id)))
     }
 
     /// Returns the seen addresses of the peer.

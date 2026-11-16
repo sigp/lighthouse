@@ -636,6 +636,25 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         })
     }
 
+    /// Send proposer preparations to the beacon node until genesis.
+    ///
+    /// The beacon node sets its custody group count from these preparations. Before genesis, the
+    /// new custody group count is effective from epoch 0.
+    async fn publish_preparations_before_genesis(&self) {
+        let spec = &self.context.eth2_config.spec;
+        loop {
+            duties_service::poll_validator_indices(&self.duties_service).await;
+            if let Err(e) = self
+                .preparation_service
+                .prepare_proposers_and_publish(spec)
+                .await
+            {
+                error!(error = ?e, "Error during pre-genesis proposer preparation");
+            }
+            sleep(WAITING_FOR_GENESIS_POLL_TIME).await;
+        }
+    }
+
     pub async fn start_service(&mut self) -> Result<(), String> {
         // We use `SLOTS_PER_EPOCH` as the capacity of the block notification channel, because
         // we don't expect notifications to be delayed by more than a single slot, let alone a
@@ -680,7 +699,11 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         };
 
         // Wait until genesis has occurred.
-        wait_for_genesis(self.genesis_time).await?;
+        tokio::select! {
+            biased;
+            result = wait_for_genesis(self.genesis_time) => result?,
+            () = self.publish_preparations_before_genesis() => (),
+        };
 
         duties_service::start_update_service(self.duties_service.clone(), block_service_tx);
 

@@ -9,7 +9,7 @@ use bls::Keypair;
 use futures::StreamExt;
 use logging::create_test_tracing_subscriber;
 use std::sync::{Arc, LazyLock};
-use types::{EthSpec, ForkName, MainnetEthSpec, block::BlockImportSource};
+use types::{EthSpec, ForkName, Hash256, MainnetEthSpec, block::BlockImportSource};
 
 type E = MainnetEthSpec;
 
@@ -116,4 +116,43 @@ async fn gloas_process_block_imports_without_custody_columns() {
             panic!("process_block should insert the block into the pending payload cache")
         }
     }
+}
+
+#[tokio::test]
+async fn gloas_process_block_stops_serving_invalid_block() {
+    let harness = gloas_harness();
+    harness.advance_slot();
+
+    let head_state = harness.get_current_state();
+    let slot = head_state.slot() + 1;
+    let ((signed_block, _), _) = harness
+        .make_block_with_modifier(head_state, slot, |block| {
+            *block.state_root_mut() = Hash256::ZERO;
+        })
+        .await;
+    let block_root = signed_block.canonical_root();
+
+    // Gossip and the HTTP API cache the block before `process_block` fully verifies it.
+    harness.chain.pending_payload_cache.insert_block(
+        block_root,
+        signed_block.clone(),
+        BlockImportSource::Gossip,
+    );
+
+    harness
+        .chain
+        .process_block(
+            block_root,
+            LookupBlock::new(block_root, signed_block),
+            NotifyExecutionLayer::Yes,
+            BlockImportSource::Gossip,
+            || Ok(()),
+        )
+        .await
+        .expect_err("block with an invalid state root should be rejected");
+
+    assert!(matches!(
+        harness.chain.get_block_process_status(&block_root),
+        BlockProcessStatus::Unknown
+    ));
 }

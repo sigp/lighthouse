@@ -280,6 +280,21 @@ fn always_prepare_payload_override() {
 }
 
 #[test]
+fn builder_bid_streaming_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.builder_bid_streaming));
+}
+
+#[test]
+fn builder_bid_streaming_flag() {
+    CommandLineTest::new()
+        .flag("builder-bid-streaming", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.builder_bid_streaming));
+}
+
+#[test]
 fn paranoid_block_proposal_default() {
     CommandLineTest::new()
         .run_with_zero_port()

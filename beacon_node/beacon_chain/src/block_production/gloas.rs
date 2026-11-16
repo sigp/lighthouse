@@ -32,9 +32,9 @@ use types::{
     BeaconStateError, BlobsList, BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadEnvelope,
     ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, IndexedAttestation, KzgProofs,
-    PayloadAttestation, ProgressiveTransactions, ProposerSlashing, RelativeEpoch,
-    SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
-    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
+    PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
+    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
     SignedExecutionPayloadEnvelopeSummary, SignedProposerPreferences, SignedVoluntaryExit, Slot,
     SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
@@ -494,10 +494,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BlockProductionError::OpPoolError)?
         };
 
-        let mut payload_attestations = self
-            .op_pool
-            .get_payload_attestations(&state, parent_root, &self.spec)
-            .map_err(BlockProductionError::OpPoolError)?;
+        let mut payload_attestations = self.op_pool.get_payload_attestations(&state, parent_root);
 
         // If paranoid mode is enabled re-check the signatures of every included message.
         // This will be a lot slower but guards against bugs in block production and can be
@@ -1187,7 +1184,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Builders are configured but no proposer preferences are available; skipping \
                      direct builder bids for this proposal"
                 );
+                self.close_builder_bid_streams(&ctx);
             }
+        } else {
+            self.close_builder_bid_streams(&ctx);
         }
 
         if let Some(gossip_bid) = self.gossip_verified_payload_bid_cache.get_highest_bid(
@@ -1280,8 +1280,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         externals
     }
 
-    /// Request direct bids from the configured builders and return each valid one as a selection
-    /// candidate.
+    /// Close the proposal's builder bid streams when block production skips direct bids, so they
+    /// do not run to the end of the slot.
+    fn close_builder_bid_streams(&self, ctx: &BidRequestContext) {
+        if let Some(bid_streams) = self.builder_bid_streams() {
+            bid_streams.close_streams(ctx.slot, ctx.proposer_pubkey);
+        }
+    }
+
+    /// Get direct bids from the configured builders, from a bid stream or a request, and return
+    /// each valid one as a selection candidate.
     ///
     /// Best-effort and never fatal: the builder service is constructed whenever the Gloas fork is
     /// scheduled, so in a correctly-built node it is always present on this (Gloas) path — a missing
@@ -1520,10 +1528,23 @@ where
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)
         .await;
-    let slot_number = Some(slot.as_u64());
     let inclusion_list_transactions = if fork.heze_enabled() {
-        // TODO(heze): populate from the inclusion list store
-        Some(ProgressiveTransactions::empty())
+        let inner_chain = chain.clone();
+        let transactions = chain
+            .spawn_blocking_handle(
+                move || {
+                    inner_chain.proposer_inclusion_list_transactions(parent_beacon_block_root, slot)
+                },
+                "prepare_execution_payload_inclusion_list_transactions",
+            )
+            .instrument(debug_span!("proposer_inclusion_list_transactions"))
+            .await
+            .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?;
+        metrics::inc_counter_by(
+            &metrics::INCLUSION_LIST_TRANSACTIONS_PREPARE_EXECUTION_PAYLOAD_TOTAL,
+            transactions.len() as u64,
+        );
+        Some(transactions)
     } else {
         None
     };
@@ -1534,7 +1555,7 @@ where
         suggested_fee_recipient,
         Some(withdrawals),
         Some(parent_beacon_block_root),
-        slot_number,
+        Some(slot.as_u64()),
         Some(target_gas_limit),
         inclusion_list_transactions,
     );
