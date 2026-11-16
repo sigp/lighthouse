@@ -47,6 +47,7 @@ use crate::work_reprocessing_queue::{
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
+use logging::TimeLatch;
 use logging::crit;
 use parking_lot::Mutex;
 pub use scheduler::work_reprocessing_queue;
@@ -628,6 +629,23 @@ fn notify_ignored_rpc_block<E: EthSpec>(work: Work<E>) {
     }
 }
 
+/// Send `message` to the reprocess queue. If the queue is full, notify sync of a dropped RPC
+/// block.
+fn send_to_reprocess_queue(
+    reprocess_work_tx: &mpsc::Sender<ReprocessQueueMessage>,
+    message: ReprocessQueueMessage,
+    debounce: &mut TimeLatch,
+) {
+    if let Err(e) = reprocess_work_tx.try_send(message) {
+        if debounce.elapsed() {
+            error!(error = ?e, "Failed to reprocess work event");
+        }
+        if let ReprocessQueueMessage::RpcBlock(block) = e.into_inner() {
+            (block.ignore_fn)();
+        }
+    }
+}
+
 #[derive(Clone)]
 struct WorkerCompletion {
     work_type: WorkType,
@@ -775,6 +793,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
             let enable_backfill_rate_limiting = self.config.enable_backfill_rate_limiting;
 
+            // De-bounce for the log emitted when the reprocess queue is full.
+            let mut reprocess_queue_debounce = TimeLatch::default();
+
             loop {
                 let (work_event, created_timestamp) = match inbound_events.next().await {
                     Some(InboundEvent::WorkerFinished(completion)) => {
@@ -880,7 +901,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     None if can_spawn => {
                         // Check for chain segments first, they're the most efficient way to get
                         // blocks into the system.
-                        let work_event: Option<Work<E>> = if let Some(item) =
+                        let work_event: Option<(Instant, Work<E>)> = if let Some(item) =
                             work_queues.chain_segment_queue.pop()
                         {
                             Some(item)
@@ -955,7 +976,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 let mut aggregates = Vec::with_capacity(batch_size);
                                 let mut process_batch_opt = None;
                                 for _ in 0..batch_size {
-                                    if let Some(item) = work_queues.aggregate_queue.pop() {
+                                    if let Some((enqueued_at, item)) =
+                                        work_queues.aggregate_queue.pop()
+                                    {
+                                        metrics::observe_timer_vec(
+                                            &metrics::BEACON_PROCESSOR_QUEUE_TIME,
+                                            &[item.str_id()],
+                                            enqueued_at.elapsed(),
+                                        );
                                         match item {
                                             Work::GossipAggregate {
                                                 aggregate,
@@ -976,10 +1004,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                                 if let Some(process_batch) = process_batch_opt {
                                     // Process all aggregates with a single worker.
-                                    Some(Work::GossipAggregateBatch {
-                                        aggregates,
-                                        process_batch,
-                                    })
+                                    Some((
+                                        Instant::now(),
+                                        Work::GossipAggregateBatch {
+                                            aggregates,
+                                            process_batch,
+                                        },
+                                    ))
                                 } else {
                                     // There is no good reason for this to
                                     // happen, it is a serious logic error.
@@ -1011,7 +1042,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 let mut attestations = Vec::with_capacity(batch_size);
                                 let mut process_batch_opt = None;
                                 for _ in 0..batch_size {
-                                    if let Some(item) = work_queues.attestation_queue.pop() {
+                                    if let Some((enqueued_at, item)) =
+                                        work_queues.attestation_queue.pop()
+                                    {
+                                        metrics::observe_timer_vec(
+                                            &metrics::BEACON_PROCESSOR_QUEUE_TIME,
+                                            &[item.str_id()],
+                                            enqueued_at.elapsed(),
+                                        );
                                         match item {
                                             Work::GossipAttestation {
                                                 attestation,
@@ -1030,10 +1068,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                                 if let Some(process_batch) = process_batch_opt {
                                     // Process all attestations with a single worker.
-                                    Some(Work::GossipAttestationBatch {
-                                        attestations,
-                                        process_batch,
-                                    })
+                                    Some((
+                                        Instant::now(),
+                                        Work::GossipAttestationBatch {
+                                            attestations,
+                                            process_batch,
+                                        },
+                                    ))
                                 } else {
                                     // There is no good reason for this to
                                     // happen, it is a serious logic error.
@@ -1167,9 +1208,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             None
                         };
 
-                        if let Some(work_event) = work_event {
+                        if let Some((enqueued_at, work_event)) = work_event {
                             let work_type = work_event.to_type();
-                            self.spawn_worker(work_event, created_timestamp, idle_tx);
+                            self.spawn_worker(work_event, enqueued_at, idle_tx);
                             Some(work_type)
                         } else {
                             None
@@ -1209,25 +1250,19 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         let work_type = work.to_type();
 
                         match work {
-                            Work::Reprocess(work_event) => {
-                                if let Err(e) = reprocess_work_tx.try_send(work_event) {
-                                    error!(
-                                        error = ?e,
-                                        "Failed to reprocess work event"
-                                    );
-                                    if let ReprocessQueueMessage::RpcBlock(block) = e.into_inner() {
-                                        (block.ignore_fn)();
-                                    }
-                                }
-                            }
+                            Work::Reprocess(work_event) => send_to_reprocess_queue(
+                                &reprocess_work_tx,
+                                work_event,
+                                &mut reprocess_queue_debounce,
+                            ),
                             // If we can spawn and the task can be dispatched, dispatch immediately
                             Work::GossipBlock { peer_id, .. } if can_spawn => {
                                 match work_queues
                                     .gossip_block_queue
                                     .push_and_pop(peer_id, work, work_id)
                                 {
-                                    Ok(Some(work)) => {
-                                        self.spawn_worker(work, created_timestamp, idle_tx);
+                                    Ok(Some((enqueued_at, work))) => {
+                                        self.spawn_worker(work, enqueued_at, idle_tx);
                                     }
                                     Ok(None) => {}
                                     Err(_) => metrics::inc_counter_vec(
@@ -1254,8 +1289,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     .rpc_block_queue
                                     .push_and_pop(peer_id, work, work_id)
                                 {
-                                    Ok(Some(work)) => {
-                                        self.spawn_worker(work, created_timestamp, idle_tx)
+                                    Ok(Some((enqueued_at, work))) => {
+                                        self.spawn_worker(work, enqueued_at, idle_tx)
                                     }
                                     Ok(None) => {}
                                     Err(work) => notify_ignored_rpc_block(work),
@@ -1897,6 +1932,35 @@ mod tests {
         assert!(matches!(&event.work, Work::RpcBlock { peer_id, .. } if *peer_id == peer));
         notify_ignored_rpc_block(event.work);
         assert_eq!(ignored.load(Ordering::SeqCst), 1);
+    }
+
+    fn queued_rpc_block(ignored: Arc<AtomicUsize>) -> ReprocessQueueMessage {
+        ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+            peer_id: PeerId::random(),
+            beacon_block_root: Hash256::ZERO,
+            process_fn: Box::pin(async {}),
+            ignore_fn: Box::new(move || {
+                ignored.fetch_add(1, Ordering::SeqCst);
+            }),
+        })
+    }
+
+    /// Every RPC block dropped because the reprocess queue is full notifies sync, including those
+    /// whose log is de-bounced.
+    #[test]
+    fn full_reprocess_queue_notifies_every_dropped_rpc_block() {
+        let ignored = Arc::new(AtomicUsize::new(0));
+        let (tx, _rx) = mpsc::channel(1);
+        let mut debounce = TimeLatch::default();
+
+        // The first block fits in the queue.
+        send_to_reprocess_queue(&tx, queued_rpc_block(ignored.clone()), &mut debounce);
+        assert_eq!(ignored.load(Ordering::SeqCst), 0);
+
+        // The queue is now full, and both drops fall in one de-bounce window.
+        send_to_reprocess_queue(&tx, queued_rpc_block(ignored.clone()), &mut debounce);
+        send_to_reprocess_queue(&tx, queued_rpc_block(ignored.clone()), &mut debounce);
+        assert_eq!(ignored.load(Ordering::SeqCst), 2);
     }
 
     #[test]

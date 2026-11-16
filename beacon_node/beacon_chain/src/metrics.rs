@@ -22,8 +22,8 @@ pub const VALIDATOR_MONITOR_ATTESTATION_SIMULATOR_SOURCE_ATTESTER_MISS_TOTAL: &s
     "validator_monitor_attestation_simulator_source_attester_miss_total";
 
 /*
-* Builder circuit breaker
-*/
+ * Builder circuit breaker
+ */
 
 pub static BUILDER_CIRCUIT_BREAKER_TRIPS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
@@ -57,8 +57,8 @@ pub static BUILDER_CIRCUIT_BREAKER_FILTERED_BIDS: LazyLock<Result<IntCounter>> =
     });
 
 /*
-* Execution Payload Envelope Processing
-*/
+ * Execution Payload Envelope Processing
+ */
 
 pub static ENVELOPE_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
@@ -1578,6 +1578,14 @@ pub static INCLUSION_LIST_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock
     try_create_int_counter(
         "beacon_inclusion_list_equivocations_total",
         "Number of validators flagged for sending two different inclusion lists",
+    )
+});
+pub static INCLUSION_LIST_TRANSACTIONS_PREPARE_EXECUTION_PAYLOAD_TOTAL: LazyLock<
+    Result<IntCounter>,
+> = LazyLock::new(|| {
+    try_create_int_counter(
+        "beacon_inclusion_list_transactions_prepare_execution_payload_total",
+        "Total number of inclusion list transactions sent when preparing execution payload",
     )
 });
 pub static SYNC_MESSAGE_EQUIVOCATIONS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
