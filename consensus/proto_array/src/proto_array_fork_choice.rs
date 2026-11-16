@@ -52,6 +52,11 @@ impl VoteTracker {
     pub fn current_slot(&self) -> Slot {
         self.current_slot
     }
+
+    /// The payload status of this validator's latest message for a block at `block_slot`.
+    pub fn current_payload_status(&self, block_slot: Slot) -> PayloadStatus {
+        PayloadStatus::from_vote(self.current_slot, self.current_payload_present, block_slot)
+    }
 }
 
 // This impl is only used upon upgrade from pre-Gloas to Gloas with all pre-Gloas nodes.
@@ -98,7 +103,7 @@ pub struct LatestMessage {
     pub payload_present: bool,
 }
 
-/// Represents the verification status of an execution payload pre-Gloas.
+/// Represents the verification status of an execution payload.
 ///
 /// Do not implement a direct conversion to `ExecutionVerdict`; deriving a verdict requires fork
 /// choice state.
@@ -119,6 +124,11 @@ pub enum ExecutionStatus {
     /// This `bool` only exists to satisfy our SSZ implementation which requires all variants
     /// to have a value. It can be set to anything.
     Irrelevant(bool),
+    /// The Gloas envelope carrying this block's committed payload has not arrived yet, so no EL
+    /// has been asked about it. Unlike `Irrelevant`, the payload exists and is unverified.
+    ///
+    /// The `ExecutionBlockHash` is the bid's committed block hash.
+    NotYetRevealed(ExecutionBlockHash),
 }
 
 /// Represents the status of an execution payload post-Gloas.
@@ -235,6 +245,7 @@ impl fmt::Display for ExecutionStatus {
             ExecutionStatus::Invalid(_) => write!(f, "invalid"),
             ExecutionStatus::Optimistic(_) => write!(f, "optimistic"),
             ExecutionStatus::Irrelevant(_) => write!(f, "irrelevant"),
+            ExecutionStatus::NotYetRevealed(_) => write!(f, "not_yet_revealed"),
         }
     }
 }
@@ -305,7 +316,7 @@ pub struct Block {
     pub next_epoch_shuffling_id: AttestationShufflingId,
     pub justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
-    /// Indicates if an execution node has marked this block as valid.
+    /// Indicates if an execution node has marked this block's committed payload as valid.
     pub execution_status: ExecutionStatus,
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
@@ -330,6 +341,7 @@ impl Block {
                 | ExecutionStatus::Invalid(hash)
                 | ExecutionStatus::Optimistic(hash) => PayloadBlockHash::Hash(hash),
                 ExecutionStatus::Irrelevant(_) => PayloadBlockHash::PreMerge,
+                ExecutionStatus::NotYetRevealed(hash) => PayloadBlockHash::Hash(hash),
             }
         }
     }
@@ -565,11 +577,6 @@ impl std::fmt::Display for DoNotReOrg {
     }
 }
 
-/// New-type for the re-org threshold percentage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct ReOrgThreshold(pub u64);
-
 #[derive(PartialEq)]
 pub struct ProtoArrayForkChoice {
     pub(crate) proto_array: ProtoArray,
@@ -640,15 +647,15 @@ impl ProtoArrayForkChoice {
         })
     }
 
-    /// Mark a Gloas payload envelope as valid and received.
-    ///
-    /// This must only be called for valid Gloas payloads.
-    pub fn on_valid_payload_envelope_received(
+    /// Record the execution layer's verdict for a Gloas payload envelope, and mark the envelope
+    /// as received.
+    pub fn on_payload_envelope_received(
         &mut self,
         block_root: Hash256,
+        execution_status: ExecutionStatus,
     ) -> Result<(), String> {
         self.proto_array
-            .on_valid_payload_envelope_received(block_root)
+            .on_payload_envelope_received(block_root, execution_status)
             .map_err(|e| format!("Failed to process execution payload: {:?}", e))
     }
 
@@ -659,6 +666,16 @@ impl ProtoArrayForkChoice {
     ) -> Result<(), String> {
         self.proto_array
             .propagate_execution_payload_validation(block_hash)
+            .map_err(|e| format!("Failed to process valid payload: {:?}", e))
+    }
+
+    /// See `ProtoArray::propagate_execution_payload_validation_by_block_root` for documentation.
+    pub fn process_execution_payload_validation_by_block_root(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), String> {
+        self.proto_array
+            .propagate_execution_payload_validation_by_block_root(block_root)
             .map_err(|e| format!("Failed to process valid payload: {:?}", e))
     }
 
@@ -803,23 +820,18 @@ impl ProtoArrayForkChoice {
     /// Get the block to propose on during `current_slot`.
     ///
     /// This function returns a *definitive* result which should be acted on.
-    #[allow(clippy::too_many_arguments)]
     pub fn get_proposer_head<E: EthSpec>(
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
-        re_org_head_threshold: ReOrgThreshold,
-        re_org_parent_threshold: ReOrgThreshold,
-        max_epochs_since_finalization: Epoch,
+        spec: &ChainSpec,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let info = self.get_proposer_head_info::<E>(
             current_slot,
             canonical_head,
             justified_balances,
-            re_org_head_threshold,
-            re_org_parent_threshold,
-            max_epochs_since_finalization,
+            spec,
         )?;
 
         // Only re-org a single slot. This prevents cascading failures during asynchrony.
@@ -860,15 +872,12 @@ impl ProtoArrayForkChoice {
     /// Get information about the block to propose on during `current_slot`.
     ///
     /// This function returns a *partial* result which must be processed further.
-    #[allow(clippy::too_many_arguments)]
     pub fn get_proposer_head_info<E: EthSpec>(
         &self,
         current_slot: Slot,
         canonical_head: Hash256,
         justified_balances: &JustifiedBalances,
-        re_org_head_threshold: ReOrgThreshold,
-        re_org_parent_threshold: ReOrgThreshold,
-        max_epochs_since_finalization: Epoch,
+        spec: &ChainSpec,
     ) -> Result<ProposerHeadInfo, ProposerHeadError<Error>> {
         let mut nodes = self
             .proto_array
@@ -891,7 +900,7 @@ impl ProtoArrayForkChoice {
             .ok_or(DoNotReOrg::MissingHeadFinalizedCheckpoint)?
             .epoch;
         let epochs_since_finalization = proposal_epoch.saturating_sub(finalized_epoch).as_u64();
-        if epochs_since_finalization > max_epochs_since_finalization.as_u64() {
+        if epochs_since_finalization > spec.reorg_max_epochs_since_finalization {
             return Err(DoNotReOrg::ChainNotFinalizing {
                 epochs_since_finalization,
             }
@@ -917,12 +926,14 @@ impl ProtoArrayForkChoice {
 
         // Compute re-org weight thresholds for head and parent.
         let re_org_head_weight_threshold =
-            calculate_committee_fraction::<E>(justified_balances, re_org_head_threshold.0)
+            calculate_committee_fraction::<E>(justified_balances, spec.reorg_head_weight_threshold)
                 .ok_or(Error::ReOrgThresholdOverflow)?;
 
-        let re_org_parent_weight_threshold =
-            calculate_committee_fraction::<E>(justified_balances, re_org_parent_threshold.0)
-                .ok_or(Error::ReOrgThresholdOverflow)?;
+        let re_org_parent_weight_threshold = calculate_committee_fraction::<E>(
+            justified_balances,
+            spec.reorg_parent_weight_threshold,
+        )
+        .ok_or(Error::ReOrgThresholdOverflow)?;
 
         Ok(ProposerHeadInfo {
             head_node,
@@ -938,10 +949,10 @@ impl ProtoArrayForkChoice {
     /// This will operate on *all* blocks, even those that do not descend from the finalized
     /// ancestor.
     pub fn contains_invalid_payloads(&mut self) -> bool {
-        self.proto_array.nodes.iter().any(|node| {
-            node.execution_status()
-                .is_ok_and(|status| status.is_invalid())
-        })
+        self.proto_array
+            .nodes
+            .iter()
+            .any(|node| node.execution_status().is_invalid())
     }
 
     /// For all nodes, regardless of their relationship to the finalized block, set their execution
@@ -980,20 +991,17 @@ impl ProtoArrayForkChoice {
                 )
             })?;
 
-        // Clear every `VALID`/`INVALID` verdict. `Irrelevant` has no verdict to reset, and Gloas
-        // nodes track no execution status yet. This must happen before the replay below:
-        // `apply_score_changes` discards deltas aimed at invalid nodes.
+        // Clear every `VALID`/`INVALID` verdict. `Irrelevant` and `NotYetRevealed` have no verdict
+        // to reset. This must happen before the replay below: `apply_score_changes` discards
+        // deltas aimed at invalid nodes.
         for node in self.proto_array.nodes.iter_mut() {
-            match node {
-                ProtoNode::V17(node) => match node.execution_status {
-                    ExecutionStatus::Valid(hash)
-                    | ExecutionStatus::Invalid(hash)
-                    | ExecutionStatus::Optimistic(hash) => {
-                        node.execution_status = ExecutionStatus::Optimistic(hash);
-                    }
-                    ExecutionStatus::Irrelevant(_) => (),
-                },
-                ProtoNode::V29(_) => (),
+            match node.execution_status() {
+                ExecutionStatus::Valid(hash)
+                | ExecutionStatus::Invalid(hash)
+                | ExecutionStatus::Optimistic(hash) => {
+                    *node.execution_status_mut() = ExecutionStatus::Optimistic(hash);
+                }
+                ExecutionStatus::Irrelevant(_) | ExecutionStatus::NotYetRevealed(_) => (),
             }
         }
 
@@ -1099,9 +1107,7 @@ impl ProtoArrayForkChoice {
             next_epoch_shuffling_id: block.next_epoch_shuffling_id().clone(),
             justified_checkpoint: *block.justified_checkpoint(),
             finalized_checkpoint: *block.finalized_checkpoint(),
-            execution_status: block
-                .execution_status()
-                .unwrap_or_else(|_| ExecutionStatus::irrelevant()),
+            execution_status: block.execution_status(),
             unrealized_justified_checkpoint: block.unrealized_justified_checkpoint(),
             unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint(),
             execution_payload_parent_hash: block.execution_payload_parent_hash().ok(),
@@ -1210,6 +1216,26 @@ impl ProtoArrayForkChoice {
     pub fn is_payload_received(&self, block_root: &Hash256) -> bool {
         self.get_proto_node(block_root)
             .and_then(|node| node.payload_received().ok())
+            .unwrap_or(false)
+    }
+
+    /// Returns `true` if more than `PAYLOAD_TIMELY_THRESHOLD` PTC members voted that the payload
+    /// for `block_root` was timely. Ignores whether this node received the payload itself.
+    ///
+    /// Returns `false` for unknown or pre-Gloas blocks.
+    pub fn ptc_votes_payload_timely<E: EthSpec>(&self, block_root: &Hash256) -> bool {
+        self.get_proto_node(block_root)
+            .and_then(|node| node.ptc_votes_timeliness::<E>(true).ok())
+            .unwrap_or(false)
+    }
+
+    /// Returns `true` if more than `DATA_AVAILABILITY_TIMELY_THRESHOLD` PTC members voted that
+    /// the blob data for `block_root` was available. Ignores this node's own availability view.
+    ///
+    /// Returns `false` for unknown or pre-Gloas blocks.
+    pub fn ptc_votes_data_available<E: EthSpec>(&self, block_root: &Hash256) -> bool {
+        self.get_proto_node(block_root)
+            .and_then(|node| node.ptc_votes_data_availability::<E>(true).ok())
             .unwrap_or(false)
     }
 

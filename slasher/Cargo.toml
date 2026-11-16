@@ -32,7 +32,7 @@ metrics = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 
-redb = { version = "2.1.4", optional = true }
+redb = { version = "2.3.0", optional = true }
 safe_arith = { workspace = true }
 serde = { workspace = true }
 ssz_types = { workspace = true }

@@ -51,12 +51,12 @@ pub struct PartialDataColumnSidecar<E: EthSpec> {
     pub column: VariableList<Cell<E>, E::MaxBlobCommitmentsPerBlock>,
     // [Modified in Gloas:EIP7688]
     #[superstruct(only(Gloas), partial_getter(rename = "column_gloas"))]
-    pub column: ProgressiveVariableList<Cell<E>>,
+    pub column: ProgressiveVariableList<Cell<E>, E::MaxBlobCommitmentsPerBlock>,
     #[superstruct(only(Fulu), partial_getter(rename = "kzg_proofs_fulu"))]
     pub kzg_proofs: VariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     // [Modified in Gloas:EIP7688]
     #[superstruct(only(Gloas), partial_getter(rename = "kzg_proofs_gloas"))]
-    pub kzg_proofs: ProgressiveVariableList<KzgProof>,
+    pub kzg_proofs: ProgressiveVariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     #[superstruct(only(Fulu))]
     pub header: ListEncodedOption<PartialDataColumnHeader<E>>,
 }
@@ -429,13 +429,13 @@ impl<'a, E: EthSpec> PartialDataColumnRef<'a, E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::MinimalEthSpec;
+    use crate::Spec;
     use bls::Signature;
     use fixed_bytes::FixedBytesExtended;
     use kzg::KzgCommitment;
     use ssz::Encode;
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_cell(marker: u8) -> Cell<E> {
         let mut cell = Cell::<E>::default();

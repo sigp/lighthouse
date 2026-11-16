@@ -1,3 +1,4 @@
+use context_deserialize::context_deserialize;
 use educe::Educe;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -14,9 +15,9 @@ use crate::{
     execution::{
         ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella,
         ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-        ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
-        ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
-        ExecutionPayloadRef, Transactions,
+        ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix,
+        ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
+        ExecutionPayloadHeaderFulu, ExecutionPayloadRef, ExecutionRequestsGloas, Transactions,
     },
     fork::ForkName,
     map_execution_payload_into_blinded_payload, map_execution_payload_into_full_payload,
@@ -311,24 +312,11 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
     }
 
     fn withdrawals_root(&self) -> Result<Hash256, BeaconStateError> {
-        match self {
-            FullPayload::Bellatrix(_) => Err(BeaconStateError::IncorrectStateVariant),
-            FullPayload::Capella(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
-            FullPayload::Deneb(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
-            FullPayload::Electra(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
-            FullPayload::Fulu(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
-        }
+        self.to_ref().withdrawals_root()
     }
 
     fn blob_gas_used(&self) -> Result<u64, BeaconStateError> {
-        match self {
-            FullPayload::Bellatrix(_) | FullPayload::Capella(_) => {
-                Err(BeaconStateError::IncorrectStateVariant)
-            }
-            FullPayload::Deneb(inner) => Ok(inner.execution_payload.blob_gas_used),
-            FullPayload::Electra(inner) => Ok(inner.execution_payload.blob_gas_used),
-            FullPayload::Fulu(inner) => Ok(inner.execution_payload.blob_gas_used),
-        }
+        self.to_ref().blob_gas_used()
     }
 
     fn is_default_with_zero_roots<'a>(&'a self) -> bool {
@@ -654,24 +642,11 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
     }
 
     fn withdrawals_root(&self) -> Result<Hash256, BeaconStateError> {
-        match self {
-            BlindedPayload::Bellatrix(_) => Err(BeaconStateError::IncorrectStateVariant),
-            BlindedPayload::Capella(inner) => Ok(inner.execution_payload_header.withdrawals_root),
-            BlindedPayload::Deneb(inner) => Ok(inner.execution_payload_header.withdrawals_root),
-            BlindedPayload::Electra(inner) => Ok(inner.execution_payload_header.withdrawals_root),
-            BlindedPayload::Fulu(inner) => Ok(inner.execution_payload_header.withdrawals_root),
-        }
+        self.to_ref().withdrawals_root()
     }
 
     fn blob_gas_used(&self) -> Result<u64, BeaconStateError> {
-        match self {
-            BlindedPayload::Bellatrix(_) | BlindedPayload::Capella(_) => {
-                Err(BeaconStateError::IncorrectStateVariant)
-            }
-            BlindedPayload::Deneb(inner) => Ok(inner.execution_payload_header.blob_gas_used),
-            BlindedPayload::Electra(inner) => Ok(inner.execution_payload_header.blob_gas_used),
-            BlindedPayload::Fulu(inner) => Ok(inner.execution_payload_header.blob_gas_used),
-        }
+        self.to_ref().blob_gas_used()
     }
 
     fn is_default_with_zero_roots(&self) -> bool {
@@ -1115,55 +1090,18 @@ impl<E: EthSpec> From<ExecutionPayload<E>> for BlindedPayload<E> {
 
 impl<E: EthSpec> From<ExecutionPayloadHeader<E>> for BlindedPayload<E> {
     fn from(execution_payload_header: ExecutionPayloadHeader<E>) -> Self {
-        match execution_payload_header {
-            ExecutionPayloadHeader::Bellatrix(execution_payload_header) => {
-                Self::Bellatrix(BlindedPayloadBellatrix {
-                    execution_payload_header,
-                })
-            }
-            ExecutionPayloadHeader::Capella(execution_payload_header) => {
-                Self::Capella(BlindedPayloadCapella {
-                    execution_payload_header,
-                })
-            }
-            ExecutionPayloadHeader::Deneb(execution_payload_header) => {
-                Self::Deneb(BlindedPayloadDeneb {
-                    execution_payload_header,
-                })
-            }
-            ExecutionPayloadHeader::Electra(execution_payload_header) => {
-                Self::Electra(BlindedPayloadElectra {
-                    execution_payload_header,
-                })
-            }
-            ExecutionPayloadHeader::Fulu(execution_payload_header) => {
-                Self::Fulu(BlindedPayloadFulu {
-                    execution_payload_header,
-                })
-            }
-        }
+        map_execution_payload_header_into_blinded_payload!(
+            execution_payload_header,
+            |inner, cons| { cons(inner.into()) }
+        )
     }
 }
 
 impl<E: EthSpec> From<BlindedPayload<E>> for ExecutionPayloadHeader<E> {
     fn from(blinded: BlindedPayload<E>) -> Self {
-        match blinded {
-            BlindedPayload::Bellatrix(blinded_payload) => {
-                ExecutionPayloadHeader::Bellatrix(blinded_payload.execution_payload_header)
-            }
-            BlindedPayload::Capella(blinded_payload) => {
-                ExecutionPayloadHeader::Capella(blinded_payload.execution_payload_header)
-            }
-            BlindedPayload::Deneb(blinded_payload) => {
-                ExecutionPayloadHeader::Deneb(blinded_payload.execution_payload_header)
-            }
-            BlindedPayload::Electra(blinded_payload) => {
-                ExecutionPayloadHeader::Electra(blinded_payload.execution_payload_header)
-            }
-            BlindedPayload::Fulu(blinded_payload) => {
-                ExecutionPayloadHeader::Fulu(blinded_payload.execution_payload_header)
-            }
-        }
+        map_blinded_payload_into_execution_payload_header!(blinded, |inner, cons| {
+            cons(inner.execution_payload_header)
+        })
     }
 }
 
@@ -1172,4 +1110,19 @@ pub enum BlockProductionVersion {
     V3,
     BlindedV2,
     FullV2,
+}
+
+/// Spec type `VersionedHashes`.
+pub type VersionedHashes<E> = VariableList<Hash256, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
+
+/// Spec type `NewPayloadRequest`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash)]
+#[serde(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
+#[tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1, 1))]
+pub struct NewPayloadRequest<E: EthSpec> {
+    pub execution_payload: ExecutionPayloadGloas<E>,
+    pub versioned_hashes: VersionedHashes<E>,
+    pub parent_beacon_block_root: Hash256,
+    pub execution_requests: ExecutionRequestsGloas<E>,
 }

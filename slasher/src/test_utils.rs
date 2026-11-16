@@ -75,8 +75,8 @@ pub fn att_slashing(
         // A slashing involving a gloas attestation type must return a gloas AttesterSlashing type
         (IndexedAttestation::Gloas(_), _) | (_, IndexedAttestation::Gloas(_)) => {
             AttesterSlashing::Gloas(AttesterSlashingGloas {
-                attestation_1: attestation_1.clone().to_gloas(),
-                attestation_2: attestation_2.clone().to_gloas(),
+                attestation_1: attestation_1.clone().to_gloas().unwrap(),
+                attestation_2: attestation_2.clone().to_gloas().unwrap(),
             })
         }
         // A slashing involving an electra attestation type must return an electra AttesterSlashing type

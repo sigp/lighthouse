@@ -12,7 +12,6 @@ use eth2::types::{
     BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
     PublishBlockRequest, SignedBlockContents,
 };
-use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::{PubsubMessage, PubsubPartialMessage};
 use logging::crit;
@@ -29,9 +28,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Span, debug, error, field, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobsList, BlockImportSource, DataColumnSubnetId, EthSpec,
-    ExecPayload, ExecutionBlockHash, ForkName, FullPayload, FullPayloadBellatrix, Hash256,
-    KzgProofs, PartialDataColumn, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BlobsList, BlockImportSource, DataColumnSidecar,
+    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
+    FullPayloadBellatrix, Hash256, KzgProofs, PartialDataColumn, SignedBeaconBlock,
+    SignedBlindedBeaconBlock,
 };
 use warp::{Rejection, Reply, reply::Response};
 
@@ -86,6 +86,7 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
 /// only once per block since it hangs off the single p2p-publish point.
 fn forward_signed_block_to_winning_builder<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
+    block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
     builder_url: Option<&str>,
 ) {
@@ -107,7 +108,6 @@ fn forward_signed_block_to_winning_builder<T: BeaconChainTypes>(
 
     let builders = builders.clone();
     let slot = block.slot();
-    let block_root = block.canonical_root();
 
     chain.task_executor.spawn(
         async move {
@@ -165,6 +165,12 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
     let block = unverified_block.inner_block();
     let block_root = block_root.unwrap_or_else(|| block.canonical_root());
+    // Without blob data in the request (always the case for Gloas, where the builder reveals it
+    // with the payload), the node must retrieve the block's columns like it does for gossip blocks.
+    // The exception is a payload we built ourselves, whose columns the envelope endpoint publishes
+    // from the cached blobs, so retrieving them as well would only duplicate that work.
+    let fetch_columns =
+        unverified_blobs.is_none() && !chain.pending_payload_envelopes.read().has_blobs(block_root);
 
     let current_span = Span::current();
     current_span.record("provenance", provenance);
@@ -205,9 +211,26 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         // reveals the execution payload envelope.
         forward_signed_block_to_winning_builder(
             &publish_chain,
+            block_root,
             block.clone(),
             builder_url.as_deref(),
         );
+
+        // Later gossip copies of this block are ignored as duplicates, so start column retrieval
+        // here. Otherwise peers never learn which cells we need via partial columns.
+        if fetch_columns
+            && let Err(e) = crate::utils::publish_network_message(
+                &sender,
+                NetworkMessage::FetchBlockColumns {
+                    block_root,
+                    block,
+                    // Trace the retrieval as part of publishing this block.
+                    span: current_span.clone(),
+                },
+            )
+        {
+            warn!(error = ?e, "Unable to start column retrieval for published block");
+        }
 
         Ok(())
     };
@@ -231,6 +254,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             );
             tokio::time::sleep(block_publishing_delay).await;
         }
+        // Cache Gloas blocks before their columns are published, so that peers can fetch them by
+        // root. With consensus validation, `process_block` does so before publishing.
+        chain.pending_payload_cache.insert_block(
+            block_root,
+            block.clone(),
+            BlockImportSource::HttpApi,
+        );
         publish_block_p2p(block.clone(), sender_clone.clone(), seen_timestamp)
             .map_err(|_| warp_utils::reject::custom_server_error("unable to publish".into()))?;
     }
@@ -281,7 +311,14 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 tokio::time::sleep(delay).await;
             }
         }
-        publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(|_| {
+        publish_column_sidecars(
+            network_tx,
+            gossip_verified_columns
+                .iter()
+                .map(|column| column.clone_data_column()),
+            &chain,
+        )
+        .map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
         let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
@@ -363,7 +400,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 "Block previously seen"
             );
             // try to reprocess as a lookup (single) block and let sync take care of missing components
-            let lookup_block = LookupBlock::new(block.clone());
+            let lookup_block = LookupBlock::new(block_root, block.clone());
             let import_result = Box::pin(chain.process_block(
                 block_root,
                 lookup_block,
@@ -455,14 +492,11 @@ fn build_data_columns<T: BeaconChainTypes>(
 
 pub(crate) fn publish_column_sidecars<T: BeaconChainTypes>(
     sender_clone: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    data_column_sidecars: &[GossipVerifiedDataColumn<T>],
+    data_column_sidecars: impl IntoIterator<Item = Arc<DataColumnSidecar<T::EthSpec>>>,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError> {
     let malicious_withhold_count = chain.config.malicious_withhold_count;
-    let mut data_column_sidecars = data_column_sidecars
-        .iter()
-        .map(|d| d.clone_data_column())
-        .collect::<Vec<_>>();
+    let mut data_column_sidecars = data_column_sidecars.into_iter().collect::<Vec<_>>();
     if malicious_withhold_count > 0 {
         let columns_to_keep = data_column_sidecars
             .len()
@@ -618,8 +652,8 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
     }
 }
 
-/// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
-/// blocks before publishing.
+/// Handles a request from the HTTP API for blinded blocks. Locally built blocks are reconstructed
+/// and published here; builder blocks are submitted to the builder for publication.
 pub async fn publish_blinded_block<T: BeaconChainTypes>(
     blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
@@ -643,18 +677,16 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
         )
         .await
     } else {
-        // From the fulu fork, builders are responsible for publishing and
-        // will no longer return the full payload and blobs.
+        // Builders publish the full block and blobs after accepting a blinded block.
         Ok(warp::reply().into_response())
     }
 }
 
-/// Deconstruct the given blinded block, and construct a full block. This attempts to use the
-/// execution layer's payload cache, and if that misses, attempts a blind block proposal to retrieve
-/// the full payload.
+/// Deconstruct the given blinded block and construct a full block from the execution layer's
+/// payload cache, or submit the blinded block to the builder for publication.
 ///
-/// From the Fulu fork, external builders no longer return the full payload and blobs, and this
-/// function will always return `Ok(None)` on successful submission of blinded block.
+/// External builders do not return the full payload and blobs, so this function returns
+/// `Ok(None)` after successfully submitting a blinded block to a builder.
 pub async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
@@ -672,7 +704,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 .fork_name_at_epoch(block.slot().epoch(T::EthSpec::slots_per_epoch()));
             if fork_name == ForkName::Bellatrix {
                 let payload: FullPayload<T::EthSpec> = FullPayloadBellatrix::default().into();
-                ProvenancedPayload::Local(FullPayloadContents::Payload(payload.into()))
+                FullPayloadContents::Payload(payload.into())
             } else {
                 Err(warp_utils::reject::custom_server_error(
                     "Failed to construct full payload - block hash must be non-zero after Bellatrix.".to_string()
@@ -683,7 +715,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             el.get_payload_by_root(&payload_header.tree_hash_root())
         {
             info!(block_hash = ?cached_payload.block_hash(), "Reconstructing a full block using a local payload");
-            ProvenancedPayload::Local(cached_payload)
+            cached_payload
         // Otherwise, this means we are attempting a blind block proposal.
         } else {
             // Perform the logging for late blocks when we publish to the
@@ -699,24 +731,16 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 "builder",
             );
 
-            match el
-                .propose_blinded_beacon_block(block_root, &block, &chain.spec)
+            el.propose_blinded_beacon_block(block_root, &block)
                 .await
                 .map_err(|e| {
                     warp_utils::reject::custom_server_error(format!(
                         "Blind block proposal failed: {:?}",
                         e
                     ))
-                })? {
-                SubmitBlindedBlockResponse::V1(full_payload) => {
-                    info!(block_root = ?block_root, "Successfully published a block to the builder network");
-                    ProvenancedPayload::Builder(*full_payload)
-                }
-                SubmitBlindedBlockResponse::V2 => {
-                    info!(block_root = ?block_root, "Successfully published a block to the builder network");
-                    return Ok(None);
-                }
-            }
+                })?;
+            info!(block_root = ?block_root, "Successfully published a block to the builder network");
+            return Ok(None);
         };
 
         Some(full_payload_contents)
@@ -735,14 +759,8 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
             .try_into_full_block(None)
             .ok_or("Failed to build full block with payload".to_string())
             .map(|full_block| ProvenancedBlock::local(Arc::new(full_block), None)),
-        Some(ProvenancedPayload::Local(full_payload_contents)) => {
-            into_full_block_and_blobs::<T>(block, full_payload_contents)
-                .map(|(block, blobs)| ProvenancedBlock::local(block, blobs))
-        }
-        Some(ProvenancedPayload::Builder(full_payload_contents)) => {
-            into_full_block_and_blobs::<T>(block, full_payload_contents)
-                .map(|(block, blobs)| ProvenancedBlock::builder(block, blobs))
-        }
+        Some(full_payload_contents) => into_full_block_and_blobs::<T>(block, full_payload_contents)
+            .map(|(block, blobs)| ProvenancedBlock::local(block, blobs)),
     }
     .map(Some)
     .map_err(|e| {

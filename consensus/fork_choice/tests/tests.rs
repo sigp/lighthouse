@@ -126,8 +126,7 @@ impl ForkChoiceTest {
         let mut shutdown_receiver = mutex.lock();
 
         shutdown_receiver.close();
-        let msg = shutdown_receiver.try_next().unwrap();
-        msg.is_some()
+        shutdown_receiver.try_recv().is_ok()
     }
 
     /// Assert there was a shutdown signal sent by the beacon chain.

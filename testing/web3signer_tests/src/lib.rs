@@ -319,6 +319,7 @@ mod tests {
             slashing_protection_config: SlashingProtectionConfig,
             using_web3signer: bool,
             spec: Arc<ChainSpec>,
+            initial_slot: Slot,
         ) -> Self {
             let validator_dir = TempDir::new().unwrap();
 
@@ -352,6 +353,7 @@ mod tests {
 
             let slot_clock =
                 TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+            slot_clock.set_slot(initial_slot.as_u64());
             let config = lighthouse_validator_store::Config {
                 enable_web3signer_slashing_protection: slashing_protection_config.local,
                 ..Default::default()
@@ -408,6 +410,23 @@ mod tests {
             spec: Arc<ChainSpec>,
             listen_port: u16,
         ) -> Self {
+            Self::new_at_slot(
+                network,
+                slashing_protection_config,
+                spec,
+                listen_port,
+                Slot::new(0),
+            )
+            .await
+        }
+
+        pub async fn new_at_slot(
+            network: &str,
+            slashing_protection_config: SlashingProtectionConfig,
+            spec: Arc<ChainSpec>,
+            listen_port: u16,
+            initial_slot: Slot,
+        ) -> Self {
             let signer_rig =
                 Web3SignerRig::new(network, WEB3SIGNER_LISTEN_ADDRESS, listen_port).await;
             let validator_pubkey = signer_rig.keypair.pk.clone();
@@ -434,6 +453,7 @@ mod tests {
                     slashing_protection_config,
                     false,
                     spec.clone(),
+                    initial_slot,
                 )
                 .await
             };
@@ -462,6 +482,7 @@ mod tests {
                     slashing_protection_config,
                     true,
                     spec,
+                    initial_slot,
                 )
                 .await
             };
@@ -963,6 +984,90 @@ mod tests {
         .await;
     }
 
+    /// Test all the Gloas types.
+    async fn test_gloas_types(network: &str, listen_port: u16) {
+        let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
+        let spec = Arc::new(network_config.chain_spec::<E>().unwrap());
+        let gloas_fork_slot = spec
+            .gloas_fork_epoch
+            .expect("network must schedule Gloas for these tests")
+            .start_slot(E::slots_per_epoch());
+
+        TestingRig::new_at_slot(
+            network,
+            SlashingProtectionConfig::default(),
+            spec.clone(),
+            listen_port,
+            gloas_fork_slot,
+        )
+        .await
+        .assert_signatures_match(
+            "execution_payload_envelope_gloas",
+            |pubkey, validator_store| async move {
+                let mut envelope = ExecutionPayloadEnvelope::<E>::empty();
+                envelope.payload.slot_number = gloas_fork_slot;
+                validator_store
+                    .sign_execution_payload_envelope(pubkey, envelope)
+                    .await
+                    .unwrap()
+                    .signature
+            },
+        )
+        .await
+        .assert_signatures_match(
+            "payload_attestation_message_gloas",
+            |pubkey, validator_store| async move {
+                validator_store.set_validator_index(&pubkey, 0);
+                let data = PayloadAttestationData {
+                    beacon_block_root: Hash256::zero(),
+                    slot: gloas_fork_slot,
+                    payload_present: true,
+                    blob_data_available: true,
+                };
+                validator_store
+                    .sign_payload_attestation(pubkey, data)
+                    .await
+                    .unwrap()
+                    .signature
+            },
+        )
+        .await
+        .assert_signatures_match(
+            "proposer_preferences_gloas",
+            |pubkey, validator_store| async move {
+                let preferences = ProposerPreferences {
+                    dependent_root: Hash256::zero(),
+                    proposal_slot: gloas_fork_slot,
+                    validator_index: 0,
+                    fee_recipient: Address::repeat_byte(42),
+                    target_gas_limit: 30_000_000,
+                };
+                validator_store
+                    .sign_proposer_preferences(pubkey, preferences)
+                    .await
+                    .unwrap()
+                    .signature
+            },
+        )
+        .await
+        .assert_signatures_match(
+            "builder_request_auth_gloas",
+            |pubkey, validator_store| async move {
+                let request_auth = eth2::types::RequestAuth {
+                    data: eth2::types::RequestAuthData::new(b"http://builder.example.com".to_vec())
+                        .unwrap(),
+                    slot: gloas_fork_slot,
+                };
+                validator_store
+                    .sign_request_auth_v1(pubkey, request_auth)
+                    .await
+                    .unwrap()
+                    .signature
+            },
+        )
+        .await;
+    }
+
     #[tokio::test]
     async fn mainnet_base_types() {
         test_base_types("mainnet", 4242).await
@@ -997,6 +1102,11 @@ mod tests {
     #[tokio::test]
     async fn sepolia_bellatrix_types() {
         test_bellatrix_types("sepolia", 4252).await
+    }
+
+    #[tokio::test]
+    async fn sepolia_gloas_types() {
+        test_gloas_types("sepolia", 4255).await
     }
 
     #[tokio::test]

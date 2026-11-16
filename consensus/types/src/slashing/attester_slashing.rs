@@ -119,75 +119,34 @@ impl<'a, E: EthSpec> From<AttesterSlashingRef<'a, E>> for AttesterSlashingRefOnD
 
 impl<'a, E: EthSpec> AttesterSlashingRef<'a, E> {
     pub fn clone_as_attester_slashing(self) -> AttesterSlashing<E> {
-        match self {
-            AttesterSlashingRef::Base(attester_slashing) => {
-                AttesterSlashing::Base(attester_slashing.clone())
-            }
-            AttesterSlashingRef::Electra(attester_slashing) => {
-                AttesterSlashing::Electra(attester_slashing.clone())
-            }
-            AttesterSlashingRef::Gloas(attester_slashing) => {
-                AttesterSlashing::Gloas(attester_slashing.clone())
-            }
-        }
+        map_attester_slashing_ref!(&'a _, self, |slashing, cons| {
+            cons(slashing);
+            slashing.clone().into()
+        })
     }
 
     pub fn attestation_1(&self) -> IndexedAttestationRef<'a, E> {
-        match self {
-            AttesterSlashingRef::Base(attester_slashing) => {
-                IndexedAttestationRef::Base(&attester_slashing.attestation_1)
-            }
-            AttesterSlashingRef::Electra(attester_slashing) => {
-                IndexedAttestationRef::Electra(&attester_slashing.attestation_1)
-            }
-            AttesterSlashingRef::Gloas(attester_slashing) => {
-                IndexedAttestationRef::Gloas(&attester_slashing.attestation_1)
-            }
-        }
+        map_attester_slashing_ref!(&'a _, self, |slashing, cons| {
+            cons(slashing);
+            IndexedAttestationRef::from(&slashing.attestation_1)
+        })
     }
 
     pub fn attestation_2(&self) -> IndexedAttestationRef<'a, E> {
-        match self {
-            AttesterSlashingRef::Base(attester_slashing) => {
-                IndexedAttestationRef::Base(&attester_slashing.attestation_2)
-            }
-            AttesterSlashingRef::Electra(attester_slashing) => {
-                IndexedAttestationRef::Electra(&attester_slashing.attestation_2)
-            }
-            AttesterSlashingRef::Gloas(attester_slashing) => {
-                IndexedAttestationRef::Gloas(&attester_slashing.attestation_2)
-            }
-        }
+        map_attester_slashing_ref!(&'a _, self, |slashing, cons| {
+            cons(slashing);
+            IndexedAttestationRef::from(&slashing.attestation_2)
+        })
     }
 }
 
 impl<E: EthSpec> AttesterSlashing<E> {
     pub fn attestation_1(&self) -> IndexedAttestationRef<'_, E> {
-        match self {
-            AttesterSlashing::Base(attester_slashing) => {
-                IndexedAttestationRef::Base(&attester_slashing.attestation_1)
-            }
-            AttesterSlashing::Electra(attester_slashing) => {
-                IndexedAttestationRef::Electra(&attester_slashing.attestation_1)
-            }
-            AttesterSlashing::Gloas(attester_slashing) => {
-                IndexedAttestationRef::Gloas(&attester_slashing.attestation_1)
-            }
-        }
+        self.to_ref().attestation_1()
     }
 
     pub fn attestation_2(&self) -> IndexedAttestationRef<'_, E> {
-        match self {
-            AttesterSlashing::Base(attester_slashing) => {
-                IndexedAttestationRef::Base(&attester_slashing.attestation_2)
-            }
-            AttesterSlashing::Electra(attester_slashing) => {
-                IndexedAttestationRef::Electra(&attester_slashing.attestation_2)
-            }
-            AttesterSlashing::Gloas(attester_slashing) => {
-                IndexedAttestationRef::Gloas(&attester_slashing.attestation_2)
-            }
-        }
+        self.to_ref().attestation_2()
     }
 }
 
@@ -218,10 +177,10 @@ mod tests {
     use crate::*;
     mod base {
         use super::*;
-        ssz_and_tree_hash_tests!(AttesterSlashingBase<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(AttesterSlashingBase<Spec>);
     }
     mod electra {
         use super::*;
-        ssz_and_tree_hash_tests!(AttesterSlashingElectra<MainnetEthSpec>);
+        ssz_and_tree_hash_tests!(AttesterSlashingElectra<Spec>);
     }
 }

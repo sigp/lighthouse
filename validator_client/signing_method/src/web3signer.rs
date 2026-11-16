@@ -20,11 +20,10 @@ pub enum MessageType {
     SyncCommitteeSelectionProof,
     SyncCommitteeContributionAndProof,
     ValidatorRegistration,
-    // TODO(gloas) verify w/ web3signer specs
     ExecutionPayloadEnvelope,
-    PayloadAttestation,
+    PayloadAttestationMessage,
     ProposerPreferences,
-    RequestAuth,
+    BuilderRequestAuth,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize)]
@@ -45,6 +44,23 @@ pub enum ForkName {
 pub struct ForkInfo {
     pub fork: Fork,
     pub genesis_validators_root: Hash256,
+}
+
+/// `{version, data}` wrapper for Gloas remote-signing payloads.
+#[doc(hidden)]
+#[derive(Debug, PartialEq, Serialize)]
+pub struct VersionedForkData<'a, T> {
+    version: ForkName,
+    data: &'a T,
+}
+
+impl<'a, T> VersionedForkData<'a, T> {
+    fn gloas(data: &'a T) -> Self {
+        Self {
+            version: ForkName::Gloas,
+            data,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -82,10 +98,10 @@ pub enum Web3SignerObject<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
     SyncAggregatorSelectionData(&'a SyncAggregatorSelectionData),
     ContributionAndProof(&'a ContributionAndProof<E>),
     ValidatorRegistration(&'a ValidatorRegistrationData),
-    ExecutionPayloadEnvelope(&'a ExecutionPayloadEnvelope<E>),
-    PayloadAttestationData(&'a PayloadAttestationData),
-    ProposerPreferences(&'a ProposerPreferences),
-    RequestAuth(&'a RequestAuth),
+    ExecutionPayloadEnvelope(VersionedForkData<'a, ExecutionPayloadEnvelope<E>>),
+    PayloadAttestationMessage(VersionedForkData<'a, PayloadAttestationData>),
+    ProposerPreferences(VersionedForkData<'a, ProposerPreferences>),
+    BuilderRequestAuth(VersionedForkData<'a, RequestAuth>),
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Payload> {
@@ -139,6 +155,22 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
         }
     }
 
+    pub fn execution_payload_envelope(envelope: &'a ExecutionPayloadEnvelope<E>) -> Self {
+        Web3SignerObject::ExecutionPayloadEnvelope(VersionedForkData::gloas(envelope))
+    }
+
+    pub fn payload_attestation_message(data: &'a PayloadAttestationData) -> Self {
+        Web3SignerObject::PayloadAttestationMessage(VersionedForkData::gloas(data))
+    }
+
+    pub fn proposer_preferences(preferences: &'a ProposerPreferences) -> Self {
+        Web3SignerObject::ProposerPreferences(VersionedForkData::gloas(preferences))
+    }
+
+    pub fn builder_request_auth(request_auth: &'a RequestAuth) -> Self {
+        Web3SignerObject::BuilderRequestAuth(VersionedForkData::gloas(request_auth))
+    }
+
     pub fn message_type(&self) -> MessageType {
         match self {
             Web3SignerObject::AggregationSlot { .. } => MessageType::AggregationSlot,
@@ -157,9 +189,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
             }
             Web3SignerObject::ValidatorRegistration(_) => MessageType::ValidatorRegistration,
             Web3SignerObject::ExecutionPayloadEnvelope(_) => MessageType::ExecutionPayloadEnvelope,
-            Web3SignerObject::PayloadAttestationData(_) => MessageType::PayloadAttestation,
+            Web3SignerObject::PayloadAttestationMessage(_) => {
+                MessageType::PayloadAttestationMessage
+            }
             Web3SignerObject::ProposerPreferences(_) => MessageType::ProposerPreferences,
-            Web3SignerObject::RequestAuth(_) => MessageType::RequestAuth,
+            Web3SignerObject::BuilderRequestAuth(_) => MessageType::BuilderRequestAuth,
         }
     }
 }
@@ -180,4 +214,126 @@ pub struct SigningRequest<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
 #[derive(Debug, PartialEq, Deserialize)]
 pub struct SigningResponse {
     pub signature: Signature,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bls::FixedBytesExtended;
+    use builder_types::RequestAuthData;
+    use types::{FullPayload, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+    type Payload = FullPayload<E>;
+
+    fn dummy_fork_info() -> ForkInfo {
+        ForkInfo {
+            fork: Fork {
+                previous_version: [0; 4],
+                current_version: [1; 4],
+                epoch: Epoch::new(1),
+            },
+            genesis_validators_root: Hash256::repeat_byte(42),
+        }
+    }
+
+    fn serialize(
+        message_type: MessageType,
+        fork_info: Option<ForkInfo>,
+        object: Web3SignerObject<'_, E, Payload>,
+    ) -> serde_json::Value {
+        serde_json::to_value(SigningRequest {
+            message_type,
+            fork_info,
+            signing_root: Hash256::zero(),
+            object,
+        })
+        .expect("signing request should serialize")
+    }
+
+    #[test]
+    fn execution_payload_envelope_request_shape() {
+        let envelope = ExecutionPayloadEnvelope::<E>::empty();
+        let value = serialize(
+            MessageType::ExecutionPayloadEnvelope,
+            Some(dummy_fork_info()),
+            Web3SignerObject::execution_payload_envelope(&envelope),
+        );
+
+        assert_eq!(value["type"], "EXECUTION_PAYLOAD_ENVELOPE");
+        assert!(value.get("fork_info").is_some());
+        assert_eq!(value["execution_payload_envelope"]["version"], "GLOAS");
+        assert!(value["execution_payload_envelope"].get("data").is_some());
+        assert!(value.get("payload_attestation_data").is_none());
+        assert!(value.get("request_auth").is_none());
+    }
+
+    #[test]
+    fn payload_attestation_message_request_shape() {
+        let data = PayloadAttestationData {
+            beacon_block_root: Hash256::zero(),
+            slot: Slot::new(1),
+            payload_present: true,
+            blob_data_available: false,
+        };
+        let value = serialize(
+            MessageType::PayloadAttestationMessage,
+            Some(dummy_fork_info()),
+            Web3SignerObject::payload_attestation_message(&data),
+        );
+
+        assert_eq!(value["type"], "PAYLOAD_ATTESTATION_MESSAGE");
+        assert!(value.get("fork_info").is_some());
+        assert_eq!(value["payload_attestation_message"]["version"], "GLOAS");
+        assert_eq!(
+            value["payload_attestation_message"]["data"]["payload_present"],
+            true
+        );
+        assert!(value.get("payload_attestation_data").is_none());
+        assert!(value.get("PAYLOAD_ATTESTATION").is_none());
+    }
+
+    #[test]
+    fn proposer_preferences_request_shape() {
+        let preferences = ProposerPreferences {
+            dependent_root: Hash256::zero(),
+            proposal_slot: Slot::new(32),
+            validator_index: 1,
+            fee_recipient: Address::repeat_byte(1),
+            target_gas_limit: 30_000_000,
+        };
+        let value = serialize(
+            MessageType::ProposerPreferences,
+            Some(dummy_fork_info()),
+            Web3SignerObject::proposer_preferences(&preferences),
+        );
+
+        assert_eq!(value["type"], "PROPOSER_PREFERENCES");
+        assert!(value.get("fork_info").is_some());
+        assert_eq!(value["proposer_preferences"]["version"], "GLOAS");
+        assert_eq!(
+            value["proposer_preferences"]["data"]["target_gas_limit"],
+            "30000000"
+        );
+    }
+
+    #[test]
+    fn builder_request_auth_request_shape_omits_fork_info() {
+        let request_auth = RequestAuth {
+            data: RequestAuthData::new(b"http://builder.example.com".to_vec()).unwrap(),
+            slot: Slot::new(32),
+        };
+        let value = serialize(
+            MessageType::BuilderRequestAuth,
+            None,
+            Web3SignerObject::builder_request_auth(&request_auth),
+        );
+
+        assert_eq!(value["type"], "BUILDER_REQUEST_AUTH");
+        assert!(value.get("fork_info").is_none());
+        assert_eq!(value["builder_request_auth"]["version"], "GLOAS");
+        assert!(value["builder_request_auth"]["data"].get("data").is_some());
+        assert_eq!(value["builder_request_auth"]["data"]["slot"], "32");
+        assert!(value.get("request_auth").is_none());
+    }
 }

@@ -550,6 +550,56 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
     }
 }
 
+/// The justified block has no viable descendant, but a block outside its subtree is viable. The
+/// head is the justified block's `EMPTY` node, never its `PENDING` node.
+pub fn get_ffg_case_03_test_definition() -> ForkChoiceTestDefinition {
+    let balances = vec![1; 2];
+    let ops = vec![
+        // Build the following tree.
+        //
+        //                0
+        //               / \
+        //  just: 0 -> 1   2 <- just: 1
+        Operation::ProcessBlock {
+            slot: Slot::new(1),
+            root: get_root(1),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(0),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+        },
+        Operation::ProcessBlock {
+            slot: Slot::new(2),
+            root: get_root(2),
+            parent_root: get_root(0),
+            justified_checkpoint: get_checkpoint(1),
+            finalized_checkpoint: get_checkpoint(0),
+            execution_payload_parent_hash: None,
+            execution_payload_block_hash: None,
+        },
+        // At epoch 4, 1 is not viable. 2 is viable, but outside the justified subtree.
+        Operation::FindHead {
+            justified_checkpoint: get_checkpoint(1),
+            finalized_checkpoint: get_checkpoint(0),
+            justified_state_balances: balances,
+            expected_head: get_root(1),
+            current_slot: Slot::new(4 * MainnetEthSpec::slots_per_epoch()),
+            expected_payload_status: Some(PayloadStatus::Empty),
+        },
+    ];
+
+    ForkChoiceTestDefinition {
+        finalized_block_slot: Slot::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
+        operations: ops,
+        execution_payload_parent_hash: None,
+        execution_payload_block_hash: None,
+        spec: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,6 +613,12 @@ mod tests {
     #[test]
     fn ffg_case_02() {
         let test = get_ffg_case_02_test_definition();
+        test.run();
+    }
+
+    #[test]
+    fn ffg_case_03() {
+        let test = get_ffg_case_03_test_definition();
         test.run();
     }
 }

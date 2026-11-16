@@ -159,13 +159,13 @@ pub fn compute_subnets_from_custody_group<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     #[test]
     fn test_compute_columns_for_custody_group() {
-        let mut spec = ChainSpec::mainnet();
+        let mut spec = Spec::default_spec();
         spec.number_of_custody_groups = 64;
 
         let columns_per_custody_group =
@@ -181,7 +181,7 @@ mod test {
 
     #[test]
     fn test_compute_subnets_from_custody_group() {
-        let mut spec = ChainSpec::mainnet();
+        let mut spec = Spec::default_spec();
         spec.number_of_custody_groups = 64;
         spec.data_column_sidecar_subnet_count = 128;
 

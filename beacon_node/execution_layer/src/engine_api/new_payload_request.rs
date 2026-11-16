@@ -64,39 +64,15 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
 
 impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     pub fn parent_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Bellatrix(payload) => payload.execution_payload.parent_hash,
-            Self::Capella(payload) => payload.execution_payload.parent_hash,
-            Self::Deneb(payload) => payload.execution_payload.parent_hash,
-            Self::Electra(payload) => payload.execution_payload.parent_hash,
-            Self::Fulu(payload) => payload.execution_payload.parent_hash,
-            Self::Gloas(payload) => payload.execution_payload.parent_hash,
-            Self::Heze(payload) => payload.execution_payload.parent_hash,
-        }
+        self.execution_payload_ref().parent_hash()
     }
 
     pub fn block_hash(&self) -> ExecutionBlockHash {
-        match self {
-            Self::Bellatrix(payload) => payload.execution_payload.block_hash,
-            Self::Capella(payload) => payload.execution_payload.block_hash,
-            Self::Deneb(payload) => payload.execution_payload.block_hash,
-            Self::Electra(payload) => payload.execution_payload.block_hash,
-            Self::Fulu(payload) => payload.execution_payload.block_hash,
-            Self::Gloas(payload) => payload.execution_payload.block_hash,
-            Self::Heze(payload) => payload.execution_payload.block_hash,
-        }
+        self.execution_payload_ref().block_hash()
     }
 
     pub fn block_number(&self) -> u64 {
-        match self {
-            Self::Bellatrix(payload) => payload.execution_payload.block_number,
-            Self::Capella(payload) => payload.execution_payload.block_number,
-            Self::Deneb(payload) => payload.execution_payload.block_number,
-            Self::Electra(payload) => payload.execution_payload.block_number,
-            Self::Fulu(payload) => payload.execution_payload.block_number,
-            Self::Gloas(payload) => payload.execution_payload.block_number,
-            Self::Heze(payload) => payload.execution_payload.block_number,
-        }
+        self.execution_payload_ref().block_number()
     }
 
     pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'block, E> {
@@ -112,17 +88,7 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
     }
 
     pub fn into_execution_payload(self) -> ExecutionPayload<E> {
-        match self {
-            Self::Bellatrix(request) => {
-                ExecutionPayload::Bellatrix(request.execution_payload.clone())
-            }
-            Self::Capella(request) => ExecutionPayload::Capella(request.execution_payload.clone()),
-            Self::Deneb(request) => ExecutionPayload::Deneb(request.execution_payload.clone()),
-            Self::Electra(request) => ExecutionPayload::Electra(request.execution_payload.clone()),
-            Self::Fulu(request) => ExecutionPayload::Fulu(request.execution_payload.clone()),
-            Self::Gloas(request) => ExecutionPayload::Gloas(request.execution_payload.clone()),
-            Self::Heze(request) => ExecutionPayload::Heze(request.execution_payload.clone()),
-        }
+        self.execution_payload_ref().clone_from_ref()
     }
 
     /// Performs the required verifications of the payload when the chain is optimistically syncing.
@@ -279,12 +245,13 @@ impl<'a, E: EthSpec> TryFrom<ExecutionPayloadRef<'a, E>> for NewPayloadRequest<'
 // TODO(EIP-7732) build out the following when it's needed like in Mark's branch
 // impl<'a, E: EthSpec> TryFrom<ExecutionEnvelopeRef<'a, E>> for NewPayloadRequest<E> {
 
-#[cfg(test)]
+// The test block is a real mainnet block.
+#[cfg(all(test, not(feature = "spec-minimal")))]
 mod test {
     use crate::versioned_hashes::Error as VersionedHashError;
     use crate::{Error, NewPayloadRequest};
     use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
-    use types::{BeaconBlock, ExecPayload, ExecutionBlockHash, Hash256, MainnetEthSpec};
+    use types::{BeaconBlock, ExecPayload, ExecutionBlockHash, Hash256, Spec};
 
     #[test]
     fn test_optimistic_sync_verifications_valid_block() {
@@ -377,7 +344,7 @@ mod test {
         assert!(got_expected_result, "should return expected error");
     }
 
-    fn get_valid_beacon_block() -> BeaconBlock<MainnetEthSpec> {
+    fn get_valid_beacon_block() -> BeaconBlock<Spec> {
         BeaconBlock::Deneb(serde_json::from_str(r#"{
           "slot": "88160",
           "proposer_index": "583",

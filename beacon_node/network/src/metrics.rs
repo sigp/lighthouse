@@ -1,5 +1,6 @@
 use beacon_chain::{
     AvailabilityProcessingStatus, attestation_verification::Error as AttnError,
+    inclusion_list_verification::InclusionListVerificationError,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     sync_committee_verification::Error as SyncCommitteeError,
@@ -388,6 +389,14 @@ pub static GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVec
             &["type"],
         )
     });
+pub static GOSSIP_INCLUSION_LIST_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "gossipsub_inclusion_list_errors_per_type",
+            "Gossipsub inclusion_list errors per error type",
+            &["type"],
+        )
+    });
 pub static GOSSIP_OPTIMISTIC_UPDATE_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
         try_create_int_counter_vec(
@@ -737,6 +746,10 @@ pub fn register_attestation_error(error: &AttnError) {
 
 pub fn register_sync_committee_error(error: &SyncCommitteeError) {
     inc_counter_vec(&GOSSIP_SYNC_COMMITTEE_ERRORS_PER_TYPE, &[error.as_ref()]);
+}
+
+pub fn register_inclusion_list_error(error: &InclusionListVerificationError) {
+    inc_counter_vec(&GOSSIP_INCLUSION_LIST_ERRORS_PER_TYPE, &[error.as_ref()]);
 }
 
 pub(crate) fn register_process_result_metrics(
