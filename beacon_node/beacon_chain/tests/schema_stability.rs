@@ -167,7 +167,7 @@ fn check_custody_context(store: &Store<E>, spec: &ChainSpec) {
 }
 
 fn check_custody_info(store: &Store<E>, spec: &ChainSpec) {
-    let data_column_custody_info = store.get_data_column_custody_info().unwrap();
+    let data_column_custody_info = store.get_data_column_custody_info();
     if spec.is_peer_das_scheduled() {
         assert_eq!(data_column_custody_info.unwrap().as_ssz_bytes().len(), 13);
     } else {

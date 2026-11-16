@@ -307,6 +307,14 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         }
     }
 
+    /// Removes the beacon block cached for `block_root`, keeping its bid and data. Used for a block
+    /// that failed verification, so that it is no longer served to peers.
+    pub fn remove_block(&self, block_root: &Hash256) {
+        if let Some(pending_components) = self.availability_cache.write().get_mut(block_root) {
+            pending_components.block = None;
+        }
+    }
+
     /// Perform KZG verification on RPC custody columns and insert them into the cache.
     /// After insertion check if the envelope becomes available.
     #[instrument(skip_all, level = "trace")]

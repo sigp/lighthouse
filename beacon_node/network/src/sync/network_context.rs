@@ -18,8 +18,7 @@ use crate::sync::batch::ByRangeRequestType;
 use crate::sync::block_lookups::{DownloadResult, SingleLookupId};
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::range_data_column_batch_request::RangeDataColumnBatchRequest;
-use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::block_verification_types::{AsBlock, RangeSyncBlock};
+use beacon_chain::block_verification_types::{AsBlock, LookupBlock, RangeSyncBlock};
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
@@ -31,7 +30,7 @@ use lighthouse_network::rpc::{
 };
 pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
-    AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
+    BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
     CustodyBackFillBatchRequestId, CustodyBackfillBatchId, CustodyId, CustodyRequester,
     DataColumnsByRangeRequestId, DataColumnsByRangeRequester, DataColumnsByRootRequestId,
     DataColumnsByRootRequester, Id, PayloadEnvelopesByRangeRequestId, SingleLookupReqId,
@@ -450,11 +449,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             );
 
             let request = RequestType::Status(status_message.clone());
-            let app_request_id = AppRequestId::Router;
             let _ = self.send_network_msg(NetworkMessage::SendRequest {
                 peer_id,
                 request,
-                app_request_id,
+                sync_request_id: None,
             });
         }
     }
@@ -785,7 +783,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: network_request,
-                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
+                sync_request_id: Some(SyncRequestId::SingleBlock { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
@@ -875,7 +873,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: network_request,
-                app_request_id: AppRequestId::Sync(SyncRequestId::SinglePayloadEnvelope { id }),
+                sync_request_id: Some(SyncRequestId::SinglePayloadEnvelope { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
@@ -921,7 +919,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     &self.chain.spec,
                 )?,
             ),
-            app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
+            sync_request_id: Some(SyncRequestId::DataColumnsByRoot(id)),
         })?;
 
         debug!(
@@ -1070,7 +1068,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: RequestType::BlocksByRange(request.clone().into()),
-                app_request_id: AppRequestId::Sync(SyncRequestId::BlocksByRange(id)),
+                sync_request_id: Some(SyncRequestId::BlocksByRange(id)),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
@@ -1113,7 +1111,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .send(NetworkMessage::SendRequest {
                 peer_id,
                 request: RequestType::BlobsByRange(request.clone()),
-                app_request_id: AppRequestId::Sync(SyncRequestId::BlobsByRange(id)),
+                sync_request_id: Some(SyncRequestId::BlobsByRange(id)),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
@@ -1156,7 +1154,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: RequestType::DataColumnsByRange(request.clone()),
-            app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
+            sync_request_id: Some(SyncRequestId::DataColumnsByRange(id)),
         })
         .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
@@ -1202,7 +1200,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: RequestType::PayloadEnvelopesByRange(request.clone()),
-            app_request_id: AppRequestId::Sync(SyncRequestId::PayloadEnvelopesByRange(id)),
+            sync_request_id: Some(SyncRequestId::PayloadEnvelopesByRange(id)),
         })
         .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
@@ -1521,6 +1519,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn send_block_for_processing(
         &self,
         id: Id,
+        peer_id: PeerId,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<(), SendErrorProcessor> {
@@ -1528,13 +1527,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
 
-        let lookup_block = LookupBlock::new(block);
+        let lookup_block = LookupBlock::new(block_root, block);
 
         debug!(block = ?block_root, block_slot = %lookup_block.slot(), id, "Sending block for processing");
         // Lookup sync event safety: If `beacon_processor.send_rpc_beacon_block` returns Ok() sync
         // must receive a single `SyncMessage::BlockComponentProcessed` with this process type
         beacon_processor
             .send_lookup_beacon_block(
+                peer_id,
                 block_root,
                 lookup_block,
                 BlockProcessType::SingleBlock { id },

@@ -89,6 +89,8 @@ mockall = { workspace = true }
 mockall_double = { workspace = true }
 rand_xorshift = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "net"] }
+tokio-tungstenite = { workspace = true }
 types = { workspace = true, features = ["arbitrary"] }
 
 [[bench]]

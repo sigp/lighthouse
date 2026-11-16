@@ -562,7 +562,7 @@ mod tests {
 
     #[test]
     fn payload_envelope_summary_survives_payload_pruning() {
-        type E = MinimalEthSpec;
+        type E = Spec;
 
         let store = HotColdDB::<E, MemoryStore, MemoryStore>::open_ephemeral(
             StoreConfig::default(),

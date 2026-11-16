@@ -26,10 +26,10 @@ jobs:
             VERSION: ${{ steps.extract_version.outputs.VERSION }}
     build:
         name:   Build Release
-        # Linux builds use paid GitHub-hosted larger runners, configured via the `RELEASE_RUNNER`
-        # repository variable. macOS uses the paid `macos-15-xlarge` (M2 Pro, 14 GB); the free
-        # 7 GB runner swaps during the `maxperf` link and takes ~3x as long. Forks fall back to
-        # free GitHub-hosted runners.
+        # Linux builds run natively on paid GitHub-hosted larger runners, configured via the
+        # `RELEASE_RUNNER` (x64) and `RELEASE_RUNNER_ARM64` repository variables. macOS uses the paid
+        # `macos-15-xlarge` (M2 Pro, 14 GB); the free 7 GB runner swaps during the `maxperf` link and
+        # takes ~3x as long. Forks fall back to free GitHub-hosted runners.
         strategy:
             matrix:
                 arch: [aarch64-unknown-linux-gnu,
@@ -37,7 +37,7 @@ jobs:
                        aarch64-apple-darwin]
                 include:
                     -   arch: aarch64-unknown-linux-gnu
-                        runner: ${{ vars.RELEASE_RUNNER || 'ubuntu-24.04' }}
+                        runner: ${{ vars.RELEASE_RUNNER_ARM64 || 'ubuntu-24.04-arm' }}
                         profile: maxperf
                     -   arch: x86_64-unknown-linux-gnu
                         runner: ${{ vars.RELEASE_RUNNER || 'ubuntu-24.04' }}
@@ -52,27 +52,22 @@ jobs:
             - name: Checkout sources
               uses: actions/checkout@v7
             - name: Get latest version of stable Rust
-              run: rustup update stable
+              if:   matrix.arch == 'aarch64-apple-darwin'
+              run:  rustup update stable
 
             # ==============================
             #       Builds
             # ==============================
 
-            - name: Build Lighthouse for aarch64-unknown-linux-gnu
-              if:   matrix.arch == 'aarch64-unknown-linux-gnu'
-              run:  |
-                cargo install cross --version 0.2.5
-                env CROSS_PROFILE=${{ matrix.profile }} make build-aarch64
+            - name: Build Lighthouse for ${{ matrix.arch }}
+              if:   contains(matrix.arch, 'unknown-linux-gnu')
+              run:  scripts/ci/build-linux.sh lighthouse ${{ matrix.profile }} gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,beacon-node-leveldb,beacon-node-redb
 
-            - name: Build Lighthouse for x86_64-unknown-linux-gnu
-              if:   matrix.arch == 'x86_64-unknown-linux-gnu'
-              run:  |
-                cargo install cross --version 0.2.5
-                env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64
-
-            - name: Move cross-compiled binary
+            - name: Move Linux binary
               if:  contains(matrix.arch, 'unknown-linux-gnu')
-              run: mv target/${{ matrix.arch }}/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
+              run: |
+                  mkdir -p ~/.cargo/bin
+                  mv target/${{ matrix.arch }}/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
 
             - name: Build Lighthouse for aarch64-apple-darwin
               if:   matrix.arch == 'aarch64-apple-darwin'
