@@ -576,7 +576,8 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }?;
 
         let engine: Engine = {
-            let auth = Auth::new(jwt_key, jwt_id, jwt_version);
+            let auth = Auth::new(jwt_key, jwt_id, jwt_version)
+                .map_err(|e| Error::InvalidJWTSecret(format!("{:?}", e)))?;
             debug!(endpoint = %execution_url, jwt_path = ?secret_file.as_path(),"Loaded execution endpoint");
             let api = HttpJsonRpc::new_with_auth(execution_url, auth, execution_timeout_multiplier)
                 .map_err(Error::ApiError)?;
