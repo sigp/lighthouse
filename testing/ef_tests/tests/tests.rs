@@ -965,65 +965,60 @@ fn gossip_attester_slashing() {
 
 #[test]
 fn gossip_voluntary_exit() {
-    GossipValidationHandler::<Spec>::latest_stable("gossip_voluntary_exit").run();
+    GossipValidationHandler::<Spec>::latest_stable_and_gloas("gossip_voluntary_exit").run();
 }
 
 #[test]
 fn gossip_beacon_attestation() {
-    GossipValidationHandler::<Spec>::latest_stable("gossip_beacon_attestation").run();
+    GossipValidationHandler::<Spec>::latest_stable_and_gloas("gossip_beacon_attestation").run();
 }
 
 #[test]
 fn gossip_beacon_aggregate_and_proof() {
-    GossipValidationHandler::<Spec>::latest_stable("gossip_beacon_aggregate_and_proof").run();
+    GossipValidationHandler::<Spec>::latest_stable_and_gloas("gossip_beacon_aggregate_and_proof")
+        .run();
 }
 
 #[test]
 fn gossip_bls_to_execution_change() {
-    GossipValidationHandler::<Spec>::latest_stable("gossip_bls_to_execution_change").run();
+    GossipValidationHandler::<Spec>::latest_stable_and_gloas("gossip_bls_to_execution_change")
+        .run();
 }
 
 #[test]
 fn gossip_sync_committee_message() {
-    GossipValidationHandler::<Spec>::latest_stable("gossip_sync_committee_message").run();
+    GossipValidationHandler::<Spec>::latest_stable_and_gloas("gossip_sync_committee_message").run();
 }
 
 #[test]
 fn gossip_sync_committee_contribution_and_proof() {
-    GossipValidationHandler::<Spec>::latest_stable("gossip_sync_committee_contribution_and_proof")
-        .run();
+    GossipValidationHandler::<Spec>::latest_stable_and_gloas(
+        "gossip_sync_committee_contribution_and_proof",
+    )
+    .run();
 }
 
 #[test]
 fn gossip_data_column_sidecar() {
-    GossipValidationHandler::<MinimalEthSpec>::gloas_only("gossip_data_column_sidecar").run();
-    GossipValidationHandler::<MainnetEthSpec>::gloas_only("gossip_data_column_sidecar").run();
+    GossipValidationHandler::<Spec>::gloas_only("gossip_data_column_sidecar").run();
 }
 
 #[test]
 fn gossip_execution_payload_bid() {
-    GossipValidationHandler::<MinimalEthSpec>::gloas_only("gossip_execution_payload_bid").run();
-    GossipValidationHandler::<MainnetEthSpec>::gloas_only("gossip_execution_payload_bid").run();
+    GossipValidationHandler::<Spec>::gloas_only("gossip_execution_payload_bid").run();
 }
 
 #[test]
 fn gossip_execution_payload_envelope() {
-    GossipValidationHandler::<MinimalEthSpec>::gloas_only("gossip_execution_payload_envelope")
-        .run();
-    GossipValidationHandler::<MainnetEthSpec>::gloas_only("gossip_execution_payload_envelope")
-        .run();
+    GossipValidationHandler::<Spec>::gloas_only("gossip_execution_payload_envelope").run();
 }
 
 #[test]
 fn gossip_payload_attestation_message() {
-    GossipValidationHandler::<MinimalEthSpec>::gloas_only("gossip_payload_attestation_message")
-        .run();
-    GossipValidationHandler::<MainnetEthSpec>::gloas_only("gossip_payload_attestation_message")
-        .run();
+    GossipValidationHandler::<Spec>::gloas_only("gossip_payload_attestation_message").run();
 }
 
 #[test]
 fn gossip_proposer_preferences() {
-    GossipValidationHandler::<MinimalEthSpec>::gloas_only("gossip_proposer_preferences").run();
-    GossipValidationHandler::<MainnetEthSpec>::gloas_only("gossip_proposer_preferences").run();
+    GossipValidationHandler::<Spec>::gloas_only("gossip_proposer_preferences").run();
 }
