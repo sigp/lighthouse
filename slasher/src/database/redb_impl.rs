@@ -9,7 +9,7 @@ use crate::{
 };
 use educe::Educe;
 use redb::{ReadableTable, TableDefinition};
-use std::{borrow::Cow, path::PathBuf};
+use std::{borrow::Cow, ops::Bound, path::PathBuf};
 
 #[derive(Debug)]
 pub struct Environment {
@@ -207,10 +207,10 @@ impl<'env> Cursor<'env> {
             TableDefinition::new(&self.db.table_name);
         let table = self.txn.open_table(table_definition)?;
         if let Some(current_key) = &self.current_key {
-            let range: std::ops::RangeFrom<&[u8]> = current_key..;
+            let range = (Bound::Excluded(current_key.as_ref()), Bound::Unbounded);
 
             let next = table
-                .range(range)?
+                .range::<&[u8]>(range)?
                 .next()
                 .map(|x| x.map(|(key, _)| key.value().to_vec()));
 
@@ -237,23 +237,35 @@ impl<'env> Cursor<'env> {
         &self,
         f: impl Fn(&[u8]) -> Result<bool, Error>,
     ) -> Result<Vec<Cow<'_, [u8]>>, Error> {
-        let mut deleted_values = vec![];
-        if let Some(current_key) = &self.current_key {
-            let table_definition: TableDefinition<'_, &[u8], &[u8]> =
-                TableDefinition::new(&self.db.table_name);
-
-            let mut table = self.txn.open_table(table_definition)?;
-
-            let deleted =
-                table.extract_from_if(current_key.as_ref().., |key, _| f(key).unwrap_or(false))?;
-
-            deleted.for_each(|result| {
-                if let Ok(item) = result {
-                    let value = item.1.value().to_vec();
-                    deleted_values.push(Cow::from(value));
-                }
-            })
+        let Some(current_key) = &self.current_key else {
+            return Ok(vec![]);
         };
+        let table_definition: TableDefinition<'_, &[u8], &[u8]> =
+            TableDefinition::new(&self.db.table_name);
+        let mut table = self.txn.open_table(table_definition)?;
+
+        // Find the first key to keep, so that only the keys before it are deleted.
+        let mut end_key = None;
+        for result in table.range(current_key.as_ref()..)? {
+            let (key, _) = result?;
+            if !f(key.value())? {
+                end_key = Some(key.value().to_vec());
+                break;
+            }
+        }
+
+        let range = match &end_key {
+            Some(end_key) => (
+                Bound::Included(current_key.as_ref()),
+                Bound::Excluded(end_key.as_slice()),
+            ),
+            None => (Bound::Included(current_key.as_ref()), Bound::Unbounded),
+        };
+        let mut deleted_values = vec![];
+        for result in table.extract_from_if::<&[u8], _>(range, |_, _| true)? {
+            let (_, value) = result?;
+            deleted_values.push(Cow::from(value.value().to_vec()));
+        }
         Ok(deleted_values)
     }
 
