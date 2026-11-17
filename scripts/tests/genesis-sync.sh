@@ -73,21 +73,6 @@ exit_and_dump_logs() {
     exit $exit_code
 }
 
-# Kurtosis can report success after a gRPC stream error, so also require a
-# published HTTP port before returning the restarted node's URL.
-start_node() {
-  local node=$1
-  local url
-
-  kurtosis service start "$ENCLAVE_NAME" "$node" >&2 || return 1
-  url=$(kurtosis port print "$ENCLAVE_NAME" "$node" http) || return 1
-  if [ -z "$url" ]; then
-    echo "No HTTP endpoint after restarting $node" >&2
-    return 1
-  fi
-  printf '%s\n' "$url"
-}
-
 # Start the nodes
 $SCRIPT_DIR/../local_testnet/start_local_testnet.sh -e $ENCLAVE_NAME -b false -n $CONFIG
 if [ $? -ne 0 ]; then
@@ -119,11 +104,15 @@ done
 echo "Resuming non-validator nodes..."
 
 # Resume the non validating nodes
-supernode_url=$(start_node "$supernode") || exit_and_dump_logs 1
-fullnode_url=$(start_node "$fullnode") || exit_and_dump_logs 1
+kurtosis service start $ENCLAVE_NAME $supernode
+kurtosis service start $ENCLAVE_NAME $fullnode
 
 # The time at which syncing starts after the node was stopped
 sync_start_time=$(date +%s)
+
+# Get beacon API URLs for non validating nodes for query
+supernode_url=$(kurtosis port print $ENCLAVE_NAME $supernode http)
+fullnode_url=$(kurtosis port print $ENCLAVE_NAME $fullnode http)
 
 # Initialize statuses
 declare -A node_completed
