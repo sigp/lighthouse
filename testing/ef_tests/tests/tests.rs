@@ -1004,6 +1004,12 @@ fn gossip_data_column_sidecar() {
 }
 
 #[test]
+fn gossip_partial_data_column_sidecar() {
+    GossipValidationHandler::<Spec>::latest_stable_and_gloas("gossip_partial_data_column_sidecar")
+        .run();
+}
+
+#[test]
 fn gossip_execution_payload_bid() {
     GossipValidationHandler::<Spec>::gloas_only("gossip_execution_payload_bid").run();
 }

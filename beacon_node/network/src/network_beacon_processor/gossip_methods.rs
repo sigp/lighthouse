@@ -1280,6 +1280,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::LowToleranceError,
                     "gossip_partial_data_column_low",
                 );
+                self.propagate_partial_validation_failure(peer_id, topic);
             }
             GossipPartialDataColumnError::EmptyMessage
             | GossipPartialDataColumnError::InconsistentPresentCount { .. }
@@ -1296,6 +1297,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     PeerAction::LowToleranceError,
                     "gossip_partial_data_column_low",
                 );
+                self.propagate_partial_validation_failure(peer_id, topic);
             }
             GossipPartialDataColumnError::PartialColumnsDisabled => {
                 error!(

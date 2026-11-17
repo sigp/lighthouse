@@ -6,14 +6,17 @@ use crate::decode::{
 use crate::type_name::TypeName;
 use ::fork_choice::InvalidationOperation;
 use beacon_chain::block_verification_types::LookupBlock;
+use beacon_chain::custody_context::NodeCustodyType;
+use beacon_chain::partial_data_column_assembler::AssemblyColumn;
 use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::slot_clock::{SlotClock, TestingSlotClock};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-use beacon_chain::{BlockError, NotifyExecutionLayer, PayloadVerificationStatus};
+use beacon_chain::{BlockError, ChainConfig, NotifyExecutionLayer, PayloadVerificationStatus};
 use bls::Signature;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
-use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerId};
+use lighthouse_network::types::{GossipEncoding, GossipKind};
+use lighthouse_network::{Client, GossipTopic, MessageAcceptance, MessageId, PeerId};
 use network::{NetworkBeaconProcessor, NetworkMessage, ReprocessAllowance};
 use serde::Deserialize;
 use ssz::Decode;
@@ -25,7 +28,9 @@ use std::time::Duration;
 use types::{
     AttesterSlashing, BeaconBlock, BeaconState, BlobSchedule, BlockImportSource, ChainSpec,
     Checkpoint, DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecPayload, ForkName,
-    ForkVersionDecode, Hash256, PayloadAttestationMessage, ProposerSlashing,
+    ForkVersionDecode, Hash256, PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas,
+    PartialDataColumnGroupId, PartialDataColumnHeader, PartialDataColumnSidecarFulu,
+    PartialDataColumnSidecarGloas, PayloadAttestationMessage, ProposerSlashing,
     SignedAggregateAndProof, SignedAggregateAndProofElectra, SignedAggregateAndProofGloas,
     SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
     SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
@@ -52,6 +57,7 @@ impl PartialEq<MessageAcceptance> for ExpectedOutcome {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Meta {
     topic: Topic,
     #[serde(default)]
@@ -62,6 +68,16 @@ struct Meta {
     messages: Vec<MessageMeta>,
     #[serde(default)]
     bls_setting: Option<BlsSetting>,
+    /// Fulu partial data column headers the node has already validated before the messages.
+    #[serde(default)]
+    seen_partial_data_column_headers: Vec<SeenPartialDataColumnHeader>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SeenPartialDataColumnHeader {
+    block_root: Hash256,
+    header: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -111,10 +127,10 @@ struct MessageMeta {
     subnet_id: Option<u64>,
     #[serde(default)]
     current_time_ms: Option<u64>,
-    #[serde(default, rename = "group_id")]
-    _group_id: Option<String>,
-    #[serde(default, rename = "column_index")]
-    _column_index: Option<u64>,
+    #[serde(default)]
+    group_id: Option<String>,
+    #[serde(default)]
+    column_index: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -247,6 +263,7 @@ impl<E: EthSpec> GossipTester<E> {
 
         tester.set_time_ms(current_time_ms)?;
         tester.import_setup_blocks(case, &blocks, initial_block_index)?;
+        tester.seed_partial_data_column_headers(case)?;
         let finalized_checkpoint = case.finalized_checkpoint(&blocks)?;
         tester.set_finalized_checkpoint(finalized_checkpoint);
         if matches!(
@@ -296,6 +313,18 @@ impl<E: EthSpec> GossipTester<E> {
                 // Default to valid EL responses. Setup blocks with `payload_status` override this
                 // during import.
                 .mock_execution_layer_all_payloads_valid()
+                // Partial data column gossip is only processed when partial columns are enabled.
+                .chain_config(ChainConfig {
+                    enable_partial_columns: true,
+                    ..ChainConfig::default()
+                })
+                // Partial cells are only stored for custodied columns. Custody every column so
+                // accepted fixture cells are observable regardless of their column index.
+                .node_custody_type(if case.meta.topic == Topic::PartialDataColumnSidecar {
+                    NodeCustodyType::Supernode
+                } else {
+                    NodeCustodyType::Fullnode
+                })
         };
 
         let harness = if let Some(initial_block_index) = initial_block_index
@@ -341,6 +370,24 @@ impl<E: EthSpec> GossipTester<E> {
         };
 
         Ok((harness, initial_block_index))
+    }
+
+    fn seed_partial_data_column_headers(&self, case: &GossipValidation<E>) -> Result<(), Error> {
+        if case.meta.seen_partial_data_column_headers.is_empty() {
+            return Ok(());
+        }
+        let assembler = self
+            .harness
+            .chain
+            .data_availability_checker
+            .partial_assembler()
+            .ok_or_else(|| Error::InternalError("partial columns are disabled".into()))?;
+        for seen in &case.meta.seen_partial_data_column_headers {
+            let header: PartialDataColumnHeader<E> =
+                ssz_decode_file(&case.path.join(format!("{}.ssz_snappy", seen.header)))?;
+            assembler.init(seen.block_root, Arc::new(header));
+        }
+        Ok(())
     }
 
     fn set_finalized_checkpoint(&self, checkpoint: Option<Checkpoint>) {
@@ -471,9 +518,12 @@ impl<E: EthSpec> GossipTester<E> {
                 peer_id,
             )?,
             Topic::PartialDataColumnSidecar => {
-                return Err(Error::InternalError(format!(
-                    "Gloas gossip topic {topic:?} is enabled but not implemented by the EF harness"
-                )));
+                return self.process_partial_data_column_sidecar(
+                    path,
+                    message_meta,
+                    fork_name,
+                    peer_id,
+                );
             }
             Topic::PayloadAttestationMessage => self.process_payload_attestation_message(
                 path,
@@ -631,6 +681,138 @@ impl<E: EthSpec> GossipTester<E> {
                 ),
         )?;
         Ok(())
+    }
+
+    fn process_partial_data_column_sidecar(
+        &self,
+        path: &Path,
+        message_meta: &MessageMeta,
+        fork_name: ForkName,
+        peer_id: PeerId,
+    ) -> Result<MessageAcceptance, Error> {
+        let group_id_file = message_meta.group_id.as_deref().ok_or_else(|| {
+            Error::FailedToParseTest("missing partial_data_column_sidecar group_id".into())
+        })?;
+        let column_index = message_meta.column_index.ok_or_else(|| {
+            Error::FailedToParseTest("missing partial_data_column_sidecar column_index".into())
+        })?;
+        let group_id_path = path.join(format!("{group_id_file}.ssz_snappy"));
+        let bytes = snappy_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+        // The network rejects malformed SSZ, including oversized lists, before gossip processing.
+        let column = if fork_name.gloas_enabled() {
+            let group_id: PartialDataColumnGroupId = ssz_decode_file(&group_id_path)?;
+            let Ok(sidecar) = PartialDataColumnSidecarGloas::<E>::from_ssz_bytes(&bytes) else {
+                return Ok(MessageAcceptance::Reject);
+            };
+            PartialDataColumn::from(PartialDataColumnGloas {
+                block_root: group_id.beacon_block_root,
+                slot: group_id.slot,
+                index: column_index,
+                sidecar,
+            })
+        } else {
+            // The Fulu group id is a container holding only the block root.
+            let block_root: Hash256 = ssz_decode_file(&group_id_path)?;
+            let Ok(sidecar) = PartialDataColumnSidecarFulu::<E>::from_ssz_bytes(&bytes) else {
+                return Ok(MessageAcceptance::Reject);
+            };
+            PartialDataColumn::from(PartialDataColumnFulu {
+                block_root,
+                index: column_index,
+                sidecar,
+            })
+        };
+        let seen_duration = self.set_message_time(message_meta)?;
+        // Partial messages are spec'd with one column per subnet, so the subnet is the index.
+        let topic = GossipTopic::new(
+            GossipKind::DataColumnSidecar(DataColumnSubnetId::new(column_index)),
+            GossipEncoding::default(),
+            [0; 4],
+        );
+
+        self.block_on_dangerous(
+            self.network_beacon_processor
+                .process_gossip_partial_data_column_sidecar(
+                    peer_id,
+                    Box::new(column.clone()),
+                    seen_duration,
+                    topic,
+                ),
+        )?;
+
+        // Partial messages have no message id or validation result. A rejection is reported to
+        // gossipsub as a partial validation failure; otherwise the message was accepted if its
+        // contents were stored, and ignored if not.
+        let mut network_rx = self
+            .network_rx
+            .lock()
+            .map_err(|_| Error::InternalError("network receiver lock poisoned".into()))?;
+        while let Ok(network_message) = network_rx.try_recv() {
+            if let NetworkMessage::PartialValidationFailure {
+                propagation_source, ..
+            } = network_message
+                && propagation_source == peer_id
+            {
+                return Ok(MessageAcceptance::Reject);
+            }
+        }
+        let accepted = match &column {
+            PartialDataColumn::Gloas(_) => self.partial_cells_cached_gloas(&column),
+            PartialDataColumn::Fulu(fulu) => self.partial_stored_fulu(fulu),
+        };
+        Ok(if accepted {
+            MessageAcceptance::Accept
+        } else {
+            MessageAcceptance::Ignore
+        })
+    }
+
+    /// Whether every cell of a non-empty Gloas partial is now in the pending payload cache.
+    fn partial_cells_cached_gloas(&self, column: &PartialDataColumn<E>) -> bool {
+        column.sidecar().cells_present_bitmap().num_set_bits() > 0
+            && matches!(
+                self.harness
+                    .chain
+                    .pending_payload_cache
+                    .missing_cells_for_partial_column_sidecar(column.to_ref()),
+                Ok(None)
+            )
+    }
+
+    /// Whether the Fulu partial carries a header or cells, and the partial assembler now holds its
+    /// header (if any) and all of its cells (if any).
+    fn partial_stored_fulu(&self, column: &PartialDataColumnFulu<E>) -> bool {
+        if column.sidecar.header.as_ref().is_none()
+            && column.sidecar.cells_present_bitmap.num_set_bits() == 0
+        {
+            return false;
+        }
+        let Some(assembler) = self
+            .harness
+            .chain
+            .data_availability_checker
+            .partial_assembler()
+        else {
+            return false;
+        };
+        let header_stored = column.sidecar.header.as_ref().is_none_or(|header| {
+            assembler
+                .get_header(&column.block_root)
+                .is_some_and(|stored| *stored == *header)
+        });
+        let present = &column.sidecar.cells_present_bitmap;
+        let cells_stored = present.num_set_bits() == 0
+            || match assembler.get_partial(&column.block_root, column.index) {
+                Some(AssemblyColumn::Complete(_)) => true,
+                Some(AssemblyColumn::Incomplete(stored)) => {
+                    let stored_bitmap = stored.sidecar().cells_present_bitmap();
+                    (0..present.len()).all(|i| {
+                        !present.get(i).unwrap_or(false) || stored_bitmap.get(i).unwrap_or(false)
+                    })
+                }
+                None => false,
+            };
+        header_stored && cells_stored
     }
 
     fn process_execution_payload_bid_message(
@@ -1234,6 +1416,28 @@ impl<E: EthSpec> GossipValidation<E> {
             // from an unseen block, so both cases are ignored as an unknown head block.
             "gossip_payload_attestation_message__reject_block_failed_validation",
         ];
+        // Fulu only: the Gloas suite has no equivalent of these cases.
+        const IGNORED_PARTIAL_DATA_COLUMN_CASES: &[&str] = &[
+            // Lighthouse does not retain consensus-invalid blocks, so the harness cannot construct
+            // the failed parent required by this vector.
+            "gossip_partial_data_column_sidecar__reject_parent_failed_validation",
+            // The fixture moves the clock backwards after caching a header. Lighthouse validates
+            // the header's slot once, when it is cached, and time never moves backwards in
+            // practice, so re-checking it for every cells-only message buys nothing.
+            "gossip_partial_data_column_sidecar__ignore_cells_with_cached_header_future_slot",
+            // The fixture seeds a cached header at or before the finalized slot. Lighthouse prunes
+            // cached headers once their epoch is finalized, so this state only exists briefly
+            // between finalization and the next maintenance run.
+            "gossip_partial_data_column_sidecar__ignore_cells_with_cached_header_not_later_than_finalized_slot",
+            // Lighthouse looks up the cached header before checking for an empty Fulu message, so
+            // an empty message without a cached header is ignored rather than rejected. The peer is
+            // still penalized by Lighthouse's own scoring.
+            "gossip_partial_data_column_sidecar__reject_empty",
+            // Fork choice hides blocks that do not descend from the finalized checkpoint, so a
+            // stored parent on a conflicting fork looks unknown and the message is ignored with a
+            // parent lookup. The lookup itself rejects the parent, so a REJECT here buys nothing.
+            "gossip_partial_data_column_sidecar__reject_non_ancestor_finalized_checkpoint",
+        ];
         const IGNORED_DATA_COLUMN_CASES: &[&str] = &[
             // Lighthouse does not retain a status that distinguishes a consensus-invalid block
             // from an unseen block, so both cases are ignored as an unknown block root.
@@ -1262,6 +1466,10 @@ impl<E: EthSpec> GossipValidation<E> {
                 IGNORED_PAYLOAD_ATTESTATION_CASES.contains(&case_name)
             }
             Topic::DataColumnSidecar => IGNORED_DATA_COLUMN_CASES.contains(&case_name),
+            Topic::PartialDataColumnSidecar => {
+                self.path.to_string_lossy().contains("/fulu/")
+                    && IGNORED_PARTIAL_DATA_COLUMN_CASES.contains(&case_name)
+            }
             _ => false,
         }
     }
