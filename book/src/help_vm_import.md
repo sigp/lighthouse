@@ -109,8 +109,9 @@ Flags:
           something is amiss. Users should also be careful to avoid submitting
           duplicate deposits for validators that already exist on the VC.
       --log-color [<log-color>]
-          Enables/Disables colors for logs in terminal. Set it to false to
-          disable colors. [default: true] [possible values: true, false]
+          Enables/Disables colors for logs in terminal. If not specified, colors
+          are enabled only when stdout is a terminal. [possible values: true,
+          false]
       --log-extra-info
           If present, show module,file,line in logs
       --logfile-color
