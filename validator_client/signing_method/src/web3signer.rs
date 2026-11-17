@@ -24,6 +24,8 @@ pub enum MessageType {
     PayloadAttestationMessage,
     ProposerPreferences,
     BuilderRequestAuth,
+    // TODO(heze) verify w/ web3signer specs
+    InclusionList,
 }
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize)]
@@ -58,6 +60,13 @@ impl<'a, T> VersionedForkData<'a, T> {
     fn gloas(data: &'a T) -> Self {
         Self {
             version: ForkName::Gloas,
+            data,
+        }
+    }
+
+    fn heze(data: &'a T) -> Self {
+        Self {
+            version: ForkName::Heze,
             data,
         }
     }
@@ -102,6 +111,7 @@ pub enum Web3SignerObject<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
     PayloadAttestationMessage(VersionedForkData<'a, PayloadAttestationData>),
     ProposerPreferences(VersionedForkData<'a, ProposerPreferences>),
     BuilderRequestAuth(VersionedForkData<'a, RequestAuth>),
+    InclusionList(VersionedForkData<'a, InclusionList>),
 }
 
 impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Payload> {
@@ -171,6 +181,10 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
         Web3SignerObject::BuilderRequestAuth(VersionedForkData::gloas(request_auth))
     }
 
+    pub fn inclusion_list(inclusion_list: &'a InclusionList) -> Self {
+        Web3SignerObject::InclusionList(VersionedForkData::heze(inclusion_list))
+    }
+
     pub fn message_type(&self) -> MessageType {
         match self {
             Web3SignerObject::AggregationSlot { .. } => MessageType::AggregationSlot,
@@ -194,6 +208,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
             }
             Web3SignerObject::ProposerPreferences(_) => MessageType::ProposerPreferences,
             Web3SignerObject::BuilderRequestAuth(_) => MessageType::BuilderRequestAuth,
+            Web3SignerObject::InclusionList(_) => MessageType::InclusionList,
         }
     }
 }
