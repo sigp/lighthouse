@@ -769,6 +769,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             %parent_root,
                             "Unknown parent hash for column"
                         );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
                         self.send_sync_message(SyncMessage::UnknownParentSidecarHeader {
                             peer_id,
                             block_root,

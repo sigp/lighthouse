@@ -1420,10 +1420,6 @@ impl<E: EthSpec> GossipValidation<E> {
             // cached headers once their epoch is finalized, so this state only exists briefly
             // between finalization and the next maintenance run.
             "gossip_partial_data_column_sidecar__ignore_cells_with_cached_header_not_later_than_finalized_slot",
-            // Lighthouse looks up the cached header before checking for an empty Fulu message, so
-            // an empty message without a cached header is ignored rather than rejected. The peer is
-            // still penalized by Lighthouse's own scoring.
-            "gossip_partial_data_column_sidecar__reject_empty",
             // Fork choice hides blocks that do not descend from the finalized checkpoint, so a
             // stored parent on a conflicting fork looks unknown and the message is ignored with a
             // parent lookup. The lookup itself rejects the parent, so a REJECT here buys nothing.
@@ -1433,6 +1429,13 @@ impl<E: EthSpec> GossipValidation<E> {
             // Lighthouse does not retain a status that distinguishes a consensus-invalid block
             // from an unseen block, so both cases are ignored as an unknown block root.
             "gossip_data_column_sidecar__reject_block_failed_validation",
+            // Fulu only. Lighthouse does not retain consensus-invalid blocks, so the harness cannot
+            // construct the failed parent required by this vector.
+            "gossip_data_column_sidecar__reject_parent_failed_validation",
+            // Fulu only. Fork choice hides blocks that do not descend from the finalized
+            // checkpoint, so a stored parent on a conflicting fork looks unknown and the column is
+            // ignored with a parent lookup. The lookup itself rejects the parent.
+            "gossip_data_column_sidecar__reject_non_ancestor_finalized_checkpoint",
         ];
         let Some(case_name) = self.path.file_name().and_then(|name| name.to_str()) else {
             return false;

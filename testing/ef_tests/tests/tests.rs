@@ -1000,7 +1000,7 @@ fn gossip_sync_committee_contribution_and_proof() {
 
 #[test]
 fn gossip_data_column_sidecar() {
-    GossipValidationHandler::<Spec>::gloas_only("gossip_data_column_sidecar").run();
+    GossipValidationHandler::<Spec>::latest_stable_and_gloas("gossip_data_column_sidecar").run();
 }
 
 #[test]

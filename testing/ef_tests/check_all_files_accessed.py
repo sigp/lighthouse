@@ -94,12 +94,11 @@ excluded_paths = [
     "tests/.*/gloas/networking/gossip_payload_attestation_message/.*/gossip_payload_attestation_message__reject_block_failed_validation/.*",
     # Fulu partial data column cases with production-harness limitations. Keep synchronized with
     # IGNORED_PARTIAL_DATA_COLUMN_CASES.
-    "tests/.*/fulu/networking/gossip_partial_data_column_sidecar/.*/gossip_partial_data_column_sidecar__(reject_parent_failed_validation|ignore_cells_with_cached_header_future_slot|ignore_cells_with_cached_header_not_later_than_finalized_slot|reject_empty|reject_non_ancestor_finalized_checkpoint)/.*",
+    "tests/.*/fulu/networking/gossip_partial_data_column_sidecar/.*/gossip_partial_data_column_sidecar__(reject_parent_failed_validation|ignore_cells_with_cached_header_future_slot|ignore_cells_with_cached_header_not_later_than_finalized_slot|reject_non_ancestor_finalized_checkpoint)/.*",
     "tests/.*/.*/networking/gossip_blob_sidecar/.*",
-    # Data column gossip tests only run for Gloas. Lighthouse cannot distinguish a
-    # consensus-invalid block from an unseen block. Keep synchronized with IGNORED_DATA_COLUMN_CASES.
-    "tests/.*/fulu/networking/gossip_data_column_sidecar/.*",
-    "tests/.*/gloas/networking/gossip_data_column_sidecar/.*/gossip_data_column_sidecar__reject_block_failed_validation/.*",
+    # Data column cases with production-harness limitations. Keep synchronized with
+    # IGNORED_DATA_COLUMN_CASES.
+    "tests/.*/(fulu|gloas)/networking/gossip_data_column_sidecar/.*/gossip_data_column_sidecar__(reject_block_failed_validation|reject_parent_failed_validation|reject_non_ancestor_finalized_checkpoint)/.*",
 ]
 
 # Extra arguments are ignored paths. Useful for skipping another preset's vectors.

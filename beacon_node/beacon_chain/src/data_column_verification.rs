@@ -1350,6 +1350,13 @@ fn validate_partial_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes>(
             }
         }
     } else {
+        // If there was no header, there must be at least one cell.
+        if column.sidecar.column.is_empty() {
+            return PartialColumnVerificationResult::Err(
+                GossipPartialDataColumnError::EmptyMessage,
+            );
+        }
+
         let Some(assembler) = chain.data_availability_checker.partial_assembler() else {
             return PartialColumnVerificationResult::Err(
                 GossipPartialDataColumnError::PartialColumnsDisabled,
@@ -1365,14 +1372,6 @@ fn validate_partial_data_column_sidecar_for_gossip_fulu<T: BeaconChainTypes>(
                 GossipPartialDataColumnError::MissingHeader,
             );
         };
-
-        // If there was no header, there must be at least one cell.
-        if column.sidecar.column.is_empty() {
-            return PartialColumnVerificationResult::ErrWithValidHeader {
-                err: GossipPartialDataColumnError::EmptyMessage,
-                header,
-            };
-        }
 
         header
     };
@@ -2235,10 +2234,7 @@ mod test {
         assert!(
             matches!(
                 result,
-                PartialColumnVerificationResult::ErrWithValidHeader {
-                    err: GossipPartialDataColumnError::EmptyMessage,
-                    ..
-                }
+                PartialColumnVerificationResult::Err(GossipPartialDataColumnError::EmptyMessage)
             ),
             "Expected EmptyMessage"
         );
