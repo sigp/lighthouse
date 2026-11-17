@@ -73,28 +73,19 @@ exit_and_dump_logs() {
     exit $exit_code
 }
 
-# Retry failed restarts and print the node's HTTP URL on success. Kurtosis can
-# report success after a gRPC stream error, so also require a published HTTP port.
+# Kurtosis can report success after a gRPC stream error, so also require a
+# published HTTP port before returning the restarted node's URL.
 start_node() {
   local node=$1
-  local attempt url
-  local max_attempts=5
+  local url
 
-  for ((attempt = 1; attempt <= max_attempts; attempt++)); do
-    if kurtosis service start "$ENCLAVE_NAME" "$node" >&2 &&
-       url=$(kurtosis port print "$ENCLAVE_NAME" "$node" http) &&
-       [ -n "$url" ]; then
-      printf '%s\n' "$url"
-      return 0
-    fi
-
-    echo "Failed to restart $node (attempt $attempt/$max_attempts)" >&2
-    if [ "$attempt" -lt "$max_attempts" ]; then
-      sleep 1
-    fi
-  done
-
-  return 1
+  kurtosis service start "$ENCLAVE_NAME" "$node" >&2 || return 1
+  url=$(kurtosis port print "$ENCLAVE_NAME" "$node" http) || return 1
+  if [ -z "$url" ]; then
+    echo "No HTTP endpoint after restarting $node" >&2
+    return 1
+  fi
+  printf '%s\n' "$url"
 }
 
 # Start the nodes
