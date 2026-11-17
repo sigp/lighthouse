@@ -49,11 +49,7 @@ fn verify_bid_slot_range<S: SlotClock>(
         .ok_or(PayloadBidError::UnableToReadSlot)?
         .saturating_add(spec.maximum_gossip_clock_disparity());
 
-    if current_time < earliest_permissible_time {
-        return Err(PayloadBidError::InvalidBidSlot { bid_slot });
-    }
-
-    if current_time > latest_permissible_time {
+    if current_time < earliest_permissible_time || current_time > latest_permissible_time {
         return Err(PayloadBidError::InvalidBidSlot { bid_slot });
     }
 
@@ -116,11 +112,12 @@ fn verify_bid_blobs<E: EthSpec>(
 ///
 /// The individual checks are shared with gossip, but this bundle's only caller is
 /// [`verify_direct_bid`](crate::payload_bid_verification::direct_verified_bid::verify_direct_bid):
-/// the gossip verifier applies the same helpers (`verify_bid_slot`, `verify_bid_blobs`,
+/// the gossip verifier applies the same helpers (`verify_bid_blobs`,
 /// `verify_bid_block_hash_not_parent`, `verify_bid_state_conditions`) piecewise, in gossip-spec
 /// order, interleaved with gossip-only work (cache checks, the preferences lookup, fork-choice
 /// rules). A check that must cover both intakes belongs in one of those shared helpers — adding
-/// it only here leaves gossip uncovered.
+/// it only here leaves gossip uncovered. The slot check is the exception: gossip uses
+/// `verify_bid_slot_range`, which adds the spec's `MAXIMUM_GOSSIP_CLOCK_DISPARITY` allowance.
 pub(crate) fn verify_direct_bid_consistency<E: EthSpec>(
     bid: ExecutionPayloadBidRef<E>,
     current_slot: Slot,
