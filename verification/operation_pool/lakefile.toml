@@ -1,0 +1,28 @@
+name = "operation_pool_proofs"
+defaultTargets = ["OperationPool", "StateProcessing"]
+
+# The Aeneas release for commit 5a392f4b (Lean v4.35.0), unpacked under `../deps`.
+[[require]]
+name = "aeneas"
+path = "../deps/aeneas-release-5a392f4/backends/lean"
+
+# Etheorem worktree on branch `voluntary-exit-proofs`, bumped to Lean v4.35.0.
+[[require]]
+name = "EthCLSpecs"
+path = "../deps/etheorem-lean4.35/packages/EthCLSpecs"
+
+# Opaque external types that both extracted crates mention.
+[[lean_lib]]
+name = "ExternalTypes"
+
+# The packing cores of the `operation_pool` crate, the bridge to the spec and the main theorem.
+[[lean_lib]]
+name = "OperationPool"
+
+# The `verify_exit` cores of the `state_processing` crate.
+[[lean_lib]]
+name = "StateProcessing"
+
+# `./lake.sh build Audit` prints the axioms the main theorems depend on. Not a default target.
+[[lean_lib]]
+name = "Audit"
