@@ -42,7 +42,7 @@ use zeroize::Zeroizing;
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
 pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
 
-type E = MainnetEthSpec;
+type E = Spec;
 
 struct ApiTester {
     client: ValidatorClientHttpClient,

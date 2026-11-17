@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 
+[features]
+spec-minimal = ["types/spec-minimal"]
+
 [dependencies]
 bls = { workspace = true }
 builder_types = { workspace = true }

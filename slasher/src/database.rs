@@ -867,9 +867,9 @@ impl<E: EthSpec> SlasherDB<E> {
 mod test {
     use super::*;
     use typenum::Unsigned;
-    use types::{Checkpoint, ForkName, MainnetEthSpec};
+    use types::{Checkpoint, ForkName, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     fn indexed_attestation_on_disk_roundtrip_test(
         spec: &ChainSpec,
