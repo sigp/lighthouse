@@ -76,12 +76,12 @@ pub struct Auth {
 }
 
 impl Auth {
-    pub fn new(secret: JwtKey, id: Option<String>, clv: Option<String>) -> Self {
-        Self {
-            key: EncodingKey::from_secret(secret.as_bytes()),
+    pub fn new(secret: JwtKey, id: Option<String>, clv: Option<String>) -> Result<Self, Error> {
+        Ok(Self {
+            key: EncodingKey::from_secret(secret.as_bytes())?,
             id,
             clv,
-        }
+        })
     }
 
     /// Create a new `Auth` struct given the path to the file containing the hex
@@ -102,7 +102,7 @@ impl Auth {
                 let secret_bytes = hex::decode(strip_prefix(s.trim_end()))
                     .map_err(|e| Error::InvalidKey(format!("Invalid hex string: {:?}", e)))?;
                 let secret = JwtKey::from_slice(&secret_bytes).map_err(Error::InvalidKey)?;
-                Ok(Self::new(secret, id, clv))
+                Self::new(secret, id, clv)
             })
     }
 
@@ -138,7 +138,7 @@ impl Auth {
 
         jsonwebtoken::decode::<Claims>(
             token,
-            &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
+            &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes())?,
             &validation,
         )
         .map_err(Into::into)
@@ -167,7 +167,8 @@ mod tests {
             JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(),
             Some("42".into()),
             Some("Lighthouse".into()),
-        );
+        )
+        .unwrap();
         let claims = auth.generate_claims_at_timestamp();
         let token = auth.generate_token_with_claims(&claims).unwrap();
 
