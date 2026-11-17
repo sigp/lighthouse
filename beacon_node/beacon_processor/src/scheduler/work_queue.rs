@@ -264,7 +264,7 @@ impl<T> LifoQueue<T> {
         self.queue.pop_front()
     }
 
-    /// Returns a reference to the item at the back of the queue (the oldest item), if any.
+    /// Returns the oldest item in the queue and when it was pushed, if any.
     pub fn back(&self) -> Option<&(Instant, T)> {
         self.queue.back()
     }

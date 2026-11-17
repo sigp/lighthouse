@@ -1679,18 +1679,9 @@ pub fn cli_app() -> Command {
             Arg::new("beacon-processor-attestation-batch-trigger")
                 .long("beacon-processor-attestation-batch-trigger")
                 .value_name("INTEGER")
-                .help("Collect gossip attestations into folded signature-verification batches. \
-                       Attestations are held until at least this many are pending (or the oldest \
-                       reaches --beacon-processor-attestation-batch-max-age-ms), then verified \
-                       together. A batch takes up to --beacon-processor-attestation-batch-size \
-                       attestations; values above that are clamped down to it. Higher values \
-                       reduce CPU at the cost of some attestation-processing latency. A value of \
-                       1 (the default) removes the trigger: each attestation is verified as soon \
-                       as a worker is free, and queued attestations are folded together only when \
-                       all workers are busy. Values greater than 1 require \
-                       --beacon-processor-attestation-batch-max-age-ms.")
+                .help("Number of gossip attestations to collect before verifying them as a \
+                       batch. 1 disables collection.")
                 .hide(true)
-                .default_value("1")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -1698,11 +1689,8 @@ pub fn cli_app() -> Command {
             Arg::new("beacon-processor-attestation-batch-max-age-ms")
                 .long("beacon-processor-attestation-batch-max-age-ms")
                 .value_name("MILLISECONDS")
-                .help("Maximum time in milliseconds a queued gossip attestation may wait \
-                       before it is verified even though fewer than \
-                       --beacon-processor-attestation-batch-trigger are queued. Bounds the \
-                       latency added by batch collection under light load. Required when the batch \
-                       trigger is greater than 1; has no effect otherwise.")
+                .help("Maximum time in milliseconds a gossip attestation waits for a batch \
+                       to fill.")
                 .hide(true)
                 .action(ArgAction::Set)
                 .display_order(0)
