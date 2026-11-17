@@ -1027,7 +1027,7 @@ mod test {
     use crate::CustodyContext;
     use crate::block_verification_types::RangeSyncBlock;
     use crate::custody_context::NodeCustodyType;
-    use crate::data_column_verification::CustodyDataColumn;
+    use crate::data_column_verification::{ColumnBid, CustodyDataColumn};
     use crate::test_utils::{
         EphemeralHarnessType, NumBlobs, generate_data_column_indices_rand_order,
         generate_rand_block_and_data_columns, get_kzg,
@@ -1180,7 +1180,7 @@ mod test {
         let gossip_columns = data_columns
             .into_iter()
             .filter(|d| requested_columns.contains(d.index()))
-            .map(GossipVerifiedDataColumn::<T>::__new_for_testing)
+            .map(|d| GossipVerifiedDataColumn::<T>::__new_for_testing(d, ColumnBid::PreGloas))
             .collect::<Vec<_>>();
         da_checker
             .put_gossip_verified_data_columns(block_root, cgc_change_slot, gossip_columns)
