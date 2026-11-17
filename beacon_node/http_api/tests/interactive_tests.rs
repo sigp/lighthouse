@@ -71,7 +71,8 @@ async fn deposit_contract_custom_network() {
 // Regression test for https://github.com/sigp/lighthouse/issues/10598
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn serve_over_tls() {
-    let validator_count = 24;
+    // Gloas needs at least one validator per slot, so that no slot has an empty committee.
+    let validator_count = E::slots_per_epoch() as usize;
 
     let certified_key = rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_string()]).unwrap();
     let cert_pem = certified_key.cert.pem();
