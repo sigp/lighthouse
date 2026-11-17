@@ -223,17 +223,17 @@ mod tests {
     use super::*;
     use bls::{Keypair, SignatureBytes};
     use std::sync::LazyLock;
-    use types::{ForkName, MainnetEthSpec, Slot};
+    use types::{ForkName, Slot, Spec};
 
     static KEYPAIRS: LazyLock<Vec<Keypair>> =
         LazyLock::new(|| types::test_utils::generate_deterministic_keypairs(10));
 
     fn gloas_spec() -> ChainSpec {
-        ForkName::Gloas.make_genesis_spec(MainnetEthSpec::default_spec())
+        ForkName::Gloas.make_genesis_spec(Spec::default_spec())
     }
 
     fn non_gloas_spec() -> ChainSpec {
-        ForkName::Fulu.make_genesis_spec(MainnetEthSpec::default_spec())
+        ForkName::Fulu.make_genesis_spec(Spec::default_spec())
     }
 
     fn builder_credentials(spec: &ChainSpec) -> Hash256 {
@@ -448,11 +448,13 @@ mod tests {
         // No panic, no entries
     }
 
+    // Too slow in debug builds.
+    #[cfg(not(debug_assertions))]
     mod incremental_updates {
         use super::*;
         use beacon_chain::test_utils::BeaconChainHarness;
         use std::sync::Arc;
-        use types::{Epoch, MinimalEthSpec};
+        use types::Epoch;
 
         /// A Fulu state (gloas scheduled) at the given slot, as `add_new_pending_deposits`
         /// sees it after a block import.
@@ -460,8 +462,8 @@ mod tests {
             slot: Slot,
             deposits: Vec<PendingDeposit>,
             spec: &Arc<ChainSpec>,
-        ) -> types::BeaconState<MinimalEthSpec> {
-            let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        ) -> types::BeaconState<Spec> {
+            let harness = BeaconChainHarness::builder(Spec::default())
                 .spec(spec.clone())
                 .deterministic_keypairs(4)
                 .fresh_ephemeral_store()
@@ -474,7 +476,7 @@ mod tests {
         }
 
         fn fulu_spec_with_gloas_scheduled() -> Arc<ChainSpec> {
-            let mut spec = ForkName::Fulu.make_genesis_spec(MinimalEthSpec::default_spec());
+            let mut spec = ForkName::Fulu.make_genesis_spec(Spec::default_spec());
             spec.gloas_fork_epoch = Some(Epoch::new(1024));
             Arc::new(spec)
         }

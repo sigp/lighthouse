@@ -27,3 +27,9 @@ additional_services:
   - tx_fuzz
   - spamoor
 global_log_level: debug
+# Avoid Docker's automatic host-port allocation when restarting beacon nodes.
+# Concurrent testnets on the same host must use different port ranges.
+port_publisher:
+  cl:
+    enabled: true
+    public_port_start: 20000
