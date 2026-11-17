@@ -298,10 +298,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
     use types::{Address, ChainSpec, EthSpec, Hash256, ProposerPreferences, Slot, Spec};
 
-    use super::verify_preferences_consistency;
+    use super::{verify_preferences_consistency, verify_proposal_slot_range};
     use crate::proposer_preferences_verification::ProposerPreferencesError;
+    use crate::slot_clock::{SlotClock, TestingSlotClock};
     use crate::test_utils::{fork_name_from_env, test_spec};
 
     type E = Spec;
@@ -318,6 +320,29 @@ mod tests {
 
     fn spec() -> ChainSpec {
         test_spec::<E>()
+    }
+
+    #[test]
+    fn test_proposal_slot_disparity_boundary() {
+        let spec = spec();
+        let slot_clock =
+            TestingSlotClock::new(Slot::new(0), Duration::ZERO, spec.get_slot_duration());
+        let proposal_slot = Slot::new(10);
+        let upper_boundary = slot_clock
+            .start_of(proposal_slot)
+            .unwrap()
+            .saturating_add(spec.maximum_gossip_clock_disparity());
+
+        slot_clock.set_current_time(upper_boundary);
+        assert!(
+            verify_proposal_slot_range(&slot_clock, proposal_slot, proposal_slot, &spec).is_ok()
+        );
+
+        slot_clock.set_current_time(upper_boundary.saturating_add(Duration::from_millis(1)));
+        assert!(matches!(
+            verify_proposal_slot_range(&slot_clock, proposal_slot, proposal_slot, &spec),
+            Err(ProposerPreferencesError::ProposalSlotAlreadyPassed { .. })
+        ));
     }
 
     #[test]
