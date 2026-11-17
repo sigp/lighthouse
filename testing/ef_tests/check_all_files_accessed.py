@@ -82,9 +82,6 @@ excluded_paths = [
     # GossipValidation::has_known_harness_limitation.
     "tests/.*/(fulu|gloas)/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__accepts_(first|last)_slot_when_epoch_window_closes/.*",
     "tests/.*/(fulu|gloas)/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__reject_block_failed_validation/.*",
-    # Lighthouse does not yet ignore/reject Gloas attestations to optimistic/invalid payloads.
-    # Keep synchronized with IGNORED_GLOAS_PAYLOAD_STATUS_CASES.
-    "tests/.*/gloas/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__(ignore_payload_pending|reject_payload_failed)_el_validation/.*",
     # Advancing the parent state across an epoch for every gossip bid would put epoch processing
     # on the gossip hot path. Keep synchronized with IGNORED_EXECUTION_PAYLOAD_BID_CASES.
     "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_requires_state_advanced_across_epoch/.*",

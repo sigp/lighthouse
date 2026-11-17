@@ -1392,15 +1392,6 @@ impl<E: EthSpec> GossipValidation<E> {
             "accepts_first_slot_when_epoch_window_closes",
             "accepts_last_slot_when_epoch_window_closes",
         ];
-        const IGNORED_GLOAS_PAYLOAD_STATUS_CASES: &[&str] = &[
-            // Lighthouse does not yet implement the Gloas checks that ignore `index == 1`
-            // attestations to an optimistic payload and reject those to an invalidated payload.
-            // The harness constructs both payload statuses, but production accepts the messages.
-            "gossip_beacon_attestation__ignore_payload_pending_el_validation",
-            "gossip_beacon_aggregate_and_proof__ignore_payload_pending_el_validation",
-            "gossip_beacon_attestation__reject_payload_failed_el_validation",
-            "gossip_beacon_aggregate_and_proof__reject_payload_failed_el_validation",
-        ];
         const IGNORED_EXECUTION_PAYLOAD_ENVELOPE_CASES: &[&str] = &[
             // Lighthouse does not retain consensus-invalid blocks, so the harness cannot construct
             // the known-invalid block status required by this vector.
@@ -1452,8 +1443,7 @@ impl<E: EthSpec> GossipValidation<E> {
             Topic::BeaconAttestation | Topic::BeaconAggregateAndProof => {
                 // Lighthouse does not retain consensus-invalid blocks, so vectors with a failed
                 // setup block cannot be constructed through the production import path.
-                IGNORED_GLOAS_PAYLOAD_STATUS_CASES.contains(&case_name)
-                    || self.meta.blocks.iter().any(|block| block.failed)
+                self.meta.blocks.iter().any(|block| block.failed)
                     || UNSUPPORTED_TIMING_BOUNDARY_CASES
                         .iter()
                         .any(|suffix| case_name.ends_with(suffix))

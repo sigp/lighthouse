@@ -3211,6 +3211,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "attn_too_many_skipped_slots",
                 );
             }
+            AttnError::OptimisticPayload { beacon_block_root } => {
+                debug!(
+                    block = ?beacon_block_root,
+                    "Ignored attestation to optimistic payload"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            AttnError::InvalidPayload { beacon_block_root } => {
+                debug!(
+                    block = ?beacon_block_root,
+                    "Rejected attestation to invalid payload"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_to_invalid_payload",
+                );
+            }
             AttnError::HeadBlockFinalized { beacon_block_root } => {
                 debug!(
                     block_root = ?beacon_block_root,
