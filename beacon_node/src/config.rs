@@ -370,6 +370,7 @@ pub fn get_config<E: EthSpec>(
     let execution_timeout_multiplier =
         clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
     el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
+    el_config.engine_api_rest_ssz = cli_args.get_flag("enable-rest-ssz-engine");
 
     // With no endpoint there is no execution layer, and every field here is read only through one.
     if el_config.execution_endpoint.is_some() {
