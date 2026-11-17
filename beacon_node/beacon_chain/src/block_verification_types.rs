@@ -167,7 +167,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
             .map_err(|e| format!("Inconsistent envelope: {e:?}"))?;
             // Sync-only check, deliberately not part of gossip validation: needed before
             // recomputing the execution block hash, which takes this root as input.
-            let parent_beacon_block_root = envelope.message().parent_beacon_block_root;
+            let parent_beacon_block_root = envelope.message().parent_beacon_block_root();
             if parent_beacon_block_root != block.message().parent_root() {
                 return Err(format!(
                     "Inconsistent envelope: {:?}",

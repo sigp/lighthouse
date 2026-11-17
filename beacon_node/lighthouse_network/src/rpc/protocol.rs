@@ -16,6 +16,7 @@ use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
+use types::ExecutionPayloadEnvelopeWithRoot;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecar, ChainSpec, DataColumnSidecarFulu,
     DataColumnSidecarGloas, EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName,
@@ -70,6 +71,12 @@ pub static SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MIN: LazyLock<usize> =
 
 pub static SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MAX: LazyLock<usize> =
     LazyLock::new(SignedExecutionPayloadEnvelope::<MainnetEthSpec>::max_size);
+
+pub static EXECUTION_PAYLOAD_ENVELOPE_WITH_ROOT_MIN: LazyLock<usize> =
+    LazyLock::new(ExecutionPayloadEnvelopeWithRoot::<MainnetEthSpec>::min_size);
+
+pub static EXECUTION_PAYLOAD_ENVELOPE_WITH_ROOT_MAX: LazyLock<usize> =
+    LazyLock::new(ExecutionPayloadEnvelopeWithRoot::<MainnetEthSpec>::max_size);
 
 pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);
@@ -164,11 +171,17 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
 }
 
 /// Returns the rpc limits for payload_envelope_by_range and payload_envelope_by_root responses.
-pub fn rpc_payload_limits() -> RpcLimits {
-    RpcLimits::new(
-        *SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MIN,
-        *SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MAX,
-    )
+pub fn rpc_payload_limits(version: PayloadEnvelopesVersion) -> RpcLimits {
+    match version {
+        PayloadEnvelopesVersion::V1 => RpcLimits::new(
+            *SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MIN,
+            *SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MAX,
+        ),
+        PayloadEnvelopesVersion::V2 => RpcLimits::new(
+            *EXECUTION_PAYLOAD_ENVELOPE_WITH_ROOT_MIN,
+            *EXECUTION_PAYLOAD_ENVELOPE_WITH_ROOT_MAX,
+        ),
+    }
 }
 
 fn rpc_light_client_updates_by_range_limits_by_fork(current_fork: ForkName) -> RpcLimits {
@@ -347,7 +360,9 @@ pub enum SupportedProtocol {
     BlocksByRootV2,
     BlocksByHeadV1,
     PayloadEnvelopesByRangeV1,
+    PayloadEnvelopesByRangeV2,
     PayloadEnvelopesByRootV1,
+    PayloadEnvelopesByRootV2,
     BlobsByRangeV1,
     BlobsByRootV1,
     DataColumnsByRootV1,
@@ -371,7 +386,9 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRangeV1 => "1",
             SupportedProtocol::BlocksByRangeV2 => "2",
             SupportedProtocol::PayloadEnvelopesByRangeV1 => "1",
+            SupportedProtocol::PayloadEnvelopesByRangeV2 => "2",
             SupportedProtocol::PayloadEnvelopesByRootV1 => "1",
+            SupportedProtocol::PayloadEnvelopesByRootV2 => "2",
             SupportedProtocol::BlocksByRootV1 => "1",
             SupportedProtocol::BlocksByRootV2 => "2",
             SupportedProtocol::BlocksByHeadV1 => "1",
@@ -400,8 +417,10 @@ impl SupportedProtocol {
             SupportedProtocol::BlocksByRootV1 => Protocol::BlocksByRoot,
             SupportedProtocol::BlocksByRootV2 => Protocol::BlocksByRoot,
             SupportedProtocol::BlocksByHeadV1 => Protocol::BlocksByHead,
-            SupportedProtocol::PayloadEnvelopesByRangeV1 => Protocol::PayloadEnvelopesByRange,
-            SupportedProtocol::PayloadEnvelopesByRootV1 => Protocol::PayloadEnvelopesByRoot,
+            SupportedProtocol::PayloadEnvelopesByRangeV1
+            | SupportedProtocol::PayloadEnvelopesByRangeV2 => Protocol::PayloadEnvelopesByRange,
+            SupportedProtocol::PayloadEnvelopesByRootV1
+            | SupportedProtocol::PayloadEnvelopesByRootV2 => Protocol::PayloadEnvelopesByRoot,
             SupportedProtocol::BlobsByRangeV1 => Protocol::BlobsByRange,
             SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
             SupportedProtocol::DataColumnsByRootV1 => Protocol::DataColumnsByRoot,
@@ -416,6 +435,16 @@ impl SupportedProtocol {
             }
             SupportedProtocol::LightClientFinalityUpdateV1 => Protocol::LightClientFinalityUpdate,
             SupportedProtocol::LightClientUpdatesByRangeV1 => Protocol::LightClientUpdatesByRange,
+        }
+    }
+
+    /// Returns the version of an execution payload envelope protocol, and version 1 for the other
+    /// protocols.
+    pub fn payload_envelopes_version(&self) -> PayloadEnvelopesVersion {
+        match self {
+            SupportedProtocol::PayloadEnvelopesByRangeV2
+            | SupportedProtocol::PayloadEnvelopesByRootV2 => PayloadEnvelopesVersion::V2,
+            _ => PayloadEnvelopesVersion::V1,
         }
     }
 
@@ -464,6 +493,19 @@ impl SupportedProtocol {
                 ),
                 ProtocolId::new(
                     SupportedProtocol::PayloadEnvelopesByRootV1,
+                    Encoding::SSZSnappy,
+                ),
+            ]);
+        }
+        // Version 2 serves Heze envelopes (EIP-8411).
+        if fork_context.fork_exists(ForkName::Heze) {
+            supported.extend_from_slice(&[
+                ProtocolId::new(
+                    SupportedProtocol::PayloadEnvelopesByRangeV2,
+                    Encoding::SSZSnappy,
+                ),
+                ProtocolId::new(
+                    SupportedProtocol::PayloadEnvelopesByRootV2,
                     Encoding::SSZSnappy,
                 ),
             ]);
@@ -631,8 +673,9 @@ impl ProtocolId {
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork_name()),
             Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork_name()),
             Protocol::BlocksByHead => rpc_block_limits_by_fork(fork_context.current_fork_name()),
-            Protocol::PayloadEnvelopesByRange => rpc_payload_limits(),
-            Protocol::PayloadEnvelopesByRoot => rpc_payload_limits(),
+            Protocol::PayloadEnvelopesByRange | Protocol::PayloadEnvelopesByRoot => {
+                rpc_payload_limits(self.versioned_protocol.payload_envelopes_version())
+            }
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
             Protocol::DataColumnsByRoot => {
@@ -672,7 +715,9 @@ impl ProtocolId {
             | SupportedProtocol::BlocksByRootV2
             | SupportedProtocol::BlocksByHeadV1
             | SupportedProtocol::PayloadEnvelopesByRangeV1
+            | SupportedProtocol::PayloadEnvelopesByRangeV2
             | SupportedProtocol::PayloadEnvelopesByRootV1
+            | SupportedProtocol::PayloadEnvelopesByRootV2
             | SupportedProtocol::BlobsByRangeV1
             | SupportedProtocol::BlobsByRootV1
             | SupportedProtocol::DataColumnsByRootV1
@@ -890,8 +935,14 @@ impl<E: EthSpec> RequestType<E> {
                 BlocksByRootRequest::V2(_) => SupportedProtocol::BlocksByRootV2,
             },
             RequestType::BlocksByHead(_) => SupportedProtocol::BlocksByHeadV1,
-            RequestType::PayloadEnvelopesByRange(_) => SupportedProtocol::PayloadEnvelopesByRangeV1,
-            RequestType::PayloadEnvelopesByRoot(_) => SupportedProtocol::PayloadEnvelopesByRootV1,
+            RequestType::PayloadEnvelopesByRange(req) => match req.version {
+                PayloadEnvelopesVersion::V1 => SupportedProtocol::PayloadEnvelopesByRangeV1,
+                PayloadEnvelopesVersion::V2 => SupportedProtocol::PayloadEnvelopesByRangeV2,
+            },
+            RequestType::PayloadEnvelopesByRoot(req) => match req.version {
+                PayloadEnvelopesVersion::V1 => SupportedProtocol::PayloadEnvelopesByRootV1,
+                PayloadEnvelopesVersion::V2 => SupportedProtocol::PayloadEnvelopesByRootV2,
+            },
             RequestType::BlobsByRange(_) => SupportedProtocol::BlobsByRangeV1,
             RequestType::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
             RequestType::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
@@ -966,14 +1017,13 @@ impl<E: EthSpec> RequestType<E> {
                 SupportedProtocol::BlocksByHeadV1,
                 Encoding::SSZSnappy,
             )],
-            RequestType::PayloadEnvelopesByRange(_) => vec![ProtocolId::new(
-                SupportedProtocol::PayloadEnvelopesByRangeV1,
-                Encoding::SSZSnappy,
-            )],
-            RequestType::PayloadEnvelopesByRoot(_) => vec![ProtocolId::new(
-                SupportedProtocol::PayloadEnvelopesByRootV1,
-                Encoding::SSZSnappy,
-            )],
+            // Each version only serves the envelopes of its forks, so the request picks one.
+            RequestType::PayloadEnvelopesByRange(_) | RequestType::PayloadEnvelopesByRoot(_) => {
+                vec![ProtocolId::new(
+                    self.versioned_protocol(),
+                    Encoding::SSZSnappy,
+                )]
+            }
             RequestType::BlobsByRange(_) => vec![ProtocolId::new(
                 SupportedProtocol::BlobsByRangeV1,
                 Encoding::SSZSnappy,
@@ -1211,6 +1261,10 @@ mod tests {
 
             PayloadEnvelopesByRangeV1 | PayloadEnvelopesByRootV1 => {
                 fork_context.fork_exists(ForkName::Gloas)
+            }
+
+            PayloadEnvelopesByRangeV2 | PayloadEnvelopesByRootV2 => {
+                fork_context.fork_exists(ForkName::Heze)
             }
 
             BlocksByHeadV1 => fork_context.fork_exists(ForkName::Fulu),

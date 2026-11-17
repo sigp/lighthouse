@@ -20,7 +20,7 @@ use std::sync::Arc;
 use tracing::{Span, debug, warn};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    ExecutionBlockHash, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
 };
 
 use crate::sync::network_context::{LookupRequestResult, PeerGroup, SyncNetworkContext};
@@ -218,12 +218,17 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         // reveal-status check in `import_historical_block_batch` catches it.
         let revealed_block_roots = match &self.payloads_request {
             Some(ByRangeRequest::Active(_)) => return Ok(()),
-            Some(ByRangeRequest::Complete(envelopes)) => Some(
-                envelopes
-                    .iter()
-                    .map(|envelope| envelope.beacon_block_root())
-                    .collect::<HashSet<_>>(),
-            ),
+            Some(ByRangeRequest::Complete(envelopes)) => {
+                let block_roots_by_payload_hash = block_roots_by_payload_hash(blocks);
+                Some(
+                    envelopes
+                        .iter()
+                        .filter_map(|envelope| {
+                            envelope_block_root(envelope, &block_roots_by_payload_hash)
+                        })
+                        .collect::<HashSet<_>>(),
+                )
+            }
             None => None,
         };
 
@@ -431,11 +436,17 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     where
         T: BeaconChainTypes<EthSpec = E>,
     {
-        // Index envelopes by beacon_block_root for correct coupling.
+        // Index envelopes by the root of their block for correct coupling.
+        let block_roots_by_payload_hash = block_roots_by_payload_hash(&blocks);
+        let mut unmatched_envelopes = false;
         let mut envelopes_by_block_root = payload_envelopes.map(|envelopes| {
             envelopes
                 .into_iter()
-                .map(|e| (e.beacon_block_root(), e))
+                .filter_map(|envelope| {
+                    let block_root = envelope_block_root(&envelope, &block_roots_by_payload_hash);
+                    unmatched_envelopes |= block_root.is_none();
+                    Some((block_root?, envelope))
+                })
                 .collect::<HashMap<_, _>>()
         });
 
@@ -501,8 +512,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
 
         // Recoverable error, log and continue
-        if let Some(envelopes_by_block_root) = envelopes_by_block_root
-            && !envelopes_by_block_root.is_empty()
+        if unmatched_envelopes
+            || envelopes_by_block_root.is_some_and(|envelopes| !envelopes.is_empty())
         {
             warn!("Peer returned extra envelopes not matching any block");
         }
@@ -533,9 +544,38 @@ impl<I: PartialEq + std::fmt::Display, T> ByRangeRequest<I, T> {
     }
 }
 
+/// Returns the roots of `blocks` by the execution payload block hash their bids commit to.
+fn block_roots_by_payload_hash<E: EthSpec>(
+    blocks: &[(Hash256, Arc<SignedBeaconBlock<E>>)],
+) -> HashMap<ExecutionBlockHash, Hash256> {
+    blocks
+        .iter()
+        .filter_map(|(block_root, block)| {
+            let bid = block.message().body().signed_execution_payload_bid().ok()?;
+            Some((bid.message().block_hash(), *block_root))
+        })
+        .collect()
+}
+
+/// Returns the root of the block `envelope` belongs to.
+///
+/// [Modified in Heze:EIP8411] Heze envelopes don't contain the root of their block, so the block is
+/// the one whose bid commits to the envelope's payload. Whether the envelope is the one the bid
+/// commits to is checked on import.
+fn envelope_block_root<E: EthSpec>(
+    envelope: &SignedExecutionPayloadEnvelope<E>,
+    block_roots_by_payload_hash: &HashMap<ExecutionBlockHash, Hash256>,
+) -> Option<Hash256> {
+    envelope.beacon_block_root().ok().or_else(|| {
+        block_roots_by_payload_hash
+            .get(&envelope.block_hash())
+            .copied()
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::RangeBlockComponentsRequest;
+    use super::{RangeBlockComponentsRequest, envelope_block_root};
     use crate::sync::network_context::PeerGroup;
     use beacon_chain::block_verification_types::RangeSyncBlock;
     use beacon_chain::custody_context::{CustodyContext, NodeCustodyType};
@@ -551,13 +591,46 @@ mod tests {
             PayloadEnvelopesByRangeRequestId, RangeRequestId,
         },
     };
+    use std::collections::HashMap;
     use std::sync::Arc;
     use tracing::Span;
     use tree_hash::TreeHash;
     use types::{
-        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ExecutionRequestsGloas,
-        ForkName, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Spec as E,
+        ChainSpec, DataColumnSidecarList, Epoch, ExecutionBlockHash, ExecutionPayloadEnvelopeGloas,
+        ExecutionPayloadEnvelopeHeze, ExecutionPayloadGloas, ExecutionRequestsGloas, ForkName,
+        Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Spec as E,
     };
+
+    /// Heze envelopes don't contain the root of their block (EIP-8411).
+    #[test]
+    fn heze_envelopes_are_matched_by_payload_block_hash() {
+        let block_root = Hash256::repeat_byte(1);
+        let block_hash = ExecutionBlockHash::repeat_byte(2);
+        let block_roots_by_payload_hash = HashMap::from([(block_hash, block_root)]);
+        let envelope = |block_hash| SignedExecutionPayloadEnvelope::<E> {
+            message: ExecutionPayloadEnvelopeHeze {
+                payload: ExecutionPayloadGloas {
+                    block_hash,
+                    ..Default::default()
+                },
+                ..Default::default()
+            }
+            .into(),
+            signature: Signature::empty(),
+        };
+
+        assert_eq!(
+            envelope_block_root(&envelope(block_hash), &block_roots_by_payload_hash),
+            Some(block_root)
+        );
+        assert_eq!(
+            envelope_block_root(
+                &envelope(ExecutionBlockHash::repeat_byte(3)),
+                &block_roots_by_payload_hash
+            ),
+            None
+        );
+    }
 
     fn components_id() -> ComponentsByRangeRequestId {
         ComponentsByRangeRequestId {
@@ -622,17 +695,22 @@ mod tests {
             .signed_execution_payload_bid()
             .expect("Gloas block should have payload bid")
             .message();
-        let mut envelope = SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope::empty(),
-            signature: Signature::empty(),
+        let message = ExecutionPayloadEnvelopeGloas {
+            payload: ExecutionPayloadGloas {
+                slot_number: block.slot(),
+                parent_hash: bid.parent_block_hash(),
+                block_hash: bid.block_hash(),
+                ..Default::default()
+            },
+            builder_index: bid.builder_index(),
+            beacon_block_root: block.canonical_root(),
+            parent_beacon_block_root: block.parent_root(),
+            ..Default::default()
         };
-        envelope.message.beacon_block_root = block.canonical_root();
-        envelope.message.parent_beacon_block_root = block.parent_root();
-        envelope.message.builder_index = bid.builder_index();
-        envelope.message.payload.slot_number = block.slot();
-        envelope.message.payload.parent_hash = bid.parent_block_hash();
-        envelope.message.payload.block_hash = bid.block_hash();
-        Arc::new(envelope)
+        Arc::new(SignedExecutionPayloadEnvelope {
+            message: message.into(),
+            signature: Signature::empty(),
+        })
     }
 
     #[allow(clippy::type_complexity)]
@@ -945,7 +1023,7 @@ mod tests {
                     ..
                 } => {
                     assert_eq!(
-                        envelope.envelope().beacon_block_root(),
+                        envelope.envelope().beacon_block_root().unwrap(),
                         block.canonical_root()
                     );
                     assert_eq!(envelope.columns.len(), expected_custody_columns.len());
@@ -995,7 +1073,7 @@ mod tests {
         } = setup_gloas_coupling(1);
 
         let mut bad_envelope = (*blocks[0].2).clone();
-        bad_envelope.message.payload.slot_number += 1;
+        bad_envelope.message.payload_mut().slot_number += 1;
         info.add_payload_envelopes(payloads_req_id, vec![Arc::new(bad_envelope)])
             .unwrap();
 

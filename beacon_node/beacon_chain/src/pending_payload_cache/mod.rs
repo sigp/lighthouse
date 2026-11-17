@@ -258,7 +258,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
         executed_envelope: AvailabilityPendingExecutedEnvelope<T::EthSpec>,
         bid: &Arc<SignedExecutionPayloadBid<T::EthSpec>>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let beacon_block_root = executed_envelope.envelope.beacon_block_root();
+        let beacon_block_root = executed_envelope.block_root;
 
         let (_, pending_components) =
             self.update_pending_components(beacon_block_root, bid, |pending_components| {
@@ -688,9 +688,10 @@ mod data_availability_checker_tests {
     use ssz_types::ProgressiveVariableList;
     use std::time::Duration;
     use types::{
-        Cell, CellBitmap, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas,
-        ForkName, PartialDataColumnGloas, PartialDataColumnSidecarGloas,
-        SignedExecutionPayloadEnvelope, Slot, Spec, test_utils::test_unstructured,
+        Cell, CellBitmap, ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas,
+        ExecutionPayloadGloas, ExecutionRequestsGloas, ForkName, PartialDataColumnGloas,
+        PartialDataColumnSidecarGloas, SignedExecutionPayloadEnvelope, Slot, Spec,
+        test_utils::test_unstructured,
     };
 
     type E = Spec;
@@ -795,13 +796,13 @@ mod data_availability_checker_tests {
     fn executed_envelope(block_root: Hash256) -> AvailabilityPendingExecutedEnvelope<E> {
         AvailabilityPendingExecutedEnvelope {
             envelope: Arc::new(SignedExecutionPayloadEnvelope {
-                message: ExecutionPayloadEnvelope {
+                message: ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
                     payload: ExecutionPayloadGloas::default(),
                     execution_requests: ExecutionRequestsGloas::default(),
                     builder_index: 0,
                     beacon_block_root: block_root,
                     parent_beacon_block_root: Hash256::random(),
-                },
+                }),
                 signature: bls::Signature::infinity().expect("infinity sig"),
             }),
             block_root,

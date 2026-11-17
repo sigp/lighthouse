@@ -573,7 +573,7 @@ mod tests {
         let payload_hash = ExecutionBlockHash::repeat_byte(0x22);
         let slot = Slot::new(42);
         let envelope = SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
                 payload: ExecutionPayloadGloas {
                     block_hash: payload_hash,
                     slot_number: slot,
@@ -583,7 +583,7 @@ mod tests {
                 builder_index: 42,
                 beacon_block_root: block_root,
                 parent_beacon_block_root: Hash256::repeat_byte(0x33),
-            },
+            }),
             signature: Signature::empty(),
         };
 

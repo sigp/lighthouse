@@ -14,7 +14,7 @@ use store::{HotColdDB, StoreConfig, StoreOp};
 use types::{
     Address, BuilderExitRequest, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
-    ExecutionPayloadEnvelope, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName,
+    ExecutionPayloadEnvelopeGloas, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName,
     Hash256, ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
     SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
     SignedProposerPreferences, SignedRoot, Slot, Spec, consts::gloas::PAYLOAD_BUILDER_VERSION,
@@ -333,7 +333,7 @@ impl TestContext {
         block_root: Hash256,
         builder_exit: BuilderExitRequest,
     ) {
-        let mut envelope = ExecutionPayloadEnvelope::<E>::empty();
+        let mut envelope = ExecutionPayloadEnvelopeGloas::<E>::default();
         envelope
             .execution_requests
             .builder_exits
@@ -343,7 +343,7 @@ impl TestContext {
             .put_payload_envelope(
                 &block_root,
                 &SignedExecutionPayloadEnvelope {
-                    message: envelope,
+                    message: envelope.into(),
                     signature: Signature::empty(),
                 },
             )

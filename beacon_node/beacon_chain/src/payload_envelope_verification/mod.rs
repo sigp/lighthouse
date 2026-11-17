@@ -30,8 +30,8 @@ use strum::AsRefStr;
 use tracing::{instrument, warn};
 use types::{
     BeaconState, BeaconStateError, BuilderIndex, DataColumnSidecarList, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBidRef,
-    SignedExecutionPayloadEnvelope, Slot,
+    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, InconsistentFork,
+    SignedExecutionPayloadBidRef, SignedExecutionPayloadEnvelope, Slot,
 };
 
 pub mod execution_pending_envelope;
@@ -46,8 +46,20 @@ pub use execution_pending_envelope::ExecutionPendingEnvelope;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, AsRefStr)]
 pub enum EnvelopeSource {
     Gossip,
+    /// Reassembled from the chunks received through waggle (EIP-8411).
+    Waggle,
     Rpc,
     Http,
+}
+
+impl EnvelopeSource {
+    /// Whether envelopes from this source are gossiped, so already seen ones are rejected.
+    pub fn is_gossip(&self) -> bool {
+        match self {
+            EnvelopeSource::Gossip | EnvelopeSource::Waggle => true,
+            EnvelopeSource::Rpc | EnvelopeSource::Http => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -105,7 +117,7 @@ impl<E: EthSpec> AvailableEnvelope<E> {
             if num_provided_columns != filtered_columns.len() {
                 warn!(
                     message = "More columns provided than expected",
-                    envelope = %envelope.message.payload.block_hash,
+                    envelope = %envelope.message.payload().block_hash,
                     num_provided_columns = %num_provided_columns,
                     columns_expected = %columns_expected,
                 );
@@ -120,7 +132,7 @@ impl<E: EthSpec> AvailableEnvelope<E> {
         } else {
             warn!(
                 message = "Custody columns provided for envelope that does not require them",
-                envelope = %envelope.message.payload.block_hash,
+                envelope = %envelope.message.payload().block_hash,
             );
             Ok(Self {
                 envelope,
@@ -209,6 +221,19 @@ impl<E: EthSpec> AvailableExecutedEnvelope<E> {
 pub enum EnvelopeError {
     /// The envelope's block root is unknown.
     BlockRootUnknown { block_root: Hash256 },
+    /// The envelope doesn't contain the root of its block, and the caller doesn't know it either.
+    ///
+    /// Heze envelopes don't contain the root (EIP-8411).
+    MissingBlockRoot,
+    /// The envelope's block root is not the root of the block the caller expected.
+    BlockRootMismatch {
+        expected: Hash256,
+        envelope: Hash256,
+    },
+    /// The envelope's variant doesn't match the fork at its slot.
+    InconsistentFork(InconsistentFork),
+    /// The envelope is not the one the committed bid commits to with its `payload_chunks_root`.
+    PayloadChunksRootMismatch,
     /// A validated envelope for this `block_root` has already been seen from the
     /// builder with `builder_index`, so this one is a duplicate.
     EnvelopeAlreadySeen {
@@ -286,6 +311,9 @@ impl EnvelopeError {
     pub fn penalize_peer(&self) -> bool {
         match self {
             EnvelopeError::BadSignature
+            | EnvelopeError::BlockRootMismatch { .. }
+            | EnvelopeError::InconsistentFork(_)
+            | EnvelopeError::PayloadChunksRootMismatch
             | EnvelopeError::BuilderIndexMismatch { .. }
             | EnvelopeError::SlotMismatch { .. }
             | EnvelopeError::BlockHashMismatch { .. }
@@ -298,6 +326,7 @@ impl EnvelopeError {
             | EnvelopeError::EnvelopeProcessingError(_) => true,
             EnvelopeError::ExecutionPayloadError(e) => e.penalize_peer(),
             EnvelopeError::BlockRootUnknown { .. }
+            | EnvelopeError::MissingBlockRoot
             | EnvelopeError::EnvelopeAlreadySeen { .. }
             | EnvelopeError::PriorToFinalization { .. }
             | EnvelopeError::BeaconChainError(_)
@@ -353,6 +382,9 @@ impl From<EnvelopeProcessingError> for EnvelopeError {
     fn from(e: EnvelopeProcessingError) -> Self {
         match e {
             EnvelopeProcessingError::BadSignature => EnvelopeError::BadSignature,
+            EnvelopeProcessingError::PayloadChunksRootMismatch => {
+                EnvelopeError::PayloadChunksRootMismatch
+            }
             EnvelopeProcessingError::BeaconStateError(e) => EnvelopeError::BeaconStateError(e),
             EnvelopeProcessingError::BlockHashMismatch {
                 committed_bid,
@@ -419,10 +451,10 @@ pub fn build_new_payload_request<'a, E: EthSpec>(
 
     Ok(execution_layer::NewPayloadRequest::Gloas(
         execution_layer::NewPayloadRequestGloas {
-            execution_payload: &envelope.message.payload,
+            execution_payload: envelope.message.payload(),
             versioned_hashes,
-            parent_beacon_block_root: envelope.message.parent_beacon_block_root,
-            execution_requests: &envelope.message.execution_requests,
+            parent_beacon_block_root: envelope.message.parent_beacon_block_root(),
+            execution_requests: envelope.message.execution_requests(),
         },
     ))
 }
@@ -451,9 +483,9 @@ mod payload_hash_tests {
     use std::marker::PhantomData;
     use types::{
         BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionPayloadEnvelope,
-        ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-        Graffiti, Hash256, SignedBeaconBlock, SignedExecutionPayloadBidGloas,
-        SignedExecutionPayloadEnvelope, Slot, Spec, SyncAggregate,
+        ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas, ExecutionPayloadRef,
+        ExecutionRequestsGloas, ExecutionRequestsRef, Graffiti, Hash256, SignedBeaconBlock,
+        SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelope, Slot, Spec, SyncAggregate,
     };
 
     type E = Spec;
@@ -504,13 +536,13 @@ mod payload_hash_tests {
         payload.block_hash = block_hash;
 
         SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
                 payload,
                 execution_requests: requests,
                 builder_index: 0,
                 beacon_block_root: Hash256::ZERO,
                 parent_beacon_block_root,
-            },
+            }),
             signature: Signature::empty(),
         }
     }
@@ -529,7 +561,7 @@ mod payload_hash_tests {
         let block = make_block(slot);
         let mut envelope = make_consistent_envelope(slot);
         // Tamper a field that only the hash recompute can catch.
-        envelope.message.payload.timestamp += 1;
+        envelope.message.payload_mut().timestamp += 1;
         assert!(verify_envelope_payload_hash::<E>(&envelope, &block).is_err());
     }
 }

@@ -53,12 +53,13 @@ use store::hot_cold_store::HotColdDBError;
 use tracing::{Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, ColumnIndex, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, PartialDataColumn, PayloadAttestationMessage, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedInclusionList, SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot,
-    SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource, data::CellBitmap,
+    DataColumnSubnetId, EthSpec, ExecutionPayloadEnvelope, Hash256, IndexedAttestation,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
+    PayloadAttestationMessage, PayloadChunk, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedInclusionList,
+    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource, data::CellBitmap,
     execution::SignedExecutionProofEnvelope,
 };
 
@@ -1672,6 +1673,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "New block received"
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // [New in Heze:EIP8411] Start collecting the chunks of the payload the block
+                // commits to.
+                self.payload_dissemination
+                    .new_payload_of_block(verified_block.block_root, &verified_block.block);
 
                 // Log metrics to keep track of propagation delay times.
                 if let Some(duration) = SystemTime::now()
@@ -3790,6 +3796,194 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+    /// Process an execution payload envelope reassembled from the chunks received through waggle.
+    ///
+    /// Each chunk passed its inclusion proof against `payload_chunks_root`, which the bid in the
+    /// block with root `block_root` is expected to commit to. If the chunks reassemble, the
+    /// envelope is therefore the one the builder committed to, which gossip verification confirms
+    /// by comparing `payload_chunks_root` to the bid, without hashing the envelope again.
+    #[instrument(
+        name = "lh_process_reassembled_execution_payload",
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(%block_root, %slot),
+    )]
+    pub async fn process_reassembled_execution_payload(
+        self: Arc<Self>,
+        block_root: Hash256,
+        slot: Slot,
+        payload_chunks_root: Hash256,
+        chunks: Vec<Arc<PayloadChunk<T::EthSpec>>>,
+    ) {
+        let fork_name = self.chain.spec.fork_name_at_slot::<T::EthSpec>(slot);
+        let envelope = match ExecutionPayloadEnvelope::<T::EthSpec>::from_payload_chunks(
+            chunks.iter().map(|chunk| &chunk.chunk),
+            fork_name,
+        ) {
+            Ok(envelope) => envelope,
+            Err(error) => {
+                // The chunks match the bid, so the builder committed to a malformed envelope, or
+                // to chunks other than the ones the envelope is split into. No peer is at fault.
+                warn!(
+                    %block_root,
+                    %slot,
+                    ?error,
+                    "Reassembled execution payload envelope is malformed"
+                );
+                return;
+            }
+        };
+
+        debug!(
+            %block_root,
+            %slot,
+            builder_index = envelope.builder_index(),
+            "Reassembled execution payload envelope"
+        );
+
+        // The envelope is authenticated by the bid committing to its chunks, so it is unsigned.
+        let envelope = match SignedExecutionPayloadEnvelope::without_signature(envelope) {
+            Ok(envelope) => Arc::new(envelope),
+            Err(error) => {
+                error!(
+                    ?error,
+                    "Unable to wrap reassembled execution payload envelope"
+                );
+                return;
+            }
+        };
+
+        match self
+            .chain
+            .verify_envelope_for_gossip(
+                envelope.clone(),
+                Some(block_root),
+                Some(payload_chunks_root),
+                EnvelopeSource::Waggle,
+            )
+            .await
+        {
+            Ok(verified_envelope) => {
+                self.import_reassembled_execution_payload(verified_envelope)
+                    .await;
+            }
+            Err(EnvelopeError::BlockRootUnknown { .. }) => {
+                // The block passed gossip verification, but is not imported yet.
+                debug!(
+                    %block_root,
+                    %slot,
+                    "Reassembled envelope references unknown block, deferring to reprocess queue"
+                );
+
+                let inner_self = self.clone();
+                let process_fn = Box::pin(async move {
+                    match inner_self
+                        .chain
+                        .verify_envelope_for_gossip(
+                            envelope,
+                            Some(block_root),
+                            Some(payload_chunks_root),
+                            EnvelopeSource::Waggle,
+                        )
+                        .await
+                    {
+                        Ok(verified_envelope) => {
+                            inner_self
+                                .import_reassembled_execution_payload(verified_envelope)
+                                .await;
+                        }
+                        Err(error) => {
+                            debug!(
+                                ?error,
+                                %block_root,
+                                "Deferred reassembled envelope failed verification"
+                            );
+                        }
+                    }
+                });
+
+                if self
+                    .beacon_processor_send
+                    .try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::UnknownBlockForEnvelope(
+                            QueuedGossipEnvelope {
+                                beacon_block_slot: slot,
+                                beacon_block_root: block_root,
+                                process_fn,
+                            },
+                        )),
+                    })
+                    .is_err()
+                {
+                    error!(
+                        %slot,
+                        %block_root,
+                        "Failed to defer reassembled envelope import"
+                    );
+                }
+            }
+            // We already have it, e.g. because we built it.
+            Err(error @ EnvelopeError::EnvelopeAlreadySeen { .. }) => {
+                debug!(?error, %block_root, "Reassembled envelope already seen");
+            }
+            Err(error) if error.penalize_peer() => {
+                // The chunks match the bid, so the builder committed to an invalid envelope. No
+                // peer is at fault.
+                warn!(
+                    ?error,
+                    %block_root,
+                    %slot,
+                    "Reassembled execution payload envelope is invalid"
+                );
+            }
+            Err(error) => {
+                debug!(
+                    ?error,
+                    %block_root,
+                    %slot,
+                    "Unable to verify reassembled execution payload envelope"
+                );
+            }
+        }
+    }
+
+    /// Imports an execution payload envelope reassembled from the chunks received through waggle.
+    async fn import_reassembled_execution_payload(
+        self: &Arc<Self>,
+        verified_envelope: GossipVerifiedEnvelope<T>,
+    ) {
+        let block_root = verified_envelope.beacon_block_root;
+
+        #[allow(clippy::result_large_err)]
+        let result = self
+            .chain
+            .process_execution_payload_envelope(
+                block_root,
+                verified_envelope,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Gossip,
+                || Ok(()),
+            )
+            .await;
+
+        match &result {
+            Ok(AvailabilityProcessingStatus::Imported(_, block_root)) => {
+                self.chain.recompute_head_at_current_slot().await;
+                self.notify_payload_envelope_imported(*block_root, EnvelopeSource::Waggle);
+            }
+            Ok(_) => {}
+            Err(error) => {
+                debug!(
+                    %block_root,
+                    ?error,
+                    "Reassembled execution payload envelope processing failed"
+                );
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[instrument(
         name = "lh_process_execution_payload_envelope",
@@ -3814,7 +4008,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             )
             .await
         {
-            let beacon_block_root = gossip_verified_envelope.signed_envelope.beacon_block_root();
+            let beacon_block_root = gossip_verified_envelope.beacon_block_root;
 
             Span::current().record("beacon_block_root", beacon_block_root.to_string());
 
@@ -3843,7 +4037,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let verification_result = self
             .chain
             .clone()
-            .verify_envelope_for_gossip(envelope.clone(), EnvelopeSource::Gossip)
+            .verify_envelope_for_gossip(envelope.clone(), None, None, EnvelopeSource::Gossip)
             .await;
 
         let verified_envelope = match verification_result {
@@ -3855,7 +4049,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 // Write the time the envelope was observed into the delay cache.
                 self.chain.envelope_times_cache.write().set_time_observed(
-                    verified_envelope.signed_envelope.beacon_block_root(),
+                    verified_envelope.beacon_block_root,
                     envelope.slot(),
                     seen_duration,
                     Some(peer_id.to_string()),
@@ -3863,7 +4057,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 info!(
                     slot = %verified_envelope.signed_envelope.slot(),
-                    root = ?verified_envelope.signed_envelope.beacon_block_root(),
+                    root = ?verified_envelope.beacon_block_root,
                     "New envelope received"
                 );
 
@@ -3882,6 +4076,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
 
                     EnvelopeError::BadSignature
+                    | EnvelopeError::BlockRootMismatch { .. }
+                    | EnvelopeError::InconsistentFork(_)
+                    | EnvelopeError::PayloadChunksRootMismatch
                     | EnvelopeError::BuilderIndexMismatch { .. }
                     | EnvelopeError::SlotMismatch { .. }
                     | EnvelopeError::BlockHashMismatch { .. }
@@ -3924,7 +4121,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         let chain = self.chain.clone();
                         let process_fn = Box::pin(async move {
                             match chain
-                                .verify_envelope_for_gossip(envelope, EnvelopeSource::Gossip)
+                                .verify_envelope_for_gossip(envelope, None, None, EnvelopeSource::Gossip)
                                 .await
                             {
                                 Ok(verified_envelope) => {
@@ -3976,6 +4173,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                     EnvelopeError::PriorToFinalization { .. }
                     | EnvelopeError::EnvelopeAlreadySeen { .. }
+                    // Heze envelopes don't contain the root of their block, so they can't be
+                    // verified on this topic (EIP-8411). We don't subscribe to it from Heze, so
+                    // this is not expected.
+                    | EnvelopeError::MissingBlockRoot
                     | EnvelopeError::BeaconChainError(_)
                     | EnvelopeError::BeaconStateError(_)
                     // The following variants are produced during envelope import, not gossip
@@ -3994,7 +4195,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         let envelope_slot = verified_envelope.signed_envelope.slot();
-        let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
+        let beacon_block_root = verified_envelope.beacon_block_root;
         match self.chain.slot() {
             // We only need to do a simple check about the envelope slot vs the current slot because
             // `verify_envelope_for_gossip` already ensures that the envelope slot is within tolerance
@@ -4076,7 +4277,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         verified_envelope: GossipVerifiedEnvelope<T>,
     ) {
         let _processing_start_time = Instant::now();
-        let beacon_block_root = verified_envelope.signed_envelope.beacon_block_root();
+        let beacon_block_root = verified_envelope.beacon_block_root;
 
         #[allow(clippy::result_large_err)]
         let result = self

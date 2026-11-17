@@ -202,10 +202,11 @@ impl<S: ValidatorStore + 'static> ValidatorStore for RecordingValidatorStore<S> 
         validator_pubkey: PublicKeyBytes,
         envelope: ExecutionPayloadEnvelope<Self::E>,
     ) -> Result<SignedExecutionPayloadEnvelope<Self::E>, StoreError<Self::Error>> {
-        self.signed_envelope_block_roots
-            .lock()
-            .unwrap()
-            .push(envelope.beacon_block_root);
+        self.signed_envelope_block_roots.lock().unwrap().push(
+            envelope
+                .beacon_block_root()
+                .expect("only Gloas envelopes contain the block root"),
+        );
         self.inner
             .sign_execution_payload_envelope(validator_pubkey, envelope)
             .await

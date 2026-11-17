@@ -14,10 +14,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
 use types::{
-    ChainSpec, ConfigAndPreset, Epoch, EthSpec, ExecutionPayloadEnvelope, ForkName, Hash256,
-    PayloadAttestationData, PayloadAttestationMessage, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncDuty,
+    ChainSpec, ConfigAndPreset, Epoch, EthSpec, ExecutionPayloadEnvelope, ForkName,
+    ForkVersionDecode, Hash256, PayloadAttestationData, PayloadAttestationMessage,
+    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope, Slot,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncDuty,
 };
 
 pub struct MockBeaconNode<E: EthSpec> {
@@ -398,6 +398,10 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .match_header("accept", "application/octet-stream")
             .with_status(200)
             .with_header("content-type", "application/octet-stream")
+            .with_header(
+                CONSENSUS_VERSION_HEADER,
+                &envelope.fork_name_unchecked().to_string(),
+            )
             .with_body(ssz_bytes)
             .create()
     }
@@ -601,8 +605,11 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(200)
             .with_body_from_request(move |request| {
                 let body = request.body().expect("Failed to get request body");
-                let envelope = SignedExecutionPayloadEnvelope::<E>::from_ssz_bytes(body)
-                    .expect("Failed to deserialize SignedExecutionPayloadEnvelope from SSZ");
+                let envelope = SignedExecutionPayloadEnvelope::<E>::from_ssz_bytes_by_fork(
+                    body,
+                    ForkName::Gloas,
+                )
+                .expect("Failed to deserialize SignedExecutionPayloadEnvelope from SSZ");
                 execution_payload_envelope.lock().unwrap().push(envelope);
                 vec![]
             })
@@ -617,10 +624,11 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(200)
             .with_body_from_request(move |request| {
                 let body = request.body().expect("Failed to get request body");
-                let contents = SignedExecutionPayloadEnvelopeContents::<E>::from_ssz_bytes(body)
-                    .expect(
-                        "Failed to deserialize SignedExecutionPayloadEnvelopeContents from SSZ",
-                    );
+                let contents = SignedExecutionPayloadEnvelopeContents::<E>::from_ssz_bytes_by_fork(
+                    body,
+                    ForkName::Gloas,
+                )
+                .expect("Failed to deserialize SignedExecutionPayloadEnvelopeContents from SSZ");
                 received.lock().unwrap().push(contents);
                 vec![]
             })

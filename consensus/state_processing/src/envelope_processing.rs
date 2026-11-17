@@ -3,8 +3,8 @@ use crate::per_block_processing::compute_timestamp_at_slot;
 use safe_arith::ArithError;
 use tree_hash::TreeHash;
 use types::{
-    BeaconState, BeaconStateError, BuilderIndex, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
-    SignedExecutionPayloadEnvelope, Slot,
+    BeaconState, BeaconStateError, BuilderIndex, ChainSpec, EthSpec, ExecutionBlockHash, ForkName,
+    Hash256, SignedExecutionPayloadEnvelope, Slot,
 };
 
 macro_rules! envelope_verify {
@@ -19,6 +19,13 @@ macro_rules! envelope_verify {
 pub enum EnvelopeProcessingError {
     /// Bad Signature
     BadSignature,
+    /// The envelope is not the one the committed bid commits to with its `payload_chunks_root`.
+    PayloadChunksRootMismatch,
+    /// The envelope is of another fork than the state.
+    ForkMismatch {
+        envelope: ForkName,
+        state: ForkName,
+    },
     BeaconStateError(BeaconStateError),
     ArithError(ArithError),
     /// Envelope doesn't match latest beacon block header
@@ -109,33 +116,56 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     block_state_root: Hash256,
     spec: &ChainSpec,
 ) -> Result<(), EnvelopeProcessingError> {
-    if verify_signatures.is_true() && !signed_envelope.verify_signature_with_state(state, spec)? {
-        return Err(EnvelopeProcessingError::BadSignature);
+    envelope_verify!(
+        signed_envelope.fork_name_unchecked() == state.fork_name_unchecked(),
+        EnvelopeProcessingError::ForkMismatch {
+            envelope: signed_envelope.fork_name_unchecked(),
+            state: state.fork_name_unchecked(),
+        }
+    );
+
+    if verify_signatures.is_true() {
+        // [Modified in Heze:EIP8411] The committed bid commits to the chunks of the envelope, which
+        // authenticates it instead of a signature.
+        if let Ok(payload_chunks_root) = state.latest_execution_payload_bid()?.payload_chunks_root()
+        {
+            envelope_verify!(
+                signed_envelope
+                    .message
+                    .matches_payload_chunks_root(payload_chunks_root),
+                EnvelopeProcessingError::PayloadChunksRootMismatch
+            );
+        } else if !signed_envelope.verify_signature_with_state(state, spec)? {
+            return Err(EnvelopeProcessingError::BadSignature);
+        }
     }
 
     let envelope = &signed_envelope.message;
-    let payload = &envelope.payload;
+    let payload = envelope.payload();
 
     // Verify consistency with the beacon block.
-    // Use a copy of the header with state_root filled in, matching the spec's approach.
-    let mut header = state.latest_block_header().clone();
-    if header.state_root == Hash256::default() {
-        // The caller must provide the post-block state root so we can compute
-        // the block header root without mutating state.
-        header.state_root = block_state_root;
-    }
-    let latest_block_header_root = header.tree_hash_root();
-    envelope_verify!(
-        envelope.beacon_block_root == latest_block_header_root,
-        EnvelopeProcessingError::LatestBlockHeaderMismatch {
-            envelope_root: envelope.beacon_block_root,
-            block_header_root: latest_block_header_root,
+    // [Removed in Heze:EIP8411] Heze envelopes don't contain the beacon block root.
+    if let Ok(envelope_root) = envelope.beacon_block_root() {
+        // Use a copy of the header with state_root filled in, matching the spec's approach.
+        let mut header = state.latest_block_header().clone();
+        if header.state_root == Hash256::default() {
+            // The caller must provide the post-block state root so we can compute
+            // the block header root without mutating state.
+            header.state_root = block_state_root;
         }
-    );
+        let latest_block_header_root = header.tree_hash_root();
+        envelope_verify!(
+            envelope_root == latest_block_header_root,
+            EnvelopeProcessingError::LatestBlockHeaderMismatch {
+                envelope_root,
+                block_header_root: latest_block_header_root,
+            }
+        );
+    }
     envelope_verify!(
-        envelope.parent_beacon_block_root == state.latest_block_header().parent_root,
+        envelope.parent_beacon_block_root() == state.latest_block_header().parent_root,
         EnvelopeProcessingError::ParentBeaconBlockRootMismatch {
-            envelope: envelope.parent_beacon_block_root,
+            envelope: envelope.parent_beacon_block_root(),
             state: state.latest_block_header().parent_root,
         }
     );
@@ -150,10 +180,10 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     // Verify consistency with the committed bid
     let committed_bid = state.latest_execution_payload_bid()?;
     envelope_verify!(
-        envelope.builder_index == committed_bid.builder_index(),
+        envelope.builder_index() == committed_bid.builder_index(),
         EnvelopeProcessingError::BuilderIndexMismatch {
             committed_bid: committed_bid.builder_index(),
-            envelope: envelope.builder_index,
+            envelope: envelope.builder_index(),
         }
     );
     envelope_verify!(
@@ -219,7 +249,7 @@ pub fn verify_execution_payload_envelope<E: EthSpec>(
     );
 
     // Verify execution requests root matches committed bid
-    let execution_requests_root = envelope.execution_requests.tree_hash_root();
+    let execution_requests_root = envelope.execution_requests().tree_hash_root();
     envelope_verify!(
         execution_requests_root == committed_bid.execution_requests_root(),
         EnvelopeProcessingError::ExecutionRequestsRootMismatch {
@@ -272,7 +302,7 @@ mod tests {
         let mut envelope = envelope.unwrap();
 
         // Manually modify the beacon_block_root to make it invalid.
-        envelope.message.beacon_block_root = Hash256::zero();
+        *envelope.message.beacon_block_root_mut().unwrap() = Hash256::zero();
 
         let block_state_root = block.state_root();
 
@@ -306,7 +336,7 @@ mod tests {
         let mut envelope = envelope.unwrap();
 
         // Manually modify the parent beacon_block_root to make it invalid.
-        envelope.message.parent_beacon_block_root = Hash256::zero();
+        *envelope.message.parent_beacon_block_root_mut() = Hash256::zero();
 
         let block_state_root = block.state_root();
 

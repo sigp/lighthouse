@@ -329,8 +329,11 @@ fn update_proposal_signatures(
 fn update_envelope_block_root(snapshot: &mut SegmentSnapshot) {
     if let Some(envelope) = snapshot.execution_envelope.as_ref() {
         let mut envelope = envelope.as_ref().clone();
-        envelope.message.beacon_block_root = snapshot.beacon_block.canonical_root();
-        envelope.message.parent_beacon_block_root = snapshot.beacon_block.parent_root();
+        // Heze envelopes don't contain the block root.
+        if let Ok(beacon_block_root) = envelope.message.beacon_block_root_mut() {
+            *beacon_block_root = snapshot.beacon_block.canonical_root();
+        }
+        *envelope.message.parent_beacon_block_root_mut() = snapshot.beacon_block.parent_root();
         snapshot.execution_envelope = Some(Arc::new(envelope));
     }
 }
@@ -2541,7 +2544,7 @@ async fn range_sync_block_new_gloas_rejects_slot_mismatch() {
         return;
     };
 
-    envelope.message.payload.slot_number += 1;
+    envelope.message.payload_mut().slot_number += 1;
     let bid = block
         .message()
         .body()
@@ -2566,7 +2569,7 @@ async fn range_sync_block_new_gloas_rejects_builder_index_mismatch() {
         return;
     };
 
-    envelope.message.builder_index += 1;
+    *envelope.message.builder_index_mut() += 1;
     let bid = block
         .message()
         .body()
@@ -2591,7 +2594,7 @@ async fn range_sync_block_new_gloas_rejects_block_hash_mismatch() {
         return;
     };
 
-    envelope.message.payload.block_hash = ExecutionBlockHash::repeat_byte(0x22);
+    envelope.message.payload_mut().block_hash = ExecutionBlockHash::repeat_byte(0x22);
     let bid = block
         .message()
         .body()
@@ -3128,7 +3131,10 @@ async fn rpc_block_allows_construction_past_da_boundary() {
 #[tokio::test]
 async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
     let spec = test_spec::<E>();
-    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+    let fork_name = spec.fork_name_at_slot::<E>(Slot::new(0));
+    // Heze envelopes are authenticated by the bid's payload chunks root rather than by a signature
+    // (EIP-8411).
+    if !fork_name.gloas_enabled() || fork_name.heze_enabled() {
         return;
     }
 
@@ -3191,7 +3197,10 @@ async fn process_chain_segment_rejects_envelope_with_invalid_signature() {
 #[tokio::test]
 async fn process_chain_segment_partial_import_with_invalid_envelope() {
     let spec = test_spec::<E>();
-    if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
+    let fork_name = spec.fork_name_at_slot::<E>(Slot::new(0));
+    // Heze envelopes are authenticated by the bid's payload chunks root rather than by a signature
+    // (EIP-8411).
+    if !fork_name.gloas_enabled() || fork_name.heze_enabled() {
         return;
     }
 

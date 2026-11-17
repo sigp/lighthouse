@@ -2073,7 +2073,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BlockAndEnvelope<E> 
         #[serde(bound = "E: EthSpec")]
         struct Helper<E: EthSpec> {
             block: serde_json::Value,
-            execution_payload_envelope: ExecutionPayloadEnvelope<E>,
+            execution_payload_envelope: serde_json::Value,
             kzg_proofs: KzgProofs<E>,
             #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
             blobs: BlobsList<E>,
@@ -2082,10 +2082,15 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BlockAndEnvelope<E> 
 
         let block = BeaconBlock::context_deserialize(helper.block, context)
             .map_err(serde::de::Error::custom)?;
+        let execution_payload_envelope = ExecutionPayloadEnvelope::context_deserialize(
+            helper.execution_payload_envelope,
+            context,
+        )
+        .map_err(serde::de::Error::custom)?;
 
         Ok(Self {
             block,
-            execution_payload_envelope: helper.execution_payload_envelope,
+            execution_payload_envelope,
             kzg_proofs: helper.kzg_proofs,
             blobs: helper.blobs,
         })
@@ -2093,19 +2098,22 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BlockAndEnvelope<E> 
 }
 
 impl<E: EthSpec> BlockAndEnvelope<E> {
-    /// SSZ decode with fork variant passed in explicitly (the `block` field is fork-versioned).
+    /// SSZ decode with fork variant passed in explicitly (the `block` and
+    /// `execution_payload_envelope` fields are fork-versioned).
     pub fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
         builder.register_anonymous_variable_length_item()?;
-        builder.register_type::<ExecutionPayloadEnvelope<E>>()?;
+        builder.register_anonymous_variable_length_item()?;
         builder.register_type::<KzgProofs<E>>()?;
         builder.register_type::<BlobsList<E>>()?;
 
         let mut decoder = builder.build()?;
         let block = decoder
             .decode_next_with(|bytes| BeaconBlock::from_ssz_bytes_for_fork(bytes, fork_name))?;
-        let execution_payload_envelope = decoder.decode_next()?;
+        let execution_payload_envelope = decoder.decode_next_with(|bytes| {
+            ExecutionPayloadEnvelope::from_ssz_bytes_by_fork(bytes, fork_name)
+        })?;
         let kzg_proofs = decoder.decode_next()?;
         let blobs = decoder.decode_next()?;
 
@@ -2147,13 +2155,69 @@ impl<E: EthSpec> ProduceBlockV4Response<E> {
 /// A signed execution payload envelope bundled with blobs and KZG proofs for stateless
 /// publishing via `POST beacon/execution_payload_envelopes`, used when the receiving beacon node
 /// does not have the blobs cached.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Serialize, Encode)]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedExecutionPayloadEnvelopeContents<E: EthSpec> {
     pub signed_execution_payload_envelope: SignedExecutionPayloadEnvelope<E>,
     pub kzg_proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName>
+    for SignedExecutionPayloadEnvelopeContents<E>
+{
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(bound = "E: EthSpec")]
+        struct Helper<E: EthSpec> {
+            signed_execution_payload_envelope: serde_json::Value,
+            kzg_proofs: KzgProofs<E>,
+            #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
+            blobs: BlobsList<E>,
+        }
+        let helper = Helper::<E>::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+
+        let signed_execution_payload_envelope =
+            SignedExecutionPayloadEnvelope::context_deserialize(
+                helper.signed_execution_payload_envelope,
+                context,
+            )
+            .map_err(serde::de::Error::custom)?;
+
+        Ok(Self {
+            signed_execution_payload_envelope,
+            kzg_proofs: helper.kzg_proofs,
+            blobs: helper.blobs,
+        })
+    }
+}
+
+impl<E: EthSpec> ForkVersionDecode for SignedExecutionPayloadEnvelopeContents<E> {
+    /// SSZ decode with fork variant passed in explicitly (the envelope is fork-versioned).
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+
+        builder.register_anonymous_variable_length_item()?;
+        builder.register_type::<KzgProofs<E>>()?;
+        builder.register_type::<BlobsList<E>>()?;
+
+        let mut decoder = builder.build()?;
+        let signed_execution_payload_envelope = decoder.decode_next_with(|bytes| {
+            SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(bytes, fork_name)
+        })?;
+        let kzg_proofs = decoder.decode_next()?;
+        let blobs = decoder.decode_next()?;
+
+        Ok(Self {
+            signed_execution_payload_envelope,
+            kzg_proofs,
+            blobs,
+        })
+    }
 }
 
 impl<E: EthSpec> FullBlockContents<E> {

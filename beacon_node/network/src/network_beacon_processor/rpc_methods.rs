@@ -10,7 +10,8 @@ use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessStatus, WhenS
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, BlocksByHeadRequest, DataColumnsByRangeRequest,
-    DataColumnsByRootRequest, PayloadEnvelopesByRangeRequest, PayloadEnvelopesByRootRequest,
+    DataColumnsByRootRequest, PayloadEnvelopeResponse, PayloadEnvelopesByRangeRequest,
+    PayloadEnvelopesByRootRequest,
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
@@ -603,10 +604,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         while let Some((root, result)) = envelope_stream.next().await {
             match result.as_ref() {
                 Ok(Some(envelope)) => {
+                    // Each version of the protocol only serves the envelopes of its forks.
+                    let fork_name = self
+                        .chain
+                        .spec
+                        .fork_name_at_slot::<T::EthSpec>(envelope.slot());
+                    if !request.version.serves(fork_name) {
+                        debug!(
+                            %peer_id,
+                            request_root = ?root,
+                            version = ?request.version,
+                            "Peer requested payload envelope of another protocol version"
+                        );
+                        continue;
+                    }
                     self.send_response(
                         peer_id,
                         inbound_request_id,
-                        Response::PayloadEnvelopesByRoot(Some(envelope.clone())),
+                        Response::PayloadEnvelopesByRoot(Some(PayloadEnvelopeResponse {
+                            beacon_block_root: root,
+                            envelope: envelope.clone(),
+                        })),
                     );
                     send_envelope_count += 1;
                 }
@@ -1508,15 +1526,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             match result.as_ref() {
                 Ok(Some(envelope)) => {
                     // Due to skip slots, blocks could be out of the range, we ensure they
-                    // are in the range before sending
+                    // are in the range before sending. Each version of the protocol only serves
+                    // the envelopes of its forks.
+                    let fork_name = self
+                        .chain
+                        .spec
+                        .fork_name_at_slot::<T::EthSpec>(envelope.slot());
                     if envelope.slot() >= req_start_slot
                         && envelope.slot() < req_start_slot.saturating_add(req.count)
+                        && req.version.serves(fork_name)
                     {
                         envelopes_sent += 1;
                         self.send_network_message(NetworkMessage::SendResponse {
                             peer_id,
                             inbound_request_id,
-                            response: Response::PayloadEnvelopesByRange(Some(envelope.clone())),
+                            response: Response::PayloadEnvelopesByRange(Some(
+                                PayloadEnvelopeResponse {
+                                    beacon_block_root: root,
+                                    envelope: envelope.clone(),
+                                },
+                            )),
                         });
                     }
                 }

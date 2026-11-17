@@ -79,7 +79,7 @@ use lighthouse_network::NetworkGlobals;
 use lighthouse_network::PeerId;
 use lighthouse_version::version_with_platform;
 use logging::{SSELoggingComponents, crit};
-use network::{NetworkMessage, NetworkSenders};
+use network::{NetworkMessage, NetworkSenders, PayloadDisseminationSenders};
 use network_utils::enr_ext::EnrExt;
 use parking_lot::RwLock;
 use proto_array::PayloadBlockHash;
@@ -448,6 +448,23 @@ pub async fn serve<T: BeaconChainTypes>(
                 Some(network_tx) => Ok(network_tx),
                 None => Err(warp_utils::reject::custom_not_found(
                     "The networking stack has not yet started (network_tx).".to_string(),
+                )),
+            }
+        })
+        .boxed();
+
+    // Create a `warp` filter that provides access to the payload dissemination services.
+    let payload_dissemination = ctx
+        .network_senders
+        .as_ref()
+        .map(|senders| senders.payload_dissemination());
+    let payload_dissemination_filter = warp::any()
+        .map(move || payload_dissemination.clone())
+        .and_then(|payload_dissemination| async move {
+            match payload_dissemination {
+                Some(payload_dissemination) => Ok(payload_dissemination),
+                None => Err(warp_utils::reject::custom_not_found(
+                    "The networking stack has not yet started (payload_dissemination).".to_string(),
                 )),
             }
         })
@@ -863,12 +880,14 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(payload_dissemination_filter.clone())
         .then(
             move |value: serde_json::Value,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  payload_dissemination: PayloadDisseminationSenders<T::EthSpec>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
                         &value,
@@ -882,6 +901,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         ProvenancedBlock::local_from_publish_request(request),
                         chain,
                         &network_tx,
+                        &payload_dissemination,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                         // Legacy v1 publish: no builder-URL provenance (VC uses v2 for Gloas).
@@ -902,12 +922,14 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(payload_dissemination_filter.clone())
         .then(
             move |block_bytes: Bytes,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  payload_dissemination: PayloadDisseminationSenders<T::EthSpec>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -921,6 +943,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
+                        &payload_dissemination,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                         // Legacy v1 publish: no builder-URL provenance (VC uses v2 for Gloas).
@@ -942,6 +965,7 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(payload_dissemination_filter.clone())
         .and(builder_url_header_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
@@ -950,6 +974,7 @@ pub async fn serve<T: BeaconChainTypes>(
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  payload_dissemination: PayloadDisseminationSenders<T::EthSpec>,
                   builder_url: Option<String>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
@@ -965,6 +990,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         ProvenancedBlock::local_from_publish_request(request),
                         chain,
                         &network_tx,
+                        &payload_dissemination,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                         builder_url,
@@ -985,6 +1011,7 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(payload_dissemination_filter.clone())
         .and(builder_url_header_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
@@ -993,6 +1020,7 @@ pub async fn serve<T: BeaconChainTypes>(
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  payload_dissemination: PayloadDisseminationSenders<T::EthSpec>,
                   builder_url: Option<String>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
@@ -1007,6 +1035,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         ProvenancedBlock::local_from_publish_request(block_contents),
                         chain,
                         &network_tx,
+                        &payload_dissemination,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                         builder_url,
@@ -1030,16 +1059,19 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(payload_dissemination_filter.clone())
         .then(
             move |block_contents: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  payload_dissemination: PayloadDisseminationSenders<T::EthSpec>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
                         block_contents,
                         chain,
                         &network_tx,
+                        &payload_dissemination,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                     )
@@ -1058,11 +1090,13 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(payload_dissemination_filter.clone())
         .then(
             move |block_bytes: Bytes,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  payload_dissemination: PayloadDisseminationSenders<T::EthSpec>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1076,6 +1110,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         block,
                         chain,
                         &network_tx,
+                        &payload_dissemination,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
                     )
@@ -1095,13 +1130,15 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(payload_dissemination_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   blinded_block_json: serde_json::Value,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  payload_dissemination: PayloadDisseminationSenders<T::EthSpec>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let blinded_block =
                         SignedBlindedBeaconBlock::<T::EthSpec>::context_deserialize(
@@ -1116,6 +1153,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         blinded_block,
                         chain,
                         &network_tx,
+                        &payload_dissemination,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                     )
@@ -1134,12 +1172,14 @@ pub async fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
+        .and(payload_dissemination_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+                  payload_dissemination: PayloadDisseminationSenders<T::EthSpec>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1153,6 +1193,7 @@ pub async fn serve<T: BeaconChainTypes>(
                         block,
                         chain,
                         &network_tx,
+                        &payload_dissemination,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
                     )
@@ -1633,6 +1674,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
+        payload_dissemination_filter.clone(),
         not_while_syncing_filter.clone(),
     );
 
@@ -1642,6 +1684,7 @@ pub async fn serve<T: BeaconChainTypes>(
         task_spawner_filter.clone(),
         chain_filter.clone(),
         network_tx_filter.clone(),
+        payload_dissemination_filter.clone(),
         not_while_syncing_filter.clone(),
     );
 

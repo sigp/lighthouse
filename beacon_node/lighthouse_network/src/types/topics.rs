@@ -1,7 +1,8 @@
 use libp2p::gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use strum::AsRefStr;
+use std::str::FromStr;
+use strum::{AsRefStr, EnumIter, EnumString, IntoEnumIterator};
 use typenum::Unsigned;
 use types::{
     ChainSpec, EthSpec,
@@ -91,7 +92,11 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
     }
 
     if fork_name.gloas_enabled() {
-        topics.push(GossipKind::ExecutionPayload);
+        // [Modified in Heze:EIP8411] Execution payload envelopes are disseminated as chunks over
+        // waggle (`WaggleKind::ExecutionPayload`), the gossipsub topic is deprecated.
+        if !fork_name.heze_enabled() {
+            topics.push(GossipKind::ExecutionPayload);
+        }
         topics.push(GossipKind::ExecutionPayloadBid);
         topics.push(GossipKind::PayloadAttestation);
         topics.push(GossipKind::ProposerPreferences);
@@ -378,6 +383,85 @@ impl std::fmt::Display for GossipTopic {
     }
 }
 
+/// A waggle topic, named like gossipsub topics: `/eth2/{fork_digest}/{kind}/ssz_snappy`.
+///
+/// Like the data of gossipsub messages, payload chunks are snappy compressed SSZ. The metadata, like
+/// gossipsub control messages, is not compressed.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct WaggleTopic {
+    /// The fork digest of the topic.
+    pub fork_digest: [u8; 4],
+    /// The kind of topic.
+    pub kind: WaggleKind,
+}
+
+/// The kinds of waggle topics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, AsRefStr, EnumIter, EnumString)]
+#[strum(serialize_all = "snake_case")]
+pub enum WaggleKind {
+    /// Topic for the chunks of execution payload envelopes (EIP-8411).
+    ExecutionPayload,
+}
+
+impl WaggleKind {
+    /// Returns whether the topic exists at `fork_name`.
+    pub fn exists_at(self, fork_name: ForkName) -> bool {
+        match self {
+            WaggleKind::ExecutionPayload => fork_name.heze_enabled(),
+        }
+    }
+}
+
+impl WaggleTopic {
+    pub fn new(kind: WaggleKind, fork_digest: [u8; 4]) -> Self {
+        WaggleTopic { fork_digest, kind }
+    }
+
+    /// Returns the waggle topics of `fork_name`, with the fork digest `fork_digest`.
+    pub fn all_at_fork(fork_name: ForkName, fork_digest: [u8; 4]) -> impl Iterator<Item = Self> {
+        WaggleKind::iter()
+            .filter(move |kind| kind.exists_at(fork_name))
+            .map(move |kind| WaggleTopic::new(kind, fork_digest))
+    }
+
+    pub fn decode(topic: &str) -> Result<Self, String> {
+        let topic_parts = topic.split('/').collect::<Vec<_>>();
+        let &[
+            "",
+            TOPIC_PREFIX,
+            fork_digest,
+            kind,
+            SSZ_SNAPPY_ENCODING_POSTFIX,
+        ] = topic_parts.as_slice()
+        else {
+            return Err(format!("Unknown topic: {topic}"));
+        };
+
+        let fork_digest = hex::decode(fork_digest)
+            .map_err(|e| format!("Could not decode fork_digest hex: {e}"))?
+            .try_into()
+            .map_err(|digest: Vec<u8>| {
+                format!("Invalid waggle fork digest size: {}", digest.len())
+            })?;
+        let kind = WaggleKind::from_str(kind).map_err(|_| format!("Unknown topic: {topic}"))?;
+
+        Ok(WaggleTopic { fork_digest, kind })
+    }
+}
+
+impl std::fmt::Display for WaggleTopic {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "/{}/{}/{}/{}",
+            TOPIC_PREFIX,
+            hex::encode(self.fork_digest),
+            self.kind.as_ref(),
+            SSZ_SNAPPY_ENCODING_POSTFIX
+        )
+    }
+}
+
 impl From<Subnet> for GossipKind {
     fn from(subnet_id: Subnet) -> Self {
         match subnet_id {
@@ -456,6 +540,48 @@ mod tests {
     fn test_decode() {
         for topic in topics().iter() {
             assert!(GossipTopic::decode(topic.as_str()).is_ok());
+        }
+    }
+
+    #[test]
+    fn test_waggle_topic_roundtrip() {
+        for kind in WaggleKind::iter() {
+            let topic = WaggleTopic::new(kind, [1, 2, 3, 4]);
+            assert_eq!(WaggleTopic::decode(&topic.to_string()), Ok(topic));
+        }
+        assert_eq!(
+            WaggleTopic::new(WaggleKind::ExecutionPayload, [1, 2, 3, 4]).to_string(),
+            "/eth2/01020304/execution_payload/ssz_snappy"
+        );
+    }
+
+    #[test]
+    fn test_waggle_topic_decode_malicious() {
+        for topic in [
+            create_topic(
+                BAD_PREFIX,
+                GOOD_FORK_DIGEST,
+                "execution_payload",
+                SSZ_SNAPPY_ENCODING_POSTFIX,
+            ),
+            create_topic(
+                TOPIC_PREFIX,
+                BAD_FORK_DIGEST,
+                "execution_payload",
+                SSZ_SNAPPY_ENCODING_POSTFIX,
+            ),
+            create_topic(
+                TOPIC_PREFIX,
+                GOOD_FORK_DIGEST,
+                BAD_KIND,
+                SSZ_SNAPPY_ENCODING_POSTFIX,
+            ),
+            create_topic(TOPIC_PREFIX, GOOD_FORK_DIGEST, "execution_payload", "ssz"),
+            format!("{TOPIC_PREFIX}/{GOOD_FORK_DIGEST}/execution_payload/ssz_snappy"),
+            format!("/{TOPIC_PREFIX}/{GOOD_FORK_DIGEST}/execution_payload/ssz_snappy/"),
+            "execution_payload".to_string(),
+        ] {
+            assert!(WaggleTopic::decode(&topic).is_err(), "{topic}");
         }
     }
 
@@ -589,6 +715,33 @@ mod tests {
             core_topics_to_subscribe::<E>(ForkName::Fulu, &topic_config, &spec)
                 .contains(&GossipKind::DataColumnSidecar(0.into()))
         );
+    }
+
+    #[test]
+    fn execution_payload_is_only_subscribed_in_gloas() {
+        let spec = get_spec();
+        let s = get_sampling_subnets();
+        let topic_config = get_topic_config(&s);
+        for fork in ForkName::list_all() {
+            let topics = core_topics_to_subscribe::<E>(fork, &topic_config, &spec);
+            assert_eq!(
+                topics.contains(&GossipKind::ExecutionPayload),
+                fork.gloas_enabled() && !fork.heze_enabled(),
+                "{fork}"
+            );
+            // The bid stays on gossipsub.
+            assert_eq!(
+                topics.contains(&GossipKind::ExecutionPayloadBid),
+                fork.gloas_enabled(),
+                "{fork}"
+            );
+            // From Heze, the payload is on waggle instead.
+            assert_eq!(
+                WaggleKind::ExecutionPayload.exists_at(fork),
+                fork.heze_enabled(),
+                "{fork}"
+            );
+        }
     }
 
     #[test]

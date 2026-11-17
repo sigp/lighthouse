@@ -67,22 +67,22 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
     }
 
     // Builder index matches committed bid.
-    if envelope.builder_index != execution_bid.builder_index() {
+    if envelope.builder_index() != execution_bid.builder_index() {
         return Err(EnvelopeError::BuilderIndexMismatch {
             committed_bid: execution_bid.builder_index(),
-            envelope: envelope.builder_index,
+            envelope: envelope.builder_index(),
         });
     }
 
     // The block hash should match the block hash of the execution bid.
-    if envelope.payload.block_hash != execution_bid.block_hash() {
+    if envelope.payload().block_hash != execution_bid.block_hash() {
         return Err(EnvelopeError::BlockHashMismatch {
             committed_bid: execution_bid.block_hash(),
-            envelope: envelope.payload.block_hash,
+            envelope: envelope.payload().block_hash,
         });
     }
 
-    let requests = &envelope.execution_requests;
+    let requests = envelope.execution_requests();
     if requests.withdrawals.len() > E::max_withdrawal_requests_per_payload() {
         return Err(EnvelopeError::OperationListTooLong {
             kind: "withdrawal_requests",
@@ -111,10 +111,10 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
             max: E::max_builder_exit_requests_per_payload(),
         });
     }
-    if envelope.payload.withdrawals.len() > E::max_withdrawals_per_payload() {
+    if envelope.payload().withdrawals.len() > E::max_withdrawals_per_payload() {
         return Err(EnvelopeError::OperationListTooLong {
             kind: "withdrawals",
-            length: envelope.payload.withdrawals.len(),
+            length: envelope.payload().withdrawals.len(),
             max: E::max_withdrawals_per_payload(),
         });
     }
@@ -138,18 +138,46 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
 #[educe(Debug(bound = "T: BeaconChainTypes"))]
 pub struct GossipVerifiedEnvelope<T: BeaconChainTypes> {
     pub signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+    /// The root of `block`, which the envelope reveals the payload for.
+    pub beacon_block_root: Hash256,
     pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
     pub snapshot: Option<Box<EnvelopeProcessingSnapshot<T::EthSpec>>>,
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
+    /// Verifies `signed_envelope` for gossip.
+    ///
+    /// `block_root` is the root of the block the envelope is expected to belong to, if known. It
+    /// is required for Heze envelopes, which don't contain the root (EIP-8411).
+    ///
+    /// `payload_chunks_root` is the root of the chunks of the envelope, if the caller knows it,
+    /// see `BeaconChain::verify_envelope_for_gossip`.
     pub fn new(
         signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        block_root: Option<Hash256>,
+        payload_chunks_root: Option<Hash256>,
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, EnvelopeError> {
         let envelope = &signed_envelope.message;
-        let beacon_block_root = envelope.beacon_block_root;
-        let builder_index = envelope.builder_index;
+
+        // The envelope was decoded with the fork the sender chose, so check it matches its slot.
+        signed_envelope
+            .fork_name(ctx.spec)
+            .map_err(EnvelopeError::InconsistentFork)?;
+
+        let beacon_block_root = match (envelope.beacon_block_root(), block_root) {
+            (Ok(envelope_root), Some(expected)) if envelope_root != expected => {
+                return Err(EnvelopeError::BlockRootMismatch {
+                    expected,
+                    envelope: envelope_root,
+                });
+            }
+            (Ok(envelope_root), _) => envelope_root,
+            // [Modified in Heze:EIP8411] The envelope doesn't contain the root of its block.
+            (Err(_), Some(block_root)) => block_root,
+            (Err(_), None) => return Err(EnvelopeError::MissingBlockRoot),
+        };
+        let builder_index = envelope.builder_index();
 
         // Check that we've seen the beacon block for this envelope and that it passes validation.
         // TODO(EIP-7732): We might need some type of status table in order to differentiate between:
@@ -171,7 +199,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         drop(fork_choice_read_lock);
 
         let block_slot = proto_block.slot;
-        if ctx.source == EnvelopeSource::Gossip
+        if ctx.source.is_gossip()
             && ctx.observed_payload_envelopes.envelope_has_been_observed(
                 block_slot,
                 beacon_block_root,
@@ -209,84 +237,101 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
 
         verify_envelope_consistency(envelope, &block, execution_bid, latest_finalized_slot)?;
 
-        // Verify the envelope signature.
-        //
-        // For self-built envelopes, we can use the proposer cache for the fork and the
-        // validator pubkey cache for the proposer's pubkey, avoiding a state load from disk.
-        // For external builder envelopes, we must load the state to access the builder registry.
-        let envelope_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
-        // Since the payload's block is already guaranteed to be imported, the associated `proto_block.current_epoch_shuffling_id`
-        // already carries the correct `shuffling_decision_block`.
-        let proposer_shuffling_decision_block = proto_block
-            .current_epoch_shuffling_id
-            .shuffling_decision_block;
-
-        let (signature_is_valid, opt_snapshot) = if builder_index == BUILDER_INDEX_SELF_BUILD {
-            // Fast path: self-built envelopes can be verified without loading the state.
-            let mut opt_snapshot = None;
-            let proposer = beacon_proposer_cache::with_proposer_cache(
-                ctx.beacon_proposer_cache,
-                proposer_shuffling_decision_block,
-                envelope_epoch,
-                |proposers| proposers.get_slot::<T::EthSpec>(block_slot),
-                || {
-                    debug!(
-                        %beacon_block_root,
-                        "Proposer shuffling cache miss for envelope verification"
-                    );
-                    let snapshot = load_snapshot_from_state_root::<T>(
-                        beacon_block_root,
-                        proto_block.state_root,
-                        ctx.store,
-                    )?;
-                    opt_snapshot = Some(Box::new(snapshot.clone()));
-                    Ok::<_, EnvelopeError>((snapshot.state_root, snapshot.pre_state))
-                },
-                ctx.builder_onboarding_cache,
-                ctx.spec,
-            )?;
-            let expected_proposer = proposer.index;
-            let fork = proposer.fork;
-
-            if block.message().proposer_index() != expected_proposer as u64 {
-                return Err(EnvelopeError::IncorrectBlockProposer {
-                    proposer_index: block.message().proposer_index(),
-                    local_shuffling: expected_proposer as u64,
-                });
+        let opt_snapshot = if let Ok(bid_payload_chunks_root) = execution_bid.payload_chunks_root()
+        {
+            // [New in Heze:EIP8411] The bid in the block commits to the chunks of the envelope,
+            // which authenticates it instead of a signature.
+            let is_committed_to = match payload_chunks_root {
+                // The caller knows the root already, which spares hashing the envelope.
+                Some(payload_chunks_root) => payload_chunks_root == bid_payload_chunks_root,
+                None => envelope.matches_payload_chunks_root(bid_payload_chunks_root),
+            };
+            if !is_committed_to {
+                return Err(EnvelopeError::PayloadChunksRootMismatch);
             }
-
-            let pubkey_cache = ctx.validator_pubkey_cache.read();
-            let pubkey = pubkey_cache
-                .get(block.message().proposer_index() as usize)
-                .ok_or_else(|| EnvelopeError::UnknownValidator {
-                    proposer_index: block.message().proposer_index(),
-                })?;
-            let is_valid = signed_envelope.verify_signature(
-                pubkey,
-                &fork,
-                ctx.genesis_validators_root,
-                ctx.spec,
-            );
-            (is_valid, opt_snapshot)
+            None
         } else {
-            // TODO(gloas) if we implement a builder pubkey cache, we'll need to use it here.
-            // External builder: must load the state to get the builder pubkey.
-            let snapshot = load_snapshot_from_state_root::<T>(
-                beacon_block_root,
-                proto_block.state_root,
-                ctx.store,
-            )?;
-            let is_valid =
-                signed_envelope.verify_signature_with_state(&snapshot.pre_state, ctx.spec)?;
-            (is_valid, Some(Box::new(snapshot)))
-        };
+            // Verify the envelope signature.
+            //
+            // For self-built envelopes, we can use the proposer cache for the fork and the
+            // validator pubkey cache for the proposer's pubkey, avoiding a state load from disk.
+            // For external builder envelopes, we must load the state to access the builder registry.
+            let envelope_epoch = block_slot.epoch(T::EthSpec::slots_per_epoch());
+            // Since the payload's block is already guaranteed to be imported, the associated `proto_block.current_epoch_shuffling_id`
+            // already carries the correct `shuffling_decision_block`.
+            let proposer_shuffling_decision_block = proto_block
+                .current_epoch_shuffling_id
+                .shuffling_decision_block;
 
-        if !signature_is_valid {
-            return Err(EnvelopeError::BadSignature);
-        }
+            let (signature_is_valid, opt_snapshot) = if builder_index == BUILDER_INDEX_SELF_BUILD {
+                // Fast path: self-built envelopes can be verified without loading the state.
+                let mut opt_snapshot = None;
+                let proposer = beacon_proposer_cache::with_proposer_cache(
+                    ctx.beacon_proposer_cache,
+                    proposer_shuffling_decision_block,
+                    envelope_epoch,
+                    |proposers| proposers.get_slot::<T::EthSpec>(block_slot),
+                    || {
+                        debug!(
+                            %beacon_block_root,
+                            "Proposer shuffling cache miss for envelope verification"
+                        );
+                        let snapshot = load_snapshot_from_state_root::<T>(
+                            beacon_block_root,
+                            proto_block.state_root,
+                            ctx.store,
+                        )?;
+                        opt_snapshot = Some(Box::new(snapshot.clone()));
+                        Ok::<_, EnvelopeError>((snapshot.state_root, snapshot.pre_state))
+                    },
+                    ctx.builder_onboarding_cache,
+                    ctx.spec,
+                )?;
+                let expected_proposer = proposer.index;
+                let fork = proposer.fork;
+
+                if block.message().proposer_index() != expected_proposer as u64 {
+                    return Err(EnvelopeError::IncorrectBlockProposer {
+                        proposer_index: block.message().proposer_index(),
+                        local_shuffling: expected_proposer as u64,
+                    });
+                }
+
+                let pubkey_cache = ctx.validator_pubkey_cache.read();
+                let pubkey = pubkey_cache
+                    .get(block.message().proposer_index() as usize)
+                    .ok_or_else(|| EnvelopeError::UnknownValidator {
+                        proposer_index: block.message().proposer_index(),
+                    })?;
+                let is_valid = signed_envelope.verify_signature(
+                    pubkey,
+                    &fork,
+                    ctx.genesis_validators_root,
+                    ctx.spec,
+                );
+                (is_valid, opt_snapshot)
+            } else {
+                // TODO(gloas) if we implement a builder pubkey cache, we'll need to use it here.
+                // External builder: must load the state to get the builder pubkey.
+                let snapshot = load_snapshot_from_state_root::<T>(
+                    beacon_block_root,
+                    proto_block.state_root,
+                    ctx.store,
+                )?;
+                let is_valid =
+                    signed_envelope.verify_signature_with_state(&snapshot.pre_state, ctx.spec)?;
+                (is_valid, Some(Box::new(snapshot)))
+            };
+
+            if !signature_is_valid {
+                return Err(EnvelopeError::BadSignature);
+            }
+            opt_snapshot
+        };
 
         let gossip_verified_envelope = Self {
             signed_envelope,
+            beacon_block_root,
             block,
             snapshot: opt_snapshot,
         };
@@ -299,7 +344,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
             .observed_payload_envelopes
             .observe_envelope(&gossip_verified_envelope);
 
-        if envelope_already_seen && ctx.source == EnvelopeSource::Gossip {
+        if envelope_already_seen && ctx.source.is_gossip() {
             return Err(EnvelopeError::EnvelopeAlreadySeen {
                 block_root: beacon_block_root,
                 builder_index,
@@ -307,7 +352,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         }
 
         if !envelope_already_seen {
-            let payload = &gossip_verified_envelope.signed_envelope.message.payload;
+            let payload = gossip_verified_envelope.signed_envelope.message.payload();
             ctx.observed_execution_payloads
                 .insert(payload.block_hash, payload.gas_limit);
 
@@ -358,6 +403,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `Ok(GossipVerifiedEnvelope)` if the supplied `envelope` should be forwarded onto the
     /// gossip network. The envelope is not imported into the chain, it is just partially verified.
     ///
+    /// `block_root` is the root of the block the envelope is expected to belong to, if known. It
+    /// is required for Heze envelopes, which don't contain the root (EIP-8411).
+    ///
     /// `source` is the path the envelope arrived through. An envelope for an already seen
     /// `(block_root, builder_index)` pair errors with `EnvelopeError::EnvelopeAlreadySeen`
     /// only on the gossip path.
@@ -369,9 +417,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// Returns an `Err` if the given envelope was invalid, or an error was encountered during verification.
+    ///
+    /// ## Payload chunks root
+    ///
+    /// The bid of a Heze block commits to the chunks of its envelope (EIP-8411), which is checked
+    /// by computing the root of the chunks of `envelope`. A caller that knows this root already
+    /// passes it as `payload_chunks_root`, and it is compared to the bid instead: it is known to
+    /// who split the envelope into its chunks, or reassembled it from chunks that each have a valid
+    /// inclusion proof against the root, with
+    /// `ExecutionPayloadEnvelope::from_payload_chunks`. The caller vouches for it. Pass `None` for
+    /// an envelope from an untrusted source, such as a peer.
     pub async fn verify_envelope_for_gossip(
         self: &Arc<Self>,
         envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        block_root: Option<Hash256>,
+        payload_chunks_root: Option<Hash256>,
         source: EnvelopeSource,
     ) -> Result<GossipVerifiedEnvelope<T>, EnvelopeError> {
         let chain = self.clone();
@@ -380,10 +440,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .spawn_blocking_handle(
                 move || {
                     let slot = envelope.slot();
-                    let beacon_block_root = envelope.message.beacon_block_root;
+                    let beacon_block_root =
+                        envelope.message.beacon_block_root().ok().or(block_root);
 
                     let ctx = chain.payload_envelope_gossip_verification_context(source);
-                    match GossipVerifiedEnvelope::new(envelope, &ctx) {
+                    match GossipVerifiedEnvelope::new(
+                        envelope,
+                        block_root,
+                        payload_chunks_root,
+                        &ctx,
+                    ) {
                         Ok(verified) => {
                             debug!(
                                 %slot,
@@ -423,9 +489,9 @@ mod tests {
         Address, BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BuilderDepositRequest,
         BuilderExitRequest, ConsolidationRequest, Eth1Data, EthSpec, ExecutionBlockHash,
         ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidRef,
-        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, Graffiti, Hash256,
-        SignedBeaconBlock, SignedExecutionPayloadBidGloas, Slot, Spec, SyncAggregate, Withdrawal,
-        WithdrawalRequest,
+        ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas,
+        ExecutionRequestsGloas, Graffiti, Hash256, SignedBeaconBlock,
+        SignedExecutionPayloadBidGloas, Slot, Spec, SyncAggregate, Withdrawal, WithdrawalRequest,
     };
 
     use super::verify_envelope_consistency;
@@ -439,7 +505,7 @@ mod tests {
         builder_index: u64,
         block_hash: ExecutionBlockHash,
     ) -> ExecutionPayloadEnvelope<E> {
-        ExecutionPayloadEnvelope {
+        ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
             payload: ExecutionPayloadGloas {
                 block_hash,
                 slot_number: slot,
@@ -449,7 +515,7 @@ mod tests {
             builder_index,
             beacon_block_root: Hash256::ZERO,
             parent_beacon_block_root: Hash256::ZERO,
-        }
+        })
     }
 
     fn make_block(slot: Slot) -> SignedBeaconBlock<E> {
@@ -570,7 +636,7 @@ mod tests {
         let mut envelope = make_envelope(slot, builder_index, block_hash);
         // The block's parent root is `Hash256::ZERO`; claim a different parent beacon
         // block root in the envelope.
-        envelope.parent_beacon_block_root = Hash256::repeat_byte(0x11);
+        *envelope.parent_beacon_block_root_mut() = Hash256::repeat_byte(0x11);
         let block = make_block(slot);
         let bid = make_bid(builder_index, block_hash);
 
@@ -615,7 +681,7 @@ mod tests {
             amount: 0,
         };
         let max = E::max_withdrawals_per_payload();
-        envelope.payload.withdrawals =
+        envelope.payload_mut().withdrawals =
             ProgressiveVariableList::new(vec![withdrawal.clone(); max]).unwrap();
         assert!(
             verify_envelope_consistency::<E>(&envelope, &block, bid.to_ref(), Slot::new(0)).is_ok()
@@ -641,11 +707,11 @@ mod tests {
         let mut envelope = make_envelope(slot, builder_index, block_hash);
         let block = make_block(slot);
 
-        set_len(&mut envelope.execution_requests, max).unwrap();
+        set_len(envelope.execution_requests_mut(), max).unwrap();
         let bid = ExecutionPayloadBidGloas {
             builder_index,
             block_hash,
-            execution_requests_root: envelope.execution_requests.tree_hash_root(),
+            execution_requests_root: envelope.execution_requests().tree_hash_root(),
             ..ExecutionPayloadBidGloas::default()
         };
         assert!(
@@ -660,7 +726,7 @@ mod tests {
         );
 
         assert!(
-            set_len(&mut envelope.execution_requests, max + 1).is_err(),
+            set_len(envelope.execution_requests_mut(), max + 1).is_err(),
             "{kind} over max should be rejected during construction"
         );
     }

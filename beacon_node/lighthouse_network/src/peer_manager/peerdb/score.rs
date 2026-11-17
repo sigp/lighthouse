@@ -73,6 +73,7 @@ pub enum ReportSource {
     Processor,
     SyncService,
     PeerManager,
+    Waggle,
 }
 
 impl From<ReportSource> for &'static str {
@@ -83,6 +84,7 @@ impl From<ReportSource> for &'static str {
             ReportSource::Processor => "processor",
             ReportSource::SyncService => "sync",
             ReportSource::PeerManager => "peer_manager",
+            ReportSource::Waggle => "waggle",
         }
     }
 }

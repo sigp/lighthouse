@@ -110,7 +110,7 @@ alloy-rpc-types-eth = { version = "1", default-features = false, features = ["se
 alloy-signer-local = { version = "1", default-features = false }
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
-async-channel = "1.9.0"
+async-channel = "2.5.0"
 axum = "0.8"
 axum_utils = { path = "common/axum_utils" }
 base64 = "0.22"
@@ -273,6 +273,7 @@ validator_metrics = { path = "validator_client/validator_metrics" }
 validator_services = { path = "validator_client/validator_services" }
 validator_store = { path = "validator_client/validator_store" }
 validator_test_rig = { path = "testing/validator_test_rig" }
+waggle = { git = "https://github.com/dknopik/waggle", branch = "alternate-design" }
 warp = { version = "0.4", default-features = false, features = ["server"] }
 warp_utils = { path = "common/warp_utils" }
 webpki-roots = "1"

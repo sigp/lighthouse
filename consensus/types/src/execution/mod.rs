@@ -12,6 +12,7 @@ mod execution_proof;
 mod execution_requests;
 mod inclusion_list;
 mod payload;
+mod payload_chunk;
 mod signed_bls_to_execution_change;
 mod signed_execution_payload_bid;
 mod signed_execution_payload_envelope;
@@ -31,7 +32,10 @@ pub use execution_payload_bid::{
     ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
     ExecutionPayloadBidRefMut,
 };
-pub use execution_payload_envelope::ExecutionPayloadEnvelope;
+pub use execution_payload_envelope::{
+    ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopeHeze,
+    ExecutionPayloadEnvelopeRef, ExecutionPayloadEnvelopeRefMut, ExecutionPayloadEnvelopeWithRoot,
+};
 pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
@@ -53,6 +57,10 @@ pub use payload::{
     BlockProductionVersion, BlockType, ExecPayload, FullPayload, FullPayloadBellatrix,
     FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu, FullPayloadRef,
     NewPayloadRequest, OwnedExecPayload, VersionedHashes,
+};
+pub use payload_chunk::{
+    Chunk, ChunkBitmap, ChunkIndex, ChunkMetadata, PayloadChunk, PayloadChunkError, PayloadChunks,
+    payload_chunks_root,
 };
 pub use signed_bls_to_execution_change::SignedBlsToExecutionChange;
 pub use signed_execution_payload_bid::{

@@ -696,7 +696,8 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
             return Ok(None);
         };
 
-        Ok(Some(summary.into_envelope(payload_body)))
+        let fork_name = self.spec.fork_name_at_slot::<E>(summary.slot());
+        Ok(Some(summary.into_envelope(payload_body, fork_name)))
     }
 
     /// Load the persistent portion of a signed execution payload envelope.
@@ -1022,7 +1023,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         envelope: &SignedExecutionPayloadEnvelope<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
-        let payload = &envelope.message.payload;
+        let payload = envelope.message.payload();
         ops.push(KeyValueStoreOp::PutKeyValue(
             DBColumn::PayloadBody,
             key.as_slice().into(),
@@ -1045,7 +1046,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
         envelope: &SignedExecutionPayloadEnvelope<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
-        let summary = SignedExecutionPayloadEnvelopeSummary::from(envelope);
+        let summary = SignedExecutionPayloadEnvelopeSummary::new(envelope, *key);
         ops.push(KeyValueStoreOp::PutKeyValue(
             SignedExecutionPayloadEnvelopeSummary::<E>::db_column(),
             key.as_slice().into(),
@@ -4058,7 +4059,7 @@ mod tests {
         let withheld_block_root = Hash256::repeat_byte(0x22);
         let full_block_root = Hash256::repeat_byte(0x33);
         let envelope = SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
+            message: ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
                 payload: ExecutionPayloadGloas {
                     slot_number: Slot::new(2),
                     ..Default::default()
@@ -4067,7 +4068,7 @@ mod tests {
                 builder_index: 0,
                 beacon_block_root: full_block_root,
                 parent_beacon_block_root: Hash256::ZERO,
-            },
+            }),
             signature: Signature::empty(),
         };
         store

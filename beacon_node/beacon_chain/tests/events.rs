@@ -277,7 +277,12 @@ async fn execution_payload_envelope_events() {
     // Stage 1: gossip verification fires execution_payload_gossip only.
     let gossip_verified = harness
         .chain
-        .verify_envelope_for_gossip(Arc::new(signed_envelope), EnvelopeSource::Gossip)
+        .verify_envelope_for_gossip(
+            Arc::new(signed_envelope),
+            Some(block_root),
+            None,
+            EnvelopeSource::Gossip,
+        )
         .await
         .expect("envelope gossip verification should succeed");
 

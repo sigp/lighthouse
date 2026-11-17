@@ -42,9 +42,12 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
         }
     }
 
-    /// Insert a pending envelope into the cache, keyed by the beacon block root it commits to.
-    pub fn insert(&mut self, data: PendingEnvelopeData<E>) {
-        self.envelopes.insert(data.envelope.beacon_block_root, data);
+    /// Insert a pending envelope into the cache, keyed by the root of the beacon block it
+    /// belongs to.
+    ///
+    /// The root is passed separately as Heze envelopes no longer contain it (EIP-8411).
+    pub fn insert(&mut self, beacon_block_root: Hash256, data: PendingEnvelopeData<E>) {
+        self.envelopes.insert(beacon_block_root, data);
     }
 
     /// Get a pending envelope by the beacon block root it commits to.
@@ -104,22 +107,26 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::{ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256, Spec};
+    use types::{
+        ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas, ExecutionRequestsGloas, Hash256, Spec,
+    };
 
     type E = Spec;
 
     fn make_envelope(slot: Slot, beacon_block_root: Hash256) -> PendingEnvelopeData<E> {
         PendingEnvelopeData {
-            envelope: Arc::new(ExecutionPayloadEnvelope {
-                payload: ExecutionPayloadGloas {
-                    slot_number: slot,
-                    ..ExecutionPayloadGloas::default()
+            envelope: Arc::new(ExecutionPayloadEnvelope::Gloas(
+                ExecutionPayloadEnvelopeGloas {
+                    payload: ExecutionPayloadGloas {
+                        slot_number: slot,
+                        ..ExecutionPayloadGloas::default()
+                    },
+                    execution_requests: ExecutionRequestsGloas::default(),
+                    builder_index: 0,
+                    beacon_block_root,
+                    parent_beacon_block_root: Hash256::ZERO,
                 },
-                execution_requests: ExecutionRequestsGloas::default(),
-                builder_index: 0,
-                beacon_block_root,
-                parent_beacon_block_root: Hash256::ZERO,
-            }),
+            )),
             blobs: None,
         }
     }
@@ -134,7 +141,7 @@ mod tests {
 
         assert_eq!(cache.len(), 0);
 
-        cache.insert(data);
+        cache.insert(block_root, data);
 
         assert_eq!(cache.len(), 1);
         assert_eq!(
@@ -151,8 +158,8 @@ mod tests {
         let root_a = Hash256::repeat_byte(1);
         let root_b = Hash256::repeat_byte(2);
 
-        cache.insert(make_envelope(slot, root_a));
-        cache.insert(make_envelope(slot, root_b));
+        cache.insert(root_a, make_envelope(slot, root_a));
+        cache.insert(root_b, make_envelope(slot, root_b));
 
         assert_eq!(cache.len(), 2);
         assert!(cache.get_by_block_root(root_a).is_some());
@@ -167,7 +174,7 @@ mod tests {
         let data = make_envelope(slot, block_root);
         let expected_envelope = data.envelope.clone();
 
-        cache.insert(data);
+        cache.insert(block_root, data);
         assert!(cache.get_by_block_root(block_root).is_some());
 
         let removed = cache.remove(block_root);
@@ -187,7 +194,7 @@ mod tests {
             envelope: make_envelope(slot, block_root).envelope,
             blobs: Some(blobs),
         };
-        cache.insert(data);
+        cache.insert(block_root, data);
         assert!(cache.has_blobs(block_root));
 
         // First take returns the blobs
@@ -210,7 +217,7 @@ mod tests {
         let block_root = Hash256::repeat_byte(42);
 
         // Insert with no blobs
-        cache.insert(make_envelope(slot, block_root));
+        cache.insert(block_root, make_envelope(slot, block_root));
         assert!(!cache.has_blobs(block_root));
         assert!(cache.take_blobs(block_root).is_none());
 
@@ -225,11 +232,17 @@ mod tests {
 
         // Insert envelope at slot 5
         let slot_1 = Slot::new(5);
-        cache.insert(make_envelope(slot_1, Hash256::repeat_byte(1)));
+        cache.insert(
+            Hash256::repeat_byte(1),
+            make_envelope(slot_1, Hash256::repeat_byte(1)),
+        );
 
         // Insert envelope at slot 10
         let slot_2 = Slot::new(10);
-        cache.insert(make_envelope(slot_2, Hash256::repeat_byte(2)));
+        cache.insert(
+            Hash256::repeat_byte(2),
+            make_envelope(slot_2, Hash256::repeat_byte(2)),
+        );
 
         assert_eq!(cache.len(), 2);
 

@@ -20,6 +20,7 @@ anyhow = { workspace = true }
 async-channel = { workspace = true }
 beacon_chain = { workspace = true }
 beacon_processor = { workspace = true }
+bytes = { workspace = true }
 delay_map = { workspace = true }
 educe = { workspace = true }
 enr = { workspace = true }
@@ -41,16 +42,19 @@ parking_lot = { workspace = true }
 rand = { workspace = true }
 slot_clock = { workspace = true }
 smallvec = { workspace = true }
+snap = { workspace = true }
 ssz_types = { workspace = true }
 store = { workspace = true }
 strum = { workspace = true }
 task_executor = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 typenum = { workspace = true }
 types = { workspace = true }
+waggle = { workspace = true }
 
 [dev-dependencies]
 arbitrary = { workspace = true }

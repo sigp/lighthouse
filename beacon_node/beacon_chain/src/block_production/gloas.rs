@@ -31,12 +31,13 @@ use types::{
     BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze, BeaconState,
     BeaconStateError, BlobsList, BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadEnvelope,
-    ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, IndexedAttestation, KzgProofs,
-    PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
-    SignedExecutionPayloadEnvelopeSummary, SignedProposerPreferences, SignedVoluntaryExit, Slot,
-    SyncAggregate, Uint256, Withdrawal, Withdrawals,
+    ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopeHeze, ExecutionRequestsGloas,
+    FullPayload, Graffiti, Hash256, IndexedAttestation, KzgProofs, PayloadAttestation,
+    ProposerSlashing, RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary,
+    SignedProposerPreferences, SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal,
+    Withdrawals,
 };
 
 use builder_client::BidRequestContext;
@@ -889,12 +890,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let payload_contents = if let Some(payload_data) = payload_data {
             let beacon_block_root = block.tree_hash_root();
             let parent_beacon_block_root = block.parent_root();
-            let execution_payload_envelope = ExecutionPayloadEnvelope {
-                payload: payload_data.payload,
-                execution_requests: payload_data.execution_requests,
-                builder_index: payload_data.builder_index,
-                beacon_block_root,
-                parent_beacon_block_root,
+            let execution_payload_envelope = if self
+                .spec
+                .fork_name_at_slot::<T::EthSpec>(block.slot())
+                .heze_enabled()
+            {
+                ExecutionPayloadEnvelope::Heze(ExecutionPayloadEnvelopeHeze {
+                    payload: payload_data.payload,
+                    execution_requests: payload_data.execution_requests,
+                    builder_index: payload_data.builder_index,
+                    parent_beacon_block_root,
+                })
+            } else {
+                ExecutionPayloadEnvelope::Gloas(ExecutionPayloadEnvelopeGloas {
+                    payload: payload_data.payload,
+                    execution_requests: payload_data.execution_requests,
+                    builder_index: payload_data.builder_index,
+                    beacon_block_root,
+                    parent_beacon_block_root,
+                })
             };
 
             let signed_envelope = SignedExecutionPayloadEnvelope {
@@ -917,12 +931,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let (blobs, kzg_proofs) = payload_data.blobs_and_proofs;
             let envelope = Arc::new(signed_envelope.message);
             let blobs = Arc::new(blobs);
-            self.pending_payload_envelopes
-                .write()
-                .insert(PendingEnvelopeData {
+            self.pending_payload_envelopes.write().insert(
+                beacon_block_root,
+                PendingEnvelopeData {
                     envelope: envelope.clone(),
                     blobs: Some(blobs.clone()),
-                });
+                },
+            );
 
             debug!(
                 %beacon_block_root,
@@ -1024,7 +1039,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         } = block_proposal_contents;
 
         let signature = Signature::infinity().map_err(BlockProductionError::BlsError)?;
-        let signed_execution_payload_bid = match state {
+        let (signed_execution_payload_bid, payload, execution_requests) = match state {
             BeaconState::Base(_)
             | BeaconState::Altair(_)
             | BeaconState::Bellatrix(_)
@@ -1052,12 +1067,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     execution_requests_root: execution_requests.tree_hash_root(),
                 };
 
-                SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
-                    message: bid,
-                    signature,
-                })
+                (
+                    SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                        message: bid,
+                        signature,
+                    }),
+                    payload,
+                    execution_requests,
+                )
             }
             BeaconState::Heze(_) => {
+                // [New in Heze:EIP8411] The bid commits to the chunks of the envelope, which no
+                // longer contains the beacon block root and can therefore be built already.
+                let envelope = ExecutionPayloadEnvelope::Heze(ExecutionPayloadEnvelopeHeze {
+                    payload,
+                    execution_requests,
+                    builder_index,
+                    parent_beacon_block_root: parent_root,
+                });
+                let (envelope, payload_chunks_root) = self
+                    .task_executor
+                    .spawn_blocking_handle(
+                        move || {
+                            let payload_chunks_root = envelope.compute_payload_chunks_root();
+                            (envelope, payload_chunks_root)
+                        },
+                        "compute_payload_chunks_root",
+                    )
+                    .ok_or(BlockProductionError::ShuttingDown)?
+                    .await
+                    .map_err(BlockProductionError::TokioJoin)?;
+                let payload_chunks_root =
+                    payload_chunks_root.map_err(BlockProductionError::PayloadChunkError)?;
+                let (payload, execution_requests) = envelope.into_payload_and_requests();
+
                 let bid = ExecutionPayloadBidHeze::<T::EthSpec> {
                     parent_block_hash: executed_ancestor_hash,
                     parent_block_root: parent_root,
@@ -1074,11 +1117,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // TODO(heze): set the bits based on the IL committee members whose
                     // inclusion lists were considered when building the payload
                     inclusion_list_bits: BitVector::new(),
+                    payload_chunks_root,
                 };
-                SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
-                    message: bid,
-                    signature,
-                })
+                (
+                    SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
+                        message: bid,
+                        signature,
+                    }),
+                    payload,
+                    execution_requests,
+                )
             }
         };
 

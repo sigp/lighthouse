@@ -2,7 +2,10 @@ use crate::beacon_chain::BeaconChainTypes;
 use ssz::{Decode, Encode};
 use store::hot_cold_store::HotColdDB;
 use store::{DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
-use types::{Hash256, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary};
+use types::{
+    ForkName, ForkVersionDecode, Hash256, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeSummary,
+};
 
 /// Upgrade from schema v30 to v31.
 ///
@@ -18,8 +21,10 @@ pub fn upgrade_to_v31<T: BeaconChainTypes>(
 
     for result in db.hot_db.iter_column::<Hash256>(DBColumn::PayloadBody) {
         let (block_root, envelope_bytes) = result?;
-        let envelope = SignedExecutionPayloadEnvelope::<T::EthSpec>::from_ssz_bytes(
+        // v30 databases predate the Heze envelope, so every envelope uses the Gloas layout.
+        let envelope = SignedExecutionPayloadEnvelope::<T::EthSpec>::from_ssz_bytes_by_fork(
             &envelope_bytes,
+            ForkName::Gloas,
         )
         .map_err(|error| {
             StoreError::MigrationError(format!(
@@ -38,7 +43,7 @@ pub fn upgrade_to_v31<T: BeaconChainTypes>(
             continue;
         }
 
-        let summary = SignedExecutionPayloadEnvelopeSummary::from(&envelope);
+        let summary = SignedExecutionPayloadEnvelopeSummary::new(&envelope, block_root);
 
         if prune_payloads && envelope.slot() < split_slot {
             // The old full envelope occupies the same key as the new body, so it must be deleted.
@@ -47,7 +52,7 @@ pub fn upgrade_to_v31<T: BeaconChainTypes>(
                 block_root.as_slice().to_vec(),
             ));
         } else {
-            let payload = &envelope.message.payload;
+            let payload = envelope.message.payload();
             ops.push(KeyValueStoreOp::PutKeyValue(
                 DBColumn::PayloadBody,
                 block_root.as_slice().to_vec(),
@@ -114,7 +119,7 @@ fn child_selects_empty<T: BeaconChainTypes>(
         return Ok(false);
     };
     Ok(child.parent_root() == block_root
-        && !child.is_parent_block_full(envelope.message.payload.block_hash))
+        && !child.is_parent_block_full(envelope.message.payload().block_hash))
 }
 
 /// Downgrade from schema v31 to v30.

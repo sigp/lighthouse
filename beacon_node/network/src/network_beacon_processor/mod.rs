@@ -1,4 +1,5 @@
 use crate::sync::manager::BlockProcessType;
+use crate::waggle_handlers::payload_topics::PayloadDisseminationSenders;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::block_verification_types::{LookupBlock, RangeSyncBlock};
 use beacon_chain::data_column_verification::{
@@ -72,6 +73,8 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
+    /// Registers the payloads of blocks with the payload dissemination services.
+    pub payload_dissemination: PayloadDisseminationSenders<T::EthSpec>,
     pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub invalid_block_storage: InvalidBlockStorage,
     pub executor: TaskExecutor,
@@ -456,6 +459,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     Arc::new(*execution_payload),
                     seen_timestamp,
+                )
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipExecutionPayload(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for an execution payload envelope to reassemble from the chunks
+    /// received through waggle, each of which has a valid inclusion proof against
+    /// `payload_chunks_root`.
+    pub fn send_reassembled_execution_payload(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        slot: Slot,
+        payload_chunks_root: Hash256,
+        chunks: Vec<Arc<PayloadChunk<T::EthSpec>>>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_reassembled_execution_payload(
+                    block_root,
+                    slot,
+                    payload_chunks_root,
+                    chunks,
                 )
                 .await
         };
@@ -966,6 +997,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let task_name = match source {
             EnvelopeSource::Gossip => "fetch_blobs_gossip",
+            EnvelopeSource::Waggle => "fetch_blobs_waggle",
             EnvelopeSource::Rpc => "fetch_blobs_rpc",
             EnvelopeSource::Http => "fetch_blobs_http",
         };
@@ -1357,7 +1389,7 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         (processor, beacon_processor_rx)
     }
 
-    fn null_for_testing_with_network_receiver(
+    pub(crate) fn null_for_testing_with_network_receiver(
         network_globals: Arc<NetworkGlobals<E>>,
         sync_tx: UnboundedSender<SyncMessage<E>>,
         chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
@@ -1380,6 +1412,7 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             chain,
             network_tx,
             sync_tx,
+            payload_dissemination: PayloadDisseminationSenders::disabled(),
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor,

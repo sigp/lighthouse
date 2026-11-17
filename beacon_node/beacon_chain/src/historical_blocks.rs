@@ -264,7 +264,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             }
                         })?;
                     }
-                    if envelope.envelope().message.builder_index == BUILDER_INDEX_SELF_BUILD {
+                    // [New in Heze:EIP8411] The bid in the (root-chained) block commits to the
+                    // chunks of the envelope, which authenticates it whoever built it.
+                    if let Some(payload_chunks_root) = block
+                        .message()
+                        .body()
+                        .signed_execution_payload_bid()
+                        .ok()
+                        .and_then(|bid| bid.message().payload_chunks_root().ok())
+                    {
+                        if !envelope
+                            .message()
+                            .matches_payload_chunks_root(payload_chunks_root)
+                        {
+                            return Err(HistoricalBlockError::InvalidEnvelope {
+                                block_root,
+                                reason: "envelope doesn't match the payload chunks root"
+                                    .to_string(),
+                            });
+                        }
+                    } else if envelope.envelope().message.builder_index()
+                        == BUILDER_INDEX_SELF_BUILD
+                    {
                         envelopes_to_verify.push((
                             block_root,
                             envelope.envelope().clone(),

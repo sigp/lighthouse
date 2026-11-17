@@ -4228,6 +4228,7 @@ impl ApiTester {
                     blob_kzg_commitments: Default::default(),
                     execution_requests_root: Hash256::zero(),
                     inclusion_list_bits: Default::default(),
+                    payload_chunks_root: Hash256::zero(),
                 },
                 signature,
             })
@@ -5577,8 +5578,17 @@ impl ApiTester {
             .get_by_block_root(block_root)
             .cloned()
             .expect("envelope should exist in pending cache for local building");
-        assert_eq!(envelope.beacon_block_root, block_root);
+        Self::assert_envelope_block_root(&envelope, block_root);
         assert_eq!(envelope.slot(), slot);
+    }
+
+    /// Assert that `envelope` is of the block with root `block_root`, if it says so.
+    ///
+    /// [Modified in Heze:EIP8411] Heze envelopes don't contain the root of their block.
+    fn assert_envelope_block_root(envelope: &ExecutionPayloadEnvelope<E>, block_root: Hash256) {
+        if let Ok(envelope_block_root) = envelope.beacon_block_root() {
+            assert_eq!(envelope_block_root, block_root);
+        }
     }
 
     /// Assert envelope fields match the expected block root and slot.
@@ -5588,9 +5598,9 @@ impl ApiTester {
         block_root: Hash256,
         slot: Slot,
     ) {
-        assert_eq!(envelope.beacon_block_root, block_root);
+        Self::assert_envelope_block_root(envelope, block_root);
         assert_eq!(envelope.slot(), slot);
-        assert_eq!(envelope.builder_index, BUILDER_INDEX_SELF_BUILD);
+        assert_eq!(envelope.builder_index(), BUILDER_INDEX_SELF_BUILD);
     }
 
     /// Sign an execution payload envelope.
@@ -5686,7 +5696,7 @@ impl ApiTester {
         let (sk, _, mut envelope) = self
             .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
             .await;
-        envelope.payload.gas_limit = envelope.payload.gas_limit.saturating_add(1);
+        envelope.payload_mut().gas_limit = envelope.payload().gas_limit.saturating_add(1);
         let signed_envelope =
             self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
 
@@ -5724,7 +5734,7 @@ impl ApiTester {
         let (sk, _, mut envelope) = self
             .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
             .await;
-        envelope.payload.gas_limit = envelope.payload.gas_limit.saturating_add(1);
+        envelope.payload_mut().gas_limit = envelope.payload().gas_limit.saturating_add(1);
         let signed_envelope =
             self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
 
@@ -6150,7 +6160,7 @@ impl ApiTester {
             .chain
             .pending_payload_envelopes
             .write()
-            .take_blobs(envelope.beacon_block_root);
+            .take_blobs(envelope.beacon_block_root().unwrap());
         assert!(
             drained_blobs.is_some_and(|blobs| !blobs.is_empty()),
             "precondition: the block should commit to blobs"
@@ -6189,7 +6199,7 @@ impl ApiTester {
         let (sk, _, envelope) = self
             .build_and_post_block_for_envelope(slot, epoch, &fork, genesis_validators_root)
             .await;
-        let block_root = envelope.beacon_block_root;
+        let block_root = envelope.beacon_block_root().unwrap();
         let signed_envelope =
             self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
 
@@ -6473,6 +6483,7 @@ impl ApiTester {
             } = self.unwrap_v4_block_contents(response, &metadata, slot);
 
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let block_root = signed_block.canonical_root();
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
             if ssz {
@@ -6493,7 +6504,7 @@ impl ApiTester {
             self.chain
                 .pending_payload_envelopes
                 .write()
-                .remove(envelope.beacon_block_root);
+                .remove(block_root);
             let signed_envelope =
                 self.sign_envelope(envelope, &sk, epoch, &fork, genesis_validators_root);
             let contents = SignedExecutionPayloadEnvelopeContents {
@@ -7109,6 +7120,15 @@ impl ApiTester {
             let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block)).unwrap();
+            // [New in Heze:EIP8411] The beacon node publishes the payloads of the blocks it built
+            // right after importing the block. Forget the envelope, as a beacon node that did
+            // not build the block, so that it is withheld.
+            if fork_name.heze_enabled() {
+                self.chain
+                    .pending_payload_envelopes
+                    .write()
+                    .remove(block_root);
+            }
             self.client
                 .post_beacon_blocks_v2(&signed_block_request, None)
                 .await

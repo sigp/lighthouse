@@ -16,7 +16,7 @@ use types::data::BlobIdentifier;
 use types::light_client::consts::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch,
-    EthSpec, ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    EthSpec, ForkContext, ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
     LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
     SignedExecutionPayloadEnvelope, Slot,
 };
@@ -363,6 +363,35 @@ impl BlocksByRangeRequest {
     }
 }
 
+/// The version of the execution payload envelope RPCs.
+///
+/// Version 1 serves Gloas envelopes, and version 2 Heze envelopes along with the roots of their
+/// blocks, which Heze envelopes don't contain (EIP-8411). Each version only serves the envelopes of
+/// its forks: version 2 envelopes are not signed, while Gloas envelopes are authenticated by their
+/// signature.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PayloadEnvelopesVersion {
+    #[default]
+    V1,
+    V2,
+}
+
+impl PayloadEnvelopesVersion {
+    /// Returns the version serving the envelopes of `fork_name`.
+    pub fn for_fork(fork_name: ForkName) -> Self {
+        if fork_name.heze_enabled() {
+            Self::V2
+        } else {
+            Self::V1
+        }
+    }
+
+    /// Returns whether this version serves the envelopes of `fork_name`.
+    pub fn serves(self, fork_name: ForkName) -> bool {
+        fork_name.gloas_enabled() && self == Self::for_fork(fork_name)
+    }
+}
+
 /// Request a number of execution payload envelopes from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct PayloadEnvelopesByRangeRequest {
@@ -371,6 +400,10 @@ pub struct PayloadEnvelopesByRangeRequest {
 
     /// The number of slots from the start slot.
     pub count: u64,
+
+    /// The version of the protocol, which is not part of the request itself.
+    #[ssz(skip_serializing, skip_deserializing)]
+    pub version: PayloadEnvelopesVersion,
 }
 
 /// Request a number of beacon blobs from a peer.
@@ -533,11 +566,15 @@ impl BlocksByRootRequest {
 pub struct PayloadEnvelopesByRootRequest {
     /// The list of beacon block roots used to request execution payload envelopes.
     pub beacon_block_roots: RuntimeVariableList<Hash256>,
+
+    /// The version of the protocol, which is not part of the request itself.
+    pub version: PayloadEnvelopesVersion,
 }
 
 impl PayloadEnvelopesByRootRequest {
     pub fn new(
         beacon_block_roots: Vec<Hash256>,
+        version: PayloadEnvelopesVersion,
         fork_context: &ForkContext,
     ) -> Result<Self, String> {
         let max_requests_envelopes = fork_context.spec.max_request_payloads();
@@ -547,7 +584,10 @@ impl PayloadEnvelopesByRootRequest {
                 format!("ExecutionPayloadEnvelopesByRootRequest too many beacon block roots: {e:?}")
             })?;
 
-        Ok(Self { beacon_block_roots })
+        Ok(Self {
+            beacon_block_roots,
+            version,
+        })
     }
 }
 
@@ -622,6 +662,17 @@ impl LightClientUpdatesByRangeRequest {
 /* RPC Handling and Grouping */
 // Collection of enums and structs used by the Codecs to encode/decode RPC messages
 
+/// An execution payload envelope served by the envelope RPCs, along with the root of its block.
+///
+/// Version 1 responses carry the root in the envelope, version 2 responses alongside the envelope,
+/// which is not signed, see `PayloadEnvelopesVersion`. Received version 2 envelopes are wrapped in
+/// a `SignedExecutionPayloadEnvelope` with the infinity signature.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PayloadEnvelopeResponse<E: EthSpec> {
+    pub beacon_block_root: Hash256,
+    pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum RpcSuccessResponse<E: EthSpec> {
     /// A HELLO message.
@@ -639,10 +690,10 @@ pub enum RpcSuccessResponse<E: EthSpec> {
 
     /// A response to a get EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE request. A None response signifies
     /// the end of the batch.
-    PayloadEnvelopesByRange(Arc<SignedExecutionPayloadEnvelope<E>>),
+    PayloadEnvelopesByRange(PayloadEnvelopeResponse<E>),
 
     /// A response to a get EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT request.
-    PayloadEnvelopesByRoot(Arc<SignedExecutionPayloadEnvelope<E>>),
+    PayloadEnvelopesByRoot(PayloadEnvelopeResponse<E>),
 
     /// A response to a get BLOBS_BY_RANGE request
     BlobsByRange(Arc<BlobSidecar<E>>),
@@ -835,7 +886,9 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             Self::BlocksByRange(r) | Self::BlocksByRoot(r) | Self::BlocksByHead(r) => {
                 Some(r.slot())
             }
-            Self::PayloadEnvelopesByRoot(r) | Self::PayloadEnvelopesByRange(r) => Some(r.slot()),
+            Self::PayloadEnvelopesByRoot(r) | Self::PayloadEnvelopesByRange(r) => {
+                Some(r.envelope.slot())
+            }
             Self::BlobsByRange(r) | Self::BlobsByRoot(r) => Some(r.slot()),
             Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => Some(r.slot()),
             Self::LightClientBootstrap(r) => Some(r.get_slot()),
@@ -889,18 +942,18 @@ impl<E: EthSpec> std::fmt::Display for RpcSuccessResponse<E> {
             RpcSuccessResponse::BlocksByHead(block) => {
                 write!(f, "BlocksByHead: Block slot: {}", block.slot())
             }
-            RpcSuccessResponse::PayloadEnvelopesByRange(envelope) => {
+            RpcSuccessResponse::PayloadEnvelopesByRange(response) => {
                 write!(
                     f,
                     "ExecutionPayloadEnvelopesByRange: Envelope slot: {}",
-                    envelope.slot()
+                    response.envelope.slot()
                 )
             }
-            RpcSuccessResponse::PayloadEnvelopesByRoot(envelope) => {
+            RpcSuccessResponse::PayloadEnvelopesByRoot(response) => {
                 write!(
                     f,
                     "ExecutionPayloadEnvelopesByRoot: Envelope slot: {}",
-                    envelope.slot()
+                    response.envelope.slot()
                 )
             }
             RpcSuccessResponse::BlobsByRange(blob) => {

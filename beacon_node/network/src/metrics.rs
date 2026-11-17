@@ -732,6 +732,109 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_SENT_OPTIMISTIC_UPDATES: LazyLock
     )
 });
 
+/*
+ * Payload dissemination over waggle (EIP-8411).
+ */
+pub static PAYLOAD_DISSEMINATION_PAYLOADS_TRACKED: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "payload_dissemination_payloads_tracked_total",
+            "Count of payloads whose chunks we started to disseminate",
+        )
+    });
+pub static PAYLOAD_DISSEMINATION_PAYLOADS_COMPLETED: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "payload_dissemination_payloads_completed_total",
+            "Count of tracked payloads we got every chunk of, by whether we published the payload or reassembled it from the chunks of peers",
+            &["source"],
+        )
+    });
+pub static PAYLOAD_DISSEMINATION_PAYLOADS_INCOMPLETE: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "payload_dissemination_payloads_incomplete_total",
+            "Count of payloads whose tracking window ended before we had every chunk",
+        )
+    });
+pub static PAYLOAD_DISSEMINATION_REASSEMBLY_SECONDS: LazyLock<Result<Histogram>> = LazyLock::new(
+    || {
+        try_create_histogram_with_buckets(
+            "payload_dissemination_reassembly_seconds",
+            "Time from starting to track a payload, i.e. from knowing its block, to having every chunk of it",
+            Ok(vec![
+                0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0,
+            ]),
+        )
+    },
+);
+pub static PAYLOAD_DISSEMINATION_CHUNKS_RECEIVED: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "payload_dissemination_chunks_received_total",
+            "Count of payload chunks received from peers, by what became of them",
+            &["result"],
+        )
+    });
+pub static PAYLOAD_DISSEMINATION_CHUNKS_SENT: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "payload_dissemination_chunks_sent_total",
+            "Count of payload chunks sent to peers, by whether we pushed them or served a request",
+            &["kind"],
+        )
+    });
+pub static PAYLOAD_DISSEMINATION_ANNOUNCEMENTS_SENT: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "payload_dissemination_announcements_sent_total",
+            "Count of messages sent to peers that only announce the payload chunks we have",
+        )
+    });
+pub static PAYLOAD_DISSEMINATION_CHUNKS_REQUESTED: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "payload_dissemination_chunks_requested_total",
+            "Count of payload chunks requested from peers, counting every request for a chunk",
+        )
+    });
+pub static PAYLOAD_DISSEMINATION_CHUNK_REQUESTS_RETRIED: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "payload_dissemination_chunk_requests_retried_total",
+            "Count of payload chunks requested again, as the peer asked before did not send them in time",
+        )
+    });
+pub static PAYLOAD_DISSEMINATION_SEND_ERRORS: LazyLock<Result<IntCounterVec>> = LazyLock::new(
+    || {
+        try_create_int_counter_vec(
+            "payload_dissemination_send_errors_total",
+            "Count of messages we could not queue for a peer, as its send queue was full or closed, by kind of message",
+            &["kind"],
+        )
+    },
+);
+pub static PAYLOAD_DISSEMINATION_BYTES_SENT: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+    try_create_int_counter(
+        "payload_dissemination_bytes_sent_total",
+        "Bytes of compressed payload chunks and of chunk metadata queued for peers",
+    )
+});
+pub static PAYLOAD_DISSEMINATION_BYTES_RECEIVED: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "payload_dissemination_bytes_received_total",
+            "Bytes of compressed payload chunks and of chunk metadata received from peers",
+        )
+    });
+pub static PAYLOAD_DISSEMINATION_UNKNOWN_PAYLOAD_LOOKUPS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "payload_dissemination_unknown_payload_lookups_total",
+            "Count of payloads announced by peers whose block we looked up, as it did not reach us",
+        )
+    });
+
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
     inc_counter_vec(&GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);
 }

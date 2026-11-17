@@ -380,8 +380,16 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::ExecutionPayload => {
+                        let fork_name = *fork_context
+                            .get_fork_from_context_bytes(gossip_topic.fork_digest)
+                            .ok_or_else(|| {
+                                format!(
+                                    "Unknown gossipsub fork digest: {:?}",
+                                    gossip_topic.fork_digest
+                                )
+                            })?;
                         let execution_payload_envelope =
-                            SignedExecutionPayloadEnvelope::from_ssz_bytes(data)
+                            SignedExecutionPayloadEnvelope::from_ssz_bytes_by_fork(data, fork_name)
                                 .map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::ExecutionPayload(Box::new(
                             execution_payload_envelope,

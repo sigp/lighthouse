@@ -5,7 +5,8 @@ use execution_layer::ExecutionPayloadBodyV2;
 use mockall::automock;
 use task_executor::TaskExecutor;
 use types::{
-    ExecutionBlockHash, ExecutionPayloadBody, Hash256, SignedExecutionPayloadEnvelopeSummary, Slot,
+    ExecutionBlockHash, ExecutionPayloadBody, ForkName, Hash256,
+    SignedExecutionPayloadEnvelopeSummary, Slot,
 };
 
 use super::Error;
@@ -55,6 +56,10 @@ impl<T: BeaconChainTypes> EnvelopeStreamerBeaconAdapter<T> {
             .get_payload_bodies_by_hash_v2(block_hashes)
             .await
             .map_err(|error| Error::PayloadBodiesByHashV2Failure(Box::new(error)).into())
+    }
+
+    pub(crate) fn fork_name_at_slot(&self, slot: Slot) -> ForkName {
+        self.chain.spec.fork_name_at_slot::<T::EthSpec>(slot)
     }
 
     pub(crate) fn get_split(&self) -> (Slot, Hash256) {

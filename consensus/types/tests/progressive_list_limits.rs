@@ -57,7 +57,7 @@ fn check_limits<E: EthSpec>() {
         E::MaxBlobCommitmentsPerBlock
     );
 
-    let envelope = ExecutionPayloadEnvelope::<E>::empty();
+    let envelope = ExecutionPayloadEnvelopeGloas::<E>::default();
     check!(envelope, payload.withdrawals, E::MaxWithdrawalsPerPayload);
     check!(
         envelope,

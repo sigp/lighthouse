@@ -22,7 +22,7 @@ pub const EXECUTION_PAYLOAD_BID_GLOAS_ACTIVE_FIELDS: [bool; 12] = [true; 12];
 /// The `active_fields` of the Heze `ExecutionPayloadBid` progressive container (EIP-7688).
 ///
 /// Must match the `active_fields` attribute on the Heze variant.
-pub const EXECUTION_PAYLOAD_BID_HEZE_ACTIVE_FIELDS: [bool; 13] = [true; 13];
+pub const EXECUTION_PAYLOAD_BID_HEZE_ACTIVE_FIELDS: [bool; 14] = [true; 14];
 
 #[superstruct(
     variants(Gloas, Heze),
@@ -59,7 +59,7 @@ pub const EXECUTION_PAYLOAD_BID_HEZE_ACTIVE_FIELDS: [bool; 13] = [true; 13];
         Heze(
             tree_hash(
                 struct_behaviour = "progressive_container",
-                active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
+                active_fields(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1)
             ),
             metastruct(mappings(map_execution_payload_bid_heze_fields()))
         )
@@ -117,6 +117,9 @@ pub struct ExecutionPayloadBid<E: EthSpec> {
     // [New in Heze:EIP7805]
     #[superstruct(only(Heze))]
     pub inclusion_list_bits: BitVector<E::InclusionListCommitteeSize>,
+    // [New in Heze:EIP8411]
+    #[superstruct(only(Heze), partial_getter(copy))]
+    pub payload_chunks_root: Hash256,
 }
 
 impl<E: EthSpec> SignedRoot for ExecutionPayloadBid<E> {}
@@ -289,6 +292,42 @@ mod heze_tests {
             ExecutionPayloadBidRef::Heze(&bid).signing_root(domain),
             ExecutionPayloadBidRef::Heze(&bid_with_bits).signing_root(domain),
             "inclusion_list_bits must be covered by the Heze bid signing root",
+        );
+    }
+
+    #[test]
+    fn payload_chunks_root_committed_to_signing_root() {
+        let bid = ExecutionPayloadBidHeze::<Spec>::default();
+        let bid_with_root = ExecutionPayloadBidHeze {
+            payload_chunks_root: Hash256::repeat_byte(1),
+            ..bid.clone()
+        };
+
+        let domain = Hash256::ZERO;
+        assert_ne!(
+            ExecutionPayloadBidRef::Heze(&bid).signing_root(domain),
+            ExecutionPayloadBidRef::Heze(&bid_with_root).signing_root(domain),
+            "payload_chunks_root must be covered by the Heze bid signing root",
+        );
+    }
+
+    #[test]
+    fn max_signed_bid_size() {
+        type E = crate::MainnetEthSpec;
+        let bid = crate::SignedExecutionPayloadBidHeze::<E> {
+            message: ExecutionPayloadBidHeze {
+                blob_kzg_commitments: ProgressiveKzgCommitments::<E>::new(vec![
+                    kzg::KzgCommitment::empty_for_testing();
+                    E::max_blob_commitments_per_block()
+                ])
+                .unwrap(),
+                ..Default::default()
+            },
+            signature: bls::Signature::empty(),
+        };
+        assert_eq!(
+            ssz::Encode::ssz_bytes_len(&bid),
+            E::max_signed_execution_payload_bid_size_heze()
         );
     }
 }
