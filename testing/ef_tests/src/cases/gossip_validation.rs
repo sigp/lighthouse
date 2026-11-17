@@ -251,10 +251,15 @@ impl<E: EthSpec> GossipTester<E> {
         tester.set_finalized_checkpoint(finalized_checkpoint);
         if matches!(
             case.meta.topic,
-            Topic::ExecutionPayloadBid | Topic::ProposerPreferences
+            Topic::ExecutionPayloadBid | Topic::ProposerPreferences | Topic::ExecutionPayload
         ) {
             tester.block_on_dangerous(tester.harness.chain.recompute_head_at_current_slot())?;
-            if let Some(checkpoint) = finalized_checkpoint {
+            // Bid fixtures override finalization after producing their block and state files, so
+            // replaying the blocks yields a head state whose finalized checkpoint (used by
+            // `is_active_builder`) differs from the one the fixture was generated with.
+            if case.meta.topic == Topic::ExecutionPayloadBid
+                && let Some(checkpoint) = finalized_checkpoint
+            {
                 tester
                     .harness
                     .chain
@@ -361,21 +366,30 @@ impl<E: EthSpec> GossipTester<E> {
             let block = blocks.get(&setup_block.block).ok_or_else(|| {
                 Error::FailedToParseTest(format!("unknown block file {}", setup_block.block))
             })?;
+            // For Gloas setup blocks with a payload, `payload_status` describes the payload
+            // envelope's execution status rather than the block's.
+            let block_payload_status = if setup_block.payload.is_some() {
+                None
+            } else {
+                setup_block.payload_status
+            };
             if initial_block_index != Some(index) {
                 let block_time_ms = slot_time_ms(block.slot(), &self.spec)?;
                 if block_time_ms > self.current_time_ms {
                     self.set_time_ms(block_time_ms)?;
                 }
-                self.import_setup_block(block.clone(), setup_block.payload_status)?;
+                self.import_setup_block(block.clone(), block_payload_status)?;
             }
             if let Some(payload) = setup_block.payload.as_deref() {
-                let payload_path = case.path.join(format!("{payload}.ssz_snappy"));
-                if payload_path.exists() {
-                    if case.meta.topic == Topic::ExecutionPayloadBid {
-                        self.import_setup_payload_for_bid(&case.path, block, payload)?;
-                    } else {
-                        self.import_setup_payload(&case.path, block, payload)?;
-                    }
+                if case.meta.topic == Topic::ExecutionPayloadBid {
+                    self.import_setup_payload_for_bid(&case.path, block, payload)?;
+                } else {
+                    self.import_setup_payload(
+                        &case.path,
+                        block,
+                        payload,
+                        setup_block.payload_status,
+                    )?;
                 }
             }
         }
@@ -627,6 +641,12 @@ impl<E: EthSpec> GossipTester<E> {
         message_id: MessageId,
         peer_id: PeerId,
     ) -> Result<Option<MessageAcceptance>, Error> {
+        // Bid fixtures replay proposer preferences and the parent's payload envelope as setup
+        // messages. These are seeded directly into the caches the bid verifier reads and reported
+        // as accepted without gossip validation: the parent payload has already been imported
+        // during setup, so the production envelope path would ignore it as already known. Their
+        // own validation is covered by the `gossip_proposer_preferences` and
+        // `gossip_execution_payload_envelope` suites.
         if message_meta.message.starts_with("proposer_preferences_") {
             let preferences: SignedProposerPreferences =
                 ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
@@ -958,7 +978,8 @@ impl<E: EthSpec> GossipTester<E> {
         }
 
         let execution_payload = &envelope.message.payload;
-        // Only replayed envelope messages populate the observed payload cache.
+        // Only replayed envelope messages populate the observed payload cache, which lets
+        // `ignore_parent_block_hash_unknown` import a parent payload whose hash is not yet known.
         self.harness
             .chain
             .store
@@ -1003,6 +1024,7 @@ impl<E: EthSpec> GossipTester<E> {
         path: &Path,
         block: &SignedBeaconBlock<E>,
         payload: &str,
+        payload_status: Option<PayloadStatus>,
     ) -> Result<(), Error> {
         let envelope: SignedExecutionPayloadEnvelope<E> =
             ssz_decode_file(&path.join(format!("{payload}.ssz_snappy")))?;
@@ -1013,20 +1035,7 @@ impl<E: EthSpec> GossipTester<E> {
                 block.canonical_root()
             )));
         }
-
-        let bid = block
-            .message()
-            .body()
-            .signed_execution_payload_bid()
-            .map_err(|e| {
-                Error::InternalError(format!(
-                    "setup payload block {block_root:?} is missing its bid: {e:?}"
-                ))
-            })?;
-        self.harness.chain.pending_payload_cache.insert_bid(
-            block_root,
-            Arc::new(bid.clone_as_signed_execution_payload_bid()),
-        );
+        let payload_block_hash = envelope.message.payload.block_hash;
 
         let verified_envelope = self
             .block_on_dangerous(
@@ -1041,18 +1050,44 @@ impl<E: EthSpec> GossipTester<E> {
                 ))
             })?;
 
-        self.block_on_dangerous(self.harness.chain.process_execution_payload_envelope(
-            block_root,
-            verified_envelope,
-            NotifyExecutionLayer::Yes,
-            BlockImportSource::Lookup,
-            || Ok(()),
-        ))?
-        .map_err(|e| {
+        // Configure the mock EL for this setup payload only, then restore the default before
+        // validating gossip messages.
+        if let Some(mock_execution_layer) = self.harness.mock_execution_layer.as_ref()
+            && matches!(
+                payload_status,
+                Some(PayloadStatus::NotValidated) | Some(PayloadStatus::Invalidated)
+            )
+        {
+            mock_execution_layer.server.all_payloads_syncing(true);
+        }
+        let result =
+            self.block_on_dangerous(self.harness.chain.process_execution_payload_envelope(
+                block_root,
+                verified_envelope,
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            ))?;
+        self.configure_payload_status_for_default();
+        result.map_err(|e| {
             Error::InternalError(format!(
                 "setup payload for block {block_root:?} failed import: {e:?}"
             ))
         })?;
+
+        if payload_status == Some(PayloadStatus::Invalidated) {
+            // The payload has been imported optimistically. Mark it invalid in fork choice.
+            self.block_on_dangerous(self.harness.chain.process_invalid_execution_payload(
+                &InvalidationOperation::InvalidateOne {
+                    head_hash: payload_block_hash,
+                },
+            ))?
+            .map_err(|e| {
+                Error::InternalError(format!(
+                    "setup payload for block {block_root:?} invalidation failed: {e:?}"
+                ))
+            })?;
+        }
 
         Ok(())
     }
@@ -1169,22 +1204,18 @@ impl<E: EthSpec> GossipValidation<E> {
             "gossip_beacon_block__reject_parent_failed_validation",
         ];
         const UNSUPPORTED_TIMING_BOUNDARY_CASES: &[&str] = &[
-            "accepts_at_slot_start",
+            // These messages arrive exactly `MAXIMUM_GOSSIP_CLOCK_DISPARITY` after the previous
+            // epoch window closes. The spec's window is inclusive at that instant, while
+            // Lighthouse's slot-based past tolerance is exclusive, so they are ignored.
             "accepts_first_slot_when_epoch_window_closes",
-            "accepts_first_slot_when_epoch_window_opens",
-            "accepts_last_slot_at_slot_start",
-            "accepts_last_slot_one_millisecond_before_slot_start",
             "accepts_last_slot_when_epoch_window_closes",
-            "accepts_one_millisecond_before_slot_start",
         ];
         const IGNORED_GLOAS_PAYLOAD_STATUS_CASES: &[&str] = &[
-            // Lighthouse does not support optimistic Gloas payload imports, so these fixtures
-            // cannot construct the optimistic payload status required by the gossip condition.
+            // Lighthouse does not yet implement the Gloas checks that ignore `index == 1`
+            // attestations to an optimistic payload and reject those to an invalidated payload.
+            // The harness constructs both payload statuses, but production accepts the messages.
             "gossip_beacon_attestation__ignore_payload_pending_el_validation",
             "gossip_beacon_aggregate_and_proof__ignore_payload_pending_el_validation",
-            // Lighthouse does not support optimistic Gloas payload imports, so it cannot construct
-            // the fixture's precondition: a payload that was accepted and subsequently invalidated
-            // by the execution layer. This status only changes gossip peer scoring.
             "gossip_beacon_attestation__reject_payload_failed_el_validation",
             "gossip_beacon_aggregate_and_proof__reject_payload_failed_el_validation",
         ];
@@ -1192,12 +1223,6 @@ impl<E: EthSpec> GossipValidation<E> {
             // Lighthouse does not retain consensus-invalid blocks, so the harness cannot construct
             // the known-invalid block status required by this vector.
             "gossip_execution_payload_envelope__reject_block_failed_validation",
-            // Lighthouse does not yet track gossip-valid envelopes independently of payload
-            // execution and availability.
-            "gossip_execution_payload_envelope__ignore_duplicate",
-            // The fixture overrides fork choice finalization, while production envelope validation
-            // reads the finalized checkpoint from the canonical head.
-            "gossip_execution_payload_envelope__ignore_pre_finalized",
         ];
         const IGNORED_EXECUTION_PAYLOAD_BID_CASES: &[&str] = &[
             // Advancing the parent state across an epoch for every gossip bid would put epoch
@@ -1221,15 +1246,10 @@ impl<E: EthSpec> GossipValidation<E> {
         match self.meta.topic {
             Topic::BeaconBlock => IGNORED_BEACON_BLOCK_CASES.contains(&case_name),
             Topic::BeaconAttestation | Topic::BeaconAggregateAndProof => {
-                // These vectors require fixture history that the production-backed harness cannot
-                // construct: a retained consensus-invalid block, an unknown finalized root, or a
-                // known but unfinalized slot-zero block.
+                // Lighthouse does not retain consensus-invalid blocks, so vectors with a failed
+                // setup block cannot be constructed through the production import path.
                 IGNORED_GLOAS_PAYLOAD_STATUS_CASES.contains(&case_name)
                     || self.meta.blocks.iter().any(|block| block.failed)
-                    || matches!(
-                        self.meta.finalized_checkpoint,
-                        Some(FinalizedCheckpoint::Root { .. })
-                    )
                     || UNSUPPORTED_TIMING_BOUNDARY_CASES
                         .iter()
                         .any(|suffix| case_name.ends_with(suffix))

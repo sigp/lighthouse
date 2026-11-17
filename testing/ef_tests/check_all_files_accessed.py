@@ -77,39 +77,29 @@ excluded_paths = [
     "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/gossip_bls_to_execution_change/.*",
     "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/gossip_sync_committee_message/.*",
     "tests/.*/(phase0|altair|bellatrix|capella|deneb|electra)/networking/gossip_sync_committee_contribution_and_proof/.*",
-    # The production-backed harness cannot construct these synthetic fixture histories.
-    # Keep these patterns synchronized with GossipValidation::has_known_harness_limitation.
-    "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__accepts_.*/.*",
-    "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__reject_block_failed_validation/.*",
-    "tests/.*/fulu/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
-    # Gloas aggregate cases with production-harness limitations. Lighthouse also does not support
-    # optimistic Gloas payload imports. Keep these synchronized with
+    # Lighthouse does not retain consensus-invalid blocks, and its attestation past-tolerance is
+    # exclusive at the epoch window disparity edge. Keep these patterns synchronized with
     # GossipValidation::has_known_harness_limitation.
-    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__accepts_.*/.*",
-    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
-    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_beacon_aggregate_and_proof__ignore_payload_pending_el_validation/.*",
-    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_.*__reject_block_failed_validation/.*",
-    "tests/.*/gloas/networking/gossip_beacon_aggregate_and_proof/.*/gossip_beacon_aggregate_and_proof__reject_payload_failed_el_validation/.*",
-    # Gloas attestation cases with the same production-harness limitations.
-    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__accepts_.*/.*",
-    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__ignore_finalized_not_ancestor/.*",
-    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__ignore_payload_pending_el_validation/.*",
-    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_.*__reject_block_failed_validation/.*",
-    "tests/.*/gloas/networking/gossip_beacon_attestation/.*/gossip_beacon_attestation__reject_payload_failed_el_validation/.*",
+    "tests/.*/(fulu|gloas)/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__accepts_(first|last)_slot_when_epoch_window_closes/.*",
+    "tests/.*/(fulu|gloas)/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__reject_block_failed_validation/.*",
+    # Lighthouse does not yet ignore/reject Gloas attestations to optimistic/invalid payloads.
+    # Keep synchronized with IGNORED_GLOAS_PAYLOAD_STATUS_CASES.
+    "tests/.*/gloas/networking/gossip_(beacon_attestation|beacon_aggregate_and_proof)/.*/gossip_.*__(ignore_payload_pending|reject_payload_failed)_el_validation/.*",
     # Advancing the parent state across an epoch for every gossip bid would put epoch processing
     # on the gossip hot path. Keep synchronized with IGNORED_EXECUTION_PAYLOAD_BID_CASES.
     "tests/.*/gloas/networking/gossip_execution_payload_bid/.*/gossip_execution_payload_bid__valid_requires_state_advanced_across_epoch/.*",
     # Gloas execution payload envelope cases with production-harness limitations. Keep these
     # synchronized with IGNORED_EXECUTION_PAYLOAD_ENVELOPE_CASES.
-    "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__ignore_duplicate/.*",
-    "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__ignore_pre_finalized/.*",
     "tests/.*/gloas/networking/gossip_execution_payload_envelope/.*/gossip_execution_payload_envelope__reject_block_failed_validation/.*",
     # Lighthouse cannot distinguish a consensus-invalid block from an unseen block when
     # validating payload attestations. Keep this synchronized with
     # IGNORED_PAYLOAD_ATTESTATION_CASES.
     "tests/.*/gloas/networking/gossip_payload_attestation_message/.*/gossip_payload_attestation_message__reject_block_failed_validation/.*",
     "tests/.*/.*/networking/gossip_blob_sidecar/.*",
-    "tests/.*/.*/networking/gossip_data_column_sidecar/.*",
+    # Data column gossip tests only run for Gloas. Lighthouse cannot distinguish a
+    # consensus-invalid block from an unseen block. Keep synchronized with IGNORED_DATA_COLUMN_CASES.
+    "tests/.*/fulu/networking/gossip_data_column_sidecar/.*",
+    "tests/.*/gloas/networking/gossip_data_column_sidecar/.*/gossip_data_column_sidecar__reject_block_failed_validation/.*",
     "tests/.*/.*/networking/gossip_partial_data_column_sidecar/.*",
 ]
 
