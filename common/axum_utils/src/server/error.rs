@@ -1,7 +1,9 @@
+use crate::tls::TlsError;
+
 #[derive(Debug, thiserror::Error)]
 pub enum BuilderError {
     #[error("TLS configuration failed: {0}")]
-    TlsConfigFailed(#[from] std::io::Error),
+    TlsConfigFailed(#[from] TlsError),
 }
 
 #[derive(Debug, thiserror::Error)]

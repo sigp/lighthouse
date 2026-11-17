@@ -8,10 +8,17 @@ edition = { workspace = true }
 axum = { workspace = true }
 axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 http = "1"
+rustls = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
 tower-http = { version = "0.6", features = ["compression-gzip", "cors", "set-header"] }
 
 [dev-dependencies]
+rcgen = { workspace = true }
+reqwest = { workspace = true }
+# Link both rustls crypto providers in tests, as the `lighthouse` binary does. rustls cannot choose
+# a default provider when both are linked, so a TLS config relying on the default fails the tests.
+rustls = { workspace = true, features = ["aws-lc-rs"] }
+tempfile = { workspace = true }
 tower = { workspace = true }

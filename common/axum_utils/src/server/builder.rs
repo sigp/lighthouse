@@ -3,7 +3,6 @@ use crate::{
     tls::TlsConfig,
 };
 use axum::Router;
-use axum_server::tls_rustls::RustlsConfig;
 use std::net::SocketAddr;
 
 pub struct ServerBuilder {
@@ -28,7 +27,7 @@ impl ServerBuilder {
 
     pub async fn build(self) -> Result<Server, BuilderError> {
         let rustls_config = if let Some(tls) = self.tls_config {
-            Some(RustlsConfig::from_pem_file(&tls.cert, &tls.key).await?)
+            Some(tls.load().await?)
         } else {
             None
         };
