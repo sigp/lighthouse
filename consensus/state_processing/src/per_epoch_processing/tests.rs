@@ -2,7 +2,10 @@
 use crate::per_epoch_processing::process_epoch;
 use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::types::{EthSpec, MinimalEthSpec};
-use types::Slot;
+use bls::SignatureBytes;
+use std::sync::Arc;
+use types::test_utils::generate_deterministic_keypair;
+use types::{BeaconState, ChainSpec, DepositData, Epoch, ForkName, Hash256, PendingDeposit, Slot};
 
 #[tokio::test]
 async fn runs_without_error() {
@@ -31,6 +34,142 @@ async fn runs_without_error() {
     let mut new_head_state = harness.get_current_state();
 
     process_epoch(&mut new_head_state, &harness.spec).unwrap();
+}
+
+/// A pending deposit for the deterministic key at `index`, signed by that key unless
+/// `valid_signature` is false.
+fn pending_deposit(
+    index: usize,
+    withdrawal_prefix: u8,
+    valid_signature: bool,
+    spec: &ChainSpec,
+) -> PendingDeposit {
+    let keypair = generate_deterministic_keypair(index);
+    let mut withdrawal_credentials = Hash256::repeat_byte(0xaa);
+    withdrawal_credentials.as_mut_slice()[0] = withdrawal_prefix;
+    let mut deposit_data = DepositData {
+        pubkey: keypair.pk.compress(),
+        withdrawal_credentials,
+        amount: spec.min_activation_balance,
+        signature: SignatureBytes::empty(),
+    };
+    let signer = if valid_signature {
+        keypair
+    } else {
+        generate_deterministic_keypair(index + 1)
+    };
+    deposit_data.signature = deposit_data.create_signature(&signer.sk, spec);
+    PendingDeposit {
+        pubkey: deposit_data.pubkey,
+        withdrawal_credentials: deposit_data.withdrawal_credentials,
+        amount: deposit_data.amount,
+        signature: deposit_data.signature,
+        slot: Slot::new(0),
+    }
+}
+
+/// Queues `deposits` at the end of the Heze fork epoch, or of epoch 0 without Heze, and returns
+/// the states before and after the epoch transition.
+async fn process_pending_deposits(
+    heze_fork_epoch: Option<Epoch>,
+    deposits: &[PendingDeposit],
+) -> (BeaconState<MinimalEthSpec>, BeaconState<MinimalEthSpec>) {
+    let mut spec = ForkName::Gloas.make_genesis_spec(MinimalEthSpec::default_spec());
+    spec.heze_fork_epoch = heze_fork_epoch;
+    let spec = Arc::new(spec);
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .spec(spec.clone())
+        .deterministic_keypairs(8)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    let epoch = heze_fork_epoch.unwrap_or_else(|| Epoch::new(0));
+    harness
+        .extend_to_slot(epoch.end_slot(MinimalEthSpec::slots_per_epoch()))
+        .await;
+
+    let mut state = harness.get_current_state();
+    for deposit in deposits {
+        state
+            .pending_deposits_mut()
+            .unwrap()
+            .push(deposit.clone())
+            .unwrap();
+    }
+    let pre_state = state.clone();
+    process_epoch(&mut state, &spec).unwrap();
+    (pre_state, state)
+}
+
+fn is_validator(state: &BeaconState<MinimalEthSpec>, deposit: &PendingDeposit) -> bool {
+    state
+        .validators()
+        .iter()
+        .any(|validator| validator.pubkey == deposit.pubkey)
+}
+
+#[tokio::test]
+async fn new_bls_withdrawal_credentials_deposits_are_skipped_from_heze() {
+    let spec = MinimalEthSpec::default_spec();
+    let deposits = [
+        pending_deposit(100, spec.bls_withdrawal_prefix_byte, true, &spec),
+        pending_deposit(101, spec.bls_withdrawal_prefix_byte, false, &spec),
+    ];
+
+    let (_, state) = process_pending_deposits(None, &deposits).await;
+    assert!(is_validator(&state, &deposits[0]));
+    assert!(!is_validator(&state, &deposits[1]));
+
+    let (_, state) = process_pending_deposits(Some(Epoch::new(0)), &deposits).await;
+    assert!(!is_validator(&state, &deposits[0]));
+    assert!(!is_validator(&state, &deposits[1]));
+}
+
+#[tokio::test]
+async fn bls_withdrawal_credentials_deposit_queued_before_heze_is_skipped() {
+    let spec = MinimalEthSpec::default_spec();
+    // The deposit is from slot 0, before Heze activates at epoch 1.
+    let deposit = pending_deposit(100, spec.bls_withdrawal_prefix_byte, true, &spec);
+
+    let (_, state) =
+        process_pending_deposits(Some(Epoch::new(1)), std::slice::from_ref(&deposit)).await;
+    assert!(state.fork_name_unchecked().heze_enabled());
+    assert!(!is_validator(&state, &deposit));
+}
+
+#[tokio::test]
+async fn top_up_to_bls_withdrawal_credentials_validator_is_applied_from_heze() {
+    let spec = MinimalEthSpec::default_spec();
+    let deposit = pending_deposit(0, spec.bls_withdrawal_prefix_byte, true, &spec);
+
+    let (pre_state, state) =
+        process_pending_deposits(Some(Epoch::new(0)), std::slice::from_ref(&deposit)).await;
+    let validator = pre_state.get_validator(0).unwrap();
+    assert_eq!(validator.pubkey, deposit.pubkey);
+    assert_eq!(
+        validator.withdrawal_credentials.as_slice()[0],
+        spec.bls_withdrawal_prefix_byte
+    );
+    assert_eq!(
+        state.get_balance(0).unwrap(),
+        pre_state.get_balance(0).unwrap() + deposit.amount
+    );
+}
+
+#[tokio::test]
+async fn new_execution_withdrawal_credentials_deposits_are_applied_from_heze() {
+    let spec = MinimalEthSpec::default_spec();
+    let deposits = [
+        pending_deposit(100, spec.eth1_address_withdrawal_prefix_byte, true, &spec),
+        pending_deposit(101, spec.compounding_withdrawal_prefix_byte, true, &spec),
+    ];
+
+    for heze_fork_epoch in [None, Some(Epoch::new(0))] {
+        let (_, state) = process_pending_deposits(heze_fork_epoch, &deposits).await;
+        for deposit in &deposits {
+            assert!(is_validator(&state, deposit));
+        }
+    }
 }
 
 #[cfg(not(debug_assertions))]
