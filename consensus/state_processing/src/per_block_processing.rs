@@ -33,7 +33,7 @@ pub use verify_deposit::{
     get_existing_validator_index, is_valid_deposit_signature, is_valid_deposit_signature_batch,
     verify_deposit_merkle_proof,
 };
-pub use verify_exit::verify_exit;
+pub use verify_exit::{verify_exit, verify_exit_pending_balance, verify_exit_validator_checks};
 pub use withdrawals::get_expected_withdrawals;
 
 pub mod altair;

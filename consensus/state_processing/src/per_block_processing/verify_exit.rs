@@ -28,43 +28,13 @@ pub fn verify_exit<E: EthSpec>(
     let current_epoch = current_epoch.unwrap_or(state.current_epoch());
     let exit = &signed_exit.message;
 
-    let validator = state
-        .validators()
-        .get(exit.validator_index as usize)
-        .ok_or_else(|| error(ExitInvalid::ValidatorUnknown(exit.validator_index)))?;
-
-    // Verify the validator is active.
-    verify!(
-        validator.is_active_at(current_epoch),
-        ExitInvalid::NotActive(exit.validator_index)
-    );
-
-    // Verify that the validator has not yet exited.
-    verify!(
-        validator.exit_epoch == spec.far_future_epoch,
-        ExitInvalid::AlreadyExited(exit.validator_index)
-    );
-
-    // Exits must specify an epoch when they become valid; they are not valid before then.
-    verify!(
-        current_epoch >= exit.epoch,
-        ExitInvalid::FutureEpoch {
-            state: current_epoch,
-            exit: exit.epoch
-        }
-    );
-
-    // Verify the validator has been active long enough.
-    let earliest_exit_epoch = validator
-        .activation_epoch
-        .safe_add(spec.shard_committee_period)?;
-    verify!(
-        current_epoch >= earliest_exit_epoch,
-        ExitInvalid::TooYoungToExit {
-            current_epoch,
-            earliest_exit_epoch,
-        }
-    );
+    verify_exit_validator_checks(
+        state.validators().get(exit.validator_index as usize),
+        exit,
+        current_epoch,
+        spec.far_future_epoch,
+        spec.shard_committee_period,
+    )?;
 
     if verify_signatures.is_true() {
         verify!(
@@ -81,12 +51,80 @@ pub fn verify_exit<E: EthSpec>(
 
     // [New in Electra:EIP7251]
     // Only exit validator if it has no pending withdrawals in the queue
-    if let Ok(pending_balance_to_withdraw) =
-        state.get_pending_balance_to_withdraw(exit.validator_index as usize)
-    {
+    verify_exit_pending_balance(
+        exit.validator_index,
+        state
+            .get_pending_balance_to_withdraw(exit.validator_index as usize)
+            .ok(),
+    )
+}
+
+/// The checks of `verify_exit` that read only the exiting validator's record.
+///
+/// Free of `EthSpec` so that it can be extracted with Aeneas and proved correct in Lean (see
+/// `verification/operation_pool`).
+pub fn verify_exit_validator_checks(
+    validator: Option<&Validator>,
+    exit: &VoluntaryExit,
+    current_epoch: Epoch,
+    far_future_epoch: Epoch,
+    shard_committee_period: u64,
+) -> Result<()> {
+    let Some(validator) = validator else {
+        return Err(error(ExitInvalid::ValidatorUnknown(exit.validator_index)));
+    };
+
+    // Verify the validator is active.
+    verify!(
+        validator.is_active_at(current_epoch),
+        ExitInvalid::NotActive(exit.validator_index)
+    );
+
+    // Verify that the validator has not yet exited.
+    verify!(
+        validator.exit_epoch == far_future_epoch,
+        ExitInvalid::AlreadyExited(exit.validator_index)
+    );
+
+    // Exits must specify an epoch when they become valid; they are not valid before then.
+    verify!(
+        current_epoch >= exit.epoch,
+        ExitInvalid::FutureEpoch {
+            state: current_epoch,
+            exit: exit.epoch
+        }
+    );
+
+    // Verify the validator has been active long enough.
+    let earliest_exit_epoch = validator
+        .activation_epoch
+        .safe_add(shard_committee_period)?;
+    verify!(
+        current_epoch >= earliest_exit_epoch,
+        ExitInvalid::TooYoungToExit {
+            current_epoch,
+            earliest_exit_epoch,
+        }
+    );
+
+    Ok(())
+}
+
+/// The pending-withdrawal check of `verify_exit`.
+///
+/// `pending_balance_to_withdraw` is `None` when the state has no pending partial withdrawals
+/// (before Electra) or when their sum could not be computed, in which case the check is skipped.
+///
+/// Free of `EthSpec` so that it can be extracted with Aeneas and proved correct in Lean (see
+/// `verification/operation_pool`).
+pub fn verify_exit_pending_balance(
+    validator_index: u64,
+    pending_balance_to_withdraw: Option<u64>,
+) -> Result<()> {
+    if let Some(pending_balance_to_withdraw) = pending_balance_to_withdraw {
         verify!(
             pending_balance_to_withdraw == 0,
-            ExitInvalid::PendingWithdrawalInQueue(exit.validator_index)
+            ExitInvalid::PendingWithdrawalInQueue(validator_index)
         );
     }
 
