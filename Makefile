@@ -193,9 +193,12 @@ test-spec-minimal:
 		-p beacon_processor \
 		-p builder_client \
 		-p execution_layer \
+		-p fast_confirmation \
 		-p genesis \
 		-p http_metrics \
 		-p lighthouse_network \
+		-p proto_array \
+		-p state_processing \
 		-p store \
 		-p types
 
