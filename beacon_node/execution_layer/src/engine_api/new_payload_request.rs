@@ -5,13 +5,12 @@ use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_h
 use superstruct::superstruct;
 use types::{
     BeaconBlockRef, BeaconStateError, EthSpec, ExecutionBlockHash, ExecutionPayload,
-    ExecutionPayloadRef, Hash256, VersionedHash,
+    ExecutionPayloadRef, ForkName, Hash256, VersionedHash,
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionPayloadHeze,
-    ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsRef,
-    ProgressiveTransactions,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequestsElectra,
+    ExecutionRequestsGloas, ExecutionRequestsRef, ProgressiveTransactions,
 };
 
 #[superstruct(
@@ -43,10 +42,8 @@ pub struct NewPayloadRequest<'block, E: EthSpec> {
     pub execution_payload: &'block ExecutionPayloadElectra<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
     pub execution_payload: &'block ExecutionPayloadFulu<E>,
-    #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
+    #[superstruct(only(Gloas, Heze), partial_getter(rename = "execution_payload_gloas"))]
     pub execution_payload: &'block ExecutionPayloadGloas<E>,
-    #[superstruct(only(Heze), partial_getter(rename = "execution_payload_heze"))]
-    pub execution_payload: &'block ExecutionPayloadHeze<E>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
     pub versioned_hashes: Vec<VersionedHash>,
     #[superstruct(only(Deneb, Electra, Fulu, Gloas, Heze))]
@@ -75,6 +72,18 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
         self.execution_payload_ref().block_number()
     }
 
+    pub fn fork_name(&self) -> ForkName {
+        match self {
+            Self::Bellatrix(_) => ForkName::Bellatrix,
+            Self::Capella(_) => ForkName::Capella,
+            Self::Deneb(_) => ForkName::Deneb,
+            Self::Electra(_) => ForkName::Electra,
+            Self::Fulu(_) => ForkName::Fulu,
+            Self::Gloas(_) => ForkName::Gloas,
+            Self::Heze(_) => ForkName::Heze,
+        }
+    }
+
     pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'block, E> {
         match self {
             Self::Bellatrix(request) => ExecutionPayloadRef::Bellatrix(request.execution_payload),
@@ -83,7 +92,8 @@ impl<'block, E: EthSpec> NewPayloadRequest<'block, E> {
             Self::Electra(request) => ExecutionPayloadRef::Electra(request.execution_payload),
             Self::Fulu(request) => ExecutionPayloadRef::Fulu(request.execution_payload),
             Self::Gloas(request) => ExecutionPayloadRef::Gloas(request.execution_payload),
-            Self::Heze(request) => ExecutionPayloadRef::Heze(request.execution_payload),
+            // The envelope payload is an `ExecutionPayloadGloas` for both Gloas and Heze.
+            Self::Heze(request) => ExecutionPayloadRef::Gloas(request.execution_payload),
         }
     }
 

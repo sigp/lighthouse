@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
-use execution_layer::{NewPayloadRequest, NewPayloadRequestGloas};
-use fork_choice::PayloadVerificationStatus;
+use execution_layer::{NewPayloadRequest, NewPayloadRequestGloas, NewPayloadRequestHeze};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use tracing::warn;
 use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
 
 use crate::{
     BeaconChain, BeaconChainTypes, NotifyExecutionLayer, PayloadVerificationError,
-    execution_payload::notify_new_payload, payload_envelope_verification::EnvelopeError,
+    execution_payload::notify_new_payload,
+    payload_envelope_verification::{EnvelopeError, EnvelopeVerificationOutcome},
 };
 
 /// Used to await the result of executing payload with a remote EE.
@@ -16,7 +16,7 @@ pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    payload_verification_status: Option<PayloadVerificationStatus>,
+    verification_outcome: Option<EnvelopeVerificationOutcome>,
 }
 
 impl<T: BeaconChainTypes> PayloadNotifier<T> {
@@ -26,12 +26,13 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, EnvelopeError> {
-        let payload_verification_status = {
+        let verification_outcome = {
             let payload_message = &envelope.message;
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
-                    let new_payload_request = Self::build_new_payload_request(&envelope, &block)?;
+                    let new_payload_request =
+                        Self::build_new_payload_request(&chain, &envelope, &block)?;
                     // TODO(gloas): check and test RLP block hash calculation post-Gloas
                     if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
@@ -42,7 +43,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                         );
                         None
                     } else {
-                        Some(PayloadVerificationStatus::Optimistic)
+                        Some(EnvelopeVerificationOutcome::optimistic())
                     }
                 }
                 _ => None,
@@ -53,27 +54,29 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             chain,
             envelope,
             block,
-            payload_verification_status,
+            verification_outcome,
         })
     }
 
     pub async fn notify_new_payload(
         self,
-    ) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
+    ) -> Result<EnvelopeVerificationOutcome, PayloadVerificationError> {
         // EIP-8025: the proofs are this payload's validity, so the execution layer is not asked.
         if self.chain.execution_proofs_enabled() {
-            return Ok(PayloadVerificationStatus::Optimistic);
+            return Ok(EnvelopeVerificationOutcome::optimistic());
         }
 
-        if let Some(precomputed_status) = self.payload_verification_status {
-            Ok(precomputed_status)
+        if let Some(verification_outcome) = self.verification_outcome {
+            Ok(verification_outcome)
         } else {
-            let request = Self::build_new_payload_request(&self.envelope, &self.block)?;
+            let request =
+                Self::build_new_payload_request(&self.chain, &self.envelope, &self.block)?;
             notify_new_payload(&self.chain, self.envelope.slot(), request).await
         }
     }
 
     fn build_new_payload_request<'a>(
+        chain: &BeaconChain<T>,
         envelope: &'a SignedExecutionPayloadEnvelope<T::EthSpec>,
         block: &'a SignedBeaconBlock<T::EthSpec>,
     ) -> Result<NewPayloadRequest<'a, T::EthSpec>, PayloadVerificationError> {
@@ -90,11 +93,31 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
             .map(kzg_commitment_to_versioned_hash)
             .collect();
 
-        Ok(NewPayloadRequest::Gloas(NewPayloadRequestGloas {
-            execution_payload: &envelope.message.payload,
-            versioned_hashes,
-            parent_beacon_block_root: envelope.message.parent_beacon_block_root,
-            execution_requests: &envelope.message.execution_requests,
-        }))
+        if chain
+            .spec
+            .fork_name_at_slot::<T::EthSpec>(block.slot())
+            .heze_enabled()
+        {
+            let inclusion_list_transactions = chain
+                .payload_inclusion_list_transactions(
+                    block.parent_root(),
+                    block.slot().saturating_sub(1_u64),
+                )
+                .map_err(|e| PayloadVerificationError::BeaconChainError(Box::new(e)))?;
+            Ok(NewPayloadRequest::Heze(NewPayloadRequestHeze {
+                execution_payload: &envelope.message.payload,
+                versioned_hashes,
+                parent_beacon_block_root: envelope.message.parent_beacon_block_root,
+                execution_requests: &envelope.message.execution_requests,
+                inclusion_list_transactions,
+            }))
+        } else {
+            Ok(NewPayloadRequest::Gloas(NewPayloadRequestGloas {
+                execution_payload: &envelope.message.payload,
+                versioned_hashes,
+                parent_beacon_block_root: envelope.message.parent_beacon_block_root,
+                execution_requests: &envelope.message.execution_requests,
+            }))
+        }
     }
 }

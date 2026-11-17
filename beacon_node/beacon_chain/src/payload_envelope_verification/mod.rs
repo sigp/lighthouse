@@ -20,13 +20,15 @@
 use crate::data_availability_checker::AvailabilityCheckError;
 use crate::{
     BeaconChainError, BeaconChainTypes, BeaconStore, BlockError, CustodyContext,
-    ExecutionPayloadError, PayloadVerificationError, PayloadVerificationOutcome,
+    ExecutionPayloadError, PayloadVerificationError,
 };
+use fork_choice::PayloadVerificationStatus;
 use state_processing::envelope_processing::EnvelopeProcessingError;
 use std::collections::HashSet;
 use std::sync::Arc;
 use store::Error as DBError;
 use strum::AsRefStr;
+use task_executor::JoinHandle;
 use tracing::{instrument, warn};
 use types::{
     BeaconState, BeaconStateError, BuilderIndex, DataColumnSidecarList, EthSpec,
@@ -160,25 +162,47 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
     pub beacon_block_root: Hash256,
 }
 
+/// Stores information about verifying an envelope's payload against an execution engine.
+#[derive(Debug, PartialEq, Clone)]
+pub struct EnvelopeVerificationOutcome {
+    pub payload_verification_status: PayloadVerificationStatus,
+    /// Pre-Heze and optimistic payloads count as satisfying the inclusion lists.
+    pub inclusion_list_satisfied: bool,
+}
+
+impl EnvelopeVerificationOutcome {
+    /// An optimistic payload counts as satisfying the inclusion lists until it is validated.
+    pub fn optimistic() -> Self {
+        Self {
+            payload_verification_status: PayloadVerificationStatus::Optimistic,
+            inclusion_list_satisfied: true,
+        }
+    }
+}
+
+/// Used to await the result of executing an envelope's payload with an EE.
+pub type EnvelopeVerificationHandle =
+    JoinHandle<Option<Result<EnvelopeVerificationOutcome, PayloadVerificationError>>>;
+
 /// A payload envelope that has completed all envelope processing checks, verification
 /// by an EL client but does not have all requisite columns to get imported into
 /// fork choice.
 pub struct AvailabilityPendingExecutedEnvelope<E: EthSpec> {
     pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
     pub block_root: Hash256,
-    pub payload_verification_outcome: PayloadVerificationOutcome,
+    pub verification_outcome: EnvelopeVerificationOutcome,
 }
 
 impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
     pub fn new(
         envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
         block_root: Hash256,
-        payload_verification_outcome: PayloadVerificationOutcome,
+        verification_outcome: EnvelopeVerificationOutcome,
     ) -> Self {
         Self {
             envelope,
             block_root,
-            payload_verification_outcome,
+            verification_outcome,
         }
     }
 }
@@ -188,19 +212,19 @@ impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
 pub struct AvailableExecutedEnvelope<E: EthSpec> {
     pub envelope: AvailableEnvelope<E>,
     pub block_root: Hash256,
-    pub payload_verification_outcome: PayloadVerificationOutcome,
+    pub verification_outcome: EnvelopeVerificationOutcome,
 }
 
 impl<E: EthSpec> AvailableExecutedEnvelope<E> {
     pub fn new(
         envelope: AvailableEnvelope<E>,
         block_root: Hash256,
-        payload_verification_outcome: PayloadVerificationOutcome,
+        verification_outcome: EnvelopeVerificationOutcome,
     ) -> Self {
         Self {
             envelope,
             block_root,
-            payload_verification_outcome,
+            verification_outcome,
         }
     }
 }

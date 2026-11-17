@@ -679,8 +679,8 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
 mod data_availability_checker_tests {
     use super::*;
 
-    use crate::block_verification::PayloadVerificationOutcome;
     use crate::custody_context::NodeCustodyType;
+    use crate::payload_envelope_verification::EnvelopeVerificationOutcome;
     use crate::test_utils::{
         DiskHarnessType, NumBlobs, generate_data_column_indices_rand_order,
         generate_rand_block_and_data_columns, get_kzg,
@@ -810,8 +810,9 @@ mod data_availability_checker_tests {
                 signature: bls::Signature::infinity().expect("infinity sig"),
             }),
             block_root,
-            payload_verification_outcome: PayloadVerificationOutcome {
+            verification_outcome: EnvelopeVerificationOutcome {
                 payload_verification_status: PayloadVerificationStatus::Verified,
+                inclusion_list_satisfied: true,
             },
         }
     }
