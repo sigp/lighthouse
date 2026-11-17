@@ -134,10 +134,10 @@ pub async fn notify_new_payload<T: BeaconChainTypes>(
     slot: Slot,
     new_payload_request: NewPayloadRequest<'_, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, PayloadVerificationError> {
-    let execution_layer = chain
-        .execution_layer
-        .as_ref()
-        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+    // With no execution layer the proofs decide, and until they do the payload is optimistic.
+    let Some(execution_layer) = chain.execution_layer.as_ref() else {
+        return Ok(PayloadVerificationStatus::Optimistic);
+    };
 
     let execution_block_hash = new_payload_request.execution_payload_ref().block_hash();
     let parent_block_hash = new_payload_request.execution_payload_ref().parent_hash();

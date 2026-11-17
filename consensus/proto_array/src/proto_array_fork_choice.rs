@@ -1529,7 +1529,7 @@ fn compute_deltas(
 mod test_compute_deltas {
     use super::*;
     use fixed_bytes::FixedBytesExtended;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
     /// Gives a hash that is not the zero hash (unless i is `usize::MAX)`.
     fn hash_from_index(i: usize) -> Hash256 {
@@ -1542,7 +1542,7 @@ mod test_compute_deltas {
 
     #[test]
     fn finalized_descendant() {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Spec::default_spec();
         let genesis_slot = Slot::new(0);
         let genesis_epoch = Epoch::new(0);
 
@@ -1564,7 +1564,7 @@ mod test_compute_deltas {
             root: Hash256::repeat_byte(42),
         };
 
-        let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+        let mut fc = ProtoArrayForkChoice::new::<Spec>(
             genesis_slot,
             genesis_slot,
             state_root,
@@ -1582,7 +1582,7 @@ mod test_compute_deltas {
 
         // Add block that is a finalized descendant.
         fc.proto_array
-            .on_block::<MainnetEthSpec>(
+            .on_block::<Spec>(
                 Block {
                     slot: genesis_slot + 1,
                     root: finalized_desc,
@@ -1609,7 +1609,7 @@ mod test_compute_deltas {
 
         // Add block that is *not* a finalized descendant.
         fc.proto_array
-            .on_block::<MainnetEthSpec>(
+            .on_block::<Spec>(
                 Block {
                     slot: genesis_slot + 1,
                     root: not_finalized_desc,
@@ -1646,24 +1646,19 @@ mod test_compute_deltas {
         assert!(!fc.is_descendant(finalized_root, not_finalized_desc));
         assert!(!fc.is_descendant(finalized_root, unknown));
 
-        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-            finalized_root,
-            genesis_checkpoint
-        ));
-        assert!(fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-            finalized_desc,
-            genesis_checkpoint
-        ));
-        assert!(!fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-            not_finalized_desc,
-            genesis_checkpoint
-        ));
         assert!(
-            !fc.is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
-                unknown,
+            fc.is_finalized_checkpoint_or_descendant::<Spec>(finalized_root, genesis_checkpoint)
+        );
+        assert!(
+            fc.is_finalized_checkpoint_or_descendant::<Spec>(finalized_desc, genesis_checkpoint)
+        );
+        assert!(
+            !fc.is_finalized_checkpoint_or_descendant::<Spec>(
+                not_finalized_desc,
                 genesis_checkpoint
             )
         );
+        assert!(!fc.is_finalized_checkpoint_or_descendant::<Spec>(unknown, genesis_checkpoint));
 
         assert!(!fc.is_descendant(finalized_desc, not_finalized_desc));
         assert!(fc.is_descendant(finalized_desc, finalized_desc));
@@ -1708,7 +1703,7 @@ mod test_compute_deltas {
     /// *checkpoint*, not just the finalized *block*.
     #[test]
     fn finalized_descendant_edge_case() {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Spec::default_spec();
         let get_block_root = Hash256::from_low_u64_be;
         let genesis_slot = Slot::new(0);
         let junk_state_root = Hash256::zero();
@@ -1721,7 +1716,7 @@ mod test_compute_deltas {
             root: get_block_root(0),
         };
 
-        let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+        let mut fc = ProtoArrayForkChoice::new::<Spec>(
             genesis_slot,
             genesis_slot,
             junk_state_root,
@@ -1745,7 +1740,7 @@ mod test_compute_deltas {
 
         let insert_block = |fc: &mut ProtoArrayForkChoice, block: TestBlock| {
             fc.proto_array
-                .on_block::<MainnetEthSpec>(
+                .on_block::<Spec>(
                     Block {
                         slot: Slot::from(block.slot),
                         root: get_block_root(block.root),
@@ -1780,7 +1775,7 @@ mod test_compute_deltas {
 
         // Produce the 0th epoch of blocks. They should all form a chain from
         // the genesis block.
-        for i in 1..MainnetEthSpec::slots_per_epoch() {
+        for i in 1..Spec::slots_per_epoch() {
             insert_block(
                 &mut fc,
                 TestBlock {
@@ -1791,7 +1786,7 @@ mod test_compute_deltas {
             )
         }
 
-        let last_slot_of_epoch_0 = MainnetEthSpec::slots_per_epoch() - 1;
+        let last_slot_of_epoch_0 = Spec::slots_per_epoch() - 1;
 
         // Produce a block that descends from the last block of epoch -.
         //
@@ -1831,7 +1826,7 @@ mod test_compute_deltas {
 
         assert!(
             fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+                .is_finalized_checkpoint_or_descendant::<Spec>(
                     finalized_root,
                     finalized_checkpoint
                 ),
@@ -1840,7 +1835,7 @@ mod test_compute_deltas {
 
         assert!(
             fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+                .is_finalized_checkpoint_or_descendant::<Spec>(
                     get_block_root(canonical_slot),
                     finalized_checkpoint
                 ),
@@ -1848,7 +1843,7 @@ mod test_compute_deltas {
         );
         assert!(
             !fc.proto_array
-                .is_finalized_checkpoint_or_descendant::<MainnetEthSpec>(
+                .is_finalized_checkpoint_or_descendant::<Spec>(
                     get_block_root(non_canonical_slot),
                     finalized_checkpoint
                 ),
@@ -2485,17 +2480,17 @@ mod test_compute_deltas {
 #[cfg(test)]
 mod test_find_head {
     use super::*;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
     #[test]
     fn justified_balances_updates() {
-        let spec = MainnetEthSpec::default_spec();
+        let spec = Spec::default_spec();
         let checkpoint = Checkpoint {
             epoch: Epoch::new(0),
             root: Hash256::from_low_u64_be(1),
         };
         let shuffling_id = AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
+        let mut fork_choice = ProtoArrayForkChoice::new::<Spec>(
             Slot::new(0),
             Slot::new(0),
             Hash256::zero(),
@@ -2520,7 +2515,7 @@ mod test_find_head {
                 .unwrap();
             let allocation = fork_choice.balances.effective_balances.as_ptr();
             let head = fork_choice
-                .find_head::<MainnetEthSpec>(
+                .find_head::<Spec>(
                     checkpoint,
                     checkpoint,
                     &balances,
@@ -2549,7 +2544,7 @@ mod test_find_head {
             balances.total_effective_balance = total_effective_balance;
             balances.num_active_validators = num_active_validators;
             let head = fork_choice
-                .find_head::<MainnetEthSpec>(
+                .find_head::<Spec>(
                     checkpoint,
                     checkpoint,
                     &balances,
