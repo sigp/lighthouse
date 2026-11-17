@@ -458,12 +458,18 @@ mod tests {
             expected_blocks.push(block);
         }
 
-        assert!(
-            expected_blocks[..num_blocks_produced].iter().any(|b| {
-                b.fork_name(spec.as_ref()).expect("fork should match slot") == ForkName::Gloas
-            }),
-            "expected Gloas blocks in streamed range"
-        );
+        for fork in ForkName::list_all() {
+            if let Some(epoch) = spec.fork_epoch(fork)
+                && spec.fork_name_at_epoch(epoch) == fork
+            {
+                assert!(
+                    expected_blocks[..num_blocks_produced].iter().any(|b| {
+                        b.fork_name(spec.as_ref()).expect("fork should match slot") == fork
+                    }),
+                    "expected {fork:?} blocks in streamed range"
+                );
+            }
+        }
 
         for epoch in 0..num_epochs {
             let start = epoch * slots_per_epoch;
