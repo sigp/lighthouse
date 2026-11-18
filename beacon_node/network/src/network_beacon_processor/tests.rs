@@ -1548,6 +1548,124 @@ async fn import_gossip_attestation() {
     );
 }
 
+/// The default config with attestation batching on.
+fn batching_config() -> BeaconProcessorConfig {
+    BeaconProcessorConfig {
+        attestation_batch_trigger: 8,
+        ..BeaconProcessorConfig::default()
+    }
+}
+
+/// With batching on, a lone gossip attestation is verified when the batch timer fires.
+#[tokio::test]
+async fn import_gossip_attestation_after_batch_timeout() {
+    let mut rig = TestRig::new_parametric(TestRigParams {
+        chain_length: SMALL_CHAIN,
+        beacon_processor_config: batching_config(),
+        node_custody_type: NodeCustodyType::Fullnode,
+        generate_blobs: true,
+        spec: test_spec::<E>(),
+    })
+    .await;
+
+    let initial_attns = rig.chain.naive_aggregation_pool.read().num_items();
+
+    rig.enqueue_unaggregated_attestation();
+
+    rig.assert_event_journal(&[
+        WorkType::GossipAttestation.into(),
+        ATTESTATION_BATCH_TIMEOUT,
+        WORKER_FREED,
+        NOTHING_TO_DO,
+    ])
+    .await;
+
+    assert_eq!(
+        rig.chain.naive_aggregation_pool.read().num_items(),
+        initial_attns + 1,
+        "op pool should have one more attestation"
+    );
+}
+
+/// Reaching the batch trigger verifies the queued attestations at once, without the timer.
+#[tokio::test]
+async fn gossip_attestations_dispatched_at_batch_trigger() {
+    let beacon_processor_config = BeaconProcessorConfig {
+        // Long enough that only the trigger can dispatch the batch.
+        attestation_batch_max_age: Duration::from_secs(3600),
+        ..batching_config()
+    };
+    let trigger = beacon_processor_config.attestation_batch_trigger;
+    let mut rig = TestRig::new_parametric(TestRigParams {
+        chain_length: SMALL_CHAIN,
+        beacon_processor_config,
+        node_custody_type: NodeCustodyType::Fullnode,
+        generate_blobs: true,
+        spec: test_spec::<E>(),
+    })
+    .await;
+
+    let initial_attns = rig.chain.naive_aggregation_pool.read().num_items();
+
+    for _ in 0..trigger {
+        rig.enqueue_unaggregated_attestation();
+    }
+
+    let mut expected = vec![WorkType::GossipAttestation.into(); trigger];
+    expected.extend([WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&expected).await;
+
+    // The copies are rejected as already seen.
+    assert_eq!(
+        rig.chain.naive_aggregation_pool.read().num_items(),
+        initial_attns + 1,
+        "op pool should have one more attestation"
+    );
+}
+
+/// A batch that becomes due while another event is handled is dispatched at the end of that event.
+#[tokio::test]
+async fn overdue_attestation_batch_dispatched_after_unrelated_event() {
+    let beacon_processor_config = batching_config();
+    let max_age = beacon_processor_config.attestation_batch_max_age;
+    let mut rig = TestRig::new_parametric(TestRigParams {
+        chain_length: SMALL_CHAIN,
+        beacon_processor_config,
+        node_custody_type: NodeCustodyType::Fullnode,
+        generate_blobs: true,
+        spec: test_spec::<E>(),
+    })
+    .await;
+
+    let initial_attns = rig.chain.naive_aggregation_pool.read().num_items();
+
+    rig.enqueue_unaggregated_attestation();
+    // The attestation is queued and its timer set by the time this arrives.
+    rig.assert_event_journal(&[WorkType::GossipAttestation.into()])
+        .await;
+
+    // Block past the deadline, so the event below is handled before the timer.
+    std::thread::sleep(max_age * 3);
+    rig.beacon_processor_tx
+        .try_send(WorkEvent {
+            drop_during_sync: false,
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
+                block_root: Hash256::repeat_byte(0xaa),
+            }),
+        })
+        .unwrap();
+
+    // No timer event: the reprocess event dispatched the batch.
+    rig.assert_event_journal(&[WORKER_FREED, NOTHING_TO_DO])
+        .await;
+
+    assert_eq!(
+        rig.chain.naive_aggregation_pool.read().num_items(),
+        initial_attns + 1,
+        "op pool should have one more attestation"
+    );
+}
+
 enum BlockImportMethod {
     Gossip,
     Rpc,

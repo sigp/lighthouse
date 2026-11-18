@@ -39,7 +39,7 @@
 //! task.
 
 pub use crate::scheduler::BeaconProcessorQueueLengths;
-use crate::scheduler::work_queue::WorkQueues;
+use crate::scheduler::work_queue::{LifoQueue, WorkQueues};
 use crate::work_reprocessing_queue::{
     QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, QueuedGossipDataColumn,
     QueuedGossipEnvelope, ReprocessQueueMessage,
@@ -110,9 +110,14 @@ const WORKER_TASK_NAME: &str = "beacon_processor_worker";
 const DEFAULT_MAX_GOSSIP_ATTESTATION_BATCH_SIZE: usize = 64;
 const DEFAULT_MAX_GOSSIP_AGGREGATE_BATCH_SIZE: usize = 64;
 
+/// Trigger is off by default.
+const DEFAULT_ATTESTATION_BATCH_TRIGGER: usize = 1;
+const DEFAULT_ATTESTATION_BATCH_MAX_AGE: Duration = Duration::from_millis(2);
+
 /// Unique IDs used for metrics and testing.
 pub const WORKER_FREED: &str = "worker_freed";
 pub const NOTHING_TO_DO: &str = "nothing_to_do";
+pub const ATTESTATION_BATCH_TIMEOUT: &str = "attestation_batch_timeout";
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct BeaconProcessorConfig {
@@ -121,6 +126,11 @@ pub struct BeaconProcessorConfig {
     pub max_scheduled_work_queue_len: usize,
     pub max_gossip_attestation_batch_size: usize,
     pub max_gossip_aggregate_batch_size: usize,
+    /// Gossip attestations wait in the queue until this many are pending, then are verified as one
+    /// batch. 1 disables waiting. Clamped to `max_gossip_attestation_batch_size`.
+    pub attestation_batch_trigger: usize,
+    /// The longest a gossip attestation waits for the trigger. Unused when the trigger is 1.
+    pub attestation_batch_max_age: Duration,
     pub enable_backfill_rate_limiting: bool,
 }
 
@@ -132,6 +142,8 @@ impl Default for BeaconProcessorConfig {
             max_scheduled_work_queue_len: DEFAULT_MAX_SCHEDULED_WORK_QUEUE_LEN,
             max_gossip_attestation_batch_size: DEFAULT_MAX_GOSSIP_ATTESTATION_BATCH_SIZE,
             max_gossip_aggregate_batch_size: DEFAULT_MAX_GOSSIP_AGGREGATE_BATCH_SIZE,
+            attestation_batch_trigger: DEFAULT_ATTESTATION_BATCH_TRIGGER,
+            attestation_batch_max_age: DEFAULT_ATTESTATION_BATCH_MAX_AGE,
             enable_backfill_rate_limiting: true,
         }
     }
@@ -662,6 +674,8 @@ enum InboundEvent<E: EthSpec> {
     /// A worker has completed a task and is free.
     /// Returns the `WorkType` that completed and an optional peer id associated with that work.
     WorkerFinished(WorkerCompletion),
+    /// The oldest queued attestation reached its max age.
+    AttestationBatchTimeout,
     /// There is new work to be done.
     WorkEvent((WorkEvent<E>, Instant)),
     /// A work event that was queued for re-processing has become ready.
@@ -679,6 +693,25 @@ struct InboundEvents<E: EthSpec> {
     event_rx: mpsc::Receiver<WorkEvent<E>>,
     /// Used internally for queuing work ready to be re-processed.
     ready_work_rx: mpsc::Receiver<ReadyWork>,
+    /// Fires when the oldest queued attestation reaches its max age.
+    attestation_timer: Option<Pin<Box<tokio::time::Sleep>>>,
+}
+
+impl<E: EthSpec> InboundEvents<E> {
+    /// Set the attestation timer to `deadline`, or clear it. Cheap to call every iteration.
+    fn set_attestation_timer(&mut self, deadline: Option<tokio::time::Instant>) {
+        let Some(deadline) = deadline else {
+            self.attestation_timer = None;
+            return;
+        };
+        if let Some(timer) = self.attestation_timer.as_mut() {
+            if timer.deadline() != deadline {
+                timer.as_mut().reset(deadline);
+            }
+        } else {
+            self.attestation_timer = Some(Box::pin(tokio::time::sleep_until(deadline)));
+        }
+    }
 }
 
 impl<E: EthSpec> Stream for InboundEvents<E> {
@@ -722,7 +755,156 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
             Poll::Pending => {}
         }
 
+        // Poll the age-bound timer last, so it never suppresses real work.
+        if let Some(timer) = self.attestation_timer.as_mut()
+            && timer.as_mut().poll(cx).is_ready()
+        {
+            self.attestation_timer = None;
+            return Poll::Ready(Some(InboundEvent::AttestationBatchTimeout));
+        }
+
         Poll::Pending
+    }
+}
+
+/// Take up to `batch_cap` items from the front of `queue` as one `Work` item, folded with
+/// `make_batch` if there is more than one, along with the time its queue time counts from.
+///
+/// A batch records each item's queue time here, and its own counts from now. `unpack` returns
+/// `None` for items that aren't `work_type`, which are logged and dropped.
+fn take_work_batch<E: EthSpec, Item, BatchFn>(
+    queue: &mut LifoQueue<Work<E>>,
+    batch_cap: usize,
+    work_type: WorkType,
+    unpack: impl Fn(Work<E>) -> Option<(Item, BatchFn)>,
+    make_batch: impl FnOnce(Vec<Item>, BatchFn) -> Work<E>,
+) -> Option<(Instant, Work<E>)> {
+    let work_type: &'static str = work_type.into();
+    let batch_size = cmp::min(queue.len(), batch_cap.max(1));
+
+    if batch_size < 2 {
+        return queue.pop();
+    }
+
+    let mut items = Vec::with_capacity(batch_size);
+    let mut process_batch_opt = None;
+    for _ in 0..batch_size {
+        if let Some((enqueued_at, work)) = queue.pop() {
+            metrics::observe_timer_vec(
+                &metrics::BEACON_PROCESSOR_QUEUE_TIME,
+                &[work.str_id()],
+                enqueued_at.elapsed(),
+            );
+            if let Some((item, process_batch)) = unpack(work) {
+                items.push(item);
+                process_batch_opt.get_or_insert(process_batch);
+            } else {
+                error!(work_type, "Invalid item in batch queue");
+            }
+        }
+    }
+
+    if let Some(process_batch) = process_batch_opt {
+        Some((Instant::now(), make_batch(items, process_batch)))
+    } else {
+        // Batches have at least two items, so this is a logic error.
+        crit!(work_type, "Missing batch work");
+        None
+    }
+}
+
+/// Take up to `batch_cap` attestations, as a `GossipAttestationBatch` if more than one.
+fn take_attestation_batch<E: EthSpec>(
+    attestation_queue: &mut LifoQueue<Work<E>>,
+    batch_cap: usize,
+) -> Option<(Instant, Work<E>)> {
+    take_work_batch(
+        attestation_queue,
+        batch_cap,
+        WorkType::GossipAttestation,
+        |work| match work {
+            Work::GossipAttestation {
+                attestation,
+                process_individual: _,
+                process_batch,
+            } => Some((*attestation, process_batch)),
+            _ => None,
+        },
+        |attestations, process_batch| Work::GossipAttestationBatch {
+            attestations,
+            process_batch,
+        },
+    )
+}
+
+/// Take up to `batch_cap` aggregates, as a `GossipAggregateBatch` if more than one.
+fn take_aggregate_batch<E: EthSpec>(
+    aggregate_queue: &mut LifoQueue<Work<E>>,
+    batch_cap: usize,
+) -> Option<(Instant, Work<E>)> {
+    take_work_batch(
+        aggregate_queue,
+        batch_cap,
+        WorkType::GossipAggregate,
+        |work| match work {
+            Work::GossipAggregate {
+                aggregate,
+                process_individual: _,
+                process_batch,
+            } => Some((*aggregate, process_batch)),
+            _ => None,
+        },
+        |aggregates, process_batch| Work::GossipAggregateBatch {
+            aggregates,
+            process_batch,
+        },
+    )
+}
+
+/// What to do with the queued unaggregated attestations.
+#[derive(Debug, PartialEq)]
+enum AttestationBatchState {
+    /// Nothing is queued.
+    Empty,
+    /// At least `trigger` are queued, or the oldest reached `max_age`.
+    Ready,
+    /// Keep waiting until `until`, or until the trigger if the deadline can't be represented.
+    Hold { until: Option<tokio::time::Instant> },
+}
+
+/// Whether the queued attestations are ready to dispatch. Above a `trigger` of 1 they wait even
+/// when workers are free, trading up to `max_age` of latency for less BLS CPU.
+fn attestation_batch_state<E: EthSpec>(
+    attestation_queue: &LifoQueue<Work<E>>,
+    trigger: usize,
+    max_age: Duration,
+    now: tokio::time::Instant,
+) -> AttestationBatchState {
+    let Some((oldest_enqueued_at, _)) = attestation_queue.back() else {
+        return AttestationBatchState::Empty;
+    };
+    if attestation_queue.len() >= trigger {
+        return AttestationBatchState::Ready;
+    }
+    match oldest_enqueued_at.checked_add(max_age) {
+        Some(until) if tokio::time::Instant::from_std(until) <= now => AttestationBatchState::Ready,
+        until => AttestationBatchState::Hold {
+            until: until.map(tokio::time::Instant::from_std),
+        },
+    }
+}
+
+/// Take up to `batch_cap` queued attestations if they are ready.
+fn take_ready_attestation_batch<E: EthSpec>(
+    attestation_queue: &mut LifoQueue<Work<E>>,
+    trigger: usize,
+    max_age: Duration,
+    batch_cap: usize,
+) -> Option<(Instant, Work<E>)> {
+    let now = tokio::time::Instant::now();
+    match attestation_batch_state(attestation_queue, trigger, max_age, now) {
+        AttestationBatchState::Ready => take_attestation_batch(attestation_queue, batch_cap),
+        AttestationBatchState::Empty | AttestationBatchState::Hold { .. } => None,
     }
 }
 
@@ -789,6 +971,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 idle_rx,
                 event_rx,
                 ready_work_rx,
+                attestation_timer: None,
             };
 
             let enable_backfill_rate_limiting = self.config.enable_backfill_rate_limiting;
@@ -796,7 +979,27 @@ impl<E: EthSpec> BeaconProcessor<E> {
             // De-bounce for the log emitted when the reprocess queue is full.
             let mut reprocess_queue_debounce = TimeLatch::default();
 
+            let att_batch_cap = self.config.max_gossip_attestation_batch_size;
+            let att_batch_max_age = self.config.attestation_batch_max_age;
+            let att_batch_trigger = {
+                let configured = self.config.attestation_batch_trigger;
+                // One batch must hold the whole trigger, and the queue must be able to reach it.
+                let effective = configured
+                    .max(1)
+                    .min(att_batch_cap.max(1))
+                    .min(work_queues.attestation_queue.max_length.max(1));
+                if effective != configured {
+                    warn!(
+                        configured,
+                        effective, "Attestation batch trigger adjusted to a safe value"
+                    );
+                }
+                effective
+            };
+            let att_batch_trigger_enabled = att_batch_trigger > 1;
+
             loop {
+                let mut attestation_timer_fired = false;
                 let (work_event, created_timestamp) = match inbound_events.next().await {
                     Some(InboundEvent::WorkerFinished(completion)) => {
                         self.current_workers = self.current_workers.saturating_sub(1);
@@ -807,6 +1010,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 work_queues.rpc_block_queue.worker_finished(&peer_id)
                             }
                         }
+                        (None, Instant::now())
+                    }
+                    // Run the dispatch ladder, as for a freed worker.
+                    Some(InboundEvent::AttestationBatchTimeout) => {
+                        attestation_timer_fired = true;
                         (None, Instant::now())
                     }
                     Some(InboundEvent::WorkEvent((event, created_timestamp)))
@@ -870,7 +1078,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         &metrics::BEACON_PROCESSOR_WORK_EVENTS_RX_COUNT,
                         &[event.work.str_id()],
                     );
-                } else {
+                } else if !attestation_timer_fired {
+                    // A batch timeout is also a `None` work event, but no worker freed.
                     metrics::inc_counter(&metrics::BEACON_PROCESSOR_IDLE_EVENTS_TOTAL);
                 }
 
@@ -878,7 +1087,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     let id = work_event
                         .as_ref()
                         .map(|event| event.work.str_id())
-                        .unwrap_or(WORKER_FREED);
+                        .unwrap_or(if attestation_timer_fired {
+                            ATTESTATION_BATCH_TIMEOUT
+                        } else {
+                            WORKER_FREED
+                        });
 
                     // We don't care if this message was successfully sent, we only use the journal
                     // during testing. We also ignore reprocess messages to ensure our test cases can pass.
@@ -892,6 +1105,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     .as_ref()
                     .is_some_and(|event| event.drop_during_sync);
 
+                let flush_idle_tx = idle_tx.clone();
                 let idle_tx = idle_tx.clone();
                 let modified_queue_id = match work_event {
                     // There is no new work event, but we are able to spawn a new worker.
@@ -958,133 +1172,19 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         // Check the aggregates, *then* the unaggregates since we assume that
                         // aggregates are more valuable to local validators and effectively give us
                         // more information with less signature verification time.
-                        } else if !work_queues.aggregate_queue.is_empty() {
-                            let batch_size = cmp::min(
-                                work_queues.aggregate_queue.len(),
-                                self.config.max_gossip_aggregate_batch_size,
-                            );
-
-                            if batch_size < 2 {
-                                // One single aggregate is in the queue, process it individually.
-                                work_queues.aggregate_queue.pop()
-                            } else {
-                                // Collect two or more aggregates into a batch, so they can take
-                                // advantage of batch signature verification.
-                                //
-                                // Note: this will convert the `Work::GossipAggregate` item into a
-                                // `Work::GossipAggregateBatch` item.
-                                let mut aggregates = Vec::with_capacity(batch_size);
-                                let mut process_batch_opt = None;
-                                for _ in 0..batch_size {
-                                    if let Some((enqueued_at, item)) =
-                                        work_queues.aggregate_queue.pop()
-                                    {
-                                        metrics::observe_timer_vec(
-                                            &metrics::BEACON_PROCESSOR_QUEUE_TIME,
-                                            &[item.str_id()],
-                                            enqueued_at.elapsed(),
-                                        );
-                                        match item {
-                                            Work::GossipAggregate {
-                                                aggregate,
-                                                process_individual: _,
-                                                process_batch,
-                                            } => {
-                                                aggregates.push(*aggregate);
-                                                if process_batch_opt.is_none() {
-                                                    process_batch_opt = Some(process_batch);
-                                                }
-                                            }
-                                            _ => {
-                                                error!("Invalid item in aggregate queue");
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if let Some(process_batch) = process_batch_opt {
-                                    // Process all aggregates with a single worker.
-                                    Some((
-                                        Instant::now(),
-                                        Work::GossipAggregateBatch {
-                                            aggregates,
-                                            process_batch,
-                                        },
-                                    ))
-                                } else {
-                                    // There is no good reason for this to
-                                    // happen, it is a serious logic error.
-                                    // Since we only form batches when multiple
-                                    // work items exist, we should always have a
-                                    // work closure at this point.
-                                    crit!("Missing aggregate work");
-                                    None
-                                }
-                            }
-                        // Check the unaggregated attestation queue.
-                        //
-                        // Potentially use batching.
-                        } else if !work_queues.attestation_queue.is_empty() {
-                            let batch_size = cmp::min(
-                                work_queues.attestation_queue.len(),
-                                self.config.max_gossip_attestation_batch_size,
-                            );
-
-                            if batch_size < 2 {
-                                // One single attestation is in the queue, process it individually.
-                                work_queues.attestation_queue.pop()
-                            } else {
-                                // Collect two or more attestations into a batch, so they can take
-                                // advantage of batch signature verification.
-                                //
-                                // Note: this will convert the `Work::GossipAttestation` item into a
-                                // `Work::GossipAttestationBatch` item.
-                                let mut attestations = Vec::with_capacity(batch_size);
-                                let mut process_batch_opt = None;
-                                for _ in 0..batch_size {
-                                    if let Some((enqueued_at, item)) =
-                                        work_queues.attestation_queue.pop()
-                                    {
-                                        metrics::observe_timer_vec(
-                                            &metrics::BEACON_PROCESSOR_QUEUE_TIME,
-                                            &[item.str_id()],
-                                            enqueued_at.elapsed(),
-                                        );
-                                        match item {
-                                            Work::GossipAttestation {
-                                                attestation,
-                                                process_individual: _,
-                                                process_batch,
-                                            } => {
-                                                attestations.push(*attestation);
-                                                if process_batch_opt.is_none() {
-                                                    process_batch_opt = Some(process_batch);
-                                                }
-                                            }
-                                            _ => error!("Invalid item in attestation queue"),
-                                        }
-                                    }
-                                }
-
-                                if let Some(process_batch) = process_batch_opt {
-                                    // Process all attestations with a single worker.
-                                    Some((
-                                        Instant::now(),
-                                        Work::GossipAttestationBatch {
-                                            attestations,
-                                            process_batch,
-                                        },
-                                    ))
-                                } else {
-                                    // There is no good reason for this to
-                                    // happen, it is a serious logic error.
-                                    // Since we only form batches when multiple
-                                    // work items exist, we should always have a
-                                    // work closure at this point.
-                                    crit!("Missing attestations work");
-                                    None
-                                }
-                            }
+                        } else if let Some(item) = take_aggregate_batch(
+                            &mut work_queues.aggregate_queue,
+                            self.config.max_gossip_aggregate_batch_size,
+                        ) {
+                            Some(item)
+                        // Check the unaggregated attestations, if a batch is ready.
+                        } else if let Some(batch) = take_ready_attestation_batch(
+                            &mut work_queues.attestation_queue,
+                            att_batch_trigger,
+                            att_batch_max_age,
+                            att_batch_cap,
+                        ) {
+                            Some(batch)
                         // Check payload attestation messages after attestations. They dont give rewards
                         // but they influence fork choice.
                         } else if let Some(item) =
@@ -1217,13 +1317,20 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         }
                     }
                     // There is no new work event and we are unable to spawn a new worker.
-                    //
-                    // I cannot see any good reason why this would happen.
                     None => {
-                        warn!(
-                            msg = "no new work and cannot spawn worker",
-                            "Unexpected gossip processor condition"
-                        );
+                        if attestation_timer_fired {
+                            // The next freed worker takes the batch.
+                            trace!(
+                                msg = "no new work and cannot spawn worker",
+                                "Attestation batch timeout with no free worker"
+                            );
+                        } else {
+                            // A freed worker with no spawn capacity means broken worker accounting.
+                            warn!(
+                                msg = "no new work and cannot spawn worker",
+                                "Unexpected gossip processor condition"
+                            );
+                        }
                         None
                     }
                     // The chain is syncing and this event should be dropped during sync.
@@ -1307,10 +1414,27 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 // Notifications must not wait behind the work they release.
                                 process_fn();
                             }
-                            _ if can_spawn => self.spawn_worker(work, created_timestamp, idle_tx),
-                            Work::GossipAttestation { .. } => {
-                                work_queues.attestation_queue.push(work)
+                            // Trigger disabled, verify immediately.
+                            Work::GossipAttestation { .. }
+                                if !att_batch_trigger_enabled && can_spawn =>
+                            {
+                                self.spawn_worker(work, created_timestamp, idle_tx)
                             }
+                            // Otherwise queue it, and dispatch if that made a batch ready.
+                            Work::GossipAttestation { .. } => {
+                                work_queues.attestation_queue.push(work);
+                                if can_spawn
+                                    && let Some((enqueued_at, batch)) = take_ready_attestation_batch(
+                                        &mut work_queues.attestation_queue,
+                                        att_batch_trigger,
+                                        att_batch_max_age,
+                                        att_batch_cap,
+                                    )
+                                {
+                                    self.spawn_worker(batch, enqueued_at, idle_tx);
+                                }
+                            }
+                            _ if can_spawn => self.spawn_worker(work, created_timestamp, idle_tx),
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
                             Work::GossipAttestationBatch { .. } => {
@@ -1599,6 +1723,35 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         "Attestation queue full"
                     )
                 }
+
+                // Flush ready batches while at least 1 worker is free.
+                // A batch is capped at `att_batch_cap`, so what's left can still be `Ready`.
+                let now = tokio::time::Instant::now();
+                while att_batch_trigger_enabled
+                    && self.current_workers < self.config.max_workers
+                    && attestation_batch_state(
+                        &work_queues.attestation_queue,
+                        att_batch_trigger,
+                        att_batch_max_age,
+                        now,
+                    ) == AttestationBatchState::Ready
+                    && let Some((enqueued_at, batch)) =
+                        take_attestation_batch(&mut work_queues.attestation_queue, att_batch_cap)
+                {
+                    self.spawn_worker(batch, enqueued_at, flush_idle_tx.clone());
+                }
+
+                // Only held attestations need the timer. The next freed worker takes a ready batch.
+                let attestation_timer_deadline = match attestation_batch_state(
+                    &work_queues.attestation_queue,
+                    att_batch_trigger,
+                    att_batch_max_age,
+                    now,
+                ) {
+                    AttestationBatchState::Hold { until } => until,
+                    AttestationBatchState::Empty | AttestationBatchState::Ready => None,
+                };
+                inbound_events.set_attestation_timer(attestation_timer_deadline);
             }
         };
 
@@ -1871,8 +2024,9 @@ impl Drop for SendOnDrop {
 mod tests {
     use super::*;
     use crate::scheduler::work_queue::PeerWorkQueue;
+    use bls::AggregateSignature;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use types::MainnetEthSpec;
+    use types::{AttestationData, MainnetEthSpec, Spec};
 
     fn rpc_block(peer_id: PeerId, ignored: Arc<AtomicUsize>) -> Work<MainnetEthSpec> {
         Work::RpcBlock {
@@ -1983,5 +2137,135 @@ mod tests {
         assert_eq!(completion.peer_id, Some(peer));
         assert_eq!(completion.work_type, WorkType::RpcBlock);
         assert!(rx.try_recv().is_err());
+    }
+
+    fn dummy_attestation_work(attester_index: u64) -> Work<Spec> {
+        let package = GossipAttestationPackage {
+            message_id: MessageId::new(&[]),
+            peer_id: PeerId::random(),
+            attestation: Box::new(SingleAttestation {
+                committee_index: 0,
+                attester_index,
+                data: AttestationData::default(),
+                signature: AggregateSignature::empty(),
+            }),
+            subnet_id: SubnetId::new(0),
+            should_import: true,
+            seen_timestamp: Duration::from_secs(0),
+        };
+        Work::GossipAttestation {
+            attestation: Box::new(package),
+            process_individual: Box::new(|_| {}),
+            process_batch: Box::new(|_| {}),
+        }
+    }
+
+    fn attestation_queue_with(n: u64) -> LifoQueue<Work<Spec>> {
+        let mut queue = LifoQueue::new(1024);
+        for i in 0..n {
+            queue.push(dummy_attestation_work(i));
+        }
+        queue
+    }
+
+    /// The `attester_index` of each attestation in a folded batch, in batch order.
+    fn batch_attester_indices(work: Work<Spec>) -> Vec<u64> {
+        match work {
+            Work::GossipAttestationBatch { attestations, .. } => attestations
+                .iter()
+                .map(|package| package.attestation.attester_index)
+                .collect(),
+            other => panic!("expected a batch, got {}", other.str_id()),
+        }
+    }
+
+    /// The `attester_index` of each attestation left in the queue, in pop order.
+    fn queued_attester_indices(queue: &mut LifoQueue<Work<Spec>>) -> Vec<u64> {
+        std::iter::from_fn(|| queue.pop())
+            .map(|(_, work)| match work {
+                Work::GossipAttestation { attestation, .. } => {
+                    attestation.attestation.attester_index
+                }
+                other => panic!("expected an attestation, got {}", other.str_id()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn take_attestation_batch_empty_queue_returns_none() {
+        let mut queue = attestation_queue_with(0);
+        assert!(take_attestation_batch(&mut queue, 16).is_none());
+    }
+
+    #[test]
+    fn take_attestation_batch_single_item_is_individual() {
+        let mut queue = attestation_queue_with(1);
+        let (_, work) = take_attestation_batch(&mut queue, 16).expect("some work");
+        assert!(matches!(work, Work::GossipAttestation { .. }));
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn take_attestation_batch_folds_multiple() {
+        let mut queue = attestation_queue_with(5);
+        let (_, work) = take_attestation_batch(&mut queue, 16).expect("some work");
+        // One batch of the whole queue, newest first.
+        assert_eq!(batch_attester_indices(work), vec![4, 3, 2, 1, 0]);
+        assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn take_attestation_batch_caps_size_and_leaves_remainder() {
+        let mut queue = attestation_queue_with(20);
+        let (_, work) = take_attestation_batch(&mut queue, 16).expect("some work");
+        // The batch takes the 16 newest items.
+        assert_eq!(
+            batch_attester_indices(work),
+            (4..20).rev().collect::<Vec<_>>()
+        );
+        // The 4 oldest stay queued for the next dispatch.
+        assert_eq!(queued_attester_indices(&mut queue), vec![3, 2, 1, 0]);
+    }
+
+    #[test]
+    fn take_attestation_batch_cap_zero_is_clamped_to_one() {
+        let mut queue = attestation_queue_with(3);
+        // A cap of 0 is treated as 1, so the queue doesn't stall.
+        let (_, work) = take_attestation_batch(&mut queue, 0).expect("some work");
+        assert!(matches!(work, Work::GossipAttestation { .. }));
+        assert_eq!(queue.len(), 2);
+    }
+
+    /// The queue is ready at `trigger`, and below it is held until the oldest reaches the age
+    /// bound.
+    #[test]
+    fn batch_state_holds_until_oldest_reaches_age_bound() {
+        let max_age = Duration::from_millis(10);
+        let now = tokio::time::Instant::now();
+        let state =
+            |n, trigger| attestation_batch_state(&attestation_queue_with(n), trigger, max_age, now);
+        assert_eq!(state(0, 1), AttestationBatchState::Empty);
+        assert_eq!(state(1, 1), AttestationBatchState::Ready);
+        assert_eq!(state(16, 16), AttestationBatchState::Ready);
+
+        let queue = attestation_queue_with(15);
+        let (oldest_enqueued_at, _) = queue.back().expect("queue is not empty");
+        let oldest_enqueued_at = tokio::time::Instant::from_std(*oldest_enqueued_at);
+        let deadline = oldest_enqueued_at + max_age;
+        assert_eq!(
+            attestation_batch_state(&queue, 16, max_age, oldest_enqueued_at),
+            AttestationBatchState::Hold {
+                until: Some(deadline)
+            }
+        );
+        assert_eq!(
+            attestation_batch_state(&queue, 16, max_age, deadline),
+            AttestationBatchState::Ready
+        );
+        // An age bound too large to represent holds the queue until the trigger.
+        assert_eq!(
+            attestation_batch_state(&queue, 16, Duration::MAX, deadline),
+            AttestationBatchState::Hold { until: None }
+        );
     }
 }

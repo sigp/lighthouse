@@ -1676,6 +1676,26 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("beacon-processor-attestation-batch-trigger")
+                .long("beacon-processor-attestation-batch-trigger")
+                .value_name("INTEGER")
+                .help("Number of gossip attestations to collect before verifying them as a \
+                       batch. 1 disables collection.")
+                .hide(true)
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("beacon-processor-attestation-batch-max-age-ms")
+                .long("beacon-processor-attestation-batch-max-age-ms")
+                .value_name("MILLISECONDS")
+                .help("Maximum time in milliseconds a gossip attestation waits for a batch \
+                       to fill.")
+                .hide(true)
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("beacon-node-backend")
                 .long("beacon-node-backend")
                 .value_name("DATABASE")

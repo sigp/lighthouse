@@ -893,6 +893,17 @@ pub fn get_config<E: EthSpec>(
         .beacon_processor
         .max_gossip_aggregate_batch_size =
         clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
+    if let Some(trigger) =
+        clap_utils::parse_optional(cli_args, "beacon-processor-attestation-batch-trigger")?
+    {
+        client_config.beacon_processor.attestation_batch_trigger = trigger;
+    }
+    if let Some(max_age_ms) =
+        clap_utils::parse_optional(cli_args, "beacon-processor-attestation-batch-max-age-ms")?
+    {
+        client_config.beacon_processor.attestation_batch_max_age =
+            Duration::from_millis(max_age_ms);
+    }
 
     #[cfg(feature = "testing")]
     if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-block-publishing")? {
