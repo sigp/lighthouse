@@ -1,17 +1,17 @@
+use crate::checks::LightClientUpdateChecker;
+use crate::driver::SimDriver;
 use crate::local_network::LocalNetworkParams;
 use crate::local_network::TERMINAL_BLOCK;
 use crate::{LocalNetwork, checks};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
-use futures::prelude::*;
 use node_test_rig::{
     ApiTopic, ValidatorFiles,
     environment::{EnvironmentBuilder, LoggerConfig},
     testing_validator_config,
 };
 use rayon::prelude::*;
-use std::cmp::max;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -20,12 +20,12 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use logging::build_workspace_filter;
-use tokio::time::sleep;
 use tracing::Level;
-use types::{Epoch, EthSpec, MinimalEthSpec};
+use types::{Epoch, EthSpec, MinimalEthSpec, Slot};
 
 const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 38;
+const SLOT_DURATION_MS: u64 = 60_000;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 0;
@@ -58,11 +58,6 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         .expect("missing validators-per-node default")
         .parse::<usize>()
         .expect("missing validators-per-node default");
-    let speed_up_factor = subcommand_matches
-        .get_one::<String>("speed-up-factor")
-        .expect("missing speed-up-factor default")
-        .parse::<u64>()
-        .expect("missing speed-up-factor default");
     let log_level = subcommand_matches
         .get_one::<String>("debug-level")
         .expect("missing debug-level");
@@ -77,7 +72,6 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     println!(" nodes: {}", node_count);
     println!(" proposer-nodes: {}", proposer_nodes);
     println!(" validators-per-node: {}", validators_per_node);
-    println!(" speed-up-factor: {}", speed_up_factor);
     println!(" continue-after-checks: {}", continue_after_checks);
     println!(" log-dir: {:?}", log_dir);
     println!(" disable-stdout-logging: {}", disable_stdout_logging);
@@ -172,12 +166,10 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
 
     // Convenience variables. Update these values when adding a newer fork.
     let latest_fork_version = spec.gloas_fork_version;
-    let latest_fork_start_epoch = GLOAS_FORK_EPOCH;
 
-    let mut slot_duration_ms = spec.get_slot_duration().as_millis() as u64;
-    slot_duration_ms /= speed_up_factor;
-    slot_duration_ms = max(1_000, slot_duration_ms);
-    spec = spec.set_slot_duration_ms::<MinimalEthSpec>(slot_duration_ms);
+    // The driver moves the clock, so a slot only takes as long as the nodes need. A long slot puts
+    // the real-time timeouts derived from it well above any real delay.
+    spec = spec.set_slot_duration_ms::<MinimalEthSpec>(SLOT_DURATION_MS);
 
     spec.genesis_delay = genesis_delay;
     spec.min_genesis_time = 0;
@@ -192,7 +184,6 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
-    let slot_duration = spec.get_slot_duration();
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
 
@@ -239,7 +230,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         /*
          * One by one, add validators to the network.
          */
-
+        let validator_client_count = validator_files.len();
         let executor = context.executor.clone();
         for (i, files) in validator_files.into_iter().enumerate() {
             let network_1 = network.clone();
@@ -277,126 +268,89 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
             node.server.all_payloads_valid();
         });
 
-        let duration_to_genesis = network.duration_to_genesis().await?;
-        println!("Duration to genesis: {}", duration_to_genesis.as_secs());
-        sleep(duration_to_genesis).await;
+        let driver = SimDriver::new(network.clone(), spec.clone());
+        driver
+            .start_at_genesis(validator_client_count, total_validator_count)
+            .await?;
 
-        /*
-         * Start the checks that ensure the network performs as expected.
-         *
-         * We start these checks immediately after the validators have started. This means we're
-         * relying on the validator futures to all return immediately after genesis so that these
-         * tests start at the right time. Whilst this is works well for now, it's subject to
-         * breakage by changes to the VC.
-         */
-        let network_1 = network.clone();
+        let end_slot = Epoch::new(END_EPOCH).start_slot(slots_per_epoch);
+        // The extra node joins without validators, and syncs while the chain keeps moving.
+        let delayed_node_join_slot = Epoch::new(END_EPOCH - 3).start_slot(slots_per_epoch);
+        let delayed_node_index = node_count;
+        // Sync aggregates are available from the first slot after the Altair fork, and the Gloas
+        // fork block still attests a Fulu parent (#9587).
+        let light_client_slots = Epoch::new(ALTAIR_FORK_EPOCH).start_slot(slots_per_epoch) + 1
+            ..=Epoch::new(GLOAS_FORK_EPOCH).start_slot(slots_per_epoch);
+        let mut light_client_checker = LightClientUpdateChecker::default();
 
-        let (
-            finalization,
-            block_prod,
-            validator_count,
-            onboarding,
-            fork,
-            sync_aggregate,
-            transition,
-            light_client_update,
-            blobs,
-            start_node_with_delay,
-            sync,
-        ) = futures::join!(
-            // Check that the chain finalizes at the first given opportunity.
-            checks::verify_first_finalization(network.clone(), slot_duration),
-            // Check that a block is produced at every slot.
-            checks::verify_full_block_production_up_to(
-                network.clone(),
-                Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
-                slot_duration,
-            ),
+        for slot in (0..=end_slot.as_u64()).map(Slot::new) {
+            if slot == delayed_node_join_slot {
+                println!("Adding the delayed beacon node at slot {slot}");
+                network
+                    .add_beacon_node(beacon_config.clone(), mock_execution_config.clone(), false)
+                    .await?;
+                // Make the delayed node's execution node accept every payload, like the others.
+                if let Some(execution_node) = network.execution_nodes.read().last() {
+                    execution_node.server.all_payloads_valid();
+                }
+                driver.exclude_beacon_node(delayed_node_index);
+            }
+
+            driver.run_slot(slot).await?;
+
             // Check that the chain starts with the expected validator count.
-            checks::verify_initial_validator_count(
-                network.clone(),
-                slot_duration,
-                initial_validator_count,
-            ),
-            // Check that validators greater than `spec.min_genesis_active_validator_count` are
-            // onboarded at the first possible opportunity.
-            checks::verify_validator_onboarding(
-                network.clone(),
-                slot_duration,
-                total_validator_count,
-            ),
-            // Check that all nodes have transitioned to the required fork.
-            checks::verify_fork_version(
-                network.clone(),
-                Epoch::new(latest_fork_start_epoch),
-                slot_duration,
-                latest_fork_version,
-            ),
-            // Check that all sync aggregates are full.
-            checks::verify_full_sync_aggregates_up_to(
-                network.clone(),
-                // Start checking for sync_aggregates at `FORK_EPOCH + 1` to account for
-                // inefficiencies in finding subnet peers at the `fork_slot`.
-                Epoch::new(ALTAIR_FORK_EPOCH + 1).start_slot(slots_per_epoch),
-                Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
-                slot_duration,
-            ),
-            // Check that the transition block is finalized.
-            checks::verify_transition_block_finalized(
-                network.clone(),
-                Epoch::new(TERMINAL_BLOCK / slots_per_epoch),
-                slot_duration,
-                true,
-            ),
-            checks::verify_light_client_updates(
-                network.clone(),
-                // Sync aggregate available from slot 1 after Altair fork transition.
-                Epoch::new(ALTAIR_FORK_EPOCH).start_slot(slots_per_epoch) + 1,
-                // The Gloas fork block still attests a Fulu parent (#9587).
-                Epoch::new(GLOAS_FORK_EPOCH).start_slot(slots_per_epoch),
-                slot_duration
-            ),
-            checks::verify_full_blob_production_up_to(
-                network.clone(),
-                // Blobs should be available immediately after the Deneb fork.
-                Epoch::new(DENEB_FORK_EPOCH).start_slot(slots_per_epoch),
-                Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
-                slot_duration
-            ),
-            network_1.add_beacon_node_with_delay(
-                beacon_config.clone(),
-                mock_execution_config.clone(),
-                END_EPOCH - 3,
-                slot_duration,
-                slots_per_epoch
-            ),
-            checks::ensure_node_synced_up_to_slot(
-                network.clone(),
-                // This must be set to be the node which was just created. Should be equal to
-                // `node_count`.
-                node_count,
-                Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
-                slot_duration,
-            ),
-        );
+            if slot == 1 {
+                checks::verify_validator_count(&network, initial_validator_count).await?;
+            }
+            // Check that the transition block is finalized, before the finalized block is a
+            // Gloas block without an execution payload.
+            if slot == Epoch::new(TERMINAL_BLOCK / slots_per_epoch + 2).start_slot(slots_per_epoch)
+            {
+                checks::verify_transition_block_finalized(&network).await?;
+            }
+            // Check that the chain finalizes at the first given opportunity.
+            if slot == Epoch::new(4).start_slot(slots_per_epoch) {
+                checks::verify_all_finalized_at(&network, Epoch::new(2)).await?;
+            }
+            if light_client_slots.contains(&slot) {
+                light_client_checker.check_slot(&network, slot).await?;
+            }
+        }
 
-        block_prod?;
-        finalization?;
-        validator_count?;
-        onboarding?;
-        fork?;
-        sync_aggregate?;
-        transition?;
-        light_client_update?;
-        blobs?;
-        start_node_with_delay?;
-        sync?;
+        driver
+            .include_beacon_node_once_synced(delayed_node_index)
+            .await?;
 
-        // The `final_future` either completes immediately or never completes, depending on the value
-        // of `continue_after_checks`.
+        // Check that a block was produced at every slot.
+        checks::verify_full_block_production_up_to(&network, end_slot)?;
+        // Check that validators greater than `spec.min_genesis_active_validator_count` are
+        // onboarded.
+        checks::verify_validator_count(&network, total_validator_count).await?;
+        // Check that all nodes have transitioned to the required fork.
+        checks::verify_fork_version(&network, latest_fork_version).await?;
+        // Check that all sync aggregates are full.
+        checks::verify_full_sync_aggregates_up_to(
+            &network,
+            // The driver checks sync committee messages from the second epoch, and each block
+            // aggregates the messages of the slot before it.
+            Epoch::new(ALTAIR_FORK_EPOCH + 1).start_slot(slots_per_epoch) + 1,
+            end_slot,
+        )
+        .await?;
+        // Blobs should be available immediately after the Deneb fork.
+        checks::verify_full_blob_production_up_to(
+            &network,
+            Epoch::new(DENEB_FORK_EPOCH).start_slot(slots_per_epoch),
+            end_slot,
+        )
+        .await?;
+        checks::ensure_node_synced_up_to_slot(&network, delayed_node_index, end_slot).await?;
 
+        // Keep the chain running if requested.
         if continue_after_checks {
-            future::pending::<()>().await;
+            for slot in (end_slot.as_u64() + 1..).map(Slot::new) {
+                driver.run_slot(slot).await?;
+            }
         }
         /*
          * End the simulation by dropping the network. This will kill all running beacon nodes and

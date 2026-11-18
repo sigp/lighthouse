@@ -7,6 +7,7 @@ use environment::RuntimeContext;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use reqwest::ClientBuilder;
 use sensitive_url::SensitiveUrl;
+use slot_clock::{ManualSlotClock, SlotClock, SystemTimeSlotClock};
 use std::path::PathBuf;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -34,8 +35,8 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
-pub struct LocalBeaconNode<E: EthSpec> {
-    pub client: ProductionClient<E>,
+pub struct LocalBeaconNode<E: EthSpec, T: SlotClock + 'static = SystemTimeSlotClock> {
+    pub client: ProductionClient<E, T>,
     pub datadir: TempDir,
 }
 
@@ -45,7 +46,31 @@ impl<E: EthSpec> LocalBeaconNode<E> {
     /// The node created is using the same types as the node we use in production.
     pub async fn production(
         context: RuntimeContext<E>,
+        client_config: ClientConfig,
+    ) -> Result<Self, String> {
+        Self::start(context, client_config, None).await
+    }
+}
+
+impl<E: EthSpec> LocalBeaconNode<E, ManualSlotClock> {
+    /// Starts a new, production beacon node that reads the time from `slot_clock`.
+    ///
+    /// Clones of a `ManualSlotClock` share their time, so nodes given clones of one clock move
+    /// through slots together, as the test advances it.
+    pub async fn production_with_manual_clock(
+        context: RuntimeContext<E>,
+        client_config: ClientConfig,
+        slot_clock: ManualSlotClock,
+    ) -> Result<Self, String> {
+        Self::start(context, client_config, Some(slot_clock)).await
+    }
+}
+
+impl<E: EthSpec, T: SlotClock + 'static> LocalBeaconNode<E, T> {
+    async fn start(
+        context: RuntimeContext<E>,
         mut client_config: ClientConfig,
+        slot_clock: Option<T>,
     ) -> Result<Self, String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempBuilder::new()
@@ -58,7 +83,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
 
         timeout(
             STARTUP_TIMEOUT,
-            ProductionBeaconNode::new(context, client_config),
+            ProductionBeaconNode::new_with_slot_clock(context, client_config, slot_clock),
         )
         .await
         .map_err(|_| format!("Beacon node startup timed out after {:?}", STARTUP_TIMEOUT))?
@@ -67,9 +92,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
             datadir,
         })
     }
-}
 
-impl<E: EthSpec> LocalBeaconNode<E> {
     /// Returns a `RemoteBeaconNode` that can connect to `self`. Useful for testing the node as if
     /// it were external this process.
     pub fn remote_node(&self) -> Result<BeaconNodeHttpClient, String> {
@@ -187,9 +210,22 @@ impl ValidatorFiles {
 /// is _local_ to this process).
 ///
 /// Intended for use in testing and simulation. Not for production.
-pub struct LocalValidatorClient<E: EthSpec> {
-    pub client: ProductionValidatorClient<E>,
+pub struct LocalValidatorClient<E: EthSpec, T: SlotClock + 'static = SystemTimeSlotClock> {
+    pub client: ProductionValidatorClient<E, T>,
     pub files: ValidatorFiles,
+}
+
+impl<E: EthSpec> LocalValidatorClient<E, ManualSlotClock> {
+    /// Creates a validator client with insecure deterministic keypairs that reads the time from
+    /// `slot_clock`. See `LocalBeaconNode::production_with_manual_clock`.
+    pub async fn production_with_manual_clock(
+        context: RuntimeContext<E>,
+        config: ValidatorConfig,
+        files: ValidatorFiles,
+        slot_clock: ManualSlotClock,
+    ) -> Result<Self, String> {
+        Self::new(context, config, files, Some(slot_clock)).await
+    }
 }
 
 impl<E: EthSpec> LocalValidatorClient<E> {
@@ -202,7 +238,7 @@ impl<E: EthSpec> LocalValidatorClient<E> {
         config: ValidatorConfig,
         files: ValidatorFiles,
     ) -> Result<Self, String> {
-        Self::new(context, config, files).await
+        Self::new(context, config, files, None).await
     }
 
     /// Creates a validator client that attempts to read keys from the default data dir.
@@ -215,18 +251,22 @@ impl<E: EthSpec> LocalValidatorClient<E> {
     ) -> Result<Self, String> {
         let files = ValidatorFiles::new()?;
 
-        Self::new(context, config, files).await
+        Self::new(context, config, files, None).await
     }
+}
 
+impl<E: EthSpec, T: SlotClock + 'static> LocalValidatorClient<E, T> {
     async fn new(
         context: RuntimeContext<E>,
         mut config: ValidatorConfig,
         files: ValidatorFiles,
+        slot_clock: Option<T>,
     ) -> Result<Self, String> {
         config.validator_dir = files.validator_dir.path().into();
         config.secrets_dir = files.secrets_dir.path().into();
 
-        let mut client = ProductionValidatorClient::new(context, config).await?;
+        let mut client =
+            ProductionValidatorClient::new_with_slot_clock(context, config, slot_clock).await?;
 
         client
             .start_service()

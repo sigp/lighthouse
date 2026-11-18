@@ -1,10 +1,10 @@
+use crate::driver::SimDriver;
 use crate::local_network::LocalNetworkParams;
 use crate::{LocalNetwork, checks};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
 use environment::tracing_common;
-use futures::prelude::*;
 use logging::build_workspace_filter;
 use node_test_rig::{
     ValidatorFiles,
@@ -12,17 +12,16 @@ use node_test_rig::{
     testing_validator_config,
 };
 use rayon::prelude::*;
-use std::cmp::max;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::time::sleep;
 use tracing::Level;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use types::{Epoch, EthSpec, MinimalEthSpec};
+use types::{Epoch, EthSpec, MinimalEthSpec, Slot};
 
 const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 38;
+const SLOT_DURATION_MS: u64 = 60_000;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 0;
@@ -63,11 +62,6 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
         .expect("missing bns-per-vc default");
 
     assert!(bns_per_vc > 1);
-    let speed_up_factor = subcommand_matches
-        .get_one::<String>("speed-up-factor")
-        .expect("missing speed-up-factor default")
-        .parse::<u64>()
-        .expect("missing speed-up-factor default");
 
     let log_level = subcommand_matches
         .get_one::<String>("debug-level")
@@ -85,7 +79,6 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     println!(" vc-count: {}", vc_count);
     println!(" validators-per-vc: {}", validators_per_vc);
     println!(" bns-per-vc: {}", bns_per_vc);
-    println!(" speed-up-factor: {}", speed_up_factor);
     println!(" continue-after-checks: {}", continue_after_checks);
     println!(" log-dir: {:?}", log_dir);
     println!(" disable-stdout-logging: {}", disable_stdout_logging);
@@ -179,10 +172,9 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let genesis_delay = GENESIS_DELAY;
 
-    let mut slot_duration_ms = spec.get_slot_duration().as_millis() as u64;
-    slot_duration_ms /= speed_up_factor;
-    slot_duration_ms = max(1_000, slot_duration_ms);
-    spec = spec.set_slot_duration_ms::<MinimalEthSpec>(slot_duration_ms);
+    // The driver moves the clock, so a slot only takes as long as the nodes need. A long slot puts
+    // the real-time timeouts derived from it well above any real delay.
+    spec = spec.set_slot_duration_ms::<MinimalEthSpec>(SLOT_DURATION_MS);
 
     spec.genesis_delay = genesis_delay;
     spec.min_genesis_time = 0;
@@ -197,11 +189,9 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
-    let slot_duration = spec.get_slot_duration();
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
     let disconnection_epoch = 1;
-    let epochs_disconnected = 14;
 
     let context = env.core_context();
 
@@ -261,73 +251,47 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
             );
         }
 
-        let duration_to_genesis = network.duration_to_genesis().await?;
-        println!("Duration to genesis: {}", duration_to_genesis.as_secs());
-        sleep(duration_to_genesis).await;
+        let driver = SimDriver::new(network.clone(), spec.clone());
+        driver
+            .start_at_genesis(vc_count, total_validator_count)
+            .await?;
 
-        let test_sequence = async {
-            checks::epoch_delay(
-                Epoch::new(disconnection_epoch),
-                slot_duration,
-                slots_per_epoch,
-            )
-            .await;
-            // Iterate through each VC and disconnect all BNs but the last node for each VC.
-            for i in 0..vc_count {
-                for j in 0..(bns_per_vc - 1) {
-                    let node_index = bns_per_vc * i + j;
-                    checks::disconnect_from_execution_layer(network.clone(), node_index).await?;
+        let disconnection_slot = Epoch::new(disconnection_epoch).start_slot(slots_per_epoch);
+        let end_slot = Epoch::new(END_EPOCH).start_slot(slots_per_epoch);
+
+        for slot in (0..=end_slot.as_u64()).map(Slot::new) {
+            if slot == disconnection_slot {
+                // Disconnect all BNs but the last node for each VC until the end of the
+                // simulation. The driver stops waiting for them while they can't import blocks.
+                for i in 0..vc_count {
+                    for j in 0..(bns_per_vc - 1) {
+                        let node_index = bns_per_vc * i + j;
+                        checks::disconnect_from_execution_layer(&network, node_index)?;
+                        driver.exclude_beacon_node(node_index);
+                    }
                 }
             }
-            checks::epoch_delay(
-                Epoch::new(epochs_disconnected),
-                slot_duration,
-                slots_per_epoch,
-            )
-            .await;
-            // Enable all BNs.
-            for i in 0..node_count {
-                checks::reconnect_to_execution_layer(network.clone(), i).await?;
-            }
-            Ok::<(), String>(())
-        };
-
-        /*
-         * Start the checks that ensure the network performs as expected.
-         *
-         * We start these checks immediately after the validators have started. This means we're
-         * relying on the validator futures to all return immediately after genesis so that these
-         * tests start at the right time. Whilst this is works well for now, it's subject to
-         * breakage by changes to the VC.
-         */
-
-        let (sequence, check_attestations, block_production) = futures::join!(
-            test_sequence,
-            checks::check_attestation_correctness(
-                network.clone(),
-                0,
-                END_EPOCH,
-                slot_duration,
-                // Use the last node index as this will never have been disabled.
-                node_count - 1,
-                ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE,
-            ),
-            checks::verify_full_block_production_up_to(
-                network.clone(),
-                Epoch::new(END_EPOCH).start_slot(slots_per_epoch),
-                slot_duration,
-            ),
-        );
-        sequence?;
-        block_production?;
-        check_attestations?;
-
-        // The `final_future` either completes immediately or never completes, depending on the value
-        // of `continue_after_checks`.
-
-        if continue_after_checks {
-            future::pending::<()>().await;
+            driver.run_slot(slot).await?;
         }
+
+        checks::verify_full_block_production_up_to(&network, end_slot)?;
+        checks::check_attestation_correctness(
+            &network,
+            0,
+            END_EPOCH,
+            // Use the last node index as this will never have been disabled.
+            node_count - 1,
+            ACCEPTABLE_FALLBACK_ATTESTATION_HIT_PERCENTAGE,
+        )
+        .await?;
+
+        // Keep the chain running if requested.
+        if continue_after_checks {
+            for slot in (end_slot.as_u64() + 1..).map(Slot::new) {
+                driver.run_slot(slot).await?;
+            }
+        }
+
         /*
          * End the simulation by dropping the network. This will kill all running beacon nodes and
          * validator clients.
