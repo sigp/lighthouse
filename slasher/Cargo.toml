@@ -10,6 +10,7 @@ default = ["lmdb"]
 lmdb = ["lmdb-rkv", "lmdb-rkv-sys"]
 redb = ["dep:redb"]
 portable = ["types/portable"]
+spec-minimal = ["types/spec-minimal"]
 
 [dependencies]
 bincode = { workspace = true }
