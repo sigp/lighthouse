@@ -687,8 +687,8 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                 // before the block/attestation tasks need them.
                 poll_validator_indices(&duties_service).await;
 
-                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
-                    sleep(duration).await;
+                if let Some(next_slot_start) = duties_service.slot_clock.start_of_next_slot() {
+                    duties_service.slot_clock.sleep_until(next_slot_start).await;
                 } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
@@ -706,8 +706,8 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
     core_duties_service.executor.spawn(
         async move {
             loop {
-                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
-                    sleep(duration).await;
+                if let Some(next_slot_start) = duties_service.slot_clock.start_of_next_slot() {
+                    duties_service.slot_clock.sleep_until(next_slot_start).await;
                 } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
@@ -739,8 +739,8 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
     core_duties_service.executor.spawn(
         async move {
             loop {
-                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
-                    sleep(duration).await;
+                if let Some(next_slot_start) = duties_service.slot_clock.start_of_next_slot() {
+                    duties_service.slot_clock.sleep_until(next_slot_start).await;
                 } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
@@ -775,8 +775,8 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                 // This doesn't mean that the beacon node will get polled every slot
                 // as the sync duties service will return early if it deems it already has
                 // enough information.
-                if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
-                    sleep(duration).await;
+                if let Some(next_slot_start) = duties_service.slot_clock.start_of_next_slot() {
+                    duties_service.slot_clock.sleep_until(next_slot_start).await;
                 } else {
                     // Just sleep for one slot if we are unable to read the system clock, this gives
                     // us an opportunity for the clock to eventually come good.
@@ -810,8 +810,10 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
 
                     if current_epoch < gloas_fork_epoch {
                         // Wait until the next slot and check again
-                        if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
-                            sleep(duration).await;
+                        if let Some(next_slot_start) =
+                            duties_service.slot_clock.start_of_next_slot()
+                        {
+                            duties_service.slot_clock.sleep_until(next_slot_start).await;
                         } else {
                             sleep(duties_service.slot_clock.slot_duration()).await;
                         }
@@ -836,8 +838,8 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                     // This doesn't mean that the beacon node will get polled every slot
                     // as the PTC duties service will return early if it deems it already has
                     // enough information.
-                    if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
-                        sleep(duration).await;
+                    if let Some(next_slot_start) = duties_service.slot_clock.start_of_next_slot() {
+                        duties_service.slot_clock.sleep_until(next_slot_start).await;
                     } else {
                         // Just sleep for one slot if we are unable to read the system clock, this gives
                         // us an opportunity for the clock to eventually come good.
@@ -871,8 +873,10 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
 
                     if current_epoch + 1 < heze_fork_epoch {
                         // Wait until the next slot and check again if the Heze fork epoch is close
-                        if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
-                            sleep(duration).await;
+                        if let Some(next_slot_start) =
+                            duties_service.slot_clock.start_of_next_slot()
+                        {
+                            duties_service.slot_clock.sleep_until(next_slot_start).await;
                         } else {
                             sleep(duties_service.slot_clock.slot_duration()).await;
                         }
@@ -893,8 +897,8 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
                         )
                     }
 
-                    if let Some(duration) = duties_service.slot_clock.duration_to_next_slot() {
-                        sleep(duration).await;
+                    if let Some(next_slot_start) = duties_service.slot_clock.start_of_next_slot() {
+                        duties_service.slot_clock.sleep_until(next_slot_start).await;
                     } else {
                         // Sleep for one slot if we are unable to read from the system clock
                         sleep(duties_service.slot_clock.slot_duration()).await;
@@ -1598,11 +1602,13 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
     let slot_clock = &duties_service.slot_clock;
 
     while !duties_by_slot.is_empty() {
-        if let Some(duration) = slot_clock.duration_to_next_slot() {
-            sleep(
-                duration.saturating_sub(duties_service.selection_proof_config.computation_offset),
-            )
-            .await;
+        if let Some(next_slot_start) = slot_clock.start_of_next_slot() {
+            slot_clock
+                .sleep_until(
+                    next_slot_start
+                        .saturating_sub(duties_service.selection_proof_config.computation_offset),
+                )
+                .await;
 
             let Some(current_slot) = slot_clock.now() else {
                 continue;
@@ -1748,10 +1754,10 @@ async fn fill_in_selection_proofs_selections_endpoint<
                         "Failed to fetch selection proofs"
                     );
                     // If fails, retry at the next slot.
-                    let duration_to_next_slot = slot_clock
-                        .duration_to_next_slot()
-                        .unwrap_or_else(|| slot_clock.slot_duration());
-                    sleep(duration_to_next_slot).await;
+                    match slot_clock.start_of_next_slot() {
+                        Some(next_slot_start) => slot_clock.sleep_until(next_slot_start).await,
+                        None => sleep(slot_clock.slot_duration()).await,
+                    }
                     continue;
                 }
             };
@@ -1811,10 +1817,14 @@ async fn fill_in_selection_proofs_selections_endpoint<
         }
 
         // Wait until the next epoch such that the next epoch becomes the current epoch
-        let duration_to_next_epoch = slot_clock
+        // If the epoch has already started, retry after a slot.
+        match slot_clock
             .duration_to_slot(epoch_start_slot)
-            .unwrap_or_else(|| slot_clock.slot_duration());
-        sleep(duration_to_next_epoch).await;
+            .and(slot_clock.start_of(epoch_start_slot))
+        {
+            Some(epoch_start) => slot_clock.sleep_until(epoch_start).await,
+            None => sleep(slot_clock.slot_duration()).await,
+        }
     }
 }
 

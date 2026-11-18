@@ -2,7 +2,10 @@ mod cli;
 mod config;
 
 pub use beacon_chain;
-use beacon_chain::{builder::Witness, slot_clock::SystemTimeSlotClock};
+use beacon_chain::{
+    builder::Witness,
+    slot_clock::{SlotClock, SystemTimeSlotClock},
+};
 use clap::ArgMatches;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
@@ -19,13 +22,15 @@ use tracing::{info, warn};
 use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
-pub type ProductionClient<E> =
-    Client<Witness<SystemTimeSlotClock, E, BeaconNodeBackend, BeaconNodeBackend>>;
+pub type ProductionClient<E, T = SystemTimeSlotClock> =
+    Client<Witness<T, E, BeaconNodeBackend, BeaconNodeBackend>>;
 
 /// The beacon node `Client` that is used in production.
 ///
-/// Generic over some `EthSpec`.
-pub struct ProductionBeaconNode<E: EthSpec>(ProductionClient<E>);
+/// Generic over some `EthSpec`, and over the slot clock so tests can run nodes on a manual clock.
+pub struct ProductionBeaconNode<E: EthSpec, T: SlotClock + 'static = SystemTimeSlotClock>(
+    ProductionClient<E, T>,
+);
 
 impl<E: EthSpec> ProductionBeaconNode<E> {
     /// Starts a new beacon node `Client` in the given `environment`.
@@ -46,7 +51,19 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// Client behaviour is defined by the given `client_config`.
     pub async fn new(
         context: RuntimeContext<E>,
+        client_config: ClientConfig,
+    ) -> Result<Self, String> {
+        Self::new_with_slot_clock(context, client_config, None).await
+    }
+}
+
+impl<E: EthSpec, T: SlotClock + 'static> ProductionBeaconNode<E, T> {
+    /// Starts a new beacon node `Client` that uses `slot_clock` if given, otherwise a slot clock
+    /// created from the genesis time.
+    pub async fn new_with_slot_clock(
+        context: RuntimeContext<E>,
         mut client_config: ClientConfig,
+        slot_clock: Option<T>,
     ) -> Result<Self, String> {
         let spec = context.eth2_config().spec.clone();
         let client_genesis = client_config.genesis.clone();
@@ -126,7 +143,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .await?;
         info!("Block production enabled");
 
-        let builder = builder.system_time_slot_clock()?;
+        let builder = builder.slot_clock(slot_clock)?;
 
         // Inject the executor into the discv5 network config.
         let discv5_executor = Discv5Executor(executor);
@@ -143,7 +160,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .map(Self)
     }
 
-    pub fn into_inner(self) -> ProductionClient<E> {
+    pub fn into_inner(self) -> ProductionClient<E, T> {
         self.0
     }
 }
@@ -170,15 +187,15 @@ fn validator_fork_epochs(spec: &ChainSpec) -> Result<(), Vec<(ForkName, Epoch)>>
     }
 }
 
-impl<E: EthSpec> Deref for ProductionBeaconNode<E> {
-    type Target = ProductionClient<E>;
+impl<E: EthSpec, T: SlotClock + 'static> Deref for ProductionBeaconNode<E, T> {
+    type Target = ProductionClient<E, T>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<E: EthSpec> DerefMut for ProductionBeaconNode<E> {
+impl<E: EthSpec, T: SlotClock + 'static> DerefMut for ProductionBeaconNode<E, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }

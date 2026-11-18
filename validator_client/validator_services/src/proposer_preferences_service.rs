@@ -102,12 +102,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> ProposerPreferencesSer
     }
 
     async fn sleep_until_next_slot(&self) {
-        let slot_duration = self.chain_spec.get_slot_duration();
-        let duration_to_next_slot = self
-            .slot_clock
-            .duration_to_next_slot()
-            .unwrap_or(slot_duration);
-        sleep(duration_to_next_slot).await;
+        match self.slot_clock.start_of_next_slot() {
+            Some(next_slot_start) => self.slot_clock.sleep_until(next_slot_start).await,
+            None => sleep(self.chain_spec.get_slot_duration()).await,
+        }
     }
 
     /// Publish proposer preferences for `current_epoch` and `current_epoch + 1`.
@@ -605,22 +603,24 @@ mod tests {
         let sleep_fut = service.sleep_until_next_slot();
         tokio::pin!(sleep_fut);
 
-        // This first call of .now_or_never() starts the timer and registers the sleep timer with tokio
+        // This first call of .now_or_never() starts waiting on the slot clock.
         assert!(sleep_fut.as_mut().now_or_never().is_none());
 
         let duration_to_next_slot = service.slot_clock.duration_to_next_slot().unwrap();
 
-        // After the advance_time, the time should be at exactly the sleep deadline (12s)
-        // The timer hasn't fired yet because tokio requires time to be strictly past the deadline.
-        advance_time(&service.slot_clock, duration_to_next_slot).await;
+        // Advance to 1ms before the start of the next slot (12s).
+        advance_time(
+            &service.slot_clock,
+            duration_to_next_slot - Duration::from_millis(1),
+        )
+        .await;
         assert!(
             sleep_fut.as_mut().now_or_never().is_none(),
             "Should return None before the sleep duration has elapsed"
         );
 
-        // After the advance_time below, the time has now pass the deadline
-        // Without the advance time below, the assert! would fail
-        advance_time(&service.slot_clock, Duration::from_secs(1)).await;
+        // Advance to the start of the next slot. Without this, the assert! would fail.
+        advance_time(&service.slot_clock, Duration::from_millis(1)).await;
         assert!(
             sleep_fut.as_mut().now_or_never().is_some(),
             "Sleep should complete after passing the boundary"

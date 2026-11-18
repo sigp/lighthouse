@@ -32,11 +32,14 @@ async fn proposer_prep_service<T: BeaconChainTypes>(
     let slot_duration = chain.slot_clock.slot_duration();
 
     loop {
-        match chain.slot_clock.duration_to_next_slot() {
-            Some(duration) => {
+        match chain.slot_clock.start_of_next_slot() {
+            Some(next_slot_start) => {
                 let additional_delay =
                     slot_duration.saturating_sub(chain.config.prepare_payload_lookahead);
-                sleep(duration + additional_delay).await;
+                chain
+                    .slot_clock
+                    .sleep_until(next_slot_start + additional_delay)
+                    .await;
 
                 debug!("Proposer prepare routine firing");
 

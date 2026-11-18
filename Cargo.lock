@@ -9447,7 +9447,7 @@ name = "slot_clock"
 version = "0.2.0"
 dependencies = [
  "metrics",
- "parking_lot",
+ "tokio",
  "types",
 ]
 

@@ -1,7 +1,7 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::{
     ApiTopic, BeaconNodeFallback,
-    beacon_head_monitor::{HeadEvent, head_event_or_deadline},
+    beacon_head_monitor::{HeadEvent, head_event_until},
 };
 use bls::PublicKeyBytes;
 use eth2::types::BlockId;
@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use task_executor::TaskExecutor;
 use tokio::sync::{Mutex, broadcast};
-use tokio::time::{Duration, Instant, sleep, sleep_until};
+use tokio::time::{Duration, sleep};
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use types::{
     ChainSpec, EthSpec, Hash256, Slot, SyncCommitteeSubscription, SyncContributionData, SyncDuty,
@@ -24,19 +24,13 @@ use validator_store::{ContributionToSign, SyncMessageToSign, ValidatorStore};
 
 pub const SUBSCRIPTION_LOOKAHEAD_EPOCHS: u64 = 4;
 
-/// Duration from now until `due` past the start of `slot`, or `None` if `slot` is not the
-/// current slot.
-fn delay_until_slot_offset<T: SlotClock>(
-    slot_clock: &T,
-    slot: Slot,
-    due: Duration,
-) -> Option<Duration> {
-    let now = slot_clock.now_duration()?;
-    if slot_clock.slot_of(now)? != slot {
+/// The time `due` past the start of `slot`, as a duration since the UNIX epoch, or `None` if
+/// `slot` is not the current slot.
+fn slot_offset_time<T: SlotClock>(slot_clock: &T, slot: Slot, due: Duration) -> Option<Duration> {
+    if slot_clock.now()? != slot {
         return None;
     }
-    let due_at = slot_clock.start_of(slot)?.checked_add(due)?;
-    Some(due_at.saturating_sub(now))
+    slot_clock.start_of(slot)?.checked_add(due)
 }
 
 pub struct SyncCommitteeService<S: ValidatorStore, T: SlotClock + 'static> {
@@ -146,10 +140,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
                 // Wait for the sync message deadline for the next slot, or a head event for the
                 // current slot, whichever comes first.
-                let head_event = head_event_or_deadline(
+                let head_event = head_event_until(
                     &mut head_monitor_rx,
                     &self.slot_clock,
-                    duration_to_sync_message_deadline,
+                    now + duration_to_sync_message_deadline,
                 )
                 .await;
 
@@ -194,7 +188,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         // If a head event triggered us before the duties were computed, wait until the sync
         // message deadline and check for duties once more.
         if slot_duties.is_none() && head_event_root.is_some() {
-            let Some(duration_to_deadline) = delay_until_slot_offset(
+            let Some(sync_message_deadline) = slot_offset_time(
                 &self.slot_clock,
                 slot,
                 spec.get_sync_message_due::<S::E>(slot),
@@ -202,7 +196,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
                 debug!(%slot, "Skipping sync committee tasks for expired slot");
                 return;
             };
-            sleep(duration_to_deadline).await;
+            self.slot_clock.sleep_until(sync_message_deadline).await;
 
             slot_duties = self
                 .duties_service
@@ -226,7 +220,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         // If a validator needs to publish a sync aggregate, trigger it at the
         // fork-appropriate contribution due time.
-        let Some(contribution_delay) = delay_until_slot_offset(
+        let Some(aggregate_production_time) = slot_offset_time(
             &self.slot_clock,
             slot,
             spec.get_contribution_message_due::<S::E>(slot),
@@ -236,11 +230,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         };
         // Messages past the contribution deadline can no longer be aggregated, so a trigger
         // this late (a head event for the slot already in progress at startup) is skipped.
-        if contribution_delay.is_zero() {
+        if self
+            .slot_clock
+            .now_duration()
+            .is_none_or(|now| now >= aggregate_production_time)
+        {
             debug!(%slot, "Skipping sync committee tasks, contribution deadline passed");
             return;
         }
-        let aggregate_production_instant = Instant::now() + contribution_delay;
 
         debug!(
             %slot,
@@ -304,11 +301,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         self.inner.executor.spawn(
             async move {
                 service
-                    .publish_sync_committee_aggregates(
-                        slot,
-                        block_root,
-                        aggregate_production_instant,
-                    )
+                    .publish_sync_committee_aggregates(slot, block_root, aggregate_production_time)
                     .map(|_| ())
                     .await
             }
@@ -386,9 +379,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
-        aggregate_instant: Instant,
+        aggregate_production_time: Duration,
     ) {
-        sleep_until(aggregate_instant).await;
+        self.slot_clock.sleep_until(aggregate_production_time).await;
 
         // Read the aggregators now rather than when the slot was triggered, since selection
         // proofs can be stored after the trigger (e.g. with `--distributed`, where the proof
@@ -683,6 +676,7 @@ mod tests {
     };
     use bls::FixedBytesExtended;
     use slot_clock::ManualSlotClock;
+    use tokio::time::Instant;
     use types::{Epoch, MainnetEthSpec, SignedContributionAndProof, SyncCommitteeContribution};
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
 
@@ -901,7 +895,7 @@ mod tests {
     }
 
     #[test]
-    fn delay_stays_attached_to_requested_slot() {
+    fn offset_time_stays_attached_to_requested_slot() {
         let spec = E::default_spec();
         let slot_clock =
             ManualSlotClock::new(Slot::new(0), Duration::ZERO, spec.get_slot_duration());
@@ -909,19 +903,19 @@ mod tests {
 
         slot_clock.set_current_time(Duration::from_secs(5));
         assert_eq!(
-            delay_until_slot_offset(&slot_clock, Slot::new(0), contribution_due),
-            Some(Duration::from_secs(3))
+            slot_offset_time(&slot_clock, Slot::new(0), contribution_due),
+            Some(contribution_due)
         );
 
         slot_clock.set_current_time(Duration::from_secs(9));
         assert_eq!(
-            delay_until_slot_offset(&slot_clock, Slot::new(0), contribution_due),
-            Some(Duration::ZERO)
+            slot_offset_time(&slot_clock, Slot::new(0), contribution_due),
+            Some(contribution_due)
         );
 
         slot_clock.set_slot(1);
         assert_eq!(
-            delay_until_slot_offset(&slot_clock, Slot::new(0), contribution_due),
+            slot_offset_time(&slot_clock, Slot::new(0), contribution_due),
             None
         );
     }

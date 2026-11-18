@@ -33,7 +33,6 @@ use std::io::Read;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::{
     sync::{broadcast, mpsc},
     time::{Duration, sleep},
@@ -82,27 +81,25 @@ const MAX_HEAD_EVENT_QUEUE_LEN: usize = 1_024;
 
 const MAX_PAYLOAD_AVAILABLE_EVENT_QUEUE_LEN: usize = 1_024;
 
-type ValidatorStore<E> = LighthouseValidatorStore<SystemTimeSlotClock, E>;
+type ValidatorStore<E, T> = LighthouseValidatorStore<T, E>;
 
 #[derive(Clone)]
-pub struct ProductionValidatorClient<E: EthSpec> {
+pub struct ProductionValidatorClient<E: EthSpec, T: SlotClock + 'static = SystemTimeSlotClock> {
     context: RuntimeContext<E>,
-    duties_service: Arc<DutiesService<ValidatorStore<E>, SystemTimeSlotClock>>,
-    block_service: BlockService<ValidatorStore<E>, SystemTimeSlotClock>,
-    attestation_service: AttestationService<ValidatorStore<E>, SystemTimeSlotClock>,
-    sync_committee_service: SyncCommitteeService<ValidatorStore<E>, SystemTimeSlotClock>,
-    payload_attestation_service: PayloadAttestationService<ValidatorStore<E>, SystemTimeSlotClock>,
-    proposer_preferences_service:
-        ProposerPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
+    duties_service: Arc<DutiesService<ValidatorStore<E, T>, T>>,
+    block_service: BlockService<ValidatorStore<E, T>, T>,
+    attestation_service: AttestationService<ValidatorStore<E, T>, T>,
+    sync_committee_service: SyncCommitteeService<ValidatorStore<E, T>, T>,
+    payload_attestation_service: PayloadAttestationService<ValidatorStore<E, T>, T>,
+    proposer_preferences_service: ProposerPreferencesService<ValidatorStore<E, T>, T>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
-    preparation_service: PreparationService<ValidatorStore<E>, SystemTimeSlotClock>,
-    validator_store: Arc<ValidatorStore<E>>,
+    preparation_service: PreparationService<ValidatorStore<E, T>, T>,
+    validator_store: Arc<ValidatorStore<E, T>>,
     configured_builders: BuilderStore,
-    builder_preferences_service: BuilderPreferencesService<ValidatorStore<E>, SystemTimeSlotClock>,
-    slot_clock: SystemTimeSlotClock,
+    builder_preferences_service: BuilderPreferencesService<ValidatorStore<E, T>, T>,
+    slot_clock: T,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
-    genesis_time: u64,
 }
 
 impl<E: EthSpec> ProductionValidatorClient<E> {
@@ -121,6 +118,20 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
     /// Instantiates the validator client, _without_ starting the timers to trigger block
     /// and attestation production.
     pub async fn new(context: RuntimeContext<E>, config: Config) -> Result<Self, String> {
+        Self::new_with_slot_clock(context, config, None).await
+    }
+}
+
+impl<E: EthSpec, T: SlotClock + 'static> ProductionValidatorClient<E, T> {
+    /// Instantiates the validator client with `slot_clock` if given, otherwise with a slot clock
+    /// created from the genesis time.
+    ///
+    /// Tests use this to run validator clients on a shared manual clock.
+    pub async fn new_with_slot_clock(
+        context: RuntimeContext<E>,
+        config: Config,
+        slot_clock: Option<T>,
+    ) -> Result<Self, String> {
         // Attempt to raise soft fd limit. The behavior is OS specific:
         // `linux` - raise soft fd limit to hard
         // `macos` - raise soft fd limit to `min(kernel limit, hard fd limit)`
@@ -152,7 +163,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
                 duties_service: None,
             };
 
-            let ctx: Arc<validator_http_metrics::Context<E>> =
+            let ctx: Arc<validator_http_metrics::Context<E, T>> =
                 Arc::new(validator_http_metrics::Context {
                     config: config.http_metrics.clone(),
                     shared: RwLock::new(shared),
@@ -397,7 +408,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             } else {
                 // Perform some potentially long-running initialization tasks.
                 tokio::select! {
-                    tuple = init_from_beacon_node::<E>(&beacon_nodes, &proposer_nodes) => tuple?,
+                    tuple = init_from_beacon_node::<E, _>(&beacon_nodes, &proposer_nodes) => tuple?,
                     () = context.executor.exit() => return Err("Shutting down".to_string()),
                 }
             };
@@ -407,11 +418,13 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             ctx.shared.write().genesis_time = Some(genesis_time);
         }
 
-        let slot_clock = SystemTimeSlotClock::new(
-            context.eth2_config.spec.genesis_slot,
-            Duration::from_secs(genesis_time),
-            context.eth2_config.spec.get_slot_duration(),
-        );
+        let slot_clock = slot_clock.unwrap_or_else(|| {
+            T::new(
+                context.eth2_config.spec.genesis_slot,
+                Duration::from_secs(genesis_time),
+                context.eth2_config.spec.get_slot_duration(),
+            )
+        });
 
         beacon_nodes.set_slot_clock(slot_clock.clone());
         proposer_nodes.set_slot_clock(slot_clock.clone());
@@ -632,7 +645,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             config,
             slot_clock,
             http_api_listen_addr: None,
-            genesis_time,
         })
     }
 
@@ -701,7 +713,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // Wait until genesis has occurred.
         tokio::select! {
             biased;
-            result = wait_for_genesis(self.genesis_time) => result?,
+            result = wait_for_genesis(&self.slot_clock) => result?,
             () = self.publish_preparations_before_genesis() => (),
         };
 
@@ -777,9 +789,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
     }
 }
 
-async fn init_from_beacon_node<E: EthSpec>(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
-    proposer_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
+async fn init_from_beacon_node<E: EthSpec, T: SlotClock>(
+    beacon_nodes: &BeaconNodeFallback<T>,
+    proposer_nodes: &BeaconNodeFallback<T>,
 ) -> Result<(u64, Hash256), String> {
     loop {
         beacon_nodes.update_all_candidates::<E>().await;
@@ -860,11 +872,11 @@ async fn init_from_beacon_node<E: EthSpec>(
     Ok((genesis.genesis_time, genesis.genesis_validators_root))
 }
 
-async fn wait_for_genesis(genesis_time: u64) -> Result<(), String> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|e| format!("Unable to read system time: {:?}", e))?;
-    let genesis_time = Duration::from_secs(genesis_time);
+async fn wait_for_genesis<T: SlotClock>(slot_clock: &T) -> Result<(), String> {
+    let now = slot_clock
+        .now_duration()
+        .ok_or("Unable to read the slot clock")?;
+    let genesis_time = slot_clock.genesis_duration();
 
     // If the time now is less than (prior to) genesis, then delay until the
     // genesis instant.
@@ -880,8 +892,8 @@ async fn wait_for_genesis(genesis_time: u64) -> Result<(), String> {
         // Start polling the node for pre-genesis information, cancelling the polling as soon as the
         // timer runs out.
         tokio::select! {
-            result = poll_whilst_waiting_for_genesis(genesis_time) => result?,
-            () = sleep(genesis_time - now) => ()
+            result = poll_whilst_waiting_for_genesis(slot_clock) => result?,
+            () = slot_clock.sleep_until(genesis_time) => ()
         };
 
         info!(
@@ -900,11 +912,12 @@ async fn wait_for_genesis(genesis_time: u64) -> Result<(), String> {
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
 /// has been contacted.
-async fn poll_whilst_waiting_for_genesis(genesis_time: Duration) -> Result<(), String> {
+async fn poll_whilst_waiting_for_genesis<T: SlotClock>(slot_clock: &T) -> Result<(), String> {
+    let genesis_time = slot_clock.genesis_duration();
     loop {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|e| format!("Unable to read system time: {:?}", e))?;
+        let now = slot_clock
+            .now_duration()
+            .ok_or("Unable to read the slot clock")?;
 
         if now < genesis_time {
             info!(

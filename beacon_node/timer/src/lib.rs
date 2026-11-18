@@ -5,7 +5,6 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use slot_clock::SlotClock;
 use std::sync::Arc;
-use tokio::time::sleep;
 use tracing::{info, warn};
 
 /// Spawns a timer service which periodically executes tasks for the beacon chain
@@ -15,13 +14,12 @@ pub fn spawn_timer<T: BeaconChainTypes>(
 ) -> Result<(), &'static str> {
     let timer_future = async move {
         loop {
-            let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot()
-            else {
-                warn!("Unable to determine duration to next slot");
+            let Some(next_slot_start) = beacon_chain.slot_clock.start_of_next_slot() else {
+                warn!("Unable to determine start of next slot");
                 return;
             };
 
-            sleep(duration_to_next_slot).await;
+            beacon_chain.slot_clock.sleep_until(next_slot_start).await;
             beacon_chain.per_slot_task().await;
         }
     };

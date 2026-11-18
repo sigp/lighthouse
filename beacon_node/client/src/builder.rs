@@ -12,7 +12,7 @@ use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, MigratorConfig, ServerSentEventHandler,
     builder::{BeaconChainBuilder, Witness},
-    slot_clock::{SlotClock, SystemTimeSlotClock},
+    slot_clock::SlotClock,
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, StoreConfig},
 };
@@ -966,29 +966,37 @@ where
     }
 }
 
-impl<E, THotStore, TColdStore> ClientBuilder<Witness<SystemTimeSlotClock, E, THotStore, TColdStore>>
+impl<TSlotClock, E, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
 where
+    TSlotClock: SlotClock + 'static,
     E: EthSpec + 'static,
     THotStore: ItemStore + 'static,
     TColdStore: ItemStore + 'static,
 {
-    /// Specifies that the slot clock should read the time from the computers system clock.
-    pub fn system_time_slot_clock(mut self) -> Result<Self, String> {
+    /// Uses `slot_clock` if given, otherwise creates a slot clock from the genesis time. In
+    /// production that is a `SystemTimeSlotClock`, which reads the computer's system clock.
+    pub fn slot_clock(mut self, slot_clock: Option<TSlotClock>) -> Result<Self, String> {
+        if slot_clock.is_some() {
+            self.slot_clock = slot_clock;
+            return Ok(self);
+        }
+
         let beacon_chain_builder = self
             .beacon_chain_builder
             .as_ref()
-            .ok_or("system_time_slot_clock requires a beacon_chain_builder")?;
+            .ok_or("slot_clock requires a beacon_chain_builder")?;
 
         let genesis_time = beacon_chain_builder
             .genesis_time
-            .ok_or("system_time_slot_clock requires an initialized beacon state")?;
+            .ok_or("slot_clock requires an initialized beacon state")?;
 
         let spec = self
             .chain_spec
             .clone()
-            .ok_or("system_time_slot_clock requires a chain spec")?;
+            .ok_or("slot_clock requires a chain spec")?;
 
-        let slot_clock = SystemTimeSlotClock::new(
+        let slot_clock = TSlotClock::new(
             spec.genesis_slot,
             Duration::from_secs(genesis_time),
             spec.get_slot_duration(),

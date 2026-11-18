@@ -26,7 +26,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use task_executor::TaskExecutor;
-use tokio::time::{Instant, sleep, sleep_until};
+use tokio::time::sleep;
 use tracing::{Instrument, debug, debug_span, error, instrument, warn};
 use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot};
 
@@ -115,7 +115,9 @@ async fn state_advance_timer<T: BeaconChainTypes>(
     let slot_duration = slot_clock.slot_duration();
 
     loop {
-        let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot() else {
+        let (Some(now), Some(next_slot_start)) =
+            (slot_clock.now_duration(), slot_clock.start_of_next_slot())
+        else {
             error!("Failed to read slot clock");
             // If we can't read the slot clock, just wait another slot.
             sleep(slot_duration).await;
@@ -124,24 +126,20 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
         // Run the state advance 3/4 of the way through the slot (9s on mainnet).
         let state_advance_offset = slot_duration / 4;
-        let state_advance_instant = if duration_to_next_slot > state_advance_offset {
-            Instant::now() + duration_to_next_slot - state_advance_offset
+        let slot_end = if next_slot_start.saturating_sub(now) > state_advance_offset {
+            next_slot_start
         } else {
             // Skip the state advance for the current slot and wait until the next one.
-            Instant::now() + duration_to_next_slot + slot_duration - state_advance_offset
+            next_slot_start + slot_duration
         };
+        let state_advance_time = slot_end - state_advance_offset;
 
         // Run fork choice 23/24s of the way through the slot (11.5s on mainnet).
-        // We need to run after the state advance, so use the same condition as above.
-        let fork_choice_offset = slot_duration / FORK_CHOICE_LOOKAHEAD_FACTOR;
-        let fork_choice_instant = if duration_to_next_slot > state_advance_offset {
-            Instant::now() + duration_to_next_slot - fork_choice_offset
-        } else {
-            Instant::now() + duration_to_next_slot + slot_duration - fork_choice_offset
-        };
+        // We need to run after the state advance, so use the same slot as above.
+        let fork_choice_time = slot_end - slot_duration / FORK_CHOICE_LOOKAHEAD_FACTOR;
 
         // Wait for the state advance.
-        sleep_until(state_advance_instant).await;
+        slot_clock.sleep_until(state_advance_time).await;
 
         // Compute the current slot here at approx 3/4 through the slot. Even though this slot is
         // only used by fork choice we need to calculate it here rather than after the state
@@ -196,8 +194,8 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
         // Run fork choice pre-emptively for the next slot. This processes most of the attestations
         // from this slot off the hot path of block verification and production.
-        // Wait for the fork choice instant (which may already be past).
-        sleep_until(fork_choice_instant).await;
+        // Wait for the fork choice time (which may already be past).
+        slot_clock.sleep_until(fork_choice_time).await;
 
         let beacon_chain = beacon_chain.clone();
         let next_slot = current_slot + 1;
