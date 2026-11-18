@@ -2399,6 +2399,16 @@ fn slasher_backend_override_to_default() {
 }
 
 #[test]
+#[should_panic(expected = "invalid value")]
+fn slasher_backend_mdbx_is_rejected() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-max-db-size", Some("1"))
+        .flag("slasher-backend", Some("mdbx"))
+        .run_with_zero_port();
+}
+
+#[test]
 fn malloc_tuning_flag() {
     CommandLineTest::new()
         .flag("disable-malloc-tuning", None)
