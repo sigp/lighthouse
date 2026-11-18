@@ -36,7 +36,7 @@ fn gwei_to_wei(gwei: u64) -> Uint256 {
     Uint256::from(gwei).saturating_mul(Uint256::from(GWEI_TO_WEI))
 }
 
-/// Data needed to construct an `ExecutionPayloadEnvelope`, carried by the local candidate and
+/// Data needed to construct an `ExecutionPayloadEnvelopeGloas`, carried by the local candidate and
 /// materialized only if it wins.
 ///
 /// Fork-coupling seam: `payload`/`execution_requests` are concrete Gloas types. Selection never

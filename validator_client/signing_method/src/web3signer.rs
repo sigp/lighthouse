@@ -20,8 +20,8 @@ pub enum MessageType {
     SyncCommitteeSelectionProof,
     SyncCommitteeContributionAndProof,
     ValidatorRegistration,
-    ExecutionPayloadEnvelope,
-    PayloadAttestationMessage,
+    ExecutionPayloadEnvelopeGloas,
+    PayloadAttestationMessageGloas,
     ProposerPreferences,
     BuilderRequestAuth,
 }
@@ -99,8 +99,8 @@ pub enum Web3SignerObject<'a, E: EthSpec, Payload: AbstractExecPayload<E>> {
     SyncAggregatorSelectionData(&'a SyncAggregatorSelectionData),
     ContributionAndProof(&'a ContributionAndProof<E>),
     ValidatorRegistration(&'a ValidatorRegistrationData),
-    ExecutionPayloadEnvelope(VersionedForkData<'a, ExecutionPayloadEnvelope<E>>),
-    PayloadAttestationMessage(VersionedForkData<'a, PayloadAttestationData>),
+    ExecutionPayloadEnvelopeGloas(VersionedForkData<'a, ExecutionPayloadEnvelopeGloas<E>>),
+    PayloadAttestationMessageGloas(VersionedForkData<'a, PayloadAttestationData>),
     ProposerPreferences(VersionedForkData<'a, ProposerPreferences>),
     BuilderRequestAuth(VersionedForkData<'a, RequestAuth>),
 }
@@ -161,12 +161,12 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
         }
     }
 
-    pub fn execution_payload_envelope(envelope: &'a ExecutionPayloadEnvelope<E>) -> Self {
-        Web3SignerObject::ExecutionPayloadEnvelope(VersionedForkData::gloas(envelope))
+    pub fn execution_payload_envelope(envelope: &'a ExecutionPayloadEnvelopeGloas<E>) -> Self {
+        Web3SignerObject::ExecutionPayloadEnvelopeGloas(VersionedForkData::gloas(envelope))
     }
 
     pub fn payload_attestation_message(data: &'a PayloadAttestationData) -> Self {
-        Web3SignerObject::PayloadAttestationMessage(VersionedForkData::gloas(data))
+        Web3SignerObject::PayloadAttestationMessageGloas(VersionedForkData::gloas(data))
     }
 
     pub fn proposer_preferences(preferences: &'a ProposerPreferences) -> Self {
@@ -194,9 +194,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
                 MessageType::SyncCommitteeContributionAndProof
             }
             Web3SignerObject::ValidatorRegistration(_) => MessageType::ValidatorRegistration,
-            Web3SignerObject::ExecutionPayloadEnvelope(_) => MessageType::ExecutionPayloadEnvelope,
-            Web3SignerObject::PayloadAttestationMessage(_) => {
-                MessageType::PayloadAttestationMessage
+            Web3SignerObject::ExecutionPayloadEnvelopeGloas(_) => {
+                MessageType::ExecutionPayloadEnvelopeGloas
+            }
+            Web3SignerObject::PayloadAttestationMessageGloas(_) => {
+                MessageType::PayloadAttestationMessageGloas
             }
             Web3SignerObject::ProposerPreferences(_) => MessageType::ProposerPreferences,
             Web3SignerObject::BuilderRequestAuth(_) => MessageType::BuilderRequestAuth,
@@ -259,9 +261,9 @@ mod tests {
 
     #[test]
     fn execution_payload_envelope_request_shape() {
-        let envelope = ExecutionPayloadEnvelope::<E>::empty();
+        let envelope = ExecutionPayloadEnvelopeGloas::<E>::empty();
         let value = serialize(
-            MessageType::ExecutionPayloadEnvelope,
+            MessageType::ExecutionPayloadEnvelopeGloas,
             Some(dummy_fork_info()),
             Web3SignerObject::execution_payload_envelope(&envelope),
         );
@@ -283,7 +285,7 @@ mod tests {
             blob_data_available: false,
         };
         let value = serialize(
-            MessageType::PayloadAttestationMessage,
+            MessageType::PayloadAttestationMessageGloas,
             Some(dummy_fork_info()),
             Web3SignerObject::payload_attestation_message(&data),
         );

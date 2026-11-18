@@ -44,7 +44,7 @@ use store::Hash256;
 use tracing::{debug, error, warn};
 use types::{
     DataColumnSidecarList, EthSpec, ExecutionBlockHash, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeGloas,
 };
 
 pub mod parent_chain;
@@ -80,7 +80,7 @@ type BlockDownloadResponse<E> = Result<DownloadResult<Arc<SignedBeaconBlock<E>>>
 type CustodyDownloadResponse<E> =
     Result<DownloadResult<DataColumnSidecarList<E>>, RpcResponseError>;
 type PayloadDownloadResponse<E> =
-    Result<DownloadResult<Arc<SignedExecutionPayloadEnvelope<E>>>, RpcResponseError>;
+    Result<DownloadResult<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>, RpcResponseError>;
 
 pub enum BlockComponent<E: EthSpec> {
     Block(DownloadResult<Arc<SignedBeaconBlock<E>>>),

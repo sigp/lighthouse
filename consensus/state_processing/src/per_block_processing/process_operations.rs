@@ -33,7 +33,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
 
     process_proposer_slashings(
         state,
-        &block_body.proposer_slashings().to_cow_slice(),
+        &block_body.proposer_slashings()?.to_cow_slice(),
         verify_signatures,
         ctxt,
         spec,
@@ -101,7 +101,7 @@ pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>
     let checks: [(&str, usize, usize); 6] = [
         (
             "proposer_slashings",
-            block_body.proposer_slashings().len(),
+            block_body.proposer_slashings_len(),
             E::MaxProposerSlashings::to_usize(),
         ),
         (
@@ -477,13 +477,13 @@ pub mod gloas {
     }
 }
 
-/// Validates each `ProposerSlashing` and updates the state, short-circuiting on an invalid object.
+/// Validates each `ProposerSlashingBase` and updates the state, short-circuiting on an invalid object.
 ///
 /// Returns `Ok(())` if the validation and state updates completed successfully, otherwise returns
 /// an `Err` describing the invalid object or cause of failure.
 pub fn process_proposer_slashings<E: EthSpec>(
     state: &mut BeaconState<E>,
-    proposer_slashings: &[ProposerSlashing],
+    proposer_slashings: &[ProposerSlashingBase],
     verify_signatures: VerifySignatures,
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,

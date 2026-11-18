@@ -33,8 +33,8 @@ use types::{
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
     BeaconState, BlindedPayload, BuilderDepositRequest, BuilderExitRequest, ConsolidationRequest,
     Deposit, DepositRequest, ExecutionPayload, ForkVersionDecode, FullPayload, PayloadAttestation,
-    ProposerSlashing, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope, SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
+    ProposerSlashingBase, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelopeGloas, SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -230,7 +230,7 @@ impl<E: EthSpec> Operation<E> for Deposit {
     }
 }
 
-impl<E: EthSpec> Operation<E> for ProposerSlashing {
+impl<E: EthSpec> Operation<E> for ProposerSlashingBase {
     type Error = BlockProcessingError;
 
     fn handler_name() -> String {
@@ -490,7 +490,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
     }
 }
 
-impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelope<E> {
+impl<E: EthSpec> Operation<E> for SignedExecutionPayloadEnvelopeGloas<E> {
     type Error = EnvelopeProcessingError;
 
     fn handler_name() -> String {

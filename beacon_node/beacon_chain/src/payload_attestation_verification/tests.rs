@@ -4,8 +4,8 @@ use std::time::Duration;
 use bls::Signature;
 use slot_clock::{SlotClock, TestingSlotClock};
 use types::{
-    Domain, Epoch, EthSpec, ForkName, Hash256, PayloadAttestationData, PayloadAttestationMessage,
-    SignedRoot, Slot, Spec,
+    Domain, Epoch, EthSpec, ForkName, Hash256, PayloadAttestationData,
+    PayloadAttestationMessageGloas, SignedRoot, Slot, Spec,
 };
 
 use crate::{
@@ -81,7 +81,7 @@ impl TestContext {
         &self,
         data: PayloadAttestationData,
         validator_index: u64,
-    ) -> PayloadAttestationMessage {
+    ) -> PayloadAttestationMessageGloas {
         let head = self.harness.chain.canonical_head.cached_head();
         let state = &head.snapshot.beacon_state;
         let domain = self.harness.spec.get_domain(
@@ -94,7 +94,7 @@ impl TestContext {
         let signature = self.harness.validator_keypairs[validator_index as usize]
             .sk
             .sign(message);
-        PayloadAttestationMessage {
+        PayloadAttestationMessageGloas {
             validator_index,
             data,
             signature,
@@ -106,8 +106,8 @@ fn make_payload_attestation(
     slot: Slot,
     validator_index: u64,
     beacon_block_root: Hash256,
-) -> PayloadAttestationMessage {
-    PayloadAttestationMessage {
+) -> PayloadAttestationMessageGloas {
+    PayloadAttestationMessageGloas {
         validator_index,
         data: PayloadAttestationData {
             beacon_block_root,
@@ -536,7 +536,7 @@ async fn ptc_cache_is_primed_at_gloas_fork_boundary() {
         let signature = harness.validator_keypairs[validator_index as usize]
             .sk
             .sign(data.signing_root(domain));
-        let msg = PayloadAttestationMessage {
+        let msg = PayloadAttestationMessageGloas {
             validator_index,
             data,
             signature,
@@ -588,7 +588,7 @@ async fn stale_head_empty_slot_payload_attestation_ignored() {
         payload_present: true,
         blob_data_available: true,
     };
-    let msg = PayloadAttestationMessage {
+    let msg = PayloadAttestationMessageGloas {
         validator_index: 0,
         data,
         signature: Signature::empty(),
@@ -692,7 +692,7 @@ async fn side_chain_payload_attestation_uses_side_chain_ptc() {
     let signature = harness.validator_keypairs[validator_index as usize]
         .sk
         .sign(message);
-    let msg = PayloadAttestationMessage {
+    let msg = PayloadAttestationMessageGloas {
         validator_index,
         data,
         signature,

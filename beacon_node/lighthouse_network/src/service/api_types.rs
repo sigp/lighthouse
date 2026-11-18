@@ -5,7 +5,7 @@ use std::sync::Arc;
 use types::{
     BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeGloas,
 };
 
 pub type Id = u32;
@@ -167,9 +167,9 @@ pub enum Response<E: EthSpec> {
     /// batch.
     BlocksByHead(Option<Arc<SignedBeaconBlock<E>>>),
     /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_ROOT` request.
-    PayloadEnvelopesByRoot(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
+    PayloadEnvelopesByRoot(Option<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>),
     /// A response to a get `EXECUTION_PAYLOAD_ENVELOPES_BY_RANGE` request.
-    PayloadEnvelopesByRange(Option<Arc<SignedExecutionPayloadEnvelope<E>>>),
+    PayloadEnvelopesByRange(Option<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>),
     /// A response to a get BLOBS_BY_ROOT request.
     BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.

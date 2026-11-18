@@ -41,9 +41,9 @@ use typenum::Unsigned;
 use types::{
     AbstractExecPayload, Attestation, AttestationData, AttesterSlashing, BeaconState,
     BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, PTC, PayloadAttestation,
-    PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate, SyncAggregateError,
-    SyncCommitteeContribution, Validator,
+    PayloadAttestationData, PayloadAttestationMessageGloas, ProposerSlashingBase,
+    SignedBeaconBlock, SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate,
+    SyncAggregateError, SyncCommitteeContribution, Validator,
 };
 
 type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<E>>>>;
@@ -57,7 +57,7 @@ pub struct OperationPool<E: EthSpec + Default> {
     /// Set of attester slashings, and the fork version they were verified against.
     attester_slashings: RwLock<HashSet<SigVerifiedOp<AttesterSlashing<E>, E>>>,
     /// Map from proposer index to slashing.
-    proposer_slashings: RwLock<HashMap<u64, SigVerifiedOp<ProposerSlashing, E>>>,
+    proposer_slashings: RwLock<HashMap<u64, SigVerifiedOp<ProposerSlashingBase, E>>>,
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, SigVerifiedOp<SignedVoluntaryExit, E>>>,
     /// Map from credential changing validator to their position in the queue.
@@ -205,11 +205,11 @@ impl<E: EthSpec> OperationPool<E> {
         });
     }
 
-    /// Insert a validated `PayloadAttestationMessage` into the pool, aggregating it into the
+    /// Insert a validated `PayloadAttestationMessageGloas` into the pool, aggregating it into the
     /// running `PayloadAttestation` for its data.
     pub fn insert_payload_attestation(
         &self,
-        message: &PayloadAttestationMessage,
+        message: &PayloadAttestationMessageGloas,
         ptc: &PTC<E>,
     ) -> Result<(), OpPoolError> {
         // A validator absent from the PTC must not leave a permanently-empty aggregate behind.
@@ -471,7 +471,7 @@ impl<E: EthSpec> OperationPool<E> {
     /// Insert a proposer slashing into the pool.
     pub fn insert_proposer_slashing(
         &self,
-        verified_proposer_slashing: SigVerifiedOp<ProposerSlashing, E>,
+        verified_proposer_slashing: SigVerifiedOp<ProposerSlashingBase, E>,
     ) {
         self.proposer_slashings.write().insert(
             verified_proposer_slashing.as_inner().proposer_index(),
@@ -497,7 +497,7 @@ impl<E: EthSpec> OperationPool<E> {
         state: &BeaconState<E>,
         spec: &ChainSpec,
     ) -> (
-        Vec<ProposerSlashing>,
+        Vec<ProposerSlashingBase>,
         Vec<AttesterSlashing<E>>,
         Vec<SignedVoluntaryExit>,
     ) {
@@ -807,10 +807,10 @@ impl<E: EthSpec> OperationPool<E> {
             .collect()
     }
 
-    /// Returns all known `ProposerSlashing` objects.
+    /// Returns all known `ProposerSlashingBase` objects.
     ///
     /// This method may return objects that are invalid for block inclusion.
-    pub fn get_all_proposer_slashings(&self) -> Vec<ProposerSlashing> {
+    pub fn get_all_proposer_slashings(&self) -> Vec<ProposerSlashingBase> {
         self.proposer_slashings
             .read()
             .values()
@@ -1545,7 +1545,7 @@ mod release_tests {
         let proposer_index = 0;
         let slashing1 = harness.make_proposer_slashing(proposer_index);
 
-        let slashing2 = ProposerSlashing {
+        let slashing2 = ProposerSlashingBase {
             signed_header_1: slashing1.signed_header_2.clone(),
             signed_header_2: slashing1.signed_header_1.clone(),
         };
@@ -2291,7 +2291,7 @@ mod release_tests {
         slot: Slot,
         validator_index: u64,
         beacon_block_root: Hash256,
-    ) -> PayloadAttestationMessage {
+    ) -> PayloadAttestationMessageGloas {
         make_payload_attestation_message_with_flags(
             slot,
             validator_index,
@@ -2307,8 +2307,8 @@ mod release_tests {
         beacon_block_root: Hash256,
         payload_present: bool,
         blob_data_available: bool,
-    ) -> PayloadAttestationMessage {
-        PayloadAttestationMessage {
+    ) -> PayloadAttestationMessageGloas {
+        PayloadAttestationMessageGloas {
             validator_index,
             data: PayloadAttestationData {
                 beacon_block_root,

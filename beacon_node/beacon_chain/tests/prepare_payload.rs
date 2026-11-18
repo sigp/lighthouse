@@ -965,9 +965,8 @@ async fn prepare_payload_around_heze_boundary(prepare_slot: Slot, heze_fork_epoc
         return;
     }
     spec.gloas_fork_epoch = Some(Epoch::new(0));
-    // Pq precedes Heze; two forks at the same non-genesis epoch would leave `state.fork` without
-    // the Gloas version needed to verify signatures from the last pre-fork epoch.
-    spec.pq_fork_epoch = Some(heze_fork_epoch.saturating_sub(1u64));
+    // Heze takes precedence over Pq at their shared activation epoch.
+    spec.pq_fork_epoch = Some(heze_fork_epoch);
     spec.heze_fork_epoch = Some(heze_fork_epoch);
     let spec = Arc::new(spec);
 
@@ -1130,9 +1129,8 @@ async fn prepare_payload_inclusion_lists_around_heze_boundary(
     if !spec.fork_name_at_slot::<E>(Slot::new(0)).gloas_enabled() {
         return;
     }
-    // Pq precedes Heze; two forks at the same non-genesis epoch would leave `state.fork` without
-    // the Gloas version needed to verify signatures from the last pre-fork epoch.
-    spec.pq_fork_epoch = Some(heze_fork_epoch.saturating_sub(1u64));
+    // Heze takes precedence over Pq at their shared activation epoch.
+    spec.pq_fork_epoch = Some(heze_fork_epoch);
     spec.heze_fork_epoch = Some(heze_fork_epoch);
     let spec = Arc::new(spec);
     assert!(spec.fork_name_at_slot::<E>(prepare_slot).heze_enabled());
@@ -1236,9 +1234,8 @@ async fn prepare_payload_inclusion_lists_used_in_block_production() {
         return;
     }
     let heze_fork_epoch = Epoch::new(1);
-    // Pq precedes Heze; two forks at the same non-genesis epoch would leave `state.fork` without
-    // the Gloas version needed to verify signatures from the last pre-fork epoch.
-    spec.pq_fork_epoch = Some(heze_fork_epoch.saturating_sub(1u64));
+    // Heze takes precedence over Pq at their shared activation epoch.
+    spec.pq_fork_epoch = Some(heze_fork_epoch);
     spec.heze_fork_epoch = Some(heze_fork_epoch);
     let spec = Arc::new(spec);
 
@@ -1320,9 +1317,8 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_block_production() {
         return;
     }
     let heze_fork_epoch = Epoch::new(1);
-    // Pq precedes Heze; two forks at the same non-genesis epoch would leave `state.fork` without
-    // the Gloas version needed to verify signatures from the last pre-fork epoch.
-    spec.pq_fork_epoch = Some(heze_fork_epoch.saturating_sub(1u64));
+    // Heze takes precedence over Pq at their shared activation epoch.
+    spec.pq_fork_epoch = Some(heze_fork_epoch);
     spec.heze_fork_epoch = Some(heze_fork_epoch);
     let spec = Arc::new(spec);
 
@@ -1435,9 +1431,8 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_proposer_preparation(
         return;
     }
     let heze_fork_epoch = Epoch::new(1);
-    // Pq precedes Heze; two forks at the same non-genesis epoch would leave `state.fork` without
-    // the Gloas version needed to verify signatures from the last pre-fork epoch.
-    spec.pq_fork_epoch = Some(heze_fork_epoch.saturating_sub(1u64));
+    // Heze takes precedence over Pq at their shared activation epoch.
+    spec.pq_fork_epoch = Some(heze_fork_epoch);
     spec.heze_fork_epoch = Some(heze_fork_epoch);
     let spec = Arc::new(spec);
 
@@ -1541,9 +1536,8 @@ async fn prepare_payload_inclusion_lists_late_list_reaches_empty_build_parent() 
         return;
     }
     let heze_fork_epoch = Epoch::new(1);
-    // Pq precedes Heze; two forks at the same non-genesis epoch would leave `state.fork` without
-    // the Gloas version needed to verify signatures from the last pre-fork epoch.
-    spec.pq_fork_epoch = Some(heze_fork_epoch.saturating_sub(1u64));
+    // Heze takes precedence over Pq at their shared activation epoch.
+    spec.pq_fork_epoch = Some(heze_fork_epoch);
     spec.heze_fork_epoch = Some(heze_fork_epoch);
     let spec = Arc::new(spec);
 
@@ -1897,7 +1891,7 @@ fn insert_proposer_preferences(
         .chain
         .gossip_verified_proposer_preferences_cache
         .insert_preferences(GossipVerifiedProposerPreferences {
-            signed_preferences: Arc::new(SignedProposerPreferences {
+            signed_preferences: Arc::new(SignedProposerPreferencesGloas {
                 message: ProposerPreferences {
                     dependent_root,
                     proposal_slot,

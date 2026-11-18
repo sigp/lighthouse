@@ -1004,7 +1004,7 @@ mod tests {
         .assert_signatures_match(
             "execution_payload_envelope_gloas",
             |pubkey, validator_store| async move {
-                let mut envelope = ExecutionPayloadEnvelope::<E>::empty();
+                let mut envelope = ExecutionPayloadEnvelopeGloas::<E>::empty();
                 envelope.payload.slot_number = gloas_fork_slot;
                 validator_store
                     .sign_execution_payload_envelope(pubkey, envelope)

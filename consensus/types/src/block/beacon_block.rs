@@ -21,18 +21,18 @@ use crate::{
         BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix,
         BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
         BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockBodyPq, BeaconBlockBodyRef,
-        BeaconBlockBodyRefMut, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
+        BeaconBlockBodyRefMut, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeaderBase,
     },
     core::{ChainSpec, Domain, Epoch, EthSpec, Graffiti, Hash256, SignedRoot, Slot},
     deposit::{Deposit, DepositData},
     execution::{
         AbstractExecPayload, BlindedPayload, Eth1Data, ExecutionPayload, ExecutionRequestsElectra,
-        ExecutionRequestsGloas, FullPayload,
+        ExecutionRequestsGloas, ExecutionRequestsPq, FullPayload,
     },
     exit::{SignedVoluntaryExit, VoluntaryExit},
     fork::{Fork, ForkName, InconsistentFork, map_fork_name},
     pq::{AttestationProof, VrfProof},
-    slashing::{AttesterSlashingBase, ProposerSlashing},
+    slashing::{AttesterSlashingBase, ProposerSlashingBase},
     state::BeaconStateError,
     sync_committee::SyncAggregate,
 };
@@ -162,8 +162,6 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
     /// Usually it's better to prefer `from_ssz_bytes` which will decode the correct variant based
     /// on the fork slot.
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        // TODO(heze): decode Pq/Heze here once they diverge from Gloas. While the variants are
-        // SSZ-identical, trying Pq or Heze first would mis-tag every Gloas block.
         BeaconBlockGloas::from_ssz_bytes(bytes)
             .map(BeaconBlock::Gloas)
             .or_else(|_| BeaconBlockFulu::from_ssz_bytes(bytes).map(BeaconBlock::Fulu))
@@ -225,7 +223,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
-    ) -> SignedBeaconBlock<E, Payload> {
+    ) -> Result<SignedBeaconBlock<E, Payload>, BeaconStateError> {
+        if matches!(self, Self::Pq(_)) {
+            return Err(BeaconStateError::PqUnsupported("BLS block signing"));
+        }
         let domain = spec.get_domain(
             self.epoch(),
             Domain::BeaconProposer,
@@ -407,7 +408,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             body_root: Hash256::zero(),
         };
 
-        let signed_header = SignedBeaconBlockHeader {
+        let signed_header = SignedBeaconBlockHeaderBase {
             message: header,
             signature: Signature::empty(),
         };
@@ -427,7 +428,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBase<E, Payload> {
             amount: 0,
             signature: SignatureBytes::empty(),
         };
-        let proposer_slashing = ProposerSlashing {
+        let proposer_slashing = ProposerSlashingBase {
             signed_header_1: signed_header.clone(),
             signed_header_2: signed_header,
         };
@@ -775,7 +776,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockPq<E
                 attester_slashings: ProgressiveVariableList::empty(),
                 attestations: ProgressiveVariableList::empty(),
                 deposits: ProgressiveVariableList::empty(),
-                parent_execution_requests: ExecutionRequestsGloas::default(),
+                parent_execution_requests: ExecutionRequestsPq::default(),
                 signed_execution_payload_bid: SignedExecutionPayloadBidPq::empty(),
                 proof: AttestationProof::<E>::default(),
                 _phantom: PhantomData,

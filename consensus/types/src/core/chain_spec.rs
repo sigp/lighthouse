@@ -418,6 +418,14 @@ impl ChainSpec {
     /// If no future forks are scheduled, this function returns `None`.
     pub fn next_fork_epoch<E: EthSpec>(&self, slot: Slot) -> Option<(ForkName, Epoch)> {
         let current_fork_name = self.fork_name_at_slot::<E>(slot);
+        if current_fork_name == ForkName::Gloas
+            && let Some(heze_epoch) = self.heze_fork_epoch
+            && self
+                .pq_fork_epoch
+                .is_none_or(|pq_epoch| pq_epoch >= heze_epoch)
+        {
+            return Some((ForkName::Heze, heze_epoch));
+        }
         let next_fork_name = current_fork_name.next_fork()?;
         let fork_epoch = self.fork_epoch(next_fork_name)?;
         Some((next_fork_name, fork_epoch))
@@ -557,7 +565,7 @@ impl ChainSpec {
         let previous_fork_name = if fork_epoch == 0 {
             current_fork_name
         } else {
-            current_fork_name.previous_fork().unwrap_or(ForkName::Base)
+            Self::previous_fork_for_version(current_fork_name)
         };
 
         Fork {
@@ -570,7 +578,7 @@ impl ChainSpec {
     /// Returns a full `Fork` struct for a given `ForkName` or `None` if the fork does not yet have
     /// an activation epoch.
     pub fn fork_for_name(&self, fork_name: ForkName) -> Option<Fork> {
-        let previous_fork_name = fork_name.previous_fork().unwrap_or(ForkName::Base);
+        let previous_fork_name = Self::previous_fork_for_version(fork_name);
         let epoch = self.fork_epoch(fork_name)?;
 
         Some(Fork {
@@ -578,6 +586,15 @@ impl ChainSpec {
             current_version: self.fork_version_for_name(fork_name),
             epoch,
         })
+    }
+
+    fn previous_fork_for_version(fork_name: ForkName) -> ForkName {
+        // Heze is only supported as an upgrade from Gloas.
+        if fork_name == ForkName::Heze {
+            ForkName::Gloas
+        } else {
+            fork_name.previous_fork().unwrap_or(ForkName::Base)
+        }
     }
 
     /// Get the domain number, unmodified by the fork.
@@ -3562,6 +3579,26 @@ mod tests {
                 // Fork is not activated, check that `next_fork_epoch` returns `None`.
                 assert_eq!(spec.next_fork_epoch::<E>(last_fork_slot), None);
             }
+        }
+    }
+
+    #[test]
+    fn heze_fork_metadata_uses_gloas_when_pq_is_skipped() {
+        type E = crate::MinimalEthSpec;
+        let mut spec = ForkName::Gloas.make_genesis_spec(E::default_spec());
+        let heze_epoch = Epoch::new(4);
+        spec.heze_fork_epoch = Some(heze_epoch);
+
+        for pq_epoch in [None, Some(heze_epoch)] {
+            spec.pq_fork_epoch = pq_epoch;
+            assert_eq!(
+                spec.next_fork_epoch::<E>(Slot::new(0)),
+                Some((ForkName::Heze, heze_epoch))
+            );
+            let fork = spec.fork_at_epoch(heze_epoch);
+            assert_eq!(fork.previous_version, spec.gloas_fork_version);
+            assert_eq!(fork.current_version, spec.heze_fork_version);
+            assert_eq!(Some(fork), spec.fork_for_name(ForkName::Heze));
         }
     }
 

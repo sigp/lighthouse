@@ -20,7 +20,7 @@ use state_processing::signature_sets::{
 use tracing::debug;
 use types::{
     BeaconState, Builder, ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionRequestsGloas,
-    SignedExecutionPayloadBid, SignedProposerPreferences, Slot,
+    SignedExecutionPayloadBid, SignedProposerPreferencesGloas, Slot,
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
@@ -96,7 +96,7 @@ fn verify_bid_blobs<E: EthSpec>(
 pub(crate) fn verify_direct_bid_consistency<E: EthSpec>(
     bid: ExecutionPayloadBidRef<E>,
     current_slot: Slot,
-    proposer_preferences: &SignedProposerPreferences,
+    proposer_preferences: &SignedProposerPreferencesGloas,
     head_state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {

@@ -54,7 +54,7 @@ enum DataSidecars<E: EthSpec> {
     DataColumns(Vec<CustodyDataColumn<E>>),
 }
 
-type SegmentSnapshot = BeaconSnapshot<E, FullPayload<E>, SignedExecutionPayloadEnvelope<E>>;
+type SegmentSnapshot = BeaconSnapshot<E, FullPayload<E>, SignedExecutionPayloadEnvelopeGloas<E>>;
 
 type ChainSegmentData = (Vec<SegmentSnapshot>, Vec<Option<DataSidecars<E>>>);
 
@@ -196,7 +196,7 @@ where
 
 fn build_range_sync_block<T>(
     block: Arc<SignedBeaconBlock<E>>,
-    execution_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    execution_envelope: Option<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>,
     data_sidecars: &Option<DataSidecars<E>>,
     chain: Arc<BeaconChain<T>>,
 ) -> RangeSyncBlock<E>
@@ -317,12 +317,16 @@ fn update_proposal_signatures(
             .expect("proposer keypair should be available");
 
         let (block, _) = snapshot.beacon_block.as_ref().clone().deconstruct();
-        snapshot.beacon_block = Arc::new(block.sign(
-            &keypair.sk,
-            &state.fork(),
-            state.genesis_validators_root(),
-            spec,
-        ));
+        snapshot.beacon_block = Arc::new(
+            block
+                .sign(
+                    &keypair.sk,
+                    &state.fork(),
+                    state.genesis_validators_root(),
+                    spec,
+                )
+                .unwrap(),
+        );
     }
 }
 
@@ -341,7 +345,7 @@ fn update_parent_roots(snapshots: &mut [SegmentSnapshot], blobs: &mut [Option<Da
         if let (Some(child), Some(child_blobs)) = (snapshots.get_mut(i + 1), blobs.get_mut(i + 1)) {
             let (mut block, signature) = child.beacon_block.as_ref().clone().deconstruct();
             *block.parent_root_mut() = root;
-            let new_child = Arc::new(SignedBeaconBlock::from_block(block, signature));
+            let new_child = Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap());
             if let Some(data_sidecars) = child_blobs {
                 match data_sidecars {
                     DataSidecars::Blobs(blobs) => {
@@ -368,7 +372,7 @@ fn update_blob_signed_header<E: EthSpec>(
             blob: old_blob_sidecar.blob.clone(),
             kzg_commitment: old_blob_sidecar.kzg_commitment,
             kzg_proof: old_blob_sidecar.kzg_proof,
-            signed_block_header: signed_block.signed_block_header(),
+            signed_block_header: signed_block.signed_block_header_bls().unwrap(),
             kzg_commitment_inclusion_proof: signed_block
                 .message()
                 .body()
@@ -392,7 +396,7 @@ fn update_data_column_signed_header<E: EthSpec>(
                     column: old_sidecar.column.clone(),
                     kzg_commitments: old_sidecar.kzg_commitments.clone(),
                     kzg_proofs: old_sidecar.kzg_proofs.clone(),
-                    signed_block_header: signed_block.signed_block_header(),
+                    signed_block_header: signed_block.signed_block_header_bls().unwrap(),
                     kzg_commitments_inclusion_proof: signed_block
                         .message()
                         .body()
@@ -537,7 +541,7 @@ async fn chain_segment_non_linear_parent_roots() {
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
 
-    let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
+    let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap());
     blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
         // Fine to pass None to the envelope here because this is testing non linear parent roots and not envelope
         RangeSyncBlock::new_gloas(mutated_block.canonical_root(), mutated_block, None).unwrap()
@@ -583,7 +587,7 @@ async fn chain_segment_non_linear_slots() {
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
-    let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
+    let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap());
     blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
         // Fine to pass None to the envelope here because this is testing non linear slots and not envelope
         RangeSyncBlock::new_gloas(mutated_block.canonical_root(), mutated_block, None).unwrap()
@@ -619,7 +623,7 @@ async fn chain_segment_non_linear_slots() {
             .collect();
     let (mut block, signature) = blocks[3].as_block().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
-    let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature));
+    let mutated_block = Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap());
     blocks[3] = if mutated_block.fork_name_unchecked().gloas_enabled() {
         // Fine to pass None to the envelope here because this is testing non linear slots and not envelope
         RangeSyncBlock::new_gloas(mutated_block.canonical_root(), mutated_block, None).unwrap()
@@ -778,10 +782,8 @@ async fn invalid_signature_gossip_block() {
             .as_ref()
             .clone()
             .deconstruct();
-        snapshots[block_index].beacon_block = Arc::new(SignedBeaconBlock::from_block(
-            block.clone(),
-            junk_signature(),
-        ));
+        snapshots[block_index].beacon_block =
+            Arc::new(SignedBeaconBlock::from_block(block.clone(), junk_signature()).unwrap());
         // Import all the ancestors before the `block_index` block.
         let ancestor_blocks = chain_segment
             .iter()
@@ -802,7 +804,7 @@ async fn invalid_signature_gossip_block() {
             .await
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
-        let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
+        let signed_block = SignedBeaconBlock::from_block(block, junk_signature()).unwrap();
         let block_root = signed_block.canonical_root();
         let lookup_block = LookupBlock::new(block_root, Arc::new(signed_block));
         let process_res = harness
@@ -839,10 +841,8 @@ async fn invalid_signature_block_proposal() {
             .as_ref()
             .clone()
             .deconstruct();
-        snapshots[block_index].beacon_block = Arc::new(SignedBeaconBlock::from_block(
-            block.clone(),
-            junk_signature(),
-        ));
+        snapshots[block_index].beacon_block =
+            Arc::new(SignedBeaconBlock::from_block(block.clone(), junk_signature()).unwrap());
         let blocks: Vec<RangeSyncBlock<E>> = snapshots
             .iter()
             .zip(chain_segment_blobs.iter())
@@ -884,9 +884,9 @@ async fn invalid_signature_randao_reveal() {
             .as_ref()
             .clone()
             .deconstruct();
-        *block.body_mut().randao_reveal_mut() = junk_signature();
+        *block.body_mut().randao_reveal_mut().unwrap() = junk_signature();
         snapshots[block_index].beacon_block =
-            Arc::new(SignedBeaconBlock::from_block(block, signature));
+            Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap());
         update_envelope_block_root(&mut snapshots[block_index]);
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
@@ -914,12 +914,12 @@ async fn invalid_signature_proposer_slashing() {
             .as_ref()
             .clone()
             .deconstruct();
-        let proposer_slashing = ProposerSlashing {
-            signed_header_1: SignedBeaconBlockHeader {
+        let proposer_slashing = ProposerSlashingBase {
+            signed_header_1: SignedBeaconBlockHeaderBase {
                 message: block.block_header(),
                 signature: junk_signature(),
             },
-            signed_header_2: SignedBeaconBlockHeader {
+            signed_header_2: SignedBeaconBlockHeaderBase {
                 message: block.block_header(),
                 signature: junk_signature(),
             },
@@ -929,7 +929,7 @@ async fn invalid_signature_proposer_slashing() {
             .proposer_slashings_push(proposer_slashing)
             .expect("should update proposer slashing");
         snapshots[block_index].beacon_block =
-            Arc::new(SignedBeaconBlock::from_block(block, signature));
+            Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap());
         update_envelope_block_root(&mut snapshots[block_index]);
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
@@ -1060,20 +1060,8 @@ async fn invalid_signature_attester_slashing() {
                     })
                     .unwrap();
             }
-            BeaconBlockBodyRefMut::Pq(blk) => {
-                // Convert the Electra slashing into the Gloas type (EIP-7688). The SSZ bytes are
-                // the same, only the hash tree root differs.
-                let slashing = attester_slashing.as_electra().unwrap().clone();
-                blk.attester_slashings
-                    .push(AttesterSlashingGloas {
-                        attestation_1: IndexedAttestation::Electra(slashing.attestation_1)
-                            .to_gloas()
-                            .unwrap(),
-                        attestation_2: IndexedAttestation::Electra(slashing.attestation_2)
-                            .to_gloas()
-                            .unwrap(),
-                    })
-                    .unwrap();
+            BeaconBlockBodyRefMut::Pq(_) => {
+                unreachable!("Pq attester slashing verification is not implemented")
             }
             BeaconBlockBodyRefMut::Heze(blk) => {
                 // Convert the Electra slashing into the Gloas type (EIP-7688). The SSZ bytes are
@@ -1092,7 +1080,7 @@ async fn invalid_signature_attester_slashing() {
             }
         }
         snapshots[block_index].beacon_block =
-            Arc::new(SignedBeaconBlock::from_block(block, signature));
+            Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap());
         update_envelope_block_root(&mut snapshots[block_index]);
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
@@ -1123,12 +1111,12 @@ async fn invalid_signature_attestation() {
             .clone()
             .deconstruct();
         if let Some(mut att) = block.body_mut().attestations_mut().next() {
-            *att.signature_mut() = junk_aggregate_signature();
+            *att.signature_mut().unwrap() = junk_aggregate_signature();
         }
 
         if block.body().attestations_len() > 0 {
             snapshots[block_index].beacon_block =
-                Arc::new(SignedBeaconBlock::from_block(block, signature));
+                Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap());
             update_envelope_block_root(&mut snapshots[block_index]);
             update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
             update_proposal_signatures(&mut snapshots, &harness);
@@ -1180,7 +1168,7 @@ async fn invalid_signature_deposit() {
             .deposits_push(deposit)
             .expect("should update deposit");
         snapshots[block_index].beacon_block =
-            Arc::new(SignedBeaconBlock::from_block(block, signature));
+            Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap());
         update_envelope_block_root(&mut snapshots[block_index]);
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
@@ -1234,7 +1222,7 @@ async fn invalid_signature_exit() {
             })
             .expect("should update deposit");
         snapshots[block_index].beacon_block =
-            Arc::new(SignedBeaconBlock::from_block(block, signature));
+            Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap());
         update_envelope_block_root(&mut snapshots[block_index]);
         update_parent_roots(&mut snapshots, &mut chain_segment_blobs);
         update_proposal_signatures(&mut snapshots, &harness);
@@ -1352,7 +1340,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_block_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await).into_block_error(),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap())).await).into_block_error(),
             BlockError::FutureSlot {
                 present_slot,
                 block_slot,
@@ -1386,7 +1374,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_finalized_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await).into_block_error(),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap())).await).into_block_error(),
             BlockError::WouldRevertFinalizedSlot {
                 block_slot,
                 finalized_slot,
@@ -1416,10 +1404,9 @@ async fn block_gossip_verification() {
             unwrap_err(
                 harness
                     .chain
-                    .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
-                        block,
-                        junk_signature()
-                    )),)
+                    .verify_block_for_gossip(Arc::new(
+                        SignedBeaconBlock::from_block(block, junk_signature()).unwrap()
+                    ),)
                     .await
             )
             .into_block_error(),
@@ -1445,7 +1432,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await).into_block_error(),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap())).await).into_block_error(),
             BlockError::ParentUnknown {parent_root: p, ..}
             if p == parent_root
         ),
@@ -1471,7 +1458,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await).into_block_error(),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap())).await).into_block_error(),
             BlockError::NotFinalizedDescendant { block_parent_root }
             if block_parent_root == parent_root
         ),
@@ -1500,12 +1487,14 @@ async fn block_gossip_verification() {
         .find(|i| *i != block.proposer_index())
         .expect("there must be more than one validator in this test");
     *block.proposer_index_mut() = other_proposer;
-    let block = block.sign(
-        &generate_deterministic_keypair(other_proposer as usize).sk,
-        &harness.chain.canonical_head.cached_head().head_fork(),
-        harness.chain.genesis_validators_root,
-        &harness.chain.spec,
-    );
+    let block = block
+        .sign(
+            &generate_deterministic_keypair(other_proposer as usize).sk,
+            &harness.chain.canonical_head.cached_head().head_fork(),
+            harness.chain.genesis_validators_root,
+            &harness.chain.spec,
+        )
+        .unwrap();
     assert!(
         matches!(
             unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await).into_block_error(),
@@ -1584,7 +1573,7 @@ async fn block_gossip_verification() {
             .unwrap();
         assert!(
             matches!(
-                unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await).into_block_error(),
+                unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature).unwrap())).await).into_block_error(),
                 BlockError::InvalidBlobCount {
                     max_blobs_at_epoch,
                     block,
@@ -1623,9 +1612,9 @@ async fn block_gossip_verification() {
                 unwrap_err(
                     harness
                         .chain
-                        .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
-                            block, signature
-                        )))
+                        .verify_block_for_gossip(Arc::new(
+                            SignedBeaconBlock::from_block(block, signature).unwrap()
+                        ))
                         .await
                 )
                 .into_block_error(),
@@ -1766,12 +1755,14 @@ async fn verify_block_for_gossip_doppelganger_detection() {
             Attestation::Gloas(att) => {
                 attesting_indices_gloas::get_indexed_attestation_from_state(&state, att).unwrap()
             }
+            Attestation::Pq(_) => unreachable!("Pq attestation verification is not implemented"),
         };
 
         for index in match indexed_attestation {
             IndexedAttestation::Base(att) => att.attesting_indices.into_iter(),
             IndexedAttestation::Electra(att) => att.attesting_indices.into_iter(),
             IndexedAttestation::Gloas(att) => att.attesting_indices.into_iter(),
+            IndexedAttestation::Pq(att) => att.attesting_indices.into_iter(),
         } {
             let index = index as usize;
 
@@ -2471,7 +2462,7 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
 
 async fn make_gloas_range_sync_block_inputs() -> Option<(
     Arc<SignedBeaconBlock<E>>,
-    SignedExecutionPayloadEnvelope<E>,
+    SignedExecutionPayloadEnvelopeGloas<E>,
     Arc<CustodyContext<EphemeralHarnessType<E>>>,
     DataColumnSidecarList<E>,
 )> {
@@ -2629,7 +2620,7 @@ async fn import_gloas_block_without_envelope(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
 ) -> (
     Arc<SignedBeaconBlock<E>>,
-    SignedExecutionPayloadEnvelope<E>,
+    SignedExecutionPayloadEnvelopeGloas<E>,
     Hash256,
 ) {
     harness.advance_slot();
@@ -2841,7 +2832,8 @@ async fn filter_chain_segment_keeps_checkpoint_gloas_block_by_split_root() {
 
     let (mut block_message, signature) = block.deconstruct();
     *block_message.parent_root_mut() = Hash256::repeat_byte(0x42);
-    let checkpoint_block = Arc::new(SignedBeaconBlock::from_block(block_message, signature));
+    let checkpoint_block =
+        Arc::new(SignedBeaconBlock::from_block(block_message, signature).unwrap());
     let checkpoint_root = checkpoint_block.canonical_root();
 
     assert!(checkpoint_block.slot() <= finalized_slot);
@@ -3261,8 +3253,9 @@ async fn process_chain_segment_partial_import_with_invalid_envelope() {
             .unwrap()
             .unwrap(),
     );
-    let mut envelope2 =
-        SignedExecutionPayloadEnvelope::clone(chain_dump[1].execution_envelope.as_ref().unwrap());
+    let mut envelope2 = SignedExecutionPayloadEnvelopeGloas::clone(
+        chain_dump[1].execution_envelope.as_ref().unwrap(),
+    );
     // modify the envelope signature to make the envelope invalid
     envelope2.signature = junk_signature();
     let columns2 = generate_data_column_sidecars_from_block(&block2, &harness.chain.spec);

@@ -1,5 +1,7 @@
 use crate::execution::{ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef};
-use crate::{ChainSpec, Epoch, EthSpec, ForkName, ForkVersionDecode, InconsistentFork, Slot};
+use crate::{
+    ChainSpec, Epoch, EthSpec, ForkName, ForkVersionDecode, InconsistentFork, Slot, XmssSignature,
+};
 use bls::Signature;
 use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
@@ -43,7 +45,10 @@ pub struct SignedExecutionPayloadBid<E: EthSpec> {
     pub message: ExecutionPayloadBidGloas<E>,
     #[superstruct(only(Heze), partial_getter(rename = "message_heze"))]
     pub message: ExecutionPayloadBidHeze<E>,
+    #[superstruct(only(Gloas, Heze))]
     pub signature: Signature,
+    #[superstruct(only(Pq), partial_getter(rename = "signature_pq"))]
+    pub signature: XmssSignature,
 }
 
 impl<E: EthSpec> SignedExecutionPayloadBid<E> {
@@ -96,7 +101,7 @@ impl<E: EthSpec> SignedExecutionPayloadBidPq<E> {
     pub fn empty() -> Self {
         Self {
             message: ExecutionPayloadBidGloas::default(),
-            signature: Signature::empty(),
+            signature: XmssSignature::empty(),
         }
     }
 }

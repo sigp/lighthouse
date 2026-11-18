@@ -406,7 +406,7 @@ impl InvalidPayloadRig {
     async fn import_envelope(
         &self,
         block: &Arc<SignedBeaconBlock<E>>,
-        opt_envelope: Option<SignedExecutionPayloadEnvelope<E>>,
+        opt_envelope: Option<SignedExecutionPayloadEnvelopeGloas<E>>,
     ) -> Result<(), BlockError> {
         let Some(signed_envelope) = opt_envelope else {
             return Ok(());

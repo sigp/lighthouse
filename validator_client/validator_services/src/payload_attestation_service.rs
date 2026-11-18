@@ -470,7 +470,8 @@ mod tests {
     use slot_clock::ManualSlotClock;
     use std::time::Duration;
     use types::{
-        Epoch, ForkName, Hash256, PayloadAttestationData, PayloadAttestationMessage, Slot, Spec,
+        Epoch, ForkName, Hash256, PayloadAttestationData, PayloadAttestationMessageGloas, Slot,
+        Spec,
     };
     use validator_test_rig::mock_validator_store::MockValidatorStore;
     use validator_test_rig::validator_client_harness::{S, ValidatorClientHarness};
@@ -710,7 +711,7 @@ mod tests {
             .lock()
             .unwrap();
 
-        // We create one validator with one PTC duty, so the PayloadAttestationMessage length should be 1
+        // We create one validator with one PTC duty, so the PayloadAttestationMessageGloas length should be 1
         assert_eq!(
             messages.len(),
             1,
@@ -959,7 +960,7 @@ mod tests {
             .lock()
             .unwrap();
 
-        // With 3 PTC duties in total, we should have 3 PayloadAttestationMessage
+        // With 3 PTC duties in total, we should have 3 PayloadAttestationMessageGloas
         assert_eq!(
             messages.len(),
             3,
@@ -1462,7 +1463,7 @@ mod tests {
                     let barrier = barrier.clone();
                     async move {
                         barrier.wait().await;
-                        Ok(PayloadAttestationMessage {
+                        Ok(PayloadAttestationMessageGloas {
                             validator_index: 0,
                             data,
                             signature: Signature::empty(),

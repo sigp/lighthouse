@@ -6,10 +6,10 @@
 //!  signs, and publishes the envelope.
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::{BlobsList, EthSpec, ExecutionPayloadEnvelope, Hash256, Slot};
+use types::{BlobsList, EthSpec, ExecutionPayloadEnvelopeGloas, Hash256, Slot};
 
 pub struct PendingEnvelopeData<E: EthSpec> {
-    pub envelope: Arc<ExecutionPayloadEnvelope<E>>,
+    pub envelope: Arc<ExecutionPayloadEnvelopeGloas<E>>,
     pub blobs: Option<Arc<BlobsList<E>>>,
 }
 
@@ -51,7 +51,7 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
     pub fn get_by_block_root(
         &self,
         beacon_block_root: Hash256,
-    ) -> Option<&Arc<ExecutionPayloadEnvelope<E>>> {
+    ) -> Option<&Arc<ExecutionPayloadEnvelopeGloas<E>>> {
         self.envelopes
             .get(&beacon_block_root)
             .map(|data| &data.envelope)
@@ -75,7 +75,7 @@ impl<E: EthSpec> PendingPayloadEnvelopes<E> {
     pub fn remove(
         &mut self,
         beacon_block_root: Hash256,
-    ) -> Option<Arc<ExecutionPayloadEnvelope<E>>> {
+    ) -> Option<Arc<ExecutionPayloadEnvelopeGloas<E>>> {
         self.envelopes
             .remove(&beacon_block_root)
             .map(|data| data.envelope)
@@ -110,7 +110,7 @@ mod tests {
 
     fn make_envelope(slot: Slot, beacon_block_root: Hash256) -> PendingEnvelopeData<E> {
         PendingEnvelopeData {
-            envelope: Arc::new(ExecutionPayloadEnvelope {
+            envelope: Arc::new(ExecutionPayloadEnvelopeGloas {
                 payload: ExecutionPayloadGloas {
                     slot_number: slot,
                     ..ExecutionPayloadGloas::default()

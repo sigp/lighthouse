@@ -351,7 +351,7 @@ mod tests {
     use libp2p::identity::Keypair;
     use ssz_types::FixedVector;
     use types::CellBitmap;
-    use types::block::{BeaconBlockHeader, SignedBeaconBlockHeader};
+    use types::block::{BeaconBlockHeader, SignedBeaconBlockHeaderBase};
     use types::core::{Slot, Spec};
     use types::data::PartialDataColumnHeader;
     use types::data::PartialDataColumnSidecarFulu;
@@ -370,7 +370,7 @@ mod tests {
             kzg_commitments: vec![types::KzgCommitment([0u8; 48]); num_commitments]
                 .try_into()
                 .unwrap(),
-            signed_block_header: SignedBeaconBlockHeader {
+            signed_block_header: SignedBeaconBlockHeaderBase {
                 message: BeaconBlockHeader {
                     slot: Slot::new(1),
                     proposer_index: 0,

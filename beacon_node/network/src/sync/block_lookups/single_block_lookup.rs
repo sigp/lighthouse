@@ -21,7 +21,7 @@ use strum::IntoStaticStr;
 use tracing::{Span, debug_span};
 use types::{
     DataColumnSidecarList, EthSpec, ExecutionBlockHash, SignedBeaconBlock,
-    SignedExecutionPayloadEnvelope, Slot,
+    SignedExecutionPayloadEnvelopeGloas, Slot,
 };
 
 // Dedicated enum for LookupResult to force its usage
@@ -127,7 +127,7 @@ impl<E: EthSpec> DataRequest<E> {
 }
 
 /// Tracks the download + processing of a Gloas execution payload envelope. For FULL Gloas blocks the
-/// execution payload arrives as a separate `SignedExecutionPayloadEnvelope`, mirroring the way data
+/// execution payload arrives as a separate `SignedExecutionPayloadEnvelopeGloas`, mirroring the way data
 /// columns are fetched and processed by `DataRequest`.
 #[derive(Debug)]
 enum PayloadRequest<E: EthSpec> {
@@ -138,7 +138,7 @@ enum PayloadRequest<E: EthSpec> {
     /// proves a payload was published, which is signalled by `peers` becoming non-empty.
     Request {
         peers: PeerSet,
-        state: SingleLookupRequestState<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        state: SingleLookupRequestState<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>,
     },
     /// Pre-Gloas block: no payload envelope exists, nothing to fetch.
     PreGloas,

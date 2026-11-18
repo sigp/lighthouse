@@ -21,7 +21,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{Duration, Instant, interval_at};
 use tracing::{debug, error, info, trace, warn};
-use types::{AttesterSlashing, Epoch, EthSpec, ProposerSlashing};
+use types::{AttesterSlashing, Epoch, EthSpec, ProposerSlashingBase};
 
 pub struct SlasherService<T: BeaconChainTypes> {
     beacon_chain: Arc<BeaconChain<T>>,
@@ -295,7 +295,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
     fn publish_proposer_slashing(
         beacon_chain: &BeaconChain<T>,
         network_sender: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-        slashing: ProposerSlashing,
+        slashing: ProposerSlashingBase,
     ) -> Result<(), String> {
         let outcome = beacon_chain
             .verify_proposer_slashing_for_gossip(slashing)

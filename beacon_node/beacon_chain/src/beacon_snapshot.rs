@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::sync::Arc;
 use types::{
     AbstractExecPayload, BeaconState, BlindedPayload, EthSpec, FullPayload, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedExecutionPayloadEnvelope,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, SignedExecutionPayloadEnvelopeGloas,
     SignedExecutionPayloadEnvelopeSummary,
 };
 
@@ -21,7 +21,7 @@ pub struct BeaconSnapshot<
 }
 
 pub type ChainDumpSnapshot<E> =
-    BeaconSnapshot<E, BlindedPayload<E>, SignedExecutionPayloadEnvelope<E>>;
+    BeaconSnapshot<E, BlindedPayload<E>, SignedExecutionPayloadEnvelopeGloas<E>>;
 
 /// This snapshot is to be used for verifying a child of `self.beacon_block`.
 #[derive(Debug)]

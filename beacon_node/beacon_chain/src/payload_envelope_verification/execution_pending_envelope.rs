@@ -2,7 +2,7 @@ use bls::Hash256;
 use slot_clock::SlotClock;
 use state_processing::{VerifySignatures, envelope_processing::verify_execution_payload_envelope};
 use std::sync::Arc;
-use types::{EthSpec, SignedExecutionPayloadEnvelope};
+use types::{EthSpec, SignedExecutionPayloadEnvelopeGloas};
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, NotifyExecutionLayer,
@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub struct ExecutionPendingEnvelope<E: EthSpec> {
-    pub signed_envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+    pub signed_envelope: Arc<SignedExecutionPayloadEnvelopeGloas<E>>,
     pub block_root: Hash256,
     pub payload_verification_handle: PayloadVerificationHandle,
 }

@@ -10,7 +10,7 @@ use store::StoreOp;
 use tracing::{debug, error, info, info_span, instrument, warn};
 use types::{
     BlockImportSource, Hash256, SignedBeaconBlock, SignedExecutionPayloadBid,
-    SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeGloas,
 };
 
 use super::{
@@ -354,7 +354,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn import_envelope_update_metrics_and_events(
         &self,
-        signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        signed_envelope: Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
         block_root: Hash256,
         envelope_time_imported: Duration,
     ) {

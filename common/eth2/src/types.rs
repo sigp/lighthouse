@@ -1319,8 +1319,9 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
 pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SsePayloadAttributes>;
 pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
 pub type VersionedSseExecutionPayloadBid<E> = ForkVersionedResponse<SignedExecutionPayloadBid<E>>;
-pub type VersionedSseProposerPreferences = ForkVersionedResponse<SignedProposerPreferences>;
-pub type VersionedSsePayloadAttestationMessage = ForkVersionedResponse<PayloadAttestationMessage>;
+pub type VersionedSseProposerPreferences = ForkVersionedResponse<SignedProposerPreferencesGloas>;
+pub type VersionedSsePayloadAttestationMessage =
+    ForkVersionedResponse<PayloadAttestationMessageGloas>;
 pub type VersionedSseHeadV2 = ForkVersionedResponse<SseHeadV2>;
 pub type VersionedSseInclusionList = ForkVersionedResponse<SignedInclusionList>;
 
@@ -1402,7 +1403,7 @@ pub enum EventKind<E: EthSpec> {
     LightClientFinalityUpdate(Box<BeaconResponse<LightClientFinalityUpdate<E>>>),
     LightClientOptimisticUpdate(Box<BeaconResponse<LightClientOptimisticUpdate<E>>>),
     PayloadAttributes(VersionedSsePayloadAttributes),
-    ProposerSlashing(Box<ProposerSlashing>),
+    ProposerSlashing(Box<ProposerSlashingBase>),
     AttesterSlashing(Box<AttesterSlashing<E>>),
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
     BlockGossip(Box<BlockGossip>),
@@ -1411,7 +1412,7 @@ pub enum EventKind<E: EthSpec> {
     ExecutionPayloadAvailable(SseExecutionPayloadAvailable),
     ExecutionPayloadBid(Box<VersionedSseExecutionPayloadBid<E>>),
     ProposerPreferences(Box<VersionedSseProposerPreferences>),
-    PayloadAttestationMessage(Box<VersionedSsePayloadAttestationMessage>),
+    PayloadAttestationMessageGloas(Box<VersionedSsePayloadAttestationMessage>),
     FastConfirmation(SseFastConfirmation),
     InclusionList(Box<VersionedSseInclusionList>),
 }
@@ -1442,7 +1443,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::ExecutionPayloadAvailable(_) => "execution_payload_available",
             EventKind::ExecutionPayloadBid(_) => "execution_payload_bid",
             EventKind::ProposerPreferences(_) => "proposer_preferences",
-            EventKind::PayloadAttestationMessage(_) => "payload_attestation_message",
+            EventKind::PayloadAttestationMessageGloas(_) => "payload_attestation_message",
             EventKind::FastConfirmation(_) => "fast_confirmation",
             EventKind::InclusionList(_) => "inclusion_list",
         }
@@ -1566,14 +1567,14 @@ impl<E: EthSpec> EventKind<E> {
                     ServerError::InvalidServerSentEvent(format!("Proposer Preferences: {:?}", e))
                 })?,
             ))),
-            "payload_attestation_message" => Ok(EventKind::PayloadAttestationMessage(Box::new(
-                serde_json::from_str(data).map_err(|e| {
+            "payload_attestation_message" => Ok(EventKind::PayloadAttestationMessageGloas(
+                Box::new(serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!(
                         "Payload Attestation Message: {:?}",
                         e
                     ))
-                })?,
-            ))),
+                })?),
+            )),
             "fast_confirmation" => Ok(EventKind::FastConfirmation(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Fast Confirmation: {:?}", e))
@@ -1624,7 +1625,7 @@ pub enum EventTopic {
     ExecutionPayloadAvailable,
     ExecutionPayloadBid,
     ProposerPreferences,
-    PayloadAttestationMessage,
+    PayloadAttestationMessageGloas,
     FastConfirmation,
     InclusionList,
 }
@@ -1657,7 +1658,7 @@ impl FromStr for EventTopic {
             "execution_payload_available" => Ok(EventTopic::ExecutionPayloadAvailable),
             "execution_payload_bid" => Ok(EventTopic::ExecutionPayloadBid),
             "proposer_preferences" => Ok(EventTopic::ProposerPreferences),
-            "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessage),
+            "payload_attestation_message" => Ok(EventTopic::PayloadAttestationMessageGloas),
             "fast_confirmation" => Ok(EventTopic::FastConfirmation),
             "inclusion_list" => Ok(EventTopic::InclusionList),
             _ => Err("event topic cannot be parsed.".to_string()),
@@ -1693,7 +1694,7 @@ impl fmt::Display for EventTopic {
             }
             EventTopic::ExecutionPayloadBid => write!(f, "execution_payload_bid"),
             EventTopic::ProposerPreferences => write!(f, "proposer_preferences"),
-            EventTopic::PayloadAttestationMessage => {
+            EventTopic::PayloadAttestationMessageGloas => {
                 write!(f, "payload_attestation_message")
             }
             EventTopic::FastConfirmation => write!(f, "fast_confirmation"),
@@ -1949,9 +1950,8 @@ mod tests {
         type E = Spec;
         let spec = ForkName::Capella.make_genesis_spec(E::default_spec());
 
-        let block: PublishBlockRequest<E> = Arc::new(SignedBeaconBlock::from_block(
+        let block: PublishBlockRequest<E> = Arc::new(SignedBeaconBlock::with_empty_signature(
             BeaconBlock::<E>::Capella(BeaconBlockCapella::empty(&spec)),
-            Signature::empty(),
         ))
         .try_into()
         .expect("should convert into signed block contents");
@@ -1967,10 +1967,9 @@ mod tests {
         type E = Spec;
         let spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
 
-        let block = SignedBeaconBlock::from_block(
-            BeaconBlock::<E>::Deneb(BeaconBlockDeneb::empty(&spec)),
-            Signature::empty(),
-        );
+        let block = SignedBeaconBlock::with_empty_signature(BeaconBlock::<E>::Deneb(
+            BeaconBlockDeneb::empty(&spec),
+        ));
         let blobs = BlobsList::<E>::try_from(vec![Blob::<E>::default()]).unwrap();
         let kzg_proofs = KzgProofs::<E>::try_from(vec![KzgProof::empty()]).unwrap();
         let signed_block_contents =
@@ -2059,7 +2058,7 @@ pub struct ProduceBlockV4Metadata {
 #[serde(bound = "E: EthSpec")]
 pub struct BlockAndEnvelope<E: EthSpec> {
     pub block: BeaconBlock<E>,
-    pub execution_payload_envelope: ExecutionPayloadEnvelope<E>,
+    pub execution_payload_envelope: ExecutionPayloadEnvelopeGloas<E>,
     pub kzg_proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,
@@ -2074,7 +2073,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BlockAndEnvelope<E> 
         #[serde(bound = "E: EthSpec")]
         struct Helper<E: EthSpec> {
             block: serde_json::Value,
-            execution_payload_envelope: ExecutionPayloadEnvelope<E>,
+            execution_payload_envelope: ExecutionPayloadEnvelopeGloas<E>,
             kzg_proofs: KzgProofs<E>,
             #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
             blobs: BlobsList<E>,
@@ -2099,7 +2098,7 @@ impl<E: EthSpec> BlockAndEnvelope<E> {
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
         builder.register_anonymous_variable_length_item()?;
-        builder.register_type::<ExecutionPayloadEnvelope<E>>()?;
+        builder.register_type::<ExecutionPayloadEnvelopeGloas<E>>()?;
         builder.register_type::<KzgProofs<E>>()?;
         builder.register_type::<BlobsList<E>>()?;
 
@@ -2151,7 +2150,7 @@ impl<E: EthSpec> ProduceBlockV4Response<E> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
 pub struct SignedExecutionPayloadEnvelopeContents<E: EthSpec> {
-    pub signed_execution_payload_envelope: SignedExecutionPayloadEnvelope<E>,
+    pub signed_execution_payload_envelope: SignedExecutionPayloadEnvelopeGloas<E>,
     pub kzg_proofs: KzgProofs<E>,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_fixed_vec")]
     pub blobs: BlobsList<E>,
@@ -2231,10 +2230,13 @@ impl<E: EthSpec> FullBlockContents<E> {
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
-    ) -> PublishBlockRequest<E> {
+    ) -> Result<PublishBlockRequest<E>, types::BeaconStateError> {
         let (block, maybe_blobs) = self.deconstruct();
-        let signed_block = block.sign(secret_key, fork, genesis_validators_root, spec);
-        PublishBlockRequest::new(Arc::new(signed_block), maybe_blobs)
+        let signed_block = block.sign(secret_key, fork, genesis_validators_root, spec)?;
+        Ok(PublishBlockRequest::new(
+            Arc::new(signed_block),
+            maybe_blobs,
+        ))
     }
 }
 

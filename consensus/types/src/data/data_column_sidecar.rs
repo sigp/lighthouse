@@ -21,7 +21,7 @@ use crate::data::partial_data_column_sidecar::{
 };
 use crate::{
     ListRef,
-    block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlockHeader},
+    block::{BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlockHeaderBase},
     core::{Epoch, EthSpec, Hash256, Slot},
     data::{
         CellBitmap, PartialDataColumn, PartialDataColumnHeader, PartialDataColumnSidecarError,
@@ -102,7 +102,7 @@ pub struct DataColumnSidecar<E: EthSpec> {
     #[superstruct(only(Gloas), partial_getter(rename = "kzg_proofs_gloas"))]
     pub kzg_proofs: ProgressiveVariableList<KzgProof, E::MaxBlobCommitmentsPerBlock>,
     #[superstruct(only(Fulu))]
-    pub signed_block_header: SignedBeaconBlockHeader,
+    pub signed_block_header: SignedBeaconBlockHeaderBase,
     /// An inclusion proof, proving the inclusion of `blob_kzg_commitments` in `BeaconBlockBody`.
     #[superstruct(only(Fulu))]
     pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
@@ -301,7 +301,7 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
             column: VariableList::new(vec![Cell::<E>::default()]).unwrap(),
             kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
-            signed_block_header: SignedBeaconBlockHeader {
+            signed_block_header: SignedBeaconBlockHeaderBase {
                 message: BeaconBlockHeader::empty(),
                 signature: Signature::empty(),
             },
@@ -321,7 +321,7 @@ impl<E: EthSpec> DataColumnSidecarFulu<E> {
             ])
             .unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty(); max_blobs_per_block]).unwrap(),
-            signed_block_header: SignedBeaconBlockHeader {
+            signed_block_header: SignedBeaconBlockHeaderBase {
                 message: BeaconBlockHeader::empty(),
                 signature: Signature::empty(),
             },

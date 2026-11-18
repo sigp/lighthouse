@@ -99,7 +99,7 @@ async fn rpc_columns_with_invalid_header_signature() {
 
     // Build blob sidecars with invalid signatures in the block header.
     let mut corrupt_block = (*signed_block).clone();
-    *corrupt_block.signature_mut() = Signature::infinity().unwrap();
+    *corrupt_block.signature_mut().unwrap() = Signature::infinity().unwrap();
 
     let data_column_sidecars =
         generate_data_column_sidecars_from_block(&corrupt_block, &harness.chain.spec);

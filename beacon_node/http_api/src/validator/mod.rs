@@ -35,7 +35,7 @@ use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 use types::{
     BeaconState, Epoch, EthSpec, ForkName, ProposerPreparationData, SignedAggregateAndProof,
-    SignedContributionAndProof, SignedInclusionList, SignedProposerPreferences,
+    SignedContributionAndProof, SignedInclusionList, SignedProposerPreferencesGloas,
     SignedValidatorRegistrationData, Slot, SyncContributionData, ValidatorSubscription,
 };
 use warp::{Filter, Rejection, Reply, http::response::Builder};
@@ -1441,7 +1441,7 @@ pub fn post_validator_proposer_preferences<T: BeaconChainTypes>(
         .and(chain_filter)
         .and(network_tx_filter)
         .then(
-            |preferences: Vec<SignedProposerPreferences>,
+            |preferences: Vec<SignedProposerPreferencesGloas>,
              _fork_name: ForkName,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
@@ -1478,10 +1478,13 @@ pub fn post_validator_proposer_preferences_ssz<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_response_task(Priority::P0, move || {
-                    let preferences = Vec::<SignedProposerPreferences>::from_ssz_bytes(&body_bytes)
-                        .map_err(|e| {
-                            warp_utils::reject::custom_bad_request(format!("invalid SSZ: {e:?}"))
-                        })?;
+                    let preferences =
+                        Vec::<SignedProposerPreferencesGloas>::from_ssz_bytes(&body_bytes)
+                            .map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "invalid SSZ: {e:?}"
+                                ))
+                            })?;
                     publish_proposer_preferences(&chain, &network_tx, preferences)?;
                     Ok(warp::reply())
                 })
@@ -1493,7 +1496,7 @@ pub fn post_validator_proposer_preferences_ssz<T: BeaconChainTypes>(
 fn publish_proposer_preferences<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    preferences_list: Vec<SignedProposerPreferences>,
+    preferences_list: Vec<SignedProposerPreferencesGloas>,
 ) -> Result<(), warp::Rejection> {
     let mut failures = vec![];
     let mut num_already_known = 0;

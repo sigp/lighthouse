@@ -33,7 +33,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
 use types::{
     BlockImportSource, DataColumnSidecar, EthSpec, ForkName, KzgProofs,
-    SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeGloas,
 };
 use warp::{
     Filter, Rejection,
@@ -46,7 +46,7 @@ use warp::{
 pub enum SignedEnvelopeSubmission<E: EthSpec> {
     /// Envelope only (stateful flow); blobs and KZG proofs are taken from the node's
     /// pending payload envelope cache.
-    EnvelopeOnly(Box<SignedExecutionPayloadEnvelope<E>>),
+    EnvelopeOnly(Box<SignedExecutionPayloadEnvelopeGloas<E>>),
     /// Full envelope bundled with blobs and KZG proofs (stateless flow), allowing
     /// publication via a beacon node that did not build the payload.
     EnvelopeAndBlobData(Box<SignedExecutionPayloadEnvelopeContents<E>>),
@@ -71,7 +71,7 @@ impl<E: EthSpec> SignedEnvelopeSubmission<E> {
             ))
         } else {
             Self::EnvelopeOnly(Box::new(
-                SignedExecutionPayloadEnvelope::from_ssz_bytes(bytes).map_err(invalid_ssz)?,
+                SignedExecutionPayloadEnvelopeGloas::from_ssz_bytes(bytes).map_err(invalid_ssz)?,
             ))
         })
     }

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use types::{
     AttestationData, AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra,
     AttesterSlashingGloas, BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256,
-    IndexedAttestation, SignedBeaconBlockHeader, Slot, Spec,
+    IndexedAttestation, SignedBeaconBlockHeaderBase, Slot, Spec,
     attestation::{IndexedAttestationBase, IndexedAttestationElectra},
 };
 
@@ -143,8 +143,8 @@ pub fn slashed_validators_from_attestations(
     slashed_validators
 }
 
-pub fn block(slot: u64, proposer_index: u64, block_root: u64) -> SignedBeaconBlockHeader {
-    SignedBeaconBlockHeader {
+pub fn block(slot: u64, proposer_index: u64, block_root: u64) -> SignedBeaconBlockHeaderBase {
+    SignedBeaconBlockHeaderBase {
         message: BeaconBlockHeader {
             slot: Slot::new(slot),
             proposer_index,

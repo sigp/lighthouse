@@ -1,10 +1,10 @@
 //! The incremental processing steps (e.g., signatures verified but not the state transition) is
 //! represented as a sequence of wrapper-types around the envelope. There is a linear progression of
-//! types, starting at a `SignedExecutionPayloadEnvelope` and finishing with an `AvailableExecutedEnvelope` (see
+//! types, starting at a `SignedExecutionPayloadEnvelopeGloas` and finishing with an `AvailableExecutedEnvelope` (see
 //! diagram below).
 //!
 //! ```ignore
-//! SignedExecutionPayloadEnvelope
+//! SignedExecutionPayloadEnvelopeGloas
 //!              |
 //!              ▼
 //!    GossipVerifiedEnvelope
@@ -30,8 +30,8 @@ use strum::AsRefStr;
 use tracing::{instrument, warn};
 use types::{
     BeaconState, BeaconStateError, BuilderIndex, DataColumnSidecarList, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadEnvelope, Hash256, SignedExecutionPayloadBidRef,
-    SignedExecutionPayloadEnvelope, Slot,
+    ExecutionBlockHash, ExecutionPayloadEnvelopeGloas, Hash256, SignedExecutionPayloadBidRef,
+    SignedExecutionPayloadEnvelopeGloas, Slot,
 };
 
 pub mod execution_pending_envelope;
@@ -52,7 +52,7 @@ pub enum EnvelopeSource {
 
 #[derive(Debug, Clone)]
 pub struct AvailableEnvelope<E: EthSpec> {
-    envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+    envelope: Arc<SignedExecutionPayloadEnvelopeGloas<E>>,
     pub columns: DataColumnSidecarList<E>,
 }
 
@@ -68,7 +68,7 @@ impl<E: EthSpec> AvailableEnvelope<E> {
     /// Returns `AvailabilityCheckError` if:
     /// - `MissingCustodyColumns`: Required custody columns are missing or incomplete
     pub fn new<T>(
-        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        envelope: Arc<SignedExecutionPayloadEnvelopeGloas<E>>,
         columns: DataColumnSidecarList<E>,
         bid: SignedExecutionPayloadBidRef<E>,
         custody_context: &CustodyContext<T>,
@@ -129,11 +129,11 @@ impl<E: EthSpec> AvailableEnvelope<E> {
         }
     }
 
-    pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelope<E>> {
+    pub fn envelope(&self) -> &Arc<SignedExecutionPayloadEnvelopeGloas<E>> {
         &self.envelope
     }
 
-    pub fn message(&self) -> &ExecutionPayloadEnvelope<E> {
+    pub fn message(&self) -> &ExecutionPayloadEnvelopeGloas<E> {
         &self.envelope.message
     }
 
@@ -141,7 +141,7 @@ impl<E: EthSpec> AvailableEnvelope<E> {
     pub fn deconstruct(
         self,
     ) -> (
-        Arc<SignedExecutionPayloadEnvelope<E>>,
+        Arc<SignedExecutionPayloadEnvelopeGloas<E>>,
         DataColumnSidecarList<E>,
     ) {
         let AvailableEnvelope {
@@ -164,14 +164,14 @@ pub struct EnvelopeProcessingSnapshot<E: EthSpec> {
 /// by an EL client but does not have all requisite columns to get imported into
 /// fork choice.
 pub struct AvailabilityPendingExecutedEnvelope<E: EthSpec> {
-    pub envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+    pub envelope: Arc<SignedExecutionPayloadEnvelopeGloas<E>>,
     pub block_root: Hash256,
     pub payload_verification_outcome: PayloadVerificationOutcome,
 }
 
 impl<E: EthSpec> AvailabilityPendingExecutedEnvelope<E> {
     pub fn new(
-        envelope: Arc<SignedExecutionPayloadEnvelope<E>>,
+        envelope: Arc<SignedExecutionPayloadEnvelopeGloas<E>>,
         block_root: Hash256,
         payload_verification_outcome: PayloadVerificationOutcome,
     ) -> Self {
@@ -401,7 +401,7 @@ pub(crate) fn load_snapshot_from_state_root<T: BeaconChainTypes>(
 /// proposer-signed block), so a subsequent `perform_optimistic_sync_verifications` binds the
 /// payload's blob transactions to the committed commitments.
 pub fn build_new_payload_request<'a, E: EthSpec>(
-    envelope: &'a SignedExecutionPayloadEnvelope<E>,
+    envelope: &'a SignedExecutionPayloadEnvelopeGloas<E>,
     block: &'a types::SignedBeaconBlock<E>,
 ) -> Result<execution_layer::NewPayloadRequest<'a, E>, EnvelopeError> {
     let bid = &block
@@ -434,7 +434,7 @@ pub fn build_new_payload_request<'a, E: EthSpec>(
 /// `verify_and_notify_new_payload`, used where the execution layer cannot be consulted
 /// (historical backfill).
 pub fn verify_envelope_payload_hash<E: EthSpec>(
-    envelope: &SignedExecutionPayloadEnvelope<E>,
+    envelope: &SignedExecutionPayloadEnvelopeGloas<E>,
     block: &types::SignedBeaconBlock<E>,
 ) -> Result<(), EnvelopeError> {
     build_new_payload_request(envelope, block)?
@@ -450,10 +450,11 @@ mod payload_hash_tests {
     use ssz_types::ProgressiveVariableList;
     use std::marker::PhantomData;
     use types::{
-        BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data, ExecutionPayloadEnvelope,
-        ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-        Graffiti, Hash256, SignedBeaconBlock, SignedExecutionPayloadBidGloas,
-        SignedExecutionPayloadEnvelope, Slot, Spec, SyncAggregate,
+        BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, Eth1Data,
+        ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas, ExecutionPayloadRef,
+        ExecutionRequestsGloas, ExecutionRequestsRef, Graffiti, Hash256, SignedBeaconBlock,
+        SignedExecutionPayloadBidGloas, SignedExecutionPayloadEnvelopeGloas, Slot, Spec,
+        SyncAggregate,
     };
 
     type E = Spec;
@@ -485,11 +486,11 @@ mod payload_hash_tests {
                 _phantom: PhantomData,
             },
         });
-        SignedBeaconBlock::from_block(block, Signature::empty())
+        SignedBeaconBlock::with_empty_signature(block)
     }
 
     /// Envelope whose payload's `block_hash` is the genuinely recomputed execution block hash.
-    fn make_consistent_envelope(slot: Slot) -> SignedExecutionPayloadEnvelope<E> {
+    fn make_consistent_envelope(slot: Slot) -> SignedExecutionPayloadEnvelopeGloas<E> {
         let mut payload = ExecutionPayloadGloas::<E> {
             slot_number: slot,
             ..ExecutionPayloadGloas::default()
@@ -503,8 +504,8 @@ mod payload_hash_tests {
         );
         payload.block_hash = block_hash;
 
-        SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
+        SignedExecutionPayloadEnvelopeGloas {
+            message: ExecutionPayloadEnvelopeGloas {
                 payload,
                 execution_requests: requests,
                 builder_index: 0,

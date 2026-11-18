@@ -31,7 +31,9 @@ pub use execution_payload_bid::{
     ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
     ExecutionPayloadBidRefMut,
 };
-pub use execution_payload_envelope::ExecutionPayloadEnvelope;
+pub use execution_payload_envelope::{
+    ExecutionPayloadEnvelope, ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopePq,
+};
 pub use execution_payload_header::{
     ExecutionPayloadHeader, ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella,
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
@@ -43,8 +45,8 @@ pub use execution_proof::{
 };
 pub use execution_requests::{
     BuilderDepositRequests, BuilderExitRequests, ConsolidationRequests, DepositRequests,
-    ExecutionRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsRef,
-    RequestType, WithdrawalRequests,
+    ExecutionRequests, ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsPq,
+    ExecutionRequestsRef, RequestType, WithdrawalRequests,
 };
 pub use inclusion_list::{InclusionList, InclusionListCommittee};
 pub use payload::{
@@ -61,6 +63,7 @@ pub use signed_execution_payload_bid::{
 };
 pub use signed_execution_payload_envelope::{
     ExecutionPayloadBody, ExecutionPayloadHeaderGloas, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopePq,
     SignedExecutionPayloadEnvelopeSummary,
 };
 pub use signed_inclusion_list::SignedInclusionList;

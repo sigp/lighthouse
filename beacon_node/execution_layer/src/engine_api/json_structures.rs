@@ -589,7 +589,9 @@ fn parse_execution_requests<E: EthSpec>(
         })
     }
 
-    let mut requests = if fork_name.gloas_enabled() {
+    let mut requests = if fork_name == ForkName::Pq {
+        ExecutionRequests::Pq(Default::default())
+    } else if fork_name.gloas_enabled() {
         ExecutionRequests::Gloas(ExecutionRequestsGloas::<E>::default())
     } else {
         ExecutionRequests::Electra(ExecutionRequestsElectra::<E>::default())
@@ -632,6 +634,11 @@ fn parse_execution_requests<E: EthSpec>(
                 RequestType::BuilderDeposit | RequestType::BuilderExit => {
                     return Err(RequestsError::VariantMismatch);
                 }
+                RequestType::ValidatorPreregistration
+                | RequestType::BuilderPreregistration
+                | RequestType::VoluntaryExit => {
+                    return Err(RequestsError::InvalidPrefix(*prefix_byte));
+                }
             },
             ExecutionRequests::Gloas(requests) => match current_prefix {
                 RequestType::Deposit => {
@@ -649,6 +656,37 @@ fn parse_execution_requests<E: EthSpec>(
                 RequestType::BuilderExit => {
                     requests.builder_exits = decode(request_bytes, current_prefix)?;
                 }
+                RequestType::ValidatorPreregistration
+                | RequestType::BuilderPreregistration
+                | RequestType::VoluntaryExit => {
+                    return Err(RequestsError::InvalidPrefix(*prefix_byte));
+                }
+            },
+            ExecutionRequests::Pq(requests) => match current_prefix {
+                RequestType::Deposit => {
+                    requests.deposits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Withdrawal => {
+                    requests.withdrawals = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::Consolidation => {
+                    requests.consolidations = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderDeposit => {
+                    requests.builder_deposits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderExit => {
+                    requests.builder_exits = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::ValidatorPreregistration => {
+                    requests.validator_preregistrations = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::BuilderPreregistration => {
+                    requests.builder_preregistrations = decode(request_bytes, current_prefix)?;
+                }
+                RequestType::VoluntaryExit => {
+                    requests.voluntary_exits = decode(request_bytes, current_prefix)?;
+                }
             },
         }
     }
@@ -662,7 +700,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsElectra<E> 
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
         match parse_execution_requests::<E>(value, ForkName::Electra)? {
             ExecutionRequests::Electra(requests) => Ok(requests),
-            ExecutionRequests::Gloas(_) => Err(RequestsError::VariantMismatch),
+            _ => Err(RequestsError::VariantMismatch),
         }
     }
 }
@@ -673,7 +711,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequestsGloas<E> {
     fn try_from(value: JsonExecutionRequests) -> Result<Self, Self::Error> {
         match parse_execution_requests::<E>(value, ForkName::Gloas)? {
             ExecutionRequests::Gloas(requests) => Ok(requests),
-            ExecutionRequests::Electra(_) => Err(RequestsError::VariantMismatch),
+            _ => Err(RequestsError::VariantMismatch),
         }
     }
 }

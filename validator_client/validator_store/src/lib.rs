@@ -8,11 +8,12 @@ use std::future::Future;
 use std::sync::Arc;
 use types::{
     Address, Attestation, AttestationData, BlindedBeaconBlock, Epoch, EthSpec,
-    ExecutionPayloadEnvelope, Graffiti, Hash256, PayloadAttestationData, PayloadAttestationMessage,
-    ProposerPreferences, SelectionProof, SignedAggregateAndProof, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedValidatorRegistrationData, SingleAttestation, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    ExecutionPayloadEnvelopeGloas, Graffiti, Hash256, PayloadAttestationData,
+    PayloadAttestationMessageGloas, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
+    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelopeGloas,
+    SignedProposerPreferencesGloas, SignedValidatorRegistrationData, SingleAttestation, Slot,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    ValidatorRegistrationData,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -199,26 +200,28 @@ pub trait ValidatorStore: Send + Sync {
     /// runs.
     fn prune_slashing_protection_db(&self, current_epoch: Epoch, first_run: bool);
 
-    /// Sign an `ExecutionPayloadEnvelope` for Gloas.
+    /// Sign an `ExecutionPayloadEnvelopeGloas` for Gloas.
     fn sign_execution_payload_envelope(
         &self,
         validator_pubkey: PublicKeyBytes,
-        envelope: ExecutionPayloadEnvelope<Self::E>,
-    ) -> impl Future<Output = Result<SignedExecutionPayloadEnvelope<Self::E>, Error<Self::Error>>> + Send;
+        envelope: ExecutionPayloadEnvelopeGloas<Self::E>,
+    ) -> impl Future<
+        Output = Result<SignedExecutionPayloadEnvelopeGloas<Self::E>, Error<Self::Error>>,
+    > + Send;
 
     /// Sign a `PayloadAttestationData` for the PTC.
     fn sign_payload_attestation(
         &self,
         validator_pubkey: PublicKeyBytes,
         data: PayloadAttestationData,
-    ) -> impl Future<Output = Result<PayloadAttestationMessage, Error<Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<PayloadAttestationMessageGloas, Error<Self::Error>>> + Send;
 
     /// Sign a `ProposerPreferences` message.
     fn sign_proposer_preferences(
         &self,
         validator_pubkey: PublicKeyBytes,
         preferences: ProposerPreferences,
-    ) -> impl Future<Output = Result<SignedProposerPreferences, Error<Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<SignedProposerPreferencesGloas, Error<Self::Error>>> + Send;
 
     fn sign_request_auth_v1(
         &self,

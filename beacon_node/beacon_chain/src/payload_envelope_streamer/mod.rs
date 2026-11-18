@@ -15,7 +15,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, warn};
 use types::{
     EthSpec, ExecutionBlockHash, ExecutionPayloadRef, ExecutionRequestsRef, Hash256,
-    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot,
+    SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopeSummary, Slot,
 };
 
 #[cfg(not(test))]
@@ -23,7 +23,7 @@ use crate::BeaconChain;
 use crate::{BeaconChainError, BeaconChainTypes};
 
 type PayloadEnvelopeResult<E> =
-    Result<Option<Arc<SignedExecutionPayloadEnvelope<E>>>, BeaconChainError>;
+    Result<Option<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>, BeaconChainError>;
 
 #[derive(Debug)]
 pub enum Error {

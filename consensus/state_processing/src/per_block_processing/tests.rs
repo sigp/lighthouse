@@ -100,7 +100,7 @@ async fn invalid_block_header_state_slot() {
     let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
-        &SignedBeaconBlock::from_block(block, signature),
+        &SignedBeaconBlock::from_block(block, signature).unwrap(),
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
@@ -132,7 +132,7 @@ async fn invalid_parent_block_root() {
     let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
-        &SignedBeaconBlock::from_block(block, signature),
+        &SignedBeaconBlock::from_block(block, signature).unwrap(),
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,
@@ -162,7 +162,7 @@ async fn invalid_block_signature() {
     let mut ctxt = ConsensusContext::new(block.slot());
     let result = per_block_processing(
         &mut state,
-        &SignedBeaconBlock::from_block(block, Signature::empty()),
+        &SignedBeaconBlock::with_empty_signature(block),
         BlockSignatureStrategy::VerifyIndividual,
         VerifyBlockRoot::True,
         &mut ctxt,

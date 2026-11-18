@@ -9,14 +9,14 @@ fn error(reason: Invalid) -> BlockOperationError<Invalid> {
     BlockOperationError::invalid(reason)
 }
 
-/// Indicates if a `ProposerSlashing` is valid to be included in a block in the current epoch of the given
+/// Indicates if a `ProposerSlashingBase` is valid to be included in a block in the current epoch of the given
 /// state.
 ///
-/// Returns `Ok(())` if the `ProposerSlashing` is valid, otherwise indicates the reason for invalidity.
+/// Returns `Ok(())` if the `ProposerSlashingBase` is valid, otherwise indicates the reason for invalidity.
 ///
 /// Spec v0.12.1
 pub fn verify_proposer_slashing<E: EthSpec>(
-    proposer_slashing: &ProposerSlashing,
+    proposer_slashing: &ProposerSlashingBase,
     state: &BeaconState<E>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,

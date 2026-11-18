@@ -45,10 +45,10 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::{
     AttesterSlashing, ChainSpec, DataColumnSidecarList, DataColumnSubnetId, Domain, Epoch, EthSpec,
-    Hash256, InclusionList, PayloadAttestationData, PayloadAttestationMessage, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
-    SignedInclusionList, SignedRoot, SignedVoluntaryExit, SingleAttestation, Slot, Spec, SubnetId,
-    data::BlobIdentifier,
+    Hash256, InclusionList, PayloadAttestationData, PayloadAttestationMessageGloas,
+    ProposerSlashingBase, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedExecutionPayloadEnvelopeGloas, SignedInclusionList, SignedRoot, SignedVoluntaryExit,
+    SingleAttestation, Slot, Spec, SubnetId, data::BlobIdentifier,
 };
 
 type E = Spec;
@@ -68,13 +68,13 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
     next_block: Arc<SignedBeaconBlock<E>>,
-    next_block_envelope: Option<Arc<SignedExecutionPayloadEnvelope<E>>>,
+    next_block_envelope: Option<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>,
     next_data_columns: Option<DataColumnSidecarList<E>>,
     attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
-    proposer_slashing: ProposerSlashing,
+    proposer_slashing: ProposerSlashingBase,
     voluntary_exit: SignedVoluntaryExit,
     beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
@@ -694,7 +694,7 @@ impl TestRig {
 
     /// A valid payload attestation message for `next_block`, signed by the first member of the
     /// PTC for its slot.
-    pub fn make_next_block_payload_attestation(&self) -> PayloadAttestationMessage {
+    pub fn make_next_block_payload_attestation(&self) -> PayloadAttestationMessageGloas {
         let slot = self.next_block.slot();
         let beacon_block_root = self.next_block.canonical_root();
         let head = self.chain.canonical_head.cached_head();
@@ -721,14 +721,14 @@ impl TestRig {
             .sk
             .sign(data.signing_root(domain));
 
-        PayloadAttestationMessage {
+        PayloadAttestationMessageGloas {
             validator_index,
             data,
             signature,
         }
     }
 
-    pub fn enqueue_payload_attestation(&self, message: PayloadAttestationMessage) {
+    pub fn enqueue_payload_attestation(&self, message: PayloadAttestationMessageGloas) {
         self.network_beacon_processor
             .send_gossip_payload_attestation(junk_message_id(), junk_peer_id(), Box::new(message))
             .unwrap();

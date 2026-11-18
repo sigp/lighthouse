@@ -358,7 +358,7 @@ struct PartialBeaconBlock<E: EthSpec> {
     randao_reveal: Signature,
     eth1_data: Eth1Data,
     graffiti: Graffiti,
-    proposer_slashings: Vec<ProposerSlashing>,
+    proposer_slashings: Vec<ProposerSlashingBase>,
     attester_slashings: Vec<AttesterSlashing<E>>,
     attestations: Vec<Attestation<E>>,
     deposits: Vec<Deposit>,
@@ -467,7 +467,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators have submitted voluntary exits.
     pub observed_voluntary_exits: Mutex<ObservedOperations<SignedVoluntaryExit, T::EthSpec>>,
     /// Maintains a record of which validators we've seen proposer slashings for.
-    pub observed_proposer_slashings: Mutex<ObservedOperations<ProposerSlashing, T::EthSpec>>,
+    pub observed_proposer_slashings: Mutex<ObservedOperations<ProposerSlashingBase, T::EthSpec>>,
     /// Maintains a record of which validators we've seen attester slashings for.
     pub observed_attester_slashings:
         Mutex<ObservedOperations<AttesterSlashing<T::EthSpec>, T::EthSpec>>,
@@ -1220,7 +1220,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> impl Stream<
         Item = (
             Hash256,
-            Arc<Result<Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>, Error>>,
+            Arc<Result<Option<Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>>, Error>>,
         ),
     > {
         launch_payload_envelope_stream(self.clone(), block_roots, request_source)
@@ -1380,7 +1380,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_payload_envelope(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<SignedExecutionPayloadEnvelope<T::EthSpec>>, Error> {
+    ) -> Result<Option<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>, Error> {
         Ok(self.store.get_signed_payload_envelope(block_root)?)
     }
 
@@ -2894,8 +2894,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Verify a proposer slashing before allowing it to propagate on the gossip network.
     pub fn verify_proposer_slashing_for_gossip(
         &self,
-        proposer_slashing: ProposerSlashing,
-    ) -> Result<ObservationOutcome<ProposerSlashing, T::EthSpec>, Error> {
+        proposer_slashing: ProposerSlashingBase,
+    ) -> Result<ObservationOutcome<ProposerSlashingBase, T::EthSpec>, Error> {
         let wall_clock_state = self.wall_clock_state()?;
 
         Ok(self.observed_proposer_slashings.lock().verify_and_observe(
@@ -2908,7 +2908,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accept some proposer slashing and queue it for inclusion in an appropriate block.
     pub fn import_proposer_slashing(
         &self,
-        proposer_slashing: SigVerifiedOp<ProposerSlashing, T::EthSpec>,
+        proposer_slashing: SigVerifiedOp<ProposerSlashingBase, T::EthSpec>,
     ) {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_proposer_slashing_subscribers()
@@ -5017,7 +5017,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             validator_monitor.register_block_attester_slashing(slashing)
         }
 
-        for slashing in block.body().proposer_slashings() {
+        for slashing in block.body().proposer_slashings().into_iter().flatten() {
             validator_monitor.register_block_proposer_slashing(slashing)
         }
     }
@@ -6539,7 +6539,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             inner_block,
             // The block is not signed here, that is the task of a validator client.
             Signature::empty(),
-        );
+        )
+        .unwrap();
 
         let block_size = block.ssz_bytes_len();
         debug!(%block_size, "Produced block on state");

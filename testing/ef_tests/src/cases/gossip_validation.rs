@@ -7,7 +7,6 @@ use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::slot_clock::{SlotClock, TestingSlotClock};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_chain::{BlockError, NotifyExecutionLayer};
-use bls::Signature;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerId};
 use network::{NetworkBeaconProcessor, NetworkMessage, ReprocessAllowance};
@@ -19,10 +18,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use types::{
     AttesterSlashing, BeaconBlock, BeaconState, BlobSchedule, BlockImportSource, ChainSpec,
-    Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    Checkpoint, EthSpec, ExecPayload, ForkName, Hash256, ProposerSlashingBase,
+    SignedAggregateAndProof, SignedAggregateAndProofElectra, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -397,7 +396,7 @@ impl<E: EthSpec> GossipTester<E> {
         message_id: MessageId,
         peer_id: PeerId,
     ) -> Result<(), Error> {
-        let slashing: ProposerSlashing =
+        let slashing: ProposerSlashingBase =
             ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
 
         self.network_beacon_processor
@@ -977,8 +976,5 @@ fn synthetic_anchor<E: EthSpec>(
         .update_tree_hash_cache()
         .map_err(|error| Error::InternalError(format!("unable to hash anchor state: {error:?}")))?;
 
-    Ok((
-        state,
-        SignedBeaconBlock::from_block(block, Signature::empty()),
-    ))
+    Ok((state, SignedBeaconBlock::with_empty_signature(block)))
 }

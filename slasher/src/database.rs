@@ -22,8 +22,8 @@ use tracing::info;
 use tree_hash::TreeHash;
 use types::{
     AttestationData, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
-    IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationGloas, ProposerSlashing,
-    SignedBeaconBlockHeader, Slot,
+    IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationGloas,
+    ProposerSlashingBase, SignedBeaconBlockHeaderBase, Slot,
 };
 
 /// Current database schema version, to check compatibility of on-disk DB with software.
@@ -50,7 +50,7 @@ const MAX_TARGETS_DB: &str = "max_targets";
 ///
 /// Used to implement wrap-around semantics for the min and max target arrays.
 const CURRENT_EPOCHS_DB: &str = "current_epochs";
-/// Map from `(slot, validator_index)` to `SignedBeaconBlockHeader`.
+/// Map from `(slot, validator_index)` to `SignedBeaconBlockHeaderBase`.
 const PROPOSERS_DB: &str = "proposers";
 
 /// The number of DBs to use (equal to the number of DBs defined above).
@@ -704,7 +704,7 @@ impl<E: EthSpec> SlasherDB<E> {
         txn: &mut RwTransaction<'_>,
         proposer_index: u64,
         slot: Slot,
-    ) -> Result<Option<SignedBeaconBlockHeader>, Error> {
+    ) -> Result<Option<SignedBeaconBlockHeaderBase>, Error> {
         let proposer_key = ProposerKey::new(proposer_index, slot);
         txn.get(&self.databases.proposers_db, proposer_key.as_ref())?
             .map(ssz_decode)
@@ -714,7 +714,7 @@ impl<E: EthSpec> SlasherDB<E> {
     pub fn check_or_insert_block_proposal(
         &self,
         txn: &mut RwTransaction<'_>,
-        block_header: SignedBeaconBlockHeader,
+        block_header: SignedBeaconBlockHeaderBase,
     ) -> Result<ProposerSlashingStatus, Error> {
         let proposer_index = block_header.message.proposer_index;
         let slot = block_header.message.slot;
@@ -724,7 +724,7 @@ impl<E: EthSpec> SlasherDB<E> {
                 Ok(ProposerSlashingStatus::NotSlashable)
             } else {
                 Ok(ProposerSlashingStatus::DoubleVote(Box::new(
-                    ProposerSlashing {
+                    ProposerSlashingBase {
                         signed_header_1: existing_block,
                         signed_header_2: block_header,
                     },

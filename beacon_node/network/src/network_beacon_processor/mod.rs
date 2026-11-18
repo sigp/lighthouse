@@ -338,7 +338,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        proposer_slashing: Box<ProposerSlashing>,
+        proposer_slashing: Box<ProposerSlashingBase>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
@@ -445,7 +445,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        execution_payload: Box<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        execution_payload: Box<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
@@ -513,7 +513,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        payload_attestation_message: Box<PayloadAttestationMessage>,
+        payload_attestation_message: Box<PayloadAttestationMessageGloas>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
@@ -536,7 +536,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        proposer_preferences: Arc<SignedProposerPreferences>,
+        proposer_preferences: Arc<SignedProposerPreferencesGloas>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
@@ -601,7 +601,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn send_lookup_envelope(
         self: &Arc<Self>,
         block_root: Hash256,
-        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        envelope: Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
         let s = self.clone();

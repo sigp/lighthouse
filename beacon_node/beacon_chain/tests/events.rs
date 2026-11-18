@@ -10,9 +10,9 @@ use std::sync::Arc;
 use types::data::FixedBlobSidecarList;
 use types::{
     Address, BlobSidecar, DataColumnSidecar, DataColumnSidecarFulu, DataColumnSidecarGloas, Domain,
-    Epoch, EthSpec, InclusionList, PayloadAttestationData, PayloadAttestationMessage,
+    Epoch, EthSpec, InclusionList, PayloadAttestationData, PayloadAttestationMessageGloas,
     ProposerPreferences, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-    SignedInclusionList, SignedProposerPreferences, SignedRoot, Slot, Spec,
+    SignedInclusionList, SignedProposerPreferencesGloas, SignedRoot, Slot, Spec,
 };
 
 type E = Spec;
@@ -385,7 +385,7 @@ async fn payload_attestation_message_event_on_gossip_verification() {
     let signature = harness.validator_keypairs[validator_index as usize]
         .sk
         .sign(message);
-    let msg = PayloadAttestationMessage {
+    let msg = PayloadAttestationMessageGloas {
         validator_index,
         data: data.clone(),
         signature: signature.clone(),
@@ -403,11 +403,14 @@ async fn payload_attestation_message_event_on_gossip_verification() {
 
     // Assert the event was emitted.
     let event = receiver.try_recv().expect("should receive event");
-    if let EventKind::PayloadAttestationMessage(versioned) = event {
+    if let EventKind::PayloadAttestationMessageGloas(versioned) = event {
         assert_eq!(versioned.data.validator_index, validator_index);
         assert_eq!(versioned.data.data, data);
     } else {
-        panic!("Expected PayloadAttestationMessage event, got {:?}", event);
+        panic!(
+            "Expected PayloadAttestationMessageGloas event, got {:?}",
+            event
+        );
     }
 }
 
@@ -470,7 +473,7 @@ async fn proposer_preferences_event_on_gossip_verification() {
     let signature = harness.validator_keypairs[validator_index as usize]
         .sk
         .sign(preferences.signing_root(domain));
-    let signed = SignedProposerPreferences {
+    let signed = SignedProposerPreferencesGloas {
         message: preferences.clone(),
         signature,
     };

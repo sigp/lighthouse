@@ -2,7 +2,7 @@ use crate::beacon_chain::BeaconChainTypes;
 use ssz::{Decode, Encode};
 use store::hot_cold_store::HotColdDB;
 use store::{DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
-use types::{Hash256, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary};
+use types::{Hash256, SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopeSummary};
 
 /// Upgrade from schema v30 to v31.
 ///
@@ -18,7 +18,7 @@ pub fn upgrade_to_v31<T: BeaconChainTypes>(
 
     for result in db.hot_db.iter_column::<Hash256>(DBColumn::PayloadBody) {
         let (block_root, envelope_bytes) = result?;
-        let envelope = SignedExecutionPayloadEnvelope::<T::EthSpec>::from_ssz_bytes(
+        let envelope = SignedExecutionPayloadEnvelopeGloas::<T::EthSpec>::from_ssz_bytes(
             &envelope_bytes,
         )
         .map_err(|error| {
@@ -76,7 +76,7 @@ pub fn upgrade_to_v31<T: BeaconChainTypes>(
 fn finalized_as_empty<T: BeaconChainTypes>(
     db: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
     block_root: Hash256,
-    envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
+    envelope: &SignedExecutionPayloadEnvelopeGloas<T::EthSpec>,
 ) -> Result<bool, StoreError> {
     let split = db.get_split_info();
     if envelope.slot() >= split.slot || block_root == split.block_root {
@@ -103,7 +103,7 @@ fn child_selects_empty<T: BeaconChainTypes>(
     db: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
     block_root: Hash256,
     child_root: Hash256,
-    envelope: &SignedExecutionPayloadEnvelope<T::EthSpec>,
+    envelope: &SignedExecutionPayloadEnvelopeGloas<T::EthSpec>,
 ) -> Result<bool, StoreError> {
     if child_root == block_root {
         return Ok(false);

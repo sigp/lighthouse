@@ -43,7 +43,7 @@ fn operations_exit() {
 
 #[test]
 fn operations_proposer_slashing() {
-    OperationsHandler::<Spec, ProposerSlashing>::default().run();
+    OperationsHandler::<Spec, ProposerSlashingBase>::default().run();
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn operations_execution_payload_blinded() {
 
 #[test]
 fn operations_execution_payload_envelope() {
-    OperationsHandler::<Spec, SignedExecutionPayloadEnvelope<_>>::default().run();
+    OperationsHandler::<Spec, SignedExecutionPayloadEnvelopeGloas<_>>::default().run();
 }
 
 #[test]
@@ -257,10 +257,10 @@ mod ssz_static {
     use types::state::HistoricalSummary;
     use types::{
         AttesterSlashingBase, AttesterSlashingElectra, Builder, BuilderPendingPayment,
-        BuilderPendingWithdrawal, ConsolidationRequest, DepositRequest, ExecutionPayloadEnvelope,
-        IndexedPayloadAttestation, LightClientBootstrapAltair, PayloadAttestation,
-        PayloadAttestationData, PayloadAttestationMessage, PendingDeposit,
-        PendingPartialWithdrawal, SignedExecutionPayloadEnvelope, WithdrawalRequest, *,
+        BuilderPendingWithdrawal, ConsolidationRequest, DepositRequest,
+        ExecutionPayloadEnvelopeGloas, IndexedPayloadAttestation, LightClientBootstrapAltair,
+        PayloadAttestation, PayloadAttestationData, PayloadAttestationMessageGloas, PendingDeposit,
+        PendingPartialWithdrawal, SignedExecutionPayloadEnvelopeGloas, WithdrawalRequest, *,
     };
 
     ssz_static_test!(attestation_data, AttestationData);
@@ -286,13 +286,13 @@ mod ssz_static {
     fn pending_attestation() {
         SszStaticHandler::<PendingAttestation<Spec>, Spec>::base_only().run();
     }
-    ssz_static_test!(proposer_slashing, ProposerSlashing);
+    ssz_static_test!(proposer_slashing, ProposerSlashingBase);
     ssz_static_test!(
         signed_beacon_block,
         SszStaticWithSpecHandler,
         SignedBeaconBlock<_>
     );
-    ssz_static_test!(signed_beacon_block_header, SignedBeaconBlockHeader);
+    ssz_static_test!(signed_beacon_block_header, SignedBeaconBlockHeaderBase);
     ssz_static_test!(signed_voluntary_exit, SignedVoluntaryExit);
     ssz_static_test!(signing_data, SigningData);
     ssz_static_test!(validator, Validator);
@@ -307,7 +307,7 @@ mod ssz_static {
 
     #[test]
     fn single_attestation() {
-        SszStaticHandler::<SingleAttestation, Spec>::electra_and_later().run();
+        SszStaticHandler::<SingleAttestationElectra, Spec>::electra_and_later().run();
     }
 
     #[test]
@@ -603,7 +603,7 @@ mod ssz_static {
 
     #[test]
     fn payload_attestation_message() {
-        SszStaticHandler::<PayloadAttestationMessage, Spec>::gloas_and_later().run();
+        SszStaticHandler::<PayloadAttestationMessageGloas, Spec>::gloas_and_later().run();
     }
 
     #[test]
@@ -613,12 +613,13 @@ mod ssz_static {
 
     #[test]
     fn execution_payload_envelope() {
-        SszStaticHandler::<ExecutionPayloadEnvelope<Spec>, Spec>::gloas_and_later().run();
+        SszStaticHandler::<ExecutionPayloadEnvelopeGloas<Spec>, Spec>::gloas_and_later().run();
     }
 
     #[test]
     fn signed_execution_payload_envelope() {
-        SszStaticHandler::<SignedExecutionPayloadEnvelope<Spec>, Spec>::gloas_and_later().run();
+        SszStaticHandler::<SignedExecutionPayloadEnvelopeGloas<Spec>, Spec>::gloas_and_later()
+            .run();
     }
 
     #[test]
@@ -628,7 +629,7 @@ mod ssz_static {
 
     #[test]
     fn signed_proposer_preferences() {
-        SszStaticHandler::<SignedProposerPreferences, Spec>::gloas_and_later().run();
+        SszStaticHandler::<SignedProposerPreferencesGloas, Spec>::gloas_and_later().run();
     }
 }
 

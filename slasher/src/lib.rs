@@ -33,7 +33,7 @@ use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
     AttesterSlashingPq,
 };
-use types::{EthSpec, IndexedAttestation, ProposerSlashing};
+use types::{EthSpec, IndexedAttestation, ProposerSlashingBase};
 
 #[derive(Debug, PartialEq)]
 pub enum AttesterSlashingStatus<E: EthSpec> {
@@ -50,7 +50,7 @@ pub enum AttesterSlashingStatus<E: EthSpec> {
 #[derive(Debug, PartialEq)]
 pub enum ProposerSlashingStatus {
     NotSlashable,
-    DoubleVote(Box<ProposerSlashing>),
+    DoubleVote(Box<ProposerSlashingBase>),
 }
 
 impl<E: EthSpec> AttesterSlashingStatus<E> {

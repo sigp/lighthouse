@@ -294,7 +294,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> TryFrom<GetPayloadResponse<E>>
                 // Gloas payloads are handled via `BlockProposalContentsGloas`, not this path.
                 requests: match maybe_requests {
                     Some(ExecutionRequests::Electra(requests)) => Some(requests),
-                    Some(ExecutionRequests::Gloas(_)) => {
+                    Some(ExecutionRequests::Gloas(_) | ExecutionRequests::Pq(_)) => {
                         return Err(Error::InvalidPayloadConversion);
                     }
                     None => None,

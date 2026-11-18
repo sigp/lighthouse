@@ -737,6 +737,10 @@ pub fn process_execution_payload_bid<E: EthSpec>(
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    let signature = signed_bid
+        .signature()
+        .map_err(|_| BeaconStateError::PqUnsupported("process_execution_payload_bid"))?;
+
     // Verify the bid signature
     let bid = signed_bid.message();
     let amount = bid.value();
@@ -749,7 +753,7 @@ pub fn process_execution_payload_bid<E: EthSpec>(
             ExecutionPayloadBidInvalid::SelfBuildNonZeroAmount.into()
         );
         block_verify!(
-            signed_bid.signature().is_infinity(),
+            signature.is_infinity(),
             ExecutionPayloadBidInvalid::BadSignature.into()
         );
     } else {

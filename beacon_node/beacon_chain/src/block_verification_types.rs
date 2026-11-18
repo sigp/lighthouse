@@ -567,7 +567,6 @@ mod tests {
     use super::*;
     use crate::custody_context::NodeCustodyType;
     use crate::test_utils::test_custody_context;
-    use bls::Signature;
     use types::{BeaconBlockGloas, EmptyBlock, Spec};
 
     type E = Spec;
@@ -577,9 +576,8 @@ mod tests {
     #[test]
     fn range_sync_block_new_rejects_gloas_block() {
         let spec = Arc::new(Spec::default_spec());
-        let block = Arc::new(SignedBeaconBlock::from_block(
+        let block = Arc::new(SignedBeaconBlock::with_empty_signature(
             BeaconBlockGloas::empty(&spec).into(),
-            Signature::empty(),
         ));
         let custody_context = test_custody_context::<E>(NodeCustodyType::Supernode, spec);
 

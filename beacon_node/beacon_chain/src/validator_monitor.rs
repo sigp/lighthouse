@@ -29,8 +29,8 @@ use types::consts::altair::{
 use types::{
     Attestation, AttestationData, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, IndexedAttestation,
-    IndexedAttestationRef, ProposerSlashing, SignedAggregateAndProof, SignedContributionAndProof,
-    Slot, SyncCommitteeMessage, VoluntaryExit,
+    IndexedAttestationRef, ProposerSlashingBase, SignedAggregateAndProof,
+    SignedContributionAndProof, Slot, SyncCommitteeMessage, VoluntaryExit,
 };
 
 /// Used for Prometheus labels.
@@ -1774,21 +1774,21 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Register a proposer slashing from the gossip network.
-    pub fn register_gossip_proposer_slashing(&self, slashing: &ProposerSlashing) {
+    pub fn register_gossip_proposer_slashing(&self, slashing: &ProposerSlashingBase) {
         self.register_proposer_slashing("gossip", slashing)
     }
 
     /// Register a proposer slashing from the HTTP API.
-    pub fn register_api_proposer_slashing(&self, slashing: &ProposerSlashing) {
+    pub fn register_api_proposer_slashing(&self, slashing: &ProposerSlashingBase) {
         self.register_proposer_slashing("api", slashing)
     }
 
     /// Register a proposer slashing included in a *valid* `BeaconBlock`.
-    pub fn register_block_proposer_slashing(&self, slashing: &ProposerSlashing) {
+    pub fn register_block_proposer_slashing(&self, slashing: &ProposerSlashingBase) {
         self.register_proposer_slashing("block", slashing)
     }
 
-    fn register_proposer_slashing(&self, src: &str, slashing: &ProposerSlashing) {
+    fn register_proposer_slashing(&self, src: &str, slashing: &ProposerSlashingBase) {
         let proposer = slashing.signed_header_1.message.proposer_index;
         let slot = slashing.signed_header_1.message.slot;
         let epoch = slot.epoch(E::slots_per_epoch());

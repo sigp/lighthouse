@@ -41,8 +41,8 @@ use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecar,
     DataColumnSidecarList, DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation,
-    IndexedPayloadAttestation, KzgProof, PayloadAttestationMessage, ProposerPreparationData,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot, Uint256,
+    IndexedPayloadAttestation, KzgProof, PayloadAttestationMessageGloas, ProposerPreparationData,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -189,7 +189,7 @@ pub enum Step<
         execution_payload: TExecutionPayload,
         valid: bool,
     },
-    PayloadAttestationMessage {
+    PayloadAttestationMessageGloas {
         payload_attestation_message: TPayloadAttestationMessage,
         #[serde(default = "default_true")]
         valid: bool,
@@ -227,8 +227,8 @@ pub struct ForkChoiceTest<E: EthSpec> {
             Attestation<E>,
             AttesterSlashing<E>,
             PowBlock,
-            SignedExecutionPayloadEnvelope<E>,
-            PayloadAttestationMessage,
+            SignedExecutionPayloadEnvelopeGloas<E>,
+            PayloadAttestationMessageGloas,
         >,
     >,
 }
@@ -388,14 +388,14 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                         valid,
                     })
                 }
-                Step::PayloadAttestationMessage {
+                Step::PayloadAttestationMessageGloas {
                     payload_attestation_message,
                     valid,
                 } => {
-                    let msg: PayloadAttestationMessage = ssz_decode_file(
+                    let msg: PayloadAttestationMessageGloas = ssz_decode_file(
                         &path.join(format!("{payload_attestation_message}.ssz_snappy")),
                     )?;
-                    Ok(Step::PayloadAttestationMessage {
+                    Ok(Step::PayloadAttestationMessageGloas {
                         payload_attestation_message: msg,
                         valid,
                     })
@@ -630,7 +630,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 } => {
                     tester.process_execution_payload(execution_payload, *valid)?;
                 }
-                Step::PayloadAttestationMessage {
+                Step::PayloadAttestationMessageGloas {
                     payload_attestation_message,
                     valid,
                 } => {
@@ -894,7 +894,7 @@ impl<E: EthSpec> Tester<E> {
                         blob,
                         kzg_commitment,
                         kzg_proof,
-                        signed_block_header: block.signed_block_header(),
+                        signed_block_header: block.signed_block_header_bls().unwrap(),
                         kzg_commitment_inclusion_proof: block
                             .message()
                             .body()
@@ -1267,7 +1267,7 @@ impl<E: EthSpec> Tester<E> {
 
     pub fn process_execution_payload(
         &self,
-        signed_envelope: &SignedExecutionPayloadEnvelope<E>,
+        signed_envelope: &SignedExecutionPayloadEnvelopeGloas<E>,
         valid: bool,
     ) -> Result<(), Error> {
         let block_root = signed_envelope.message.beacon_block_root;
@@ -1627,7 +1627,7 @@ impl<E: EthSpec> Tester<E> {
     }
     pub fn process_payload_attestation_message(
         &self,
-        msg: &PayloadAttestationMessage,
+        msg: &PayloadAttestationMessageGloas,
         valid: bool,
     ) -> Result<(), Error> {
         let slot = msg.data.slot;

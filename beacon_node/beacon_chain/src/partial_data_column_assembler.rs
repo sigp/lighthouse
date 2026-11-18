@@ -286,7 +286,7 @@ mod tests {
     use bls::{FixedBytesExtended, Signature};
     use kzg::{KzgCommitment, KzgProof};
     use ssz_types::{FixedVector, VariableList};
-    use types::block::{BeaconBlockHeader, SignedBeaconBlockHeader};
+    use types::block::{BeaconBlockHeader, SignedBeaconBlockHeaderBase};
     use types::core::{EthSpec, Hash256, Slot, Spec};
     use types::data::{
         Cell, CellBitmap, DataColumnSidecar, DataColumnSidecarFulu, PartialDataColumn,
@@ -306,7 +306,7 @@ mod tests {
             kzg_commitments: vec![KzgCommitment([0u8; 48]); num_commitments]
                 .try_into()
                 .unwrap(),
-            signed_block_header: SignedBeaconBlockHeader {
+            signed_block_header: SignedBeaconBlockHeaderBase {
                 message: BeaconBlockHeader {
                     slot: Slot::new(1),
                     proposer_index: 0,
@@ -538,7 +538,7 @@ mod tests {
             column: vec![Cell::<E>::default(); 4].try_into().unwrap(),
             kzg_commitments: vec![KzgCommitment([0u8; 48]); 4].try_into().unwrap(),
             kzg_proofs: vec![KzgProof::empty(); 4].try_into().unwrap(),
-            signed_block_header: SignedBeaconBlockHeader {
+            signed_block_header: SignedBeaconBlockHeaderBase {
                 message: BeaconBlockHeader {
                     slot: Slot::new(1),
                     proposer_index: 0,
@@ -566,7 +566,7 @@ mod tests {
             column: vec![Cell::<E>::default(); 4].try_into().unwrap(),
             kzg_commitments: vec![KzgCommitment([0u8; 48]); 4].try_into().unwrap(),
             kzg_proofs: vec![KzgProof::empty(); 4].try_into().unwrap(),
-            signed_block_header: SignedBeaconBlockHeader {
+            signed_block_header: SignedBeaconBlockHeaderBase {
                 message: BeaconBlockHeader {
                     slot: Slot::new(1),
                     proposer_index: 0,

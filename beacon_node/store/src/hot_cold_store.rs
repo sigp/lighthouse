@@ -688,7 +688,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     pub fn get_signed_payload_envelope(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
+    ) -> Result<Option<SignedExecutionPayloadEnvelopeGloas<E>>, Error> {
         let Some(summary) = self.get_payload_envelope_summary(block_root)? else {
             return Ok(None);
         };
@@ -1019,7 +1019,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     pub fn payload_envelope_as_kv_store_ops(
         &self,
         key: &Hash256,
-        envelope: &SignedExecutionPayloadEnvelope<E>,
+        envelope: &SignedExecutionPayloadEnvelopeGloas<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         let payload = &envelope.message.payload;
@@ -1042,7 +1042,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     pub fn payload_envelope_summary_as_kv_store_op(
         &self,
         key: &Hash256,
-        envelope: &SignedExecutionPayloadEnvelope<E>,
+        envelope: &SignedExecutionPayloadEnvelopeGloas<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) {
         let summary = SignedExecutionPayloadEnvelopeSummary::from(envelope);
@@ -1057,7 +1057,7 @@ impl<E: EthSpec, Hot: ItemStore, Cold: ItemStore> HotColdDB<E, Hot, Cold> {
     pub fn put_payload_envelope(
         &self,
         block_root: &Hash256,
-        payload_envelope: &SignedExecutionPayloadEnvelope<E>,
+        payload_envelope: &SignedExecutionPayloadEnvelopeGloas<E>,
     ) -> Result<(), Error> {
         let mut ops = vec![];
         self.payload_envelope_as_kv_store_ops(block_root, payload_envelope, &mut ops);
@@ -4057,8 +4057,8 @@ mod tests {
         let split_block_root = Hash256::repeat_byte(0x11);
         let withheld_block_root = Hash256::repeat_byte(0x22);
         let full_block_root = Hash256::repeat_byte(0x33);
-        let envelope = SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
+        let envelope = SignedExecutionPayloadEnvelopeGloas {
+            message: ExecutionPayloadEnvelopeGloas {
                 payload: ExecutionPayloadGloas {
                     slot_number: Slot::new(2),
                     ..Default::default()

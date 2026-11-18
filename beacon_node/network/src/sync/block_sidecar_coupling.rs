@@ -20,7 +20,7 @@ use std::sync::Arc;
 use tracing::{Span, debug, warn};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas,
 };
 
 use crate::sync::network_context::{LookupRequestResult, PeerGroup, SyncNetworkContext};
@@ -47,7 +47,7 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     payloads_request: Option<
         ByRangeRequest<
             PayloadEnvelopesByRangeRequestId,
-            Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+            Vec<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>,
         >,
     >,
     /// Span to track the range request and all children range requests.
@@ -189,7 +189,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     pub fn add_payload_envelopes(
         &mut self,
         req_id: PayloadEnvelopesByRangeRequestId,
-        envelopes: Vec<Arc<SignedExecutionPayloadEnvelope<E>>>,
+        envelopes: Vec<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>,
     ) -> Result<(), String> {
         match &mut self.payloads_request {
             Some(req) => req.finish(req_id, envelopes),
@@ -426,7 +426,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         blocks: Vec<(Hash256, Arc<SignedBeaconBlock<E>>)>,
         columns: DataColumnSidecarList<E>,
         custody_context: &CustodyContext<T>,
-        payload_envelopes: Option<Vec<Arc<SignedExecutionPayloadEnvelope<E>>>>,
+        payload_envelopes: Option<Vec<Arc<SignedExecutionPayloadEnvelopeGloas<E>>>>,
     ) -> Result<Vec<RangeSyncBlock<E>>, CouplingError>
     where
         T: BeaconChainTypes<EthSpec = E>,
@@ -555,8 +555,9 @@ mod tests {
     use tracing::Span;
     use tree_hash::TreeHash;
     use types::{
-        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelope, ExecutionRequestsGloas,
-        ForkName, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Spec as E,
+        ChainSpec, DataColumnSidecarList, Epoch, ExecutionPayloadEnvelopeGloas,
+        ExecutionRequestsGloas, ForkName, SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas,
+        Spec as E,
     };
 
     fn components_id() -> ComponentsByRangeRequestId {
@@ -615,15 +616,17 @@ mod tests {
         spec
     }
 
-    fn matching_envelope(block: &SignedBeaconBlock<E>) -> Arc<SignedExecutionPayloadEnvelope<E>> {
+    fn matching_envelope(
+        block: &SignedBeaconBlock<E>,
+    ) -> Arc<SignedExecutionPayloadEnvelopeGloas<E>> {
         let bid = block
             .message()
             .body()
             .signed_execution_payload_bid()
             .expect("Gloas block should have payload bid")
             .message();
-        let mut envelope = SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope::empty(),
+        let mut envelope = SignedExecutionPayloadEnvelopeGloas {
+            message: ExecutionPayloadEnvelopeGloas::empty(),
             signature: Signature::empty(),
         };
         envelope.message.beacon_block_root = block.canonical_root();
@@ -642,7 +645,7 @@ mod tests {
     ) -> Vec<(
         Arc<SignedBeaconBlock<E>>,
         DataColumnSidecarList<E>,
-        Arc<SignedExecutionPayloadEnvelope<E>>,
+        Arc<SignedExecutionPayloadEnvelopeGloas<E>>,
     )> {
         let mut u = types::test_utils::test_unstructured();
         (0..count)
@@ -689,7 +692,7 @@ mod tests {
         blocks: &[(
             Arc<SignedBeaconBlock<E>>,
             DataColumnSidecarList<E>,
-            Arc<SignedExecutionPayloadEnvelope<E>>,
+            Arc<SignedExecutionPayloadEnvelopeGloas<E>>,
         )],
         expected_custody_columns: &[u64],
     ) {
@@ -717,7 +720,7 @@ mod tests {
         blocks: Vec<(
             Arc<SignedBeaconBlock<E>>,
             DataColumnSidecarList<E>,
-            Arc<SignedExecutionPayloadEnvelope<E>>,
+            Arc<SignedExecutionPayloadEnvelopeGloas<E>>,
         )>,
         payloads_req_id: PayloadEnvelopesByRangeRequestId,
         expected_custody_columns: Vec<u64>,

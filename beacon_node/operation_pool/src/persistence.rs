@@ -42,7 +42,7 @@ pub struct PersistedOperationPool<E: EthSpec> {
     #[superstruct(only(V20))]
     pub attester_slashings: Vec<SigVerifiedOp<AttesterSlashing<E>, E>>,
     /// Proposer slashings with fork information.
-    pub proposer_slashings: Vec<SigVerifiedOp<ProposerSlashing, E>>,
+    pub proposer_slashings: Vec<SigVerifiedOp<ProposerSlashingBase, E>>,
     /// Voluntary exits with fork information.
     pub voluntary_exits: Vec<SigVerifiedOp<SignedVoluntaryExit, E>>,
     /// BLS to Execution Changes

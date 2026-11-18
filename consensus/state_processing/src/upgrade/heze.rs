@@ -132,3 +132,42 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
 
     Ok(post)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{MinimalEthSpec, test_utils::test_arbitrary_instance};
+
+    #[test]
+    fn heze_upgrades_from_gloas_and_preserves_sync_committees() {
+        type E = MinimalEthSpec;
+        let spec = E::default_spec();
+        let mut state = BeaconState::<E>::Gloas(test_arbitrary_instance());
+        let previous_version = state.fork().current_version;
+        let current_sync_committee = state.current_sync_committee().unwrap().clone();
+        let next_sync_committee = state.next_sync_committee().unwrap().clone();
+
+        upgrade_to_heze(&mut state, &spec).unwrap();
+
+        assert!(matches!(state, BeaconState::Heze(_)));
+        assert_eq!(state.fork().previous_version, previous_version);
+        assert_eq!(
+            state.current_sync_committee().unwrap(),
+            &current_sync_committee
+        );
+        assert_eq!(state.next_sync_committee().unwrap(), &next_sync_committee);
+    }
+
+    #[test]
+    fn heze_rejects_a_pq_state() {
+        type E = MinimalEthSpec;
+        let spec = E::default_spec();
+        let mut state = BeaconState::<E>::Pq(test_arbitrary_instance());
+
+        assert!(matches!(
+            upgrade_to_heze(&mut state, &spec),
+            Err(Error::PqUnsupported(_))
+        ));
+        assert!(matches!(state, BeaconState::Pq(_)));
+    }
+}

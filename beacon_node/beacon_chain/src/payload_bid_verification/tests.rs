@@ -14,10 +14,10 @@ use store::{HotColdDB, StoreConfig, StoreOp};
 use types::{
     Address, BuilderExitRequest, ChainSpec, Checkpoint, Domain, Epoch, EthSpec, ExecutionBlockHash,
     ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadBidRef,
-    ExecutionPayloadEnvelope, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName,
+    ExecutionPayloadEnvelopeGloas, ExecutionPayloadHeader, ExecutionPayloadHeaderFulu, ForkName,
     Hash256, ProposerPreferences, SignedBeaconBlock, SignedExecutionPayloadBid,
     SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadBidPq,
-    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, Slot, Spec,
+    SignedExecutionPayloadEnvelopeGloas, SignedProposerPreferencesGloas, SignedRoot, Slot, Spec,
     consts::gloas::PAYLOAD_BUILDER_VERSION,
 };
 
@@ -141,7 +141,7 @@ impl TestContext {
         *block.state_root_mut() = state
             .update_tree_hash_cache()
             .expect("should hash genesis state");
-        let signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
+        let signed_block = SignedBeaconBlock::with_empty_signature(block);
         let block_root = signed_block.canonical_root();
 
         let snapshot = BeaconSnapshot::new(
@@ -224,7 +224,10 @@ impl TestContext {
         signature: Signature,
     ) -> SignedExecutionPayloadBid<E> {
         if self.spec.fork_name_at_slot::<E>(message.slot) == ForkName::Pq {
-            SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq { message, signature })
+            SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq {
+                message,
+                signature: types::XmssSignature::empty(),
+            })
         } else {
             SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas { message, signature })
         }
@@ -341,7 +344,7 @@ impl TestContext {
         block_root: Hash256,
         builder_exit: BuilderExitRequest,
     ) {
-        let mut envelope = ExecutionPayloadEnvelope::<E>::empty();
+        let mut envelope = ExecutionPayloadEnvelopeGloas::<E>::empty();
         envelope
             .execution_requests
             .builder_exits
@@ -350,7 +353,7 @@ impl TestContext {
         self.store
             .put_payload_envelope(
                 &block_root,
-                &SignedExecutionPayloadEnvelope {
+                &SignedExecutionPayloadEnvelopeGloas {
                     message: envelope,
                     signature: Signature::empty(),
                 },
@@ -365,8 +368,8 @@ fn make_signed_preferences(
     fee_recipient: Address,
     target_gas_limit: u64,
     dependent_root: Hash256,
-) -> Arc<SignedProposerPreferences> {
-    Arc::new(SignedProposerPreferences {
+) -> Arc<SignedProposerPreferencesGloas> {
+    Arc::new(SignedProposerPreferencesGloas {
         message: ProposerPreferences {
             dependent_root,
             proposal_slot,

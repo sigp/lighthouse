@@ -783,7 +783,16 @@ pub async fn serve<T: BeaconChainTypes>(
                         canonical: true,
                         header: api_types::BlockHeaderAndSignature {
                             message: block.message().block_header(),
-                            signature: block.signature().clone().into(),
+                            signature: block
+                                .signature()
+                                .map_err(|_| {
+                                    warp_utils::reject::custom_bad_request(
+                                        "Pq block headers are not supported by this endpoint"
+                                            .into(),
+                                    )
+                                })?
+                                .clone()
+                                .into(),
                         },
                     };
 
@@ -827,7 +836,16 @@ pub async fn serve<T: BeaconChainTypes>(
                         canonical,
                         header: api_types::BlockHeaderAndSignature {
                             message: block.message().block_header(),
-                            signature: block.signature().clone().into(),
+                            signature: block
+                                .signature()
+                                .map_err(|_| {
+                                    warp_utils::reject::custom_bad_request(
+                                        "Pq block headers are not supported by this endpoint"
+                                            .into(),
+                                    )
+                                })?
+                                .clone()
+                                .into(),
                         },
                     };
 
@@ -3436,7 +3454,7 @@ pub async fn serve<T: BeaconChainTypes>(
                                 api_types::EventTopic::ProposerPreferences => {
                                     event_handler.subscribe_proposer_preferences()
                                 }
-                                api_types::EventTopic::PayloadAttestationMessage => {
+                                api_types::EventTopic::PayloadAttestationMessageGloas => {
                                     event_handler.subscribe_payload_attestation_message()
                                 }
                                 api_types::EventTopic::FastConfirmation => {

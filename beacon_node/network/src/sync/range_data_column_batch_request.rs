@@ -243,7 +243,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                         if let DataColumnSidecar::Fulu(column) = column.as_ref()
                             && column_block_signatures
                                 .contains(&column.signed_block_header.signature)
-                            && block.signature() != &column.signed_block_header.signature
+                            && block.signature().ok() != Some(&column.signed_block_header.signature)
                             && let Some(naughty_peer) = column_to_peer.get(&column.index)
                         {
                             naughty_peers.push((column.index, *naughty_peer));
@@ -264,7 +264,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
 
             // Fulu columns must match the block signature.
             if let Some(column_block_signature) = column_block_signature
-                && block.signature() != column_block_signature
+                && block.signature().ok() != Some(column_block_signature)
             {
                 for column in &columns {
                     if let Some(naughty_peer) = column_to_peer.get(column.index()) {

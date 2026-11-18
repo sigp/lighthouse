@@ -741,7 +741,7 @@ async fn attestations_with_increasing_slots() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data.slot;
+        let expected_attestation_slot = attestation.data().slot;
         let expected_earliest_permissible_slot = current_slot - Spec::slots_per_epoch() - 1;
 
         if expected_attestation_slot < expected_earliest_permissible_slot {

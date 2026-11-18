@@ -200,7 +200,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .proposer_preferences_tx
                 .send(kind)
                 .map(|count| log_count("proposer preferences", count)),
-            EventKind::PayloadAttestationMessage(_) => self
+            EventKind::PayloadAttestationMessageGloas(_) => self
                 .payload_attestation_message_tx
                 .send(kind)
                 .map(|count| log_count("payload attestation message", count)),

@@ -4,7 +4,7 @@ use safe_arith::ArithError;
 use tree_hash::TreeHash;
 use types::{
     BeaconState, BeaconStateError, BuilderIndex, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
-    SignedExecutionPayloadEnvelope, Slot,
+    SignedExecutionPayloadEnvelopeGloas, Slot,
 };
 
 macro_rules! envelope_verify {
@@ -93,7 +93,7 @@ impl From<ArithError> for EnvelopeProcessingError {
     }
 }
 
-/// Verifies a `SignedExecutionPayloadEnvelope` against the beacon state.
+/// Verifies a `SignedExecutionPayloadEnvelopeGloas` against the beacon state.
 ///
 /// This function performs pure verification with no state mutation. The execution requests
 /// from the envelope are deferred to be processed in the next block via
@@ -104,7 +104,7 @@ impl From<ArithError> for EnvelopeProcessingError {
 /// its state_root filled in.
 pub fn verify_execution_payload_envelope<E: EthSpec>(
     state: &BeaconState<E>,
-    signed_envelope: &SignedExecutionPayloadEnvelope<E>,
+    signed_envelope: &SignedExecutionPayloadEnvelopeGloas<E>,
     verify_signatures: VerifySignatures,
     block_state_root: Hash256,
     spec: &ChainSpec,

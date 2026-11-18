@@ -4,7 +4,7 @@ use execution_layer::{NewPayloadRequest, NewPayloadRequestGloas};
 use fork_choice::PayloadVerificationStatus;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use tracing::warn;
-use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelope};
+use types::{SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas};
 
 use crate::{
     BeaconChain, BeaconChainTypes, NotifyExecutionLayer, PayloadVerificationError,
@@ -14,7 +14,7 @@ use crate::{
 /// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
-    envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+    envelope: Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
     payload_verification_status: Option<PayloadVerificationStatus>,
 }
@@ -22,7 +22,7 @@ pub struct PayloadNotifier<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> PayloadNotifier<T> {
     pub fn new(
         chain: Arc<BeaconChain<T>>,
-        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        envelope: Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, EnvelopeError> {
@@ -69,7 +69,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
     }
 
     fn build_new_payload_request<'a>(
-        envelope: &'a SignedExecutionPayloadEnvelope<T::EthSpec>,
+        envelope: &'a SignedExecutionPayloadEnvelopeGloas<T::EthSpec>,
         block: &'a SignedBeaconBlock<T::EthSpec>,
     ) -> Result<NewPayloadRequest<'a, T::EthSpec>, PayloadVerificationError> {
         let bid = block

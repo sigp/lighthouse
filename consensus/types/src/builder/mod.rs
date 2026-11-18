@@ -15,4 +15,7 @@ pub use builder_deposit_request::BuilderDepositRequest;
 pub use builder_exit_request::BuilderExitRequest;
 pub use builder_pending_payment::BuilderPendingPayment;
 pub use builder_pending_withdrawal::BuilderPendingWithdrawal;
-pub use proposer_preferences::{ProposerPreferences, SignedProposerPreferences};
+pub use proposer_preferences::{
+    ProposerPreferences, SignedProposerPreferences, SignedProposerPreferencesGloas,
+    SignedProposerPreferencesPq,
+};

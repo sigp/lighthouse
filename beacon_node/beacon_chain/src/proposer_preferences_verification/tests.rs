@@ -10,7 +10,7 @@ use state_processing::AllCaches;
 use store::{HotColdDB, MemoryStore, StoreConfig};
 use types::{
     Address, BeaconBlock, ChainSpec, Epoch, EthSpec, ForkName, Hash256, ProposerPreferences,
-    SignedBeaconBlock, SignedProposerPreferences, Slot, Spec,
+    SignedBeaconBlock, SignedProposerPreferencesGloas, Slot, Spec,
 };
 
 use crate::{
@@ -71,7 +71,7 @@ impl TestContext {
         // Build a signed block with the correct state root for the snapshot.
         let mut genesis_block = BeaconBlock::empty(&spec);
         *genesis_block.state_root_mut() = genesis_state_root;
-        let signed_block = SignedBeaconBlock::from_block(genesis_block, Signature::empty());
+        let signed_block = SignedBeaconBlock::with_empty_signature(genesis_block);
 
         let _ = store
             .init_anchor_info(Hash256::ZERO, Slot::new(0), Slot::new(0), false)
@@ -189,8 +189,8 @@ fn make_signed_preferences(
     proposal_slot: Slot,
     validator_index: u64,
     dependent_root: Hash256,
-) -> Arc<SignedProposerPreferences> {
-    Arc::new(SignedProposerPreferences {
+) -> Arc<SignedProposerPreferencesGloas> {
+    Arc::new(SignedProposerPreferencesGloas {
         message: ProposerPreferences {
             dependent_root,
             proposal_slot,
@@ -341,7 +341,7 @@ fn same_validator_different_dependent_root_not_deduplicated() {
     let slot = Slot::new(1);
 
     let verified_a = GossipVerifiedProposerPreferences {
-        signed_preferences: Arc::new(SignedProposerPreferences {
+        signed_preferences: Arc::new(SignedProposerPreferencesGloas {
             message: ProposerPreferences {
                 proposal_slot: slot,
                 validator_index: 42,

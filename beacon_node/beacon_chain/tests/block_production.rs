@@ -110,6 +110,7 @@ async fn gloas_block_production_filters_exits_with_parent_partial_withdrawals() 
     assert_eq!(body.parent_execution_requests().unwrap(), &requests);
     let included_exits: Vec<_> = body
         .voluntary_exits()
+        .unwrap()
         .iter()
         .map(|exit| exit.message.validator_index)
         .collect();

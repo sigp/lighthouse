@@ -250,7 +250,7 @@ mod tests {
     use std::sync::Arc;
     use types::{
         BeaconBlockHeader, DataColumnSidecarFulu, DataColumnSidecarGloas, ForkName,
-        SignedBeaconBlockHeader, Spec,
+        SignedBeaconBlockHeaderBase, Spec,
     };
 
     type E = Spec;
@@ -262,7 +262,7 @@ mod tests {
         proposer_index: u64,
         index: u64,
     ) -> Arc<DataColumnSidecar<E>> {
-        let signed_block_header = SignedBeaconBlockHeader {
+        let signed_block_header = SignedBeaconBlockHeaderBase {
             message: BeaconBlockHeader {
                 slot: slot.into(),
                 proposer_index,

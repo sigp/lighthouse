@@ -44,7 +44,8 @@ use crate::observed_data_sidecars::ObservationStrategy;
 use crate::partial_data_column_assembler::PartialMergeResult;
 use pending_components::{PendingComponents, ReconstructColumnsDecision};
 use types::{
-    BlockImportSource, SignedBeaconBlock, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    BlockImportSource, SignedBeaconBlock, SignedExecutionPayloadBid,
+    SignedExecutionPayloadEnvelopeGloas,
 };
 
 /// The LRU Cache stores `PendingComponents`, which store the block root, the execution payload bid, and its associated column data.
@@ -187,7 +188,7 @@ impl<T: BeaconChainTypes> PendingPayloadCache<T> {
     pub fn get_executed_payload_envelope(
         &self,
         block_root: &Hash256,
-    ) -> Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>> {
+    ) -> Option<Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>> {
         self.peek_pending_components(block_root, |components| {
             components.and_then(|components| {
                 components
@@ -688,9 +689,9 @@ mod data_availability_checker_tests {
     use ssz_types::ProgressiveVariableList;
     use std::time::Duration;
     use types::{
-        Cell, CellBitmap, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas,
-        ForkName, PartialDataColumnGloas, PartialDataColumnSidecarGloas,
-        SignedExecutionPayloadEnvelope, Slot, Spec, test_utils::test_unstructured,
+        Cell, CellBitmap, ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas,
+        ExecutionRequestsGloas, ForkName, PartialDataColumnGloas, PartialDataColumnSidecarGloas,
+        SignedExecutionPayloadEnvelopeGloas, Slot, Spec, test_utils::test_unstructured,
     };
 
     type E = Spec;
@@ -794,8 +795,8 @@ mod data_availability_checker_tests {
     /// `beacon_block_root` and the verification outcome, never the signature or payload.
     fn executed_envelope(block_root: Hash256) -> AvailabilityPendingExecutedEnvelope<E> {
         AvailabilityPendingExecutedEnvelope {
-            envelope: Arc::new(SignedExecutionPayloadEnvelope {
-                message: ExecutionPayloadEnvelope {
+            envelope: Arc::new(SignedExecutionPayloadEnvelopeGloas {
+                message: ExecutionPayloadEnvelopeGloas {
                     payload: ExecutionPayloadGloas::default(),
                     execution_requests: ExecutionRequestsGloas::default(),
                     builder_index: 0,

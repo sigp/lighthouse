@@ -14,7 +14,8 @@ use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use state_processing::per_block_processing::signature_sets::indexed_payload_attestation_signature_set_from_pubkeys;
 use std::borrow::Cow;
 use types::{
-    ChainSpec, EthSpec, Hash256, IndexedPayloadAttestation, PTC, PayloadAttestationMessage, Slot,
+    ChainSpec, EthSpec, Hash256, IndexedPayloadAttestation, PTC, PayloadAttestationMessageGloas,
+    Slot,
 };
 
 pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
@@ -29,18 +30,18 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub genesis_validators_root: Hash256,
 }
 
-/// A `PayloadAttestationMessage` that has been verified for propagation on the gossip network.
+/// A `PayloadAttestationMessageGloas` that has been verified for propagation on the gossip network.
 #[derive(Educe)]
 #[educe(Clone, Debug)]
 pub struct VerifiedPayloadAttestationMessage<T: BeaconChainTypes> {
-    payload_attestation_message: PayloadAttestationMessage,
+    payload_attestation_message: PayloadAttestationMessageGloas,
     indexed_payload_attestation: IndexedPayloadAttestation<T::EthSpec>,
     ptc: PTC<T::EthSpec>,
 }
 
 impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
     pub fn new(
-        payload_attestation_message: PayloadAttestationMessage,
+        payload_attestation_message: PayloadAttestationMessageGloas,
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, Error> {
         let slot = payload_attestation_message.data.slot;
@@ -165,7 +166,7 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
         })
     }
 
-    pub fn payload_attestation_message(&self) -> &PayloadAttestationMessage {
+    pub fn payload_attestation_message(&self) -> &PayloadAttestationMessageGloas {
         &self.payload_attestation_message
     }
 
@@ -177,7 +178,7 @@ impl<T: BeaconChainTypes> VerifiedPayloadAttestationMessage<T> {
         &self.ptc
     }
 
-    pub fn into_payload_attestation_message(self) -> PayloadAttestationMessage {
+    pub fn into_payload_attestation_message(self) -> PayloadAttestationMessageGloas {
         self.payload_attestation_message
     }
 }
@@ -199,7 +200,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn verify_payload_attestation_message_for_gossip(
         &self,
-        payload_attestation_message: PayloadAttestationMessage,
+        payload_attestation_message: PayloadAttestationMessageGloas,
     ) -> Result<VerifiedPayloadAttestationMessage<T>, Error> {
         metrics::inc_counter(&metrics::PAYLOAD_ATTESTATION_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::PAYLOAD_ATTESTATION_GOSSIP_VERIFICATION_TIMES);
@@ -213,7 +214,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     && event_handler.has_payload_attestation_message_subscribers()
                 {
                     let msg = verified.payload_attestation_message();
-                    event_handler.register(EventKind::PayloadAttestationMessage(Box::new(
+                    event_handler.register(EventKind::PayloadAttestationMessageGloas(Box::new(
                         ForkVersionedResponse {
                             version: self.spec.fork_name_at_slot::<T::EthSpec>(msg.data.slot),
                             metadata: Default::default(),

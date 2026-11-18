@@ -65,9 +65,9 @@ mod tests {
     use bls::Signature;
     use std::sync::Arc;
     use types::{
-        BeaconBlock, BuilderIndex, EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
-        ExecutionRequestsGloas, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
-        Spec,
+        BeaconBlock, BuilderIndex, EthSpec, ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas,
+        ExecutionRequestsGloas, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas,
+        Slot, Spec,
     };
 
     type E = Spec;
@@ -77,8 +77,8 @@ mod tests {
         block_root: Hash256,
         builder_index: BuilderIndex,
     ) -> GossipVerifiedEnvelope<EphemeralHarnessType<E>> {
-        let signed_envelope = SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
+        let signed_envelope = SignedExecutionPayloadEnvelopeGloas {
+            message: ExecutionPayloadEnvelopeGloas {
                 payload: ExecutionPayloadGloas {
                     slot_number: slot,
                     ..ExecutionPayloadGloas::default()
@@ -95,7 +95,7 @@ mod tests {
 
         GossipVerifiedEnvelope {
             signed_envelope: Arc::new(signed_envelope),
-            block: Arc::new(SignedBeaconBlock::from_block(block, Signature::empty())),
+            block: Arc::new(SignedBeaconBlock::with_empty_signature(block)),
             snapshot: None,
         }
     }

@@ -5,4 +5,4 @@ pub use attester_slashing::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
     AttesterSlashingOnDisk, AttesterSlashingPq, AttesterSlashingRef, AttesterSlashingRefOnDisk,
 };
-pub use proposer_slashing::ProposerSlashing;
+pub use proposer_slashing::{ProposerSlashing, ProposerSlashingBase, ProposerSlashingPq};

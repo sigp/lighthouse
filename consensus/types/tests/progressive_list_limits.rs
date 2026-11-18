@@ -57,7 +57,7 @@ fn check_limits<E: EthSpec>() {
         E::MaxBlobCommitmentsPerBlock
     );
 
-    let envelope = ExecutionPayloadEnvelope::<E>::empty();
+    let envelope = ExecutionPayloadEnvelopeGloas::<E>::empty();
     check!(envelope, payload.withdrawals, E::MaxWithdrawalsPerPayload);
     check!(
         envelope,
@@ -129,14 +129,33 @@ fn progressive_block_body_errors_propagate() {
             Err(BeaconStateError::SszTypesError(_))
         ));
 
-        for _ in 0..<E as EthSpec>::MaxProposerSlashings::to_usize() {
-            body.proposer_slashings_push(test_arbitrary_instance())
-                .unwrap();
+        if let BeaconBlockBodyRefMut::Pq(pq_body) = &mut body {
+            for _ in 0..<E as EthSpec>::MaxProposerSlashings::to_usize() {
+                pq_body
+                    .proposer_slashings
+                    .push(test_arbitrary_instance())
+                    .unwrap();
+            }
+            assert!(
+                pq_body
+                    .proposer_slashings
+                    .push(test_arbitrary_instance())
+                    .is_err()
+            );
+            assert!(matches!(
+                body.proposer_slashings_push(test_arbitrary_instance()),
+                Err(BeaconStateError::PqUnsupported(_))
+            ));
+        } else {
+            for _ in 0..<E as EthSpec>::MaxProposerSlashings::to_usize() {
+                body.proposer_slashings_push(test_arbitrary_instance())
+                    .unwrap();
+            }
+            assert!(matches!(
+                body.proposer_slashings_push(test_arbitrary_instance()),
+                Err(BeaconStateError::SszTypesError(_))
+            ));
         }
-        assert!(matches!(
-            body.proposer_slashings_push(test_arbitrary_instance()),
-            Err(BeaconStateError::SszTypesError(_))
-        ));
 
         if fork == ForkName::Pq {
             // The Pq body has no voluntary exits.

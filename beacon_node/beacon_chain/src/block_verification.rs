@@ -103,9 +103,9 @@ use task_executor::JoinHandle;
 use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, ColumnIndex,
-    DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256,
-    InconsistentFork, KzgProofs, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
-    data::DataColumnSidecarError,
+    DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, ForkName, FullPayload, Hash256,
+    InconsistentFork, KzgProofs, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader,
+    SignedBeaconBlockHeaderBase, Slot, data::DataColumnSidecarError,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -614,14 +614,14 @@ impl BlockSlashInfo<BlockError> {
 
 impl BlockSlashInfo<GossipDataColumnError> {
     pub fn from_early_error_data_column(
-        header: SignedBeaconBlockHeader,
+        header: SignedBeaconBlockHeaderBase,
         e: GossipDataColumnError,
     ) -> Self {
         match e {
             GossipDataColumnError::ProposalSignatureInvalid => BlockSlashInfo::SignatureInvalid(e),
             // `InvalidSignature` could indicate any signature in the block, so we want
             // to recheck the proposer signature alone.
-            _ => BlockSlashInfo::SignatureNotChecked(header, e),
+            _ => BlockSlashInfo::SignatureNotChecked(header.into(), e),
         }
     }
 }
@@ -636,8 +636,10 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
     if let Some(slasher) = chain.slasher.as_ref() {
         let (verified_header, error) = match slash_info {
             BlockSlashInfo::SignatureNotChecked(header, e) => {
-                if verify_header_signature::<_, TErr>(chain, &header).is_ok() {
-                    (header, e)
+                if let SignedBeaconBlockHeader::Base(header) = header
+                    && verify_header_signature::<_, TErr>(chain, &header).is_ok()
+                {
+                    (header.into(), e)
                 } else {
                     return e;
                 }
@@ -646,7 +648,9 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
             BlockSlashInfo::SignatureValid(header, e) => (header, e),
         };
 
-        slasher.accept_block_header(verified_header);
+        if let SignedBeaconBlockHeader::Base(header) = verified_header {
+            slasher.accept_block_header(header);
+        }
         error
     } else {
         match slash_info {
@@ -851,8 +855,10 @@ pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
         self.into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
             .inspect(|execution_pending| {
                 // Supply valid block to slasher.
-                if let Some(slasher) = chain.slasher.as_ref() {
-                    slasher.accept_block_header(execution_pending.block.signed_block_header());
+                if let Some(slasher) = chain.slasher.as_ref()
+                    && let Ok(header) = execution_pending.block.as_block().signed_block_header_bls()
+                {
+                    slasher.accept_block_header(header);
                 }
             })
             .map_err(|slash_info| process_block_slash_info::<_, BlockError>(chain, slash_info))
@@ -910,9 +916,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError> {
         // Ensure the block is the correct structure for the fork at `block.slot()`.
-        block
+        let fork = block
             .fork_name(&chain.spec)
             .map_err(BlockError::InconsistentFork)?;
+        if fork == ForkName::Pq {
+            return Err(BeaconStateError::PqUnsupported("block gossip verification").into());
+        }
 
         // Do not gossip or process blocks from future slots.
         let present_slot_with_tolerance = chain
@@ -1123,7 +1132,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         }
 
         // [New in Gloas]: Skip payload validation checks. The payload now arrives separately
-        // via `ExecutionPayloadEnvelope`.
+        // via `ExecutionPayloadEnvelopeGloas`.
         if !chain
             .spec
             .fork_name_at_slot::<T::EthSpec>(block.slot())
@@ -1993,7 +2002,7 @@ pub fn get_block_root<E: EthSpec>(block: &SignedBeaconBlock<E>) -> Hash256 {
 pub fn get_block_header_root(block_header: &SignedBeaconBlockHeader) -> Hash256 {
     let block_root_timer = metrics::start_timer(&metrics::BLOCK_HEADER_PROCESSING_BLOCK_ROOT);
 
-    let block_root = block_header.message.canonical_root();
+    let block_root = block_header.message().canonical_root();
 
     metrics::stop_timer(block_root_timer);
 
@@ -2273,7 +2282,7 @@ fn get_signature_verifier<'a, T: BeaconChainTypes>(
 /// Return `Ok(())` if the signature is valid, and an `Err` otherwise.
 pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     chain: &BeaconChain<T>,
-    header: &SignedBeaconBlockHeader,
+    header: &SignedBeaconBlockHeaderBase,
 ) -> Result<(), Err> {
     let proposer_pubkey = get_validator_pubkey_cache(chain)?
         .get(header.message.proposer_index as usize)

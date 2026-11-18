@@ -347,6 +347,9 @@ async fn produces_attestations() {
                 Attestation::Gloas(att) => {
                     (att.aggregation_bits.len(), att.aggregation_bits.is_zero())
                 }
+                Attestation::Pq(att) => {
+                    (att.aggregation_bits.len(), att.aggregation_bits.is_zero())
+                }
             };
             assert_eq!(aggregation_bits_len, committee_len, "bad committee len");
             assert!(aggregation_bits_zero, "some committee bits are set");
@@ -354,7 +357,7 @@ async fn produces_attestations() {
             let data = attestation.data();
 
             assert_eq!(
-                attestation.signature(),
+                attestation.signature().unwrap(),
                 &AggregateSignature::infinity(),
                 "bad signature"
             );

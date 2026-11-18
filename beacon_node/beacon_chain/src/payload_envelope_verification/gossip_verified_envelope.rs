@@ -7,8 +7,8 @@ use store::DatabaseBlock;
 use tracing::debug;
 use tree_hash::TreeHash;
 use types::{
-    ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionPayloadEnvelope, Hash256,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+    ChainSpec, EthSpec, ExecutionPayloadBidRef, ExecutionPayloadEnvelopeGloas, Hash256,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas, Slot,
     consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
@@ -44,7 +44,7 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
 /// Verify that an execution payload envelope is consistent with its beacon block
 /// and execution bid.
 pub(crate) fn verify_envelope_consistency<E: EthSpec>(
-    envelope: &ExecutionPayloadEnvelope<E>,
+    envelope: &ExecutionPayloadEnvelopeGloas<E>,
     block: &SignedBeaconBlock<E>,
     execution_bid: ExecutionPayloadBidRef<E>,
     latest_finalized_slot: Slot,
@@ -132,19 +132,19 @@ pub(crate) fn verify_envelope_consistency<E: EthSpec>(
     Ok(())
 }
 
-/// A wrapper around a `SignedExecutionPayloadEnvelope` that indicates it has been approved for re-gossiping on
+/// A wrapper around a `SignedExecutionPayloadEnvelopeGloas` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Educe)]
 #[educe(Debug(bound = "T: BeaconChainTypes"))]
 pub struct GossipVerifiedEnvelope<T: BeaconChainTypes> {
-    pub signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+    pub signed_envelope: Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
     pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
     pub snapshot: Option<Box<EnvelopeProcessingSnapshot<T::EthSpec>>>,
 }
 
 impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
     pub fn new(
-        signed_envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        signed_envelope: Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, EnvelopeError> {
         let envelope = &signed_envelope.message;
@@ -329,7 +329,7 @@ impl<T: BeaconChainTypes> GossipVerifiedEnvelope<T> {
         Ok(gossip_verified_envelope)
     }
 
-    pub fn envelope_cloned(&self) -> Arc<SignedExecutionPayloadEnvelope<T::EthSpec>> {
+    pub fn envelope_cloned(&self) -> Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>> {
         self.signed_envelope.clone()
     }
 }
@@ -371,7 +371,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns an `Err` if the given envelope was invalid, or an error was encountered during verification.
     pub async fn verify_envelope_for_gossip(
         self: &Arc<Self>,
-        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        envelope: Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
         source: EnvelopeSource,
     ) -> Result<GossipVerifiedEnvelope<T>, EnvelopeError> {
         let chain = self.clone();
@@ -423,9 +423,9 @@ mod tests {
         Address, BeaconBlock, BeaconBlockBodyGloas, BeaconBlockGloas, BuilderDepositRequest,
         BuilderExitRequest, ConsolidationRequest, Eth1Data, EthSpec, ExecutionBlockHash,
         ExecutionPayloadBid, ExecutionPayloadBidGloas, ExecutionPayloadBidRef,
-        ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas, Graffiti, Hash256,
-        SignedBeaconBlock, SignedExecutionPayloadBidGloas, Slot, Spec, SyncAggregate, Withdrawal,
-        WithdrawalRequest,
+        ExecutionPayloadEnvelopeGloas, ExecutionPayloadGloas, ExecutionRequestsGloas, Graffiti,
+        Hash256, SignedBeaconBlock, SignedExecutionPayloadBidGloas, Slot, Spec, SyncAggregate,
+        Withdrawal, WithdrawalRequest,
     };
 
     use super::verify_envelope_consistency;
@@ -438,8 +438,8 @@ mod tests {
         slot: Slot,
         builder_index: u64,
         block_hash: ExecutionBlockHash,
-    ) -> ExecutionPayloadEnvelope<E> {
-        ExecutionPayloadEnvelope {
+    ) -> ExecutionPayloadEnvelopeGloas<E> {
+        ExecutionPayloadEnvelopeGloas {
             payload: ExecutionPayloadGloas {
                 block_hash,
                 slot_number: slot,
@@ -479,7 +479,7 @@ mod tests {
                 _phantom: PhantomData,
             },
         });
-        SignedBeaconBlock::from_block(block, Signature::empty())
+        SignedBeaconBlock::with_empty_signature(block)
     }
 
     fn make_bid(builder_index: u64, block_hash: ExecutionBlockHash) -> ExecutionPayloadBid<E> {

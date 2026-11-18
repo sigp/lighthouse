@@ -1,18 +1,18 @@
 use parking_lot::Mutex;
 use std::collections::HashSet;
-use types::SignedBeaconBlockHeader;
+use types::SignedBeaconBlockHeaderBase;
 
 #[derive(Debug, Default)]
 pub struct BlockQueue {
-    blocks: Mutex<HashSet<SignedBeaconBlockHeader>>,
+    blocks: Mutex<HashSet<SignedBeaconBlockHeaderBase>>,
 }
 
 impl BlockQueue {
-    pub fn queue(&self, block_header: SignedBeaconBlockHeader) {
+    pub fn queue(&self, block_header: SignedBeaconBlockHeaderBase) {
         self.blocks.lock().insert(block_header);
     }
 
-    pub fn dequeue(&self) -> HashSet<SignedBeaconBlockHeader> {
+    pub fn dequeue(&self) -> HashSet<SignedBeaconBlockHeaderBase> {
         let mut blocks = self.blocks.lock();
         std::mem::take(&mut *blocks)
     }

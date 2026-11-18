@@ -39,7 +39,9 @@ pub use indexed_payload_attestation::IndexedPayloadAttestation;
 pub use participation_flags::ParticipationFlags;
 pub use payload_attestation::PayloadAttestation;
 pub use payload_attestation_data::PayloadAttestationData;
-pub use payload_attestation_message::PayloadAttestationMessage;
+pub use payload_attestation_message::{
+    PayloadAttestationMessage, PayloadAttestationMessageGloas, PayloadAttestationMessagePq,
+};
 pub use pending_attestation::PendingAttestation;
 pub use ptc::PTC;
 pub use selection_proof::SelectionProof;

@@ -13,7 +13,9 @@ use parking_lot::{Mutex, RwLock};
 use slot_clock::SlotClock;
 use state_processing::builder_deposits_cache::OnboardBuildersCache;
 use tracing::debug;
-use types::{ChainSpec, EthSpec, Hash256, ProposerPreferences, SignedProposerPreferences, Slot};
+use types::{
+    ChainSpec, EthSpec, Hash256, ProposerPreferences, SignedProposerPreferencesGloas, Slot,
+};
 
 /// Verify that proposer preferences are consistent with the current chain state
 pub(crate) fn verify_preferences_consistency<E: EthSpec>(
@@ -59,15 +61,15 @@ pub struct GossipVerificationContext<'a, T: BeaconChainTypes> {
     pub genesis_validators_root: Hash256,
 }
 
-/// A wrapper around `SignedProposerPreferences` that has been verified for gossip propagation.
+/// A wrapper around `SignedProposerPreferencesGloas` that has been verified for gossip propagation.
 #[derive(Debug, Clone)]
 pub struct GossipVerifiedProposerPreferences {
-    pub signed_preferences: Arc<SignedProposerPreferences>,
+    pub signed_preferences: Arc<SignedProposerPreferencesGloas>,
 }
 
 impl GossipVerifiedProposerPreferences {
     pub fn new<T: BeaconChainTypes>(
-        signed_preferences: Arc<SignedProposerPreferences>,
+        signed_preferences: Arc<SignedProposerPreferencesGloas>,
         ctx: &GossipVerificationContext<'_, T>,
     ) -> Result<Self, ProposerPreferencesError> {
         let proposal_slot = signed_preferences.message.proposal_slot;
@@ -225,7 +227,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn verify_proposer_preferences_for_gossip(
         &self,
-        signed_preferences: Arc<SignedProposerPreferences>,
+        signed_preferences: Arc<SignedProposerPreferencesGloas>,
     ) -> Result<GossipVerifiedProposerPreferences, ProposerPreferencesError> {
         let proposal_slot = signed_preferences.message.proposal_slot;
         let validator_index = signed_preferences.message.validator_index;

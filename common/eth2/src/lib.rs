@@ -48,8 +48,8 @@ use std::future::Future;
 use std::time::Duration;
 use types::execution::SignedExecutionProofEnvelope;
 use types::{
-    PayloadAttestation, PayloadAttestationData, PayloadAttestationMessage,
-    SignedExecutionPayloadBid, SignedProposerPreferences,
+    PayloadAttestation, PayloadAttestationData, PayloadAttestationMessageGloas,
+    SignedExecutionPayloadBid, SignedProposerPreferencesGloas,
 };
 
 pub const V1: EndpointVersion = EndpointVersion(1);
@@ -2117,7 +2117,7 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/pool/proposer_slashings`
     pub async fn post_beacon_pool_proposer_slashings(
         &self,
-        slashing: &ProposerSlashing,
+        slashing: &ProposerSlashingBase,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -2135,7 +2135,7 @@ impl BeaconNodeHttpClient {
     /// `GET beacon/pool/proposer_slashings`
     pub async fn get_beacon_pool_proposer_slashings(
         &self,
-    ) -> Result<GenericResponse<Vec<ProposerSlashing>>, Error> {
+    ) -> Result<GenericResponse<Vec<ProposerSlashingBase>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2201,7 +2201,7 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/pool/payload_attestations` (JSON)
     pub async fn post_beacon_pool_payload_attestations(
         &self,
-        messages: &[PayloadAttestationMessage],
+        messages: &[PayloadAttestationMessageGloas],
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
@@ -2221,7 +2221,7 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/pool/payload_attestations` (SSZ)
     pub async fn post_beacon_pool_payload_attestations_ssz(
         &self,
-        messages: &[PayloadAttestationMessage],
+        messages: &[PayloadAttestationMessageGloas],
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
@@ -2306,7 +2306,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Option<Slot>,
         dependent_root: Option<Hash256>,
-    ) -> Result<BeaconResponse<Vec<SignedProposerPreferences>>, Error> {
+    ) -> Result<BeaconResponse<Vec<SignedProposerPreferencesGloas>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2357,7 +2357,7 @@ impl BeaconNodeHttpClient {
     /// `POST validator/proposer_preferences`
     pub async fn post_validator_proposer_preferences(
         &self,
-        signed_preferences: &[SignedProposerPreferences],
+        signed_preferences: &[SignedProposerPreferencesGloas],
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
@@ -2376,7 +2376,7 @@ impl BeaconNodeHttpClient {
     /// `POST validator/proposer_preferences` (SSZ)
     pub async fn post_validator_proposer_preferences_ssz(
         &self,
-        signed_preferences: &Vec<SignedProposerPreferences>,
+        signed_preferences: &Vec<SignedProposerPreferencesGloas>,
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
@@ -3356,7 +3356,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
-    ) -> Result<ForkVersionedResponse<ExecutionPayloadEnvelope<E>>, Error> {
+    ) -> Result<ForkVersionedResponse<ExecutionPayloadEnvelopeGloas<E>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -3374,7 +3374,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Slot,
         beacon_block_root: Hash256,
-    ) -> Result<ExecutionPayloadEnvelope<E>, Error> {
+    ) -> Result<ExecutionPayloadEnvelopeGloas<E>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -3390,7 +3390,7 @@ impl BeaconNodeHttpClient {
 
         let response_bytes = opt_response.ok_or(Error::StatusCode(StatusCode::NOT_FOUND))?;
 
-        ExecutionPayloadEnvelope::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
+        ExecutionPayloadEnvelopeGloas::from_ssz_bytes(&response_bytes).map_err(Error::InvalidSsz)
     }
 
     /// Path for `v1/beacon/execution_payload_envelopes`
@@ -3420,7 +3420,7 @@ impl BeaconNodeHttpClient {
     /// payload.
     pub async fn post_beacon_execution_payload_envelopes<E: EthSpec>(
         &self,
-        envelope: &SignedExecutionPayloadEnvelope<E>,
+        envelope: &SignedExecutionPayloadEnvelopeGloas<E>,
         fork_name: ForkName,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
@@ -3443,7 +3443,7 @@ impl BeaconNodeHttpClient {
     /// See [`Self::post_beacon_execution_payload_envelopes`] for the request semantics.
     pub async fn post_beacon_execution_payload_envelopes_ssz<E: EthSpec>(
         &self,
-        envelope: &SignedExecutionPayloadEnvelope<E>,
+        envelope: &SignedExecutionPayloadEnvelopeGloas<E>,
         fork_name: ForkName,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<(), Error> {
@@ -3606,7 +3606,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
     ) -> Result<
-        Option<ExecutionOptimisticFinalizedBeaconResponse<SignedExecutionPayloadEnvelope<E>>>,
+        Option<ExecutionOptimisticFinalizedBeaconResponse<SignedExecutionPayloadEnvelopeGloas<E>>>,
         Error,
     > {
         let path = self.get_beacon_execution_payload_envelopes_path(block_id)?;
@@ -3621,13 +3621,13 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_execution_payload_envelopes_ssz<E: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<SignedExecutionPayloadEnvelope<E>>, Error> {
+    ) -> Result<Option<SignedExecutionPayloadEnvelopeGloas<E>>, Error> {
         let path = self.get_beacon_execution_payload_envelopes_path(block_id)?;
         let opt_response = self
             .get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
             .await?;
         match opt_response {
-            Some(bytes) => SignedExecutionPayloadEnvelope::from_ssz_bytes(&bytes)
+            Some(bytes) => SignedExecutionPayloadEnvelopeGloas::from_ssz_bytes(&bytes)
                 .map(Some)
                 .map_err(Error::InvalidSsz),
             None => Ok(None),

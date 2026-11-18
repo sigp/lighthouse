@@ -1,37 +1,61 @@
+use crate::ForkVersionDecode;
 use crate::{
     Address, BeaconState, BeaconStateError, BlockAccessList, ChainSpec, Domain, Epoch, EthSpec,
-    ExecutionBlockHash, ExecutionPayloadEnvelope, ExecutionPayloadGloas, ExecutionRequestsGloas,
-    Fork, ForkName, Hash256, ProgressiveTransactions, ProgressiveWithdrawals, SignedRoot, Slot,
-    Uint256, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    ExecutionBlockHash, ExecutionPayloadEnvelopeGloas, ExecutionPayloadEnvelopePq,
+    ExecutionPayloadGloas, ExecutionRequestsGloas, Fork, ForkName, Hash256,
+    ProgressiveTransactions, ProgressiveWithdrawals, SignedRoot, Slot, Uint256, XmssSignature,
+    consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 use bls::{PublicKey, Signature};
-use context_deserialize::context_deserialize;
+use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
-use serde::{Deserialize, Serialize};
-use ssz::Encode;
+use serde::{Deserialize, Deserializer, Serialize};
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{FixedVector, VariableList};
+use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
+#[superstruct(
+    variants(Gloas, Pq),
+    variant_attributes(
+        derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe),
+        serde(bound = "E: EthSpec"),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
+        context_deserialize(ForkName),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec")
+        ),
+    ),
+)]
 #[cfg_attr(
     feature = "arbitrary",
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
+#[derive(Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Educe)]
 #[educe(PartialEq, Hash(bound(E: EthSpec)))]
-#[serde(bound = "E: EthSpec")]
-#[context_deserialize(ForkName)]
+#[serde(bound = "E: EthSpec", untagged)]
+#[ssz(enum_behaviour = "transparent")]
+#[tree_hash(enum_behaviour = "transparent")]
 pub struct SignedExecutionPayloadEnvelope<E: EthSpec> {
-    pub message: ExecutionPayloadEnvelope<E>,
+    #[superstruct(only(Gloas))]
+    pub message: ExecutionPayloadEnvelopeGloas<E>,
+    #[superstruct(only(Pq), partial_getter(rename = "message_pq"))]
+    pub message: ExecutionPayloadEnvelopePq<E>,
+    #[superstruct(only(Gloas))]
     pub signature: Signature,
+    #[superstruct(only(Pq), partial_getter(rename = "signature_pq"))]
+    pub signature: XmssSignature,
 }
 
-impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
+impl<E: EthSpec> SignedExecutionPayloadEnvelopeGloas<E> {
     /// Returns the minimum SSZ-encoded size (all variable-length fields empty).
     pub fn min_size() -> usize {
         Self {
-            message: ExecutionPayloadEnvelope::empty(),
+            message: ExecutionPayloadEnvelopeGloas::empty(),
             signature: Signature::empty(),
         }
         .as_ssz_bytes()
@@ -42,8 +66,8 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelope<E> {
     #[allow(clippy::arithmetic_side_effects)]
     pub fn max_size() -> usize {
         // Signature is fixed-size, so the variable-length delta is entirely from the envelope.
-        Self::min_size() + ExecutionPayloadEnvelope::<E>::max_size()
-            - ExecutionPayloadEnvelope::<E>::min_size()
+        Self::min_size() + ExecutionPayloadEnvelopeGloas::<E>::max_size()
+            - ExecutionPayloadEnvelopeGloas::<E>::min_size()
     }
 
     pub fn slot(&self) -> Slot {
@@ -244,10 +268,10 @@ pub struct SignedExecutionPayloadEnvelopeSummary<E: EthSpec> {
     pub signature: Signature,
 }
 
-impl<E: EthSpec> From<&SignedExecutionPayloadEnvelope<E>>
+impl<E: EthSpec> From<&SignedExecutionPayloadEnvelopeGloas<E>>
     for SignedExecutionPayloadEnvelopeSummary<E>
 {
-    fn from(envelope: &SignedExecutionPayloadEnvelope<E>) -> Self {
+    fn from(envelope: &SignedExecutionPayloadEnvelopeGloas<E>) -> Self {
         Self {
             payload_header: (&envelope.message.payload).into(),
             execution_requests: envelope.message.execution_requests.clone(),
@@ -271,14 +295,14 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelopeSummary<E> {
     pub fn into_envelope(
         self,
         payload_body: ExecutionPayloadBody<E>,
-    ) -> SignedExecutionPayloadEnvelope<E> {
+    ) -> SignedExecutionPayloadEnvelopeGloas<E> {
         let payload = self.payload_header.into_payload(
             payload_body.transactions,
             payload_body.withdrawals,
             payload_body.block_access_list,
         );
-        SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
+        SignedExecutionPayloadEnvelopeGloas {
+            message: ExecutionPayloadEnvelopeGloas {
                 payload,
                 execution_requests: self.execution_requests,
                 builder_index: self.builder_index,
@@ -294,7 +318,7 @@ impl<E: EthSpec> SignedExecutionPayloadEnvelopeSummary<E> {
         transactions: ProgressiveTransactions,
         withdrawals: ProgressiveWithdrawals<E>,
         block_access_list: BlockAccessList,
-    ) -> SignedExecutionPayloadEnvelope<E> {
+    ) -> SignedExecutionPayloadEnvelopeGloas<E> {
         self.into_envelope(ExecutionPayloadBody {
             transactions,
             withdrawals,
@@ -307,5 +331,46 @@ mod tests {
     use super::*;
     use crate::Spec;
 
-    ssz_and_tree_hash_tests!(SignedExecutionPayloadEnvelope<Spec>);
+    ssz_and_tree_hash_tests!(SignedExecutionPayloadEnvelopeGloas<Spec>);
+}
+
+impl<E: EthSpec> ForkVersionDecode for SignedExecutionPayloadEnvelope<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork: ForkName) -> Result<Self, ssz::DecodeError> {
+        match fork {
+            ForkName::Pq => SignedExecutionPayloadEnvelopePq::from_ssz_bytes(bytes).map(Self::Pq),
+            ForkName::Gloas | ForkName::Heze => {
+                SignedExecutionPayloadEnvelopeGloas::from_ssz_bytes(bytes).map(Self::Gloas)
+            }
+            _ => Err(ssz::DecodeError::BytesInvalid(format!(
+                "unsupported fork for SignedExecutionPayloadEnvelope: {fork}"
+            ))),
+        }
+    }
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedExecutionPayloadEnvelope<E> {
+    fn context_deserialize<D: Deserializer<'de>>(
+        deserializer: D,
+        fork: ForkName,
+    ) -> Result<Self, D::Error> {
+        match fork {
+            ForkName::Pq => {
+                SignedExecutionPayloadEnvelopePq::deserialize(deserializer).map(Self::Pq)
+            }
+            ForkName::Gloas | ForkName::Heze => {
+                SignedExecutionPayloadEnvelopeGloas::deserialize(deserializer).map(Self::Gloas)
+            }
+            _ => Err(serde::de::Error::custom(format!(
+                "unsupported fork for SignedExecutionPayloadEnvelope: {fork}"
+            ))),
+        }
+    }
+}
+
+#[cfg(test)]
+mod pq_tests {
+    use super::*;
+    use crate::Spec;
+
+    ssz_and_tree_hash_tests!(SignedExecutionPayloadEnvelopePq<Spec>);
 }

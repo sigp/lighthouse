@@ -23,7 +23,6 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ServerSentEventHandler,
 };
-use bls::Signature;
 use builder_client::Builders;
 use execution_layer::ExecutionLayer;
 use fixed_bytes::FixedBytesExtended;
@@ -1476,12 +1475,8 @@ fn make_genesis_block<E: EthSpec>(
         .update_tree_hash_cache()
         .map_err(|e| format!("Error hashing genesis state: {:?}", e))?;
 
-    Ok(SignedBeaconBlock::from_block(
-        block,
-        // Empty signature, which should NEVER be read. This isn't to-spec, but makes the genesis
-        // block consistent with every other block.
-        Signature::empty(),
-    ))
+    // The empty signature keeps the genesis block in the same format as other blocks.
+    Ok(SignedBeaconBlock::with_empty_signature(block))
 }
 
 // Helper function to return more useful errors when reading from the database.
@@ -1544,7 +1539,9 @@ fn build_data_columns_from_blobs<E: EthSpec>(
             build_data_column_sidecars_fulu(
                 kzg_commitments,
                 kzg_commitments_inclusion_proof,
-                block.signed_block_header(),
+                block
+                    .signed_block_header_bls()
+                    .map_err(|e| format!("Failed to build signed block header: {e:?}"))?,
                 blob_cells_and_proofs_vec,
                 spec,
             )

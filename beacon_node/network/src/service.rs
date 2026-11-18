@@ -47,7 +47,7 @@ use tracing::{Span, debug, error, info, trace, warn};
 use typenum::Unsigned;
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, PartialDataColumn,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelope, SubnetId, SyncCommitteeSubscription,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas, SubnetId, SyncCommitteeSubscription,
     SyncSubnetId, ValidatorSubscription,
 };
 
@@ -1340,7 +1340,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         &mut self,
         peer_id: PeerId,
         sync_request_id: Option<SyncRequestId>,
-        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>>,
     ) {
         let sync_request_id = match sync_request_id {
             Some(id @ SyncRequestId::SinglePayloadEnvelope { .. }) => id,
@@ -1362,7 +1362,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         &mut self,
         peer_id: PeerId,
         sync_request_id: Option<SyncRequestId>,
-        envelope: Option<Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>>,
+        envelope: Option<Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>>,
     ) {
         let sync_request_id = match sync_request_id {
             Some(id @ SyncRequestId::PayloadEnvelopesByRange { .. }) => id,

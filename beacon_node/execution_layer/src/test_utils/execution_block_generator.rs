@@ -31,8 +31,7 @@ use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
     ExecutionPayloadGloas, ExecutionPayloadHeader, ExecutionPayloadHeze, ExecutionRequests,
-    ExecutionRequestsRef, ForkName, Hash256, KzgProofs, ProgressiveTransactions, Transaction,
-    Transactions, Uint256,
+    ForkName, Hash256, KzgProofs, ProgressiveTransactions, Transaction, Transactions, Uint256,
 };
 
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
@@ -946,10 +945,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             let execution_requests = execution_requests
                 .as_ref()
                 .unwrap_or(&default_execution_requests);
-            let execution_requests_ref = match execution_requests {
-                ExecutionRequests::Electra(requests) => ExecutionRequestsRef::Electra(requests),
-                ExecutionRequests::Gloas(requests) => ExecutionRequestsRef::Gloas(requests),
-            };
+            let execution_requests_ref = execution_requests.to_ref();
             calculate_execution_block_hash(
                 execution_payload.to_ref(),
                 Some(attributes.parent_beacon_block_root),

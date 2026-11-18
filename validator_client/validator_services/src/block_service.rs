@@ -22,7 +22,7 @@ use tokio::sync::mpsc;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlock, BlobsList, BlockType, ChainSpec, EthSpec, ExecutionPayloadEnvelope, ForkName,
+    BeaconBlock, BlobsList, BlockType, ChainSpec, EthSpec, ExecutionPayloadEnvelopeGloas, ForkName,
     Graffiti, Hash256, KzgProofs, Slot, consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 use validator_store::{Error as ValidatorStoreError, SignedBlock, UnsignedBlock, ValidatorStore};
@@ -285,7 +285,7 @@ pub struct Inner<S, T> {
 
 /// The envelope, KZG proofs and blobs returned with a self-built block when `include_payload=true`.
 struct LocalPayloadContents<E: EthSpec> {
-    envelope: ExecutionPayloadEnvelope<E>,
+    envelope: ExecutionPayloadEnvelopeGloas<E>,
     kzg_proofs: KzgProofs<E>,
     blobs: BlobsList<E>,
 }
@@ -1340,7 +1340,7 @@ mod tests {
 
     /// The `include_payload=true` response for a self-built `block`, with one blob and one proof.
     fn local_contents(block: &BeaconBlock<Spec>) -> BlockAndEnvelope<Spec> {
-        let mut envelope = ExecutionPayloadEnvelope::empty();
+        let mut envelope = ExecutionPayloadEnvelopeGloas::empty();
         envelope.payload.slot_number = block.slot();
         envelope.payload.block_number = 7;
         envelope.builder_index = BUILDER_INDEX_SELF_BUILD;
@@ -1384,7 +1384,7 @@ mod tests {
         let mock_get_envelope = test_harness
             .bn1()
             .mock_get_validator_execution_payload_envelope_ssz(
-                &ExecutionPayloadEnvelope::empty(),
+                &ExecutionPayloadEnvelopeGloas::empty(),
                 slot,
                 block.canonical_root(),
             );
@@ -1484,7 +1484,7 @@ mod tests {
 
         let slot = Slot::new(1);
         let block = self_build_block(&test_harness.harness.spec);
-        let envelope = ExecutionPayloadEnvelope::empty();
+        let envelope = ExecutionPayloadEnvelopeGloas::empty();
 
         test_harness
             .harness
@@ -1971,7 +1971,7 @@ mod tests {
         // bid was won by a builder. The builder reveals the envelope, so the proposal must succeed
         // without the VC fetching or publishing one.
         let block = BeaconBlock::empty(&test_harness.harness.spec);
-        let envelope = ExecutionPayloadEnvelope::empty();
+        let envelope = ExecutionPayloadEnvelopeGloas::empty();
 
         test_harness
             .harness
@@ -2143,7 +2143,7 @@ mod tests {
 
         let slot = Slot::new(1);
         let validator_pubkey = test_harness.harness.pubkeys[0];
-        let envelope = ExecutionPayloadEnvelope::empty();
+        let envelope = ExecutionPayloadEnvelopeGloas::empty();
 
         test_harness
             .harness

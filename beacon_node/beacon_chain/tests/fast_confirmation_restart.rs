@@ -16,7 +16,7 @@ use std::sync::{Arc, LazyLock};
 use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, StoreConfig};
 use tempfile::{TempDir, tempdir};
-use types::{BeaconState, EthSpec, Hash256, SignedExecutionPayloadEnvelope, Slot, Spec};
+use types::{BeaconState, EthSpec, Hash256, SignedExecutionPayloadEnvelopeGloas, Slot, Spec};
 
 type E = Spec;
 type Harness = BeaconChainHarness<DiskHarnessType<E>>;
@@ -114,7 +114,7 @@ struct Produced {
     slot: Slot,
     root: Hash256,
     contents: SignedBlockContentsTuple<E>,
-    envelope: Option<SignedExecutionPayloadEnvelope<E>>,
+    envelope: Option<SignedExecutionPayloadEnvelopeGloas<E>>,
     post_state: BeaconState<E>,
 }
 

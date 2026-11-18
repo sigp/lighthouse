@@ -16,7 +16,7 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingOnDisk, AttesterSlashingRefOnDisk,
-    BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
+    BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashingBase,
     SignedBlsToExecutionChange, SignedVoluntaryExit,
 };
 
@@ -250,7 +250,7 @@ impl<E: EthSpec> VerifyOperation<E> for AttesterSlashing<E> {
     }
 }
 
-impl<E: EthSpec> VerifyOperation<E> for ProposerSlashing {
+impl<E: EthSpec> VerifyOperation<E> for ProposerSlashingBase {
     type Error = ProposerSlashingValidationError;
 
     fn validate(
@@ -395,7 +395,7 @@ impl<E: EthSpec> TryFrom<SigVerifiedOp<AttesterSlashing<E>, E>>
     }
 }
 
-impl TransformPersist for ProposerSlashing {
+impl TransformPersist for ProposerSlashingBase {
     type Persistable = Self;
     type PersistableRef<'a> = &'a Self;
 
@@ -461,7 +461,7 @@ mod test {
 
     #[test]
     fn proposer_slashing_roundtrip() {
-        roundtrip_test::<ProposerSlashing>();
+        roundtrip_test::<ProposerSlashingBase>();
     }
 
     #[test]

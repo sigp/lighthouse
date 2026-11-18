@@ -8,7 +8,7 @@ use state_processing::signature_sets::{
 };
 use types::{
     BeaconState, ChainSpec, EthSpec, ExecutionBlockHash, Hash256, SignedExecutionPayloadBid,
-    SignedProposerPreferences, Slot,
+    SignedProposerPreferencesGloas, Slot,
 };
 
 /// Fully validate a bid fetched directly from a builder, for inclusion in a block being produced.
@@ -41,7 +41,7 @@ pub fn verify_direct_bid<E: EthSpec>(
     parent_block_root: Hash256,
     executed_ancestor_gas_limit: u64,
     expected_builder_pubkeys: &BuilderPubkeys,
-    proposer_preferences: &SignedProposerPreferences,
+    proposer_preferences: &SignedProposerPreferencesGloas,
     state: &BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), PayloadBidError> {
@@ -131,7 +131,7 @@ mod tests {
     use types::{
         Address, Epoch, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ForkName,
         ProposerPreferences, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
-        SignedExecutionPayloadBidPq, Spec,
+        SignedExecutionPayloadBidPq, Spec, XmssSignature,
     };
 
     type E = Spec;
@@ -145,8 +145,8 @@ mod tests {
         (state, spec)
     }
 
-    fn preferences() -> SignedProposerPreferences {
-        SignedProposerPreferences {
+    fn preferences() -> SignedProposerPreferencesGloas {
+        SignedProposerPreferencesGloas {
             message: ProposerPreferences {
                 fee_recipient: Address::ZERO,
                 target_gas_limit: 30_000_000,
@@ -481,7 +481,7 @@ mod tests {
                 Hash256::ZERO,
                 Hash256::ZERO,
             ),
-            signature: Signature::empty(),
+            signature: XmssSignature::empty(),
         });
         let result = verify_direct_bid(
             &bid,

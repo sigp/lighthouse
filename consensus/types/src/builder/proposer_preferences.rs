@@ -1,9 +1,12 @@
 use crate::{Address, ChainSpec, Domain, EthSpec, Fork, ForkName, Hash256, SignedRoot, Slot};
+use crate::{ForkVersionDecode, XmssSignature};
 use bls::{PublicKey, Signature};
-use context_deserialize::context_deserialize;
+use context_deserialize::{ContextDeserialize, context_deserialize};
 use educe::Educe;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use ssz::Decode;
 use ssz_derive::{Decode, Encode};
+use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
 #[derive(Default, Debug, Clone, Serialize, Encode, Decode, Deserialize, TreeHash, Educe)]
@@ -23,17 +26,62 @@ pub struct ProposerPreferences {
 
 impl SignedRoot for ProposerPreferences {}
 
-#[derive(TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[educe(PartialEq, Hash)]
-#[context_deserialize(ForkName)]
 // https://github.com/ethereum/consensus-specs/blob/master/specs/gloas/p2p-interface.md#new-signedproposerpreferences
+#[superstruct(
+    variants(Gloas, Pq),
+    variant_attributes(
+        derive(TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe),
+        context_deserialize(ForkName),
+        cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary)),
+        educe(PartialEq, Hash),
+    )
+)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(TreeHash, Debug, Clone, Encode, Decode, Serialize, Deserialize, Educe)]
+#[educe(PartialEq, Hash)]
+#[serde(untagged)]
+#[ssz(enum_behaviour = "transparent")]
+#[tree_hash(enum_behaviour = "transparent")]
 pub struct SignedProposerPreferences {
     pub message: ProposerPreferences,
+    #[superstruct(only(Gloas))]
     pub signature: Signature,
+    #[superstruct(only(Pq), partial_getter(rename = "signature_pq"))]
+    pub signature: XmssSignature,
 }
 
-impl SignedProposerPreferences {
+impl ForkVersionDecode for SignedProposerPreferences {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork: ForkName) -> Result<Self, ssz::DecodeError> {
+        match fork {
+            ForkName::Pq => SignedProposerPreferencesPq::from_ssz_bytes(bytes).map(Self::Pq),
+            ForkName::Gloas | ForkName::Heze => {
+                SignedProposerPreferencesGloas::from_ssz_bytes(bytes).map(Self::Gloas)
+            }
+            _ => Err(ssz::DecodeError::BytesInvalid(format!(
+                "unsupported fork for SignedProposerPreferences: {fork}"
+            ))),
+        }
+    }
+}
+
+impl<'de> ContextDeserialize<'de, ForkName> for SignedProposerPreferences {
+    fn context_deserialize<D: Deserializer<'de>>(
+        deserializer: D,
+        fork: ForkName,
+    ) -> Result<Self, D::Error> {
+        match fork {
+            ForkName::Pq => SignedProposerPreferencesPq::deserialize(deserializer).map(Self::Pq),
+            ForkName::Gloas | ForkName::Heze => {
+                SignedProposerPreferencesGloas::deserialize(deserializer).map(Self::Gloas)
+            }
+            _ => Err(serde::de::Error::custom(format!(
+                "unsupported fork for SignedProposerPreferences: {fork}"
+            ))),
+        }
+    }
+}
+
+impl SignedProposerPreferencesGloas {
     pub fn empty() -> Self {
         Self {
             message: ProposerPreferences::default(),
@@ -86,4 +134,11 @@ mod tests {
         let decoded: ProposerPreferences = serde_json::from_value(value).unwrap();
         assert_eq!(decoded, preferences);
     }
+}
+
+#[cfg(test)]
+mod pq_tests {
+    use super::*;
+
+    ssz_and_tree_hash_tests!(SignedProposerPreferencesPq);
 }

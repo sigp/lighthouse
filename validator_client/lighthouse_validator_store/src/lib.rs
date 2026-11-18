@@ -22,13 +22,14 @@ use tracing::{Instrument, debug, error, info, info_span, instrument, warn};
 use types::{
     AbstractExecPayload, Address, AggregateAndProof, Attestation, AttestationData, BeaconBlock,
     BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec,
-    ExecutionPayloadEnvelope, Fork, FullPayload, Graffiti, Hash256, PayloadAttestationData,
-    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
-    SignedProposerPreferences, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
-    SingleAttestation, SingleAttestationElectra, Slot, SyncAggregatorSelectionData,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
-    ValidatorRegistrationData, VoluntaryExit, graffiti::GraffitiString,
+    ExecutionPayloadEnvelopeGloas, Fork, FullPayload, Graffiti, Hash256, PayloadAttestationData,
+    PayloadAttestationMessageGloas, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelopeGloas,
+    SignedProposerPreferencesGloas, SignedRoot, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, SingleAttestation, SingleAttestationElectra, Slot,
+    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
+    graffiti::GraffitiString,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -488,6 +489,11 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             });
         }
 
+        if block.to_ref().fork_name_unchecked() == types::ForkName::Pq {
+            return Err(Error::Middleware(
+                "Pq block signing is not implemented".into(),
+            ));
+        }
         let signing_epoch = block.epoch();
         let signing_context = self.signing_context(Domain::BeaconProposer, signing_epoch);
         let domain_hash = signing_context.domain_hash(&self.spec);
@@ -523,7 +529,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                         &self.task_executor,
                     )
                     .await?;
-                Ok(SignedBeaconBlock::from_block(block, signature))
+                SignedBeaconBlock::from_block(block, signature)
+                    .map_err(|error| Error::Middleware(format!("{error:?}")))
             }
             Ok(Safe::SameData) => {
                 warn!("Skipping signing of previously signed block");
@@ -1443,7 +1450,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         &self,
         validator_pubkey: PublicKeyBytes,
         data: PayloadAttestationData,
-    ) -> Result<PayloadAttestationMessage, Error> {
+    ) -> Result<PayloadAttestationMessageGloas, Error> {
         let signing_context =
             self.signing_context(Domain::PTCAttester, data.slot.epoch(E::slots_per_epoch()));
 
@@ -1463,20 +1470,20 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             .await
             .map_err(Error::SpecificError)?;
 
-        Ok(PayloadAttestationMessage {
+        Ok(PayloadAttestationMessageGloas {
             validator_index,
             data,
             signature,
         })
     }
 
-    /// Sign an `ExecutionPayloadEnvelope` for Gloas (local building).
+    /// Sign an `ExecutionPayloadEnvelopeGloas` for Gloas (local building).
     /// The proposer acts as the builder and signs with the BeaconBuilder domain.
     async fn sign_execution_payload_envelope(
         &self,
         validator_pubkey: PublicKeyBytes,
-        envelope: ExecutionPayloadEnvelope<E>,
-    ) -> Result<SignedExecutionPayloadEnvelope<E>, Error> {
+        envelope: ExecutionPayloadEnvelopeGloas<E>,
+    ) -> Result<SignedExecutionPayloadEnvelopeGloas<E>, Error> {
         let signing_context = self.signing_context(
             Domain::BeaconBuilder,
             envelope.slot().epoch(E::slots_per_epoch()),
@@ -1487,7 +1494,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
         let signature = signing_method
             .get_signature::<E, FullPayload<E>>(
-                SignableMessage::ExecutionPayloadEnvelope(&envelope),
+                SignableMessage::ExecutionPayloadEnvelopeGloas(&envelope),
                 signing_context,
                 &self.spec,
                 &self.task_executor,
@@ -1495,7 +1502,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             .await
             .map_err(Error::SpecificError)?;
 
-        Ok(SignedExecutionPayloadEnvelope {
+        Ok(SignedExecutionPayloadEnvelopeGloas {
             message: envelope,
             signature,
         })
@@ -1505,7 +1512,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         &self,
         validator_pubkey: PublicKeyBytes,
         preferences: ProposerPreferences,
-    ) -> Result<SignedProposerPreferences, Error> {
+    ) -> Result<SignedProposerPreferencesGloas, Error> {
         let signing_context = self.signing_context(
             Domain::ProposerPreferences,
             preferences.proposal_slot.epoch(E::slots_per_epoch()),
@@ -1523,7 +1530,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
             .await
             .map_err(Error::SpecificError)?;
 
-        Ok(SignedProposerPreferences {
+        Ok(SignedProposerPreferencesGloas {
             message: preferences,
             signature,
         })

@@ -929,8 +929,8 @@ where
         // This is an optimization. It should reduce the amount of times we run
         // `process_justification_and_finalization` by approximately 1/3rd when the chain is
         // performing optimally.
-        let has_slashings = !block.body().proposer_slashings().is_empty()
-            || block.body().attester_slashings_len() > 0;
+        let has_slashings =
+            block.body().proposer_slashings_len() != 0 || block.body().attester_slashings_len() > 0;
         let parent_checkpoints = parent_block
             .unrealized_justified_checkpoint
             .zip(parent_block.unrealized_finalized_checkpoint)

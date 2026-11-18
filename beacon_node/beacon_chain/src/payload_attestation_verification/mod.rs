@@ -1,7 +1,7 @@
-//! Provides verification for `PayloadAttestationMessage` received from the gossip network.
+//! Provides verification for `PayloadAttestationMessageGloas` received from the gossip network.
 //!
 //! ```ignore
-//!      types::PayloadAttestationMessage
+//!      types::PayloadAttestationMessageGloas
 //!              |
 //!              ▼
 //!      VerifiedPayloadAttestationMessage

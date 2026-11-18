@@ -158,12 +158,12 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
         )
         .expect("should sign attestation");
 
-    let single_attestation = SingleAttestation {
+    let single_attestation = SingleAttestation::Electra(types::SingleAttestationElectra {
         committee_index: valid_attestation.committee_index().unwrap(),
         attester_index: validator_index as u64,
         data: valid_attestation.data().clone(),
-        signature: valid_attestation.signature().clone(),
-    };
+        signature: valid_attestation.signature().unwrap().clone(),
+    });
 
     let subnet_id = SubnetId::compute_subnet_for_single_attestation::<T::EthSpec>(
         &single_attestation,
@@ -225,7 +225,8 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
         &state.fork(),
         chain.genesis_validators_root,
         &chain.spec,
-    );
+    )
+    .unwrap();
 
     (signed_aggregate, aggregator_index, aggregator_sk)
 }
@@ -320,14 +321,14 @@ impl GossipTester {
         let state = &head.beacon_state;
         let committee = state
             .get_beacon_committee(
-                valid_attestation.data.slot,
-                valid_attestation.committee_index,
+                valid_attestation.data().slot,
+                valid_attestation.committee_index(),
             )
             .unwrap();
         let fork_name = harness
             .chain
             .spec
-            .fork_name_at_slot::<E>(valid_attestation.data.slot);
+            .fork_name_at_slot::<E>(valid_attestation.data().slot);
         let valid_aggregate_attestation =
             single_attestation_to_attestation(&valid_attestation, committee.committee, fork_name)
                 .unwrap();
@@ -336,7 +337,7 @@ impl GossipTester {
             get_valid_aggregated_attestation(&harness.chain, valid_aggregate_attestation.clone());
 
         let mut invalid_attestation = valid_attestation.clone();
-        invalid_attestation.data.beacon_block_root = Hash256::repeat_byte(13);
+        invalid_attestation.data_mut().beacon_block_root = Hash256::repeat_byte(13);
 
         let (mut invalid_aggregate, _, _) =
             get_valid_aggregated_attestation(&harness.chain, valid_aggregate_attestation.clone());
@@ -350,6 +351,9 @@ impl GossipTester {
             }
             SignedAggregateAndProofRefMut::Gloas(att) => {
                 att.message.aggregator_index = att.message.aggregator_index.checked_sub(1).unwrap();
+            }
+            SignedAggregateAndProofRefMut::Pq(_) => {
+                unreachable!("Pq aggregate verification is not implemented")
             }
         }
 
@@ -377,7 +381,7 @@ impl GossipTester {
     pub fn is_gloas(&self) -> bool {
         self.harness
             .spec
-            .fork_name_at_slot::<E>(self.valid_attestation.data.slot)
+            .fork_name_at_slot::<E>(self.valid_attestation.data().slot)
             .gloas_enabled()
     }
 
@@ -599,6 +603,7 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.slot = tester.slot() + 1
                 }
+                SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
             },
             |tester, err| {
                 assert!(matches!(
@@ -629,6 +634,7 @@ async fn aggregated_gossip_verification() {
                         att.message.aggregate.data.target.epoch =
                             too_early_slot.epoch(E::slots_per_epoch());
                     }
+                    SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
                 }
             },
             |tester, err| {
@@ -663,6 +669,7 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.target.epoch += 1
                 }
+                SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
             },
             |_, err| assert!(matches!(err, AttnError::InvalidTargetEpoch { .. })),
         )
@@ -682,6 +689,7 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.target.root = Hash256::repeat_byte(42)
                 }
+                SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
             },
             |_, err| assert!(matches!(err, AttnError::InvalidTargetRoot { .. })),
         )
@@ -702,6 +710,7 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
                 }
+                SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
             },
             |_, err| {
                 assert!(matches!(
@@ -739,6 +748,7 @@ async fn aggregated_gossip_verification() {
                     assert!(aggregation_bits.is_zero());
                     att.message.aggregate.signature = AggregateSignature::infinity()
                 }
+                SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
             },
             |_, err| assert!(matches!(err, AttnError::EmptyAggregationBitfield)),
         )
@@ -759,6 +769,7 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.signature = tester.aggregator_sk.sign(Hash256::repeat_byte(42))
                 }
+                SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
             },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
         )
@@ -832,6 +843,7 @@ async fn aggregated_gossip_verification() {
                             }
                         };
                     }
+                    SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
                 }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
@@ -856,6 +868,7 @@ async fn aggregated_gossip_verification() {
                     SignedAggregateAndProofRefMut::Gloas(att) => {
                         att.message.aggregate.signature = agg_sig;
                     }
+                    SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
                 }
             },
             |_, err| assert!(matches!(err, AttnError::InvalidSignature)),
@@ -878,6 +891,7 @@ async fn aggregated_gossip_verification() {
                     att.message.aggregator_index =
                         <E as EthSpec>::ValidatorRegistryLimit::to_u64() + 1
                 }
+                SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
             },
             |_, err| {
                 assert!(matches!(
@@ -906,6 +920,7 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregator_index = VALIDATOR_COUNT as u64
                 }
+                SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
             },
             |_, err| {
                 assert!(matches!(
@@ -942,7 +957,7 @@ async fn aggregated_gossip_verification() {
                     &chain.canonical_head.cached_head().head_fork(),
                     chain.genesis_validators_root,
                     &chain.spec,
-                )
+                ).unwrap()
             },
             |tester, err| {
                 let (val_index, _) = tester.non_aggregator();
@@ -971,6 +986,7 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.index = 2;
                 }
+                SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
             },
             |_, err| {
                 assert!(
@@ -1024,6 +1040,7 @@ async fn aggregated_gossip_verification() {
                 SignedAggregateAndProofRefMut::Gloas(att) => {
                     att.message.aggregate.data.beacon_block_root = Hash256::repeat_byte(42)
                 }
+                SignedAggregateAndProofRefMut::Pq(_) => unreachable!("Pq aggregate verification is not implemented"),
             },
             |tester, err| {
                 assert!(matches!(
@@ -1095,10 +1112,10 @@ async fn unaggregated_gossip_verification() {
                     .chain
                     .head_snapshot()
                     .beacon_state
-                    .get_committee_count_at_slot(a.data.slot)
+                    .get_committee_count_at_slot(a.data().slot)
                     .unwrap();
 
-                a.committee_index = committee_index;
+                *a.committee_index_mut() = committee_index;
             },
             |_, err| {
                 assert!(matches!(err, AttnError::NoCommitteeForSlotAndIndex { .. }))
@@ -1134,7 +1151,7 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation from future slot",
-            |tester, a, _, _| a.data.slot = tester.slot() + 1,
+            |tester, a, _, _| a.data_mut().slot = tester.slot() + 1,
             |tester, err| {
                 assert!(matches!(
                     err,
@@ -1150,8 +1167,8 @@ async fn unaggregated_gossip_verification() {
             "attestation from past slot",
             |tester, a, _, _| {
                 let too_early_slot = tester.earliest_valid_attestation_slot() - 1;
-                a.data.slot = too_early_slot;
-                a.data.target.epoch = too_early_slot.epoch(E::slots_per_epoch());
+                a.data_mut().slot = too_early_slot;
+                a.data_mut().target.epoch = too_early_slot.epoch(E::slots_per_epoch());
             },
             |tester, err| {
                 let valid_early_slot = tester.earliest_valid_attestation_slot();
@@ -1175,7 +1192,7 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation with invalid target epoch",
-            |_, a, _, _| a.data.target.epoch += 1,
+            |_, a, _, _| a.data_mut().target.epoch += 1,
             |_, err| {
                 assert!(matches!(
                     err,
@@ -1191,7 +1208,7 @@ async fn unaggregated_gossip_verification() {
         .inspect_unaggregate_err(
             "attestation with unknown head block",
             |_, a, _, _| {
-                a.data.beacon_block_root = Hash256::repeat_byte(42);
+                a.data_mut().beacon_block_root = Hash256::repeat_byte(42);
             },
             |_, err| {
                 assert!(matches!(
@@ -1213,7 +1230,7 @@ async fn unaggregated_gossip_verification() {
         .inspect_unaggregate_err(
             "attestation with invalid target root",
             |_, a, _, _| {
-                a.data.target.root = Hash256::repeat_byte(42);
+                a.data_mut().target.root = Hash256::repeat_byte(42);
             },
             |_, err| {
                 assert!(matches!(
@@ -1232,7 +1249,7 @@ async fn unaggregated_gossip_verification() {
             |tester, a, _, _| {
                 let mut agg_sig = AggregateSignature::infinity();
                 agg_sig.add_assign(&tester.attester_sk.sign(Hash256::repeat_byte(42)));
-                a.signature = agg_sig;
+                *a.signature_mut().unwrap() = agg_sig;
             },
             |_, err| {
                 assert!(matches!(
@@ -1247,7 +1264,7 @@ async fn unaggregated_gossip_verification() {
         .inspect_unaggregate_err_if_gloas(
             "gloas: attestation with index >= 2",
             |_, a, _, _| {
-                a.data.index = 2;
+                a.data_mut().index = 2;
             },
             |_, err| {
                 assert!(
@@ -1277,7 +1294,7 @@ async fn unaggregated_gossip_verification() {
                         validator_index,
                         epoch,
                     }
-                    if validator_index == tester.valid_attestation.attester_index && epoch == tester.epoch()
+                    if validator_index == tester.valid_attestation.attester_index() && epoch == tester.epoch()
                 ))
             },
         );
@@ -1345,7 +1362,7 @@ async fn attestation_that_skips_epochs() {
         .cloned()
         .expect("should have at least one attestation in committee");
 
-    let block_root = attestation.data.beacon_block_root;
+    let block_root = attestation.data().beacon_block_root;
     let block_slot = harness
         .chain
         .store
@@ -1356,7 +1373,7 @@ async fn attestation_that_skips_epochs() {
         .slot();
 
     assert!(
-        attestation.data.slot - block_slot > E::slots_per_epoch() * 2,
+        attestation.data().slot - block_slot > E::slots_per_epoch() * 2,
         "the attestation must skip more than two epochs"
     );
 
@@ -1544,7 +1561,7 @@ async fn attestation_to_finalized_block() {
         .first()
         .cloned()
         .expect("should have at least one attestation in committee");
-    assert_eq!(attestation.data.beacon_block_root, earlier_block_root);
+    assert_eq!(attestation.data().beacon_block_root, earlier_block_root);
 
     // Attestation should be rejected for attesting to a pre-finalization block.
     let res = harness
@@ -1595,14 +1612,14 @@ async fn verify_aggregate_for_gossip_doppelganger_detection() {
     let state = &head.beacon_state;
     let committee = state
         .get_beacon_committee(
-            valid_attestation.data.slot,
-            valid_attestation.committee_index,
+            valid_attestation.data().slot,
+            valid_attestation.committee_index(),
         )
         .unwrap();
     let fork_name = harness
         .chain
         .spec
-        .fork_name_at_slot::<E>(valid_attestation.data.slot);
+        .fork_name_at_slot::<E>(valid_attestation.data().slot);
     let valid_attestation =
         single_attestation_to_attestation(&valid_attestation, committee.committee, fork_name)
             .unwrap();
@@ -1671,14 +1688,14 @@ async fn verify_attestation_for_gossip_doppelganger_detection() {
 
     let (valid_attestation, _, subnet_id) = get_valid_unaggregated_attestation(&harness.chain);
 
-    let index = valid_attestation.attester_index as usize;
+    let index = valid_attestation.attester_index() as usize;
 
     harness
         .chain
         .verify_unaggregated_attestation_for_gossip(&valid_attestation, Some(subnet_id))
         .expect("should verify attestation");
 
-    let epoch = valid_attestation.data.target.epoch;
+    let epoch = valid_attestation.data().target.epoch;
     assert!(harness.chain.validator_seen_at_epoch(index, epoch));
 
     // Check the correct beacon cache is populated
@@ -1971,16 +1988,17 @@ async fn gloas_unaggregated_attestation_same_slot_index_must_be_zero() {
         .chain
         .canonical_head
         .fork_choice_read_lock()
-        .get_block(&attestation.data.beacon_block_root)
+        .get_block(&attestation.data().beacon_block_root)
         .expect("block should exist")
         .slot;
     assert_eq!(
-        attested_block_slot, attestation.data.slot,
+        attested_block_slot,
+        attestation.data().slot,
         "attested block slot should equal attestation slot for same-slot test"
     );
 
     // index == 1 should be rejected when head_block.slot == attestation.data.slot
-    attestation.data.index = 1;
+    attestation.data_mut().index = 1;
     let result = harness
         .chain
         .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
@@ -2048,22 +2066,23 @@ async fn gloas_aggregated_attestation_same_slot_index_must_be_zero() {
         .chain
         .canonical_head
         .fork_choice_read_lock()
-        .get_block(&valid_attestation.data.beacon_block_root)
+        .get_block(&valid_attestation.data().beacon_block_root)
         .expect("block should exist")
         .slot;
     assert_eq!(
-        attested_block_slot, valid_attestation.data.slot,
+        attested_block_slot,
+        valid_attestation.data().slot,
         "attested block slot should equal attestation slot for same-slot test"
     );
 
     // Convert to aggregate
     let committee = head
         .beacon_state
-        .get_beacon_committee(current_slot, valid_attestation.committee_index)
+        .get_beacon_committee(current_slot, valid_attestation.committee_index())
         .expect("should get committee");
     let fork_name = harness
         .spec
-        .fork_name_at_slot::<E>(valid_attestation.data.slot);
+        .fork_name_at_slot::<E>(valid_attestation.data().slot);
     let aggregate_attestation =
         single_attestation_to_attestation(&valid_attestation, committee.committee, fork_name)
             .unwrap();
@@ -2081,6 +2100,9 @@ async fn gloas_aggregated_attestation_same_slot_index_must_be_zero() {
         }
         SignedAggregateAndProofRefMut::Gloas(att) => {
             att.message.aggregate.data.index = 1;
+        }
+        SignedAggregateAndProofRefMut::Pq(_) => {
+            unreachable!("Pq aggregate verification is not implemented")
         }
     }
 
@@ -2154,10 +2176,11 @@ async fn gloas_unaggregated_attestation_unknown_payload_envelope() {
     let (mut attestation, _attester_sk, subnet_id) =
         get_valid_unaggregated_attestation(&harness.chain);
     assert_eq!(
-        attestation.data.beacon_block_root, block_root,
+        attestation.data().beacon_block_root,
+        block_root,
         "attestation should be for the payload-less head block"
     );
-    attestation.data.index = 1;
+    attestation.data_mut().index = 1;
 
     let result = harness
         .chain
@@ -2225,16 +2248,17 @@ async fn gloas_aggregated_attestation_unknown_payload_envelope() {
     // sufficient to exercise the arm.
     let (valid_attestation, _, _) = get_valid_unaggregated_attestation(&harness.chain);
     assert_eq!(
-        valid_attestation.data.beacon_block_root, block_root,
+        valid_attestation.data().beacon_block_root,
+        block_root,
         "attestation should be for the payload-less head block"
     );
     let committee = head
         .beacon_state
-        .get_beacon_committee(current_slot, valid_attestation.committee_index)
+        .get_beacon_committee(current_slot, valid_attestation.committee_index())
         .expect("should get committee");
     let fork_name = harness
         .spec
-        .fork_name_at_slot::<E>(valid_attestation.data.slot);
+        .fork_name_at_slot::<E>(valid_attestation.data().slot);
     let aggregate_attestation =
         single_attestation_to_attestation(&valid_attestation, committee.committee, fork_name)
             .unwrap();
@@ -2250,6 +2274,9 @@ async fn gloas_aggregated_attestation_unknown_payload_envelope() {
         }
         SignedAggregateAndProofRefMut::Gloas(att) => {
             att.message.aggregate.data.index = 1;
+        }
+        SignedAggregateAndProofRefMut::Pq(_) => {
+            unreachable!("Pq aggregate verification is not implemented")
         }
     }
 
@@ -2299,7 +2326,7 @@ async fn unaggregated_attestation_bogus_attester_index_not_sent_to_slasher() {
 
     // Build a valid SingleAttestation, then replace the attester_index with a huge value.
     let (mut bogus_attestation, _, _) = get_valid_unaggregated_attestation(&harness.chain);
-    bogus_attestation.attester_index = 1 << 40; // ~2^40, would OOM the slasher
+    *bogus_attestation.attester_index_mut() = 1 << 40; // ~2^40, would OOM the slasher
 
     // Drain any attestations already queued from block production.
     slasher

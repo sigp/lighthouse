@@ -16,7 +16,8 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     block::{
-        BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlock, SignedBeaconBlockHeader,
+        BLOB_KZG_COMMITMENTS_INDEX, BeaconBlockHeader, SignedBeaconBlock,
+        SignedBeaconBlockHeaderBase,
     },
     complete_kzg_commitment_merkle_proof,
     core::{ChainSpec, Epoch, EthSpec, Hash256, Slot},
@@ -64,7 +65,7 @@ pub struct BlobSidecar<E: EthSpec> {
     pub blob: Blob<E>,
     pub kzg_commitment: KzgCommitment,
     pub kzg_proof: KzgProof,
-    pub signed_block_header: SignedBeaconBlockHeader,
+    pub signed_block_header: SignedBeaconBlockHeaderBase,
     pub kzg_commitment_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentInclusionProofDepth>,
 }
 
@@ -133,7 +134,7 @@ impl<E: EthSpec> BlobSidecar<E> {
             blob,
             kzg_commitment,
             kzg_proof,
-            signed_block_header: signed_block.signed_block_header(),
+            signed_block_header: signed_block.signed_block_header_bls()?,
             kzg_commitment_inclusion_proof,
         })
     }
@@ -201,7 +202,7 @@ impl<E: EthSpec> BlobSidecar<E> {
             blob: Blob::<E>::default(),
             kzg_commitment: KzgCommitment::empty_for_testing(),
             kzg_proof: KzgProof::empty(),
-            signed_block_header: SignedBeaconBlockHeader {
+            signed_block_header: SignedBeaconBlockHeaderBase {
                 message: BeaconBlockHeader::empty(),
                 signature: Signature::empty(),
             },

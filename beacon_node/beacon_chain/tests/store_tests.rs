@@ -919,7 +919,7 @@ async fn epoch_boundary_state_attestation_processing() {
 
     for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
-        let block_root = attestation.data.beacon_block_root;
+        let block_root = attestation.data().beacon_block_root;
         let block = store
             .get_blinded_block(&block_root)
             .unwrap()
@@ -946,7 +946,7 @@ async fn epoch_boundary_state_attestation_processing() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data.slot;
+        let expected_attestation_slot = attestation.data().slot;
         // Extra -1 to handle gossip clock disparity.
         let expected_earliest_permissible_slot = current_slot - E::slots_per_epoch() - 1;
 
@@ -2160,11 +2160,11 @@ async fn proposer_lookahead_excludes_slashed_proposer_only_after_first_two_gloas
 #[tokio::test]
 async fn heze_block_production_across_boundary() {
     let gloas_fork_epoch = Epoch::new(1);
-    let pq_fork_epoch = Epoch::new(2);
-    let heze_fork_epoch = Epoch::new(3);
+    let heze_fork_epoch = Epoch::new(2);
     let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
     spec.gloas_fork_epoch = Some(gloas_fork_epoch);
-    spec.pq_fork_epoch = Some(pq_fork_epoch);
+    // Heze takes precedence over Pq at their shared activation epoch.
+    spec.pq_fork_epoch = Some(heze_fork_epoch);
     spec.heze_fork_epoch = Some(heze_fork_epoch);
 
     let db_path = tempdir().unwrap();
@@ -4105,12 +4105,16 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
     // Mutate the block to make it invalid, and re-sign it.
     *block.state_root_mut() = Hash256::repeat_byte(0xff);
     let proposer_index = block.proposer_index() as usize;
-    let block = Arc::new(block.sign(
-        &harness.validator_keypairs[proposer_index].sk,
-        &state.fork(),
-        state.genesis_validators_root(),
-        &harness.spec,
-    ));
+    let block = Arc::new(
+        block
+            .sign(
+                &harness.validator_keypairs[proposer_index].sk,
+                &state.fork(),
+                state.genesis_validators_root(),
+                &harness.spec,
+            )
+            .unwrap(),
+    );
 
     // The block should be rejected, but should store a bunch of temporary states.
     harness.set_current_slot(block_slot);
@@ -4854,7 +4858,7 @@ async fn weak_subjectivity_sync_test(
             RangeSyncBlock::Base(first_block) => {
                 let (block_root, block, data) = first_block.deconstruct();
                 let mut corrupt_block = (*block).clone();
-                *corrupt_block.signature_mut() = Signature::empty();
+                *corrupt_block.signature_mut().unwrap() = Signature::empty();
                 RangeSyncBlock::Base(
                     AvailableBlock::new(
                         block_root,
@@ -4871,7 +4875,7 @@ async fn weak_subjectivity_sync_test(
                 envelope,
             } => {
                 let mut corrupt_block = (*block).clone();
-                *corrupt_block.signature_mut() = Signature::empty();
+                *corrupt_block.signature_mut().unwrap() = Signature::empty();
                 RangeSyncBlock::Gloas {
                     block_root,
                     block: Arc::new(corrupt_block),
@@ -6128,8 +6132,8 @@ async fn payload_envelope_storage_body_encoding() {
             ..Default::default()
         },
     ] {
-        let envelope = SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
+        let envelope = SignedExecutionPayloadEnvelopeGloas {
+            message: ExecutionPayloadEnvelopeGloas {
                 payload,
                 execution_requests: Default::default(),
                 builder_index: 42,
@@ -6158,8 +6162,8 @@ async fn payload_envelope_schema_v31_migration() {
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), test_spec::<E>());
     let block_root = Hash256::repeat_byte(0x11);
-    let envelope = SignedExecutionPayloadEnvelope {
-        message: ExecutionPayloadEnvelope {
+    let envelope = SignedExecutionPayloadEnvelopeGloas {
+        message: ExecutionPayloadEnvelopeGloas {
             payload: ExecutionPayloadGloas {
                 block_hash: ExecutionBlockHash::repeat_byte(0x22),
                 ..Default::default()
@@ -6340,8 +6344,8 @@ fn check_payload_envelope_schema_v31_migration_pruning(prune_payloads: bool) {
     let split_slot = Slot::new(8);
     store.set_split(split_slot, Hash256::zero(), Hash256::zero());
 
-    let envelopes = [0, 7, 8, 9].map(|slot| SignedExecutionPayloadEnvelope {
-        message: ExecutionPayloadEnvelope {
+    let envelopes = [0, 7, 8, 9].map(|slot| SignedExecutionPayloadEnvelopeGloas {
+        message: ExecutionPayloadEnvelopeGloas {
             payload: ExecutionPayloadGloas {
                 slot_number: Slot::new(slot),
                 block_hash: ExecutionBlockHash::from_root(Hash256::from_low_u64_be(slot + 1)),

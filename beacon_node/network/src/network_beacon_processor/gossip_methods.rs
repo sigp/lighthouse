@@ -54,11 +54,11 @@ use tracing::{Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, ColumnIndex, DataColumnSidecar,
     DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, PartialDataColumn, PayloadAttestationMessage, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
-    SignedInclusionList, SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, Slot,
-    SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource, data::CellBitmap,
+    LightClientOptimisticUpdate, PartialDataColumn, PayloadAttestationMessageGloas,
+    ProposerSlashingBase, SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelopeGloas,
+    SignedInclusionList, SignedProposerPreferencesGloas, SignedVoluntaryExit, SingleAttestation,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, block::BlockImportSource, data::CellBitmap,
     execution::SignedExecutionProofEnvelope,
 };
 
@@ -2122,7 +2122,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        proposer_slashing: ProposerSlashing,
+        proposer_slashing: ProposerSlashingBase,
     ) -> MessageAcceptance {
         let validator_index = proposer_slashing.signed_header_1.message.proposer_index;
 
@@ -3802,7 +3802,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        envelope: Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
         seen_timestamp: Duration,
     ) {
         if let Some(gossip_verified_envelope) = self
@@ -3834,7 +3834,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        envelope: Arc<SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        envelope: Arc<SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedEnvelope<T>> {
         let envelope_delay =
@@ -4330,7 +4330,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        proposer_preferences: Arc<SignedProposerPreferences>,
+        proposer_preferences: Arc<SignedProposerPreferencesGloas>,
     ) {
         let verification_result = self
             .chain
@@ -4448,7 +4448,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        payload_attestation_message: Box<PayloadAttestationMessage>,
+        payload_attestation_message: Box<PayloadAttestationMessageGloas>,
         reprocess_allowance: ReprocessAllowance,
     ) {
         // Clone the message for verification, retaining the original so that it can be
@@ -4471,7 +4471,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         result: Result<VerifiedPayloadAttestationMessage<T>, PayloadAttestationError>,
         message_id: MessageId,
         peer_id: PeerId,
-        payload_attestation_message: Box<PayloadAttestationMessage>,
+        payload_attestation_message: Box<PayloadAttestationMessageGloas>,
         reprocess_allowance: ReprocessAllowance,
     ) {
         match result {
@@ -4525,7 +4525,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         message_id: MessageId,
         error: PayloadAttestationError,
-        payload_attestation_message: Box<PayloadAttestationMessage>,
+        payload_attestation_message: Box<PayloadAttestationMessageGloas>,
         reprocess_allowance: ReprocessAllowance,
     ) {
         let message_slot = payload_attestation_message.data.slot;

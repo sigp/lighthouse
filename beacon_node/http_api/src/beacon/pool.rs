@@ -28,8 +28,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
 use types::{
-    Attestation, AttestationData, AttesterSlashing, ForkName, PayloadAttestationMessage,
-    ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit, SingleAttestation,
+    Attestation, AttestationData, AttesterSlashing, ForkName, PayloadAttestationMessageGloas,
+    ProposerSlashingBase, SignedBlsToExecutionChange, SignedVoluntaryExit, SingleAttestation,
     SyncCommitteeMessage,
 };
 use warp::filters::BoxedFilter;
@@ -288,7 +288,7 @@ pub fn post_beacon_pool_proposer_slashings<T: BeaconChainTypes>(
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             slashing: ProposerSlashing,
+             slashing: ProposerSlashingBase,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let outcome = chain
@@ -633,7 +633,7 @@ pub fn post_beacon_pool_payload_attestations<T: BeaconChainTypes>(
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             messages: Vec<PayloadAttestationMessage>,
+             messages: Vec<PayloadAttestationMessageGloas>,
              _fork_name: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
@@ -666,18 +666,18 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
-                    let item_len = <PayloadAttestationMessage as Encode>::ssz_fixed_len();
+                    let item_len = <PayloadAttestationMessageGloas as Encode>::ssz_fixed_len();
                     if !body_bytes.len().is_multiple_of(item_len) {
                         return Err(warp_utils::reject::custom_bad_request(format!(
-                            "SSZ body length {} is not a multiple of PayloadAttestationMessage size {}",
+                            "SSZ body length {} is not a multiple of PayloadAttestationMessageGloas size {}",
                             body_bytes.len(),
                             item_len,
                         )));
                     }
-                    let messages: Vec<PayloadAttestationMessage> = body_bytes
+                    let messages: Vec<PayloadAttestationMessageGloas> = body_bytes
                         .chunks(item_len)
                         .map(|chunk| {
-                            PayloadAttestationMessage::from_ssz_bytes(chunk).map_err(|e| {
+                            PayloadAttestationMessageGloas::from_ssz_bytes(chunk).map_err(|e| {
                                 warp_utils::reject::custom_bad_request(format!(
                                     "invalid SSZ: {e:?}"
                                 ))
@@ -695,7 +695,7 @@ pub fn post_beacon_pool_payload_attestations_ssz<T: BeaconChainTypes>(
 fn publish_payload_attestation_messages<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    messages: Vec<PayloadAttestationMessage>,
+    messages: Vec<PayloadAttestationMessageGloas>,
 ) -> Result<(), warp::Rejection> {
     let mut failures = vec![];
     let mut num_already_known = 0;

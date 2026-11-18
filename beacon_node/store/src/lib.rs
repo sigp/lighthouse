@@ -229,7 +229,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     PutState(Hash256, &'a BeaconState<E>),
     PutBlobs(Hash256, BlobSidecarList<E>),
     PutDataColumns(Hash256, DataColumnSidecarList<E>),
-    PutPayloadEnvelope(Hash256, Arc<SignedExecutionPayloadEnvelope<E>>),
+    PutPayloadEnvelope(Hash256, Arc<SignedExecutionPayloadEnvelopeGloas<E>>),
     PutStateSummary(Hash256, HotStateSummary),
     DeleteBlock(Hash256),
     DeleteBlobs(Hash256),
@@ -312,7 +312,7 @@ pub enum DBColumn {
     #[strum(serialize = "pay")]
     PayloadBody,
     /// Reduced information database object `SignedExecutionPayloadEnvelopeSummary` mapped to
-    /// `SignedExecutionPayloadEnvelope`.
+    /// `SignedExecutionPayloadEnvelopeGloas`.
     #[strum(serialize = "pys")]
     PayloadSummary,
     /// For persisting in-memory state to the database.
@@ -572,8 +572,8 @@ mod tests {
         let block_root = Hash256::repeat_byte(0x11);
         let payload_hash = ExecutionBlockHash::repeat_byte(0x22);
         let slot = Slot::new(42);
-        let envelope = SignedExecutionPayloadEnvelope {
-            message: ExecutionPayloadEnvelope {
+        let envelope = SignedExecutionPayloadEnvelopeGloas {
+            message: ExecutionPayloadEnvelopeGloas {
                 payload: ExecutionPayloadGloas {
                     block_hash: payload_hash,
                     slot_number: slot,

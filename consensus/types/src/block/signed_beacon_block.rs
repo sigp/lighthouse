@@ -5,6 +5,7 @@ use context_deserialize::ContextDeserialize;
 use educe::Educe;
 use merkle_proof::MerkleTree;
 use serde::{Deserialize, Deserializer, Serialize};
+use ssz::Decode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::FixedVector;
 use superstruct::superstruct;
@@ -20,6 +21,7 @@ use crate::{
         BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconBlockCapella,
         BeaconBlockDeneb, BeaconBlockElectra, BeaconBlockFulu, BeaconBlockGloas, BeaconBlockHeader,
         BeaconBlockHeze, BeaconBlockPq, BeaconBlockRef, BeaconBlockRefMut, SignedBeaconBlockHeader,
+        SignedBeaconBlockHeaderBase, SignedBeaconBlockHeaderPq,
     },
     core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, SignedRoot, SigningData, Slot},
     execution::{
@@ -31,8 +33,12 @@ use crate::{
     },
     fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     kzg_ext::format_kzg_commitments,
+    pq::XmssSignature,
     state::BeaconStateError,
 };
+
+const XMSS_SIGNED_BLOCK_FIXED_LEN: usize =
+    ssz::BYTES_PER_LENGTH_OFFSET.saturating_add(xmss::XMSS_SIGNATURE_BYTES_LEN);
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
@@ -86,7 +92,11 @@ impl From<SignedBeaconBlockHash> for Hash256 {
     ),
     map_into(BeaconBlock),
     map_ref_into(BeaconBlockRef),
-    map_ref_mut_into(BeaconBlockRefMut)
+    map_ref_mut_into(BeaconBlockRefMut),
+    partial_getter_error(
+        ty = "BeaconStateError",
+        expr = "BeaconStateError::IncorrectStateVariant"
+    )
 )]
 #[cfg_attr(
     feature = "arbitrary",
@@ -120,7 +130,28 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub message: BeaconBlockPq<E, Payload>,
     #[superstruct(only(Heze), partial_getter(rename = "message_heze"))]
     pub message: BeaconBlockHeze<E, Payload>,
+    #[superstruct(only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
     pub signature: Signature,
+    #[superstruct(only(Pq), partial_getter(rename = "signature_pq"))]
+    pub signature: XmssSignature,
+}
+
+/// A block signature paired with its scheme until the block fork has been selected.
+pub enum BlockSignature {
+    Bls(Signature),
+    Xmss(Box<XmssSignature>),
+}
+
+impl From<Signature> for BlockSignature {
+    fn from(signature: Signature) -> Self {
+        Self::Bls(signature)
+    }
+}
+
+impl From<XmssSignature> for BlockSignature {
+    fn from(signature: XmssSignature) -> Self {
+        Self::Xmss(Box::new(signature))
+    }
 }
 
 impl<E: EthSpec, Payload: AbstractExecPayload<E>> ForkVersionDecode
@@ -158,7 +189,11 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
 
     /// SSZ decode which attempts to decode all variants (slow).
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes_with(bytes, BeaconBlock::any_from_ssz_bytes)
+        if ssz::read_offset(bytes)? == XMSS_SIGNED_BLOCK_FIXED_LEN {
+            SignedBeaconBlockPq::from_ssz_bytes(bytes).map(Self::Pq)
+        } else {
+            Self::from_ssz_bytes_with(bytes, BeaconBlock::any_from_ssz_bytes)
+        }
     }
 
     /// SSZ decode with custom decode function.
@@ -166,65 +201,133 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         bytes: &[u8],
         block_decoder: impl FnOnce(&[u8]) -> Result<BeaconBlock<E, Payload>, ssz::DecodeError>,
     ) -> Result<Self, ssz::DecodeError> {
-        // We need the customer decoder for `BeaconBlock`, which doesn't compose with the other
-        // SSZ utils, so we duplicate some parts of `ssz_derive` here.
+        // The first offset is the size of the fixed part, which contains the offset itself and
+        // the fork-specific signature. The decoded block must use the corresponding scheme.
+        let offset = ssz::read_offset(bytes)?;
+        let is_xmss = offset == XMSS_SIGNED_BLOCK_FIXED_LEN;
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
-
         builder.register_anonymous_variable_length_item()?;
-        builder.register_type::<Signature>()?;
+        if is_xmss {
+            builder.register_type::<XmssSignature>()?;
+        } else {
+            builder.register_type::<Signature>()?;
+        }
 
         let mut decoder = builder.build()?;
-
-        // Read the first item as a `BeaconBlock`.
         let message = decoder.decode_next_with(block_decoder)?;
-        let signature = decoder.decode_next()?;
+        let signature = if is_xmss {
+            BlockSignature::from(decoder.decode_next::<XmssSignature>()?)
+        } else {
+            BlockSignature::from(decoder.decode_next::<Signature>()?)
+        };
 
-        Ok(Self::from_block(message, signature))
+        Self::from_block(message, signature)
+            .map_err(|error| ssz::DecodeError::BytesInvalid(format!("{error:?}")))
     }
 
-    /// Create a new `SignedBeaconBlock` from a `BeaconBlock` and `Signature`.
-    pub fn from_block(block: BeaconBlock<E, Payload>, signature: Signature) -> Self {
+    /// Pair a block with a signature whose scheme matches the block's fork.
+    pub fn from_block(
+        block: BeaconBlock<E, Payload>,
+        signature: impl Into<BlockSignature>,
+    ) -> Result<Self, BeaconStateError> {
+        use BlockSignature::{Bls, Xmss};
+
+        let signed_block = match (block, signature.into()) {
+            (BeaconBlock::Base(message), Bls(signature)) => {
+                Self::Base(SignedBeaconBlockBase { message, signature })
+            }
+            (BeaconBlock::Altair(message), Bls(signature)) => {
+                Self::Altair(SignedBeaconBlockAltair { message, signature })
+            }
+            (BeaconBlock::Bellatrix(message), Bls(signature)) => {
+                Self::Bellatrix(SignedBeaconBlockBellatrix { message, signature })
+            }
+            (BeaconBlock::Capella(message), Bls(signature)) => {
+                Self::Capella(SignedBeaconBlockCapella { message, signature })
+            }
+            (BeaconBlock::Deneb(message), Bls(signature)) => {
+                Self::Deneb(SignedBeaconBlockDeneb { message, signature })
+            }
+            (BeaconBlock::Electra(message), Bls(signature)) => {
+                Self::Electra(SignedBeaconBlockElectra { message, signature })
+            }
+            (BeaconBlock::Fulu(message), Bls(signature)) => {
+                Self::Fulu(SignedBeaconBlockFulu { message, signature })
+            }
+            (BeaconBlock::Gloas(message), Bls(signature)) => {
+                Self::Gloas(SignedBeaconBlockGloas { message, signature })
+            }
+            (BeaconBlock::Heze(message), Bls(signature)) => {
+                Self::Heze(SignedBeaconBlockHeze { message, signature })
+            }
+            (BeaconBlock::Pq(message), Xmss(signature)) => Self::Pq(SignedBeaconBlockPq {
+                message,
+                signature: *signature,
+            }),
+            (BeaconBlock::Pq(_), Bls(_)) => {
+                return Err(BeaconStateError::PqUnsupported(
+                    "BLS signature on a Pq block",
+                ));
+            }
+            (_, Xmss(_)) => {
+                return Err(BeaconStateError::PqUnsupported(
+                    "XMSS signature on a BLS block",
+                ));
+            }
+        };
+        Ok(signed_block)
+    }
+
+    /// Create a block with an empty signature of the correct scheme, as used at genesis.
+    pub fn with_empty_signature(block: BeaconBlock<E, Payload>) -> Self {
         match block {
-            BeaconBlock::Base(message) => {
-                SignedBeaconBlock::Base(SignedBeaconBlockBase { message, signature })
-            }
-            BeaconBlock::Altair(message) => {
-                SignedBeaconBlock::Altair(SignedBeaconBlockAltair { message, signature })
-            }
-            BeaconBlock::Bellatrix(message) => {
-                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix { message, signature })
-            }
-            BeaconBlock::Capella(message) => {
-                SignedBeaconBlock::Capella(SignedBeaconBlockCapella { message, signature })
-            }
-            BeaconBlock::Deneb(message) => {
-                SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb { message, signature })
-            }
-            BeaconBlock::Electra(message) => {
-                SignedBeaconBlock::Electra(SignedBeaconBlockElectra { message, signature })
-            }
-            BeaconBlock::Fulu(message) => {
-                SignedBeaconBlock::Fulu(SignedBeaconBlockFulu { message, signature })
-            }
-            BeaconBlock::Gloas(message) => {
-                SignedBeaconBlock::Gloas(SignedBeaconBlockGloas { message, signature })
-            }
-            BeaconBlock::Pq(message) => {
-                SignedBeaconBlock::Pq(SignedBeaconBlockPq { message, signature })
-            }
-            BeaconBlock::Heze(message) => {
-                SignedBeaconBlock::Heze(SignedBeaconBlockHeze { message, signature })
-            }
+            BeaconBlock::Base(message) => Self::Base(SignedBeaconBlockBase {
+                message,
+                signature: Signature::empty(),
+            }),
+            BeaconBlock::Altair(message) => Self::Altair(SignedBeaconBlockAltair {
+                message,
+                signature: Signature::empty(),
+            }),
+            BeaconBlock::Bellatrix(message) => Self::Bellatrix(SignedBeaconBlockBellatrix {
+                message,
+                signature: Signature::empty(),
+            }),
+            BeaconBlock::Capella(message) => Self::Capella(SignedBeaconBlockCapella {
+                message,
+                signature: Signature::empty(),
+            }),
+            BeaconBlock::Deneb(message) => Self::Deneb(SignedBeaconBlockDeneb {
+                message,
+                signature: Signature::empty(),
+            }),
+            BeaconBlock::Electra(message) => Self::Electra(SignedBeaconBlockElectra {
+                message,
+                signature: Signature::empty(),
+            }),
+            BeaconBlock::Fulu(message) => Self::Fulu(SignedBeaconBlockFulu {
+                message,
+                signature: Signature::empty(),
+            }),
+            BeaconBlock::Gloas(message) => Self::Gloas(SignedBeaconBlockGloas {
+                message,
+                signature: Signature::empty(),
+            }),
+            BeaconBlock::Pq(message) => Self::Pq(SignedBeaconBlockPq {
+                message,
+                signature: XmssSignature::empty(),
+            }),
+            BeaconBlock::Heze(message) => Self::Heze(SignedBeaconBlockHeze {
+                message,
+                signature: Signature::empty(),
+            }),
         }
     }
 
-    /// Deconstruct the `SignedBeaconBlock` into a `BeaconBlock` and `Signature`.
-    ///
-    /// This is necessary to get a `&BeaconBlock` from a `SignedBeaconBlock` because
-    /// `SignedBeaconBlock` only contains a `BeaconBlock` _variant_.
-    pub fn deconstruct(self) -> (BeaconBlock<E, Payload>, Signature) {
+    /// Recover the block message and its signature.
+    pub fn deconstruct(self) -> (BeaconBlock<E, Payload>, BlockSignature) {
         map_signed_beacon_block_into_beacon_block!(self, |block, beacon_block_cons| {
-            (beacon_block_cons(block.message), block.signature)
+            (beacon_block_cons(block.message), block.signature.into())
         })
     }
 
@@ -281,16 +384,68 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             self.message().signing_root(domain)
         };
 
-        self.signature().verify(pubkey, message)
+        self.signature()
+            .is_ok_and(|signature| signature.verify(pubkey, message))
     }
 
     /// Produce a signed beacon block header corresponding to this block.
     #[instrument(level = "debug", skip_all)]
     pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
-        SignedBeaconBlockHeader {
-            message: self.message().block_header(),
-            signature: self.signature().clone(),
+        let message = self.message().block_header();
+        match self {
+            Self::Pq(block) => SignedBeaconBlockHeader::Pq(SignedBeaconBlockHeaderPq {
+                message,
+                signature: block.signature.clone(),
+            }),
+            Self::Base(block) => SignedBeaconBlockHeader::Base(SignedBeaconBlockHeaderBase {
+                message,
+                signature: block.signature.clone(),
+            }),
+            Self::Altair(block) => SignedBeaconBlockHeader::Base(SignedBeaconBlockHeaderBase {
+                message,
+                signature: block.signature.clone(),
+            }),
+            Self::Bellatrix(block) => SignedBeaconBlockHeader::Base(SignedBeaconBlockHeaderBase {
+                message,
+                signature: block.signature.clone(),
+            }),
+            Self::Capella(block) => SignedBeaconBlockHeader::Base(SignedBeaconBlockHeaderBase {
+                message,
+                signature: block.signature.clone(),
+            }),
+            Self::Deneb(block) => SignedBeaconBlockHeader::Base(SignedBeaconBlockHeaderBase {
+                message,
+                signature: block.signature.clone(),
+            }),
+            Self::Electra(block) => SignedBeaconBlockHeader::Base(SignedBeaconBlockHeaderBase {
+                message,
+                signature: block.signature.clone(),
+            }),
+            Self::Fulu(block) => SignedBeaconBlockHeader::Base(SignedBeaconBlockHeaderBase {
+                message,
+                signature: block.signature.clone(),
+            }),
+            Self::Gloas(block) => SignedBeaconBlockHeader::Base(SignedBeaconBlockHeaderBase {
+                message,
+                signature: block.signature.clone(),
+            }),
+            Self::Heze(block) => SignedBeaconBlockHeader::Base(SignedBeaconBlockHeaderBase {
+                message,
+                signature: block.signature.clone(),
+            }),
         }
+    }
+
+    /// Produce a BLS signed header for pre-Gloas sidecars and slasher storage.
+    pub fn signed_block_header_bls(&self) -> Result<SignedBeaconBlockHeaderBase, BeaconStateError> {
+        let signature = self
+            .signature()
+            .map_err(|_| BeaconStateError::PqUnsupported("BLS block header"))?
+            .clone();
+        Ok(SignedBeaconBlockHeaderBase {
+            message: self.message().block_header(),
+            signature,
+        })
     }
 
     /// Produce a signed beacon block header AND a merkle proof for the KZG commitments.
@@ -300,7 +455,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
         &self,
     ) -> Result<
         (
-            SignedBeaconBlockHeader,
+            SignedBeaconBlockHeaderBase,
             FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
         ),
         BeaconStateError,
@@ -332,9 +487,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             body_root: body_merkle_tree.hash(),
         };
 
-        let signed_header = SignedBeaconBlockHeader {
+        let signed_header = SignedBeaconBlockHeaderBase {
             message: block_header,
-            signature: self.signature().clone(),
+            signature: self.signature()?.clone(),
         };
 
         Ok((signed_header, kzg_commitments_inclusion_proof))
@@ -616,12 +771,108 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>>
     for (SignedBlindedBeaconBlock<E>, Option<ExecutionPayload<E>>)
 {
     fn from(signed_block: SignedBeaconBlock<E>) -> Self {
-        let (block, signature) = signed_block.deconstruct();
-        let (blinded_block, payload) = block.into();
-        (
-            SignedBeaconBlock::from_block(blinded_block, signature),
-            payload,
-        )
+        match signed_block {
+            SignedBeaconBlock::Base(block) => {
+                let (message, payload) = block.message.into();
+                (
+                    SignedBeaconBlock::Base(SignedBeaconBlockBase {
+                        message,
+                        signature: block.signature,
+                    }),
+                    payload,
+                )
+            }
+            SignedBeaconBlock::Altair(block) => {
+                let (message, payload) = block.message.into();
+                (
+                    SignedBeaconBlock::Altair(SignedBeaconBlockAltair {
+                        message,
+                        signature: block.signature,
+                    }),
+                    payload,
+                )
+            }
+            SignedBeaconBlock::Bellatrix(block) => {
+                let (message, payload) = block.message.into();
+                (
+                    SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix {
+                        message,
+                        signature: block.signature,
+                    }),
+                    payload,
+                )
+            }
+            SignedBeaconBlock::Capella(block) => {
+                let (message, payload) = block.message.into();
+                (
+                    SignedBeaconBlock::Capella(SignedBeaconBlockCapella {
+                        message,
+                        signature: block.signature,
+                    }),
+                    payload,
+                )
+            }
+            SignedBeaconBlock::Deneb(block) => {
+                let (message, payload) = block.message.into();
+                (
+                    SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb {
+                        message,
+                        signature: block.signature,
+                    }),
+                    payload,
+                )
+            }
+            SignedBeaconBlock::Electra(block) => {
+                let (message, payload) = block.message.into();
+                (
+                    SignedBeaconBlock::Electra(SignedBeaconBlockElectra {
+                        message,
+                        signature: block.signature,
+                    }),
+                    payload,
+                )
+            }
+            SignedBeaconBlock::Fulu(block) => {
+                let (message, payload) = block.message.into();
+                (
+                    SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
+                        message,
+                        signature: block.signature,
+                    }),
+                    payload,
+                )
+            }
+            SignedBeaconBlock::Gloas(block) => {
+                let (message, payload) = block.message.into();
+                (
+                    SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
+                        message,
+                        signature: block.signature,
+                    }),
+                    payload,
+                )
+            }
+            SignedBeaconBlock::Pq(block) => {
+                let (message, payload) = block.message.into();
+                (
+                    SignedBeaconBlock::Pq(SignedBeaconBlockPq {
+                        message,
+                        signature: block.signature,
+                    }),
+                    payload,
+                )
+            }
+            SignedBeaconBlock::Heze(block) => {
+                let (message, payload) = block.message.into();
+                (
+                    SignedBeaconBlock::Heze(SignedBeaconBlockHeze {
+                        message,
+                        signature: block.signature,
+                    }),
+                    payload,
+                )
+            }
+        }
     }
 }
 
@@ -636,7 +887,56 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for SignedBlindedBeaconBlock<E> {
 // cloning the payload contents).
 impl<E: EthSpec> SignedBeaconBlock<E> {
     pub fn clone_as_blinded(&self) -> SignedBlindedBeaconBlock<E> {
-        SignedBeaconBlock::from_block(self.message().into(), self.signature().clone())
+        match self {
+            SignedBeaconBlock::Base(block) => SignedBeaconBlock::Base(SignedBeaconBlockBase {
+                message: block.message.clone_as_blinded(),
+                signature: block.signature.clone(),
+            }),
+            SignedBeaconBlock::Altair(block) => {
+                SignedBeaconBlock::Altair(SignedBeaconBlockAltair {
+                    message: block.message.clone_as_blinded(),
+                    signature: block.signature.clone(),
+                })
+            }
+            SignedBeaconBlock::Bellatrix(block) => {
+                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix {
+                    message: block.message.clone_as_blinded(),
+                    signature: block.signature.clone(),
+                })
+            }
+            SignedBeaconBlock::Capella(block) => {
+                SignedBeaconBlock::Capella(SignedBeaconBlockCapella {
+                    message: block.message.clone_as_blinded(),
+                    signature: block.signature.clone(),
+                })
+            }
+            SignedBeaconBlock::Deneb(block) => SignedBeaconBlock::Deneb(SignedBeaconBlockDeneb {
+                message: block.message.clone_as_blinded(),
+                signature: block.signature.clone(),
+            }),
+            SignedBeaconBlock::Electra(block) => {
+                SignedBeaconBlock::Electra(SignedBeaconBlockElectra {
+                    message: block.message.clone_as_blinded(),
+                    signature: block.signature.clone(),
+                })
+            }
+            SignedBeaconBlock::Fulu(block) => SignedBeaconBlock::Fulu(SignedBeaconBlockFulu {
+                message: block.message.clone_as_blinded(),
+                signature: block.signature.clone(),
+            }),
+            SignedBeaconBlock::Gloas(block) => SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
+                message: block.message.clone_as_blinded(),
+                signature: block.signature.clone(),
+            }),
+            SignedBeaconBlock::Pq(block) => SignedBeaconBlock::Pq(SignedBeaconBlockPq {
+                message: block.message.clone_as_blinded(),
+                signature: block.signature.clone(),
+            }),
+            SignedBeaconBlock::Heze(block) => SignedBeaconBlock::Heze(SignedBeaconBlockHeze {
+                message: block.message.clone_as_blinded(),
+                signature: block.signature.clone(),
+            }),
+        }
     }
 }
 
@@ -768,15 +1068,18 @@ mod test {
             SignedBeaconBlock::<E>::from_block(
                 BeaconBlock::Base(BeaconBlockBase::empty(spec)),
                 sig.clone(),
-            ),
+            )
+            .unwrap(),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
                 sig.clone(),
-            ),
+            )
+            .unwrap(),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Bellatrix(BeaconBlockBellatrix::empty(spec)),
                 sig,
-            ),
+            )
+            .unwrap(),
         ];
 
         for block in blocks {
@@ -826,37 +1129,46 @@ mod test {
             SignedBeaconBlock::<E>::from_block(
                 BeaconBlock::Base(BeaconBlockBase::empty(spec)),
                 sig.clone(),
-            ),
+            )
+            .unwrap(),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
                 sig.clone(),
-            ),
+            )
+            .unwrap(),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Bellatrix(BeaconBlockBellatrix::empty(spec)),
                 sig.clone(),
-            ),
+            )
+            .unwrap(),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Capella(BeaconBlockCapella::empty(spec)),
                 sig.clone(),
-            ),
+            )
+            .unwrap(),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec)),
                 sig.clone(),
-            ),
+            )
+            .unwrap(),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Electra(BeaconBlockElectra::empty(spec)),
                 sig.clone(),
-            ),
+            )
+            .unwrap(),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Fulu(BeaconBlockFulu::empty(spec)),
                 sig.clone(),
-            ),
+            )
+            .unwrap(),
             SignedBeaconBlock::from_block(
                 BeaconBlock::Gloas(BeaconBlockGloas::empty(spec)),
                 sig.clone(),
-            ),
-            SignedBeaconBlock::from_block(BeaconBlock::Pq(BeaconBlockPq::empty(spec)), sig.clone()),
-            SignedBeaconBlock::from_block(BeaconBlock::Heze(BeaconBlockHeze::empty(spec)), sig),
+            )
+            .unwrap(),
+            SignedBeaconBlock::with_empty_signature(BeaconBlock::Pq(BeaconBlockPq::empty(spec))),
+            SignedBeaconBlock::from_block(BeaconBlock::Heze(BeaconBlockHeze::empty(spec)), sig)
+                .unwrap(),
         ];
 
         for block in blocks {

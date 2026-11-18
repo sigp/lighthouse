@@ -13,8 +13,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, error, info};
 use types::{
-    AttesterSlashing, ChainSpec, Epoch, EthSpec, IndexedAttestation, ProposerSlashing,
-    SignedBeaconBlockHeader,
+    AttesterSlashing, ChainSpec, Epoch, EthSpec, IndexedAttestation, ProposerSlashingBase,
+    SignedBeaconBlockHeaderBase,
 };
 
 #[derive(Debug)]
@@ -23,7 +23,7 @@ pub struct Slasher<E: EthSpec> {
     attestation_queue: AttestationQueue<E>,
     block_queue: BlockQueue,
     attester_slashings: Mutex<HashSet<AttesterSlashing<E>>>,
-    proposer_slashings: Mutex<HashSet<ProposerSlashing>>,
+    proposer_slashings: Mutex<HashSet<ProposerSlashingBase>>,
     config: Arc<Config>,
 }
 
@@ -66,7 +66,7 @@ impl<E: EthSpec> Slasher<E> {
     }
 
     /// Harvest all proposer slashings found, removing them from the slasher.
-    pub fn get_proposer_slashings(&self) -> HashSet<ProposerSlashing> {
+    pub fn get_proposer_slashings(&self) -> HashSet<ProposerSlashingBase> {
         std::mem::take(&mut self.proposer_slashings.lock())
     }
 
@@ -85,7 +85,7 @@ impl<E: EthSpec> Slasher<E> {
     }
 
     /// Accept a block from the network and queue it for processing.
-    pub fn accept_block_header(&self, block_header: SignedBeaconBlockHeader) {
+    pub fn accept_block_header(&self, block_header: SignedBeaconBlockHeaderBase) {
         self.block_queue.queue(block_header);
     }
 

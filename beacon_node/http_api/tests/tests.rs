@@ -57,8 +57,8 @@ use types::{
     Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas,
     ExecutionPayloadBidHeze, Hash256, ProposerPreferences, RelativeEpoch, SelectionProof,
     SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
-    SignedExecutionPayloadBidPq, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedRoot, SingleAttestation, Slot, Spec,
+    SignedExecutionPayloadBidPq, SignedExecutionPayloadEnvelopeGloas,
+    SignedProposerPreferencesGloas, SignedRoot, SingleAttestation, Slot, Spec,
     attestation::AttestationBase,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
 };
@@ -94,7 +94,7 @@ struct ApiTester {
     single_attestations: Vec<SingleAttestation>,
     contribution_and_proofs: Vec<SignedContributionAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
-    proposer_slashing: ProposerSlashing,
+    proposer_slashing: ProposerSlashingBase,
     voluntary_exit: SignedVoluntaryExit,
     bls_to_execution_change: SignedBlsToExecutionChange,
     network_rx: NetworkReceivers<E>,
@@ -2392,7 +2392,7 @@ impl ApiTester {
                 canonical: true,
                 header: BlockHeaderAndSignature {
                     message: block.message().block_header(),
-                    signature: block.signature().clone().into(),
+                    signature: block.signature().unwrap().clone().into(),
                 },
             };
             let expected = vec![header];
@@ -2485,7 +2485,7 @@ impl ApiTester {
             );
             assert_eq!(
                 result.header.signature,
-                block.signature().clone().into(),
+                block.signature().unwrap().clone().into(),
                 "{:?}",
                 block_id
             );
@@ -3755,7 +3755,7 @@ impl ApiTester {
     fn make_valid_payload_attestation_message(
         &self,
         ptc_offset: usize,
-    ) -> PayloadAttestationMessage {
+    ) -> PayloadAttestationMessageGloas {
         let head = self.chain.head_snapshot();
         let head_slot = head.beacon_block.slot();
         let head_root = head.beacon_block_root;
@@ -3800,7 +3800,7 @@ impl ApiTester {
         let sk = &self.validator_keypairs()[validator_index].sk;
         let signature = sk.sign(signing_root);
 
-        PayloadAttestationMessage {
+        PayloadAttestationMessageGloas {
             validator_index: validator_index as u64,
             data,
             signature,
@@ -3977,7 +3977,7 @@ impl ApiTester {
     fn make_valid_signed_proposer_preferences(
         &self,
         slot_offset: usize,
-    ) -> SignedProposerPreferences {
+    ) -> SignedProposerPreferencesGloas {
         let head = self.chain.head_snapshot();
         let head_slot = head.beacon_block.slot();
         let head_state = &head.beacon_state;
@@ -4027,7 +4027,7 @@ impl ApiTester {
         let sk = &self.validator_keypairs()[validator_index].sk;
         let signature = sk.sign(signing_root);
 
-        SignedProposerPreferences {
+        SignedProposerPreferencesGloas {
             message: preferences,
             signature,
         }
@@ -4198,7 +4198,7 @@ impl ApiTester {
             .unwrap()
             .expect("SSZ response should be present");
 
-        let decoded = Vec::<SignedProposerPreferences>::from_ssz_bytes(&ssz_bytes)
+        let decoded = Vec::<SignedProposerPreferencesGloas>::from_ssz_bytes(&ssz_bytes)
             .expect("should decode SSZ proposer preferences");
         assert_eq!(decoded, vec![signed]);
 
@@ -5304,7 +5304,9 @@ impl ApiTester {
                 .deconstruct()
                 .0;
 
-            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block = block
+                .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                .unwrap();
             let signed_block_contents =
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
 
@@ -5473,8 +5475,9 @@ impl ApiTester {
                         metadata.consensus_version,
                         blinded_block.to_ref().fork_name(&self.chain.spec).unwrap()
                     );
-                    let signed_blinded_block =
-                        blinded_block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+                    let signed_blinded_block = blinded_block
+                        .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                        .unwrap();
 
                     self.client
                         .post_beacon_blinded_blocks_ssz(&signed_blinded_block)
@@ -5590,7 +5593,7 @@ impl ApiTester {
     /// Assert envelope fields match the expected block root and slot.
     fn assert_envelope_fields(
         &self,
-        envelope: &ExecutionPayloadEnvelope<E>,
+        envelope: &ExecutionPayloadEnvelopeGloas<E>,
         block_root: Hash256,
         slot: Slot,
     ) {
@@ -5602,12 +5605,12 @@ impl ApiTester {
     /// Sign an execution payload envelope.
     fn sign_envelope(
         &self,
-        envelope: ExecutionPayloadEnvelope<E>,
+        envelope: ExecutionPayloadEnvelopeGloas<E>,
         sk: &SecretKey,
         epoch: Epoch,
         fork: &Fork,
         genesis_validators_root: Hash256,
-    ) -> SignedExecutionPayloadEnvelope<E> {
+    ) -> SignedExecutionPayloadEnvelopeGloas<E> {
         let domain =
             self.chain
                 .spec
@@ -5615,7 +5618,7 @@ impl ApiTester {
         let signing_root = envelope.signing_root(domain);
         let signature = sk.sign(signing_root);
 
-        SignedExecutionPayloadEnvelope {
+        SignedExecutionPayloadEnvelopeGloas {
             message: envelope,
             signature,
         }
@@ -5639,7 +5642,7 @@ impl ApiTester {
         epoch: Epoch,
         fork: &Fork,
         genesis_validators_root: Hash256,
-    ) -> (SecretKey, u64, ExecutionPayloadEnvelope<E>) {
+    ) -> (SecretKey, u64, ExecutionPayloadEnvelopeGloas<E>) {
         let (sk, randao_reveal) = self
             .proposer_setup(slot, epoch, fork, genesis_validators_root)
             .await;
@@ -5661,7 +5664,9 @@ impl ApiTester {
         let block_root = block.tree_hash_root();
         let proposer_index = block.proposer_index();
 
-        let signed_block = block.sign(&sk, fork, genesis_validators_root, &self.chain.spec);
+        let signed_block = block
+            .sign(&sk, fork, genesis_validators_root, &self.chain.spec)
+            .unwrap();
         let signed_block_request = PublishBlockRequest::try_from(Arc::new(signed_block)).unwrap();
         self.client
             .post_beacon_blocks_v2(&signed_block_request, None)
@@ -6317,7 +6322,9 @@ impl ApiTester {
                     .is_err()
             );
 
-            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block = block
+                .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                .unwrap();
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
             self.client
@@ -6388,7 +6395,9 @@ impl ApiTester {
 
             self.assert_envelope_fields(&envelope, block.tree_hash_root(), slot);
 
-            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block = block
+                .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                .unwrap();
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
             self.client
@@ -6478,7 +6487,9 @@ impl ApiTester {
                 blobs,
             } = self.unwrap_v4_block_contents(response, &metadata, slot);
 
-            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block = block
+                .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                .unwrap();
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
             if ssz {
@@ -6696,7 +6707,9 @@ impl ApiTester {
                 .unwrap()
                 .into_data();
 
-            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block = block
+                .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                .unwrap();
 
             self.client
                 .post_beacon_blinded_blocks(&signed_block)
@@ -7021,7 +7034,9 @@ impl ApiTester {
             let block = response.into_block();
             let block_root = block.tree_hash_root();
 
-            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block = block
+                .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                .unwrap();
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block)).unwrap();
             self.client
@@ -7112,7 +7127,9 @@ impl ApiTester {
             let block = response.into_block();
             let block_root = block.tree_hash_root();
 
-            let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+            let signed_block = block
+                .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+                .unwrap();
             let signed_block_request =
                 PublishBlockRequest::try_from(Arc::new(signed_block)).unwrap();
             self.client
@@ -10111,7 +10128,9 @@ impl ApiTester {
         let expected_builder_index = signed_bid.message().builder_index();
         let expected_block_hash = signed_bid.message().block_hash();
         assert_eq!(expected_builder_index, BUILDER_INDEX_SELF_BUILD);
-        let signed_block = block.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
+        let signed_block = block
+            .sign(&sk, &fork, genesis_validators_root, &self.chain.spec)
+            .unwrap();
         let block_root = signed_block.canonical_root();
         let state_root = signed_block.state_root();
         let signed_block_request = PublishBlockRequest::try_from(Arc::new(signed_block)).unwrap();
@@ -12726,7 +12745,7 @@ async fn get_beacon_proposer_preferences_before_gloas() {
             .fork_name_at_slot::<E>(tester.chain.slot().unwrap()),
         ForkName::Fulu
     );
-    let mut signed = SignedProposerPreferences::empty();
+    let mut signed = SignedProposerPreferencesGloas::empty();
     signed.message.proposal_slot = Epoch::new(6).start_slot(E::slots_per_epoch());
     tester
         .chain

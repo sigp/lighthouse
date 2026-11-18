@@ -1,10 +1,10 @@
 //! Gossip verification for proposer preferences.
 //!
-//! A `SignedProposerPreferences` is verified and wrapped as a `GossipVerifiedProposerPreferences`,
+//! A `SignedProposerPreferencesGloas` is verified and wrapped as a `GossipVerifiedProposerPreferences`,
 //! which is then inserted into the `GossipVerifiedProposerPreferenceCache`.
 //!
 //! ```ignore
-//!    SignedProposerPreferences
+//!    SignedProposerPreferencesGloas
 //!              |
 //!              ▼
 //!    GossipVerifiedProposerPreferences -------> Insert into GossipVerifiedProposerPreferenceCache

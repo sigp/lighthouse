@@ -19,7 +19,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
     u: &mut arbitrary::Unstructured,
 ) -> arbitrary::Result<(SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>)> {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::arbitrary(u)?);
-    let mut block = SignedBeaconBlock::from_block(inner, bls::Signature::arbitrary(u)?);
+    let mut block = SignedBeaconBlock::from_block(inner, bls::Signature::arbitrary(u)?).unwrap();
     let mut blob_sidecars = vec![];
 
     if block.fork_name_unchecked() < ForkName::Deneb {
@@ -41,7 +41,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             blob: blob.clone(),
             kzg_commitment,
             kzg_proof,
-            signed_block_header: block.signed_block_header(),
+            signed_block_header: block.signed_block_header_bls().unwrap(),
             kzg_commitment_inclusion_proof: block
                 .message()
                 .body()

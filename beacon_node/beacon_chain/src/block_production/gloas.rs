@@ -30,13 +30,13 @@ use types::{
     Address, Attestation, AttestationGloas, AttesterSlashing, AttesterSlashingGloas, BeaconBlock,
     BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze, BeaconState,
     BeaconStateError, BlobsList, BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadEnvelope,
+    ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadEnvelopeGloas,
     ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, IndexedAttestation, KzgProofs,
-    PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
+    PayloadAttestation, ProposerSlashingBase, RelativeEpoch, SignedBeaconBlock,
     SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-    SignedExecutionPayloadBidHeze, SignedExecutionPayloadBidPq, SignedExecutionPayloadEnvelope,
-    SignedExecutionPayloadEnvelopeSummary, SignedProposerPreferences, SignedVoluntaryExit, Slot,
-    SyncAggregate, Uint256, Withdrawal, Withdrawals,
+    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelopeGloas,
+    SignedExecutionPayloadEnvelopeSummary, SignedProposerPreferencesGloas, SignedVoluntaryExit,
+    Slot, SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
 
 use builder_client::BidRequestContext;
@@ -63,7 +63,7 @@ pub const EXECUTION_PAYMENT_TRUSTLESS_BUILD: u64 = 0;
 type ConsensusBlockValue = u64;
 
 pub type PayloadEnvelopeContents<E> = (
-    Arc<ExecutionPayloadEnvelope<E>>,
+    Arc<ExecutionPayloadEnvelopeGloas<E>>,
     KzgProofs<E>,
     Arc<BlobsList<E>>,
 );
@@ -93,7 +93,7 @@ pub struct PartialBeaconBlock<E: EthSpec> {
     randao_reveal: Signature,
     eth1_data: Eth1Data,
     graffiti: Graffiti,
-    proposer_slashings: Vec<ProposerSlashing>,
+    proposer_slashings: Vec<ProposerSlashingBase>,
     attester_slashings: Vec<AttesterSlashingGloas<E>>,
     attestations: Vec<AttestationGloas<E>>,
     payload_attestations: Vec<PayloadAttestation<E>>,
@@ -181,6 +181,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verification: ProduceBlockVerification,
         builder_config: BuilderConfig,
     ) -> Result<BlockProductionResult<T::EthSpec>, BlockProductionError> {
+        if self.spec.fork_name_at_slot::<T::EthSpec>(produce_at_slot) == types::ForkName::Pq {
+            return Err(BlockProductionError::InvalidBlockVariant(
+                "Pq block production is not implemented".to_string(),
+            ));
+        }
+
         debug!(
             slot = %produce_at_slot,
             direct_builders = builder_config.builders.len(),
@@ -859,7 +865,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             beacon_block,
             // The block is not signed here, that is the task of a validator client.
             Signature::empty(),
-        );
+        )
+        .unwrap();
 
         let block_size = signed_beacon_block.ssz_bytes_len();
         debug!(%block_size, "Produced block on state");
@@ -903,13 +910,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (mut block, _) = signed_beacon_block.deconstruct();
         *block.state_root_mut() = state_root;
 
-        // Construct and cache the ExecutionPayloadEnvelope if we have payload data.
+        // Construct and cache the ExecutionPayloadEnvelopeGloas if we have payload data.
         // For local building, we always have payload data.
         // For trustless building, the builder will provide the envelope separately.
         let payload_contents = if let Some(payload_data) = payload_data {
             let beacon_block_root = block.tree_hash_root();
             let parent_beacon_block_root = block.parent_root();
-            let execution_payload_envelope = ExecutionPayloadEnvelope {
+            let execution_payload_envelope = ExecutionPayloadEnvelopeGloas {
                 payload: payload_data.payload,
                 execution_requests: payload_data.execution_requests,
                 builder_index: payload_data.builder_index,
@@ -917,7 +924,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 parent_beacon_block_root,
             };
 
-            let signed_envelope = SignedExecutionPayloadEnvelope {
+            let signed_envelope = SignedExecutionPayloadEnvelopeGloas {
                 message: execution_payload_envelope,
                 signature: Signature::empty(),
             };
@@ -979,7 +986,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Borrows `state` (rather than consuming it) so the caller retains it if the local build fails
     /// and it needs to fall back to an external bid. Returns the signed bid and a `LocalBuildResult`
-    /// carrying the payload data needed to construct the `ExecutionPayloadEnvelope` after the beacon
+    /// carrying the payload data needed to construct the `ExecutionPayloadEnvelopeGloas` after the beacon
     /// block is created, plus the EL block value and `should_override_builder` flag used by the
     /// caller to compare against external builder bids.
     #[allow(clippy::type_complexity, clippy::too_many_arguments)]
@@ -992,7 +999,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         bid_value: u64,
         builder_index: BuilderIndex,
         executed_ancestor_hash: ExecutionBlockHash,
-        proposer_preferences: Option<&SignedProposerPreferences>,
+        proposer_preferences: Option<&SignedProposerPreferencesGloas>,
     ) -> Result<
         (
             SignedExecutionPayloadBid<T::EthSpec>,
@@ -1078,26 +1085,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
             }
             BeaconState::Pq(_) => {
-                // Pq reuses the Gloas inner bid; only the signed container has a Pq variant.
-                let bid = ExecutionPayloadBidGloas::<T::EthSpec> {
-                    parent_block_hash: executed_ancestor_hash,
-                    parent_block_root: parent_root,
-                    block_hash: payload.block_hash,
-                    prev_randao: payload.prev_randao,
-                    fee_recipient: Address::ZERO,
-                    gas_limit: payload.gas_limit,
-                    builder_index,
-                    slot: produce_at_slot,
-                    value: bid_value,
-                    execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
-                    blob_kzg_commitments,
-                    execution_requests_root: execution_requests.tree_hash_root(),
-                };
-
-                SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq {
-                    message: bid,
-                    signature,
-                })
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Pq execution payload bid production is not implemented".to_owned(),
+                ));
             }
             BeaconState::Heze(_) => {
                 let bid = ExecutionPayloadBidHeze::<T::EthSpec> {
@@ -1160,7 +1150,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         ctx: BidRequestContext,
         builder_config: &BuilderConfig,
-        proposer_preferences: Option<&SignedProposerPreferences>,
+        proposer_preferences: Option<&SignedProposerPreferencesGloas>,
         state: &BeaconState<T::EthSpec>,
         parent_execution_requests: &ExecutionRequestsGloas<T::EthSpec>,
     ) -> Vec<BidCandidate<T::EthSpec>> {
@@ -1342,7 +1332,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         ctx: &BidRequestContext,
         builder_config: &BuilderConfig,
-        proposer_preferences: &SignedProposerPreferences,
+        proposer_preferences: &SignedProposerPreferencesGloas,
         state: &BeaconState<T::EthSpec>,
     ) -> Vec<BidCandidate<T::EthSpec>> {
         let Some(builders) = self.builders.as_ref() else {

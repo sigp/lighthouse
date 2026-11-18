@@ -15,7 +15,7 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::SignedExecutionPayloadEnvelope;
+use types::SignedExecutionPayloadEnvelopeGloas;
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
     ForkName, ForkVersionDecode, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
@@ -671,10 +671,14 @@ fn handle_rpc_response<E: EthSpec>(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
         SupportedProtocol::PayloadEnvelopesByRangeV1 => match fork_name {
+            Some(ForkName::Pq) => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                "Pq payload envelope RPC decoding is not implemented".into(),
+            )),
             Some(fork_name) => {
                 if fork_name.gloas_enabled() {
                     Ok(Some(RpcSuccessResponse::PayloadEnvelopesByRange(Arc::new(
-                        SignedExecutionPayloadEnvelope::from_ssz_bytes(decoded_buffer)?,
+                        SignedExecutionPayloadEnvelopeGloas::from_ssz_bytes(decoded_buffer)?,
                     ))))
                 } else {
                     Err(RPCError::ErrorResponse(
@@ -692,10 +696,14 @@ fn handle_rpc_response<E: EthSpec>(
             )),
         },
         SupportedProtocol::PayloadEnvelopesByRootV1 => match fork_name {
+            Some(ForkName::Pq) => Err(RPCError::ErrorResponse(
+                RpcErrorResponse::InvalidRequest,
+                "Pq payload envelope RPC decoding is not implemented".into(),
+            )),
             Some(fork_name) => {
                 if fork_name.gloas_enabled() {
                     Ok(Some(RpcSuccessResponse::PayloadEnvelopesByRoot(Arc::new(
-                        SignedExecutionPayloadEnvelope::from_ssz_bytes(decoded_buffer)?,
+                        SignedExecutionPayloadEnvelopeGloas::from_ssz_bytes(decoded_buffer)?,
                     ))))
                 } else {
                     Err(RPCError::ErrorResponse(
@@ -935,7 +943,7 @@ mod tests {
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
         DataColumnsByRootIdentifier, EmptyBlock, Epoch, FullPayload, KzgCommitment, KzgProof,
-        SignedBeaconBlockHeader, Slot, Spec,
+        SignedBeaconBlockHeaderBase, Slot, Spec,
         data::{BlobIdentifier, Cell},
     };
     use types::{BlobSidecar, DataColumnSidecarFulu};
@@ -967,14 +975,14 @@ mod tests {
     /// min length check conditions.
     fn empty_base_block(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
         let empty_block = BeaconBlock::Base(BeaconBlockBase::<Spec>::empty(spec));
-        SignedBeaconBlock::from_block(empty_block, Signature::empty())
+        SignedBeaconBlock::with_empty_signature(empty_block)
     }
 
     fn altair_block(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
         // The context bytes are now derived from the block epoch, so we need to have the slot set
         // here.
         let full_block = BeaconBlock::Altair(BeaconBlockAltair::<Spec>::full(spec));
-        SignedBeaconBlock::from_block(full_block, Signature::empty())
+        SignedBeaconBlock::with_empty_signature(full_block)
     }
 
     fn empty_blob_sidecar(spec: &ChainSpec) -> Arc<BlobSidecar<Spec>> {
@@ -996,7 +1004,7 @@ mod tests {
             column: VariableList::new(vec![Cell::<Spec>::default()]).unwrap(),
             kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
-            signed_block_header: SignedBeaconBlockHeader {
+            signed_block_header: SignedBeaconBlockHeaderBase {
                 message: BeaconBlockHeader {
                     slot: spec
                         .fulu_fork_epoch
@@ -1026,7 +1034,7 @@ mod tests {
 
         let block = BeaconBlock::Bellatrix(block);
         assert!(block.ssz_bytes_len() <= spec.max_payload_size as usize);
-        SignedBeaconBlock::from_block(block, Signature::empty())
+        SignedBeaconBlock::with_empty_signature(block)
     }
 
     /// Bellatrix block with length > MAX_RPC_SIZE.
@@ -1048,7 +1056,7 @@ mod tests {
 
         let block = BeaconBlock::Bellatrix(block);
         assert!(block.ssz_bytes_len() > spec.max_payload_size as usize);
-        SignedBeaconBlock::from_block(block, Signature::empty())
+        SignedBeaconBlock::with_empty_signature(block)
     }
 
     fn status_message_v1() -> StatusMessage {
@@ -1826,10 +1834,9 @@ mod tests {
     fn test_block_responses_decode_all_forks() {
         for fork in ForkName::list_all() {
             let chain_spec = fork.make_genesis_spec(Spec::default_spec());
-            let block = Arc::new(SignedBeaconBlock::from_block(
-                BeaconBlock::empty(&chain_spec),
-                Signature::empty(),
-            ));
+            let block = Arc::new(SignedBeaconBlock::with_empty_signature(BeaconBlock::empty(
+                &chain_spec,
+            )));
             for (protocol, response) in [
                 (
                     SupportedProtocol::BlocksByRangeV2,

@@ -25,9 +25,9 @@ use crate::{
     execution::{
         AbstractExecPayload, BlindedPayload, BlindedPayloadBellatrix, BlindedPayloadCapella,
         BlindedPayloadDeneb, BlindedPayloadElectra, BlindedPayloadFulu, Eth1Data, ExecutionPayload,
-        ExecutionPayloadBellatrix, ExecutionPayloadBidRef, ExecutionPayloadCapella,
-        ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-        ExecutionPayloadGloas, ExecutionRequestsElectra, ExecutionRequestsGloas, FullPayload,
+        ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
+        ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas,
+        ExecutionRequestsElectra, ExecutionRequestsGloas, ExecutionRequestsPq, FullPayload,
         FullPayloadBellatrix, FullPayloadCapella, FullPayloadDeneb, FullPayloadElectra,
         FullPayloadFulu, SignedBlsToExecutionChange,
     },
@@ -42,7 +42,7 @@ use crate::{
     pq::{AttestationProof, VrfProof},
     slashing::{
         AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas, AttesterSlashingPq,
-        AttesterSlashingRef, ProposerSlashing,
+        AttesterSlashingRef, ProposerSlashingBase, ProposerSlashingPq,
     },
     state::BeaconStateError,
     sync_committee::SyncAggregate,
@@ -160,12 +160,14 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
         only(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
         partial_getter(rename = "proposer_slashings_basic")
     )]
-    pub proposer_slashings: VariableList<ProposerSlashing, E::MaxProposerSlashings>,
+    pub proposer_slashings: VariableList<ProposerSlashingBase, E::MaxProposerSlashings>,
     #[superstruct(
-        only(Gloas, Pq, Heze),
+        only(Gloas, Heze),
         partial_getter(rename = "proposer_slashings_progressive")
     )]
-    pub proposer_slashings: ProgressiveVariableList<ProposerSlashing, E::MaxProposerSlashings>,
+    pub proposer_slashings: ProgressiveVariableList<ProposerSlashingBase, E::MaxProposerSlashings>,
+    #[superstruct(only(Pq), partial_getter(rename = "proposer_slashings_pq"))]
+    pub proposer_slashings: ProgressiveVariableList<ProposerSlashingPq, E::MaxProposerSlashings>,
     #[superstruct(
         only(Base, Altair, Bellatrix, Capella, Deneb),
         partial_getter(rename = "attester_slashings_base")
@@ -270,8 +272,10 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     #[superstruct(only(Gloas, Heze))]
     pub payload_attestations:
         ProgressiveVariableList<PayloadAttestation<E>, E::MaxPayloadAttestations>,
-    #[superstruct(only(Gloas, Pq, Heze))]
+    #[superstruct(only(Gloas, Heze))]
     pub parent_execution_requests: ExecutionRequestsGloas<E>,
+    #[superstruct(only(Pq), partial_getter(rename = "parent_execution_requests_pq"))]
+    pub parent_execution_requests: ExecutionRequestsPq<E>,
     /// [New in Pq] A STARK proof of the XMSS signatures of all `attestations`.
     #[superstruct(only(Pq))]
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
@@ -290,7 +294,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBody<E, Payload> {
         self.to_ref().execution_payload()
     }
 
-    pub fn proposer_slashings(&self) -> ListRef<'_, ProposerSlashing, E::MaxProposerSlashings> {
+    pub fn proposer_slashings(
+        &self,
+    ) -> Result<ListRef<'_, ProposerSlashingBase, E::MaxProposerSlashings>, BeaconStateError> {
         self.to_ref().proposer_slashings()
     }
 
@@ -475,19 +481,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
     fn gloas_execution_block_hash_proof(&self) -> Result<Vec<Hash256>, BeaconStateError> {
         let signed_bid = self.signed_execution_payload_bid()?;
 
-        let (bid, signature) = match signed_bid {
-            SignedExecutionPayloadBidRef::Gloas(signed_bid) => (
-                ExecutionPayloadBidRef::Gloas(&signed_bid.message),
-                &signed_bid.signature,
-            ),
-            SignedExecutionPayloadBidRef::Pq(signed_bid) => (
-                ExecutionPayloadBidRef::Gloas(&signed_bid.message),
-                &signed_bid.signature,
-            ),
-            SignedExecutionPayloadBidRef::Heze(signed_bid) => (
-                ExecutionPayloadBidRef::Heze(&signed_bid.message),
-                &signed_bid.signature,
-            ),
+        let bid = signed_bid.message();
+        let signature_root = match signed_bid {
+            SignedExecutionPayloadBidRef::Gloas(bid) => bid.signature.tree_hash_root(),
+            SignedExecutionPayloadBidRef::Pq(bid) => bid.signature.tree_hash_root(),
+            SignedExecutionPayloadBidRef::Heze(bid) => bid.signature.tree_hash_root(),
         };
 
         let mut proof = merkle_proof::progressive_container_proof(
@@ -496,7 +494,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
             EXECUTION_PAYLOAD_BID_PARENT_BLOCK_HASH_FIELD_INDEX,
         )?;
 
-        proof.push(signature.tree_hash_root());
+        proof.push(signature_root);
 
         // The Pq body has gaps, but `signed_execution_payload_bid` keeps its field index, so
         // its generalized index is the same as in Gloas.
@@ -574,11 +572,28 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
         })
     }
 
-    pub fn proposer_slashings(&self) -> ListRef<'a, ProposerSlashing, E::MaxProposerSlashings> {
+    pub fn proposer_slashings_len(&self) -> usize {
         map_beacon_block_body_ref!(&'a _, self, |inner, cons| {
             cons(inner);
-            ListRef::from(&inner.proposer_slashings)
+            inner.proposer_slashings.len()
         })
+    }
+
+    pub fn proposer_slashings(
+        &self,
+    ) -> Result<ListRef<'a, ProposerSlashingBase, E::MaxProposerSlashings>, BeaconStateError> {
+        match self {
+            Self::Base(body) => Ok(ListRef::from(&body.proposer_slashings)),
+            Self::Altair(body) => Ok(ListRef::from(&body.proposer_slashings)),
+            Self::Bellatrix(body) => Ok(ListRef::from(&body.proposer_slashings)),
+            Self::Capella(body) => Ok(ListRef::from(&body.proposer_slashings)),
+            Self::Deneb(body) => Ok(ListRef::from(&body.proposer_slashings)),
+            Self::Electra(body) => Ok(ListRef::from(&body.proposer_slashings)),
+            Self::Fulu(body) => Ok(ListRef::from(&body.proposer_slashings)),
+            Self::Gloas(body) => Ok(ListRef::from(&body.proposer_slashings)),
+            Self::Heze(body) => Ok(ListRef::from(&body.proposer_slashings)),
+            Self::Pq(_) => Err(BeaconStateError::PqUnsupported("BLS proposer slashings")),
+        }
     }
 
     pub fn deposits(&self) -> ListRef<'a, Deposit, E::MaxDeposits> {
@@ -724,7 +739,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
     /// Append a proposer slashing to the block body.
     pub fn proposer_slashings_push(
         &mut self,
-        slashing: ProposerSlashing,
+        slashing: ProposerSlashingBase,
     ) -> Result<(), BeaconStateError> {
         match self {
             Self::Base(body) => body
@@ -759,10 +774,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
                 .proposer_slashings
                 .push(slashing)
                 .map_err(BeaconStateError::SszTypesError),
-            Self::Pq(body) => body
-                .proposer_slashings
-                .push(slashing)
-                .map_err(BeaconStateError::SszTypesError),
+            Self::Pq(_) => Err(BeaconStateError::PqUnsupported("BLS proposer slashings")),
             Self::Heze(body) => body
                 .proposer_slashings
                 .push(slashing)

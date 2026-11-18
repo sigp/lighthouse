@@ -5,11 +5,11 @@ use futures::{Stream, stream};
 use std::future::Future;
 use std::sync::Arc;
 use types::{
-    Address, Epoch, ExecutionPayloadEnvelope, Graffiti, Hash256, PayloadAttestationData,
-    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedValidatorRegistrationData, SingleAttestation, Slot, Spec, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    Address, Epoch, ExecutionPayloadEnvelopeGloas, Graffiti, Hash256, PayloadAttestationData,
+    PayloadAttestationMessageGloas, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelopeGloas,
+    SignedProposerPreferencesGloas, SignedValidatorRegistrationData, SingleAttestation, Slot, Spec,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -21,7 +21,7 @@ type SignPayloadAttestationFn = Box<
     dyn Fn(
             PublicKeyBytes,
             PayloadAttestationData,
-        ) -> BoxFuture<'static, Result<PayloadAttestationMessage, StoreError<()>>>
+        ) -> BoxFuture<'static, Result<PayloadAttestationMessageGloas, StoreError<()>>>
         + Send
         + Sync,
 >;
@@ -37,7 +37,9 @@ impl MockValidatorStore {
     pub fn with_sign_payload_attestation<F, Fut>(hook: F) -> Self
     where
         F: Fn(PublicKeyBytes, PayloadAttestationData) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<PayloadAttestationMessage, StoreError<()>>> + Send + 'static,
+        Fut: Future<Output = Result<PayloadAttestationMessageGloas, StoreError<()>>>
+            + Send
+            + 'static,
     {
         Self {
             sign_payload_attestation: Box::new(move |pubkey, data| hook(pubkey, data).boxed()),
@@ -53,7 +55,7 @@ impl ValidatorStore for MockValidatorStore {
         &self,
         validator_pubkey: PublicKeyBytes,
         data: PayloadAttestationData,
-    ) -> Result<PayloadAttestationMessage, StoreError<Self::Error>> {
+    ) -> Result<PayloadAttestationMessageGloas, StoreError<Self::Error>> {
         (self.sign_payload_attestation)(validator_pubkey, data).await
     }
 
@@ -173,8 +175,8 @@ impl ValidatorStore for MockValidatorStore {
     async fn sign_execution_payload_envelope(
         &self,
         _validator_pubkey: PublicKeyBytes,
-        _envelope: ExecutionPayloadEnvelope<Self::E>,
-    ) -> Result<SignedExecutionPayloadEnvelope<Self::E>, StoreError<Self::Error>> {
+        _envelope: ExecutionPayloadEnvelopeGloas<Self::E>,
+    ) -> Result<SignedExecutionPayloadEnvelopeGloas<Self::E>, StoreError<Self::Error>> {
         panic!("MockValidatorStore::sign_execution_payload_envelope called without a hook")
     }
 
@@ -182,7 +184,7 @@ impl ValidatorStore for MockValidatorStore {
         &self,
         _validator_pubkey: PublicKeyBytes,
         _preferences: ProposerPreferences,
-    ) -> Result<SignedProposerPreferences, StoreError<Self::Error>> {
+    ) -> Result<SignedProposerPreferencesGloas, StoreError<Self::Error>> {
         panic!("MockValidatorStore::sign_proposer_preferences called without a hook")
     }
 

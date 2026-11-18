@@ -14,10 +14,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::info;
 use types::{
-    ChainSpec, ConfigAndPreset, Epoch, EthSpec, ExecutionPayloadEnvelope, ForkName, Hash256,
-    PayloadAttestationData, PayloadAttestationMessage, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncDuty,
+    ChainSpec, ConfigAndPreset, Epoch, EthSpec, ExecutionPayloadEnvelopeGloas, ForkName, Hash256,
+    PayloadAttestationData, PayloadAttestationMessageGloas, SignedBlindedBeaconBlock,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelopeGloas, Slot,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncDuty,
 };
 
 pub struct MockBeaconNode<E: EthSpec> {
@@ -26,10 +26,10 @@ pub struct MockBeaconNode<E: EthSpec> {
     _phantom: PhantomData<E>,
     pub received_blinded_blocks: Arc<Mutex<Vec<SignedBlindedBeaconBlock<E>>>>,
     pub received_full_blocks: Arc<Mutex<Vec<PublishBlockRequest<E>>>>,
-    pub execution_payload_envelope: Arc<Mutex<Vec<SignedExecutionPayloadEnvelope<E>>>>,
+    pub execution_payload_envelope: Arc<Mutex<Vec<SignedExecutionPayloadEnvelopeGloas<E>>>>,
     pub execution_payload_envelope_contents:
         Arc<Mutex<Vec<SignedExecutionPayloadEnvelopeContents<E>>>>,
-    pub payload_attestation_message: Arc<Mutex<Vec<PayloadAttestationMessage>>>,
+    pub payload_attestation_message: Arc<Mutex<Vec<PayloadAttestationMessageGloas>>>,
     pub builder_preferences: Arc<Mutex<Vec<SubmittedBuilderPreferences>>>,
     pub sync_committee_messages: Arc<Mutex<Vec<SyncCommitteeMessage>>>,
     pub sync_committee_contributions: Arc<Mutex<Vec<SignedContributionAndProof<E>>>>,
@@ -380,7 +380,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
     /// Mocks `GET /eth/v1/validator/execution_payload_envelopes/{slot}/{beacon_block_root}` (SSZ)
     pub fn mock_get_validator_execution_payload_envelope_ssz(
         &mut self,
-        envelope: &ExecutionPayloadEnvelope<E>,
+        envelope: &ExecutionPayloadEnvelopeGloas<E>,
         slot: Slot,
         beacon_block_root: Hash256,
     ) -> Mock {
@@ -521,7 +521,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(200)
             .with_body_from_request(move |request| {
                 let body = request.body().expect("Failed to get request body");
-                let message: Vec<PayloadAttestationMessage> = serde_json::from_slice(body)
+                let message: Vec<PayloadAttestationMessageGloas> = serde_json::from_slice(body)
                     .expect("Failed to deserialize payload attestations");
                 payload_attestation_message.lock().unwrap().extend(message);
                 vec![]
@@ -548,12 +548,12 @@ impl<E: EthSpec> MockBeaconNode<E> {
                 );
                 let body = request.body().expect("Failed to get request body");
 
-                let chunk_size = <PayloadAttestationMessage as Decode>::ssz_fixed_len();
-                let messages: Vec<PayloadAttestationMessage> = body
+                let chunk_size = <PayloadAttestationMessageGloas as Decode>::ssz_fixed_len();
+                let messages: Vec<PayloadAttestationMessageGloas> = body
                     .chunks(chunk_size)
                     .map(|chunk| {
-                        PayloadAttestationMessage::from_ssz_bytes(chunk)
-                            .expect("Failed to deserialize PayloadAttestationMessage from SSZ")
+                        PayloadAttestationMessageGloas::from_ssz_bytes(chunk)
+                            .expect("Failed to deserialize PayloadAttestationMessageGloas from SSZ")
                     })
                     .collect();
 
@@ -601,8 +601,8 @@ impl<E: EthSpec> MockBeaconNode<E> {
             .with_status(200)
             .with_body_from_request(move |request| {
                 let body = request.body().expect("Failed to get request body");
-                let envelope = SignedExecutionPayloadEnvelope::<E>::from_ssz_bytes(body)
-                    .expect("Failed to deserialize SignedExecutionPayloadEnvelope from SSZ");
+                let envelope = SignedExecutionPayloadEnvelopeGloas::<E>::from_ssz_bytes(body)
+                    .expect("Failed to deserialize SignedExecutionPayloadEnvelopeGloas from SSZ");
                 execution_payload_envelope.lock().unwrap().push(envelope);
                 vec![]
             })

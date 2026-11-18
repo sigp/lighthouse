@@ -851,7 +851,7 @@ pub type CommitteeAttestations<E> = Vec<(Attestation<E>, SubnetId)>;
 /// A produced Gloas block, its (locally built) payload envelope if any, and the post-block state.
 pub type GloasBlockAndEnvelope<E> = (
     SignedBlockContentsTuple<E>,
-    Option<SignedExecutionPayloadEnvelope<E>>,
+    Option<SignedExecutionPayloadEnvelopeGloas<E>>,
     BeaconState<E>,
 );
 pub type HarnessAttestations<E> =
@@ -862,7 +862,7 @@ pub type HarnessSingleAttestations<E> = Vec<(
     Option<SignedAggregateAndProof<E>>,
 )>;
 
-pub type HarnessPayloadAttestationMessages = Vec<PayloadAttestationMessage>;
+pub type HarnessPayloadAttestationMessages = Vec<PayloadAttestationMessageGloas>;
 
 pub type HarnessSyncContributions<E> = Vec<(
     Vec<(SyncCommitteeMessage, usize)>,
@@ -1199,12 +1199,14 @@ where
                 .get_beacon_proposer_index(slot, &self.spec)
                 .unwrap();
             // Re-sign after modification.
-            let signed_blinded = blinded_block.sign(
-                &self.validator_keypairs[proposer_index].sk,
-                &pending_state.fork(),
-                pending_state.genesis_validators_root(),
-                &self.spec,
-            );
+            let signed_blinded = blinded_block
+                .sign(
+                    &self.validator_keypairs[proposer_index].sk,
+                    &pending_state.fork(),
+                    pending_state.genesis_validators_root(),
+                    &self.spec,
+                )
+                .unwrap();
             return (signed_blinded, pending_state);
         }
 
@@ -1248,12 +1250,14 @@ where
         let mut block = block_response.block;
         block_modifier(&mut block);
 
-        let signed_block = block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &block_response.state.fork(),
-            block_response.state.genesis_validators_root(),
-            &self.spec,
-        );
+        let signed_block = block
+            .sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &block_response.state.fork(),
+                block_response.state.genesis_validators_root(),
+                &self.spec,
+            )
+            .unwrap();
 
         (signed_block, block_response.state)
     }
@@ -1308,12 +1312,17 @@ where
             panic!("Should always be a full payload response");
         };
 
-        let signed_block = Arc::new(block_response.block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &block_response.state.fork(),
-            block_response.state.genesis_validators_root(),
-            &self.spec,
-        ));
+        let signed_block = Arc::new(
+            block_response
+                .block
+                .sign(
+                    &self.validator_keypairs[proposer_index].sk,
+                    &block_response.state.fork(),
+                    block_response.state.genesis_validators_root(),
+                    &self.spec,
+                )
+                .unwrap(),
+        );
 
         let block_contents: SignedBlockContentsTuple<E> =
             if signed_block.fork_name_unchecked().deneb_enabled() {
@@ -1359,6 +1368,11 @@ where
         let block_hash = ExecutionBlockHash::from_root(Hash256::from_slice(
             &self.rng.lock().random::<[u8; 32]>(),
         ));
+
+        assert!(
+            !matches!(state, BeaconState::Pq(_)),
+            "Pq bid signing is not implemented"
+        );
 
         let bid = match &state {
             BeaconState::Heze(_) => ExecutionPayloadBid::Heze(ExecutionPayloadBidHeze {
@@ -1411,10 +1425,6 @@ where
         );
         let signature = keypair.sk.sign(bid.signing_root(domain));
         match bid {
-            // Pq reuses the Gloas inner bid; only the signed container has a Pq variant.
-            ExecutionPayloadBid::Gloas(message) if matches!(state, BeaconState::Pq(_)) => {
-                SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq { message, signature })
-            }
             ExecutionPayloadBid::Gloas(message) => {
                 SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
                     message,
@@ -1438,7 +1448,7 @@ where
         &self,
         block: &SignedBeaconBlock<E>,
         post_state: &BeaconState<E>,
-    ) -> SignedExecutionPayloadEnvelope<E> {
+    ) -> SignedExecutionPayloadEnvelopeGloas<E> {
         let bid = post_state
             .latest_execution_payload_bid()
             .expect("envelopes require a Gloas state");
@@ -1464,7 +1474,7 @@ where
             slot_number: post_state.slot(),
             ..Default::default()
         };
-        let envelope = ExecutionPayloadEnvelope {
+        let envelope = ExecutionPayloadEnvelopeGloas {
             payload,
             execution_requests: ExecutionRequestsGloas::default(),
             builder_index: bid.builder_index(),
@@ -1489,7 +1499,7 @@ where
             post_state.genesis_validators_root(),
         );
         let signature = keypair.sk.sign(envelope.signing_root(domain));
-        SignedExecutionPayloadEnvelope {
+        SignedExecutionPayloadEnvelopeGloas {
             message: envelope,
             signature,
         }
@@ -1545,7 +1555,7 @@ where
         slot: Slot,
     ) -> (
         SignedBlockContentsTuple<E>,
-        Option<SignedExecutionPayloadEnvelope<E>>,
+        Option<SignedExecutionPayloadEnvelopeGloas<E>>,
         BeaconState<E>,
     ) {
         let parent_payload_status = self
@@ -1569,7 +1579,7 @@ where
         parent_payload_status: PayloadStatus,
     ) -> (
         SignedBlockContentsTuple<E>,
-        Option<SignedExecutionPayloadEnvelope<E>>,
+        Option<SignedExecutionPayloadEnvelopeGloas<E>>,
         BeaconState<E>,
     ) {
         assert_ne!(slot, 0, "can't produce a block at slot 0");
@@ -1646,12 +1656,16 @@ where
             )
             .await?;
 
-        let signed_block = Arc::new(block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &post_block_state.fork(),
-            post_block_state.genesis_validators_root(),
-            &self.spec,
-        ));
+        let signed_block = Arc::new(
+            block
+                .sign(
+                    &self.validator_keypairs[proposer_index].sk,
+                    &post_block_state.fork(),
+                    post_block_state.genesis_validators_root(),
+                    &self.spec,
+                )
+                .unwrap(),
+        );
 
         // Retrieve the cached envelope produced during block production and sign it.
         let signed_envelope = self
@@ -1669,7 +1683,7 @@ where
                 );
                 let message = envelope.signing_root(domain);
                 let signature = self.validator_keypairs[proposer_index].sk.sign(message);
-                SignedExecutionPayloadEnvelope {
+                SignedExecutionPayloadEnvelopeGloas {
                     message: Arc::unwrap_or_clone(envelope),
                     signature,
                 }
@@ -1740,12 +1754,17 @@ where
             panic!("Should always be a full payload response");
         };
 
-        let signed_block = Arc::new(block_response.block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &block_response.state.fork(),
-            block_response.state.genesis_validators_root(),
-            &self.spec,
-        ));
+        let signed_block = Arc::new(
+            block_response
+                .block
+                .sign(
+                    &self.validator_keypairs[proposer_index].sk,
+                    &block_response.state.fork(),
+                    block_response.state.genesis_validators_root(),
+                    &self.spec,
+                )
+                .unwrap(),
+        );
 
         let block_contents: SignedBlockContentsTuple<E> =
             if signed_block.fork_name_unchecked().deneb_enabled() {
@@ -1781,6 +1800,10 @@ where
         bid: ExecutionPayloadBidGloas<E>,
         state: &BeaconState<E>,
     ) -> Arc<SignedExecutionPayloadBid<E>> {
+        assert!(
+            !matches!(state, BeaconState::Pq(_)),
+            "Pq bid signing is not implemented"
+        );
         let domain = self.spec.get_domain(
             bid.slot.epoch(E::slots_per_epoch()),
             Domain::BeaconBuilder,
@@ -1791,18 +1814,12 @@ where
             .sk
             .sign(ExecutionPayloadBidRef::Gloas(&bid).signing_root(domain));
 
-        // Pq reuses the Gloas inner bid; only the signed container has a Pq variant.
-        Arc::new(if matches!(state, BeaconState::Pq(_)) {
-            SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq {
+        Arc::new(SignedExecutionPayloadBid::Gloas(
+            SignedExecutionPayloadBidGloas {
                 message: bid,
                 signature,
-            })
-        } else {
-            SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
-                message: bid,
-                signature,
-            })
-        })
+            },
+        ))
     }
 
     /// Sign a beacon block using the proposer's key.
@@ -1812,12 +1829,14 @@ where
         state: &BeaconState<E>,
     ) -> SignedBeaconBlock<E> {
         let proposer_index = block.proposer_index() as usize;
-        block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
-            &self.spec,
-        )
+        block
+            .sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &state.fork(),
+                state.genesis_validators_root(),
+                &self.spec,
+            )
+            .unwrap()
     }
 
     /// Build a Bellatrix block with the given execution payload, compute the
@@ -1867,12 +1886,15 @@ where
         });
 
         // Run per_block_processing on a clone to compute the post-state root.
-        let signed_tmp = block.clone().sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
-            &self.spec,
-        );
+        let signed_tmp = block
+            .clone()
+            .sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &state.fork(),
+                state.genesis_validators_root(),
+                &self.spec,
+            )
+            .unwrap();
         let mut ctxt = ConsensusContext::new(slot).set_proposer_index(proposer_index as u64);
         let mut post_state = state.clone();
         per_block_processing(
@@ -2620,7 +2642,7 @@ where
         validator_index: usize,
         data: PayloadAttestationData,
         fork: &Fork,
-    ) -> PayloadAttestationMessage {
+    ) -> PayloadAttestationMessageGloas {
         let epoch = data.slot.epoch(E::slots_per_epoch());
         let domain = self.spec.get_domain(
             epoch,
@@ -2633,7 +2655,7 @@ where
             .sk
             .sign(signing_root);
 
-        PayloadAttestationMessage {
+        PayloadAttestationMessageGloas {
             validator_index: validator_index as u64,
             data,
             signature,
@@ -2746,7 +2768,7 @@ where
 
     pub fn import_payload_attestation_message(
         &self,
-        message: PayloadAttestationMessage,
+        message: PayloadAttestationMessageGloas,
     ) -> Result<(), PayloadAttestationImportError> {
         let verified = self
             .chain
@@ -2769,7 +2791,7 @@ where
 
     pub fn import_payload_attestation_messages(
         &self,
-        messages: impl IntoIterator<Item = PayloadAttestationMessage>,
+        messages: impl IntoIterator<Item = PayloadAttestationMessageGloas>,
     ) -> Result<(), PayloadAttestationImportError> {
         for message in messages {
             self.import_payload_attestation_message(message)?;
@@ -3081,7 +3103,7 @@ where
         }
     }
 
-    pub fn make_proposer_slashing(&self, validator_index: u64) -> ProposerSlashing {
+    pub fn make_proposer_slashing(&self, validator_index: u64) -> ProposerSlashingBase {
         self.make_proposer_slashing_at_slot(validator_index, None)
     }
 
@@ -3089,7 +3111,7 @@ where
         &self,
         validator_index: u64,
         slot_override: Option<Slot>,
-    ) -> ProposerSlashing {
+    ) -> ProposerSlashingBase {
         let mut block_header_1 = self.chain.head_beacon_block().message().block_header();
         block_header_1.proposer_index = validator_index;
         if let Some(slot) = slot_override {
@@ -3110,7 +3132,7 @@ where
             })
             .collect::<Vec<_>>();
 
-        ProposerSlashing {
+        ProposerSlashingBase {
             signed_header_2: signed_block_headers.remove(1),
             signed_header_1: signed_block_headers.remove(0),
         }
@@ -3245,12 +3267,14 @@ where
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
-        let signed_block = block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
-            &self.spec,
-        );
+        let signed_block = block
+            .sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &state.fork(),
+                state.genesis_validators_root(),
+                &self.spec,
+            )
+            .unwrap();
         ((Arc::new(signed_block), blobs), state)
     }
 
@@ -3271,12 +3295,14 @@ where
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
-        let signed_block = block.sign(
-            &self.validator_keypairs[proposer_index].sk,
-            &state.fork(),
-            state.genesis_validators_root(),
-            &self.spec,
-        );
+        let signed_block = block
+            .sign(
+                &self.validator_keypairs[proposer_index].sk,
+                &state.fork(),
+                state.genesis_validators_root(),
+                &self.spec,
+            )
+            .unwrap();
         ((Arc::new(signed_block), blobs), state)
     }
 
@@ -3460,7 +3486,7 @@ where
     pub async fn process_envelope(
         &self,
         block_root: Hash256,
-        signed_envelope: SignedExecutionPayloadEnvelope<E>,
+        signed_envelope: SignedExecutionPayloadEnvelopeGloas<E>,
         state: &BeaconState<E>,
         block_state_root: Hash256,
     ) {
@@ -4520,7 +4546,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
 ) -> arbitrary::Result<(SignedBeaconBlock<E, FullPayload<E>>, Vec<BlobSidecar<E>>)> {
     let inner = map_fork_name!(fork_name, BeaconBlock, <_>::arbitrary(&mut *u)?);
 
-    let mut block = SignedBeaconBlock::from_block(inner, Signature::arbitrary(&mut *u)?);
+    let mut block = SignedBeaconBlock::from_block(inner, Signature::arbitrary(&mut *u)?).unwrap();
     let mut blob_sidecars = vec![];
 
     let bundle = match block {
@@ -4592,7 +4618,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             blob: blob.clone(),
             kzg_commitment,
             kzg_proof,
-            signed_block_header: block.signed_block_header(),
+            signed_block_header: block.signed_block_header_bls().unwrap(),
             kzg_commitment_inclusion_proof: block
                 .message()
                 .body()
@@ -4638,7 +4664,7 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
             return vec![];
         }
         let num_blobs = kzg_commitments.len();
-        let signed_block_header = block.signed_block_header();
+        let signed_block_header = block.signed_block_header_bls().unwrap();
         let template_data_columns =
             RuntimeVariableList::<DataColumnSidecarGloas<E>>::from_ssz_bytes(
                 TEST_DATA_COLUMN_SIDECARS_GLOAS_SSZ,
@@ -4681,7 +4707,7 @@ pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
             .body()
             .kzg_commitments_merkle_proof()
             .unwrap();
-        let signed_block_header = block.signed_block_header();
+        let signed_block_header = block.signed_block_header_bls().unwrap();
 
         // load the precomputed column sidecar to avoid computing them for every block in the tests.
         let template_data_columns =

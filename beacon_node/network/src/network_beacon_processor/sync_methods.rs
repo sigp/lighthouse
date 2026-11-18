@@ -323,7 +323,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub async fn process_lookup_envelope(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
-        envelope: Arc<types::SignedExecutionPayloadEnvelope<T::EthSpec>>,
+        envelope: Arc<types::SignedExecutionPayloadEnvelopeGloas<T::EthSpec>>,
         process_type: BlockProcessType,
     ) {
         debug!(

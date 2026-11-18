@@ -19,10 +19,12 @@ pub use beacon_block_body::{
 pub use beacon_block_header::BeaconBlockHeader;
 
 pub use signed_beacon_block::{
-    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBeaconBlockHash, SignedBeaconBlockHeze,
-    SignedBeaconBlockPq, SignedBlindedBeaconBlock, ssz_tagged_signed_beacon_block,
-    ssz_tagged_signed_beacon_block_arc,
+    BlockSignature, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
+    SignedBeaconBlockBellatrix, SignedBeaconBlockCapella, SignedBeaconBlockDeneb,
+    SignedBeaconBlockElectra, SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBeaconBlockHash,
+    SignedBeaconBlockHeze, SignedBeaconBlockPq, SignedBlindedBeaconBlock,
+    ssz_tagged_signed_beacon_block, ssz_tagged_signed_beacon_block_arc,
 };
-pub use signed_beacon_block_header::SignedBeaconBlockHeader;
+pub use signed_beacon_block_header::{
+    SignedBeaconBlockHeader, SignedBeaconBlockHeaderBase, SignedBeaconBlockHeaderPq,
+};

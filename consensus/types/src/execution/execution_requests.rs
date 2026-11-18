@@ -12,9 +12,14 @@ use tree_hash_derive::TreeHash;
 use crate::{
     builder::{BuilderDepositRequest, BuilderExitRequest},
     consolidation::ConsolidationRequest,
+    consts::pq::{
+        BUILDER_PREREGISTRATION_REQUEST_TYPE, VALIDATOR_PREREGISTRATION_REQUEST_TYPE,
+        VOLUNTARY_EXIT_REQUEST_TYPE,
+    },
     core::{EthSpec, Hash256},
     deposit::DepositRequest,
     fork::{ForkName, ForkVersionDecode},
+    pq::{BuilderPreregistrationRequest, ValidatorPreregistrationRequest, VoluntaryExitRequest},
     state::BeaconStateError,
     withdrawal::WithdrawalRequest,
 };
@@ -36,7 +41,7 @@ pub type BuilderExitRequests<E> =
 /// lists (EIP-7688) with decoder limits, except for deposit requests which are unbounded. The
 /// builder request lists are new in Gloas (EIP-8282).
 #[superstruct(
-    variants(Electra, Gloas),
+    variants(Electra, Gloas, Pq),
     variant_attributes(
         derive(
             Default,
@@ -58,10 +63,13 @@ pub type BuilderExitRequests<E> =
             arbitrary(bound = "E: EthSpec"),
         ),
     ),
-    specific_variant_attributes(Gloas(tree_hash(
-        struct_behaviour = "progressive_container",
-        active_fields(1, 1, 1, 1, 1)
-    ))),
+    specific_variant_attributes(
+        Gloas(tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1, 1, 1))),
+        Pq(tree_hash(
+            struct_behaviour = "progressive_container",
+            active_fields(1, 1, 1, 1, 1, 0, 0, 1, 1, 1)
+        )),
+    ),
     cast_error(
         ty = "BeaconStateError",
         expr = "BeaconStateError::IncorrectStateVariant"
@@ -84,24 +92,37 @@ pub type BuilderExitRequests<E> =
 pub struct ExecutionRequests<E: EthSpec> {
     #[superstruct(only(Electra), partial_getter(rename = "deposits_electra"))]
     pub deposits: DepositRequests<E>,
-    #[superstruct(only(Gloas), partial_getter(rename = "deposits_gloas"))]
+    #[superstruct(only(Gloas, Pq), partial_getter(rename = "deposits_gloas"))]
     pub deposits: ProgressiveVariableList<DepositRequest>,
     #[superstruct(only(Electra), partial_getter(rename = "withdrawals_electra"))]
     pub withdrawals: WithdrawalRequests<E>,
-    #[superstruct(only(Gloas), partial_getter(rename = "withdrawals_gloas"))]
+    #[superstruct(only(Gloas, Pq), partial_getter(rename = "withdrawals_gloas"))]
     pub withdrawals: ProgressiveVariableList<WithdrawalRequest, E::MaxWithdrawalRequestsPerPayload>,
     #[superstruct(only(Electra), partial_getter(rename = "consolidations_electra"))]
     pub consolidations: ConsolidationRequests<E>,
-    #[superstruct(only(Gloas), partial_getter(rename = "consolidations_gloas"))]
+    #[superstruct(only(Gloas, Pq), partial_getter(rename = "consolidations_gloas"))]
     pub consolidations:
         ProgressiveVariableList<ConsolidationRequest, E::MaxConsolidationRequestsPerPayload>,
-    // [New in Gloas:EIP8282] The builder request lists are only present on the Gloas variant.
-    #[superstruct(only(Gloas))]
+    // [New in Gloas:EIP8282] Builder request lists.
+    #[superstruct(only(Gloas, Pq))]
     pub builder_deposits:
         ProgressiveVariableList<BuilderDepositRequest, E::MaxBuilderDepositRequestsPerPayload>,
-    #[superstruct(only(Gloas))]
+    #[superstruct(only(Gloas, Pq))]
     pub builder_exits:
         ProgressiveVariableList<BuilderExitRequest, E::MaxBuilderExitRequestsPerPayload>,
+    #[superstruct(only(Pq))]
+    pub validator_preregistrations: ProgressiveVariableList<
+        ValidatorPreregistrationRequest,
+        E::MaxValidatorPreregistrationRequestsPerPayload,
+    >,
+    #[superstruct(only(Pq))]
+    pub builder_preregistrations: ProgressiveVariableList<
+        BuilderPreregistrationRequest,
+        E::MaxBuilderPreregistrationRequestsPerPayload,
+    >,
+    #[superstruct(only(Pq))]
+    pub voluntary_exits:
+        ProgressiveVariableList<VoluntaryExitRequest, E::MaxVoluntaryExitRequestsPerPayload>,
 }
 
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionRequests<E> {
@@ -109,7 +130,9 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionRequests<E>
     where
         D: Deserializer<'de>,
     {
-        if context.gloas_enabled() {
+        if context == ForkName::Pq {
+            ExecutionRequestsPq::deserialize(deserializer).map(Self::Pq)
+        } else if context.gloas_enabled() {
             ExecutionRequestsGloas::<E>::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
                 .map(ExecutionRequests::Gloas)
@@ -135,9 +158,10 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionRequests<E> {
             ForkName::Electra | ForkName::Fulu => {
                 ExecutionRequestsElectra::from_ssz_bytes(bytes).map(Self::Electra)
             }
-            ForkName::Gloas | ForkName::Pq | ForkName::Heze => {
+            ForkName::Gloas | ForkName::Heze => {
                 ExecutionRequestsGloas::from_ssz_bytes(bytes).map(Self::Gloas)
             }
+            ForkName::Pq => ExecutionRequestsPq::from_ssz_bytes(bytes).map(Self::Pq),
         }
     }
 }
@@ -172,6 +196,7 @@ impl<E: EthSpec> ExecutionRequests<E> {
         match self {
             Self::Electra(r) => r.get_execution_requests_list(),
             Self::Gloas(r) => r.get_execution_requests_list(),
+            Self::Pq(r) => r.get_execution_requests_list(),
         }
     }
 
@@ -188,6 +213,7 @@ impl<'a, E: EthSpec> ExecutionRequestsRef<'a, E> {
         match self {
             Self::Electra(r) => r.get_execution_requests_list(),
             Self::Gloas(r) => r.get_execution_requests_list(),
+            Self::Pq(r) => r.get_execution_requests_list(),
         }
     }
 
@@ -255,6 +281,56 @@ impl<E: EthSpec> ExecutionRequestsGloas<E> {
     }
 }
 
+impl<E: EthSpec> ExecutionRequestsPq<E> {
+    /// EIP-7685 requests list to send to the EL over the engine API.
+    pub fn get_execution_requests_list(&self) -> Vec<Bytes> {
+        build_execution_requests_list(vec![
+            (
+                RequestType::Deposit,
+                self.deposits.is_empty(),
+                self.deposits.as_ssz_bytes(),
+            ),
+            (
+                RequestType::Withdrawal,
+                self.withdrawals.is_empty(),
+                self.withdrawals.as_ssz_bytes(),
+            ),
+            (
+                RequestType::Consolidation,
+                self.consolidations.is_empty(),
+                self.consolidations.as_ssz_bytes(),
+            ),
+            // [New in Gloas:EIP8282]
+            (
+                RequestType::BuilderDeposit,
+                self.builder_deposits.is_empty(),
+                self.builder_deposits.as_ssz_bytes(),
+            ),
+            // [New in Gloas:EIP8282]
+            (
+                RequestType::BuilderExit,
+                self.builder_exits.is_empty(),
+                self.builder_exits.as_ssz_bytes(),
+            ),
+            (
+                RequestType::ValidatorPreregistration,
+                self.validator_preregistrations.is_empty(),
+                self.validator_preregistrations.as_ssz_bytes(),
+            ),
+            (
+                RequestType::BuilderPreregistration,
+                self.builder_preregistrations.is_empty(),
+                self.builder_preregistrations.as_ssz_bytes(),
+            ),
+            (
+                RequestType::VoluntaryExit,
+                self.voluntary_exits.is_empty(),
+                self.voluntary_exits.as_ssz_bytes(),
+            ),
+        ])
+    }
+}
+
 impl<E: EthSpec> TryFrom<&ExecutionRequestsElectra<E>> for ExecutionRequestsGloas<E> {
     type Error = ssz_types::Error;
 
@@ -279,6 +355,9 @@ pub enum RequestType {
     Consolidation,
     BuilderDeposit,
     BuilderExit,
+    ValidatorPreregistration,
+    BuilderPreregistration,
+    VoluntaryExit,
 }
 
 impl RequestType {
@@ -289,6 +368,9 @@ impl RequestType {
             2 => Some(Self::Consolidation),
             3 => Some(Self::BuilderDeposit),
             4 => Some(Self::BuilderExit),
+            VALIDATOR_PREREGISTRATION_REQUEST_TYPE => Some(Self::ValidatorPreregistration),
+            BUILDER_PREREGISTRATION_REQUEST_TYPE => Some(Self::BuilderPreregistration),
+            VOLUNTARY_EXIT_REQUEST_TYPE => Some(Self::VoluntaryExit),
             _ => None,
         }
     }
@@ -299,6 +381,9 @@ impl RequestType {
             Self::Consolidation => 2,
             Self::BuilderDeposit => 3,
             Self::BuilderExit => 4,
+            Self::ValidatorPreregistration => VALIDATOR_PREREGISTRATION_REQUEST_TYPE,
+            Self::BuilderPreregistration => BUILDER_PREREGISTRATION_REQUEST_TYPE,
+            Self::VoluntaryExit => VOLUNTARY_EXIT_REQUEST_TYPE,
         }
     }
 }
@@ -317,4 +402,12 @@ mod gloas_tests {
     use crate::Spec;
 
     ssz_and_tree_hash_tests!(ExecutionRequestsGloas<Spec>);
+}
+
+#[cfg(test)]
+mod pq_tests {
+    use super::*;
+    use crate::Spec;
+
+    ssz_and_tree_hash_tests!(ExecutionRequestsPq<Spec>);
 }

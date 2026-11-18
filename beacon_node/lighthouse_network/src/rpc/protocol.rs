@@ -1,6 +1,5 @@
 use super::methods::*;
 use crate::rpc::codec::SSZSnappyInboundCodec;
-use bls::Signature;
 use futures::future::BoxFuture;
 use futures::prelude::{AsyncRead, AsyncWrite};
 use futures::{FutureExt, StreamExt};
@@ -22,35 +21,31 @@ use types::{
     LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
     LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
     LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
-    SignedBeaconBlock, SignedExecutionPayloadEnvelope,
+    SignedBeaconBlock, SignedExecutionPayloadEnvelopeGloas,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
 // same across different `EthSpec` implementations.
-pub static SIGNED_BEACON_BLOCK_BASE_MIN: LazyLock<usize> = LazyLock::new(|| {
-    SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Base(BeaconBlockBase::<MainnetEthSpec>::empty(
-            &MainnetEthSpec::default_spec(),
-        )),
-        Signature::empty(),
-    )
-    .as_ssz_bytes()
-    .len()
-});
+pub static SIGNED_BEACON_BLOCK_BASE_MIN: LazyLock<usize> =
+    LazyLock::new(|| {
+        SignedBeaconBlock::<MainnetEthSpec>::with_empty_signature(BeaconBlock::Base(
+            BeaconBlockBase::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec()),
+        ))
+        .as_ssz_bytes()
+        .len()
+    });
 pub static SIGNED_BEACON_BLOCK_BASE_MAX: LazyLock<usize> = LazyLock::new(|| {
-    SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Base(BeaconBlockBase::full(&MainnetEthSpec::default_spec())),
-        Signature::empty(),
-    )
+    SignedBeaconBlock::<MainnetEthSpec>::with_empty_signature(BeaconBlock::Base(
+        BeaconBlockBase::full(&MainnetEthSpec::default_spec()),
+    ))
     .as_ssz_bytes()
     .len()
 });
 
 pub static SIGNED_BEACON_BLOCK_ALTAIR_MAX: LazyLock<usize> = LazyLock::new(|| {
-    SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Altair(BeaconBlockAltair::full(&MainnetEthSpec::default_spec())),
-        Signature::empty(),
-    )
+    SignedBeaconBlock::<MainnetEthSpec>::with_empty_signature(BeaconBlock::Altair(
+        BeaconBlockAltair::full(&MainnetEthSpec::default_spec()),
+    ))
     .as_ssz_bytes()
     .len()
 });
@@ -66,10 +61,10 @@ pub static SIGNED_BEACON_BLOCK_BELLATRIX_MAX: LazyLock<usize> =
     + ssz::BYTES_PER_LENGTH_OFFSET); // Adding the additional ssz offset for the `ExecutionPayload` field
 
 pub static SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MIN: LazyLock<usize> =
-    LazyLock::new(SignedExecutionPayloadEnvelope::<MainnetEthSpec>::min_size);
+    LazyLock::new(SignedExecutionPayloadEnvelopeGloas::<MainnetEthSpec>::min_size);
 
 pub static SIGNED_EXECUTION_PAYLOAD_ENVELOPE_MAX: LazyLock<usize> =
-    LazyLock::new(SignedExecutionPayloadEnvelope::<MainnetEthSpec>::max_size);
+    LazyLock::new(SignedExecutionPayloadEnvelopeGloas::<MainnetEthSpec>::max_size);
 
 pub static BLOB_SIDECAR_SIZE: LazyLock<usize> =
     LazyLock::new(BlobSidecar::<MainnetEthSpec>::max_size);

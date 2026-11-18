@@ -8,9 +8,10 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use task_executor::test_utils::TestRuntime;
 use types::{
-    BlockAccessList, ExecutionBlockHash, ExecutionPayloadBody, ExecutionPayloadEnvelope,
+    BlockAccessList, ExecutionBlockHash, ExecutionPayloadBody, ExecutionPayloadEnvelopeGloas,
     ExecutionPayloadGloas, ExecutionPayloadRef, ExecutionRequestsGloas, ExecutionRequestsRef,
-    Hash256, SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary, Slot, Spec,
+    Hash256, SignedExecutionPayloadEnvelopeGloas, SignedExecutionPayloadEnvelopeSummary, Slot,
+    Spec,
 };
 
 type E = Spec;
@@ -19,7 +20,7 @@ type T = EphemeralHarnessType<E>;
 struct SlotEntry {
     block_root: Hash256,
     slot: Slot,
-    envelope: Option<SignedExecutionPayloadEnvelope<E>>,
+    envelope: Option<SignedExecutionPayloadEnvelopeGloas<E>>,
     non_canonical_envelope: bool,
 }
 
@@ -75,8 +76,8 @@ fn build_chain(
                 Some(ExecutionRequestsRef::Gloas(&execution_requests)),
             )
             .0;
-            Some(SignedExecutionPayloadEnvelope {
-                message: ExecutionPayloadEnvelope {
+            Some(SignedExecutionPayloadEnvelopeGloas {
+                message: ExecutionPayloadEnvelopeGloas {
                     payload,
                     execution_requests,
                     builder_index: 0,
@@ -168,7 +169,7 @@ fn mock_canonical_head(mock: &mut MockEnvelopeStreamerBeaconAdapter<T>, chain: &
 
 fn unwrap_result(
     result: &Arc<PayloadEnvelopeResult<E>>,
-) -> &Option<Arc<SignedExecutionPayloadEnvelope<E>>> {
+) -> &Option<Arc<SignedExecutionPayloadEnvelopeGloas<E>>> {
     result
         .as_ref()
         .as_ref()

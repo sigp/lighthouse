@@ -684,7 +684,7 @@ fn create_test_block_and_blobs(
     blob_count: usize,
 ) -> (Arc<SignedBeaconBlock<E>>, Vec<BlobAndProof<E>>) {
     let mut block =
-        SignedBeaconBlock::from_block(BeaconBlock::empty(mock_adapter.spec()), Signature::empty());
+        SignedBeaconBlock::with_empty_signature(BeaconBlock::empty(mock_adapter.spec()));
     let fork = block.fork_name_unchecked();
     let (blobs_bundle, _tx) = generate_blobs::<E>(blob_count, fork).unwrap();
 

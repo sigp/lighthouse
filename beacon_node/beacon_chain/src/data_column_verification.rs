@@ -33,7 +33,8 @@ use types::data::{
 };
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, Epoch, EthSpec, Hash256,
-    KzgCommitment, PartialDataColumnView, SignedBeaconBlockHeader, SignedExecutionPayloadBid, Slot,
+    KzgCommitment, PartialDataColumnView, SignedBeaconBlockHeaderBase, SignedExecutionPayloadBid,
+    Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -1757,7 +1758,7 @@ fn verify_parent_block_and_finalized_descendant<T: BeaconChainTypes>(
 }
 
 fn verify_proposer_and_signature<T: BeaconChainTypes>(
-    signed_block_header: &SignedBeaconBlockHeader,
+    signed_block_header: &SignedBeaconBlockHeaderBase,
     parent_block: &ProtoBlock,
     chain: &BeaconChain<T>,
 ) -> Result<(), GossipDataColumnError> {
@@ -2074,7 +2075,7 @@ mod test {
             column: vec![].try_into().unwrap(),
             kzg_commitments: vec![].try_into().unwrap(),
             kzg_proofs: vec![].try_into().unwrap(),
-            signed_block_header: block.signed_block_header(),
+            signed_block_header: block.signed_block_header_bls().unwrap(),
             kzg_commitments_inclusion_proof: block
                 .message()
                 .body()

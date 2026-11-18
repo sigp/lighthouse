@@ -4,7 +4,7 @@ use state_processing::{SigVerifiedOp, TransformPersist, VerifyOperation, VerifyO
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use types::{
-    AttesterSlashing, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, ProposerSlashing,
+    AttesterSlashing, BeaconState, ChainSpec, Epoch, EthSpec, ForkName, ProposerSlashingBase,
     SignedBlsToExecutionChange, SignedVoluntaryExit, Slot,
 };
 
@@ -52,7 +52,7 @@ impl<E: EthSpec> ObservableOperation<E> for SignedVoluntaryExit {
     }
 }
 
-impl<E: EthSpec> ObservableOperation<E> for ProposerSlashing {
+impl<E: EthSpec> ObservableOperation<E> for ProposerSlashingBase {
     fn observed_validators(&self) -> SmallVec<[u64; SMALL_VEC_SIZE]> {
         smallvec![self.signed_header_1.message.proposer_index]
     }

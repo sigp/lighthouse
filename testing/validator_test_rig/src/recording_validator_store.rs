@@ -3,11 +3,11 @@ use eth2::types::{RequestAuth, SignedRequestAuth};
 use futures::Stream;
 use std::sync::{Arc, Mutex};
 use types::{
-    Address, Epoch, ExecutionPayloadEnvelope, Graffiti, Hash256, PayloadAttestationData,
-    PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
-    SignedContributionAndProof, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
-    SignedValidatorRegistrationData, SingleAttestation, Slot, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    Address, Epoch, ExecutionPayloadEnvelopeGloas, Graffiti, Hash256, PayloadAttestationData,
+    PayloadAttestationMessageGloas, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
+    SignedContributionAndProof, SignedExecutionPayloadEnvelopeGloas,
+    SignedProposerPreferencesGloas, SignedValidatorRegistrationData, SingleAttestation, Slot,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -200,8 +200,8 @@ impl<S: ValidatorStore + 'static> ValidatorStore for RecordingValidatorStore<S> 
     async fn sign_execution_payload_envelope(
         &self,
         validator_pubkey: PublicKeyBytes,
-        envelope: ExecutionPayloadEnvelope<Self::E>,
-    ) -> Result<SignedExecutionPayloadEnvelope<Self::E>, StoreError<Self::Error>> {
+        envelope: ExecutionPayloadEnvelopeGloas<Self::E>,
+    ) -> Result<SignedExecutionPayloadEnvelopeGloas<Self::E>, StoreError<Self::Error>> {
         self.signed_envelope_block_roots
             .lock()
             .unwrap()
@@ -215,7 +215,7 @@ impl<S: ValidatorStore + 'static> ValidatorStore for RecordingValidatorStore<S> 
         &self,
         validator_pubkey: PublicKeyBytes,
         data: PayloadAttestationData,
-    ) -> Result<PayloadAttestationMessage, StoreError<Self::Error>> {
+    ) -> Result<PayloadAttestationMessageGloas, StoreError<Self::Error>> {
         self.inner
             .sign_payload_attestation(validator_pubkey, data)
             .await
@@ -225,7 +225,7 @@ impl<S: ValidatorStore + 'static> ValidatorStore for RecordingValidatorStore<S> 
         &self,
         validator_pubkey: PublicKeyBytes,
         preferences: ProposerPreferences,
-    ) -> Result<SignedProposerPreferences, StoreError<Self::Error>> {
+    ) -> Result<SignedProposerPreferencesGloas, StoreError<Self::Error>> {
         self.inner
             .sign_proposer_preferences(validator_pubkey, preferences)
             .await

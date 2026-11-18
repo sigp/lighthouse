@@ -264,7 +264,7 @@ fn proposer_slashing() {
     ));
 
     // Different slashing for the same index should be rejected
-    let slashing2 = ProposerSlashing {
+    let slashing2 = ProposerSlashingBase {
         signed_header_1: slashing1.signed_header_2,
         signed_header_2: slashing1.signed_header_1,
     };

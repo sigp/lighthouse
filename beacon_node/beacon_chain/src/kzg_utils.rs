@@ -15,7 +15,7 @@ use types::kzg_ext::KzgCommitments;
 use types::{
     Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarFulu,
     DataColumnSidecarGloas, DataColumnSidecarList, EthSpec, Hash256, KzgCommitment, KzgProof,
-    SignedBeaconBlock, SignedBeaconBlockHeader, SignedBlindedBeaconBlock, Slot,
+    SignedBeaconBlock, SignedBeaconBlockHeaderBase, SignedBlindedBeaconBlock, Slot,
 };
 
 /// Converts a blob ssz FixedVector to a reference to a fixed-size array
@@ -301,7 +301,7 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
         .body()
         .blob_kzg_commitments()
         .map_err(|_err| DataColumnSidecarError::PreDeneb)?;
-    let signed_block_header = block.signed_block_header();
+    let signed_block_header = block.signed_block_header_bls()?;
 
     let blob_cells_and_proofs_vec =
         compute_cells_with_provided_proofs::<E>(blobs, cell_proofs, kzg)?;
@@ -493,7 +493,7 @@ pub fn compute_cells<E: EthSpec>(blobs: &[&Blob<E>], kzg: &Kzg) -> Result<Vec<Kz
 pub(crate) fn build_data_column_sidecars_fulu<E: EthSpec>(
     kzg_commitments: KzgCommitments<E>,
     kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
-    signed_block_header: SignedBeaconBlockHeader,
+    signed_block_header: SignedBeaconBlockHeaderBase,
     blob_cells_and_proofs_vec: Vec<CellsAndKzgProofs>,
     spec: &ChainSpec,
 ) -> Result<DataColumnSidecarList<E>, String> {
@@ -959,7 +959,6 @@ mod test {
         reconstruct_blob_sidecars, reconstruct_data_columns,
         validate_data_columns_with_commitments, validate_full_data_columns,
     };
-    use bls::Signature;
     use eth2::types::BlobsBundle;
     use execution_layer::test_utils::generate_blobs;
     use kzg::{Kzg, KzgCommitment, trusted_setup::get_trusted_setup};
@@ -1348,7 +1347,7 @@ mod test {
             KzgCommitments::<E>::new(vec![KzgCommitment::empty_for_testing(); num_of_blobs])
                 .unwrap();
 
-        let mut signed_block = SignedBeaconBlock::from_block(block, Signature::empty());
+        let mut signed_block = SignedBeaconBlock::with_empty_signature(block);
         let fork = signed_block.fork_name_unchecked();
         let (blobs_bundle, _) = generate_blobs::<E>(num_of_blobs, fork).unwrap();
         let BlobsBundle {

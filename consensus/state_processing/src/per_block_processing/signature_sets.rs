@@ -10,11 +10,12 @@ use typenum::Unsigned;
 use types::{
     AbstractExecPayload, AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError,
     BuilderIndex, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork,
-    IndexedAttestation, IndexedAttestationRef, IndexedPayloadAttestation, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
+    IndexedAttestation, IndexedAttestationRef, IndexedPayloadAttestation, ProposerSlashingBase,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeaderBase,
     SignedBlsToExecutionChange, SignedContributionAndProof, SignedExecutionPayloadBidRef,
-    SignedInclusionList, SignedProposerPreferences, SignedRoot, SignedVoluntaryExit, SigningData,
-    Slot, SyncAggregate, SyncAggregatorSelectionData, consts::gloas::BUILDER_INDEX_SELF_BUILD,
+    SignedInclusionList, SignedProposerPreferencesGloas, SignedRoot, SignedVoluntaryExit,
+    SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData,
+    consts::gloas::BUILDER_INDEX_SELF_BUILD,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -177,7 +178,9 @@ where
     };
 
     Ok(SignatureSet::single_pubkey(
-        signed_block.signature(),
+        signed_block
+            .signature()
+            .map_err(|_| Error::PqUnsupported("BLS block signature"))?,
         get_pubkey(proposer_index as usize).ok_or(Error::ValidatorUnknown(proposer_index))?,
         message,
     ))
@@ -249,11 +252,11 @@ where
     ))
 }
 
-/// Returns two signature sets, one for each `BlockHeader` included in the `ProposerSlashing`.
+/// Returns two signature sets, one for each `BlockHeader` included in the `ProposerSlashingBase`.
 pub fn proposer_slashing_signature_set<'a, E, F>(
     state: &'a BeaconState<E>,
     get_pubkey: F,
-    proposer_slashing: &'a ProposerSlashing,
+    proposer_slashing: &'a ProposerSlashingBase,
     spec: &'a ChainSpec,
 ) -> Result<(SignatureSet<'a>, SignatureSet<'a>)>
 where
@@ -281,7 +284,7 @@ where
 /// Returns a signature set that is valid if the given `pubkey` signed the `header`.
 fn block_header_signature_set<'a, E: EthSpec>(
     state: &'a BeaconState<E>,
-    signed_header: &'a SignedBeaconBlockHeader,
+    signed_header: &'a SignedBeaconBlockHeaderBase,
     pubkey: Cow<'a, PublicKey>,
     spec: &'a ChainSpec,
 ) -> SignatureSet<'a> {
@@ -414,7 +417,7 @@ where
 pub fn proposer_preferences_signature_set<'a, E, F>(
     state: &'a BeaconState<E>,
     get_pubkey: F,
-    signed_proposer_preferences: &'a SignedProposerPreferences,
+    signed_proposer_preferences: &'a SignedProposerPreferencesGloas,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where
@@ -452,6 +455,9 @@ where
     E: EthSpec,
     F: Fn(BuilderIndex) -> Option<Cow<'a, PublicKey>>,
 {
+    let signature = signed_execution_payload_bid
+        .signature()
+        .map_err(|_| Error::PqUnsupported("BLS execution payload bid signature"))?;
     let execution_payload_bid = signed_execution_payload_bid.message();
     let builder_index = execution_payload_bid.builder_index();
     if builder_index == BUILDER_INDEX_SELF_BUILD {
@@ -477,9 +483,7 @@ where
     let message = execution_payload_bid.signing_root(domain);
 
     Ok(Some(SignatureSet::single_pubkey(
-        signed_execution_payload_bid.signature(),
-        pubkey,
-        message,
+        signature, pubkey, message,
     )))
 }
 

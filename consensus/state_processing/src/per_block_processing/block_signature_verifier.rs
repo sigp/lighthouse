@@ -229,12 +229,12 @@ where
     ) -> Result<()> {
         self.sets
             .sets
-            .reserve(block.message().body().proposer_slashings().len() * 2);
+            .reserve(block.message().body().proposer_slashings_len() * 2);
 
         block
             .message()
             .body()
-            .proposer_slashings()
+            .proposer_slashings()?
             .iter()
             .try_for_each(|proposer_slashing| {
                 let (set_1, set_2) = proposer_slashing_signature_set(

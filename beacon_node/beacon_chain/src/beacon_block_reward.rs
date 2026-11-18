@@ -149,7 +149,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<BeaconBlockSubRewardValue, BeaconChainError> {
         let mut proposer_slashing_reward = 0;
 
-        let proposer_slashings = block.body().proposer_slashings();
+        let proposer_slashings = block.body().proposer_slashings()?;
 
         for proposer_slashing in proposer_slashings {
             proposer_slashing_reward.safe_add_assign(

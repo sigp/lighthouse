@@ -1,5 +1,5 @@
 use crate::{
-    block::{BLOB_KZG_COMMITMENTS_INDEX, SignedBeaconBlock, SignedBeaconBlockHeader},
+    block::{BLOB_KZG_COMMITMENTS_INDEX, SignedBeaconBlock, SignedBeaconBlockHeaderBase},
     core::{EthSpec, Hash256, ListRef, Slot},
     data::{Cell, ColumnIndex, DataColumnSidecar, DataColumnSidecarFulu},
     execution::AbstractExecPayload,
@@ -291,7 +291,7 @@ impl<E: EthSpec> PartialDataColumnSidecar<E> {
 #[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 pub struct PartialDataColumnHeader<E: EthSpec> {
     pub kzg_commitments: KzgCommitments<E>,
-    pub signed_block_header: SignedBeaconBlockHeader,
+    pub signed_block_header: SignedBeaconBlockHeaderBase,
     pub kzg_commitments_inclusion_proof: FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
 }
 
@@ -321,7 +321,7 @@ impl<E: EthSpec, P: AbstractExecPayload<E>> TryFrom<&SignedBeaconBlock<E, P>>
     fn try_from(block: &SignedBeaconBlock<E, P>) -> Result<Self, Self::Error> {
         Ok(Self {
             kzg_commitments: block.message().body().blob_kzg_commitments()?.clone(),
-            signed_block_header: block.signed_block_header(),
+            signed_block_header: block.signed_block_header_bls()?,
             kzg_commitments_inclusion_proof: block
                 .message()
                 .body()
@@ -491,7 +491,7 @@ mod tests {
             kzg_commitments: vec![KzgCommitment([0u8; 48]); num_commitments]
                 .try_into()
                 .unwrap(),
-            signed_block_header: SignedBeaconBlockHeader {
+            signed_block_header: SignedBeaconBlockHeaderBase {
                 message: crate::BeaconBlockHeader {
                     slot: Slot::new(0),
                     proposer_index: 0,

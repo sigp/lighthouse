@@ -601,15 +601,13 @@ mod tests {
             light_client::consts::EXECUTION_BLOCK_HASH_GINDEX_DENEB,
             test_utils::test_arbitrary_instance,
         };
-        use bls::Signature;
         use tree_hash::TreeHash;
 
         #[test]
         fn fulu_header_upgrades_to_gloas_header() {
-            let block = SignedBeaconBlock::from_block(
-                BeaconBlock::Fulu(test_arbitrary_instance::<BeaconBlockFulu<Spec>>()),
-                Signature::empty(),
-            )
+            let block = SignedBeaconBlock::with_empty_signature(BeaconBlock::Fulu(
+                test_arbitrary_instance::<BeaconBlockFulu<Spec>>(),
+            ))
             .clone_as_blinded();
             let pre = LightClientHeaderFulu::block_to_light_client_header(&block).unwrap();
             let header = LightClientHeaderGloas::block_to_light_client_header(&block).unwrap();

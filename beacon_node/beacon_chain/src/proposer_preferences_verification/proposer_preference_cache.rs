@@ -5,7 +5,7 @@ use std::{
 
 use crate::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use parking_lot::RwLock;
-use types::{Hash256, SignedProposerPreferences, Slot};
+use types::{Hash256, SignedProposerPreferencesGloas, Slot};
 
 pub struct GossipVerifiedProposerPreferenceCache {
     /// Mapping of `(proposal_slot, dependent_root)` to `GossipVerifiedProposerPreferences`
@@ -28,7 +28,7 @@ impl GossipVerifiedProposerPreferenceCache {
         &self,
         slot: &Slot,
         dependent_root: Hash256,
-    ) -> Option<Arc<SignedProposerPreferences>> {
+    ) -> Option<Arc<SignedProposerPreferencesGloas>> {
         self.preferences
             .read()
             .get(&(*slot, dependent_root))
@@ -39,7 +39,7 @@ impl GossipVerifiedProposerPreferenceCache {
         &self,
         slot: Option<Slot>,
         dependent_root: Option<Hash256>,
-    ) -> Vec<SignedProposerPreferences> {
+    ) -> Vec<SignedProposerPreferencesGloas> {
         self.preferences
             .read()
             .iter()
@@ -95,7 +95,7 @@ mod tests {
     use std::sync::Arc;
 
     use bls::Signature;
-    use types::{Address, Hash256, ProposerPreferences, SignedProposerPreferences, Slot};
+    use types::{Address, Hash256, ProposerPreferences, SignedProposerPreferencesGloas, Slot};
 
     use super::GossipVerifiedProposerPreferenceCache;
     use crate::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
@@ -106,7 +106,7 @@ mod tests {
         dependent_root: Hash256,
     ) -> GossipVerifiedProposerPreferences {
         GossipVerifiedProposerPreferences {
-            signed_preferences: Arc::new(SignedProposerPreferences {
+            signed_preferences: Arc::new(SignedProposerPreferencesGloas {
                 message: ProposerPreferences {
                     dependent_root,
                     proposal_slot: slot,
