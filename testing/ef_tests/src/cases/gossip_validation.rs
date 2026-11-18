@@ -17,7 +17,7 @@ use bls::Signature;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use lighthouse_network::types::{GossipEncoding, GossipKind};
 use lighthouse_network::{Client, GossipTopic, MessageAcceptance, MessageId, PeerId};
-use network::{NetworkBeaconProcessor, NetworkMessage, ReprocessAllowance};
+use network::{NetworkBeaconProcessor, NetworkMessage, PartialGossipOutcome, ReprocessAllowance};
 use serde::Deserialize;
 use ssz::Decode;
 use std::collections::{HashMap, HashSet};
@@ -730,7 +730,7 @@ impl<E: EthSpec> GossipTester<E> {
             [0; 4],
         );
 
-        self.block_on_dangerous(
+        let outcome = self.block_on_dangerous(
             self.network_beacon_processor
                 .process_gossip_partial_data_column_sidecar(
                     peer_id,
@@ -740,31 +740,53 @@ impl<E: EthSpec> GossipTester<E> {
                 ),
         )?;
 
-        // Partial messages have no message id or validation result. A rejection is reported to
-        // gossipsub as a partial validation failure; otherwise the message was accepted if its
-        // contents were stored, and ignored if not.
-        let mut network_rx = self
-            .network_rx
-            .lock()
-            .map_err(|_| Error::InternalError("network receiver lock poisoned".into()))?;
-        while let Ok(network_message) = network_rx.try_recv() {
-            if let NetworkMessage::PartialValidationFailure {
-                propagation_source, ..
-            } = network_message
-                && propagation_source == peer_id
-            {
-                return Ok(MessageAcceptance::Reject);
+        // Partial messages have no message id or validation result, so the verdict is taken from
+        // the handler. Gossipsub only learns about rejections, as a partial validation failure,
+        // which must be reported if and only if the handler rejected the message.
+        let mut reported_failure = false;
+        {
+            let mut network_rx = self
+                .network_rx
+                .lock()
+                .map_err(|_| Error::InternalError("network receiver lock poisoned".into()))?;
+            while let Ok(network_message) = network_rx.try_recv() {
+                if let NetworkMessage::PartialValidationFailure {
+                    propagation_source, ..
+                } = network_message
+                    && propagation_source == peer_id
+                {
+                    reported_failure = true;
+                }
             }
         }
-        let accepted = match &column {
-            PartialDataColumn::Gloas(_) => self.partial_cells_cached_gloas(&column),
-            PartialDataColumn::Fulu(fulu) => self.partial_stored_fulu(fulu),
-        };
-        Ok(if accepted {
-            MessageAcceptance::Accept
-        } else {
-            MessageAcceptance::Ignore
-        })
+        if reported_failure != (outcome == PartialGossipOutcome::Reject) {
+            return Err(Error::InternalError(format!(
+                "partial data column outcome {outcome:?} does not match the partial validation \
+                 failure reported to gossipsub ({reported_failure})"
+            )));
+        }
+
+        match outcome {
+            PartialGossipOutcome::Accept => {
+                // An accepted partial must have been merged into the per-fork store.
+                let stored = match &column {
+                    PartialDataColumn::Gloas(_) => self.partial_cells_cached_gloas(&column),
+                    PartialDataColumn::Fulu(fulu) => self.partial_stored_fulu(fulu),
+                };
+                if !stored {
+                    return Err(Error::InternalError(
+                        "accepted partial data column was not stored".into(),
+                    ));
+                }
+                Ok(MessageAcceptance::Accept)
+            }
+            PartialGossipOutcome::Ignore => Ok(MessageAcceptance::Ignore),
+            PartialGossipOutcome::Reject => Ok(MessageAcceptance::Reject),
+            // The handler failed to validate the message, which is not a verdict on the message.
+            PartialGossipOutcome::InternalError => Err(Error::InternalError(
+                "internal error while validating partial data column".into(),
+            )),
+        }
     }
 
     /// Whether every cell of a non-empty Gloas partial is now in the pending payload cache.
