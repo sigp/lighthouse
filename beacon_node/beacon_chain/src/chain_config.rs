@@ -181,7 +181,7 @@ impl Default for ChainConfig {
             invalid_block_roots: HashSet::new(),
             ignore_ws_check: false,
             disable_get_blobs: false,
-            enable_partial_columns: false,
+            enable_partial_columns: true,
             node_custody_type: NodeCustodyType::Fullnode,
             fast_confirmation: FastConfirmationMode::Disabled,
             disable_proposer_reorg: false,

@@ -380,7 +380,7 @@ impl Default for Config {
             inbound_rate_limiter_config: None,
             idontwant_message_size_threshold: DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD,
             advertise_false_custody_group_count: None,
-            enable_partial_columns: false,
+            enable_partial_columns: true,
         }
     }
 }

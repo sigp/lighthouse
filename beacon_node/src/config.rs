@@ -108,22 +108,23 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
-    let enable_partial_columns = parse_required::<bool>(cli_args, "enable-partial-columns")?;
+    let mut enable_partial_columns = parse_required::<bool>(cli_args, "enable-partial-columns")?;
 
-    if enable_partial_columns {
-        // Partial messages assume that each subnet maps to exactly one column.
-        // Check this here to avoid weird issues on networks where this is not the case.
-        if spec.data_column_sidecar_subnet_count == E::number_of_columns() as u64 {
-            client_config.network.enable_partial_columns = true;
-            client_config.chain.enable_partial_columns = true;
-        } else {
-            warn!(
-                subnets = spec.data_column_sidecar_subnet_count,
-                columns = E::number_of_columns(),
-                "Not enabling partial columns on networks with multiple columns per subnet"
-            )
-        }
+    // Partial messages assume that each subnet maps to exactly one column.
+    // Check this here to avoid weird issues on networks where this is not the case.
+    if enable_partial_columns
+        && spec.data_column_sidecar_subnet_count != E::number_of_columns() as u64
+    {
+        warn!(
+            subnets = spec.data_column_sidecar_subnet_count,
+            columns = E::number_of_columns(),
+            "Not enabling partial columns on networks with multiple columns per subnet"
+        );
+        enable_partial_columns = false;
     }
+
+    client_config.network.enable_partial_columns = enable_partial_columns;
+    client_config.chain.enable_partial_columns = enable_partial_columns;
 
     // Parse custody mode from CLI flags
     let is_supernode = parse_flag(cli_args, "supernode");

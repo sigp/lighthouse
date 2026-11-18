@@ -12,7 +12,7 @@ use beacon_chain::payload_envelope_verification::EnvelopeSource;
 use beacon_chain::proposer_preferences_verification::gossip_verified_proposer_preferences::GossipVerifiedProposerPreferences;
 use beacon_chain::slot_clock::{SlotClock, TestingSlotClock};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
-use beacon_chain::{BlockError, ChainConfig, NotifyExecutionLayer, PayloadVerificationStatus};
+use beacon_chain::{BlockError, NotifyExecutionLayer, PayloadVerificationStatus};
 use bls::Signature;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};
 use lighthouse_network::types::{GossipEncoding, GossipKind};
@@ -313,11 +313,6 @@ impl<E: EthSpec> GossipTester<E> {
                 // Default to valid EL responses. Setup blocks with `payload_status` override this
                 // during import.
                 .mock_execution_layer_all_payloads_valid()
-                // Partial data column gossip is only processed when partial columns are enabled.
-                .chain_config(ChainConfig {
-                    enable_partial_columns: true,
-                    ..ChainConfig::default()
-                })
                 // Partial cells are only stored for custodied columns. Custody every column so
                 // accepted fixture cells are observable regardless of their column index.
                 .node_custody_type(if case.meta.topic == Topic::PartialDataColumnSidecar {
