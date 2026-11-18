@@ -6503,6 +6503,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "Attempting to produce gloas beacon block via non gloas code path".to_owned(),
                 ));
             }
+            BeaconState::Pq(_) => {
+                return Err(BlockProductionError::PqNotImplemented(
+                    "Attempting to produce pq beacon block via non gloas code path".to_owned(),
+                ));
+            }
             BeaconState::Heze(_) => {
                 return Err(BlockProductionError::HezeNotImplemented(
                     "Attempting to produce heze beacon block via non heze code path".to_owned(),

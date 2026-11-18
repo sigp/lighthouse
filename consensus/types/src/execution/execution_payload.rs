@@ -280,7 +280,10 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionPayload<E> {
             ForkName::Deneb => ExecutionPayloadDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
             ForkName::Electra => ExecutionPayloadElectra::from_ssz_bytes(bytes).map(Self::Electra),
             ForkName::Fulu => ExecutionPayloadFulu::from_ssz_bytes(bytes).map(Self::Fulu),
-            ForkName::Gloas => ExecutionPayloadGloas::from_ssz_bytes(bytes).map(Self::Gloas),
+            // The PQ spec does not modify `ExecutionPayload`, so Pq reuses the Gloas variant.
+            ForkName::Gloas | ForkName::Pq => {
+                ExecutionPayloadGloas::from_ssz_bytes(bytes).map(Self::Gloas)
+            }
             ForkName::Heze => ExecutionPayloadHeze::from_ssz_bytes(bytes).map(Self::Heze),
         }
     }
@@ -330,7 +333,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayload<E> 
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Gloas => {
+            ForkName::Gloas | ForkName::Pq => {
                 Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Heze => {

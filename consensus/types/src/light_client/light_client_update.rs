@@ -147,7 +147,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientUpdate<E>
             serde::de::Error::custom(format!("LightClientUpdate failed to deserialize: {:?}", e))
         };
         Ok(match context {
-            ForkName::Base | ForkName::Heze => {
+            ForkName::Base | ForkName::Pq | ForkName::Heze => {
                 return Err(serde::de::Error::custom(format!(
                     "LightClientUpdate failed to deserialize: unsupported fork '{}'",
                     context
@@ -342,6 +342,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             // To add a new fork, just append the new fork variant on the latest fork. Forks that
             // have a distinct execution header will need a new LightClientUpdate variant only
             // if you need to test or support lightclient usages
+            ForkName::Pq => return Err(LightClientError::PqNotImplemented),
             ForkName::Heze => return Err(LightClientError::HezeNotImplemented),
         };
 
@@ -358,7 +359,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Electra => Self::Electra(LightClientUpdateElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => Self::Fulu(LightClientUpdateFulu::from_ssz_bytes(bytes)?),
             ForkName::Gloas => Self::Gloas(LightClientUpdateGloas::from_ssz_bytes(bytes)?),
-            ForkName::Base | ForkName::Heze => {
+            ForkName::Base | ForkName::Pq | ForkName::Heze => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientUpdate decoding for {fork_name} not implemented"
                 )));
@@ -524,7 +525,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Electra => min_len!(LightClientUpdateElectra),
             ForkName::Fulu => min_len!(LightClientUpdateFulu),
             ForkName::Gloas => min_len!(LightClientUpdateGloas),
-            ForkName::Heze => 0,
+            ForkName::Pq | ForkName::Heze => 0,
         };
         min_len + 2 * LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }

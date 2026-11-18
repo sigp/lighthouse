@@ -440,6 +440,13 @@ impl CandidateBeaconNode {
             hint = UPDATE_REQUIRED_LOG_HINT,
             "Beacon node has mismatched Gloas fork epoch"
             );
+        } else if beacon_node_spec.pq_fork_epoch != spec.pq_fork_epoch {
+            warn!(
+            endpoint = %self.beacon_node,
+            endpoint_pq_fork_epoch = ?beacon_node_spec.pq_fork_epoch,
+            hint = UPDATE_REQUIRED_LOG_HINT,
+            "Beacon node has mismatched Pq fork epoch"
+            );
         } else if beacon_node_spec.heze_fork_epoch != spec.heze_fork_epoch {
             warn!(
             endpoint = %self.beacon_node,

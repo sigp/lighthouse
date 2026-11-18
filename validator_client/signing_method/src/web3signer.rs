@@ -37,6 +37,7 @@ pub enum ForkName {
     Electra,
     Fulu,
     Gloas,
+    Pq,
     Heze,
 }
 
@@ -144,6 +145,11 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> Web3SignerObject<'a, E, Pa
             }),
             BeaconBlock::Gloas(_) => Ok(Web3SignerObject::BeaconBlock {
                 version: ForkName::Gloas,
+                block: None,
+                block_header: Some(block.block_header()),
+            }),
+            BeaconBlock::Pq(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Pq,
                 block: None,
                 block_header: Some(block.block_header()),
             }),

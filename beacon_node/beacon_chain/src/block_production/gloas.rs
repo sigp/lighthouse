@@ -28,15 +28,16 @@ use tree_hash::TreeHash;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationGloas, AttesterSlashing, AttesterSlashingGloas, BeaconBlock,
-    BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze, BeaconState,
-    BeaconStateError, BlobsList, BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash,
-    ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadEnvelope,
-    ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, IndexedAttestation, KzgProofs,
-    PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
-    SignedExecutionPayloadBidHeze, SignedExecutionPayloadEnvelope,
-    SignedExecutionPayloadEnvelopeSummary, SignedProposerPreferences, SignedVoluntaryExit, Slot,
-    SyncAggregate, Uint256, Withdrawal, Withdrawals,
+    BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockBodyPq, BeaconBlockGloas,
+    BeaconBlockHeze, BeaconBlockPq, BeaconState, BeaconStateError, BlobsList, BuilderIndex,
+    Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas,
+    ExecutionPayloadBidHeze, ExecutionPayloadEnvelope, ExecutionRequestsGloas, FullPayload,
+    Graffiti, Hash256, IndexedAttestation, KzgProofs, PayloadAttestation, ProposerSlashing,
+    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadBidPq,
+    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary,
+    SignedProposerPreferences, SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal,
+    Withdrawals,
 };
 
 use builder_client::BidRequestContext;
@@ -784,6 +785,55 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 })
             }
+            BeaconState::Pq(_) => {
+                let SignedExecutionPayloadBid::Pq(signed_execution_payload_bid) =
+                    signed_execution_payload_bid
+                else {
+                    return Err(BlockProductionError::InvalidBlockVariant(
+                        "Cannot construct a Pq block with a non-Pq execution payload bid"
+                            .to_string(),
+                    ));
+                };
+
+                BeaconBlock::Pq(BeaconBlockPq {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::ZERO,
+                    body: BeaconBlockBodyPq {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        // The operation list lengths are bounded by the op pool packing limits above.
+                        proposer_slashings: ProgressiveVariableList::try_from_iter(
+                            proposer_slashings,
+                        )
+                        .map_err(BlockProductionError::SszTypesError)?,
+                        attester_slashings: ProgressiveVariableList::try_from_iter(
+                            attester_slashings,
+                        )
+                        .map_err(BlockProductionError::SszTypesError)?,
+                        attestations: ProgressiveVariableList::try_from_iter(attestations)
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        deposits: ProgressiveVariableList::try_from_iter(deposits)
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        voluntary_exits: ProgressiveVariableList::try_from_iter(voluntary_exits)
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        sync_aggregate,
+                        bls_to_execution_changes: ProgressiveVariableList::try_from_iter(
+                            bls_to_execution_changes,
+                        )
+                        .map_err(BlockProductionError::SszTypesError)?,
+                        parent_execution_requests,
+                        signed_execution_payload_bid,
+                        payload_attestations: ProgressiveVariableList::try_from_iter(
+                            payload_attestations,
+                        )
+                        .map_err(BlockProductionError::SszTypesError)?,
+                        _phantom: PhantomData::<FullPayload<T::EthSpec>>,
+                    },
+                })
+            }
             BeaconState::Heze(_) => {
                 let SignedExecutionPayloadBid::Heze(signed_execution_payload_bid) =
                     signed_execution_payload_bid
@@ -1053,6 +1103,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 };
 
                 SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                    message: bid,
+                    signature,
+                })
+            }
+            BeaconState::Pq(_) => {
+                // Pq reuses the Gloas inner bid; only the signed container has a Pq variant.
+                let bid = ExecutionPayloadBidGloas::<T::EthSpec> {
+                    parent_block_hash: executed_ancestor_hash,
+                    parent_block_root: parent_root,
+                    block_hash: payload.block_hash,
+                    prev_randao: payload.prev_randao,
+                    fee_recipient: Address::ZERO,
+                    gas_limit: payload.gas_limit,
+                    builder_index,
+                    slot: produce_at_slot,
+                    value: bid_value,
+                    execution_payment: EXECUTION_PAYMENT_TRUSTLESS_BUILD,
+                    blob_kzg_commitments,
+                    execution_requests_root: execution_requests.tree_hash_root(),
+                };
+
+                SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq {
                     message: bid,
                     signature,
                 })

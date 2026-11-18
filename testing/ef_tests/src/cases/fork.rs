@@ -5,7 +5,7 @@ use serde::Deserialize;
 use state_processing::GloasVerificationContext;
 use state_processing::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
-    upgrade_to_electra, upgrade_to_fulu, upgrade_to_gloas, upgrade_to_heze,
+    upgrade_to_electra, upgrade_to_fulu, upgrade_to_gloas, upgrade_to_heze, upgrade_to_pq,
 };
 use types::BeaconState;
 
@@ -79,6 +79,7 @@ impl<E: EthSpec> Case for ForkTest<E> {
                 spec,
             )
             .map(|_| result_state),
+            ForkName::Pq => upgrade_to_pq(&mut result_state, spec).map(|_| result_state),
             ForkName::Heze => upgrade_to_heze(&mut result_state, spec).map(|_| result_state),
         };
 

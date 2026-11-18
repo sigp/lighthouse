@@ -23,6 +23,7 @@ pub enum ForkName {
     Electra,
     Fulu,
     Gloas,
+    Pq,
     Heze,
 }
 
@@ -37,6 +38,7 @@ impl ForkName {
             ForkName::Electra,
             ForkName::Fulu,
             ForkName::Gloas,
+            ForkName::Pq,
             ForkName::Heze,
         ]
     }
@@ -73,6 +75,7 @@ impl ForkName {
                 spec.electra_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
                 spec.gloas_fork_epoch = None;
+                spec.pq_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec
             }
@@ -84,6 +87,7 @@ impl ForkName {
                 spec.electra_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
                 spec.gloas_fork_epoch = None;
+                spec.pq_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec
             }
@@ -95,6 +99,7 @@ impl ForkName {
                 spec.electra_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
                 spec.gloas_fork_epoch = None;
+                spec.pq_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec
             }
@@ -106,6 +111,7 @@ impl ForkName {
                 spec.electra_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
                 spec.gloas_fork_epoch = None;
+                spec.pq_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec
             }
@@ -117,6 +123,7 @@ impl ForkName {
                 spec.electra_fork_epoch = None;
                 spec.fulu_fork_epoch = None;
                 spec.gloas_fork_epoch = None;
+                spec.pq_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec
             }
@@ -128,6 +135,7 @@ impl ForkName {
                 spec.electra_fork_epoch = Some(Epoch::new(0));
                 spec.fulu_fork_epoch = None;
                 spec.gloas_fork_epoch = None;
+                spec.pq_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec
             }
@@ -139,6 +147,7 @@ impl ForkName {
                 spec.electra_fork_epoch = Some(Epoch::new(0));
                 spec.fulu_fork_epoch = Some(Epoch::new(0));
                 spec.gloas_fork_epoch = None;
+                spec.pq_fork_epoch = None;
                 spec.heze_fork_epoch = None;
                 spec
             }
@@ -150,6 +159,19 @@ impl ForkName {
                 spec.electra_fork_epoch = Some(Epoch::new(0));
                 spec.fulu_fork_epoch = Some(Epoch::new(0));
                 spec.gloas_fork_epoch = Some(Epoch::new(0));
+                spec.pq_fork_epoch = None;
+                spec.heze_fork_epoch = None;
+                spec
+            }
+            ForkName::Pq => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
+                spec.deneb_fork_epoch = Some(Epoch::new(0));
+                spec.electra_fork_epoch = Some(Epoch::new(0));
+                spec.fulu_fork_epoch = Some(Epoch::new(0));
+                spec.gloas_fork_epoch = Some(Epoch::new(0));
+                spec.pq_fork_epoch = Some(Epoch::new(0));
                 spec.heze_fork_epoch = None;
                 spec
             }
@@ -161,6 +183,7 @@ impl ForkName {
                 spec.electra_fork_epoch = Some(Epoch::new(0));
                 spec.fulu_fork_epoch = Some(Epoch::new(0));
                 spec.gloas_fork_epoch = Some(Epoch::new(0));
+                spec.pq_fork_epoch = Some(Epoch::new(0));
                 spec.heze_fork_epoch = Some(Epoch::new(0));
                 spec
             }
@@ -180,7 +203,8 @@ impl ForkName {
             ForkName::Electra => Some(ForkName::Deneb),
             ForkName::Fulu => Some(ForkName::Electra),
             ForkName::Gloas => Some(ForkName::Fulu),
-            ForkName::Heze => Some(ForkName::Gloas),
+            ForkName::Pq => Some(ForkName::Gloas),
+            ForkName::Heze => Some(ForkName::Pq),
         }
     }
 
@@ -196,7 +220,8 @@ impl ForkName {
             ForkName::Deneb => Some(ForkName::Electra),
             ForkName::Electra => Some(ForkName::Fulu),
             ForkName::Fulu => Some(ForkName::Gloas),
-            ForkName::Gloas => Some(ForkName::Heze),
+            ForkName::Gloas => Some(ForkName::Pq),
+            ForkName::Pq => Some(ForkName::Heze),
             ForkName::Heze => None,
         }
     }
@@ -227,6 +252,10 @@ impl ForkName {
 
     pub fn gloas_enabled(self) -> bool {
         self >= ForkName::Gloas
+    }
+
+    pub fn pq_enabled(self) -> bool {
+        self >= ForkName::Pq
     }
 
     pub fn heze_enabled(self) -> bool {
@@ -287,6 +316,7 @@ impl FromStr for ForkName {
             "electra" => ForkName::Electra,
             "fulu" => ForkName::Fulu,
             "gloas" => ForkName::Gloas,
+            "pq" => ForkName::Pq,
             "heze" => ForkName::Heze,
             _ => return Err(format!("unknown fork name: {}", fork_name)),
         })
@@ -304,6 +334,7 @@ impl Display for ForkName {
             ForkName::Electra => "electra".fmt(f),
             ForkName::Fulu => "fulu".fmt(f),
             ForkName::Gloas => "gloas".fmt(f),
+            ForkName::Pq => "pq".fmt(f),
             ForkName::Heze => "heze".fmt(f),
         }
     }

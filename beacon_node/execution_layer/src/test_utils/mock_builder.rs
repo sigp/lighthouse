@@ -467,7 +467,7 @@ impl<E: EthSpec> MockBuilder<E> {
             SignedBlindedBeaconBlock::Fulu(block) => {
                 block.message.body.execution_payload.tree_hash_root()
             }
-            SignedBlindedBeaconBlock::Gloas(_) => {
+            SignedBlindedBeaconBlock::Gloas(_) | SignedBlindedBeaconBlock::Pq(_) => {
                 // TODO(EIP7732) Check if this is how we want to do error handling for gloas
                 return Err("invalid fork".to_string());
             }
@@ -584,7 +584,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 ) = payload_response.into();
 
                 match fork {
-                    ForkName::Gloas => {
+                    ForkName::Gloas | ForkName::Pq => {
                         // TODO(EIP7732) Check if this is how we want to do error handling for gloas
                         return Err("invalid fork".to_string());
                     }
@@ -921,7 +921,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 None,
                 None,
             ),
-            ForkName::Gloas => PayloadAttributes::new(
+            ForkName::Gloas | ForkName::Pq => PayloadAttributes::new(
                 timestamp,
                 *prev_randao,
                 fee_recipient,

@@ -200,7 +200,7 @@ pub async fn handle_rpc<E: EthSpec>(
                         ));
                     }
                 }
-                ForkName::Gloas => {
+                ForkName::Gloas | ForkName::Pq => {
                     if method != ENGINE_NEW_PAYLOAD_V5 {
                         return Err((
                             format!("{} called after Gloas fork!", method),
@@ -709,7 +709,7 @@ pub async fn handle_rpc<E: EthSpec>(
                             ));
                         }
                     }
-                    ForkName::Gloas => {
+                    ForkName::Gloas | ForkName::Pq => {
                         if method != ENGINE_FORKCHOICE_UPDATED_V4 {
                             return Err((
                                 format!("{} called after Gloas fork! Use V4.", method),

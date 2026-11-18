@@ -130,7 +130,8 @@ mod tests {
     use bls::Signature;
     use types::{
         Address, Epoch, ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ForkName,
-        ProposerPreferences, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, Spec,
+        ProposerPreferences, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
+        SignedExecutionPayloadBidPq, Spec,
     };
 
     type E = Spec;
@@ -392,6 +393,7 @@ mod tests {
     fn rejects_gloas_bid_at_heze_slot() {
         let (state, mut spec) = state_and_spec();
         let heze_fork_epoch = Epoch::new(1);
+        spec.pq_fork_epoch = Some(heze_fork_epoch);
         spec.heze_fork_epoch = Some(heze_fork_epoch);
         let heze_slot = heze_fork_epoch.start_slot(E::slots_per_epoch());
         let bid = signed_bid(
@@ -417,12 +419,68 @@ mod tests {
     #[test]
     fn rejects_heze_bid_at_gloas_slot() {
         let (state, mut spec) = state_and_spec();
+        spec.pq_fork_epoch = Some(Epoch::new(1));
         spec.heze_fork_epoch = Some(Epoch::new(1));
         let bid = SignedExecutionPayloadBid::Heze(SignedExecutionPayloadBidHeze {
             message: ExecutionPayloadBidHeze {
                 slot: Slot::new(1),
                 ..ExecutionPayloadBidHeze::default()
             },
+            signature: Signature::empty(),
+        });
+        let result = verify_direct_bid(
+            &bid,
+            Slot::new(1),
+            ExecutionBlockHash::zero(),
+            Hash256::ZERO,
+            EXECUTED_ANCESTOR_GAS_LIMIT,
+            &BuilderPubkeys::default(),
+            &preferences(),
+            &state,
+            &spec,
+        );
+        assert!(matches!(result, Err(PayloadBidError::InconsistentFork(_))));
+    }
+
+    // The Pq signed bid wraps the same inner bid as Gloas, so the fork check must be made on the
+    // signed container's variant.
+    #[test]
+    fn rejects_gloas_bid_at_pq_slot() {
+        let (state, mut spec) = state_and_spec();
+        let pq_fork_epoch = Epoch::new(1);
+        spec.pq_fork_epoch = Some(pq_fork_epoch);
+        let pq_slot = pq_fork_epoch.start_slot(E::slots_per_epoch());
+        let bid = signed_bid(
+            pq_slot,
+            ExecutionBlockHash::zero(),
+            Hash256::ZERO,
+            Hash256::ZERO,
+        );
+        let result = verify_direct_bid(
+            &bid,
+            pq_slot,
+            ExecutionBlockHash::zero(),
+            Hash256::ZERO,
+            EXECUTED_ANCESTOR_GAS_LIMIT,
+            &BuilderPubkeys::default(),
+            &preferences(),
+            &state,
+            &spec,
+        );
+        assert!(matches!(result, Err(PayloadBidError::InconsistentFork(_))));
+    }
+
+    #[test]
+    fn rejects_pq_bid_at_gloas_slot() {
+        let (state, mut spec) = state_and_spec();
+        spec.pq_fork_epoch = Some(Epoch::new(1));
+        let bid = SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq {
+            message: bid_message(
+                Slot::new(1),
+                ExecutionBlockHash::zero(),
+                Hash256::ZERO,
+                Hash256::ZERO,
+            ),
             signature: Signature::empty(),
         });
         let result = verify_direct_bid(

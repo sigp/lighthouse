@@ -347,7 +347,9 @@ impl<E: EthSpec> FullPayload<E> {
             ForkName::Deneb => Ok(FullPayloadDeneb::default().into()),
             ForkName::Electra => Ok(FullPayloadElectra::default().into()),
             ForkName::Fulu => Ok(FullPayloadFulu::default().into()),
-            ForkName::Gloas | ForkName::Heze => Err(BeaconStateError::IncorrectStateVariant),
+            ForkName::Gloas | ForkName::Pq | ForkName::Heze => {
+                Err(BeaconStateError::IncorrectStateVariant)
+            }
         }
     }
 }

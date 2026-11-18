@@ -108,7 +108,7 @@ fn progressive_list_limits() {
 #[test]
 fn progressive_block_body_errors_propagate() {
     type E = Spec;
-    for fork in [ForkName::Gloas, ForkName::Heze] {
+    for fork in [ForkName::Gloas, ForkName::Pq, ForkName::Heze] {
         let spec = fork.make_genesis_spec(E::default_spec());
         let mut block = BeaconBlock::<E>::empty(&spec);
         let mut body = block.body_mut();

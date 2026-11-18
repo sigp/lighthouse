@@ -540,6 +540,7 @@ mod tests {
     #[test]
     fn floor_starts_at_the_first_heze_slot() {
         let mut spec = E::default_spec();
+        spec.pq_fork_epoch = Some(Epoch::new(4));
         spec.heze_fork_epoch = Some(Epoch::new(4));
         let mut store = InclusionListStore::<E>::new(&spec);
         let first_heze_slot = Epoch::new(4).start_slot(E::slots_per_epoch());

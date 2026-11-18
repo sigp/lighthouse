@@ -19,7 +19,7 @@ use crate::{
         BeaconBlockBellatrix, BeaconBlockBodyBellatrix, BeaconBlockBodyCapella,
         BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconBlockCapella,
         BeaconBlockDeneb, BeaconBlockElectra, BeaconBlockFulu, BeaconBlockGloas, BeaconBlockHeader,
-        BeaconBlockHeze, BeaconBlockRef, BeaconBlockRefMut, SignedBeaconBlockHeader,
+        BeaconBlockHeze, BeaconBlockPq, BeaconBlockRef, BeaconBlockRefMut, SignedBeaconBlockHeader,
     },
     core::{ChainSpec, Domain, Epoch, EthSpec, Hash256, SignedRoot, SigningData, Slot},
     execution::{
@@ -64,7 +64,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Pq, Heze),
     variant_attributes(
         derive(
             Debug,
@@ -116,6 +116,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     pub message: BeaconBlockFulu<E, Payload>,
     #[superstruct(only(Gloas), partial_getter(rename = "message_gloas"))]
     pub message: BeaconBlockGloas<E, Payload>,
+    #[superstruct(only(Pq), partial_getter(rename = "message_pq"))]
+    pub message: BeaconBlockPq<E, Payload>,
     #[superstruct(only(Heze), partial_getter(rename = "message_heze"))]
     pub message: BeaconBlockHeze<E, Payload>,
     pub signature: Signature,
@@ -206,6 +208,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             }
             BeaconBlock::Gloas(message) => {
                 SignedBeaconBlock::Gloas(SignedBeaconBlockGloas { message, signature })
+            }
+            BeaconBlock::Pq(message) => {
+                SignedBeaconBlock::Pq(SignedBeaconBlockPq { message, signature })
             }
             BeaconBlock::Heze(message) => {
                 SignedBeaconBlock::Heze(SignedBeaconBlockHeze { message, signature })
@@ -540,6 +545,18 @@ impl<E: EthSpec> From<SignedBeaconBlockGloas<E, BlindedPayload<E>>>
     }
 }
 
+impl<E: EthSpec> From<SignedBeaconBlockPq<E, BlindedPayload<E>>>
+    for SignedBeaconBlockPq<E, FullPayload<E>>
+{
+    fn from(signed_block: SignedBeaconBlockPq<E, BlindedPayload<E>>) -> Self {
+        let SignedBeaconBlockPq { message, signature } = signed_block;
+        SignedBeaconBlockPq {
+            message: message.into(),
+            signature,
+        }
+    }
+}
+
 // TODO(heze) Look into whether we can remove this in the future since no blinded blocks post-gloas
 impl<E: EthSpec> From<SignedBeaconBlockHeze<E, BlindedPayload<E>>>
     for SignedBeaconBlockHeze<E, FullPayload<E>>
@@ -577,6 +594,7 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
                 SignedBeaconBlock::Fulu(block.into_full_block(payload))
             }
             (SignedBeaconBlock::Gloas(block), _) => SignedBeaconBlock::Gloas(block.into()),
+            (SignedBeaconBlock::Pq(block), _) => SignedBeaconBlock::Pq(block.into()),
             (SignedBeaconBlock::Heze(block), _) => SignedBeaconBlock::Heze(block.into()),
             // avoid wildcard matching forks so that compiler will
             // direct us here when a new fork has been added
@@ -790,7 +808,8 @@ mod test {
         chain_spec.electra_fork_epoch = Some(Epoch::new(5));
         chain_spec.fulu_fork_epoch = Some(Epoch::new(6));
         chain_spec.gloas_fork_epoch = Some(Epoch::new(7));
-        chain_spec.heze_fork_epoch = Some(Epoch::new(8));
+        chain_spec.pq_fork_epoch = Some(Epoch::new(8));
+        chain_spec.heze_fork_epoch = Some(Epoch::new(9));
 
         // check that we have all forks covered
         assert!(chain_spec.fork_epoch(ForkName::latest()).is_some());
@@ -836,6 +855,7 @@ mod test {
                 BeaconBlock::Gloas(BeaconBlockGloas::empty(spec)),
                 sig.clone(),
             ),
+            SignedBeaconBlock::from_block(BeaconBlock::Pq(BeaconBlockPq::empty(spec)), sig.clone()),
             SignedBeaconBlock::from_block(BeaconBlock::Heze(BeaconBlockHeze::empty(spec)), sig),
         ];
 

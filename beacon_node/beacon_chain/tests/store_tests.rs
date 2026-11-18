@@ -261,7 +261,7 @@ fn make_light_client_update<E: EthSpec>(
             update.signature_slot = marker_slot;
             LightClientUpdate::Fulu(update)
         }
-        ForkName::Gloas | ForkName::Heze => {
+        ForkName::Gloas | ForkName::Pq | ForkName::Heze => {
             let mut update = test_arbitrary_instance::<LightClientUpdateGloas<E>>();
             update.signature_slot = marker_slot;
             LightClientUpdate::Gloas(update)
@@ -402,8 +402,11 @@ async fn light_client_finality_update_across_next_fork() {
         return;
     };
     // The harness cannot produce the merge transition block, and light client does not support
-    // Heze yet.
-    if matches!(next_fork_name, ForkName::Bellatrix | ForkName::Heze) {
+    // Pq or Heze yet.
+    if matches!(
+        next_fork_name,
+        ForkName::Bellatrix | ForkName::Pq | ForkName::Heze
+    ) {
         return;
     }
     // The first update of a sync committee period is the best update for that period, so start
@@ -476,6 +479,7 @@ fn set_fork_epoch(spec: &mut ChainSpec, fork_name: ForkName, epoch: Epoch) {
         ForkName::Electra => spec.electra_fork_epoch = Some(epoch),
         ForkName::Fulu => spec.fulu_fork_epoch = Some(epoch),
         ForkName::Gloas => spec.gloas_fork_epoch = Some(epoch),
+        ForkName::Pq => spec.pq_fork_epoch = Some(epoch),
         ForkName::Heze => spec.heze_fork_epoch = Some(epoch),
     }
 }
@@ -2156,9 +2160,11 @@ async fn proposer_lookahead_excludes_slashed_proposer_only_after_first_two_gloas
 #[tokio::test]
 async fn heze_block_production_across_boundary() {
     let gloas_fork_epoch = Epoch::new(1);
-    let heze_fork_epoch = Epoch::new(2);
+    let pq_fork_epoch = Epoch::new(2);
+    let heze_fork_epoch = Epoch::new(3);
     let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
     spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+    spec.pq_fork_epoch = Some(pq_fork_epoch);
     spec.heze_fork_epoch = Some(heze_fork_epoch);
 
     let db_path = tempdir().unwrap();

@@ -81,7 +81,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
         ForkName::Deneb => ExecutionPayloadDeneb::default().into(),
         ForkName::Electra => ExecutionPayloadElectra::default().into(),
         ForkName::Fulu => ExecutionPayloadFulu::default().into(),
-        ForkName::Gloas => ExecutionPayloadGloas::default().into(),
+        ForkName::Gloas | ForkName::Pq => ExecutionPayloadGloas::default().into(),
         ForkName::Heze => ExecutionPayloadHeze::default().into(),
         ForkName::Base | ForkName::Altair => {
             return Err(Error::PayloadReconstruction(format!(
@@ -408,6 +408,7 @@ mod tests {
         spec.electra_fork_epoch = Some(Epoch::new(electra_fork_epoch as u64));
         spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch as u64));
         spec.gloas_fork_epoch = None;
+        spec.pq_fork_epoch = None;
         spec.heze_fork_epoch = None;
         let spec = Arc::new(spec);
 

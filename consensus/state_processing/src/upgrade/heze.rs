@@ -5,7 +5,7 @@ use types::{
     ExecutionPayloadBidHeze, Fork,
 };
 
-/// Transform a `Gloas` state into a `Heze` state.
+/// Transform a `Pq` state into a `Heze` state.
 pub fn upgrade_to_heze<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -22,7 +22,7 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_gloas_mut()?;
+    let pre = pre_state.as_pq_mut()?;
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //
@@ -68,7 +68,7 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution Bid
-        // [New in Heze:EIP7805] the bid gains `inclusion_list_bits`; carry the shared Gloas
+        // [New in Heze:EIP7805] the bid gains `inclusion_list_bits`; carry the shared Gloas/Pq
         // fields forward and default the new field to empty (no bits computed at upgrade).
         latest_execution_payload_bid: {
             let pre_bid = &pre.latest_execution_payload_bid;

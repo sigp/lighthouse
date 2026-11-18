@@ -11,7 +11,7 @@ use tree_hash_derive::TreeHash;
 
 /// An `ExecutionPayloadBid` and a signature from its builder.
 #[superstruct(
-    variants(Gloas, Heze),
+    variants(Gloas, Pq, Heze),
     variant_attributes(
         derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, Educe),
         educe(PartialEq, Hash(bound(E: EthSpec))),
@@ -38,6 +38,9 @@ use tree_hash_derive::TreeHash;
 pub struct SignedExecutionPayloadBid<E: EthSpec> {
     #[superstruct(only(Gloas), partial_getter(rename = "message_gloas"))]
     pub message: ExecutionPayloadBidGloas<E>,
+    // The PQ spec modifies `SignedExecutionPayloadBid` (signature type) but not the inner bid.
+    #[superstruct(only(Pq), partial_getter(rename = "message_pq"))]
+    pub message: ExecutionPayloadBidGloas<E>,
     #[superstruct(only(Heze), partial_getter(rename = "message_heze"))]
     pub message: ExecutionPayloadBidHeze<E>,
     pub signature: Signature,
@@ -48,12 +51,23 @@ impl<E: EthSpec> SignedExecutionPayloadBid<E> {
     pub fn message(&self) -> ExecutionPayloadBidRef<'_, E> {
         match self {
             Self::Gloas(inner) => ExecutionPayloadBidRef::Gloas(&inner.message),
+            Self::Pq(inner) => ExecutionPayloadBidRef::Gloas(&inner.message),
             Self::Heze(inner) => ExecutionPayloadBidRef::Heze(&inner.message),
         }
     }
 
+    /// Returns the name of the fork pertaining to `self`.
+    ///
+    /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
+    /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
-        self.message().fork_name(spec)
+        self.to_ref().fork_name(spec)
+    }
+
+    /// Returns the name of the fork pertaining to `self`.
+    /// Does not check that the fork is consistent with the slot.
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        self.to_ref().fork_name_unchecked()
     }
 
     pub fn slot(&self) -> crate::Slot {
@@ -78,6 +92,15 @@ impl<E: EthSpec> SignedExecutionPayloadBidGloas<E> {
     }
 }
 
+impl<E: EthSpec> SignedExecutionPayloadBidPq<E> {
+    pub fn empty() -> Self {
+        Self {
+            message: ExecutionPayloadBidGloas::default(),
+            signature: Signature::empty(),
+        }
+    }
+}
+
 impl<E: EthSpec> SignedExecutionPayloadBidHeze<E> {
     pub fn empty() -> Self {
         Self {
@@ -88,6 +111,38 @@ impl<E: EthSpec> SignedExecutionPayloadBidHeze<E> {
 }
 
 impl<'a, E: EthSpec> SignedExecutionPayloadBidRef<'a, E> {
+    /// Returns the name of the fork pertaining to `self`.
+    ///
+    /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
+    /// dictated by `self.slot()`.
+    ///
+    /// The check is made on the signed container's variant: the Pq variant wraps the same inner
+    /// `ExecutionPayloadBidGloas` as the Gloas variant, so the inner bid alone cannot tell the two
+    /// forks apart.
+    pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
+        let fork_at_slot = spec.fork_name_at_slot::<E>(self.slot());
+        let object_fork = self.fork_name_unchecked();
+
+        if fork_at_slot == object_fork {
+            Ok(object_fork)
+        } else {
+            Err(InconsistentFork {
+                fork_at_slot,
+                object_fork,
+            })
+        }
+    }
+
+    /// Returns the name of the fork pertaining to `self`.
+    /// Does not check that the fork is consistent with the slot.
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        match self {
+            SignedExecutionPayloadBidRef::Gloas(_) => ForkName::Gloas,
+            SignedExecutionPayloadBidRef::Pq(_) => ForkName::Pq,
+            SignedExecutionPayloadBidRef::Heze(_) => ForkName::Heze,
+        }
+    }
+
     pub fn slot(&self) -> Slot {
         self.message().slot()
     }
@@ -106,6 +161,9 @@ impl<'a, E: EthSpec> SignedExecutionPayloadBidRef<'a, E> {
             SignedExecutionPayloadBidRef::Gloas(inner) => {
                 ExecutionPayloadBidRef::Gloas(&inner.message)
             }
+            SignedExecutionPayloadBidRef::Pq(inner) => {
+                ExecutionPayloadBidRef::Gloas(&inner.message)
+            }
             SignedExecutionPayloadBidRef::Heze(inner) => {
                 ExecutionPayloadBidRef::Heze(&inner.message)
             }
@@ -118,6 +176,7 @@ impl<'a, E: EthSpec> SignedExecutionPayloadBidRef<'a, E> {
             SignedExecutionPayloadBidRef::Gloas(bid) => {
                 SignedExecutionPayloadBid::Gloas(bid.clone())
             }
+            SignedExecutionPayloadBidRef::Pq(bid) => SignedExecutionPayloadBid::Pq(bid.clone()),
             SignedExecutionPayloadBidRef::Heze(bid) => SignedExecutionPayloadBid::Heze(bid.clone()),
         }
     }
@@ -138,6 +197,7 @@ impl<E: EthSpec> ForkVersionDecode for SignedExecutionPayloadBid<E> {
             ForkName::Gloas => {
                 SignedExecutionPayloadBidGloas::from_ssz_bytes(bytes).map(Self::Gloas)
             }
+            ForkName::Pq => SignedExecutionPayloadBidPq::from_ssz_bytes(bytes).map(Self::Pq),
             ForkName::Heze => SignedExecutionPayloadBidHeze::from_ssz_bytes(bytes).map(Self::Heze),
         }
     }
@@ -170,6 +230,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedExecutionPaylo
             ForkName::Gloas => {
                 Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
+            ForkName::Pq => Self::Pq(Deserialize::deserialize(deserializer).map_err(convert_err)?),
             ForkName::Heze => {
                 Self::Heze(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
@@ -183,6 +244,14 @@ mod gloas_tests {
     use crate::Spec;
 
     ssz_and_tree_hash_tests!(SignedExecutionPayloadBidGloas<Spec>);
+}
+
+#[cfg(test)]
+mod pq_tests {
+    use super::*;
+    use crate::Spec;
+
+    ssz_and_tree_hash_tests!(SignedExecutionPayloadBidPq<Spec>);
 }
 
 #[cfg(test)]

@@ -213,7 +213,7 @@ impl BuilderHttpClient {
             ContentType::Json => {
                 let versioned: ForkVersionedResponse<SignedExecutionPayloadBid<E>> =
                     serde_json::from_slice(&response_bytes).map_err(Error::InvalidJson)?;
-                let received = versioned.data.message().fork_name_unchecked();
+                let received = versioned.data.fork_name_unchecked();
                 if received != fork_name {
                     return Err(Error::InvalidFork {
                         expected: fork_name,

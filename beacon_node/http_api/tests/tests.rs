@@ -57,8 +57,8 @@ use types::{
     Address, Builder, Domain, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas,
     ExecutionPayloadBidHeze, Hash256, ProposerPreferences, RelativeEpoch, SelectionProof,
     SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze,
-    SignedExecutionPayloadEnvelope, SignedProposerPreferences, SignedRoot, SingleAttestation, Slot,
-    Spec,
+    SignedExecutionPayloadBidPq, SignedExecutionPayloadEnvelope, SignedProposerPreferences,
+    SignedRoot, SingleAttestation, Slot, Spec,
     attestation::AttestationBase,
     consts::gloas::{BUILDER_INDEX_SELF_BUILD, PAYLOAD_BUILDER_VERSION},
 };
@@ -4232,23 +4232,29 @@ impl ApiTester {
                 signature,
             })
         } else {
-            SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
-                message: ExecutionPayloadBidGloas {
-                    parent_block_hash: ExecutionBlockHash::zero(),
-                    parent_block_root: head.head_block_root(),
-                    block_hash: ExecutionBlockHash::zero(),
-                    prev_randao: Hash256::zero(),
-                    fee_recipient: Address::zero(),
-                    gas_limit: 30_000_000,
-                    builder_index: 0,
-                    slot,
-                    value: 100,
-                    execution_payment: 0,
-                    blob_kzg_commitments: Default::default(),
-                    execution_requests_root: Hash256::zero(),
-                },
-                signature,
-            })
+            let message = ExecutionPayloadBidGloas {
+                parent_block_hash: ExecutionBlockHash::zero(),
+                parent_block_root: head.head_block_root(),
+                block_hash: ExecutionBlockHash::zero(),
+                prev_randao: Hash256::zero(),
+                fee_recipient: Address::zero(),
+                gas_limit: 30_000_000,
+                builder_index: 0,
+                slot,
+                value: 100,
+                execution_payment: 0,
+                blob_kzg_commitments: Default::default(),
+                execution_requests_root: Hash256::zero(),
+            };
+            // Pq reuses the Gloas inner bid; only the signed container has a Pq variant.
+            if fork_name == ForkName::Pq {
+                SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq { message, signature })
+            } else {
+                SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                    message,
+                    signature,
+                })
+            }
         };
 
         (signed, fork_name)

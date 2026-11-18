@@ -134,7 +134,10 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionPayloadBid<E> {
             | ForkName::Fulu => Err(ssz::DecodeError::BytesInvalid(format!(
                 "unsupported fork for ExecutionPayloadBid: {fork_name}"
             ))),
-            ForkName::Gloas => ExecutionPayloadBidGloas::from_ssz_bytes(bytes).map(Self::Gloas),
+            // The PQ spec does not modify `ExecutionPayloadBid`, so Pq reuses the Gloas variant.
+            ForkName::Gloas | ForkName::Pq => {
+                ExecutionPayloadBidGloas::from_ssz_bytes(bytes).map(Self::Gloas)
+            }
             ForkName::Heze => ExecutionPayloadBidHeze::from_ssz_bytes(bytes).map(Self::Heze),
         }
     }
@@ -164,7 +167,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadBid<
                     context
                 )));
             }
-            ForkName::Gloas => {
+            ForkName::Gloas | ForkName::Pq => {
                 Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Heze => {
@@ -179,12 +182,18 @@ impl<'a, E: EthSpec> ExecutionPayloadBidRef<'a, E> {
     ///
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
     /// dictated by `self.slot()`.
+    ///
+    /// The Pq fork reuses the Gloas bid variant (the PQ spec does not modify
+    /// `ExecutionPayloadBid`), so a Gloas bid at a Pq slot is consistent and reported as `Pq`.
+    /// Use `SignedExecutionPayloadBid::fork_name` for a strict check of the signed container.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
         let fork_at_slot = spec.fork_name_at_slot::<E>(self.slot());
         let object_fork = self.fork_name_unchecked();
 
-        if fork_at_slot == object_fork {
-            Ok(object_fork)
+        if fork_at_slot == object_fork
+            || (fork_at_slot == ForkName::Pq && object_fork == ForkName::Gloas)
+        {
+            Ok(fork_at_slot)
         } else {
             Err(InconsistentFork {
                 fork_at_slot,

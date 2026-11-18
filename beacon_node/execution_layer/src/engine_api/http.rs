@@ -1128,7 +1128,7 @@ impl HttpJsonRpc {
         match fork_name {
             // TODO(heze): deliberately reusing the Gloas response containers while the Heze
             // payload is identical to the Gloas one. Switch to the Heze types if it diverges
-            ForkName::Gloas | ForkName::Heze => {
+            ForkName::Gloas | ForkName::Pq | ForkName::Heze => {
                 let response: JsonGetPayloadResponseGloas<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V6,
@@ -1560,7 +1560,7 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
                 }
             }
-            ForkName::Gloas | ForkName::Heze => {
+            ForkName::Gloas | ForkName::Pq | ForkName::Heze => {
                 if engine_capabilities.get_payload_v6 {
                     self.get_payload_v6(fork_name, payload_id).await
                 } else {

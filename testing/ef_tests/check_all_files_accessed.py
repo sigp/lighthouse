@@ -53,6 +53,8 @@ excluded_paths = [
     "tests/.*/gloas/networking/gossip_.*",
     # Heze fork is not implemented
     "tests/.*/heze/.*",
+    # Pq fork has no published test vectors
+    "tests/.*/pq/.*",
     # Ignore MatrixEntry SSZ tests for now.
     "tests/.*/.*/ssz_static/MatrixEntry/.*",
     # TODO: partial data column not implemented yet

@@ -46,8 +46,8 @@ pub trait Handler {
     fn run(&self) {
         for fork_name in ForkName::list_all() {
             // TODO(heze): remove this skip once Heze spec test vectors are published in
-            // consensus-spec-tests.
-            if fork_name == ForkName::Heze {
+            // consensus-spec-tests. Pq (consensus-specs `_features/pq`) has no vectors either.
+            if fork_name == ForkName::Pq || fork_name == ForkName::Heze {
                 continue;
             }
             if !self.disabled_forks().contains(&fork_name) && self.is_enabled_for_fork(fork_name) {
@@ -347,7 +347,7 @@ impl<T, E> SszStaticHandler<T, E> {
     }
 
     pub fn heze_and_later() -> Self {
-        Self::for_forks(ForkName::list_all()[8..].to_vec())
+        Self::for_forks(ForkName::list_all()[9..].to_vec())
     }
 
     pub fn pre_electra() -> Self {
@@ -873,7 +873,7 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas optimistic sync tests
-        vec![ForkName::Gloas, ForkName::Heze]
+        vec![ForkName::Gloas, ForkName::Pq, ForkName::Heze]
     }
 }
 
@@ -1152,7 +1152,7 @@ impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas, ForkName::Heze]
+        vec![ForkName::Gloas, ForkName::Pq, ForkName::Heze]
     }
 }
 
@@ -1177,7 +1177,7 @@ impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas, ForkName::Heze]
+        vec![ForkName::Gloas, ForkName::Pq, ForkName::Heze]
     }
 }
 
@@ -1202,7 +1202,7 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas, ForkName::Heze]
+        vec![ForkName::Gloas, ForkName::Pq, ForkName::Heze]
     }
 }
 
@@ -1227,7 +1227,7 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG tests
-        vec![ForkName::Gloas, ForkName::Heze]
+        vec![ForkName::Gloas, ForkName::Pq, ForkName::Heze]
     }
 }
 
@@ -1256,7 +1256,7 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Gloas KZG merkle proof tests
-        vec![ForkName::Gloas, ForkName::Heze]
+        vec![ForkName::Gloas, ForkName::Pq, ForkName::Heze]
     }
 }
 
@@ -1285,7 +1285,7 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
 
     fn disabled_forks(&self) -> Vec<ForkName> {
         // TODO(gloas): remove once we have Heze light client tests
-        vec![ForkName::Heze]
+        vec![ForkName::Pq, ForkName::Heze]
     }
 }
 
@@ -1314,7 +1314,7 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
     }
 
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![ForkName::Heze]
+        vec![ForkName::Pq, ForkName::Heze]
     }
 }
 

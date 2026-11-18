@@ -6,6 +6,7 @@ pub mod electra;
 pub mod fulu;
 pub mod gloas;
 pub mod heze;
+pub mod pq;
 
 pub use altair::upgrade_to_altair;
 pub use bellatrix::upgrade_to_bellatrix;
@@ -15,3 +16,4 @@ pub use electra::upgrade_to_electra;
 pub use fulu::upgrade_to_fulu;
 pub use gloas::upgrade_to_gloas;
 pub use heze::upgrade_to_heze;
+pub use pq::upgrade_to_pq;

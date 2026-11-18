@@ -1411,6 +1411,10 @@ where
         );
         let signature = keypair.sk.sign(bid.signing_root(domain));
         match bid {
+            // Pq reuses the Gloas inner bid; only the signed container has a Pq variant.
+            ExecutionPayloadBid::Gloas(message) if matches!(state, BeaconState::Pq(_)) => {
+                SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq { message, signature })
+            }
             ExecutionPayloadBid::Gloas(message) => {
                 SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
                     message,
@@ -1787,12 +1791,18 @@ where
             .sk
             .sign(ExecutionPayloadBidRef::Gloas(&bid).signing_root(domain));
 
-        Arc::new(SignedExecutionPayloadBid::Gloas(
-            SignedExecutionPayloadBidGloas {
+        // Pq reuses the Gloas inner bid; only the signed container has a Pq variant.
+        Arc::new(if matches!(state, BeaconState::Pq(_)) {
+            SignedExecutionPayloadBid::Pq(SignedExecutionPayloadBidPq {
                 message: bid,
                 signature,
-            },
-        ))
+            })
+        } else {
+            SignedExecutionPayloadBid::Gloas(SignedExecutionPayloadBidGloas {
+                message: bid,
+                signature,
+            })
+        })
     }
 
     /// Sign a beacon block using the proposer's key.
@@ -4515,6 +4525,27 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
         }) => {
             // For Gloas, commitments are in the bid, not directly in the body.
             // BlobSidecars cannot be created for Gloas because there's no merkle proof
+            // from the block body to the commitments. Return early with empty blob_sidecars.
+            let num_blobs = match num_blobs {
+                NumBlobs::Random => u.int_in_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS)?,
+                NumBlobs::Number(n) => n,
+                NumBlobs::None => 0,
+            };
+            let (bundle, _transactions) =
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
+            message
+                .body
+                .signed_execution_payload_bid
+                .message
+                .blob_kzg_commitments = ProgressiveVariableList::new(bundle.commitments.to_vec())
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?;
+            return Ok((block, blob_sidecars));
+        }
+        SignedBeaconBlock::Pq(SignedBeaconBlockPq {
+            ref mut message, ..
+        }) => {
+            // As for Gloas, commitments are in the bid, not directly in the body.
+            // BlobSidecars cannot be created for Pq because there's no merkle proof
             // from the block body to the commitments. Return early with empty blob_sidecars.
             let num_blobs = match num_blobs {
                 NumBlobs::Random => u.int_in_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS)?,

@@ -507,6 +507,7 @@ async fn inclusion_list_event_on_import() {
     }
 
     let mut spec = test_spec::<E>();
+    spec.pq_fork_epoch = Some(Epoch::new(0));
     spec.heze_fork_epoch = Some(Epoch::new(0));
     let harness = BeaconChainHarness::builder(E::default())
         .spec(Arc::new(spec))

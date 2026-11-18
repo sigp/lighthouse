@@ -35,6 +35,9 @@ impl TestContext {
 
     fn new_with_heze_fork_epoch(heze_fork_epoch: Epoch) -> Self {
         let mut spec = test_spec::<E>();
+        // Pq precedes Heze; two forks at the same non-genesis epoch would leave `state.fork` without
+        // the Gloas version needed to verify signatures from the last pre-fork epoch.
+        spec.pq_fork_epoch = Some(heze_fork_epoch.saturating_sub(1u64));
         spec.heze_fork_epoch = Some(heze_fork_epoch);
         let spec = Arc::new(spec);
         let slot_clock = TestingSlotClock::new(

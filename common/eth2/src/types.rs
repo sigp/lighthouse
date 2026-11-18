@@ -1352,6 +1352,7 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
             | ForkName::Electra
             | ForkName::Fulu
             | ForkName::Gloas
+            | ForkName::Pq
             | ForkName::Heze => {
                 Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
@@ -2922,7 +2923,12 @@ mod test {
             ExecutionPayload::Gloas(ExecutionPayloadGloas::<Spec>::arbitrary(&mut u).unwrap()),
             ExecutionPayload::Heze(ExecutionPayloadHeze::<Spec>::arbitrary(&mut u).unwrap()),
         ];
-        let merged_forks = &ForkName::list_all()[2..];
+        // Pq has no `ExecutionPayload` variant of its own (it reuses the Gloas payload).
+        let merged_forks = &ForkName::list_all()[2..]
+            .iter()
+            .copied()
+            .filter(|fork_name| *fork_name != ForkName::Pq)
+            .collect::<Vec<_>>();
         assert_eq!(
             payloads.len(),
             merged_forks.len(),
@@ -2993,7 +2999,12 @@ mod test {
                 }
             },
         ];
-        let blob_forks = &ForkName::list_all()[4..];
+        // Pq has no `ExecutionPayload` variant of its own (it reuses the Gloas payload).
+        let blob_forks = &ForkName::list_all()[4..]
+            .iter()
+            .copied()
+            .filter(|fork_name| *fork_name != ForkName::Pq)
+            .collect::<Vec<_>>();
 
         assert_eq!(
             payloads.len(),

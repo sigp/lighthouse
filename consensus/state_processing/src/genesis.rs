@@ -6,7 +6,7 @@ use crate::common::DepositDataTree;
 use crate::upgrade::electra::upgrade_state_to_electra;
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb, upgrade_to_fulu,
-    upgrade_to_gloas, upgrade_to_heze,
+    upgrade_to_gloas, upgrade_to_heze, upgrade_to_pq,
 };
 use fixed_bytes::FixedBytesExtended;
 use safe_arith::{ArithError, SafeArith};
@@ -171,11 +171,22 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         // The genesis block's bid must have block_hash = 0x00 per spec (empty payload).
         // Retain the EL genesis hash in latest_block_hash and parent_block_hash so the
         // first post-genesis proposer can build on the correct EL head. This runs on the
-        // Gloas genesis state; a later Heze upgrade carries these fields forward.
+        // Gloas genesis state; a later Pq or Heze upgrade carries these fields forward.
         let bid = state.latest_execution_payload_bid_gloas_mut()?;
         let el_genesis_hash = bid.block_hash;
         bid.parent_block_hash = el_genesis_hash;
         bid.block_hash = ExecutionBlockHash::default();
+    }
+
+    // Upgrade to pq if configured from genesis.
+    if spec
+        .pq_fork_epoch
+        .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
+    {
+        upgrade_to_pq(&mut state, spec)?;
+
+        // Remove intermediate Gloas fork from `state.fork`.
+        state.fork_mut().previous_version = spec.pq_fork_version;
     }
 
     // Upgrade to heze if configured from genesis.
@@ -185,7 +196,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     {
         upgrade_to_heze(&mut state, spec)?;
 
-        // Remove intermediate Gloas fork from `state.fork`.
+        // Remove intermediate Pq fork from `state.fork`.
         state.fork_mut().previous_version = spec.heze_fork_version;
     }
 
@@ -230,6 +241,10 @@ pub fn genesis_block<E: EthSpec>(
         | BeaconBlock::Fulu(_) => {}
         BeaconBlock::Gloas(gloas_block) => {
             gloas_block.body.signed_execution_payload_bid.message =
+                state.latest_execution_payload_bid_gloas()?.clone();
+        }
+        BeaconBlock::Pq(pq_block) => {
+            pq_block.body.signed_execution_payload_bid.message =
                 state.latest_execution_payload_bid_gloas()?.clone();
         }
         BeaconBlock::Heze(heze_block) => {

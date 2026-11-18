@@ -749,6 +749,7 @@ mod tests {
     fn heze_fork_context() -> ForkContext {
         let mut spec = pre_gloas_spec();
         spec.gloas_fork_epoch = Some(Epoch::new(0));
+        spec.pq_fork_epoch = Some(Epoch::new(0));
         spec.heze_fork_epoch = Some(Epoch::new(0));
         ForkContext::new::<E>(Slot::new(0), Hash256::ZERO, &spec)
     }

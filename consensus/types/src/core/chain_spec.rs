@@ -280,6 +280,13 @@ pub struct ChainSpec {
     pub gas_limit_schedule: GasLimitSchedule,
 
     /*
+     * Pq hard fork params
+     */
+    pub pq_fork_version: [u8; 4],
+    /// The Pq fork epoch is optional, with `None` representing "Pq never happens".
+    pub pq_fork_epoch: Option<Epoch>,
+
+    /*
      * Heze hard fork params
      */
     pub heze_fork_version: [u8; 4],
@@ -420,6 +427,7 @@ impl ChainSpec {
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
         let forks = [
             (self.heze_fork_epoch, ForkName::Heze),
+            (self.pq_fork_epoch, ForkName::Pq),
             (self.gloas_fork_epoch, ForkName::Gloas),
             (self.fulu_fork_epoch, ForkName::Fulu),
             (self.electra_fork_epoch, ForkName::Electra),
@@ -452,6 +460,7 @@ impl ChainSpec {
             ForkName::Electra => self.electra_fork_version,
             ForkName::Fulu => self.fulu_fork_version,
             ForkName::Gloas => self.gloas_fork_version,
+            ForkName::Pq => self.pq_fork_version,
             ForkName::Heze => self.heze_fork_version,
         }
     }
@@ -472,6 +481,7 @@ impl ChainSpec {
             ForkName::Electra => self.electra_fork_epoch,
             ForkName::Fulu => self.fulu_fork_epoch,
             ForkName::Gloas => self.gloas_fork_epoch,
+            ForkName::Pq => self.pq_fork_epoch,
             ForkName::Heze => self.heze_fork_epoch,
         }
     }
@@ -515,6 +525,12 @@ impl ChainSpec {
     pub fn is_gloas_scheduled(&self) -> bool {
         self.gloas_fork_epoch
             .is_some_and(|gloas_fork_epoch| gloas_fork_epoch != self.far_future_epoch)
+    }
+
+    /// Returns true if `PQ_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_pq_scheduled(&self) -> bool {
+        self.pq_fork_epoch
+            .is_some_and(|pq_fork_epoch| pq_fork_epoch != self.far_future_epoch)
     }
 
     /// Returns true if `HEZE_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
@@ -1465,6 +1481,12 @@ impl ChainSpec {
             max_request_payloads: 128,
 
             /*
+             * Pq hard fork params
+             */
+            pq_fork_version: [0xe0, 0x00, 0x00, 0x00],
+            pq_fork_epoch: None,
+
+            /*
              * Heze hard fork params
              */
             heze_fork_version: [0x08, 0x00, 0x00, 0x00],
@@ -1626,6 +1648,9 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             gas_limit_schedule: GasLimitSchedule::default(),
+            // Pq
+            pq_fork_version: [0xe0, 0x00, 0x00, 0x01],
+            pq_fork_epoch: None,
             // Heze
             heze_fork_version: [0x08, 0x00, 0x00, 0x01],
             heze_fork_epoch: None,
@@ -1923,6 +1948,12 @@ impl ChainSpec {
             .expect("calculation does not overflow"),
             gas_limit_schedule: GasLimitSchedule::default(),
             max_request_payloads: 128,
+
+            /*
+             * Pq hard fork params
+             */
+            pq_fork_version: [0xe0, 0x00, 0x00, 0x64],
+            pq_fork_epoch: None,
 
             /*
              * Heze hard fork params
@@ -2245,6 +2276,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub gloas_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_pq_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    pq_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub pq_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(default = "default_heze_fork_version")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     heze_fork_version: [u8; 4],
@@ -2501,6 +2540,11 @@ fn default_fulu_fork_version() -> [u8; 4] {
 }
 
 fn default_gloas_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_pq_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -2946,6 +2990,9 @@ impl Config {
                 .gloas_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            pq_fork_version: spec.pq_fork_version,
+            pq_fork_epoch: spec.pq_fork_epoch.map(|epoch| MaybeQuoted { value: epoch }),
+
             heze_fork_version: spec.heze_fork_version,
             heze_fork_epoch: spec
                 .heze_fork_epoch
@@ -3082,6 +3129,8 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch,
+            pq_fork_version,
+            pq_fork_epoch,
             heze_fork_version,
             heze_fork_epoch,
             seconds_per_slot,
@@ -3221,6 +3270,8 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
+            pq_fork_version,
+            pq_fork_epoch: pq_fork_epoch.map(|q| q.value),
             heze_fork_version,
             heze_fork_epoch: heze_fork_epoch.map(|q| q.value),
             seconds_per_slot: seconds_per_slot
