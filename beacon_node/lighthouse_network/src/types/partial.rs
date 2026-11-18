@@ -352,12 +352,12 @@ mod tests {
     use ssz_types::FixedVector;
     use types::CellBitmap;
     use types::block::{BeaconBlockHeader, SignedBeaconBlockHeader};
-    use types::core::{MinimalEthSpec, Slot};
+    use types::core::{Slot, Spec};
     use types::data::PartialDataColumnHeader;
     use types::data::PartialDataColumnSidecarFulu;
     use types::data::PartialDataColumnSidecarGloas;
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_cell(marker: u8) -> types::Cell<E> {
         let mut cell = types::Cell::<E>::default();

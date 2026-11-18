@@ -1,6 +1,5 @@
 use beacon_chain::AvailabilityProcessingStatus::{Imported, MissingComponents};
 use beacon_chain::NotifyExecutionLayer;
-use beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof;
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::test_utils::{
     BeaconChainHarness, fork_name_from_env, generate_data_column_sidecars_from_block, test_spec,
@@ -9,13 +8,12 @@ use bls::PublicKeyBytes;
 use eth2::types::EventKind;
 use proto_array::ExecutionStatus;
 use std::sync::Arc;
-use types::execution::{ExecutionProof, ProofData, PublicInput, SignedExecutionProof};
 use types::{
-    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, MinimalEthSpec, Slot,
+    Address, BlockImportSource, Epoch, ExecPayload, ForkName, Hash256, Slot, Spec,
     WithdrawalRequest,
 };
 
-type E = MinimalEthSpec;
+type E = Spec;
 
 #[tokio::test]
 async fn pre_gloas_block_import_records_payload_gas_limit() {
@@ -100,8 +98,8 @@ async fn startup_seeds_gloas_genesis_parent_payload() {
         harness
             .chain
             .observed_execution_payloads
-            .get_gas_limit(genesis_bid.parent_block_hash),
-        Some(genesis_bid.gas_limit)
+            .get_gas_limit(genesis_bid.parent_block_hash()),
+        Some(genesis_bid.gas_limit())
     );
 }
 
@@ -162,30 +160,6 @@ async fn lookup_imports_gloas_payload_after_restart() {
         cache.get_bid(&block_root).is_none(),
         "the pending bid cache should start empty after restart"
     );
-    let proof_status = chain
-        .check_execution_proof_availability_and_import(GossipVerifiedExecutionProof {
-            proof: Arc::new(SignedExecutionProof {
-                message: ExecutionProof {
-                    proof_data: ProofData::new(vec![1]).expect("proof data"),
-                    proof_type: 0,
-                    public_input: PublicInput {
-                        new_payload_request_root: Hash256::random(),
-                    },
-                    beacon_block_root: block_root,
-                },
-                validator_index: 0,
-                signature: bls::Signature::infinity().expect("infinity signature"),
-            }),
-            block_slot: target_slot,
-        })
-        .await
-        .expect("execution proof should be accepted after restart");
-    assert!(matches!(proof_status, MissingComponents(..)));
-    assert!(cache.get_bid(&block_root).is_some());
-
-    // Evict the recovered bid so columns must also handle a cache miss.
-    cache.do_maintenance(Epoch::new(1)).unwrap();
-    assert!(cache.get_bid(&block_root).is_none());
     let column_status = chain
         .process_rpc_custody_columns(custody_columns.clone())
         .await

@@ -12,7 +12,7 @@
 //! crate.
 
 use bytes::Bytes;
-use discv5::enr::{CombinedKey, Enr};
+use enr::{CombinedKey, Enr};
 use eth2_config::{HardcodedNet, instantiate_hardcoded_nets};
 use kzg::trusted_setup::get_trusted_setup;
 use pretty_reqwest_error::PrettyReqwestError;

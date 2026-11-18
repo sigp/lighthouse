@@ -313,14 +313,14 @@ mod tests {
     use lighthouse_network::service::api_types::{
         CustodyBackFillBatchRequestId, CustodyBackfillBatchId, DataColumnsByRangeRequester,
     };
-    use types::{ForkName, MinimalEthSpec};
+    use types::{ForkName, Spec};
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     #[tokio::test]
     async fn valid_gloas_batch_completes_without_peer_failure() {
         let spec = Arc::new(ForkName::Gloas.make_genesis_spec(E::default_spec()));
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(MinimalEthSpec)
+        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
             .spec(spec)
             .deterministic_keypairs(8)
             .fresh_ephemeral_store()

@@ -262,7 +262,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                     .body()
                     .signed_execution_payload_bid()
                     .ok()
-                    .map(|bid| bid.message.block_hash)
+                    .map(|bid| bid.message().block_hash())
             })
     }
 
@@ -387,7 +387,10 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         if self.awaiting_parent.is_none()
             && let Some(data) = self.block_request.state.maybe_start_processing()
         {
-            cx.send_block_for_processing(self.id, self.block_root, data.value)
+            let peer_id = data.peer_group.all().next().copied().ok_or_else(|| {
+                LookupRequestError::BadState("Downloaded block has no serving peer".into())
+            })?;
+            cx.send_block_for_processing(self.id, peer_id, self.block_root, data.value)
                 .map_err(LookupRequestError::SendFailedProcessor)?;
         }
 

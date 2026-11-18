@@ -1186,9 +1186,9 @@ mod tests {
     use libp2p::core::UpgradeInfo;
     use std::collections::HashSet;
     use strum::IntoEnumIterator;
-    use types::{Hash256, Slot};
+    use types::{Hash256, Slot, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     /// Whether this protocol should appear in `currently_supported()` for the given context.
     ///

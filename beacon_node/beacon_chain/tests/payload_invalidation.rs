@@ -4,7 +4,7 @@
 use beacon_chain::block_verification_types::LookupBlock;
 use beacon_chain::payload_envelope_verification::{EnvelopeError, EnvelopeSource};
 use beacon_chain::{
-    BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
+    BeaconChainError, BlockError, BlockErrorWithRoot, ChainConfig, ExecutionPayloadError,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, StateSkipConfig,
     WhenSlotSkipped,
     canonical_head::CachedHead,
@@ -15,7 +15,7 @@ use execution_layer::{
     json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
-use proto_array::{Error as ProtoArrayError, ExecutionStatus, ExecutionVerdict};
+use proto_array::{Error as ProtoArrayError, ExecutionStatus, ExecutionVerdict, PayloadStatus};
 use slot_clock::SlotClock;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
@@ -25,7 +25,7 @@ use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
 
-type E = MainnetEthSpec;
+type E = Spec;
 
 #[derive(PartialEq, Clone, Copy)]
 enum Payload {
@@ -49,7 +49,7 @@ impl InvalidPayloadRig {
     }
 
     fn new_with_spec(spec: ChainSpec) -> Self {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let harness = BeaconChainHarness::builder(Spec::default())
             .spec(spec.into())
             .chain_config(ChainConfig {
                 archive: true,
@@ -96,8 +96,8 @@ impl InvalidPayloadRig {
             .body()
             .signed_execution_payload_bid()
             .unwrap()
-            .message
-            .block_hash
+            .message()
+            .block_hash()
     }
 
     fn execution_status(&self, block_root: Hash256) -> ExecutionStatus {
@@ -178,6 +178,23 @@ impl InvalidPayloadRig {
             )
         })
         .await
+    }
+
+    /// Import a block on the head's `FULL` payload and leave the head where it is. This is the
+    /// window in which the early attester cache answers attestation requests on its own.
+    async fn import_block_without_recomputing_head(&self) -> Hash256 {
+        let state = self.harness.chain.head_beacon_state_cloned();
+        let slot = state.slot() + 1;
+        let (contents, _, _) = self
+            .harness
+            .make_block_with_envelope_on(state, slot, PayloadStatus::Full)
+            .await;
+        let block_root = contents.0.canonical_root();
+        self.harness
+            .process_block_without_recomputing_head(slot, block_root, contents)
+            .await
+            .unwrap();
+        block_root
     }
 
     fn block_root_at_slot(&self, slot: Slot) -> Option<Hash256> {
@@ -778,7 +795,7 @@ async fn invalidates_all_descendants() {
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
-    let fork_lookup_block = LookupBlock::new(fork_block.clone());
+    let fork_lookup_block = LookupBlock::new(fork_block.canonical_root(), fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
@@ -882,7 +899,7 @@ async fn switches_heads() {
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
-    let fork_lookup_block = LookupBlock::new(fork_block.clone());
+    let fork_lookup_block = LookupBlock::new(fork_block.canonical_root(), fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
@@ -1166,13 +1183,18 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
     assert!(matches!(
-        rig.harness.chain.clone().verify_block_for_gossip(block.clone()).await,
+        rig.harness
+            .chain
+            .clone()
+            .verify_block_for_gossip(block.clone())
+            .await
+            .map_err(BlockErrorWithRoot::into_block_error),
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
 
     // Ensure the block built atop an invalid payload is invalid for import.
-    let lookup_block = LookupBlock::new(block.clone());
+    let lookup_block = LookupBlock::new(block_root, block.clone());
     assert!(matches!(
         rig.harness.chain.process_block(lookup_block.block_root(), lookup_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
@@ -1311,6 +1333,52 @@ async fn attesting_to_optimistic_head() {
     get_aggregated_by_slot_and_root().unwrap();
 }
 
+/// `import_block` sees `PayloadVerificationStatus::Irrelevant` for a Gloas block, so only the
+/// inherited verdict can keep an optimistic head out of the early attester cache, which answers an
+/// attestation request without reaching the optimistic filter.
+#[tokio::test]
+async fn gloas_optimistic_head_not_in_early_attester_cache() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new();
+    rig.import_block(Payload::Valid).await;
+    rig.import_block(Payload::Syncing).await;
+    let head_root = rig.import_block_without_recomputing_head().await;
+
+    let chain = &rig.harness.chain;
+    assert!(!chain.early_attester_cache.contains_block(head_root));
+
+    // The request falls through to the canonical head, which is the optimistic parent.
+    let slot = chain.slot().unwrap();
+    match chain.produce_unaggregated_attestation(slot, 0) {
+        Err(BeaconChainError::HeadBlockNotFullyVerified {
+            execution_status, ..
+        }) => assert_eq!(execution_status, ExecutionVerdict::Optimistic),
+        other => panic!("an optimistic head must not be attestable: {other:?}"),
+    }
+}
+
+/// Control for `gloas_optimistic_head_not_in_early_attester_cache`: a head whose branch
+/// ran a valid payload is still served from the early attester cache.
+#[tokio::test]
+async fn gloas_verified_head_in_early_attester_cache() {
+    if !fork_name_from_env().is_some_and(|f| f.gloas_enabled()) {
+        return;
+    }
+    let mut rig = InvalidPayloadRig::new();
+    rig.import_block(Payload::Valid).await;
+    rig.import_block(Payload::Valid).await;
+    let head_root = rig.import_block_without_recomputing_head().await;
+
+    let chain = &rig.harness.chain;
+    assert!(chain.early_attester_cache.contains_block(head_root));
+
+    let slot = chain.slot().unwrap();
+    let attestation = chain.produce_unaggregated_attestation(slot, 0).unwrap();
+    assert_eq!(attestation.data().beacon_block_root, head_root);
+}
+
 /// Helper for running tests where we generate a chain with an invalid head and then a
 /// `fork_block` to recover it.
 struct InvalidHeadSetup {
@@ -1420,7 +1488,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     } = InvalidHeadSetup::new().await;
 
     // Import the fork block, it should become the head.
-    let fork_lookup_block = LookupBlock::new(fork_block.clone());
+    let fork_lookup_block = LookupBlock::new(fork_block.canonical_root(), fork_block.clone());
     rig.harness
         .chain
         .process_block(
@@ -1468,7 +1536,7 @@ async fn recover_from_invalid_head_after_persist_and_reboot() {
     // Forcefully persist fork choice.
     rig.harness.chain.persist_fork_choice().unwrap();
 
-    let resumed = BeaconChainHarness::builder(MainnetEthSpec)
+    let resumed = BeaconChainHarness::builder(Spec::default())
         .default_spec()
         .deterministic_keypairs(VALIDATOR_COUNT)
         .resumed_ephemeral_store(rig.harness.chain.store.clone())
@@ -1563,8 +1631,9 @@ async fn weights_after_resetting_optimistic_status() {
             .validators()
             .get(0)
             .unwrap()
-            .effective_balance,
-        "proposer boost should be removed from the head block and the vote of a single validator applied"
+            .effective_balance
+            * (VALIDATOR_COUNT as u64 / E::slots_per_epoch()),
+        "proposer boost should be removed from the head block and the votes of the head slot's committee applied"
     );
 
     // Import a length of chain to ensure the chain can be built atop.

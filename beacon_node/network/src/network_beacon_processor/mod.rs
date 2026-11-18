@@ -1,7 +1,6 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
-use beacon_chain::block_verification_types::LookupBlock;
-use beacon_chain::block_verification_types::RangeSyncBlock;
+use beacon_chain::block_verification_types::{LookupBlock, RangeSyncBlock};
 use beacon_chain::data_column_verification::{
     GossipDataColumnError, KzgVerifiedCustodyDataColumn, observe_gossip_data_column,
 };
@@ -37,7 +36,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{Instrument, Span, debug, error, instrument, trace, warn};
 use types::*;
 use {
     beacon_chain::builder::Witness, beacon_processor::BeaconProcessorChannels,
@@ -48,7 +47,7 @@ pub use sync_methods::{BlockProcessingResult, ChainSegmentProcessId};
 
 pub use gossip_methods::ReprocessAllowance;
 
-pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
+pub type Error<T> = Box<TrySendError<BeaconWorkEvent<T>>>;
 
 mod gossip_methods;
 mod rpc_methods;
@@ -185,13 +184,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
+        let process_peer_id = peer_id;
         let process_fn = async move {
             let invalid_block_storage = processor.invalid_block_storage.clone();
             let duplicate_cache = processor.duplicate_cache.clone();
             processor
                 .process_gossip_block(
                     message_id,
-                    peer_id,
+                    process_peer_id,
                     peer_client,
                     block,
                     duplicate_cache,
@@ -203,7 +203,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
-            work: Work::GossipBlock(Box::pin(process_fn)),
+            work: Work::GossipBlock {
+                peer_id,
+                process_fn: Box::pin(process_fn),
+            },
         })
     }
 
@@ -468,7 +471,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        execution_proof: Arc<SignedExecutionProof>,
+        execution_proof: Arc<SignedExecutionProofEnvelope>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
@@ -552,10 +555,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         inclusion_list: Box<SignedInclusionList>,
+        seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn =
-            move || processor.process_gossip_inclusion_list(message_id, peer_id, inclusion_list);
+        let process_fn = move || {
+            processor.process_gossip_inclusion_list(
+                message_id,
+                peer_id,
+                inclusion_list,
+                seen_timestamp,
+            )
+        };
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -567,17 +577,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// sent to the other side of `result_tx`.
     pub fn send_lookup_beacon_block(
         self: &Arc<Self>,
+        peer_id: PeerId,
         block_root: Hash256,
         block: LookupBlock<T::EthSpec>,
         process_type: BlockProcessType,
     ) -> Result<(), Error<T::EthSpec>> {
-        let process_fn =
+        let (process_fn, ignore_fn) =
             self.clone()
-                .generate_lookup_beacon_block_process_fn(block_root, block, process_type);
+                .generate_lookup_beacon_block_fns(peer_id, block_root, block, process_type);
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::RpcBlock {
+                peer_id,
                 process_fn,
+                ignore_fn,
                 beacon_block_root: block_root,
             },
         })
@@ -939,6 +952,47 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.network_tx.send(message).unwrap_or_else(|e| {
             debug!(error = %e, "Could not send message to the network service. Likely shutdown")
         });
+    }
+
+    /// Starts retrieving the custody columns of a block whose blob data we do not hold yet:
+    /// attempts to fetch the blobs from the EL, then requests the missing cells from peers via
+    /// partial columns. The retrieval is traced within `span`.
+    pub(crate) fn spawn_fetch_block_columns(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        source: EnvelopeSource,
+        span: Span,
+    ) {
+        let task_name = match source {
+            EnvelopeSource::Gossip => "fetch_blobs_gossip",
+            EnvelopeSource::Rpc => "fetch_blobs_rpc",
+            EnvelopeSource::Http => "fetch_blobs_http",
+        };
+        let publish_blobs = true;
+        let self_clone = self.clone();
+        self.executor.spawn(
+            async move {
+                // Building the Fulu header hashes the block body, so keep it off the caller's path.
+                let Some(header_or_bid) = PartialHeaderOrBid::try_from_block(block.as_ref()) else {
+                    debug!("Pre-Fulu block passed to spawn_fetch_block_columns");
+                    return;
+                };
+                self_clone
+                    .fetch_engine_blobs_and_publish_full(
+                        header_or_bid.clone(),
+                        block_root,
+                        publish_blobs,
+                        source,
+                    )
+                    .await;
+                self_clone
+                    .publish_partial_data_columns(header_or_bid, block_root)
+                    .await
+            }
+            .instrument(span),
+            task_name,
+        );
     }
 
     pub async fn fetch_engine_blobs_and_publish_full(

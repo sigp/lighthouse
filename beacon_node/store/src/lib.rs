@@ -29,7 +29,7 @@ pub use self::blob_sidecar_list_from_root::BlobSidecarListFromRoot;
 pub use self::config::StoreConfig;
 pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::memory_store::MemoryStore;
-pub use crate::metadata::BlobInfo;
+pub use crate::metadata::DataInfo;
 pub use errors::Error;
 pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
@@ -562,7 +562,7 @@ mod tests {
 
     #[test]
     fn payload_envelope_summary_survives_payload_pruning() {
-        type E = MinimalEthSpec;
+        type E = Spec;
 
         let store = HotColdDB::<E, MemoryStore, MemoryStore>::open_ephemeral(
             StoreConfig::default(),

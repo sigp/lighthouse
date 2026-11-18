@@ -66,11 +66,11 @@ mod tests {
     use std::sync::Arc;
     use types::{
         BeaconBlock, BuilderIndex, EthSpec, ExecutionPayloadEnvelope, ExecutionPayloadGloas,
-        ExecutionRequestsGloas, Hash256, MinimalEthSpec, SignedBeaconBlock,
-        SignedExecutionPayloadEnvelope, Slot,
+        ExecutionRequestsGloas, Hash256, SignedBeaconBlock, SignedExecutionPayloadEnvelope, Slot,
+        Spec,
     };
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_verified_envelope(
         slot: Slot,

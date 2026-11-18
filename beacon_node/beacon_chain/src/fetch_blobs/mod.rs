@@ -65,7 +65,9 @@ impl<E: EthSpec> PartialHeaderOrBid<E> {
         block: &SignedBeaconBlock<E, P>,
     ) -> Option<Self> {
         if let Ok(bid) = block.message().body().signed_execution_payload_bid() {
-            Some(PartialHeaderOrBid::Bid(Arc::new(bid.clone())))
+            Some(PartialHeaderOrBid::Bid(Arc::new(
+                bid.clone_as_signed_execution_payload_bid(),
+            )))
         } else {
             PartialDataColumnHeader::try_from(block)
                 .ok()
@@ -76,14 +78,16 @@ impl<E: EthSpec> PartialHeaderOrBid<E> {
     pub fn kzg_commitments(&self) -> ListRef<'_, KzgCommitment, E::MaxBlobCommitmentsPerBlock> {
         match self {
             PartialHeaderOrBid::PartialHeader(header) => ListRef::Basic(&header.kzg_commitments),
-            PartialHeaderOrBid::Bid(bid) => ListRef::Progressive(&bid.message.blob_kzg_commitments),
+            PartialHeaderOrBid::Bid(bid) => {
+                ListRef::Progressive(bid.message().blob_kzg_commitments())
+            }
         }
     }
 
     pub fn slot(&self) -> Slot {
         match self {
             PartialHeaderOrBid::PartialHeader(header) => header.slot(),
-            PartialHeaderOrBid::Bid(bid) => bid.message.slot,
+            PartialHeaderOrBid::Bid(bid) => bid.slot(),
         }
     }
 }
@@ -265,10 +269,10 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
         }
     }
 
-    if chain_adapter.fork_choice_contains_block(&block_root) {
-        // Avoid computing columns if the block has already been imported.
+    if chain_adapter.is_block_data_imported(block_root) {
+        // Avoid computing columns if they have already been imported.
         debug!(
-            info = "block has already been imported",
+            info = "columns have already been imported",
             "Ignoring EL blobs response"
         );
         return Ok(None);
@@ -478,9 +482,9 @@ async fn fetch_and_process_blobs_v4<T: BeaconChainTypes>(
         inc_counter(&metrics::BEACON_ENGINE_GET_BLOBS_V4_PARTIAL_RESPONSES_TOTAL);
     }
 
-    if chain_adapter.fork_choice_contains_block(&block_root) {
+    if chain_adapter.is_block_data_imported(block_root) {
         debug!(
-            info = "block has already been imported",
+            info = "columns have already been imported",
             "Ignoring EL blobs response"
         );
         return Ok(None);
@@ -632,7 +636,7 @@ async fn build_partial_columns_from_v4_response<T: BeaconChainTypes>(
             header.slot(),
         ),
         PartialHeaderOrBid::Bid(bid) => {
-            ObservationKey::new_block_root_key(block_root, bid.message.slot)
+            ObservationKey::new_block_root_key(block_root, bid.message().slot())
         }
     };
     if let Some(observed_columns) =
@@ -709,7 +713,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                         header.slot(),
                     ),
                     PartialHeaderOrBid::Bid(bid) => {
-                        ObservationKey::new_block_root_key(block_root, bid.message.slot)
+                        ObservationKey::new_block_root_key(block_root, bid.slot())
                     }
                 };
 

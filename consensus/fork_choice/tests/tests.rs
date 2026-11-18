@@ -22,12 +22,12 @@ use std::time::Duration;
 use store::MemoryStore;
 use types::SingleAttestation;
 use types::{
-    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, ForkName, Hash256,
-    IndexedAttestation, IndexedPayloadAttestation, MainnetEthSpec, PayloadAttestationData,
-    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId, test_utils::generate_deterministic_keypair,
+    BeaconBlockRef, BeaconState, Checkpoint, Epoch, EthSpec, ForkName, Hash256, IndexedAttestation,
+    IndexedPayloadAttestation, PayloadAttestationData, RelativeEpoch, SignedBeaconBlock, Slot,
+    Spec, SubnetId, test_utils::generate_deterministic_keypair,
 };
 
-pub type E = MainnetEthSpec;
+pub type E = Spec;
 
 pub const VALIDATOR_COUNT: usize = 64;
 
@@ -65,8 +65,8 @@ impl ForkChoiceTest {
         // Run fork choice tests against the fork named by `FORK_NAME` when the `fork_from_env`
         // feature is enabled, otherwise against the latest stable fork.
         let fork_name = fork_name_from_env().unwrap_or_else(ForkName::latest_stable);
-        let spec = fork_name.make_genesis_spec(ChainSpec::default());
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        let spec = fork_name.make_genesis_spec(E::default_spec());
+        let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.into())
             .chain_config(chain_config)
             .deterministic_keypairs(VALIDATOR_COUNT)
@@ -126,8 +126,7 @@ impl ForkChoiceTest {
         let mut shutdown_receiver = mutex.lock();
 
         shutdown_receiver.close();
-        let msg = shutdown_receiver.try_next().unwrap();
-        msg.is_some()
+        shutdown_receiver.try_recv().is_ok()
     }
 
     /// Assert there was a shutdown signal sent by the beacon chain.

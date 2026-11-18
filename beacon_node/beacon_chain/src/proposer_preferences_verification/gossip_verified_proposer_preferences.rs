@@ -268,13 +268,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
 #[cfg(test)]
 mod tests {
-    use types::{Address, ChainSpec, EthSpec, Hash256, MinimalEthSpec, ProposerPreferences, Slot};
+    use types::{Address, ChainSpec, EthSpec, Hash256, ProposerPreferences, Slot, Spec};
 
     use super::verify_preferences_consistency;
     use crate::proposer_preferences_verification::ProposerPreferencesError;
     use crate::test_utils::{fork_name_from_env, test_spec};
 
-    type E = MinimalEthSpec;
+    type E = Spec;
 
     fn make_preferences(proposal_slot: Slot, validator_index: u64) -> ProposerPreferences {
         ProposerPreferences {

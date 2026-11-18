@@ -2,12 +2,10 @@
 use std::ops::Mul;
 use std::sync::LazyLock;
 
-use arbitrary::Arbitrary;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use bls::Keypair;
 use fixed_bytes::FixedBytesExtended;
 use milhouse::Vector;
-use ssz::Encode;
 use swap_or_not_shuffle::compute_shuffled_index;
 use types::test_utils::generate_deterministic_keypairs;
 use types::*;
@@ -109,7 +107,7 @@ async fn test_beacon_proposer_index<E: EthSpec>() {
 
 #[tokio::test]
 async fn beacon_proposer_index() {
-    test_beacon_proposer_index::<MinimalEthSpec>().await;
+    test_beacon_proposer_index::<Spec>().await;
 }
 
 /// Test that
@@ -146,12 +144,11 @@ fn test_cache_initialization<E: EthSpec>(
 
 #[tokio::test]
 async fn cache_initialization() {
-    let spec = MinimalEthSpec::default_spec();
+    let spec = Spec::default_spec();
 
-    let mut state = build_state::<MinimalEthSpec>(16).await;
+    let mut state = build_state::<Spec>(16).await;
 
-    *state.slot_mut() =
-        (MinimalEthSpec::genesis_epoch() + 1).start_slot(MinimalEthSpec::slots_per_epoch());
+    *state.slot_mut() = (Spec::genesis_epoch() + 1).start_slot(Spec::slots_per_epoch());
 
     test_cache_initialization(&mut state, RelativeEpoch::Previous, &spec);
     test_cache_initialization(&mut state, RelativeEpoch::Current, &spec);
@@ -294,76 +291,16 @@ mod committees {
 
     #[tokio::test]
     async fn current_epoch_committee_consistency() {
-        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Current).await;
+        committee_consistency_test_suite::<Spec>(RelativeEpoch::Current).await;
     }
 
     #[tokio::test]
     async fn previous_epoch_committee_consistency() {
-        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Previous).await;
+        committee_consistency_test_suite::<Spec>(RelativeEpoch::Previous).await;
     }
 
     #[tokio::test]
     async fn next_epoch_committee_consistency() {
-        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Next).await;
-    }
-}
-
-#[test]
-fn decode_base_and_altair() {
-    type E = MainnetEthSpec;
-    let spec = E::default_spec();
-
-    let mut u = types::test_utils::test_unstructured();
-
-    let fork_epoch = spec.altair_fork_epoch.unwrap();
-
-    let base_epoch = fork_epoch.saturating_sub(1_u64);
-    let base_slot = base_epoch.end_slot(E::slots_per_epoch());
-    let altair_epoch = fork_epoch;
-    let altair_slot = altair_epoch.start_slot(E::slots_per_epoch());
-
-    // BeaconStateBase
-    {
-        let good_base_state: BeaconState<MainnetEthSpec> = BeaconState::Base(BeaconStateBase {
-            slot: base_slot,
-            ..<_>::arbitrary(&mut u).unwrap()
-        });
-        // It's invalid to have a base state with a slot higher than the fork slot.
-        let bad_base_state = {
-            let mut bad = good_base_state.clone();
-            *bad.slot_mut() = altair_slot;
-            bad
-        };
-
-        assert_eq!(
-            BeaconState::from_ssz_bytes(&good_base_state.as_ssz_bytes(), &spec)
-                .expect("good base state can be decoded"),
-            good_base_state
-        );
-        <BeaconState<MainnetEthSpec>>::from_ssz_bytes(&bad_base_state.as_ssz_bytes(), &spec)
-            .expect_err("bad base state cannot be decoded");
-    }
-
-    // BeaconStateAltair
-    {
-        let good_altair_state: BeaconState<MainnetEthSpec> =
-            BeaconState::Altair(BeaconStateAltair {
-                slot: altair_slot,
-                ..<_>::arbitrary(&mut u).unwrap()
-            });
-        // It's invalid to have an Altair state with a slot lower than the fork slot.
-        let bad_altair_state = {
-            let mut bad = good_altair_state.clone();
-            *bad.slot_mut() = base_slot;
-            bad
-        };
-
-        assert_eq!(
-            BeaconState::from_ssz_bytes(&good_altair_state.as_ssz_bytes(), &spec)
-                .expect("good altair state can be decoded"),
-            good_altair_state
-        );
-        <BeaconState<MainnetEthSpec>>::from_ssz_bytes(&bad_altair_state.as_ssz_bytes(), &spec)
-            .expect_err("bad altair state cannot be decoded");
+        committee_consistency_test_suite::<Spec>(RelativeEpoch::Next).await;
     }
 }

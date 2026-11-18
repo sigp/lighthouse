@@ -24,8 +24,8 @@ pub struct LookupBlock<E: EthSpec> {
 }
 
 impl<E: EthSpec> LookupBlock<E> {
-    pub fn new(block: Arc<SignedBeaconBlock<E>>) -> Self {
-        let block_root = block.canonical_root();
+    /// Caller must ensure that `block_root == block.canonical_root()`.
+    pub fn new(block_root: Hash256, block: Arc<SignedBeaconBlock<E>>) -> Self {
         Self { block, block_root }
     }
 
@@ -54,6 +54,7 @@ impl<E: EthSpec> LookupBlock<E> {
 pub enum RangeSyncBlock<E: EthSpec> {
     Base(AvailableBlock<E>),
     Gloas {
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         envelope: Option<AvailableEnvelope<E>>,
     },
@@ -75,7 +76,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     pub fn block_root(&self) -> Hash256 {
         match self {
             Self::Base(block) => block.block_root(),
-            Self::Gloas { block, .. } => block.canonical_root(),
+            Self::Gloas { block_root, .. } => *block_root,
         }
     }
 
@@ -115,7 +116,10 @@ impl<E: EthSpec> RangeSyncBlock<E> {
 
 impl<E: EthSpec> RangeSyncBlock<E> {
     /// Constructs a `RangeSyncBlock` from a block and availability data (pre-Gloas).
+    ///
+    /// Caller must ensure that `block_root == block.canonical_root()`.
     pub fn new<T>(
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         block_data: AvailableBlockData<E>,
         custody_context: &CustodyContext<T>,
@@ -126,7 +130,7 @@ impl<E: EthSpec> RangeSyncBlock<E> {
         if block.fork_name_unchecked().gloas_enabled() {
             return Err(AvailabilityCheckError::InvalidVariant);
         }
-        let available_block = AvailableBlock::new(block, block_data, custody_context)?;
+        let available_block = AvailableBlock::new(block_root, block, block_data, custody_context)?;
         Ok(Self::Base(available_block))
     }
 
@@ -139,17 +143,19 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     /// process the block that builds on top of this block.
     ///
     /// Expects `block.canonical_root() == envelope.beacon_block_root` as they are coupled.
+    /// Caller must ensure that `block_root == block.canonical_root()`.
     pub fn new_gloas(
+        block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         envelope: Option<AvailableEnvelope<E>>,
     ) -> Result<Self, String> {
         if let Some(envelope) = envelope.as_ref() {
-            let execution_bid = &block
+            let execution_bid = block
                 .message()
                 .body()
                 .signed_execution_payload_bid()
                 .map_err(|e| format!("missing signed_execution_payload_bid: {e:?}"))?
-                .message;
+                .message();
             // Skip the finalized-slot check; range sync imports historical (finalized) blocks.
             let latest_finalized_slot = Slot::new(0);
             verify_envelope_consistency(
@@ -173,16 +179,20 @@ impl<E: EthSpec> RangeSyncBlock<E> {
             }
         }
 
-        Ok(Self::Gloas { block, envelope })
+        Ok(Self::Gloas {
+            block_root,
+            block,
+            envelope,
+        })
     }
 
     #[allow(clippy::type_complexity)]
     pub fn deconstruct(self) -> (Hash256, Arc<SignedBeaconBlock<E>>, AvailableBlockData<E>) {
         match self {
             Self::Base(block) => block.deconstruct(),
-            Self::Gloas { block, .. } => {
-                (block.canonical_root(), block, AvailableBlockData::NoData)
-            }
+            Self::Gloas {
+                block_root, block, ..
+            } => (block_root, block, AvailableBlockData::NoData),
         }
     }
 
@@ -214,9 +224,13 @@ impl<E: EthSpec> RangeSyncBlock<E> {
     ) -> Result<(AvailableBlock<E>, Option<AvailableEnvelope<E>>), AvailabilityCheckError> {
         match self {
             Self::Base(block) => Ok((block, None)),
-            Self::Gloas { block, envelope } => {
-                let available =
-                    AvailableBlock::new_gloas(block).map_err(AvailabilityCheckError::Unexpected)?;
+            Self::Gloas {
+                block_root,
+                block,
+                envelope,
+            } => {
+                let available = AvailableBlock::new_gloas(block_root, block)
+                    .map_err(AvailabilityCheckError::Unexpected)?;
                 Ok((available, envelope))
             }
         }
@@ -443,7 +457,10 @@ impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
         }
     }
     fn canonical_root(&self) -> Hash256 {
-        self.as_block().canonical_root()
+        match self {
+            MaybeAvailableBlock::Available(block) => block.block_root(),
+            MaybeAvailableBlock::AvailabilityPending { block_root, .. } => *block_root,
+        }
     }
 }
 
@@ -481,7 +498,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
     }
 
     fn canonical_root(&self) -> Hash256 {
-        self.block().canonical_root()
+        self.block_root()
     }
 }
 
@@ -551,22 +568,28 @@ mod tests {
     use crate::custody_context::NodeCustodyType;
     use crate::test_utils::test_custody_context;
     use bls::Signature;
-    use types::{BeaconBlockGloas, EmptyBlock, MainnetEthSpec};
+    use types::{BeaconBlockGloas, EmptyBlock, Spec};
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     /// Test that calling the pre-gloas constructor `RangeSyncBlock::new` with a gloas block
     /// is rejected, because gloas blocks need to use `RangeSyncBlock::new_gloas``.
     #[test]
     fn range_sync_block_new_rejects_gloas_block() {
-        let spec = Arc::new(MainnetEthSpec::default_spec());
+        let spec = Arc::new(Spec::default_spec());
         let block = Arc::new(SignedBeaconBlock::from_block(
             BeaconBlockGloas::empty(&spec).into(),
             Signature::empty(),
         ));
         let custody_context = test_custody_context::<E>(NodeCustodyType::Supernode, spec);
 
-        let result = RangeSyncBlock::new(block, AvailableBlockData::NoData, &custody_context);
+        let block_root = block.canonical_root();
+        let result = RangeSyncBlock::new(
+            block_root,
+            block,
+            AvailableBlockData::NoData,
+            &custody_context,
+        );
 
         assert!(
             result.is_err(),

@@ -112,7 +112,7 @@ impl From<Signature> for SyncSelectionProof {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::Spec;
     use eth2_interop_keypairs::keypair;
     use fixed_bytes::FixedBytesExtended;
 
@@ -123,9 +123,9 @@ mod test {
         let key = keypair(1);
         let fork = &Fork::default();
         let genesis_validators_root = Hash256::zero();
-        let spec = &MainnetEthSpec::default_spec();
+        let spec = &Spec::default_spec();
 
-        let proof = SyncSelectionProof::new::<MainnetEthSpec>(
+        let proof = SyncSelectionProof::new::<Spec>(
             slot,
             subcommittee_index,
             &key.sk,
@@ -133,7 +133,7 @@ mod test {
             genesis_validators_root,
             spec,
         );
-        assert!(proof.verify::<MainnetEthSpec>(
+        assert!(proof.verify::<Spec>(
             slot,
             subcommittee_index,
             &key.pk,

@@ -4,7 +4,8 @@ use tokio::sync::broadcast::{Receiver, Sender, error::SendError};
 use tracing::trace;
 use types::EthSpec;
 
-const DEFAULT_CHANNEL_CAPACITY: usize = 16;
+// Allow a full slot of payload attestation messages (mainnet PTC_SIZE) to be buffered.
+const DEFAULT_CHANNEL_CAPACITY: usize = 512;
 
 pub struct ServerSentEventHandler<E: EthSpec> {
     attestation_tx: Sender<EventKind<E>>,
@@ -32,6 +33,7 @@ pub struct ServerSentEventHandler<E: EthSpec> {
     proposer_preferences_tx: Sender<EventKind<E>>,
     payload_attestation_message_tx: Sender<EventKind<E>>,
     fast_confirmation_tx: Sender<EventKind<E>>,
+    inclusion_list_tx: Sender<EventKind<E>>,
 }
 
 impl<E: EthSpec> ServerSentEventHandler<E> {
@@ -65,6 +67,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         let (proposer_preferences_tx, _) = broadcast::channel(capacity);
         let (payload_attestation_message_tx, _) = broadcast::channel(capacity);
         let (fast_confirmation_tx, _) = broadcast::channel(capacity);
+        let (inclusion_list_tx, _) = broadcast::channel(capacity);
 
         Self {
             attestation_tx,
@@ -92,6 +95,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             proposer_preferences_tx,
             payload_attestation_message_tx,
             fast_confirmation_tx,
+            inclusion_list_tx,
         }
     }
 
@@ -204,6 +208,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .fast_confirmation_tx
                 .send(kind)
                 .map(|count| log_count("fast confirmation", count)),
+            EventKind::InclusionList(_) => self
+                .inclusion_list_tx
+                .send(kind)
+                .map(|count| log_count("inclusion list", count)),
         };
         if let Err(SendError(event)) = result {
             trace!(?event, "No receivers registered to listen for event");
@@ -310,6 +318,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.fast_confirmation_tx.subscribe()
     }
 
+    pub fn subscribe_inclusion_list(&self) -> Receiver<EventKind<E>> {
+        self.inclusion_list_tx.subscribe()
+    }
+
     pub fn has_attestation_subscribers(&self) -> bool {
         self.attestation_tx.receiver_count() > 0
     }
@@ -400,5 +412,9 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn has_fast_confirmation_subscribers(&self) -> bool {
         self.fast_confirmation_tx.receiver_count() > 0
+    }
+
+    pub fn has_inclusion_list_subscribers(&self) -> bool {
+        self.inclusion_list_tx.receiver_count() > 0
     }
 }
