@@ -62,13 +62,14 @@ impl ProverBackend for ReferenceBackend {
         if count.checked_mul(XMSS_SIGNATURE_BYTES_LEN) != Some(proof.len()) {
             return Ok(false);
         }
-        let mut signatures = proof.as_bytes().chunks_exact(XMSS_SIGNATURE_BYTES_LEN);
+        let (signatures, _) = proof.as_bytes().as_chunks::<XMSS_SIGNATURE_BYTES_LEN>();
+        let mut signatures = signatures.iter();
         for statement in statements {
             let Some(leaf_index) = leaf_index(statement) else {
                 return Ok(false);
             };
             for pubkey in &statement.pubkeys {
-                let Some(Ok(signature)) = signatures.next().map(XmssSignature::from_bytes) else {
+                let Some(signature) = signatures.next().copied().map(XmssSignature::from) else {
                     return Ok(false);
                 };
                 if !xmss::verify(pubkey, leaf_index, &statement.message, &signature) {
@@ -201,7 +202,10 @@ mod tests {
         let keys = keys(2);
         let (statement, signatures) = signed(&keys, LEAF, [1; 32]);
         let proof = backend
-            .prove(std::slice::from_ref(&statement), &[signatures.clone()])
+            .prove(
+                std::slice::from_ref(&statement),
+                std::slice::from_ref(&signatures),
+            )
             .unwrap();
 
         // Valid signatures, but the statement schedules another leaf.
