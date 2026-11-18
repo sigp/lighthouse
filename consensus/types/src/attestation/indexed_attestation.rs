@@ -13,7 +13,12 @@ use ssz_types::{ProgressiveVariableList, VariableList};
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
 
-use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
+use crate::{
+    attestation::{AttestationData, AttestationError},
+    core::EthSpec,
+    fork::ForkName,
+    pq::AttestationProof,
+};
 
 /// Details an attestation that can be slashable.
 ///
@@ -21,7 +26,7 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
 ///
 /// Spec v0.12.1
 #[superstruct(
-    variants(Base, Electra, Gloas),
+    variants(Base, Electra, Gloas, Pq),
     variant_attributes(
         derive(
             Debug,
@@ -42,9 +47,25 @@ use crate::{attestation::AttestationData, core::EthSpec, fork::ForkName};
             arbitrary(bound = "E: EthSpec"),
         ),
     ),
-    specific_variant_attributes(Gloas(
-        tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1))
-    ))
+    specific_variant_attributes(
+        Gloas(tree_hash(
+            struct_behaviour = "progressive_container",
+            active_fields(1, 1, 1)
+        )),
+        // [Modified in Pq] `proof` takes the place of `signature`, so there is no gap.
+        Pq(tree_hash(
+            struct_behaviour = "progressive_container",
+            active_fields(1, 1, 1)
+        ))
+    ),
+    cast_error(
+        ty = "AttestationError",
+        expr = "AttestationError::IncorrectStateVariant"
+    ),
+    partial_getter_error(
+        ty = "AttestationError",
+        expr = "AttestationError::IncorrectStateVariant"
+    )
 )]
 #[cfg_attr(
     feature = "arbitrary",
@@ -66,11 +87,17 @@ pub struct IndexedAttestation<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     pub attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot>,
     // [Modified in Gloas:EIP7688]
-    #[superstruct(only(Gloas), partial_getter(rename = "attesting_indices_gloas"))]
+    #[superstruct(only(Gloas, Pq), partial_getter(rename = "attesting_indices_gloas"))]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     pub attesting_indices: ProgressiveVariableList<u64, E::MaxValidatorsPerSlot>,
     pub data: AttestationData,
+    // [Modified in Pq] Removed `signature`.
+    #[superstruct(only(Base, Electra, Gloas))]
     pub signature: AggregateSignature,
+    // [New in Pq] A STARK proof of the XMSS signatures of the attesting indices.
+    #[superstruct(only(Pq))]
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub proof: AttestationProof<E>,
 }
 
 impl<E: EthSpec> IndexedAttestation<E> {
@@ -110,7 +137,8 @@ impl<E: EthSpec> IndexedAttestation<E> {
         self.to_ref().attesting_indices_first()
     }
 
-    pub fn to_electra(self) -> Result<IndexedAttestationElectra<E>, ssz_types::Error> {
+    /// Convert to the Electra variant. Errors for a Pq attestation, which has no BLS signature.
+    pub fn to_electra(self) -> Result<IndexedAttestationElectra<E>, AttestationError> {
         match self {
             Self::Base(att) => {
                 let extended_attesting_indices: VariableList<u64, E::MaxValidatorsPerSlot> =
@@ -136,15 +164,24 @@ impl<E: EthSpec> IndexedAttestation<E> {
                     signature: att.signature,
                 })
             }
+            Self::Pq(_) => Err(AttestationError::PqUnsupported(
+                "a Pq IndexedAttestation has no BLS signature",
+            )),
         }
     }
 
-    pub fn to_gloas(self) -> Result<IndexedAttestationGloas<E>, ssz_types::Error> {
+    /// Convert to the Gloas variant. Errors for a Pq attestation, which has no BLS signature.
+    pub fn to_gloas(self) -> Result<IndexedAttestationGloas<E>, AttestationError> {
         let attesting_indices = ProgressiveVariableList::new(self.attesting_indices_to_vec())?;
         let (data, signature) = match self {
             Self::Base(att) => (att.data, att.signature),
             Self::Electra(att) => (att.data, att.signature),
             Self::Gloas(att) => return Ok(att),
+            Self::Pq(_) => {
+                return Err(AttestationError::PqUnsupported(
+                    "a Pq IndexedAttestation has no BLS signature",
+                ));
+            }
         };
         Ok(IndexedAttestationGloas {
             attesting_indices,
@@ -218,9 +255,15 @@ impl<E: EthSpec> Hash for IndexedAttestation<E> {
             IndexedAttestation::Base(att) => att.attesting_indices.hash(state),
             IndexedAttestation::Electra(att) => att.attesting_indices.hash(state),
             IndexedAttestation::Gloas(att) => att.attesting_indices.hash(state),
+            IndexedAttestation::Pq(att) => att.attesting_indices.hash(state),
         };
         self.data().hash(state);
-        self.signature().as_ssz_bytes().hash(state);
+        match self {
+            IndexedAttestation::Base(att) => att.signature.as_ssz_bytes().hash(state),
+            IndexedAttestation::Electra(att) => att.signature.as_ssz_bytes().hash(state),
+            IndexedAttestation::Gloas(att) => att.signature.as_ssz_bytes().hash(state),
+            IndexedAttestation::Pq(att) => att.proof.hash(state),
+        }
     }
 }
 

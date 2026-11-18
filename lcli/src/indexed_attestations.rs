@@ -46,6 +46,9 @@ pub fn run<E: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
             Attestation::Gloas(att) => {
                 attesting_indices_gloas::get_indexed_attestation_from_state(&state, &att)
             }
+            Attestation::Pq(_) => Err(state_processing::per_block_processing::errors::BlockOperationError::BeaconStateError(
+                BeaconStateError::PqUnsupported("get_indexed_attestation"),
+            )),
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| format!("Error constructing indexed attestation: {:?}", e))?;

@@ -610,10 +610,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         attestation_2: IndexedAttestation::Electra(a.attestation_2).to_gloas()?,
                     },
                     AttesterSlashing::Gloas(a) => a,
+                    AttesterSlashing::Pq(_) => {
+                        return Err(types::AttestationError::PqUnsupported(
+                            "including a Pq attester slashing in a block",
+                        ));
+                    }
                 })
             })
-            .collect::<Result<Vec<_>, ssz_types::Error>>()
-            .map_err(BlockProductionError::SszTypesError)?;
+            .collect::<Result<Vec<_>, types::AttestationError>>()
+            .map_err(|e| match e {
+                types::AttestationError::SszTypesError(e) => BlockProductionError::SszTypesError(e),
+                e => BlockProductionError::InvalidBlockVariant(format!(
+                    "unsupported attester slashing: {e:?}"
+                )),
+            })?;
 
         let attestations = attestations
             .into_iter()
@@ -635,6 +645,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     committee_bits: a.committee_bits,
                 }),
                 Attestation::Gloas(a) => Some(a),
+                // The pool never yields Pq attestations (it rejects them on insertion), and a
+                // block with BLS attestations is not a Pq block.
+                Attestation::Pq(_) => None,
             })
             .collect::<Vec<_>>();
 

@@ -83,6 +83,11 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
             // [Modified in Gloas:EIP7732] `index < 2` indicates the payload status being attested.
             verify!(data.index < 2, Invalid::BadOverloadedDataIndex);
         }
+        AttestationRef::Pq(_) => {
+            return Err(BlockOperationError::BeaconStateError(
+                BeaconStateError::PqUnsupported("verify_attestation"),
+            ));
+        }
     }
 
     // Verify the Casper FFG vote.

@@ -90,12 +90,25 @@ struct IndexedAttestationHeader<E: EthSpec> {
 impl<E: EthSpec> From<IndexedAttestation<E>> for AttesterRecord {
     fn from(indexed_attestation: IndexedAttestation<E>) -> AttesterRecord {
         let attestation_data_hash = indexed_attestation.data().tree_hash_root();
+        // A Pq indexed attestation has no BLS signature to put in the header. Its own root
+        // identifies it instead.
+        let signature = match &indexed_attestation {
+            IndexedAttestation::Base(att) => &att.signature,
+            IndexedAttestation::Electra(att) => &att.signature,
+            IndexedAttestation::Gloas(att) => &att.signature,
+            IndexedAttestation::Pq(att) => {
+                return AttesterRecord {
+                    attestation_data_hash,
+                    indexed_attestation_hash: att.tree_hash_root(),
+                };
+            }
+        };
         let attesting_indices =
             VariableList::new(indexed_attestation.attesting_indices_to_vec()).unwrap_or_default();
         let header = IndexedAttestationHeader::<E> {
             attesting_indices,
             data_root: attestation_data_hash,
-            signature: indexed_attestation.signature().clone(),
+            signature: signature.clone(),
         };
         let indexed_attestation_hash = header.tree_hash_root();
         AttesterRecord {

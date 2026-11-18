@@ -1035,6 +1035,9 @@ impl<E: EthSpec> Tester<E> {
                     |e| Error::InternalError(format!("attestation indexing failed: {e:?}")),
                 )
             }
+            AttestationRef::Pq(_) => Err(Error::InternalError(
+                "Pq attestation indexing is not implemented".to_string(),
+            )),
         }
     }
 

@@ -161,7 +161,8 @@ impl<E: EthSpec> PersistedOperationPool<E> {
                             (Attestation::Base(att.clone()), attesting_indices.clone())
                         })
                 {
-                    map.insert(att, attesting_indices);
+                    map.insert(att, attesting_indices)
+                        .map_err(OpPoolError::AttestationInsertError)?;
                 }
                 RwLock::new(map)
             }
@@ -178,7 +179,8 @@ impl<E: EthSpec> PersistedOperationPool<E> {
                             )
                         })
                 {
-                    map.insert(att, attesting_indices);
+                    map.insert(att, attesting_indices)
+                        .map_err(OpPoolError::AttestationInsertError)?;
                 }
                 RwLock::new(map)
             }

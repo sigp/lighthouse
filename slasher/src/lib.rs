@@ -31,6 +31,7 @@ pub use error::Error;
 use tracing::error;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
+    AttesterSlashingPq,
 };
 use types::{EthSpec, IndexedAttestation, ProposerSlashing};
 
@@ -71,6 +72,12 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
                             attestation_2: new.clone(),
                         }))
                     }
+                    (IndexedAttestation::Pq(existing_att), IndexedAttestation::Pq(new)) => {
+                        Some(AttesterSlashing::Pq(AttesterSlashingPq {
+                            attestation_1: existing_att.clone(),
+                            attestation_2: new.clone(),
+                        }))
+                    }
                     // A slashing involving a gloas attestation type must return an
                     // `AttesterSlashingGloas` type.
                     (IndexedAttestation::Gloas(_), _) | (_, IndexedAttestation::Gloas(_)) => {
@@ -86,6 +93,12 @@ impl<E: EthSpec> AttesterSlashingStatus<E> {
             SurroundsExisting(existing) => match (&*existing, new_attestation) {
                 (IndexedAttestation::Base(existing_att), IndexedAttestation::Base(new)) => {
                     Some(AttesterSlashing::Base(AttesterSlashingBase {
+                        attestation_1: new.clone(),
+                        attestation_2: existing_att.clone(),
+                    }))
+                }
+                (IndexedAttestation::Pq(existing_att), IndexedAttestation::Pq(new)) => {
+                    Some(AttesterSlashing::Pq(AttesterSlashingPq {
                         attestation_1: new.clone(),
                         attestation_2: existing_att.clone(),
                     }))

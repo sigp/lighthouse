@@ -100,6 +100,8 @@ impl AttestationKey {
                     slot,
                 })
             }
+            // This pool aggregates BLS signatures, which Pq attestations do not have.
+            AttestationRef::Pq(_) => Err(Error::PqUnsupported),
         }
     }
 
@@ -176,6 +178,8 @@ pub enum Error {
     MoreThanOneCommitteeBitSet,
     /// The electra attestation has NO committee bit set
     NoCommitteeBitSet,
+    /// Pq attestations carry no signature and cannot be aggregated by this pool.
+    PqUnsupported,
     /// We have reached the maximum number of unique items that can be stored in a
     /// slot. This is a DoS protection function.
     ReachedMaxItemsPerSlot(usize),
@@ -671,6 +675,10 @@ mod tests {
                 .set(i, false)
                 .expect("should unset aggregation bit"),
             Attestation::Gloas(att) => att
+                .aggregation_bits
+                .set(i, false)
+                .expect("should unset aggregation bit"),
+            Attestation::Pq(att) => att
                 .aggregation_bits
                 .set(i, false)
                 .expect("should unset aggregation bit"),

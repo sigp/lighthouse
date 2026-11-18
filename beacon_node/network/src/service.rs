@@ -571,7 +571,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         // the attestation, else we just propagate the Attestation.
                         let should_process = self.subnet_service.should_process_attestation(
                             Subnet::Attestation(subnet_id),
-                            &attestation.data,
+                            attestation.data(),
                         );
                         self.handle_gossip(id, source, message, should_process);
                     }

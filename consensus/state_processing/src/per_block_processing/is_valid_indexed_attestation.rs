@@ -55,7 +55,9 @@ pub fn is_valid_indexed_attestation<E: EthSpec>(
             indexed_attestation_signature_set(
                 state,
                 |i| get_pubkey_from_state(state, i),
-                indexed_attestation.signature(),
+                indexed_attestation.signature().map_err(|_| {
+                    super::signature_sets::Error::PqUnsupported("IndexedAttestation")
+                })?,
                 indexed_attestation,
                 spec
             )?

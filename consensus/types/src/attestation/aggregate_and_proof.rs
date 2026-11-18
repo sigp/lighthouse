@@ -7,15 +7,16 @@ use tree_hash_derive::TreeHash;
 
 use crate::{
     attestation::{
-        Attestation, AttestationBase, AttestationElectra, AttestationGloas, AttestationRef,
-        SelectionProof,
+        Attestation, AttestationBase, AttestationElectra, AttestationError, AttestationGloas,
+        AttestationPq, AttestationRef, SelectionProof,
     },
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot},
     fork::{Fork, ForkName},
+    pq::AttestationProof,
 };
 
 #[superstruct(
-    variants(Base, Electra, Gloas),
+    variants(Base, Electra, Gloas, Pq),
     variant_attributes(
         derive(
             Debug,
@@ -40,7 +41,15 @@ use crate::{
         serde(untagged, bound = "E: EthSpec"),
         tree_hash(enum_behaviour = "transparent")
     ),
-    map_ref_into(AttestationRef)
+    map_ref_into(AttestationRef),
+    cast_error(
+        ty = "AttestationError",
+        expr = "AttestationError::IncorrectStateVariant"
+    ),
+    partial_getter_error(
+        ty = "AttestationError",
+        expr = "AttestationError::IncorrectStateVariant"
+    )
 )]
 #[cfg_attr(
     feature = "arbitrary",
@@ -62,7 +71,13 @@ pub struct AggregateAndProof<E: EthSpec> {
     pub aggregate: Attestation<E>,
     /// A proof provided by the validator that permits them to publish on the
     /// `beacon_aggregate_and_proof` gossipsub topic.
+    // [Modified in Pq] Removed `selection_proof`: aggregators no longer select themselves.
+    #[superstruct(only(Base, Electra, Gloas))]
     pub selection_proof: Signature,
+    /// [New in Pq] A STARK proof of the XMSS signatures of the aggregate.
+    #[superstruct(only(Pq))]
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub proof: AttestationProof<E>,
 }
 
 impl<'a, E: EthSpec> AggregateAndProofRef<'a, E> {
@@ -87,6 +102,8 @@ impl<E: EthSpec> AggregateAndProof<E> {
     /// `aggregate.data.slot` with `secret_key`.
     ///
     /// If `selection_proof.is_none()` it will be computed locally.
+    ///
+    /// Errors for a Pq aggregate, which has no selection proof and needs an `AttestationProof`.
     pub fn from_aggregate(
         aggregator_index: u64,
         aggregate: AttestationRef<'_, E>,
@@ -95,7 +112,12 @@ impl<E: EthSpec> AggregateAndProof<E> {
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
-    ) -> Self {
+    ) -> Result<Self, AttestationError> {
+        if matches!(aggregate, AttestationRef::Pq(_)) {
+            return Err(AttestationError::PqUnsupported(
+                "a Pq AggregateAndProof has no selection proof",
+            ));
+        }
         let selection_proof = selection_proof.unwrap_or_else(|| {
             SelectionProof::new::<E>(
                 aggregate.data().slot,
@@ -114,31 +136,38 @@ impl<E: EthSpec> AggregateAndProof<E> {
     }
 
     /// Produces a new `AggregateAndProof` given a `selection_proof`
+    ///
+    /// Errors for a Pq aggregate, which has no selection proof and needs an `AttestationProof`.
     pub fn from_attestation(
         aggregator_index: u64,
         aggregate: Attestation<E>,
         selection_proof: SelectionProof,
-    ) -> Self {
+    ) -> Result<Self, AttestationError> {
         match aggregate {
-            Attestation::Base(aggregate) => Self::Base(AggregateAndProofBase {
+            Attestation::Base(aggregate) => Ok(Self::Base(AggregateAndProofBase {
                 aggregator_index,
                 aggregate,
                 selection_proof: selection_proof.into(),
-            }),
-            Attestation::Electra(aggregate) => Self::Electra(AggregateAndProofElectra {
+            })),
+            Attestation::Electra(aggregate) => Ok(Self::Electra(AggregateAndProofElectra {
                 aggregator_index,
                 aggregate,
                 selection_proof: selection_proof.into(),
-            }),
-            Attestation::Gloas(aggregate) => Self::Gloas(AggregateAndProofGloas {
+            })),
+            Attestation::Gloas(aggregate) => Ok(Self::Gloas(AggregateAndProofGloas {
                 aggregator_index,
                 aggregate,
                 selection_proof: selection_proof.into(),
-            }),
+            })),
+            Attestation::Pq(_) => Err(AttestationError::PqUnsupported(
+                "a Pq AggregateAndProof has no selection proof",
+            )),
         }
     }
 
     /// Returns `true` if `validator_pubkey` signed over `self.aggregate.data.slot`.
+    ///
+    /// Always `false` for the Pq variant, which has no selection proof.
     pub fn is_valid_selection_proof(
         &self,
         validator_pubkey: &PublicKey,
@@ -154,9 +183,25 @@ impl<E: EthSpec> AggregateAndProof<E> {
             genesis_validators_root,
         );
         let message = self.aggregate().data().slot.signing_root(domain);
-        self.selection_proof().verify(validator_pubkey, message)
+        self.selection_proof()
+            .is_ok_and(|selection_proof| selection_proof.verify(validator_pubkey, message))
     }
 }
 
 impl<E: EthSpec> SignedRoot for AggregateAndProof<E> {}
 impl<E: EthSpec> SignedRoot for AggregateAndProofRef<'_, E> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::Spec;
+
+    mod gloas {
+        use super::*;
+        ssz_and_tree_hash_tests!(AggregateAndProofGloas<Spec>);
+    }
+    mod pq {
+        use super::*;
+        ssz_and_tree_hash_tests!(AggregateAndProofPq<Spec>);
+    }
+}

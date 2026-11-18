@@ -132,7 +132,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     // move the `attestations` vec into the blocking task, so this small overhead is unavoidable.
     let attestation_metadata = attestations
         .iter()
-        .map(|att| (att.data.slot, Some(att.committee_index)))
+        .map(|att| (att.data().slot, Some(att.committee_index())))
         .collect::<Vec<_>>();
 
     // Gossip validate and publish attestations that can be immediately processed.

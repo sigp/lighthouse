@@ -217,7 +217,7 @@ impl<E: EthSpec> FailedAtt<E> {
 
     pub fn attestation_data(&self) -> &AttestationData {
         match self {
-            FailedAtt::Unaggregate { attestation, .. } => &attestation.data,
+            FailedAtt::Unaggregate { attestation, .. } => attestation.data(),
             FailedAtt::Aggregate { attestation, .. } => attestation.message().aggregate().data(),
         }
     }

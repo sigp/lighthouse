@@ -12,6 +12,7 @@ use ssz_derive::{Decode, Encode};
 use ssz_types::{BitList, BitVector};
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
+use xmss::XmssSignature;
 
 use crate::{
     attestation::{
@@ -20,6 +21,7 @@ use crate::{
     },
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot, Slot, SlotData},
     fork::{Fork, ForkName},
+    pq::CommitteeBitsPq,
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -30,6 +32,11 @@ pub enum Error {
     IncorrectStateVariant,
     InvalidCommitteeLength,
     InvalidCommitteeIndex,
+    /// A Pq attestation carries no signature: its signatures are covered by an
+    /// `AttestationProof`, so the BLS signing and aggregation paths do not apply to it.
+    PqAttestationHasNoSignature,
+    /// The operation is not available for a Pq object or fork.
+    PqUnsupported(&'static str),
 }
 
 impl From<ssz_types::Error> for Error {
@@ -39,7 +46,7 @@ impl From<ssz_types::Error> for Error {
 }
 
 #[superstruct(
-    variants(Base, Electra, Gloas),
+    variants(Base, Electra, Gloas, Pq),
     variant_attributes(
         derive(
             Debug,
@@ -60,9 +67,17 @@ impl From<ssz_types::Error> for Error {
             arbitrary(bound = "E: EthSpec")
         )
     ),
-    specific_variant_attributes(Gloas(
-        tree_hash(struct_behaviour = "progressive_container", active_fields(1, 1, 1, 1))
-    )),
+    specific_variant_attributes(
+        Gloas(tree_hash(
+            struct_behaviour = "progressive_container",
+            active_fields(1, 1, 1, 1)
+        )),
+        // [Modified in Pq] `signature` (index 2) is removed and leaves a gap.
+        Pq(tree_hash(
+            struct_behaviour = "progressive_container",
+            active_fields(1, 1, 0, 1)
+        ))
+    ),
     ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -84,12 +99,17 @@ pub struct Attestation<E: EthSpec> {
     #[superstruct(only(Electra), partial_getter(rename = "aggregation_bits_electra"))]
     pub aggregation_bits: BitList<E::MaxValidatorsPerSlot>,
     // [Modified in Gloas:EIP7688]
-    #[superstruct(only(Gloas), partial_getter(rename = "aggregation_bits_gloas"))]
+    #[superstruct(only(Gloas, Pq), partial_getter(rename = "aggregation_bits_gloas"))]
     pub aggregation_bits: ProgressiveBitList,
     pub data: AttestationData,
+    // [Modified in Pq] Removed `signature`.
+    #[superstruct(only(Base, Electra, Gloas))]
     pub signature: AggregateSignature,
     #[superstruct(only(Electra, Gloas))]
     pub committee_bits: BitVector<E::MaxCommitteesPerSlot>,
+    // [Modified in Pq] `CommitteeBits` has length `MAX_COMMITTEES_PER_SLOT_PQ`.
+    #[superstruct(only(Pq), partial_getter(rename = "committee_bits_pq"))]
+    pub committee_bits: CommitteeBitsPq<E>,
 }
 
 impl<E: EthSpec> Hash for Attestation<E> {
@@ -101,6 +121,7 @@ impl<E: EthSpec> Hash for Attestation<E> {
             Attestation::Base(att) => att.hash(state),
             Attestation::Electra(att) => att.hash(state),
             Attestation::Gloas(att) => att.hash(state),
+            Attestation::Pq(att) => att.hash(state),
         }
     }
 }
@@ -118,7 +139,26 @@ impl<E: EthSpec> Attestation<E> {
         payload_present: bool,
         spec: &ChainSpec,
     ) -> Result<Self, Error> {
-        if spec.fork_name_at_slot::<E>(slot).gloas_enabled() {
+        let fork_name = spec.fork_name_at_slot::<E>(slot);
+        if fork_name == ForkName::Pq {
+            let mut committee_bits = CommitteeBitsPq::<E>::default();
+            committee_bits
+                .set(committee_index as usize, true)
+                .map_err(|_| Error::InvalidCommitteeIndex)?;
+            // As in Gloas, the attestation data index indicates payload presence.
+            let index = if payload_present { 1u64 } else { 0u64 };
+            Ok(Attestation::Pq(AttestationPq {
+                aggregation_bits: ProgressiveBitList::with_capacity(committee_length),
+                data: AttestationData {
+                    slot,
+                    index,
+                    beacon_block_root,
+                    source,
+                    target,
+                },
+                committee_bits,
+            }))
+        } else if fork_name.gloas_enabled() {
             let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
             committee_bits
                 .set(committee_index as usize, true)
@@ -138,7 +178,7 @@ impl<E: EthSpec> Attestation<E> {
                 committee_bits,
                 signature: AggregateSignature::infinity(),
             }))
-        } else if spec.fork_name_at_slot::<E>(slot).electra_enabled() {
+        } else if fork_name.electra_enabled() {
             let mut committee_bits: BitVector<E::MaxCommitteesPerSlot> = BitVector::default();
             committee_bits
                 .set(committee_index as usize, true)
@@ -181,7 +221,7 @@ impl<E: EthSpec> Attestation<E> {
                 AttestationRef::Base(oth) => {
                     att.aggregate(oth);
                 }
-                AttestationRef::Electra(_) | AttestationRef::Gloas(_) => {
+                AttestationRef::Electra(_) | AttestationRef::Gloas(_) | AttestationRef::Pq(_) => {
                     debug_assert!(false, "Cannot aggregate attestations from different forks");
                 }
             },
@@ -189,7 +229,7 @@ impl<E: EthSpec> Attestation<E> {
                 AttestationRef::Electra(oth) => {
                     att.aggregate(oth);
                 }
-                AttestationRef::Base(_) | AttestationRef::Gloas(_) => {
+                AttestationRef::Base(_) | AttestationRef::Gloas(_) | AttestationRef::Pq(_) => {
                     debug_assert!(false, "Cannot aggregate attestations from different forks");
                 }
             },
@@ -197,10 +237,18 @@ impl<E: EthSpec> Attestation<E> {
                 AttestationRef::Gloas(oth) => {
                     att.aggregate(oth);
                 }
-                AttestationRef::Base(_) | AttestationRef::Electra(_) => {
+                AttestationRef::Base(_) | AttestationRef::Electra(_) | AttestationRef::Pq(_) => {
                     debug_assert!(false, "Cannot aggregate attestations from different forks");
                 }
             },
+            // Pq attestations carry no signature. Combining two of them means merging the STARK
+            // proofs that cover their signatures, which is not something this method can do.
+            Attestation::Pq(_) => {
+                debug_assert!(
+                    false,
+                    "Pq attestations are aggregated by proof, not by signature"
+                );
+            }
         }
     }
 
@@ -237,6 +285,7 @@ impl<E: EthSpec> Attestation<E> {
                 genesis_validators_root,
                 spec,
             ),
+            Attestation::Pq(_) => Err(Error::PqAttestationHasNoSignature),
         }
     }
 
@@ -250,6 +299,7 @@ impl<E: EthSpec> Attestation<E> {
             Attestation::Base(att) => att.add_signature(signature, committee_position),
             Attestation::Electra(att) => att.add_signature(signature, committee_position),
             Attestation::Gloas(att) => att.add_signature(signature, committee_position),
+            Attestation::Pq(_) => Err(Error::PqAttestationHasNoSignature),
         }
     }
 
@@ -258,6 +308,7 @@ impl<E: EthSpec> Attestation<E> {
             Attestation::Base(att) => Some(att.data.index),
             Attestation::Electra(att) => att.committee_index(),
             Attestation::Gloas(att) => att.committee_index(),
+            Attestation::Pq(att) => att.committee_index(),
         }
     }
 
@@ -266,6 +317,7 @@ impl<E: EthSpec> Attestation<E> {
             Attestation::Base(att) => HashSet::from([att.data.index]),
             Attestation::Electra(att) => att.get_committee_indices().into_iter().collect(),
             Attestation::Gloas(att) => att.get_committee_indices().into_iter().collect(),
+            Attestation::Pq(att) => att.get_committee_indices().into_iter().collect(),
         }
     }
 
@@ -282,6 +334,7 @@ impl<E: EthSpec> Attestation<E> {
             Attestation::Base(att) => att.aggregation_bits.get(index),
             Attestation::Electra(att) => att.aggregation_bits.get(index),
             Attestation::Gloas(att) => att.aggregation_bits.get(index),
+            Attestation::Pq(att) => att.aggregation_bits.get(index),
         }
     }
 
@@ -294,6 +347,7 @@ impl<E: EthSpec> Attestation<E> {
             Attestation::Base(att) => att.aggregation_bits.set(index, value),
             Attestation::Electra(att) => att.aggregation_bits.set(index, value),
             Attestation::Gloas(att) => att.aggregation_bits.set(index, value),
+            Attestation::Pq(att) => att.aggregation_bits.set(index, value),
         }
     }
 
@@ -305,6 +359,9 @@ impl<E: EthSpec> Attestation<E> {
             Self::Base(attn) => attn.to_single_attestation_with_attester_index(attester_index),
             Self::Electra(attn) => attn.to_single_attestation_with_attester_index(attester_index),
             Self::Gloas(attn) => attn.to_single_attestation_with_attester_index(attester_index),
+            // A Pq `SingleAttestation` carries the attester's XMSS signature, which an
+            // (unsigned) Pq `Attestation` does not have.
+            Self::Pq(_) => Err(Error::PqAttestationHasNoSignature),
         }
     }
 
@@ -327,11 +384,15 @@ impl<'a, E: EthSpec> AttestationRefMut<'a, E> {
     }
 
     /// Consuming variant of `signature_mut`, see [`Self::into_data_mut`].
-    pub fn into_signature_mut(self) -> &'a mut AggregateSignature {
-        map_attestation_ref_mut!(&'a _, self, |attestation, cons| {
-            let _: fn(_) -> AttestationRefMut<'a, E> = cons;
-            &mut attestation.signature
-        })
+    ///
+    /// Errors for a Pq attestation, which has no signature.
+    pub fn into_signature_mut(self) -> Result<&'a mut AggregateSignature, Error> {
+        match self {
+            Self::Base(attestation) => Ok(&mut attestation.signature),
+            Self::Electra(attestation) => Ok(&mut attestation.signature),
+            Self::Gloas(attestation) => Ok(&mut attestation.signature),
+            Self::Pq(_) => Err(Error::PqAttestationHasNoSignature),
+        }
     }
 }
 
@@ -362,6 +423,7 @@ impl<'a, E: EthSpec> AttestationRef<'a, E> {
             AttestationRef::Base(att) => Some(att.data.index),
             AttestationRef::Electra(att) => att.committee_index(),
             AttestationRef::Gloas(att) => att.committee_index(),
+            AttestationRef::Pq(att) => att.committee_index(),
         }
     }
 
@@ -468,12 +530,12 @@ impl<E: EthSpec> AttestationElectra<E> {
             return Err(Error::InvalidCommitteeIndex);
         };
 
-        Ok(SingleAttestation {
+        Ok(SingleAttestation::Electra(SingleAttestationElectra {
             committee_index,
             attester_index,
             data: self.data.clone(),
             signature: self.signature.clone(),
-        })
+        }))
     }
 }
 
@@ -567,12 +629,38 @@ impl<E: EthSpec> AttestationGloas<E> {
             return Err(Error::InvalidCommitteeIndex);
         };
 
-        Ok(SingleAttestation {
+        Ok(SingleAttestation::Electra(SingleAttestationElectra {
             committee_index,
             attester_index,
             data: self.data.clone(),
             signature: self.signature.clone(),
-        })
+        }))
+    }
+}
+
+impl<E: EthSpec> AttestationPq<E> {
+    pub fn committee_index(&self) -> Option<u64> {
+        self.committee_bits
+            .iter()
+            .enumerate()
+            .find(|&(_, bit)| bit)
+            .map(|(index, _)| index as u64)
+    }
+
+    pub fn get_aggregation_bits(&self) -> Vec<u64> {
+        self.aggregation_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect()
+    }
+
+    pub fn get_committee_indices(&self) -> Vec<u64> {
+        self.committee_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect()
     }
 }
 
@@ -651,12 +739,12 @@ impl<E: EthSpec> AttestationBase<E> {
         &self,
         attester_index: u64,
     ) -> Result<SingleAttestation, Error> {
-        Ok(SingleAttestation {
+        Ok(SingleAttestation::Electra(SingleAttestationElectra {
             committee_index: self.data.index,
             attester_index,
             data: self.data.clone(),
             signature: self.signature.clone(),
-        })
+        }))
     }
 }
 
@@ -678,6 +766,7 @@ pub enum AttestationOnDisk<E: EthSpec> {
     Base(AttestationBase<E>),
     Electra(AttestationElectra<E>),
     Gloas(AttestationGloas<E>),
+    Pq(AttestationPq<E>),
 }
 
 impl<E: EthSpec> AttestationOnDisk<E> {
@@ -686,6 +775,7 @@ impl<E: EthSpec> AttestationOnDisk<E> {
             AttestationOnDisk::Base(att) => AttestationRefOnDisk::Base(att),
             AttestationOnDisk::Electra(att) => AttestationRefOnDisk::Electra(att),
             AttestationOnDisk::Gloas(att) => AttestationRefOnDisk::Gloas(att),
+            AttestationOnDisk::Pq(att) => AttestationRefOnDisk::Pq(att),
         }
     }
 }
@@ -696,6 +786,7 @@ pub enum AttestationRefOnDisk<'a, E: EthSpec> {
     Base(&'a AttestationBase<E>),
     Electra(&'a AttestationElectra<E>),
     Gloas(&'a AttestationGloas<E>),
+    Pq(&'a AttestationPq<E>),
 }
 
 impl<E: EthSpec> From<Attestation<E>> for AttestationOnDisk<E> {
@@ -704,6 +795,7 @@ impl<E: EthSpec> From<Attestation<E>> for AttestationOnDisk<E> {
             Attestation::Base(attestation) => Self::Base(attestation),
             Attestation::Electra(attestation) => Self::Electra(attestation),
             Attestation::Gloas(attestation) => Self::Gloas(attestation),
+            Attestation::Pq(attestation) => Self::Pq(attestation),
         }
     }
 }
@@ -714,6 +806,7 @@ impl<E: EthSpec> From<AttestationOnDisk<E>> for Attestation<E> {
             AttestationOnDisk::Base(attestation) => Self::Base(attestation),
             AttestationOnDisk::Electra(attestation) => Self::Electra(attestation),
             AttestationOnDisk::Gloas(attestation) => Self::Gloas(attestation),
+            AttestationOnDisk::Pq(attestation) => Self::Pq(attestation),
         }
     }
 }
@@ -724,6 +817,7 @@ impl<'a, E: EthSpec> From<AttestationRef<'a, E>> for AttestationRefOnDisk<'a, E>
             AttestationRef::Base(attestation) => Self::Base(attestation),
             AttestationRef::Electra(attestation) => Self::Electra(attestation),
             AttestationRef::Gloas(attestation) => Self::Gloas(attestation),
+            AttestationRef::Pq(attestation) => Self::Pq(attestation),
         }
     }
 }
@@ -734,6 +828,7 @@ impl<'a, E: EthSpec> From<AttestationRefOnDisk<'a, E>> for AttestationRef<'a, E>
             AttestationRefOnDisk::Base(attestation) => Self::Base(attestation),
             AttestationRefOnDisk::Electra(attestation) => Self::Electra(attestation),
             AttestationRefOnDisk::Gloas(attestation) => Self::Gloas(attestation),
+            AttestationRefOnDisk::Pq(attestation) => Self::Pq(attestation),
         }
     }
 }
@@ -743,7 +838,12 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Attestation<E> {
     where
         D: Deserializer<'de>,
     {
-        if context.gloas_enabled() {
+        // Match `Pq` exactly: `Heze` orders after `Pq` but uses the Gloas attestation.
+        if context == ForkName::Pq {
+            AttestationPq::<E>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(Attestation::Pq)
+        } else if context.gloas_enabled() {
             AttestationGloas::<E>::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
                 .map(Attestation::Gloas)
@@ -781,41 +881,122 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<Attestation<E>> 
 }
 */
 
+/// An unaggregated attestation, as published on the attestation subnets from Electra.
+///
+/// The `Electra` variant is used from Electra through Gloas (and Heze). The `Pq` variant carries
+/// the attester's XMSS signature.
+#[superstruct(
+    variants(Electra, Pq),
+    variant_attributes(
+        derive(
+            Debug,
+            Clone,
+            Serialize,
+            Deserialize,
+            Decode,
+            Encode,
+            TreeHash,
+            PartialEq
+        ),
+        context_deserialize(ForkName),
+        serde(deny_unknown_fields),
+        cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary)),
+    ),
+    ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, Serialize, Deserialize, Decode, Encode, TreeHash, PartialEq)]
-#[context_deserialize(ForkName)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, PartialEq)]
+#[serde(untagged)]
+#[tree_hash(enum_behaviour = "transparent")]
+#[ssz(enum_behaviour = "transparent")]
 pub struct SingleAttestation {
+    #[superstruct(getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub committee_index: u64,
+    #[superstruct(getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub attester_index: u64,
     pub data: AttestationData,
+    #[superstruct(only(Electra))]
     pub signature: AggregateSignature,
+    // [Modified in Pq]
+    #[superstruct(only(Pq), partial_getter(rename = "signature_pq"))]
+    pub signature: XmssSignature,
 }
 
 impl SingleAttestation {
+    /// SSZ decode with explicit fork variant.
+    pub fn from_ssz_bytes_by_fork(
+        bytes: &[u8],
+        fork_name: ForkName,
+    ) -> Result<Self, ssz::DecodeError> {
+        use ssz::Decode;
+        // Match `Pq` exactly: `Heze` orders after `Pq` but keeps the BLS variant.
+        if fork_name == ForkName::Pq {
+            SingleAttestationPq::from_ssz_bytes(bytes).map(Self::Pq)
+        } else {
+            SingleAttestationElectra::from_ssz_bytes(bytes).map(Self::Electra)
+        }
+    }
+
+    /// Convert to an `IndexedAttestation` with a single attesting index.
+    ///
+    /// Errors for the Pq variant: a Pq `IndexedAttestation` carries a proof of its signatures
+    /// rather than a signature, and producing that proof requires the prover.
     pub fn to_indexed<E: EthSpec>(
         &self,
         fork_name: ForkName,
-    ) -> Result<IndexedAttestation<E>, ssz_types::Error> {
-        if fork_name.gloas_enabled() {
+    ) -> Result<IndexedAttestation<E>, Error> {
+        let attestation = match self {
+            Self::Electra(attestation) => attestation,
+            Self::Pq(_) => {
+                return Err(Error::PqUnsupported(
+                    "a Pq SingleAttestation cannot be converted to an IndexedAttestation without a proof",
+                ));
+            }
+        };
+        if fork_name == ForkName::Pq {
+            Err(Error::PqUnsupported(
+                "a BLS SingleAttestation cannot be converted to a Pq IndexedAttestation",
+            ))
+        } else if fork_name.gloas_enabled() {
             Ok(IndexedAttestation::Gloas(IndexedAttestationGloas {
-                attesting_indices: vec![self.attester_index].try_into()?,
-                data: self.data.clone(),
-                signature: self.signature.clone(),
+                attesting_indices: vec![attestation.attester_index].try_into()?,
+                data: attestation.data.clone(),
+                signature: attestation.signature.clone(),
             }))
         } else if fork_name.electra_enabled() {
             Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
-                attesting_indices: vec![self.attester_index].try_into()?,
-                data: self.data.clone(),
-                signature: self.signature.clone(),
+                attesting_indices: vec![attestation.attester_index].try_into()?,
+                data: attestation.data.clone(),
+                signature: attestation.signature.clone(),
             }))
         } else {
             Ok(IndexedAttestation::Base(IndexedAttestationBase {
-                attesting_indices: vec![self.attester_index].try_into()?,
-                data: self.data.clone(),
-                signature: self.signature.clone(),
+                attesting_indices: vec![attestation.attester_index].try_into()?,
+                data: attestation.data.clone(),
+                signature: attestation.signature.clone(),
             }))
+        }
+    }
+}
+
+impl<'de> ContextDeserialize<'de, ForkName> for SingleAttestation {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Match `Pq` exactly: `Heze` orders after `Pq` but keeps the BLS variant.
+        if context == ForkName::Pq {
+            SingleAttestationPq::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(SingleAttestation::Pq)
+        } else {
+            SingleAttestationElectra::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(SingleAttestation::Electra)
         }
     }
 }
@@ -873,5 +1054,21 @@ mod tests {
     mod electra {
         use super::*;
         ssz_and_tree_hash_tests!(AttestationElectra<Spec>);
+    }
+    mod gloas {
+        use super::*;
+        ssz_and_tree_hash_tests!(AttestationGloas<Spec>);
+    }
+    mod pq {
+        use super::*;
+        ssz_and_tree_hash_tests!(AttestationPq<Spec>);
+    }
+    mod single_electra {
+        use super::*;
+        ssz_and_tree_hash_tests!(SingleAttestationElectra);
+    }
+    mod single_pq {
+        use super::*;
+        ssz_and_tree_hash_tests!(SingleAttestationPq);
     }
 }

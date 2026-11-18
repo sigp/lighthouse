@@ -81,6 +81,8 @@ pub enum OpPoolError {
     RewardCacheValidatorUnknown(BeaconStateError),
     RewardCacheOutOfBounds,
     IncorrectOpPoolVariant,
+    /// An attestation could not be inserted into the pool's attestation map.
+    AttestationInsertError(types::AttestationError),
     EpochCacheNotInitialized,
     EpochCacheError(EpochCacheError),
     PayloadAttestationBitError,
@@ -304,8 +306,12 @@ impl<E: EthSpec> OperationPool<E> {
     ) -> Result<(), AttestationValidationError> {
         self.attestations
             .write()
-            .insert(attestation, attesting_indices);
-        Ok(())
+            .insert(attestation, attesting_indices)
+            .map_err(|_| {
+                AttestationValidationError::BeaconStateError(BeaconStateError::PqUnsupported(
+                    "operation pool attestation aggregation",
+                ))
+            })
     }
 
     /// Total number of attestations in the pool, including attestations for the same data.
@@ -1047,8 +1053,9 @@ mod release_tests {
 
             let att1_indices = get_attesting_indices_from_state(&state, att1.to_ref()).unwrap();
             let att2_indices = get_attesting_indices_from_state(&state, att2).unwrap();
-            let att1_split = SplitAttestation::new(att1.clone(), att1_indices);
-            let att2_split = SplitAttestation::new(att2.clone_as_attestation(), att2_indices);
+            let att1_split = SplitAttestation::new(att1.clone(), att1_indices).unwrap();
+            let att2_split =
+                SplitAttestation::new(att2.clone_as_attestation(), att2_indices).unwrap();
 
             assert_eq!(
                 att1.num_set_aggregation_bits(),
@@ -1504,7 +1511,7 @@ mod release_tests {
 
         for att in best_attestations {
             let attesting_indices = get_attesting_indices_from_state(&state, att.to_ref()).unwrap();
-            let split_attestation = SplitAttestation::new(att, attesting_indices);
+            let split_attestation = SplitAttestation::new(att, attesting_indices).unwrap();
             let mut fresh_validators_rewards = AttMaxCover::new(
                 split_attestation.as_ref(),
                 &state,

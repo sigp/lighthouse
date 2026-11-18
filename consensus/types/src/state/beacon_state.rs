@@ -97,6 +97,8 @@ pub type BalancesOwned<E> = AnyList<u64, <E as EthSpec>::ValidatorRegistryLimit>
 pub enum BeaconStateError {
     /// A state for a different hard-fork was required -- a severe logic error.
     IncorrectStateVariant,
+    /// The operation is not implemented for the Pq fork yet. The string names the operation.
+    PqUnsupported(&'static str),
     EpochOutOfBounds,
     SlotOutOfBounds,
     UnknownValidator(usize),

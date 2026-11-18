@@ -190,6 +190,11 @@ impl<E: EthSpec> ConsensusContext<E> {
                     Ok(vacant.insert(indexed_attestation))
                 }
             },
+            // A Pq indexed attestation carries a proof of its signatures. Block attestations
+            // are instead covered by the block's single `proof`, which is not processed yet.
+            AttestationRef::Pq(_) => Err(BlockOperationError::BeaconStateError(
+                BeaconStateError::PqUnsupported("get_indexed_attestation"),
+            )),
         }
         .map(|indexed_attestation| (*indexed_attestation).to_ref())
     }

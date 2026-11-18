@@ -299,7 +299,9 @@ where
                 self.sets.push(indexed_attestation_signature_set(
                     self.state,
                     self.get_pubkey.clone(),
-                    attestation.signature(),
+                    attestation
+                        .signature()
+                        .map_err(|_| SignatureSetError::PqUnsupported("Attestation"))?,
                     indexed_attestation,
                     self.spec,
                 )?);

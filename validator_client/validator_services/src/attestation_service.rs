@@ -568,7 +568,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     let single_attestations = &batch;
                     let validator_indices = single_attestations
                         .iter()
-                        .map(|att| att.attester_index)
+                        .map(|att| att.attester_index())
                         .collect::<Vec<_>>();
                     let published_count = single_attestations.len();
 

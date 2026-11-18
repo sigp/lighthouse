@@ -1827,6 +1827,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .committee_index()
                         .ok_or(Error::AttestationCommitteeIndexNotSet)?,
                 ),
+            // The naive aggregation pool aggregates BLS signatures. A Pq aggregate needs a
+            // proof of its XMSS signatures.
+            AttestationRef::Pq(_) => Err(Error::AttestationError(
+                types::AttestationError::PqUnsupported("getting an aggregated Pq attestation"),
+            )),
         }
     }
 
@@ -6144,6 +6149,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         IndexedAttestation::Gloas(slashing.attestation_1),
                         IndexedAttestation::Gloas(slashing.attestation_2),
                     ),
+                    AttesterSlashing::Pq(_) => {
+                        warn!(
+                            block_slot = %slot,
+                            "Dropping Pq attester slashing in pre-Gloas block production"
+                        );
+                        continue;
+                    }
                 };
                 match (attestation_1.to_electra(), attestation_2.to_electra()) {
                     (Ok(attestation_1), Ok(attestation_2)) => {
@@ -6161,7 +6173,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 match slashing {
                     AttesterSlashing::Base(slashing) => attester_slashings_base.push(slashing),
                     // Post-Electra slashings cannot be included in pre-Electra blocks.
-                    AttesterSlashing::Electra(_) | AttesterSlashing::Gloas(_) => warn!(
+                    AttesterSlashing::Electra(_)
+                    | AttesterSlashing::Gloas(_)
+                    | AttesterSlashing::Pq(_) => warn!(
                         block_slot = %slot,
                         "Dropping post-Electra attester slashing in pre-Electra block production"
                     ),
@@ -6179,6 +6193,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Attestation::Gloas(_) => {
                     return Err(BlockProductionError::InvalidBlockVariant(
                         "Gloas attestation in pre-Gloas block production".to_owned(),
+                    ));
+                }
+                Attestation::Pq(_) => {
+                    return Err(BlockProductionError::InvalidBlockVariant(
+                        "Pq attestation in pre-Gloas block production".to_owned(),
                     ));
                 }
             }

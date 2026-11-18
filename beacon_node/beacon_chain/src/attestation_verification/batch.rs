@@ -91,7 +91,7 @@ where
             signature_sets.push(
                 indexed_attestation_signature_set_from_pubkeys(
                     |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-                    indexed_attestation.signature(),
+                    indexed_attestation.signature()?,
                     indexed_attestation,
                     &fork,
                     chain.genesis_validators_root,
@@ -176,7 +176,7 @@ where
 
             let signature_set = indexed_attestation_signature_set_from_pubkeys(
                 |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-                indexed_attestation.signature(),
+                indexed_attestation.signature()?,
                 indexed_attestation,
                 &fork,
                 chain.genesis_validators_root,

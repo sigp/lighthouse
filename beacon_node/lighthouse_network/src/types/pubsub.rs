@@ -9,16 +9,16 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, AttesterSlashingGloas,
-    CellBitmap, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkVersionDecode,
-    Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate, PartialDataColumn,
-    PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnGroupId,
+    AttesterSlashingPq, CellBitmap, DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext,
+    ForkName, ForkVersionDecode, Hash256, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    PartialDataColumn, PartialDataColumnFulu, PartialDataColumnGloas, PartialDataColumnGroupId,
     PartialDataColumnHeader, PartialDataColumnSidecarFulu, PartialDataColumnSidecarGloas,
     PayloadAttestationMessage, ProposerSlashing, SignedAggregateAndProof,
     SignedAggregateAndProofBase, SignedAggregateAndProofElectra, SignedAggregateAndProofGloas,
-    SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope, SignedInclusionList,
-    SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId, execution::SignedExecutionProofEnvelope,
+    SignedAggregateAndProofPq, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedExecutionPayloadBid, SignedExecutionPayloadEnvelope,
+    SignedInclusionList, SignedProposerPreferences, SignedVoluntaryExit, SingleAttestation,
+    SubnetId, SyncCommitteeMessage, SyncSubnetId, execution::SignedExecutionProofEnvelope,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -215,7 +215,22 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 // [Modified in Gloas:EIP7688] Gloas and Electra produce the same
                                 // SSZ bytes but different hash tree roots, so the variant must be
                                 // chosen by fork.
-                                if fork_name.gloas_enabled() {
+                                //
+                                // Match `Pq` exactly: `Heze` orders after `Pq` but uses the
+                                // Gloas variant.
+                                if fork_name == ForkName::Pq {
+                                    if data.len() > E::max_signed_aggregate_and_proof_size_pq() {
+                                        return Err(format!(
+                                            "SignedAggregateAndProof size {} exceeds MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE_PQ {}",
+                                            data.len(),
+                                            E::max_signed_aggregate_and_proof_size_pq()
+                                        ));
+                                    }
+                                    SignedAggregateAndProof::Pq(
+                                        SignedAggregateAndProofPq::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
+                                } else if fork_name.gloas_enabled() {
                                     if data.len() > E::max_signed_aggregate_and_proof_size() {
                                         return Err(format!(
                                             "SignedAggregateAndProof size {} exceeds MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE {}",
@@ -251,8 +266,20 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::Attestation(subnet_id) => {
-                        let attestation = SingleAttestation::from_ssz_bytes(data)
-                            .map_err(|e| format!("{:?}", e))?;
+                        let attestation = match fork_context
+                            .get_fork_from_context_bytes(gossip_topic.fork_digest)
+                        {
+                            Some(&fork_name) => {
+                                SingleAttestation::from_ssz_bytes_by_fork(data, fork_name)
+                                    .map_err(|e| format!("{:?}", e))?
+                            }
+                            None => {
+                                return Err(format!(
+                                    "Unknown gossipsub fork digest: {:?}",
+                                    gossip_topic.fork_digest
+                                ));
+                            }
+                        };
                         Ok(PubsubMessage::Attestation(Box::new((
                             *subnet_id,
                             attestation,
@@ -323,7 +350,19 @@ impl<E: EthSpec> PubsubMessage<E> {
                         {
                             Some(&fork_name) => {
                                 // [Modified in Gloas:EIP7688] see `BeaconAggregateAndProof` above.
-                                if fork_name.gloas_enabled() {
+                                if fork_name == ForkName::Pq {
+                                    if data.len() > E::max_attester_slashing_size_pq() {
+                                        return Err(format!(
+                                            "AttesterSlashing size {} exceeds MAX_ATTESTER_SLASHING_SIZE_PQ {}",
+                                            data.len(),
+                                            E::max_attester_slashing_size_pq()
+                                        ));
+                                    }
+                                    AttesterSlashing::Pq(
+                                        AttesterSlashingPq::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
+                                } else if fork_name.gloas_enabled() {
                                     if data.len() > E::max_attester_slashing_size() {
                                         return Err(format!(
                                             "AttesterSlashing size {} exceeds MAX_ATTESTER_SLASHING_SIZE {}",
@@ -618,7 +657,10 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
             PubsubMessage::Attestation(data) => write!(
                 f,
                 "SingleAttestation: subnet_id: {}, attestation_slot: {}, committee_index: {:?}, attester_index: {:?}",
-                *data.0, data.1.data.slot, data.1.committee_index, data.1.attester_index,
+                *data.0,
+                data.1.data().slot,
+                data.1.committee_index(),
+                data.1.attester_index(),
             ),
             PubsubMessage::VoluntaryExit(_data) => write!(f, "Voluntary Exit"),
             PubsubMessage::ProposerSlashing(_data) => write!(f, "Proposer Slashing"),

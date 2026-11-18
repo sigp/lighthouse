@@ -2,8 +2,8 @@ use crate::attestation_verification::Error;
 use ssz::ProgressiveBitList;
 use ssz_types::{BitList, BitVector};
 use types::{
-    Attestation, AttestationBase, AttestationElectra, AttestationGloas, EthSpec, ForkName,
-    SingleAttestation,
+    Attestation, AttestationBase, AttestationElectra, AttestationError, AttestationGloas, EthSpec,
+    ForkName, SingleAttestation,
 };
 
 pub fn single_attestation_to_attestation<E: EthSpec>(
@@ -11,6 +11,22 @@ pub fn single_attestation_to_attestation<E: EthSpec>(
     committee: &[usize],
     fork_name: ForkName,
 ) -> Result<Attestation<E>, Error> {
+    // A Pq `SingleAttestation` carries an XMSS signature, for which a Pq `Attestation` has no
+    // field: it cannot be turned into an aggregate without proving the signature.
+    let SingleAttestation::Electra(single_attestation) = single_attestation else {
+        return Err(AttestationError::PqUnsupported(
+            "converting a Pq SingleAttestation to an Attestation",
+        )
+        .into());
+    };
+    // Match `Pq` exactly: `Heze` orders after `Pq` but uses the BLS types.
+    if fork_name == ForkName::Pq {
+        return Err(AttestationError::PqUnsupported(
+            "converting a BLS SingleAttestation to a Pq Attestation",
+        )
+        .into());
+    }
+
     let attester_index = single_attestation.attester_index;
     let committee_index = single_attestation.committee_index;
     let slot = single_attestation.data.slot;

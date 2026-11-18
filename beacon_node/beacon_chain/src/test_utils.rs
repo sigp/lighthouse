@@ -1968,6 +1968,12 @@ where
                     .unwrap();
                 Attestation::Gloas(attn)
             }
+            Attestation::Pq(mut attn) => {
+                attn.aggregation_bits
+                    .set(aggregation_bit_index, true)
+                    .unwrap();
+                Attestation::Pq(attn)
+            }
             Attestation::Base(mut attn) => {
                 attn.aggregation_bits
                     .set(aggregation_bit_index, true)
@@ -2007,10 +2013,10 @@ where
                 .unwrap();
 
         assert_eq!(
-            single_attestation.committee_index,
+            single_attestation.committee_index(),
             attestation.committee_index().unwrap()
         );
-        assert_eq!(single_attestation.attester_index, validator_index as u64);
+        assert_eq!(single_attestation.attester_index(), validator_index as u64);
         Ok(single_attestation)
     }
 
@@ -2204,15 +2210,15 @@ where
                             )
                             .unwrap();
 
-                        attestation.signature = {
+                        *attestation.signature_mut().unwrap() = {
                             let domain = self.spec.get_domain(
-                                attestation.data.target.epoch,
+                                attestation.data().target.epoch,
                                 Domain::BeaconAttester,
                                 &fork,
                                 state.genesis_validators_root(),
                             );
 
-                            let message = attestation.data.signing_root(domain);
+                            let message = attestation.data().signing_root(domain);
 
                             let mut agg_sig = AggregateSignature::infinity();
 
@@ -2302,7 +2308,7 @@ where
 
                         attestation.set_aggregation_bit(i, true).unwrap();
 
-                        *attestation.signature_mut() = {
+                        *attestation.signature_mut().unwrap() = {
                             let domain = self.spec.get_domain(
                                 attestation.data().target.epoch,
                                 Domain::BeaconAttester,
@@ -2590,7 +2596,8 @@ where
                             &fork,
                             state.genesis_validators_root(),
                             &self.spec,
-                        );
+                        )
+                        .unwrap();
 
                         Some(signed_aggregate)
                     } else {
@@ -2936,7 +2943,10 @@ where
 
             for i in attestation.attesting_indices_to_vec() {
                 let sk = &self.validator_keypairs[i as usize].sk;
-                attestation.signature_mut().add_assign(&sk.sign(message));
+                attestation
+                    .signature_mut()
+                    .unwrap()
+                    .add_assign(&sk.sign(message));
             }
         }
 
@@ -3046,7 +3056,10 @@ where
 
             for i in attestation.attesting_indices_to_vec() {
                 let sk = &self.validator_keypairs[i as usize].sk;
-                attestation.signature_mut().add_assign(&sk.sign(message));
+                attestation
+                    .signature_mut()
+                    .unwrap()
+                    .add_assign(&sk.sign(message));
             }
         }
 

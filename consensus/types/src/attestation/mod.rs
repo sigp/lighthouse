@@ -19,12 +19,13 @@ mod subnet_id;
 
 pub use aggregate_and_proof::{
     AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofGloas,
-    AggregateAndProofRef,
+    AggregateAndProofPq, AggregateAndProofRef,
 };
 pub use attestation::{
     Attestation, AttestationBase, AttestationElectra, AttestationGloas, AttestationOnDisk,
-    AttestationRef, AttestationRefMut, AttestationRefOnDisk, Error as AttestationError,
-    SingleAttestation,
+    AttestationPq, AttestationRef, AttestationRefMut, AttestationRefOnDisk,
+    Error as AttestationError, SingleAttestation, SingleAttestationElectra, SingleAttestationPq,
+    SingleAttestationRef,
 };
 pub use attestation_data::AttestationData;
 pub use attestation_duty::AttestationDuty;
@@ -32,7 +33,7 @@ pub use beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use checkpoint::Checkpoint;
 pub use indexed_attestation::{
     IndexedAttestation, IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationGloas,
-    IndexedAttestationRef,
+    IndexedAttestationPq, IndexedAttestationRef,
 };
 pub use indexed_payload_attestation::IndexedPayloadAttestation;
 pub use participation_flags::ParticipationFlags;
@@ -45,7 +46,8 @@ pub use selection_proof::SelectionProof;
 pub use shuffling_id::AttestationShufflingId;
 pub use signed_aggregate_and_proof::{
     SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
-    SignedAggregateAndProofGloas, SignedAggregateAndProofRefMut,
+    SignedAggregateAndProofGloas, SignedAggregateAndProofPq, SignedAggregateAndProofRef,
+    SignedAggregateAndProofRefMut,
 };
 pub use subnet_id::SubnetId;
 

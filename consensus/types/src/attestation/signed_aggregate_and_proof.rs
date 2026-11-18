@@ -4,11 +4,13 @@ use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
 use tree_hash_derive::TreeHash;
+use xmss::XmssSignature;
 
 use crate::{
     attestation::{
         AggregateAndProof, AggregateAndProofBase, AggregateAndProofElectra, AggregateAndProofGloas,
-        AggregateAndProofRef, Attestation, AttestationRef, SelectionProof,
+        AggregateAndProofPq, AggregateAndProofRef, Attestation, AttestationError, AttestationRef,
+        SelectionProof,
     },
     core::{ChainSpec, Domain, EthSpec, Hash256, SignedRoot},
     fork::{Fork, ForkName},
@@ -19,7 +21,7 @@ use crate::{
 ///
 /// Spec v0.12.1
 #[superstruct(
-    variants(Base, Electra, Gloas),
+    variants(Base, Electra, Gloas, Pq),
     variant_attributes(
         derive(
             Debug,
@@ -40,7 +42,15 @@ use crate::{
         ),
     ),
     map_into(Attestation),
-    map_ref_into(AggregateAndProofRef)
+    map_ref_into(AggregateAndProofRef),
+    cast_error(
+        ty = "AttestationError",
+        expr = "AttestationError::IncorrectStateVariant"
+    ),
+    partial_getter_error(
+        ty = "AttestationError",
+        expr = "AttestationError::IncorrectStateVariant"
+    )
 )]
 #[cfg_attr(
     feature = "arbitrary",
@@ -56,8 +66,12 @@ pub struct SignedAggregateAndProof<E: EthSpec> {
     /// The `AggregateAndProof` that was signed.
     #[superstruct(flatten)]
     pub message: AggregateAndProof<E>,
-    /// The aggregate attestation.
+    /// The aggregator's signature over `message`.
+    #[superstruct(only(Base, Electra, Gloas))]
     pub signature: Signature,
+    // [Modified in Pq]
+    #[superstruct(only(Pq), partial_getter(rename = "signature_pq"))]
+    pub signature: XmssSignature,
 }
 
 impl<E: EthSpec> SignedAggregateAndProof<E> {
@@ -65,6 +79,8 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
     /// `aggregate.data.slot` with `secret_key`.
     ///
     /// If `selection_proof.is_none()` it will be computed locally.
+    ///
+    /// Errors for a Pq aggregate, which is signed with XMSS and carries an `AttestationProof`.
     pub fn from_aggregate(
         aggregator_index: u64,
         aggregate: AttestationRef<'_, E>,
@@ -73,7 +89,7 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
-    ) -> Self {
+    ) -> Result<Self, AttestationError> {
         let message = AggregateAndProof::from_aggregate(
             aggregator_index,
             aggregate,
@@ -82,7 +98,7 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
             fork,
             genesis_validators_root,
             spec,
-        );
+        )?;
         let target_epoch = message.aggregate().data().slot.epoch(E::slots_per_epoch());
         let domain = spec.get_domain(
             target_epoch,
@@ -95,22 +111,39 @@ impl<E: EthSpec> SignedAggregateAndProof<E> {
         Self::from_aggregate_and_proof(message, secret_key.sign(signing_message))
     }
 
-    /// Produces a new `SignedAggregateAndProof` given a `signature` of `aggregate`
-    pub fn from_aggregate_and_proof(aggregate: AggregateAndProof<E>, signature: Signature) -> Self {
+    /// Produces a new `SignedAggregateAndProof` given a BLS `signature` of `aggregate`
+    ///
+    /// Errors for a Pq aggregate, which is signed with XMSS: see
+    /// [`Self::from_aggregate_and_proof_pq`].
+    pub fn from_aggregate_and_proof(
+        aggregate: AggregateAndProof<E>,
+        signature: Signature,
+    ) -> Result<Self, AttestationError> {
         match aggregate {
             AggregateAndProof::Base(message) => {
-                SignedAggregateAndProof::Base(SignedAggregateAndProofBase { message, signature })
-            }
-            AggregateAndProof::Electra(message) => {
-                SignedAggregateAndProof::Electra(SignedAggregateAndProofElectra {
+                Ok(SignedAggregateAndProof::Base(SignedAggregateAndProofBase {
                     message,
                     signature,
-                })
+                }))
             }
-            AggregateAndProof::Gloas(message) => {
-                SignedAggregateAndProof::Gloas(SignedAggregateAndProofGloas { message, signature })
-            }
+            AggregateAndProof::Electra(message) => Ok(SignedAggregateAndProof::Electra(
+                SignedAggregateAndProofElectra { message, signature },
+            )),
+            AggregateAndProof::Gloas(message) => Ok(SignedAggregateAndProof::Gloas(
+                SignedAggregateAndProofGloas { message, signature },
+            )),
+            AggregateAndProof::Pq(_) => Err(AttestationError::PqUnsupported(
+                "a Pq SignedAggregateAndProof carries an XMSS signature",
+            )),
         }
+    }
+
+    /// Produces a new Pq `SignedAggregateAndProof` given an XMSS `signature` of `message`.
+    pub fn from_aggregate_and_proof_pq(
+        message: AggregateAndProofPq<E>,
+        signature: XmssSignature,
+    ) -> Self {
+        SignedAggregateAndProof::Pq(SignedAggregateAndProofPq { message, signature })
     }
 
     pub fn message<'a>(&'a self) -> AggregateAndProofRef<'a, E> {
@@ -135,7 +168,12 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedAggregateAndPr
     {
         // [Modified in Gloas:EIP7688] Electra and Gloas serialize identically in JSON, so the
         // fork context must pick the variant.
-        if context.gloas_enabled() {
+        // Match `Pq` exactly: `Heze` orders after `Pq` but uses the Gloas variant.
+        if context == ForkName::Pq {
+            SignedAggregateAndProofPq::<E>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(SignedAggregateAndProof::Pq)
+        } else if context.gloas_enabled() {
             SignedAggregateAndProofGloas::<E>::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
                 .map(SignedAggregateAndProof::Gloas)
@@ -148,5 +186,20 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedAggregateAndPr
                 .map_err(serde::de::Error::custom)
                 .map(SignedAggregateAndProof::Base)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::Spec;
+
+    mod gloas {
+        use super::*;
+        ssz_and_tree_hash_tests!(SignedAggregateAndProofGloas<Spec>);
+    }
+    mod pq {
+        use super::*;
+        ssz_and_tree_hash_tests!(SignedAggregateAndProofPq<Spec>);
     }
 }

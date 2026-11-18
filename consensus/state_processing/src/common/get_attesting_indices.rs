@@ -230,5 +230,8 @@ pub fn get_attesting_indices_from_state<E: EthSpec>(
         AttestationRef::Gloas(att) => {
             attesting_indices_gloas::get_attesting_indices_from_state::<E>(state, att)
         }
+        // Pq caps the committee count at `MAX_COMMITTEES_PER_SLOT_PQ`, which the committee
+        // cache does not implement yet.
+        AttestationRef::Pq(_) => Err(BeaconStateError::PqUnsupported("get_attesting_indices")),
     }
 }

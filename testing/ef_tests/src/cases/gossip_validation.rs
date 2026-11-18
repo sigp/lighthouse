@@ -478,8 +478,10 @@ impl<E: EthSpec> GossipTester<E> {
         message_id: MessageId,
         peer_id: PeerId,
     ) -> Result<(), Error> {
-        let attestation: SingleAttestation =
-            ssz_decode_file(&path.join(format!("{}.ssz_snappy", message_meta.message)))?;
+        // Pq is not covered by the EF tests, so the BLS variant is always the right one.
+        let attestation = SingleAttestation::Electra(ssz_decode_file(
+            &path.join(format!("{}.ssz_snappy", message_meta.message)),
+        )?);
         let subnet_id = SubnetId::new(message_meta.subnet_id.ok_or_else(|| {
             Error::FailedToParseTest("missing beacon_attestation subnet_id".into())
         })?);

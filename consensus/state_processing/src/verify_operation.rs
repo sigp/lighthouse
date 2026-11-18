@@ -388,7 +388,7 @@ impl<E: EthSpec> TryFrom<SigVerifiedOp<AttesterSlashing<E>, E>>
                 verified_against: slashing.verified_against,
                 _phantom: PhantomData,
             }),
-            AttesterSlashing::Electra(_) | AttesterSlashing::Gloas(_) => {
+            AttesterSlashing::Electra(_) | AttesterSlashing::Gloas(_) | AttesterSlashing::Pq(_) => {
                 Err("non-base attester slashing".to_string())
             }
         }

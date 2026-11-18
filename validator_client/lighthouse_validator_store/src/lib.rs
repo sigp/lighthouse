@@ -26,9 +26,9 @@ use types::{
     PayloadAttestationMessage, ProposerPreferences, SelectionProof, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, SignedExecutionPayloadEnvelope,
     SignedProposerPreferences, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
-    SingleAttestation, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
-    VoluntaryExit, graffiti::GraffitiString,
+    SingleAttestation, SingleAttestationElectra, Slot, SyncAggregatorSelectionData,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    ValidatorRegistrationData, VoluntaryExit, graffiti::GraffitiString,
 };
 use validator_store::{
     AggregateToSign, AttestationToSign, ContributionToSign, DoppelgangerStatus,
@@ -642,7 +642,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         // `CheckSlashability::No`.
         for (attestation, validator_pubkey) in &attestations {
             let signing_method = self.doppelganger_checked_signing_method(*validator_pubkey)?;
-            let signing_epoch = attestation.data.target.epoch;
+            let signing_epoch = attestation.data().target.epoch;
             let signing_context = self.signing_context(Domain::BeaconAttester, signing_epoch);
             let domain_hash = signing_context.domain_hash(&self.spec);
 
@@ -654,7 +654,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 CheckSlashability::No
             };
             attestations_to_check.push((
-                &attestation.data,
+                attestation.data(),
                 validator_pubkey,
                 domain_hash,
                 check_slashability,
@@ -701,8 +701,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 }
                 Err(e) => {
                     warn!(
-                        slot = %attestation.data.slot,
-                        block_root = ?attestation.data.beacon_block_root,
+                        slot = %attestation.data().slot,
+                        block_root = ?attestation.data().beacon_block_root,
                         public_key = ?validator_pubkey,
                         error = ?e,
                         "Skipping signing of slashable attestation"
@@ -733,7 +733,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         let signing_context = self.signing_context(Domain::AggregateAndProof, signing_epoch);
 
         let message =
-            AggregateAndProof::from_attestation(aggregator_index, aggregate, selection_proof);
+            AggregateAndProof::from_attestation(aggregator_index, aggregate, selection_proof)
+                .map_err(|e| Error::Middleware(format!("{e:?}")))?;
 
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
         let signature = signing_method
@@ -750,9 +751,8 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             &[validator_metrics::SUCCESS],
         );
 
-        Ok(SignedAggregateAndProof::from_aggregate_and_proof(
-            message, signature,
-        ))
+        SignedAggregateAndProof::from_aggregate_and_proof(message, signature)
+            .map_err(|e| Error::Middleware(format!("{e:?}")))
     }
 
     pub async fn produce_sync_committee_signature(
@@ -1048,12 +1048,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                 match result {
                     Ok(signature) => {
                         signed_attestations.push((
-                            SingleAttestation {
+                            SingleAttestation::Electra(SingleAttestationElectra {
                                 committee_index: att.committee_index,
                                 attester_index: att.attester_index,
                                 data: att.data,
                                 signature,
-                            },
+                            }),
                             att.pubkey,
                         ));
                     }

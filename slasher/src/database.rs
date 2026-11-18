@@ -260,7 +260,12 @@ impl IndexedAttestationOnDisk {
         spec: &ChainSpec,
     ) -> Result<IndexedAttestation<E>, Error> {
         let fork_at_target_epoch = spec.fork_name_at_epoch(self.data.target.epoch);
-        if fork_at_target_epoch.gloas_enabled() {
+        // Match `Pq` exactly: `Heze` orders after `Pq` but uses the Gloas (BLS) variant.
+        if fork_at_target_epoch == types::ForkName::Pq {
+            Err(Error::AttestationError(
+                types::AttestationError::PqUnsupported("loading a Pq attestation from the slasher"),
+            ))
+        } else if fork_at_target_epoch.gloas_enabled() {
             let attesting_indices = ProgressiveVariableList::new(self.attesting_indices)?;
             Ok(IndexedAttestation::Gloas(IndexedAttestationGloas {
                 attesting_indices,
@@ -520,6 +525,14 @@ impl<E: EthSpec> SlasherDB<E> {
         };
 
         let attestation_key = IndexedAttestationId::new(indexed_att_id);
+        // The on-disk format holds a BLS signature. A Pq indexed attestation carries a proof
+        // instead, which this database cannot store.
+        if matches!(indexed_attestation, IndexedAttestation::Pq(_)) {
+            return Err(Error::AttestationError(
+                types::AttestationError::PqUnsupported("storing a Pq attestation in the slasher"),
+            ));
+        }
+
         // IndexedAttestationOnDisk and IndexedAttestation have compatible encodings.
         let data = indexed_attestation.as_ssz_bytes();
 

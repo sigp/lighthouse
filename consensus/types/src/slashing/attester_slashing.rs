@@ -8,14 +8,14 @@ use tree_hash_derive::TreeHash;
 use crate::{
     attestation::{
         IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationGloas,
-        IndexedAttestationRef,
+        IndexedAttestationPq, IndexedAttestationRef,
     },
     core::EthSpec,
     fork::ForkName,
 };
 
 #[superstruct(
-    variants(Base, Electra, Gloas),
+    variants(Base, Electra, Gloas, Pq),
     variant_attributes(
         derive(
             Educe,
@@ -65,6 +65,7 @@ pub enum AttesterSlashingOnDisk<E: EthSpec> {
     Base(AttesterSlashingBase<E>),
     Electra(AttesterSlashingElectra<E>),
     Gloas(AttesterSlashingGloas<E>),
+    Pq(AttesterSlashingPq<E>),
 }
 
 #[derive(Debug, Clone, Encode)]
@@ -73,6 +74,7 @@ pub enum AttesterSlashingRefOnDisk<'a, E: EthSpec> {
     Base(&'a AttesterSlashingBase<E>),
     Electra(&'a AttesterSlashingElectra<E>),
     Gloas(&'a AttesterSlashingGloas<E>),
+    Pq(&'a AttesterSlashingPq<E>),
 }
 
 impl<E: EthSpec> From<AttesterSlashing<E>> for AttesterSlashingOnDisk<E> {
@@ -81,6 +83,7 @@ impl<E: EthSpec> From<AttesterSlashing<E>> for AttesterSlashingOnDisk<E> {
             AttesterSlashing::Base(attester_slashing) => Self::Base(attester_slashing),
             AttesterSlashing::Electra(attester_slashing) => Self::Electra(attester_slashing),
             AttesterSlashing::Gloas(attester_slashing) => Self::Gloas(attester_slashing),
+            AttesterSlashing::Pq(attester_slashing) => Self::Pq(attester_slashing),
         }
     }
 }
@@ -91,6 +94,7 @@ impl<E: EthSpec> From<AttesterSlashingOnDisk<E>> for AttesterSlashing<E> {
             AttesterSlashingOnDisk::Base(attester_slashing) => Self::Base(attester_slashing),
             AttesterSlashingOnDisk::Electra(attester_slashing) => Self::Electra(attester_slashing),
             AttesterSlashingOnDisk::Gloas(attester_slashing) => Self::Gloas(attester_slashing),
+            AttesterSlashingOnDisk::Pq(attester_slashing) => Self::Pq(attester_slashing),
         }
     }
 }
@@ -103,6 +107,7 @@ impl<'a, E: EthSpec> From<AttesterSlashingRefOnDisk<'a, E>> for AttesterSlashing
                 Self::Electra(attester_slashing)
             }
             AttesterSlashingRefOnDisk::Gloas(attester_slashing) => Self::Gloas(attester_slashing),
+            AttesterSlashingRefOnDisk::Pq(attester_slashing) => Self::Pq(attester_slashing),
         }
     }
 }
@@ -113,6 +118,7 @@ impl<'a, E: EthSpec> From<AttesterSlashingRef<'a, E>> for AttesterSlashingRefOnD
             AttesterSlashingRef::Base(attester_slashing) => Self::Base(attester_slashing),
             AttesterSlashingRef::Electra(attester_slashing) => Self::Electra(attester_slashing),
             AttesterSlashingRef::Gloas(attester_slashing) => Self::Gloas(attester_slashing),
+            AttesterSlashingRef::Pq(attester_slashing) => Self::Pq(attester_slashing),
         }
     }
 }
@@ -155,7 +161,12 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for AttesterSlashing<E> 
     where
         D: Deserializer<'de>,
     {
-        if context.gloas_enabled() {
+        // Match `Pq` exactly: `Heze` orders after `Pq` but uses the Gloas variant.
+        if context == ForkName::Pq {
+            AttesterSlashingPq::<E>::deserialize(deserializer)
+                .map_err(serde::de::Error::custom)
+                .map(AttesterSlashing::Pq)
+        } else if context.gloas_enabled() {
             AttesterSlashingGloas::<E>::deserialize(deserializer)
                 .map_err(serde::de::Error::custom)
                 .map(AttesterSlashing::Gloas)
@@ -182,5 +193,13 @@ mod tests {
     mod electra {
         use super::*;
         ssz_and_tree_hash_tests!(AttesterSlashingElectra<Spec>);
+    }
+    mod gloas {
+        use super::*;
+        ssz_and_tree_hash_tests!(AttesterSlashingGloas<Spec>);
+    }
+    mod pq {
+        use super::*;
+        ssz_and_tree_hash_tests!(AttesterSlashingPq<Spec>);
     }
 }

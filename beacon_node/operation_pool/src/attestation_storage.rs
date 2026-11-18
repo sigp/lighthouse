@@ -6,7 +6,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use superstruct::superstruct;
 use typenum::Unsigned;
 use types::{
-    Attestation, AttestationData, BeaconState, Checkpoint, Epoch, EthSpec, Hash256, Slot,
+    Attestation, AttestationData, AttestationError, BeaconState, Checkpoint, Epoch, EthSpec,
+    Hash256, Slot,
     attestation::{AttestationBase, AttestationElectra, AttestationGloas},
 };
 
@@ -67,7 +68,12 @@ pub struct AttestationDataMap<E: EthSpec> {
 }
 
 impl<E: EthSpec> SplitAttestation<E> {
-    pub fn new(attestation: Attestation<E>, attesting_indices: Vec<u64>) -> Self {
+    /// Errors for a Pq attestation: the pool aggregates by BLS signature, whereas Pq
+    /// attestations are aggregated by proof.
+    pub fn new(
+        attestation: Attestation<E>,
+        attesting_indices: Vec<u64>,
+    ) -> Result<Self, AttestationError> {
         let checkpoint = CheckpointKey {
             source: attestation.data().source,
             target_epoch: attestation.data().target.epoch,
@@ -79,19 +85,19 @@ impl<E: EthSpec> SplitAttestation<E> {
             target_root: attestation.data().target.root,
         };
 
-        let indexed = match attestation.clone() {
+        let indexed = match attestation {
             Attestation::Base(attn) => {
                 CompactIndexedAttestation::Base(CompactIndexedAttestationBase {
                     attesting_indices,
                     aggregation_bits: attn.aggregation_bits,
-                    signature: attestation.signature().clone(),
+                    signature: attn.signature,
                 })
             }
             Attestation::Electra(attn) => {
                 CompactIndexedAttestation::Electra(CompactIndexedAttestationElectra {
                     attesting_indices,
                     aggregation_bits: attn.aggregation_bits,
-                    signature: attestation.signature().clone(),
+                    signature: attn.signature,
                     committee_bits: attn.committee_bits,
                 })
             }
@@ -99,17 +105,18 @@ impl<E: EthSpec> SplitAttestation<E> {
                 CompactIndexedAttestation::Gloas(CompactIndexedAttestationGloas {
                     attesting_indices,
                     aggregation_bits: attn.aggregation_bits,
-                    signature: attestation.signature().clone(),
+                    signature: attn.signature,
                     committee_bits: attn.committee_bits,
                 })
             }
+            Attestation::Pq(_) => return Err(AttestationError::PqAttestationHasNoSignature),
         };
 
-        Self {
+        Ok(Self {
             checkpoint,
             data,
             indexed,
-        }
+        })
     }
 
     pub fn as_ref(&self) -> CompactAttestationRef<'_, E> {
@@ -454,12 +461,16 @@ fn progressive_bitlist_extend(
 }
 
 impl<E: EthSpec> AttestationMap<E> {
-    pub fn insert(&mut self, attestation: Attestation<E>, attesting_indices: Vec<u64>) {
+    pub fn insert(
+        &mut self,
+        attestation: Attestation<E>,
+        attesting_indices: Vec<u64>,
+    ) -> Result<(), AttestationError> {
         let SplitAttestation {
             checkpoint,
             data,
             indexed,
-        } = SplitAttestation::new(attestation.clone(), attesting_indices);
+        } = SplitAttestation::new(attestation, attesting_indices)?;
 
         let attestation_map = self.checkpoint_map.entry(checkpoint).or_default();
         let attestations = attestation_map.attestations.entry(data).or_default();
@@ -480,6 +491,8 @@ impl<E: EthSpec> AttestationMap<E> {
         if !aggregated {
             attestations.push(indexed);
         }
+
+        Ok(())
     }
 
     /// Aggregate Electra/Gloas attestations for the same attestation data signed by different

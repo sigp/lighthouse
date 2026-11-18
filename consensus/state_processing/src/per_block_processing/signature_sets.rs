@@ -49,6 +49,9 @@ pub enum Error {
     BadBlsBytes { validator_index: u64 },
     /// The block structure is not appropriate for the fork at `block.slot()`.
     InconsistentBlockFork(InconsistentFork),
+    /// A BLS signature set was requested for a Pq object, which carries XMSS signatures or a
+    /// STARK proof instead. The string names the object.
+    PqUnsupported(&'static str),
 }
 
 impl From<BeaconStateError> for Error {
@@ -527,14 +530,20 @@ where
         indexed_attestation_signature_set(
             state,
             get_pubkey.clone(),
-            attester_slashing.attestation_1().signature(),
+            attester_slashing
+                .attestation_1()
+                .signature()
+                .map_err(|_| Error::PqUnsupported("IndexedAttestation"))?,
             attester_slashing.attestation_1(),
             spec,
         )?,
         indexed_attestation_signature_set(
             state,
             get_pubkey,
-            attester_slashing.attestation_2().signature(),
+            attester_slashing
+                .attestation_2()
+                .signature()
+                .map_err(|_| Error::PqUnsupported("IndexedAttestation"))?,
             attester_slashing.attestation_2(),
             spec,
         )?,
@@ -619,7 +628,10 @@ where
         genesis_validators_root,
     );
     let message = slot.signing_root(domain);
-    let signature = signed_aggregate_and_proof.message().selection_proof();
+    let signature = signed_aggregate_and_proof
+        .message()
+        .selection_proof()
+        .map_err(|_| Error::PqUnsupported("AggregateAndProof"))?;
     let validator_index = signed_aggregate_and_proof.message().aggregator_index();
     Ok(SignatureSet::single_pubkey(
         signature,
@@ -653,7 +665,9 @@ where
         genesis_validators_root,
     );
     let message = signed_aggregate_and_proof.message().signing_root(domain);
-    let signature = signed_aggregate_and_proof.signature();
+    let signature = signed_aggregate_and_proof
+        .signature()
+        .map_err(|_| Error::PqUnsupported("SignedAggregateAndProof"))?;
     let validator_index = signed_aggregate_and_proof.message().aggregator_index();
 
     Ok(SignatureSet::single_pubkey(

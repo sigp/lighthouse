@@ -61,7 +61,7 @@ use strum::AsRefStr;
 use tracing::{debug, error};
 use tree_hash::TreeHash;
 use types::{
-    Attestation, AttestationData, AttestationRef, BeaconCommittee,
+    Attestation, AttestationData, AttestationError, AttestationRef, BeaconCommittee,
     BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, ForkName,
     Hash256, IndexedAttestation, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot,
     SubnetId,
@@ -293,6 +293,20 @@ pub enum Error {
     SszTypesError(ssz_types::Error),
 }
 
+/// An error from the `types` crate while handling an attestation.
+///
+/// SSZ list errors keep their dedicated variant. Everything else, including every "not supported
+/// for Pq" error, is an internal error: Pq attestations carry XMSS signatures and proofs, which
+/// the verification in this module does not handle.
+impl From<AttestationError> for Error {
+    fn from(e: AttestationError) -> Self {
+        match e {
+            AttestationError::SszTypesError(e) => Self::SszTypesError(e),
+            e => Self::BeaconChainError(Box::new(BeaconChainError::AttestationError(e))),
+        }
+    }
+}
+
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
         Self::BeaconChainError(Box::new(e))
@@ -463,25 +477,25 @@ fn process_slash_info<T: BeaconChainTypes>(
             }
             SignatureNotCheckedSingle(attestation, err) => {
                 if let Error::UnknownHeadBlock { .. } = err
-                    && attestation.data.beacon_block_root == attestation.data.target.root
+                    && attestation.data().beacon_block_root == attestation.data().target.root
                 {
                     return err;
                 }
 
                 let fork_name = chain
                     .spec
-                    .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
+                    .fork_name_at_slot::<T::EthSpec>(attestation.data().slot);
 
                 let indexed_attestation = match attestation.to_indexed(fork_name) {
                     Ok(indexed) => indexed,
                     Err(e) => {
                         error!(
-                            attestation_root = ?attestation.data.tree_hash_root(),
+                            attestation_root = ?attestation.data().tree_hash_root(),
                             error = ?e,
                             "Unable to construct VariableList from a single attestation. \
                              This indicates a serious bug in SSZ handling"
                         );
-                        return Error::SszTypesError(e);
+                        return e.into();
                     }
                 };
                 (indexed_attestation, true, err)
@@ -699,6 +713,14 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                         signed_aggregate.message.selection_proof.clone(),
                         signed_aggregate.message.aggregate.data.clone(),
                     ),
+                    // A Pq aggregate has no selection proof: its aggregator must be a member
+                    // of the aggregation committee, and it carries an `AttestationProof`.
+                    SignedAggregateAndProof::Pq(_) => {
+                        return Err(AttestationError::PqUnsupported(
+                            "gossip verification of a Pq SignedAggregateAndProof",
+                        )
+                        .into());
+                    }
                 };
                 let slot = data.slot;
 
@@ -742,6 +764,10 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                         )
                         .map_err(|e| BeaconChainError::from(e).into())
                     }
+                    SignedAggregateAndProof::Pq(_) => Err(AttestationError::PqUnsupported(
+                        "gossip verification of a Pq SignedAggregateAndProof",
+                    )
+                    .into()),
                 }
             };
 
@@ -903,13 +929,13 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         attestation: &'a SingleAttestation,
         chain: &BeaconChain<T>,
     ) -> Result<(), Error> {
-        let attestation_epoch = attestation.data.slot.epoch(T::EthSpec::slots_per_epoch());
+        let attestation_epoch = attestation.data().slot.epoch(T::EthSpec::slots_per_epoch());
 
         // Check the attestation's epoch matches its target.
-        if attestation_epoch != attestation.data.target.epoch {
+        if attestation_epoch != attestation.data().target.epoch {
             return Err(Error::InvalidTargetEpoch {
-                slot: attestation.data.slot,
-                epoch: attestation.data.target.epoch,
+                slot: attestation.data().slot,
+                epoch: attestation.data().target.epoch,
             });
         }
 
@@ -919,23 +945,23 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // We do not queue future attestations for later processing.
         verify_propagation_slot_range::<_, T::EthSpec>(
             &chain.slot_clock,
-            &attestation.data,
+            attestation.data(),
             &chain.spec,
         )?;
 
         let fork_name = chain
             .spec
-            .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
+            .fork_name_at_slot::<T::EthSpec>(attestation.data().slot);
         if fork_name.gloas_enabled() {
             // [New in Gloas]
-            if attestation.data.index >= 2 {
+            if attestation.data().index >= 2 {
                 return Err(Error::CommitteeIndexInvalid);
             }
         } else if fork_name.electra_enabled() {
             // [New in Electra:EIP7549]
-            if attestation.data.index != 0 {
+            if attestation.data().index != 0 {
                 return Err(Error::CommitteeIndexNonZero(
-                    attestation.data.index as usize,
+                    attestation.data().index as usize,
                 ));
             }
         }
@@ -946,33 +972,35 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // Enforce a maximum skip distance for unaggregated attestations.
         let head_block = verify_head_block_is_known(
             chain,
-            &attestation.data,
+            attestation.data(),
             chain.config.import_max_skip_slots,
         )?;
 
         // [New in Gloas]: If the attested block is from the same slot as the attestation,
         // index must be 0.
         if fork_name.gloas_enabled()
-            && head_block.slot == attestation.data.slot
-            && attestation.data.index != 0
+            && head_block.slot == attestation.data().slot
+            && attestation.data().index != 0
         {
             return Err(Error::CommitteeIndexNonZero(
-                attestation.data.index as usize,
+                attestation.data().index as usize,
             ));
         }
 
         // [New in Gloas]: `index == 1` claims the block's execution payload is present. Ignore the
         // attestation until we have seen the block's payload envelope, so it can be re-processed
         // (and the envelope retrieved) once the payload is received.
-        if fork_name.gloas_enabled() && attestation.data.index == 1 && !head_block.payload_received
+        if fork_name.gloas_enabled()
+            && attestation.data().index == 1
+            && !head_block.payload_received
         {
             return Err(Error::UnknownPayloadEnvelope {
-                beacon_block_root: attestation.data.beacon_block_root,
+                beacon_block_root: attestation.data().beacon_block_root,
             });
         }
 
         // Check the attestation target root is consistent with the head root.
-        verify_attestation_target_root::<T::EthSpec>(&head_block, &attestation.data)?;
+        verify_attestation_target_root::<T::EthSpec>(&head_block, attestation.data())?;
 
         Ok(())
     }
@@ -982,7 +1010,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         attestation: &'a SingleAttestation,
         chain: &BeaconChain<T>,
     ) -> Result<u64, Error> {
-        let validator_index = attestation.attester_index;
+        let validator_index = attestation.attester_index();
 
         // If the attester_index at or above the pubkey cache length, reject it
         if validator_index as usize >= chain.validator_pubkey_cache.read().len() {
@@ -996,12 +1024,12 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         if chain
             .observed_gossip_attesters
             .read()
-            .validator_has_been_observed(attestation.data.target.epoch, validator_index as usize)
+            .validator_has_been_observed(attestation.data().target.epoch, validator_index as usize)
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
                 validator_index,
-                epoch: attestation.data.target.epoch,
+                epoch: attestation.data().target.epoch,
             });
         }
 
@@ -1036,11 +1064,11 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
 
         let fork_name = chain
             .spec
-            .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
+            .fork_name_at_slot::<T::EthSpec>(attestation.data().slot);
 
         let indexed_attestation = attestation
             .to_indexed(fork_name)
-            .map_err(|e| SignatureNotCheckedSingle(attestation, Error::SszTypesError(e)))?;
+            .map_err(|e| SignatureNotCheckedSingle(attestation, e.into()))?;
 
         let validator_index = match Self::verify_middle_checks(attestation, chain) {
             Ok(t) => t,
@@ -1074,12 +1102,12 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
     ) -> Result<(Attestation<T::EthSpec>, SubnetId), Error> {
         // Check that the attester is a member of the committee
         let (committee_opt, committees_per_slot) = chain.with_committee_cache(
-            attestation.data.target.root,
-            attestation.data.slot.epoch(T::EthSpec::slots_per_epoch()),
+            attestation.data().target.root,
+            attestation.data().slot.epoch(T::EthSpec::slots_per_epoch()),
             |cached_shuffling, _| {
                 let committee_cache = cached_shuffling.committee_cache.as_ref();
                 let committee_opt = committee_cache
-                    .get_beacon_committee(attestation.data.slot, attestation.committee_index)
+                    .get_beacon_committee(attestation.data().slot, attestation.committee_index())
                     .map(|beacon_committee| beacon_committee.committee.to_vec());
 
                 Ok((committee_opt, committee_cache.committees_per_slot()))
@@ -1088,16 +1116,16 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
 
         let Some(committee) = committee_opt else {
             return Err(Error::NoCommitteeForSlotAndIndex {
-                slot: attestation.data.slot,
-                index: attestation.committee_index,
+                slot: attestation.data().slot,
+                index: attestation.committee_index(),
             });
         };
 
-        if !committee.contains(&(attestation.attester_index as usize)) {
+        if !committee.contains(&(attestation.attester_index() as usize)) {
             return Err(Error::AttesterNotInCommittee {
-                attester_index: attestation.attester_index,
-                committee_index: attestation.committee_index,
-                slot: attestation.data.slot,
+                attester_index: attestation.attester_index(),
+                committee_index: attestation.committee_index(),
+                slot: attestation.data().slot,
             });
         }
 
@@ -1126,18 +1154,18 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
         if chain
             .observed_gossip_attesters
             .write()
-            .observe_validator(attestation.data.target.epoch, validator_index as usize)
+            .observe_validator(attestation.data().target.epoch, validator_index as usize)
             .map_err(BeaconChainError::from)?
         {
             return Err(Error::PriorAttestationKnown {
                 validator_index,
-                epoch: attestation.data.target.epoch,
+                epoch: attestation.data().target.epoch,
             });
         }
 
         let fork_name = chain
             .spec
-            .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
+            .fork_name_at_slot::<T::EthSpec>(attestation.data().slot);
 
         let unaggregated_attestation =
             single_attestation_to_attestation(attestation, &committee, fork_name)?;
@@ -1355,7 +1383,7 @@ pub fn verify_attestation_signature<T: BeaconChainTypes>(
 
     let signature_set = indexed_attestation_signature_set_from_pubkeys(
         |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-        indexed_attestation.signature(),
+        indexed_attestation.signature()?,
         indexed_attestation,
         &fork,
         chain.genesis_validators_root,
@@ -1472,7 +1500,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .map_err(BeaconChainError::SignatureSetError)?,
         indexed_attestation_signature_set_from_pubkeys(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
-            indexed_attestation.signature(),
+            indexed_attestation.signature()?,
             indexed_attestation,
             &fork,
             chain.genesis_validators_root,
@@ -1599,6 +1627,12 @@ pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
                         }
                     })
             }
+            // Pq caps the committee count at `MAX_COMMITTEES_PER_SLOT_PQ` and its indexed
+            // attestation needs a proof, neither of which is handled yet.
+            AttestationRef::Pq(_) => Err(AttestationError::PqUnsupported(
+                "obtaining the indexed attestation of a Pq attestation",
+            )
+            .into()),
         }
     })
 }

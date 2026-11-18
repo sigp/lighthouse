@@ -141,6 +141,14 @@ impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
                 }
                 false
             }
+            Self::Pq(att) => {
+                if let Ok(aggregation_bits) =
+                    progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
+                {
+                    return aggregation_bits.is_subset(other);
+                }
+                false
+            }
         }
     }
 
@@ -161,6 +169,14 @@ impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
                 }
                 false
             }
+            Self::Pq(att) => {
+                if let Ok(aggregation_bits) =
+                    progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
+                {
+                    return other.is_subset(&aggregation_bits);
+                }
+                false
+            }
         }
     }
 
@@ -172,6 +188,8 @@ impl<E: EthSpec> SubsetItem for AttestationRef<'_, E> {
                 .map_err(|_| Error::GetItemError),
             Self::Electra(att) => Ok(att.aggregation_bits.clone()),
             Self::Gloas(att) => progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
+                .map_err(|_| Error::GetItemError),
+            Self::Pq(att) => progressive_bits_to_bitlist::<E>(&att.aggregation_bits)
                 .map_err(|_| Error::GetItemError),
         }
     }
