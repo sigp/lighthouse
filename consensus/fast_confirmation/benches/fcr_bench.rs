@@ -3,8 +3,9 @@
 //! Measures performance of the core FCR algorithms at various validator set sizes using a
 //! synthetic linear chain built via `ProtoArrayForkChoice`.
 //!
-//! All benchmarks assume the mainnet preset (32 slots/epoch). The chain spans three epochs so the
-//! FCR state machine has a real epoch boundary and a fully-populated previous epoch to act on.
+//! Slots are relative to the preset's slots per epoch, and there are enough validators for all
+//! presets. The chain spans three epochs so the FCR state machine has a real epoch boundary and a
+//! fully-populated previous epoch to act on.
 //! `get_latest_confirmed` is measured across a table of realistic (chain position, FCR run slot)
 //! scenarios — see `SCENARIOS`.
 
@@ -26,11 +27,15 @@ type E = Spec;
 const GWEI_PER_ETH: u64 = 1_000_000_000;
 const BALANCE: u64 = 32 * GWEI_PER_ETH;
 
+const SPE: u64 = Spec::SLOTS_PER_EPOCH as u64;
+
 /// Linear chain spans slots 0..=CHAIN_TIP_SLOT, i.e. epochs 0, 1 and into epoch 2.
-const CHAIN_TIP_SLOT: u64 = 69;
+const CHAIN_TIP_SLOT: u64 = 2 * SPE + 5;
 /// Epoch-1 boundary block; the FCR's current-epoch observed-justified checkpoint points here, so
 /// every scenario below runs with `current_epoch == 2`.
-const OBSERVED_JUSTIFIED_SLOT: u64 = 32;
+const OBSERVED_JUSTIFIED_SLOT: u64 = SPE;
+/// A previous-epoch block that confirmation still lags at.
+const LAGGING_CONFIRMED_SLOT: u64 = SPE + SPE / 4;
 
 /// A realistic FCR evaluation: where the chain head and last-confirmed block sit, and the
 /// slot at which FCR runs. All scenarios sit in epoch 2 (current_epoch = 2).
@@ -50,33 +55,33 @@ const SCENARIOS: &[Scenario] = &[
     // common ~97% case.
     Scenario {
         name: "steady_mid_epoch",
-        head_slot: 69,
-        current_slot: 70,
-        confirmed_slot: 66,
+        head_slot: CHAIN_TIP_SLOT,
+        current_slot: 2 * SPE + 6,
+        confirmed_slot: 2 * SPE + 2,
     },
     // First slot of the epoch: confirmation is still a full epoch behind, but the boundary slot
     // short-circuits the FFG sweep, so this runs the precompute + is_confirmed_chain_safe only.
     Scenario {
         name: "epoch_first_slot",
-        head_slot: 63,
-        current_slot: 64,
-        confirmed_slot: 40,
+        head_slot: 2 * SPE - 1,
+        current_slot: 2 * SPE,
+        confirmed_slot: LAGGING_CONFIRMED_SLOT,
     },
     // A couple slots into the epoch, confirmation catching up: the FFG sweep fires — the worst
     // case that occurs every epoch on a healthy network.
     Scenario {
         name: "epoch_catch_up",
-        head_slot: 65,
-        current_slot: 66,
-        confirmed_slot: 40,
+        head_slot: REPRESENTATIVE_HEAD_SLOT,
+        current_slot: REPRESENTATIVE_CURRENT_SLOT,
+        confirmed_slot: LAGGING_CONFIRMED_SLOT,
     },
     // First slots of the epoch missed (no current-epoch block yet, head still in the previous
     // epoch): the FFG-sweep window is extended several slots past the boundary.
     Scenario {
         name: "missed_epoch_start",
-        head_slot: 63,
-        current_slot: 68,
-        confirmed_slot: 40,
+        head_slot: 2 * SPE - 1,
+        current_slot: 2 * SPE + 4,
+        confirmed_slot: LAGGING_CONFIRMED_SLOT,
     },
 ];
 
@@ -310,8 +315,8 @@ const VALIDATOR_SET_SIZES: [usize; 4] = [16_000, 100_000, 500_000, 1_000_000];
 
 /// A representative chain head + slot for the slot-agnostic building-block benchmarks below
 /// (the `epoch_catch_up` configuration, where the FFG sweep is live).
-const REPRESENTATIVE_HEAD_SLOT: u64 = 65;
-const REPRESENTATIVE_CURRENT_SLOT: u64 = 66;
+const REPRESENTATIVE_HEAD_SLOT: u64 = 2 * SPE + 1;
+const REPRESENTATIVE_CURRENT_SLOT: u64 = 2 * SPE + 2;
 
 // ---------------------------------------------------------------------------
 // Benchmarks
@@ -415,30 +420,32 @@ fn bench_get_latest_confirmed(c: &mut Criterion) {
     group.finish();
 }
 
-/// `get_latest_confirmed` with a missed slot at the confirmation frontier (block 68 parents to 66),
-/// so `compute_empty_slot_support_discount` runs `get_block_support`'s O(V) `is_in_range` loop over
-/// the full committee-cached validator set — the on-demand committee-cache lookup at scale.
+/// `get_latest_confirmed` with a missed slot at the confirmation frontier (the block after the gap
+/// parents to the block before it), so `compute_empty_slot_support_discount` runs
+/// `get_block_support`'s O(V) `is_in_range` loop over the full committee-cached validator set — the
+/// on-demand committee-cache lookup at scale.
 fn bench_get_latest_confirmed_empty_slots(c: &mut Criterion) {
     let mut group = c.benchmark_group("get_latest_confirmed_empty_slots");
+    let current_slot = 2 * SPE + 6;
     for &n in &VALIDATOR_SET_SIZES {
-        let mut data = build_chain_inner(n, n, Some(67));
+        let mut data = build_chain_inner(n, n, Some(2 * SPE + 3));
         if n >= 100_000 {
             group.sample_size(10);
         }
         data.apply_scenario(&Scenario {
             name: "missed_slot",
-            head_slot: 69,
-            current_slot: 70,
-            confirmed_slot: 66,
+            head_slot: CHAIN_TIP_SLOT,
+            current_slot,
+            confirmed_slot: 2 * SPE + 2,
         });
-        let head_root = block_root_at(69);
+        let head_root = block_root_at(CHAIN_TIP_SLOT);
         group.bench_with_input(BenchmarkId::new("missed_slot", n), &n, |b, _| {
             b.iter(|| {
                 data.fcr.get_latest_confirmed::<E>(
                     head_root,
                     &data.finalized_checkpoint,
                     &data.unrealized_justified_checkpoint,
-                    Slot::new(70),
+                    Slot::new(current_slot),
                     &data.proto_array,
                     &data.votes,
                     &data.equivocating_indices,
