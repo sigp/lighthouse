@@ -1,0 +1,22 @@
+[package]
+name = "xmss"
+version = "0.1.0"
+edition = { workspace = true }
+
+[features]
+# Replace leanXMSS with a cheap, insecure stand-in for tests and debug builds. A fake signature
+# still binds the public key, the leaf index and the message.
+fake_crypto = []
+
+[dependencies]
+ethereum_hashing = { workspace = true }
+ethereum_ssz = { workspace = true }
+hex = { workspace = true }
+lean_xmss = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tree_hash = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

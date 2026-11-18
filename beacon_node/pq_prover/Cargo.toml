@@ -1,0 +1,23 @@
+[package]
+name = "pq_prover"
+version = "0.1.0"
+edition = { workspace = true }
+
+[features]
+# Use the fake XMSS scheme. The sidecar backend still speaks to a real sidecar, which will
+# reject fake signatures: use the reference backend with this feature.
+fake_crypto = ["xmss/fake_crypto"]
+
+[dependencies]
+lean_xmss = { workspace = true }
+leanvm_claims = { workspace = true }
+parking_lot = { workspace = true }
+thiserror = { workspace = true }
+xmss = { workspace = true }
+
+# The sidecar is reached over a Unix socket.
+[target.'cfg(unix)'.dependencies]
+leanvm_sidecar = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

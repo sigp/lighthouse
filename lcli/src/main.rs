@@ -6,6 +6,7 @@ mod indexed_attestations;
 mod mnemonic_validators;
 mod mock_el;
 mod parse_ssz;
+mod pq_bench;
 mod skip_slots;
 mod state_root;
 mod transition_blocks;
@@ -657,6 +658,117 @@ fn main() {
                         .display_order(0)
                 )
         )
+        .subcommand(
+            Command::new("pq-bench")
+                .about(
+                    "Benchmarks XMSS signing and proof aggregation for the PQ fork prototype. \
+                     Prints timings and proof sizes as JSON.",
+                )
+                .arg(
+                    Arg::new("backend")
+                        .long("backend")
+                        .value_name("BACKEND")
+                        .action(ArgAction::Set)
+                        .value_parser(["reference", "sidecar"])
+                        .default_value("reference")
+                        .help("The aggregation backend: the spec's reference concatenation, \
+                               or a running leanvm-sidecar.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("socket")
+                        .long("socket")
+                        .value_name("PATH")
+                        .action(ArgAction::Set)
+                        .help("The Unix socket of the leanvm-sidecar (sidecar backend).")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("sigs")
+                        .long("sigs")
+                        .value_name("N")
+                        .action(ArgAction::Set)
+                        .default_value("128")
+                        .help("Signers (keys and signatures) per proof.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("merge")
+                        .long("merge")
+                        .value_name("M")
+                        .action(ArgAction::Set)
+                        .default_value("0")
+                        .help("Make M proofs of N signers each and merge them into one. \
+                               The proofs reuse the N keys, with other messages and leaves. \
+                               Below 2, one proof is made and nothing is merged.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("rate")
+                        .long("rate")
+                        .value_name("R")
+                        .action(ArgAction::Set)
+                        .default_value("2")
+                        .help("log_inv_rate of the proofs, 1 to 4 (sidecar backend).")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("messages")
+                        .long("messages")
+                        .value_name("COUNT")
+                        .action(ArgAction::Set)
+                        .default_value("1")
+                        .help("Distinct messages (statements) per proof; the signers are \
+                               split evenly between them.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("leaf-index")
+                        .long("leaf-index")
+                        .value_name("LEAF")
+                        .action(ArgAction::Set)
+                        .default_value("32768")
+                        .help("The leaf all signatures of the first proof are made at. \
+                               Proof number i uses LEAF + i.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("reps")
+                        .long("reps")
+                        .value_name("COUNT")
+                        .action(ArgAction::Set)
+                        .default_value("1")
+                        .help("How many times to prove and verify the first proof.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("threads")
+                        .long("threads")
+                        .value_name("COUNT")
+                        .action(ArgAction::Set)
+                        .default_value("0")
+                        .help("Threads for key generation and signing (0: one per core).")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("seed")
+                        .long("seed")
+                        .value_name("SEED")
+                        .action(ArgAction::Set)
+                        .default_value("0")
+                        .help("Seed the keys and messages are derived from.")
+                        .display_order(0)
+                )
+                .arg(
+                    Arg::new("prove-timeout")
+                        .long("prove-timeout")
+                        .value_name("SECONDS")
+                        .action(ArgAction::Set)
+                        .help("Give up on a proof after this long (sidecar backend). \
+                               Waits indefinitely by default.")
+                        .display_order(0)
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -787,6 +899,9 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
             let network_config = get_network_config()?;
             http_sync::run::<E>(env, network_config, matches)
                 .map_err(|e| format!("Failed to run http-sync command: {}", e))
+        }
+        Some(("pq-bench", matches)) => {
+            pq_bench::run(matches).map_err(|e| format!("Failed to run pq-bench command: {}", e))
         }
         Some((other, _)) => Err(format!("Unknown subcommand {}. See --help.", other)),
         _ => Err("No subcommand provided. See --help.".to_string()),
