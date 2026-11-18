@@ -240,7 +240,10 @@ where
         .signing_root(domain);
 
     Ok(SignatureSet::single_pubkey(
-        block.body().randao_reveal(),
+        block
+            .body()
+            .randao_reveal()
+            .map_err(|_| Error::PqUnsupported("randao reveal"))?,
         get_pubkey(proposer_index as usize).ok_or(Error::ValidatorUnknown(proposer_index))?,
         message,
     ))

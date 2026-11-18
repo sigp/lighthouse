@@ -178,10 +178,14 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         bid.block_hash = ExecutionBlockHash::default();
     }
 
-    // Upgrade to pq if configured from genesis.
+    // Upgrade to pq if configured from genesis. Heze builds on Gloas, not on Pq: when both are
+    // configured from genesis the state goes from Gloas to Heze directly.
     if spec
         .pq_fork_epoch
         .is_some_and(|fork_epoch| fork_epoch == E::genesis_epoch())
+        && spec
+            .heze_fork_epoch
+            .is_none_or(|fork_epoch| fork_epoch != E::genesis_epoch())
     {
         upgrade_to_pq(&mut state, spec)?;
 
@@ -196,7 +200,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
     {
         upgrade_to_heze(&mut state, spec)?;
 
-        // Remove intermediate Pq fork from `state.fork`.
+        // Remove intermediate Gloas fork from `state.fork`.
         state.fork_mut().previous_version = spec.heze_fork_version;
     }
 

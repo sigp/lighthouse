@@ -5008,7 +5008,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        for exit in block.body().voluntary_exits() {
+        // A Pq block body has no voluntary exits.
+        for exit in block.body().voluntary_exits().into_iter().flatten() {
             validator_monitor.register_block_voluntary_exit(&exit.message)
         }
 

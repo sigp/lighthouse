@@ -128,7 +128,13 @@ vectors_and_tests!(
     ExitTest {
         block_modifier: Box::new(|_, block| {
             // Duplicate the exit
-            let exit = block.body().voluntary_exits().first().unwrap().clone();
+            let exit = block
+                .body()
+                .voluntary_exits()
+                .unwrap()
+                .first()
+                .unwrap()
+                .clone();
             block.body_mut().voluntary_exits_push(exit).unwrap();
         }),
         expected: Err(BlockProcessingError::ExitInvalid {

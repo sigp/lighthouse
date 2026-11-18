@@ -20,6 +20,12 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ctxt: &mut ConsensusContext<E>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
+    // The Pq operations (attestations covered by the block's `proof`, no exits, BLS changes or
+    // payload attestations, new execution requests) are not implemented yet.
+    if matches!(block_body, BeaconBlockBodyRef::Pq(_)) {
+        return Err(BeaconStateError::PqUnsupported("process_operations").into());
+    }
+
     // [New in Gloas:EIP7688] Also enforce limits on lists constructed without decoding.
     if state.fork_name_unchecked().gloas_enabled() {
         verify_operation_list_lengths(block_body)?;
@@ -50,7 +56,7 @@ pub fn process_operations<E: EthSpec, Payload: AbstractExecPayload<E>>(
     process_deposits(state, &block_body.deposits().to_cow_slice(), spec)?;
     process_exits(
         state,
-        &block_body.voluntary_exits().to_cow_slice(),
+        &block_body.voluntary_exits()?.to_cow_slice(),
         verify_signatures,
         spec,
     )?;
@@ -106,11 +112,19 @@ pub fn verify_operation_list_lengths<E: EthSpec, Payload: AbstractExecPayload<E>
         (
             "attestations",
             block_body.attestations_len(),
-            E::MaxAttestationsElectra::to_usize(),
+            // [Modified in Pq]
+            if matches!(block_body, BeaconBlockBodyRef::Pq(_)) {
+                E::MaxAttestationsPq::to_usize()
+            } else {
+                E::MaxAttestationsElectra::to_usize()
+            },
         ),
         (
             "voluntary_exits",
-            block_body.voluntary_exits().len(),
+            block_body
+                .voluntary_exits()
+                .map(|exits| exits.len())
+                .unwrap_or(0),
             E::MaxVoluntaryExits::to_usize(),
         ),
         (

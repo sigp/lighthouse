@@ -95,7 +95,8 @@ impl<E: EthSpec> LoadCase for TransitionTest<E> {
                 spec.electra_fork_epoch = Some(Epoch::new(0));
                 spec.fulu_fork_epoch = Some(Epoch::new(0));
                 spec.gloas_fork_epoch = Some(Epoch::new(0));
-                spec.pq_fork_epoch = Some(Epoch::new(0));
+                // Heze builds on Gloas, not on Pq.
+                spec.pq_fork_epoch = None;
                 spec.heze_fork_epoch = Some(metadata.fork_epoch);
             }
         }

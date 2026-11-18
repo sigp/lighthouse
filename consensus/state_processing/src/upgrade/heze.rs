@@ -5,7 +5,12 @@ use types::{
     ExecutionPayloadBidHeze, Fork,
 };
 
-/// Transform a `Pq` state into a `Heze` state.
+/// Transform a `Gloas` state into a `Heze` state.
+///
+/// Heze (EIP-7805) builds on Gloas in consensus-specs. `Pq` orders between the two on this
+/// branch, but a `Pq` state cannot become a `Heze` state: it has no sync committees (and will
+/// have no BLS keys), which Heze needs. When both forks are scheduled for the same epoch the
+/// `Pq` upgrade is skipped, see `per_slot_processing` and `genesis`.
 pub fn upgrade_to_heze<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -22,7 +27,10 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<BeaconState<E>, Error> {
     let epoch = pre_state.current_epoch();
-    let pre = pre_state.as_pq_mut()?;
+    if matches!(pre_state, BeaconState::Pq(_)) {
+        return Err(Error::PqUnsupported("upgrading a Pq state to Heze"));
+    }
+    let pre = pre_state.as_gloas_mut()?;
     // Where possible, use something like `mem::take` to move fields from behind the &mut
     // reference. For other fields that don't have a good default value, use `clone`.
     //
@@ -68,7 +76,7 @@ pub fn upgrade_state_to_heze<E: EthSpec>(
         current_sync_committee: pre.current_sync_committee.clone(),
         next_sync_committee: pre.next_sync_committee.clone(),
         // Execution Bid
-        // [New in Heze:EIP7805] the bid gains `inclusion_list_bits`; carry the shared Gloas/Pq
+        // [New in Heze:EIP7805] the bid gains `inclusion_list_bits`; carry the Gloas
         // fields forward and default the new field to empty (no bits computed at upgrade).
         latest_execution_payload_bid: {
             let pre_bid = &pre.latest_execution_payload_bid;

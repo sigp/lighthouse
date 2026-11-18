@@ -31,6 +31,7 @@ use crate::{
     },
     exit::{SignedVoluntaryExit, VoluntaryExit},
     fork::{Fork, ForkName, InconsistentFork, map_fork_name},
+    pq::{AttestationProof, VrfProof},
     slashing::{AttesterSlashingBase, ProposerSlashing},
     state::BeaconStateError,
     sync_committee::SyncAggregate,
@@ -172,6 +173,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
             .or_else(|_| BeaconBlockBellatrix::from_ssz_bytes(bytes).map(BeaconBlock::Bellatrix))
             .or_else(|_| BeaconBlockAltair::from_ssz_bytes(bytes).map(BeaconBlock::Altair))
             .or_else(|_| BeaconBlockBase::from_ssz_bytes(bytes).map(BeaconBlock::Base))
+            // The Pq block has its own SSZ layout. It is tried last so that this function keeps
+            // returning the same variant as before for every pre-Pq block.
+            .or_else(|_| BeaconBlockPq::from_ssz_bytes(bytes).map(BeaconBlock::Pq))
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
@@ -760,7 +764,7 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockPq<E
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
             body: BeaconBlockBodyPq {
-                randao_reveal: Signature::empty(),
+                randao_reveal: VrfProof::default(),
                 eth1_data: Eth1Data {
                     deposit_root: Hash256::zero(),
                     block_hash: Hash256::zero(),
@@ -771,12 +775,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockPq<E
                 attester_slashings: ProgressiveVariableList::empty(),
                 attestations: ProgressiveVariableList::empty(),
                 deposits: ProgressiveVariableList::empty(),
-                voluntary_exits: ProgressiveVariableList::empty(),
-                sync_aggregate: SyncAggregate::empty(),
-                bls_to_execution_changes: ProgressiveVariableList::empty(),
                 parent_execution_requests: ExecutionRequestsGloas::default(),
                 signed_execution_payload_bid: SignedExecutionPayloadBidPq::empty(),
-                payload_attestations: ProgressiveVariableList::empty(),
+                proof: AttestationProof::<E>::default(),
                 _phantom: PhantomData,
             },
         }

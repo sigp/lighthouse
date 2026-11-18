@@ -138,14 +138,22 @@ fn progressive_block_body_errors_propagate() {
             Err(BeaconStateError::SszTypesError(_))
         ));
 
-        for _ in 0..<E as EthSpec>::MaxVoluntaryExits::to_usize() {
-            body.voluntary_exits_push(test_arbitrary_instance())
-                .unwrap();
+        if fork == ForkName::Pq {
+            // The Pq body has no voluntary exits.
+            assert!(matches!(
+                body.voluntary_exits_push(test_arbitrary_instance()),
+                Err(BeaconStateError::IncorrectStateVariant)
+            ));
+        } else {
+            for _ in 0..<E as EthSpec>::MaxVoluntaryExits::to_usize() {
+                body.voluntary_exits_push(test_arbitrary_instance())
+                    .unwrap();
+            }
+            assert!(matches!(
+                body.voluntary_exits_push(test_arbitrary_instance()),
+                Err(BeaconStateError::SszTypesError(_))
+            ));
         }
-        assert!(matches!(
-            body.voluntary_exits_push(test_arbitrary_instance()),
-            Err(BeaconStateError::SszTypesError(_))
-        ));
         assert_eq!(
             block.body().deposits().len(),
             <E as EthSpec>::MaxDeposits::to_usize()

@@ -1,10 +1,16 @@
+use milhouse::{ProgressiveList, Vector};
 use std::mem;
-use types::{BeaconState, BeaconStateError as Error, BeaconStatePq, ChainSpec, EthSpec, Fork};
+use types::{
+    AggregationCommittees, BeaconState, BeaconStateError as Error, BeaconStatePq, ChainSpec,
+    EthSpec, Fork,
+};
 
 /// Transform a `Gloas` state into a `Pq` state.
 ///
-/// Fork boilerplate only: the `Pq` state currently has the same fields as the `Gloas` state, so
-/// this is a straight field copy plus the fork version update.
+/// This produces a structurally valid `Pq` state, not the spec's `upgrade_to_pq`: the fields
+/// that Pq removes are dropped and the fields it adds are empty. It does not yet re-key
+/// validators and builders with their registered XMSS keys, exit the unregistered ones, or
+/// compute the aggregation committee window.
 pub fn upgrade_to_pq<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -63,9 +69,7 @@ pub fn upgrade_state_to_pq<E: EthSpec>(
         finalized_checkpoint: pre.finalized_checkpoint,
         // Inactivity
         inactivity_scores: mem::take(&mut pre.inactivity_scores),
-        // Sync committees
-        current_sync_committee: pre.current_sync_committee.clone(),
-        next_sync_committee: pre.next_sync_committee.clone(),
+        // [Modified in Pq] The sync committees are removed.
         // Execution Bid
         latest_execution_payload_bid: pre.latest_execution_payload_bid.clone(),
         // Capella
@@ -92,6 +96,12 @@ pub fn upgrade_state_to_pq<E: EthSpec>(
         latest_block_hash: pre.latest_block_hash,
         payload_expected_withdrawals: mem::take(&mut pre.payload_expected_withdrawals),
         ptc_window: pre.ptc_window.clone(),
+        // Pq
+        validator_preregistrations: ProgressiveList::empty(),
+        builder_preregistrations: ProgressiveList::empty(),
+        // Every slot of the window holds an empty list of aggregation committees. The spec fills
+        // the window with `compute_aggregation_committees` for each epoch it covers.
+        aggregation_committee_window: Vector::from_elem(AggregationCommittees::default())?,
         // Caches
         total_active_balance: pre.total_active_balance,
         progressive_balances_cache: mem::take(&mut pre.progressive_balances_cache),

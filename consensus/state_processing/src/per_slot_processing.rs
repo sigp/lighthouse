@@ -104,8 +104,11 @@ pub fn per_slot_processing<E: EthSpec>(
             upgrade_to_gloas(state, gloas_context, spec)?;
         }
 
-        // Pq.
-        if spec.pq_fork_epoch == Some(state.current_epoch()) {
+        // Pq. Heze builds on Gloas, not on Pq: when both are scheduled for this epoch the state
+        // goes from Gloas to Heze directly.
+        if spec.pq_fork_epoch == Some(state.current_epoch())
+            && spec.heze_fork_epoch != Some(state.current_epoch())
+        {
             upgrade_to_pq(state, spec)?;
         }
 

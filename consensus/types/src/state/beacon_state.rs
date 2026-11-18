@@ -46,6 +46,7 @@ use crate::{
         FINALIZED_ROOT_INDEX, FINALIZED_ROOT_INDEX_ELECTRA, NEXT_SYNC_COMMITTEE_FIELD_INDEX,
         NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_ELECTRA,
     },
+    pq::{AggregationCommitteeWindow, BuilderPreregistration, ValidatorPreregistration},
     state::{
         BlockRootsIter, CommitteeCache, EpochCache, EpochCacheError, ExitCache, HistoricalBatch,
         HistoricalSummary, ProgressiveBalancesCache, PubkeyCache, SlashingsCache,
@@ -467,9 +468,12 @@ impl From<BeaconStateHash> for Hash256 {
             ),
             tree_hash(
                 struct_behaviour = "progressive_container",
+                // [Modified in Pq] `active_fields(width=51, gaps=(22, 23, 46, 47))`: the sync
+                // committees are removed, and so are the two EIP-8483 registration lists that
+                // only exist between Gloas and Pq.
                 active_fields(
-                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1,
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1
                 )
             )
         ),
@@ -664,10 +668,11 @@ where
     pub inactivity_scores: ProgressiveList<u64>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Pq, Heze))]
+    // [Modified in Pq] Removed `current_sync_committee` and `next_sync_committee`.
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Pq, Heze))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas, Heze))]
     #[metastruct(exclude_from(tree_lists))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
@@ -845,6 +850,23 @@ where
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     #[superstruct(only(Gloas, Pq, Heze))]
     pub ptc_window: Vector<FixedVector<u64, E::PTCSize>, E::PtcWindowLength>,
+
+    // Pq
+    // [New in Pq:EIP8205]
+    #[compare_fields(as_iter)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Pq))]
+    pub validator_preregistrations: ProgressiveList<ValidatorPreregistration>,
+    // [New in Pq:EIP8205]
+    #[compare_fields(as_iter)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Pq))]
+    pub builder_preregistrations: ProgressiveList<BuilderPreregistration>,
+    // [New in Pq]
+    #[compare_fields(as_iter)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[superstruct(only(Pq))]
+    pub aggregation_committee_window: AggregationCommitteeWindow<E>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -3883,6 +3905,20 @@ impl<E: EthSpec> ForkVersionDecode for BeaconState<E> {
 /// Must match the `active_fields` attribute on the Gloas, Pq and Heze variants.
 pub const BEACON_STATE_ACTIVE_FIELDS: [bool; 46] = [true; 46];
 
+/// The `active_fields` of the Pq `BeaconState`: `active_fields(width=51, gaps=(22, 23, 46, 47))`.
+///
+/// The gaps are the removed `current_sync_committee` and `next_sync_committee`, and the EIP-8483
+/// `validator_pq_registrations` and `builder_pq_registrations`, which exist only between Gloas
+/// and Pq. Must match the `active_fields` attribute on the Pq variant.
+pub const BEACON_STATE_ACTIVE_FIELDS_PQ: [bool; 51] = {
+    let mut active_fields = [true; 51];
+    active_fields[22] = false;
+    active_fields[23] = false;
+    active_fields[46] = false;
+    active_fields[47] = false;
+    active_fields
+};
+
 impl<E: EthSpec> BeaconState<E> {
     /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
     ///
@@ -4018,22 +4054,41 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(proof)
     }
 
+    /// The `active_fields` of this state if it is a progressive container (Gloas onwards).
+    pub fn progressive_active_fields(&self) -> Option<&'static [bool]> {
+        match self {
+            BeaconState::Base(_)
+            | BeaconState::Altair(_)
+            | BeaconState::Bellatrix(_)
+            | BeaconState::Capella(_)
+            | BeaconState::Deneb(_)
+            | BeaconState::Electra(_)
+            | BeaconState::Fulu(_) => None,
+            BeaconState::Gloas(_) | BeaconState::Heze(_) => Some(&BEACON_STATE_ACTIVE_FIELDS),
+            BeaconState::Pq(_) => Some(&BEACON_STATE_ACTIVE_FIELDS_PQ),
+        }
+    }
+
     pub fn generate_proof(
         &self,
         field_index: usize,
         leaves: &[Hash256],
     ) -> Result<Vec<Hash256>, BeaconStateError> {
-        if field_index >= leaves.len() {
-            return Err(BeaconStateError::IndexNotSupported(field_index));
-        }
-
-        // [Modified in Gloas:EIP7688] the state is a progressive container.
-        if self.fork_name_unchecked().gloas_enabled() {
+        // [Modified in Gloas:EIP7688] the state is a progressive container. `field_index` counts
+        // entries of `active_fields`, so with gaps (Pq) it can exceed the number of leaves.
+        if let Some(active_fields) = self.progressive_active_fields() {
+            if active_fields.get(field_index) != Some(&true) {
+                return Err(BeaconStateError::IndexNotSupported(field_index));
+            }
             return Ok(merkle_proof::progressive_container_proof(
                 leaves,
-                &BEACON_STATE_ACTIVE_FIELDS,
+                active_fields,
                 field_index,
             )?);
+        }
+
+        if field_index >= leaves.len() {
+            return Err(BeaconStateError::IndexNotSupported(field_index));
         }
 
         let depth = self.num_fields_pow2().ilog2() as usize;
@@ -4226,8 +4281,12 @@ mod progressive_container_tests {
             BEACON_STATE_ACTIVE_FIELDS.len(),
             BeaconStateGloas::<MainnetEthSpec>::NUM_FIELDS
         );
+        // The Pq state has gaps: only the active entries are fields.
         assert_eq!(
-            BEACON_STATE_ACTIVE_FIELDS.len(),
+            BEACON_STATE_ACTIVE_FIELDS_PQ
+                .iter()
+                .filter(|active| **active)
+                .count(),
             BeaconStatePq::<MainnetEthSpec>::NUM_FIELDS
         );
         assert_eq!(

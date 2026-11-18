@@ -349,7 +349,13 @@ pub fn process_randao<E: EthSpec, Payload: AbstractExecPayload<E>>(
     }
 
     // Update the current epoch RANDAO mix.
-    state.update_randao_mix(state.current_epoch(), block.body().randao_reveal())?;
+    // In Pq the reveal is a `VRFProof` (a leaf of the proposer's VRF tree with its Merkle
+    // branch), which is not processed yet.
+    let randao_reveal = block
+        .body()
+        .randao_reveal()
+        .map_err(|_| BeaconStateError::PqUnsupported("process_randao"))?;
+    state.update_randao_mix(state.current_epoch(), randao_reveal)?;
 
     Ok(())
 }

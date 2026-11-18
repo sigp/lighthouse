@@ -347,23 +347,20 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<E, Payload>,
     ) -> Result<()> {
-        self.sets
-            .sets
-            .reserve(block.message().body().voluntary_exits().len());
+        // A Pq block body has no voluntary exits: they are execution layer requests there.
+        let Ok(voluntary_exits) = block.message().body().voluntary_exits() else {
+            return Ok(());
+        };
 
-        block
-            .message()
-            .body()
-            .voluntary_exits()
-            .iter()
-            .try_for_each(|exit| {
-                let exit =
-                    exit_signature_set(self.state, self.get_pubkey.clone(), exit, self.spec)?;
+        self.sets.sets.reserve(voluntary_exits.len());
 
-                self.sets.push(exit);
+        voluntary_exits.iter().try_for_each(|exit| {
+            let exit = exit_signature_set(self.state, self.get_pubkey.clone(), exit, self.spec)?;
 
-                Ok(())
-            })
+            self.sets.push(exit);
+
+            Ok(())
+        })
     }
 
     /// Include the signature of the block's sync aggregate (if it exists) for verification.

@@ -28,16 +28,15 @@ use tree_hash::TreeHash;
 use types::consts::gloas::BUILDER_INDEX_SELF_BUILD;
 use types::{
     Address, Attestation, AttestationGloas, AttesterSlashing, AttesterSlashingGloas, BeaconBlock,
-    BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockBodyPq, BeaconBlockGloas,
-    BeaconBlockHeze, BeaconBlockPq, BeaconState, BeaconStateError, BlobsList, BuilderIndex,
-    Deposit, Eth1Data, EthSpec, ExecutionBlockHash, ExecutionPayloadBidGloas,
-    ExecutionPayloadBidHeze, ExecutionPayloadEnvelope, ExecutionRequestsGloas, FullPayload,
-    Graffiti, Hash256, IndexedAttestation, KzgProofs, PayloadAttestation, ProposerSlashing,
-    RelativeEpoch, SignedBeaconBlock, SignedBlsToExecutionChange, SignedExecutionPayloadBid,
-    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, SignedExecutionPayloadBidPq,
-    SignedExecutionPayloadEnvelope, SignedExecutionPayloadEnvelopeSummary,
-    SignedProposerPreferences, SignedVoluntaryExit, Slot, SyncAggregate, Uint256, Withdrawal,
-    Withdrawals,
+    BeaconBlockBodyGloas, BeaconBlockBodyHeze, BeaconBlockGloas, BeaconBlockHeze, BeaconState,
+    BeaconStateError, BlobsList, BuilderIndex, Deposit, Eth1Data, EthSpec, ExecutionBlockHash,
+    ExecutionPayloadBidGloas, ExecutionPayloadBidHeze, ExecutionPayloadEnvelope,
+    ExecutionRequestsGloas, FullPayload, Graffiti, Hash256, IndexedAttestation, KzgProofs,
+    PayloadAttestation, ProposerSlashing, RelativeEpoch, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedExecutionPayloadBid, SignedExecutionPayloadBidGloas,
+    SignedExecutionPayloadBidHeze, SignedExecutionPayloadBidPq, SignedExecutionPayloadEnvelope,
+    SignedExecutionPayloadEnvelopeSummary, SignedProposerPreferences, SignedVoluntaryExit, Slot,
+    SyncAggregate, Uint256, Withdrawal, Withdrawals,
 };
 
 use builder_client::BidRequestContext;
@@ -798,54 +797,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 })
             }
+            // A Pq block needs a VRF randao reveal, proof-carrying attestations from a Pq
+            // attestation pool and the merged block `proof`. None of that is produced yet.
             BeaconState::Pq(_) => {
-                let SignedExecutionPayloadBid::Pq(signed_execution_payload_bid) =
-                    signed_execution_payload_bid
-                else {
-                    return Err(BlockProductionError::InvalidBlockVariant(
-                        "Cannot construct a Pq block with a non-Pq execution payload bid"
-                            .to_string(),
-                    ));
-                };
-
-                BeaconBlock::Pq(BeaconBlockPq {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root: Hash256::ZERO,
-                    body: BeaconBlockBodyPq {
-                        randao_reveal,
-                        eth1_data,
-                        graffiti,
-                        // The operation list lengths are bounded by the op pool packing limits above.
-                        proposer_slashings: ProgressiveVariableList::try_from_iter(
-                            proposer_slashings,
-                        )
-                        .map_err(BlockProductionError::SszTypesError)?,
-                        attester_slashings: ProgressiveVariableList::try_from_iter(
-                            attester_slashings,
-                        )
-                        .map_err(BlockProductionError::SszTypesError)?,
-                        attestations: ProgressiveVariableList::try_from_iter(attestations)
-                            .map_err(BlockProductionError::SszTypesError)?,
-                        deposits: ProgressiveVariableList::try_from_iter(deposits)
-                            .map_err(BlockProductionError::SszTypesError)?,
-                        voluntary_exits: ProgressiveVariableList::try_from_iter(voluntary_exits)
-                            .map_err(BlockProductionError::SszTypesError)?,
-                        sync_aggregate,
-                        bls_to_execution_changes: ProgressiveVariableList::try_from_iter(
-                            bls_to_execution_changes,
-                        )
-                        .map_err(BlockProductionError::SszTypesError)?,
-                        parent_execution_requests,
-                        signed_execution_payload_bid,
-                        payload_attestations: ProgressiveVariableList::try_from_iter(
-                            payload_attestations,
-                        )
-                        .map_err(BlockProductionError::SszTypesError)?,
-                        _phantom: PhantomData::<FullPayload<T::EthSpec>>,
-                    },
-                })
+                return Err(BlockProductionError::InvalidBlockVariant(
+                    "Pq block production is not implemented".to_string(),
+                ));
             }
             BeaconState::Heze(_) => {
                 let SignedExecutionPayloadBid::Heze(signed_execution_payload_bid) =
