@@ -187,14 +187,15 @@ impl lighthouse_network::discv5::Executor for Discv5Executor {
 #[cfg(test)]
 mod test {
     use super::*;
-    use types::MainnetEthSpec;
+    use types::Spec;
 
     #[test]
     fn test_validator_fork_epoch_alignments() {
-        let mut spec = MainnetEthSpec::default_spec();
+        let mut spec = Spec::default_spec();
+        let period = spec.epochs_per_sync_committee_period;
         spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(256));
-        spec.deneb_fork_epoch = Some(Epoch::new(257));
+        spec.bellatrix_fork_epoch = Some(period);
+        spec.deneb_fork_epoch = Some(period + 1);
         spec.electra_fork_epoch = None;
         spec.fulu_fork_epoch = None;
         spec.gloas_fork_epoch = None;
