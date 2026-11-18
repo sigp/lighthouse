@@ -1121,6 +1121,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .await;
                 (PartialGossipOutcome::Accept, Some((slot, verified_header)))
             }
+            PartialColumnVerificationResult::HeaderOnly(header) => {
+                let slot = header.as_header().slot();
+                debug!(
+                    %slot,
+                    %block_root,
+                    %index,
+                    "Successfully verified gossip partial data column header"
+                );
+                (PartialGossipOutcome::Accept, Some((slot, Some(header))))
+            }
             PartialColumnVerificationResult::ErrWithValidHeader { header, err } => {
                 let slot = header.as_header().slot();
                 let outcome =
