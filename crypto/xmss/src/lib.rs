@@ -90,6 +90,20 @@ macro_rules! impl_bytes_traits {
             pub fn to_bytes(&self) -> [u8; $byte_size] {
                 self.0
             }
+
+            /// The all-zero value, used as a placeholder before signing and as the SSZ default.
+            pub fn empty() -> Self {
+                Self([0; $byte_size])
+            }
+        }
+
+        #[cfg(feature = "arbitrary")]
+        impl arbitrary::Arbitrary<'_> for $type {
+            fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+                let mut bytes = [0u8; $byte_size];
+                u.fill_buffer(&mut bytes)?;
+                Ok(Self(bytes))
+            }
         }
 
         impl From<[u8; $byte_size]> for $type {

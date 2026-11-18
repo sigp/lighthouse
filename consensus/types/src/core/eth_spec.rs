@@ -180,6 +180,30 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MaxBuilderExitRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
 
     /*
+     * New in Pq
+     */
+    type MaxCommitteesPerSlotPq: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
+    type MaxAttestationsPq: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxStarkProofSize: Unsigned + Clone + Sync + Send + Debug + PartialEq + Eq;
+    type MaxValidatorPreregistrationRequestsPerPayload: Unsigned
+        + Clone
+        + Sync
+        + Send
+        + Debug
+        + PartialEq;
+    type MaxBuilderPreregistrationRequestsPerPayload: Unsigned
+        + Clone
+        + Sync
+        + Send
+        + Debug
+        + PartialEq;
+    type MaxVoluntaryExitRequestsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /// The length of `aggregation_committee_window`.
+    ///
+    /// Must be set to `(MIN_SEED_LOOKAHEAD + 2) * SlotsPerEpoch`
+    type AggregationCommitteeWindowLength: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+
+    /*
      * New in Heze
      */
     type InclusionListCommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
@@ -463,6 +487,52 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE_HEZE` constant for this specification.
     fn max_signed_execution_payload_bid_size_heze() -> usize;
 
+    /// Returns the `MAX_COMMITTEES_PER_SLOT_PQ` constant for this specification.
+    fn max_committees_per_slot_pq() -> usize {
+        Self::MaxCommitteesPerSlotPq::to_usize()
+    }
+
+    /// Returns the `MAX_ATTESTATIONS_PQ` constant for this specification.
+    fn max_attestations_pq() -> usize {
+        Self::MaxAttestationsPq::to_usize()
+    }
+
+    /// Returns the `MAX_STARK_PROOF_SIZE` constant for this specification.
+    fn max_stark_proof_size() -> usize {
+        Self::MaxStarkProofSize::to_usize()
+    }
+
+    /// Returns the `MAX_VALIDATOR_PREREGISTRATION_REQUESTS_PER_PAYLOAD` constant for this
+    /// specification.
+    fn max_validator_preregistration_requests_per_payload() -> usize {
+        Self::MaxValidatorPreregistrationRequestsPerPayload::to_usize()
+    }
+
+    /// Returns the `MAX_BUILDER_PREREGISTRATION_REQUESTS_PER_PAYLOAD` constant for this
+    /// specification.
+    fn max_builder_preregistration_requests_per_payload() -> usize {
+        Self::MaxBuilderPreregistrationRequestsPerPayload::to_usize()
+    }
+
+    /// Returns the `MAX_VOLUNTARY_EXIT_REQUESTS_PER_PAYLOAD` constant for this specification.
+    fn max_voluntary_exit_requests_per_payload() -> usize {
+        Self::MaxVoluntaryExitRequestsPerPayload::to_usize()
+    }
+
+    /// Returns the length of the `aggregation_committee_window` for this specification.
+    fn aggregation_committee_window_length() -> usize {
+        Self::AggregationCommitteeWindowLength::to_usize()
+    }
+
+    /// Returns the `MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE_PQ` constant for this specification.
+    fn max_signed_aggregate_and_proof_size_pq() -> usize;
+
+    /// Returns the `MAX_ATTESTER_SLASHING_SIZE_PQ` constant for this specification.
+    fn max_attester_slashing_size_pq() -> usize;
+
+    /// Returns the `MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE_PQ` constant for this specification.
+    fn max_signed_execution_payload_bid_size_pq() -> usize;
+
     /// Returns the `MAX_SIGNED_INCLUSION_LIST_SIZE` constant for this specification.
     fn max_signed_inclusion_list_size() -> usize;
 
@@ -556,6 +626,13 @@ impl EthSpec for MainnetEthSpec {
     type MaxBuildersPerWithdrawalsSweep = U16384;
     type MaxBuilderDepositRequestsPerPayload = U64;
     type MaxBuilderExitRequestsPerPayload = U16;
+    type MaxCommitteesPerSlotPq = U16;
+    type MaxAttestationsPq = U16;
+    type MaxStarkProofSize = U1048576;
+    type MaxValidatorPreregistrationRequestsPerPayload = U64;
+    type MaxBuilderPreregistrationRequestsPerPayload = U4;
+    type MaxVoluntaryExitRequestsPerPayload = U16;
+    type AggregationCommitteeWindowLength = U96; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type InclusionListCommitteeSize = U16;
 
     fn default_spec() -> ChainSpec {
@@ -580,6 +657,18 @@ impl EthSpec for MainnetEthSpec {
 
     fn max_signed_execution_payload_bid_size_heze() -> usize {
         196934
+    }
+
+    fn max_signed_aggregate_and_proof_size_pq() -> usize {
+        1055231
+    }
+
+    fn max_attester_slashing_size_pq() -> usize {
+        2621720
+    }
+
+    fn max_signed_execution_payload_bid_size_pq() -> usize {
+        199240
     }
 
     fn max_signed_inclusion_list_size() -> usize {
@@ -623,6 +712,8 @@ impl EthSpec for MinimalEthSpec {
     type PTCSize = U16;
     type PtcWindowLength = U24; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type MaxBuildersPerWithdrawalsSweep = U16;
+    type MaxCommitteesPerSlotPq = U4;
+    type AggregationCommitteeWindowLength = U24; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -655,6 +746,11 @@ impl EthSpec for MinimalEthSpec {
         MaxPayloadAttestations,
         MaxBuilderDepositRequestsPerPayload,
         MaxBuilderExitRequestsPerPayload,
+        MaxAttestationsPq,
+        MaxStarkProofSize,
+        MaxValidatorPreregistrationRequestsPerPayload,
+        MaxBuilderPreregistrationRequestsPerPayload,
+        MaxVoluntaryExitRequestsPerPayload,
         InclusionListCommitteeSize
     });
 
@@ -680,6 +776,18 @@ impl EthSpec for MinimalEthSpec {
 
     fn max_signed_execution_payload_bid_size_heze() -> usize {
         196934
+    }
+
+    fn max_signed_aggregate_and_proof_size_pq() -> usize {
+        1052158
+    }
+
+    fn max_attester_slashing_size_pq() -> usize {
+        2228504
+    }
+
+    fn max_signed_execution_payload_bid_size_pq() -> usize {
+        199240
     }
 
     fn max_signed_inclusion_list_size() -> usize {
@@ -753,6 +861,13 @@ impl EthSpec for GnosisEthSpec {
     type MaxBuildersPerWithdrawalsSweep = U16384;
     type MaxBuilderDepositRequestsPerPayload = U64;
     type MaxBuilderExitRequestsPerPayload = U16;
+    type MaxCommitteesPerSlotPq = U16;
+    type MaxAttestationsPq = U16;
+    type MaxStarkProofSize = U1048576;
+    type MaxValidatorPreregistrationRequestsPerPayload = U64;
+    type MaxBuilderPreregistrationRequestsPerPayload = U4;
+    type MaxVoluntaryExitRequestsPerPayload = U16;
+    type AggregationCommitteeWindowLength = U48; // (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH
     type InclusionListCommitteeSize = U16;
 
     fn default_spec() -> ChainSpec {
@@ -779,6 +894,18 @@ impl EthSpec for GnosisEthSpec {
         196934
     }
 
+    fn max_signed_aggregate_and_proof_size_pq() -> usize {
+        1055231
+    }
+
+    fn max_attester_slashing_size_pq() -> usize {
+        2621720
+    }
+
+    fn max_signed_execution_payload_bid_size_pq() -> usize {
+        199240
+    }
+
     fn max_signed_inclusion_list_size() -> usize {
         41112
     }
@@ -802,6 +929,11 @@ mod test {
             E::ptc_window_length(),
             (spec.min_seed_lookahead.as_usize() + 2) * E::slots_per_epoch() as usize,
             "PtcWindowLength must equal (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH"
+        );
+        assert_eq!(
+            E::aggregation_committee_window_length(),
+            (spec.min_seed_lookahead.as_usize() + 2) * E::slots_per_epoch() as usize,
+            "AggregationCommitteeWindowLength must equal (2 + MIN_SEED_LOOKAHEAD) * SLOTS_PER_EPOCH"
         );
     }
 

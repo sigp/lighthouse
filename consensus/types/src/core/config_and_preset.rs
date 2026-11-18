@@ -6,14 +6,14 @@ use superstruct::superstruct;
 
 use crate::core::{
     AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config, DenebPreset,
-    ElectraPreset, EthSpec, FuluPreset, GloasPreset, HezePreset, consts,
+    ElectraPreset, EthSpec, FuluPreset, GloasPreset, HezePreset, PqPreset, consts,
 };
 
 /// Fusion of a runtime-config with the compile-time preset values.
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Deneb, Electra, Fulu, Gloas, Heze),
+    variants(Deneb, Electra, Fulu, Gloas, Pq, Heze),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -32,15 +32,18 @@ pub struct ConfigAndPreset {
     pub capella_preset: CapellaPreset,
     #[serde(flatten)]
     pub deneb_preset: DenebPreset,
-    #[superstruct(only(Electra, Fulu, Gloas, Heze))]
+    #[superstruct(only(Electra, Fulu, Gloas, Pq, Heze))]
     #[serde(flatten)]
     pub electra_preset: ElectraPreset,
-    #[superstruct(only(Fulu, Gloas, Heze))]
+    #[superstruct(only(Fulu, Gloas, Pq, Heze))]
     #[serde(flatten)]
     pub fulu_preset: FuluPreset,
-    #[superstruct(only(Gloas, Heze))]
+    #[superstruct(only(Gloas, Pq, Heze))]
     #[serde(flatten)]
     pub gloas_preset: GloasPreset,
+    #[superstruct(only(Pq))]
+    #[serde(flatten)]
+    pub pq_preset: PqPreset,
     #[superstruct(only(Heze))]
     #[serde(flatten)]
     pub heze_preset: HezePreset,
@@ -81,6 +84,25 @@ impl ConfigAndPreset {
                 fulu_preset,
                 gloas_preset,
                 heze_preset,
+                extra_fields,
+            })
+        } else if spec.is_pq_scheduled() {
+            let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
+            let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
+            let gloas_preset = GloasPreset::from_chain_spec::<E>(spec);
+            let pq_preset = PqPreset::from_chain_spec::<E>(spec);
+
+            ConfigAndPreset::Pq(ConfigAndPresetPq {
+                config,
+                base_preset,
+                altair_preset,
+                bellatrix_preset,
+                capella_preset,
+                deneb_preset,
+                electra_preset,
+                fulu_preset,
+                gloas_preset,
+                pq_preset,
                 extra_fields,
             })
         } else if spec.is_gloas_scheduled() {

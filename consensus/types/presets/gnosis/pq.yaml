@@ -1,0 +1,44 @@
+# Gnosis preset - PQ
+
+# Misc
+# ---------------------------------------------------------------
+# 2**4 (= 16) committees
+MAX_COMMITTEES_PER_SLOT_PQ: 16
+
+# Time parameters
+# ---------------------------------------------------------------
+# 2**1 (= 2) slots
+MIN_ATTESTATION_INCLUSION_DELAY_PQ: 2
+
+# XMSS
+# ---------------------------------------------------------------
+# 2**20 (= 1,048,576)
+MAX_STARK_PROOF_SIZE: 1048576
+
+# Max operations per block
+# ---------------------------------------------------------------
+# 2**4 (= 16)
+MAX_ATTESTATIONS_PQ: 16
+
+# Execution
+# ---------------------------------------------------------------
+# 2**6 (= 64)
+MAX_VALIDATOR_PREREGISTRATION_REQUESTS_PER_PAYLOAD: 64
+# 2**2 (= 4)
+MAX_BUILDER_PREREGISTRATION_REQUESTS_PER_PAYLOAD: 4
+# The next two values are defined in the EIP-8205 preset (`eip8205.yaml`) in consensus-specs.
+# 2**19 (= 524,288)
+PREREGISTRATIONS_LIMIT: 524288
+# 2**18 (= 262,144)
+PREREGISTRATION_EXPIRY_SLOTS: 262144
+# 2**4 (= 16)
+MAX_VOLUNTARY_EXIT_REQUESTS_PER_PAYLOAD: 16
+
+# Type-specific SSZ bounds
+# ---------------------------------------------------------------
+# 1,055,231 bytes, ~1 MiB
+MAX_SIGNED_AGGREGATE_AND_PROOF_SIZE_PQ: 1055231
+# 2,621,720 bytes, ~2.5 MiB
+MAX_ATTESTER_SLASHING_SIZE_PQ: 2621720
+# 199,240 bytes, ~195 KiB
+MAX_SIGNED_EXECUTION_PAYLOAD_BID_SIZE_PQ: 199240

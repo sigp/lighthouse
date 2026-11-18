@@ -25,6 +25,7 @@ arbitrary = [
     "milhouse/arbitrary",
     "ssz_types/arbitrary",
     "swap_or_not_shuffle/arbitrary",
+    "xmss/arbitrary",
 ]
 portable = ["bls/supranational-portable"]
 
@@ -70,6 +71,7 @@ tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 typenum = { workspace = true }
+xmss = { workspace = true }
 yaml_serde = { workspace = true }
 
 [dev-dependencies]

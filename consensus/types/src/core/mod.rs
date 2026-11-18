@@ -27,7 +27,7 @@ pub use chain_spec::{
 };
 pub use config_and_preset::{
     ConfigAndPreset, ConfigAndPresetDeneb, ConfigAndPresetElectra, ConfigAndPresetFulu,
-    ConfigAndPresetGloas, ConfigAndPresetHeze, get_extra_fields,
+    ConfigAndPresetGloas, ConfigAndPresetHeze, ConfigAndPresetPq, get_extra_fields,
 };
 pub use enr_fork_id::EnrForkId;
 pub use eth_spec::{EthSpec, EthSpecId, GNOSIS, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
@@ -37,7 +37,7 @@ pub use list_ref::ListRef;
 pub use non_zero_usize::new_non_zero_usize;
 pub use preset::{
     AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, DenebPreset, ElectraPreset,
-    FuluPreset, GloasPreset, HezePreset,
+    FuluPreset, GloasPreset, HezePreset, PqPreset,
 };
 pub use relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use signing_data::{SignedRoot, SigningData};

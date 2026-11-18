@@ -368,6 +368,61 @@ impl GloasPreset {
     }
 }
 
+/// The PQ preset: the spec's `pq.yaml`, plus the two EIP-8205 preregistration values that the PQ
+/// spec uses (`PREREGISTRATIONS_LIMIT`, `PREREGISTRATION_EXPIRY_SLOTS`).
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct PqPreset {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_committees_per_slot_pq: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub min_attestation_inclusion_delay_pq: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_stark_proof_size: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_attestations_pq: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_validator_preregistration_requests_per_payload: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_builder_preregistration_requests_per_payload: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub preregistrations_limit: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub preregistration_expiry_slots: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_voluntary_exit_requests_per_payload: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_signed_aggregate_and_proof_size_pq: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_attester_slashing_size_pq: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_signed_execution_payload_bid_size_pq: u64,
+}
+
+impl PqPreset {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
+        Self {
+            max_committees_per_slot_pq: E::max_committees_per_slot_pq() as u64,
+            min_attestation_inclusion_delay_pq: spec.min_attestation_inclusion_delay_pq,
+            max_stark_proof_size: E::max_stark_proof_size() as u64,
+            max_attestations_pq: E::max_attestations_pq() as u64,
+            max_validator_preregistration_requests_per_payload:
+                E::max_validator_preregistration_requests_per_payload() as u64,
+            max_builder_preregistration_requests_per_payload:
+                E::max_builder_preregistration_requests_per_payload() as u64,
+            preregistrations_limit: spec.preregistrations_limit,
+            preregistration_expiry_slots: spec.preregistration_expiry_slots,
+            max_voluntary_exit_requests_per_payload: E::max_voluntary_exit_requests_per_payload()
+                as u64,
+            max_signed_aggregate_and_proof_size_pq: E::max_signed_aggregate_and_proof_size_pq()
+                as u64,
+            max_attester_slashing_size_pq: E::max_attester_slashing_size_pq() as u64,
+            max_signed_execution_payload_bid_size_pq: E::max_signed_execution_payload_bid_size_pq()
+                as u64,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct HezePreset {
@@ -440,6 +495,9 @@ mod test {
 
         let gloas: GloasPreset = preset_from_file(&preset_name, "gloas.yaml");
         assert_eq!(gloas, GloasPreset::from_chain_spec::<E>(&spec));
+
+        let pq: PqPreset = preset_from_file(&preset_name, "pq.yaml");
+        assert_eq!(pq, PqPreset::from_chain_spec::<E>(&spec));
 
         let heze: HezePreset = preset_from_file(&preset_name, "heze.yaml");
         assert_eq!(heze, HezePreset::from_chain_spec::<E>(&spec));

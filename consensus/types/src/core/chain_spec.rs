@@ -285,6 +285,11 @@ pub struct ChainSpec {
     pub pq_fork_version: [u8; 4],
     /// The Pq fork epoch is optional, with `None` representing "Pq never happens".
     pub pq_fork_epoch: Option<Epoch>,
+    pub unregistered_validator_withdrawability_delay: Epoch,
+    pub min_attestation_inclusion_delay_pq: u64,
+    pub preregistrations_limit: u64,
+    pub preregistration_expiry_slots: u64,
+    pub attestation_subnet_count_pq: u64,
 
     /*
      * Heze hard fork params
@@ -1485,6 +1490,11 @@ impl ChainSpec {
              */
             pq_fork_version: [0xe0, 0x00, 0x00, 0x00],
             pq_fork_epoch: None,
+            unregistered_validator_withdrawability_delay: Epoch::new(16384),
+            min_attestation_inclusion_delay_pq: 2,
+            preregistrations_limit: 524_288,
+            preregistration_expiry_slots: 262_144,
+            attestation_subnet_count_pq: 16,
 
             /*
              * Heze hard fork params
@@ -1651,6 +1661,8 @@ impl ChainSpec {
             // Pq
             pq_fork_version: [0xe0, 0x00, 0x00, 0x01],
             pq_fork_epoch: None,
+            preregistrations_limit: 64,
+            preregistration_expiry_slots: 64,
             // Heze
             heze_fork_version: [0x08, 0x00, 0x00, 0x01],
             heze_fork_epoch: None,
@@ -1954,6 +1966,11 @@ impl ChainSpec {
              */
             pq_fork_version: [0xe0, 0x00, 0x00, 0x64],
             pq_fork_epoch: None,
+            unregistered_validator_withdrawability_delay: Epoch::new(16384),
+            min_attestation_inclusion_delay_pq: 2,
+            preregistrations_limit: 524_288,
+            preregistration_expiry_slots: 262_144,
+            attestation_subnet_count_pq: 16,
 
             /*
              * Heze hard fork params
@@ -2283,6 +2300,12 @@ pub struct Config {
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub pq_fork_epoch: Option<MaybeQuoted<Epoch>>,
+    #[serde(default = "default_unregistered_validator_withdrawability_delay")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    unregistered_validator_withdrawability_delay: u64,
+    #[serde(default = "default_attestation_subnet_count_pq")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    attestation_subnet_count_pq: u64,
 
     #[serde(default = "default_heze_fork_version")]
     #[serde(with = "serde_utils::bytes_4_hex")]
@@ -2547,6 +2570,14 @@ fn default_gloas_fork_version() -> [u8; 4] {
 fn default_pq_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
+}
+
+const fn default_unregistered_validator_withdrawability_delay() -> u64 {
+    16384
+}
+
+const fn default_attestation_subnet_count_pq() -> u64 {
+    16
 }
 
 fn default_heze_fork_version() -> [u8; 4] {
@@ -2992,6 +3023,10 @@ impl Config {
 
             pq_fork_version: spec.pq_fork_version,
             pq_fork_epoch: spec.pq_fork_epoch.map(|epoch| MaybeQuoted { value: epoch }),
+            unregistered_validator_withdrawability_delay: spec
+                .unregistered_validator_withdrawability_delay
+                .as_u64(),
+            attestation_subnet_count_pq: spec.attestation_subnet_count_pq,
 
             heze_fork_version: spec.heze_fork_version,
             heze_fork_epoch: spec
@@ -3131,6 +3166,8 @@ impl Config {
             gloas_fork_epoch,
             pq_fork_version,
             pq_fork_epoch,
+            unregistered_validator_withdrawability_delay,
+            attestation_subnet_count_pq,
             heze_fork_version,
             heze_fork_epoch,
             seconds_per_slot,
@@ -3272,6 +3309,10 @@ impl Config {
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
             pq_fork_version,
             pq_fork_epoch: pq_fork_epoch.map(|q| q.value),
+            unregistered_validator_withdrawability_delay: Epoch::new(
+                unregistered_validator_withdrawability_delay,
+            ),
+            attestation_subnet_count_pq,
             heze_fork_version,
             heze_fork_epoch: heze_fork_epoch.map(|q| q.value),
             seconds_per_slot: seconds_per_slot

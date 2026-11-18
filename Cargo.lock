@@ -10566,6 +10566,7 @@ dependencies = [
  "tree_hash_derive",
  "typenum",
  "types",
+ "xmss",
  "yaml_serde",
 ]
 
@@ -11619,6 +11620,7 @@ dependencies = [
 name = "xmss"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "ethereum_hashing",
  "ethereum_ssz",
  "hex",
