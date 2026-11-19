@@ -2,7 +2,7 @@
 
 use bls::SecretKey;
 use ethereum_hashing::hash32_concat;
-use state_processing::pq::VRF_TREE_DEPTH;
+use state_processing::pq::{VRF_TREE_DEPTH, compute_vrf_leaf, hash_vrf_node};
 use types::{Hash256, Slot, VrfProof};
 use xmss::XmssSecretKey;
 
@@ -16,7 +16,7 @@ pub fn xmss_key_from_bls(key: &SecretKey) -> XmssSecretKey {
     XmssSecretKey::from_seed(&hash32_concat(b"leanxmss-seed", key.serialize().as_bytes()))
 }
 
-/// The first 2^20 leaves are seeded SHA-256 hashes. The remaining leaves are zero.
+/// The devnet seeds the first 2^20 leaves with Keccak-256 and pads the rest with zeros.
 pub struct VrfTree {
     seed: [u8; 32],
     subtree_roots: Vec<Hash256>,
@@ -49,7 +49,7 @@ impl VrfTree {
                     .skip(POPULATED_DEPTH)
                     .take(VRF_TREE_DEPTH - POPULATED_DEPTH),
             )
-            .reduce(hash_pair)
+            .reduce(hash_vrf_node)
             .unwrap_or_default()
     }
 
@@ -61,7 +61,7 @@ impl VrfTree {
         if index < POPULATED_LEAVES {
             let start = index & !(SUBTREE_LEAVES - 1);
             let mut nodes = populated_subtree(&self.seed, start);
-            proof.push(vrf_leaf(&self.seed, index));
+            proof.push(compute_vrf_leaf(&self.seed, index));
             reduce_merkle_nodes(&mut nodes, (index % SUBTREE_LEAVES) as usize, &mut proof);
             self.populated_root((index / SUBTREE_LEAVES) as usize, &mut proof);
             proof.extend_from_slice(&zeros[POPULATED_DEPTH..VRF_TREE_DEPTH]);
@@ -79,7 +79,7 @@ impl VrfTree {
                     proof.push(zero);
                 }
                 if level >= POPULATED_DEPTH && level < joined_depth {
-                    populated = hash_pair(populated, zero);
+                    populated = hash_vrf_node(populated, zero);
                 }
             }
         }
@@ -95,23 +95,15 @@ impl VrfTree {
 
 fn populated_subtree(seed: &[u8; 32], start: u64) -> Vec<Hash256> {
     (0..SUBTREE_LEAVES)
-        .map(|offset| vrf_leaf(seed, start.saturating_add(offset)))
+        .map(|offset| compute_vrf_leaf(seed, start.saturating_add(offset)))
         .collect()
-}
-
-fn vrf_leaf(seed: &[u8; 32], index: u64) -> Hash256 {
-    hash32_concat(seed, &index.to_le_bytes()).into()
-}
-
-fn hash_pair(left: Hash256, right: Hash256) -> Hash256 {
-    hash32_concat(left.as_slice(), right.as_slice()).into()
 }
 
 fn zero_hashes() -> [Hash256; VRF_TREE_DEPTH] {
     let mut previous = Hash256::ZERO;
     std::array::from_fn(|_| {
         let zero = previous;
-        previous = hash_pair(zero, zero);
+        previous = hash_vrf_node(zero, zero);
         zero
     })
 }
@@ -124,7 +116,7 @@ fn reduce_merkle_nodes(nodes: &mut Vec<Hash256>, mut index: usize, branch: &mut 
         let next_len = nodes.len() / 2;
         for position in 0..next_len {
             if let Some([left, right]) = nodes.get(position * 2..).and_then(<[_]>::first_chunk) {
-                let parent = hash_pair(*left, *right);
+                let parent = hash_vrf_node(*left, *right);
                 if let Some(node) = nodes.get_mut(position) {
                     *node = parent;
                 }
@@ -169,19 +161,41 @@ mod tests {
         let root = keys.vrf.root();
         assert_eq!(
             root,
-            "0x0fc00857fdae6d29c18f54563c64e166b1fff1c6d943bb2c43e8b096bb60585e"
+            "0x46f6772a35c14c7f8467e9d8791450ed3c6853191129876fc50e769ec9bac18d"
                 .parse::<Hash256>()
                 .unwrap(),
         );
-        for index in [
-            0,
-            5,
-            POPULATED_LEAVES - 1,
-            POPULATED_LEAVES,
-            (1 << VRF_TREE_DEPTH) - 1,
+        // PyCryptodome Keccak-256 and the patched eth-beacon-genesis generator
+        // independently agree on the padded tree. SHA-256 fingerprints the proof bytes.
+        for (index, digest) in [
+            (
+                0,
+                "0x4107fa0f9dad85074520eb0cdcf35264504f076c0c50b8cf8103a509c372d86c",
+            ),
+            (
+                5,
+                "0x4e0efa764e7c54ddbfba1f1266497f55b82a4d363d30f77dfb520904f59aa8d5",
+            ),
+            (
+                POPULATED_LEAVES - 1,
+                "0x4be4c0afca9d7139ed7a1e52a399bf4787478cd561bb32a0138a0550fd44d7d5",
+            ),
+            (
+                POPULATED_LEAVES,
+                "0x3b7f91d3371503c6268e3fa967ca51cbe43b6803f7c9662d95734e1b1d36d381",
+            ),
+            (
+                (1 << VRF_TREE_DEPTH) - 1,
+                "0xa6e044ad1b73627b876ce31ecd9ee2c2093279ee56af9c67004f7a26cb49c5a4",
+            ),
         ] {
             let slot = Slot::new(index);
             let proof = keys.vrf.proof(slot).unwrap();
+            let proof_bytes: Vec<_> = proof.iter().flat_map(|node| node.0).collect();
+            assert_eq!(
+                Hash256::from(ethereum_hashing::hash_fixed(&proof_bytes)),
+                digest.parse::<Hash256>().unwrap()
+            );
             assert_eq!(proof[0] == Hash256::ZERO, index >= POPULATED_LEAVES);
             assert!(state_processing::pq::is_valid_vrf_proof(&proof, slot, root));
             assert!(!state_processing::pq::is_valid_vrf_proof(

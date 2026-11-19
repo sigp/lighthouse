@@ -4067,8 +4067,8 @@ mod tests {
         type E = MinimalEthSpec;
         let spec = Arc::new(ForkName::Pq.make_genesis_spec(E::default_spec()));
 
-        // eth-beacon-genesis #114 at 284025a0. The minimal preset includes eight
-        // validators and one builder. The generator and pinned pyspec agree on both roots.
+        // eth-beacon-genesis #114 at 284025a0 with the padded Keccak VRF patch.
+        // The minimal preset includes eight validators and one builder.
         let compressed = include_bytes!(
             "../../../consensus/types/tests/fixtures/pq/minimal.ethpandaops-genesis.ssz.gz",
         );
@@ -4082,11 +4082,11 @@ mod tests {
         state.build_caches(&spec).unwrap();
         assert_eq!(state.get_validator_index(&first_pubkey).unwrap(), Some(0));
 
-        let state_root = "0xbef163ddd5580ae80e8243d5ff0f96556e60b299e093f666b8bac296659e75ff"
+        let state_root = "0xeee62eb510545152fb6cd9775c6dce4b2a1e79a95f4b34de52dca4011d1e1b68"
             .parse()
             .unwrap();
         let validators_root: Hash256 =
-            "0x75db8015dc55970d1ae7de5acf3c1199a5f40b9d4496124adcc6000295d54a1c"
+            "0xafd7c5478815aed33e97d14bfe195cee5cf0375aef69660b113ad7a968bdfdb8"
                 .parse()
                 .unwrap();
 

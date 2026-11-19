@@ -53,10 +53,10 @@ async fn pq_reference_chain_finalizes_and_rejects_bad_authentication() {
         }
     }
     assert_eq!(state.finalized_checkpoint().epoch, Epoch::new(3));
-    // Independently replayed using consensus-specs a4d16c5be5e8bf8c5a3fb323ee1cb0293efecb1c.
+    // Independently replayed using consensus-specs 2f43bc0f989f47af81df390a90bc1f78e2436323.
     assert_eq!(
         state.canonical_root().unwrap(),
-        "0x104aa66ad03898b2f3dd934ae2bc36bb1a327d3645eb2a17024a952d2a1af13c"
+        "0x8026e5211fd1a7d99a50637b59330992c2d29d1f2ab6ec7aebd40ad241bb16fd"
             .parse::<Hash256>()
             .unwrap(),
     );

@@ -1,0 +1,71 @@
+diff --git a/README.md b/README.md
+index 058eba9..6708dd1 100644
+--- a/README.md
++++ b/README.md
+@@ -120 +120 @@ eth-genesis-state-generator beaconchain \
+-- Validators from mnemonics get their keys from the signing secret key `sk`, the EIP-2333 key at `m/12381/3600/<index>/0/0`, so a client holding the usual validator keystore can derive them. The leanXMSS seed is `sha256("leanxmss-seed" || sk)`. The VRF tree has depth 31; with `vrf_seed = sha256("vrf-seed" || sk)`, leaf `i` is `sha256(vrf_seed || uint64_le(i))` for `i < 2**20` and 32 zero bytes above, which keeps the tree cheap to build and covers the first 2**20 slots.
++- Validators from mnemonics get their keys from the signing secret key `sk`, the EIP-2333 key at `m/12381/3600/<index>/0/0`, so a client holding the usual validator keystore can derive them. The leanXMSS seed is `sha256("leanxmss-seed" || sk)`. The VRF tree has depth 31; with `vrf_seed = sha256("vrf-seed" || sk)`, leaf `i` is `keccak256(vrf_seed || uint64_le(i))` for `i < 2**20` and 32 zero bytes above, which keeps the tree cheap to build and covers the first 2**20 slots. Internal nodes use Keccak-256 over the left and right child.
+@@ -122 +122 @@ eth-genesis-state-generator beaconchain \
+-- Deriving a key and its VRF root takes a few CPU seconds. `--xmss-pubkey-cache <dir>` stores them in `<dir>/<mnemonic fingerprint>.bin`, where the record of index `i` is the 64 bytes at offset `64*i` (public key, then VRF root) and the fingerprint is the first 8 bytes of `sha256("leanxmss-vrf-keys" || BIP-39 seed)`, in hex. `--xmss-pubkey-url <base url>` fetches the needed range of the same file from a remote location before deriving what is still missing.
++- Deriving a key and its VRF root takes a few CPU seconds. `--xmss-pubkey-cache <dir>` stores them in `<dir>/<mnemonic fingerprint>.bin`, where the record of index `i` is the 64 bytes at offset `64*i` (public key, then VRF root) and the fingerprint is the first 8 bytes of `sha256("leanxmss-padded-keccak-vrf-keys" || BIP-39 seed)`, in hex. `--xmss-pubkey-url <base url>` fetches the needed range of the same file from a remote location before deriving what is still missing.
+diff --git a/validators/vrf.go b/validators/vrf.go
+index ed4c0cc..b221128 100644
+--- a/validators/vrf.go
++++ b/validators/vrf.go
+@@ -5,0 +6,2 @@ import (
++
++	"github.com/ethereum/go-ethereum/crypto"
+@@ -28 +30 @@ func VRFLeaf(seed [32]byte, index uint64) [32]byte {
+-	return sha256.Sum256(buf[:])
++	return crypto.Keccak256Hash(buf[:])
+@@ -37 +39 @@ func hashPair(left, right [32]byte) [32]byte {
+-	return sha256.Sum256(buf[:])
++	return crypto.Keccak256Hash(buf[:])
+@@ -83,0 +86 @@ func VRFProof(seed [32]byte, index uint64) [VRFTreeDepth + 1][32]byte {
++	index &= (1 << VRFTreeDepth) - 1
+diff --git a/validators/vrf_test.go b/validators/vrf_test.go
+index 7a62714..3e89565 100644
+--- a/validators/vrf_test.go
++++ b/validators/vrf_test.go
+@@ -3,0 +4,2 @@ import (
++	"crypto/sha256"
++	"encoding/hex"
+@@ -45,0 +48,31 @@ func TestVRFProofs(t *testing.T) {
++
++func TestPaddedKeccakVRFVector(t *testing.T) {
++	signingKey, err := hex.DecodeString("2892f3ba475c3640a67fe730798ad9c4eed3a6d934db85f91c41cfc837ce8834")
++	if err != nil {
++		t.Fatal(err)
++	}
++	seed := VRFSeed(signingKey)
++	root := VRFRoot(seed)
++	if got := hex.EncodeToString(root[:]); got != "46f6772a35c14c7f8467e9d8791450ed3c6853191129876fc50e769ec9bac18d" {
++		t.Fatalf("padded Keccak VRF root: %s", got)
++	}
++	for _, vector := range []struct {
++		slot   uint64
++		digest string
++	}{
++		{0, "4107fa0f9dad85074520eb0cdcf35264504f076c0c50b8cf8103a509c372d86c"},
++		{5, "4e0efa764e7c54ddbfba1f1266497f55b82a4d363d30f77dfb520904f59aa8d5"},
++		{1<<vrfPopulatedDepth - 1, "4be4c0afca9d7139ed7a1e52a399bf4787478cd561bb32a0138a0550fd44d7d5"},
++		{1 << vrfPopulatedDepth, "3b7f91d3371503c6268e3fa967ca51cbe43b6803f7c9662d95734e1b1d36d381"},
++		{1<<VRFTreeDepth - 1, "a6e044ad1b73627b876ce31ecd9ee2c2093279ee56af9c67004f7a26cb49c5a4"},
++	} {
++		proof := VRFProof(seed, vector.slot)
++		digest := sha256.New()
++		for _, node := range proof {
++			digest.Write(node[:])
++		}
++		if got := hex.EncodeToString(digest.Sum(nil)); got != vector.digest {
++			t.Errorf("proof fingerprint at slot %d: %s, want %s", vector.slot, got, vector.digest)
++		}
++	}
++}
+diff --git a/validators/xmsscache.go b/validators/xmsscache.go
+index c5216c9..c065b16 100644
+--- a/validators/xmsscache.go
++++ b/validators/xmsscache.go
+@@ -23 +23 @@ const (
+-	xmssKeyFileDomain = "leanxmss-vrf-keys"
++	xmssKeyFileDomain = "leanxmss-padded-keccak-vrf-keys"

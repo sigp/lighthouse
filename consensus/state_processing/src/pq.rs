@@ -1,6 +1,7 @@
 //! Consensus rules specific to the pinned PQ fork.
 
 use crate::per_block_processing::errors::BlockProcessingError;
+use alloy_primitives::keccak256_uncached;
 use pq_prover::{Proof, ProverBackend, ReferenceBackend, Statement};
 use safe_arith::{ArithError, SafeArith};
 use types::*;
@@ -67,10 +68,38 @@ pub fn verify_proposer_signature<E: EthSpec, Payload: AbstractExecPayload<E>>(
     ))
 }
 
+pub fn compute_vrf_leaf(seed: &[u8; 32], index: u64) -> Hash256 {
+    let mut input = [0; 40];
+    let (seed_bytes, index_bytes) = input.split_at_mut(32);
+    seed_bytes.copy_from_slice(seed);
+    index_bytes.copy_from_slice(&index.to_le_bytes());
+    // VRF seed preimages must stay out of the shared Keccak cache.
+    keccak256_uncached(input)
+}
+
+pub fn hash_vrf_node(left: Hash256, right: Hash256) -> Hash256 {
+    let mut input = [0; 64];
+    let (left_bytes, right_bytes) = input.split_at_mut(32);
+    left_bytes.copy_from_slice(left.as_slice());
+    right_bytes.copy_from_slice(right.as_slice());
+    keccak256_uncached(input)
+}
+
 pub fn is_valid_vrf_proof(proof: &VrfProof, slot: Slot, root: Hash256) -> bool {
-    // The pinned spec's Merkle verification uses the low VRF_TREE_DEPTH bits of the index.
+    // The fixed-length branch uses the low VRF_TREE_DEPTH bits of the slot.
     proof.split_first().is_some_and(|(leaf, branch)| {
-        merkle_proof::verify_merkle_proof(*leaf, branch, VRF_TREE_DEPTH, slot.as_usize(), root)
+        branch
+            .iter()
+            .copied()
+            .enumerate()
+            .fold(*leaf, |value, (height, sibling)| {
+                if (slot.as_u64() >> height) & 1 == 1 {
+                    hash_vrf_node(sibling, value)
+                } else {
+                    hash_vrf_node(value, sibling)
+                }
+            })
+            == root
     })
 }
 
