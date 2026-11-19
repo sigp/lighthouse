@@ -15,13 +15,11 @@ pub const DEFAULT_MAX_DB_SIZE: usize = 512 * 1024; // 512 GiB
 pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(100_000);
 pub const DEFAULT_BROADCAST: bool = false;
 
-#[cfg(all(feature = "mdbx", not(any(feature = "lmdb", feature = "redb"))))]
-pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Mdbx;
 #[cfg(feature = "lmdb")]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Lmdb;
-#[cfg(all(feature = "redb", not(any(feature = "mdbx", feature = "lmdb"))))]
+#[cfg(all(feature = "redb", not(feature = "lmdb")))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Redb;
-#[cfg(not(any(feature = "mdbx", feature = "lmdb", feature = "redb")))]
+#[cfg(not(any(feature = "lmdb", feature = "redb")))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Disabled;
 
 pub const MAX_HISTORY_LENGTH: usize = 1 << 16;
@@ -63,20 +61,11 @@ pub struct DiskConfig {
 )]
 #[strum(serialize_all = "lowercase")]
 pub enum DatabaseBackend {
-    #[cfg(feature = "mdbx")]
-    Mdbx,
     #[cfg(feature = "lmdb")]
     Lmdb,
     #[cfg(feature = "redb")]
     Redb,
     Disabled,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum DatabaseBackendOverride {
-    Success(DatabaseBackend),
-    Failure(PathBuf),
-    Noop,
 }
 
 impl Config {
@@ -176,27 +165,9 @@ impl Config {
             .copied()
     }
 
-    pub fn override_backend(&mut self) -> DatabaseBackendOverride {
+    /// Return the path of an MDBX database left over from before MDBX support was removed.
+    pub fn legacy_mdbx_database(&self) -> Option<PathBuf> {
         let mdbx_path = self.database_path.join(MDBX_DATA_FILENAME);
-
-        #[cfg(feature = "mdbx")]
-        let already_mdbx = self.backend == DatabaseBackend::Mdbx;
-        #[cfg(not(feature = "mdbx"))]
-        let already_mdbx = false;
-
-        if !already_mdbx && mdbx_path.exists() {
-            #[cfg(feature = "mdbx")]
-            {
-                let old_backend = self.backend;
-                self.backend = DatabaseBackend::Mdbx;
-                DatabaseBackendOverride::Success(old_backend)
-            }
-            #[cfg(not(feature = "mdbx"))]
-            {
-                DatabaseBackendOverride::Failure(mdbx_path)
-            }
-        } else {
-            DatabaseBackendOverride::Noop
-        }
+        mdbx_path.exists().then_some(mdbx_path)
     }
 }

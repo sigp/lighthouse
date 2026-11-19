@@ -5,11 +5,11 @@ use std::sync::Arc;
 use types::{
     AttestationData, AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra,
     AttesterSlashingGloas, BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256,
-    IndexedAttestation, MainnetEthSpec, SignedBeaconBlockHeader, Slot,
+    IndexedAttestation, SignedBeaconBlockHeader, Slot, Spec,
     attestation::{IndexedAttestationBase, IndexedAttestationElectra},
 };
 
-pub type E = MainnetEthSpec;
+pub type E = Spec;
 
 pub fn indexed_att_electra(
     attesting_indices: impl AsRef<[u64]>,

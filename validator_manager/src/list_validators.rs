@@ -225,9 +225,9 @@ mod test {
     use crate::{
         common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder,
     };
-    use types::MainnetEthSpec;
+    use types::Spec;
     use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     struct TestBuilder {
         list_config: Option<ListConfig>,

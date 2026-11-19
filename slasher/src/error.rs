@@ -4,8 +4,6 @@ use types::Epoch;
 
 #[derive(Debug)]
 pub enum Error {
-    #[cfg(feature = "mdbx")]
-    DatabaseMdbxError(mdbx::Error),
     #[cfg(feature = "lmdb")]
     DatabaseLmdbError(lmdb::Error),
     #[cfg(feature = "redb")]
@@ -70,16 +68,6 @@ pub enum Error {
     MissingIndexedAttestationIdKey,
     InconsistentAttestationDataRoot,
     MissingKey,
-}
-
-#[cfg(feature = "mdbx")]
-impl From<mdbx::Error> for Error {
-    fn from(e: mdbx::Error) -> Self {
-        match e {
-            mdbx::Error::Other(os_error) => Error::from(io::Error::from_raw_os_error(os_error)),
-            _ => Error::DatabaseMdbxError(e),
-        }
-    }
 }
 
 #[cfg(feature = "lmdb")]
