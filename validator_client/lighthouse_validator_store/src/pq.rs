@@ -8,8 +8,12 @@ use slot_clock::SlotClock;
 use state_processing::pq;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
-use tokio::sync::Semaphore;
-use tracing::warn;
+use std::time::Duration;
+use tokio::{
+    sync::Semaphore,
+    time::{Instant, MissedTickBehavior, interval_at},
+};
+use tracing::{info, warn};
 use types::{
     AggregateAndProof, AggregateAndProofPq, Attestation, AttestationData, AttestationProof, Domain,
     EthSpec, ForkName, Hash256, SignedAggregateAndProof, SignedAggregateAndProofPq, SignedRoot,
@@ -19,6 +23,13 @@ use validator_store::AttestationToSign;
 use xmss::{LeafIndex, XmssSecretKey};
 
 const PQ_WORKERS: usize = 8;
+const PQ_KEY_LOAD_LOG_INTERVAL: Duration = Duration::from_secs(5);
+
+enum KeyLoadOutcome {
+    Prepared,
+    Skipped,
+    Failed,
+}
 
 #[derive(Default)]
 struct Key {
@@ -84,16 +95,27 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
     }
 
     pub(super) async fn load_pq_keys(&self, pubkeys: Vec<PublicKeyBytes>) {
+        if pubkeys
+            .iter()
+            .all(|pubkey| self.local_pq_public_key(pubkey).is_some())
+        {
+            return;
+        }
+
+        let total = pubkeys.len();
+        let started = Instant::now();
         let slot = self.slot_clock.now_or_genesis().unwrap_or_default();
-        stream::iter(pubkeys)
+        info!(total, workers = PQ_WORKERS, %slot, "Preparing PQ XMSS validator keys");
+
+        let keys = stream::iter(pubkeys)
             .map(|pubkey| async move {
                 if self.local_pq_public_key(&pubkey).is_some() {
-                    return;
+                    return KeyLoadOutcome::Skipped;
                 }
                 let Ok(signing_method) = self.doppelganger_bypassed_signing_method(pubkey) else {
-                    return;
+                    return KeyLoadOutcome::Skipped;
                 };
-                if let Err(error) = self
+                match self
                     .with_local_pq_key(pubkey, signing_method, move |key, bls| {
                         let key = key.xmss.get_or_init(|| xmss_key_from_bls(&bls.sk));
                         for leaf in [
@@ -108,12 +130,47 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                     })
                     .await
                 {
-                    warn!(?pubkey, ?error, "Unable to derive PQ validator key");
+                    Ok(()) => KeyLoadOutcome::Prepared,
+                    Err(error) => {
+                        warn!(?pubkey, ?error, "Unable to prepare PQ XMSS validator key");
+                        KeyLoadOutcome::Failed
+                    }
                 }
             })
-            .buffer_unordered(PQ_WORKERS)
-            .for_each(|()| std::future::ready(()))
-            .await;
+            .buffer_unordered(PQ_WORKERS);
+        futures::pin_mut!(keys);
+        let mut progress =
+            interval_at(started + PQ_KEY_LOAD_LOG_INTERVAL, PQ_KEY_LOAD_LOG_INTERVAL);
+        progress.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        let (mut prepared, mut skipped, mut failed) = (0_usize, 0_usize, 0_usize);
+        loop {
+            tokio::select! {
+                outcome = keys.next() => match outcome {
+                    Some(KeyLoadOutcome::Prepared) => prepared += 1,
+                    Some(KeyLoadOutcome::Skipped) => skipped += 1,
+                    Some(KeyLoadOutcome::Failed) => failed += 1,
+                    None => break,
+                },
+                _ = progress.tick() => info!(
+                    total,
+                    completed = prepared + skipped + failed,
+                    prepared,
+                    skipped,
+                    failed,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "PQ XMSS validator key preparation in progress"
+                ),
+            }
+        }
+        info!(
+            total,
+            completed = prepared + skipped + failed,
+            prepared,
+            skipped,
+            failed,
+            elapsed_ms = started.elapsed().as_millis(),
+            "Finished preparing PQ XMSS validator keys"
+        );
     }
 
     pub(super) fn local_pq_public_key(&self, pubkey: &PublicKeyBytes) -> Option<XmssPublicKey> {
@@ -134,7 +191,18 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
         let signing_method = self.doppelganger_checked_signing_method(pubkey)?;
         self.with_local_pq_key(pubkey, signing_method, move |key, bls| {
             key.vrf
-                .get_or_init(|| VrfTree::from_bls(&bls.sk))
+                .get_or_init(|| {
+                    let started = Instant::now();
+                    info!(?pubkey, %slot, "Computing PQ RANDAO VRF tree");
+                    let tree = VrfTree::from_bls(&bls.sk);
+                    info!(
+                        ?pubkey,
+                        %slot,
+                        elapsed_ms = started.elapsed().as_millis(),
+                        "Computed PQ RANDAO VRF tree"
+                    );
+                    tree
+                })
                 .proof(slot)
                 .map_err(|error| Error::Middleware(format!("PQ RANDAO proof: {error:?}")))
         })
@@ -170,7 +238,17 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
                 })
                 .map_err(Error::Slashable)?;
 
-            let key = key.xmss.get_or_init(|| xmss_key_from_bls(&bls.sk));
+            let key = key.xmss.get_or_init(|| {
+                let started = Instant::now();
+                info!(?pubkey, "Deriving PQ XMSS validator key");
+                let xmss = xmss_key_from_bls(&bls.sk);
+                info!(
+                    ?pubkey,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "Derived PQ XMSS validator key"
+                );
+                xmss
+            });
             let _timer = validator_metrics::start_timer(&validator_metrics::PQ_XMSS_SIGN_SECONDS);
             key.sign(&signing_root.0, leaf)
                 .map_err(|error| Error::Middleware(format!("PQ signature: {error:?}")))
