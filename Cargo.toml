@@ -177,9 +177,10 @@ int_to_bytes = { path = "consensus/int_to_bytes" }
 itertools = "0.14"
 kzg = { path = "crypto/kzg" }
 # leanVM crates: all of them, and the `leanvm-sidecar` binary nodes run, must be at one revision.
-lean_xmss = { git = "https://github.com/leanEthereum/leanVM", rev = "6bc85e08ddbaa0d279e70779c788bb813dfc545c" }
-leanvm_claims = { package = "claims", git = "https://github.com/leanEthereum/leanVM", rev = "6bc85e08ddbaa0d279e70779c788bb813dfc545c" }
-leanvm_sidecar = { package = "sidecar", git = "https://github.com/leanEthereum/leanVM", rev = "6bc85e08ddbaa0d279e70779c788bb813dfc545c" }
+# This revision matches lean-pq-bindings v0.11.0.
+lean_xmss = { git = "https://github.com/leanEthereum/leanVM", rev = "283686575c4e81790591d2c6e3ed21c69c0e3bbe" }
+leanvm_claims = { package = "claims", git = "https://github.com/leanEthereum/leanVM", rev = "283686575c4e81790591d2c6e3ed21c69c0e3bbe" }
+leanvm_sidecar = { package = "sidecar", git = "https://github.com/leanEthereum/leanVM", rev = "283686575c4e81790591d2c6e3ed21c69c0e3bbe" }
 libp2p = { git = "https://github.com/sigp/rust-libp2p", rev = "a5abdd2038d68362bdd3c0226ae177fe64a3a3d0", default-features = false, features = ["identify", "yamux", "noise", "dns", "tcp", "tokio", "secp256k1", "macros", "metrics", "quic", "upnp", "gossipsub", "gossipsub-partial-messages"] }
 libp2p-mplex = { git = "https://github.com/sigp/rust-libp2p", rev = "a5abdd2038d68362bdd3c0226ae177fe64a3a3d0" }
 lighthouse_network = { path = "beacon_node/lighthouse_network" }

@@ -17,7 +17,7 @@
 //!
 //! ```text
 //! git clone https://github.com/leanEthereum/leanVM && cd leanVM
-//! git checkout 6bc85e08ddbaa0d279e70779c788bb813dfc545c
+//! git checkout 283686575c4e81790591d2c6e3ed21c69c0e3bbe
 //! cargo build --release -p leanvm-sidecar --features experimental_prover
 //! target/release/leanvm-sidecar --socket <dir only the node's user can write>/sidecar.sock
 //! ```
@@ -56,7 +56,7 @@ pub use xmss::{XMSS_MESSAGE_BYTES_LEN, XmssPublicKey, XmssSignature};
 
 /// The leanVM commit every leanVM dependency of the workspace is pinned to, and that the
 /// `leanvm-sidecar` binary must be built from.
-pub const LEANVM_REV: &str = "6bc85e08ddbaa0d279e70779c788bb813dfc545c";
+pub const LEANVM_REV: &str = "283686575c4e81790591d2c6e3ed21c69c0e3bbe";
 
 /// The spec's `XMSSAggregateStatement`: every one of `pubkeys` signed `message` at
 /// `leaf_index`.
