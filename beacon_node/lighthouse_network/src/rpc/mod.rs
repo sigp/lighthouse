@@ -25,10 +25,7 @@ pub use protocol::RequestType;
 use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use self::protocol::RPCProtocol;
 use self::self_limiter::SelfRateLimiter;
-use crate::rpc::inbound_limiter::{
-    ActiveInboundRequest, Admission, InboundRateLimiter, ReadyRequest,
-};
-use crate::rpc::rate_limiter::RateLimiterItem;
+use crate::rpc::inbound_limiter::{Admission, InboundRateLimiter, ReadyRequest};
 pub use handler::SubstreamId;
 use logging::crit;
 pub use methods::{
@@ -184,33 +181,22 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     }
 
     /// Sends an RPC response.
-    /// Returns an `Err` if the request does exist in the active inbound requests list.
+    /// Returns an `Err` if the request does not exist in the active inbound requests list.
+    ///
+    /// The request remains active until the handler reports that its substream has closed, so
+    /// that it counts towards the concurrent request limit until the response is fully written to
+    /// the substream.
     pub fn send_response(
         &mut self,
         request_id: InboundRequestId,
         response: RpcResponse<E>,
     ) -> Result<(), RpcResponse<E>> {
-        let Some(ActiveInboundRequest {
-            peer_id,
-            request_type,
-        }) = self.inbound_request_limiter.complete_request(request_id)
+        let Some(peer_id) = self
+            .inbound_request_limiter
+            .active_request_peer(&request_id)
         else {
             return Err(response);
         };
-
-        // Add the request back to active requests if the response is `Success` and requires stream
-        // termination.
-        if request_type.protocol().terminator().is_some()
-            && matches!(response, RpcResponse::Success(_))
-        {
-            self.inbound_request_limiter.reinsert_active(
-                request_id,
-                ActiveInboundRequest {
-                    peer_id,
-                    request_type: request_type.clone(),
-                },
-            );
-        }
 
         self.send_response_inner(peer_id, request_id, response);
         Ok(())
@@ -484,16 +470,19 @@ where
                 }));
             }
             HandlerEvent::Err(err) => {
-                // Inform the limiter that the request has ended with an error.
                 match &err {
                     HandlerErr::Inbound { id, .. } => {
+                        // The request is answered with an error, so it must not be executed
+                        // anymore. It remains active until its substream is closed, which is
+                        // reported via `InboundStreamClosed`.
                         self.inbound_request_limiter
-                            .request_ended(InboundRequestId {
+                            .request_failed(InboundRequestId {
                                 connection_id,
                                 substream_id: *id,
                             });
                     }
                     HandlerErr::Outbound { proto, .. } => {
+                        // Inform the limiter that the request has ended with an error.
                         self.outbound_request_limiter
                             .request_completed(&peer_id, *proto);
                     }
@@ -506,6 +495,8 @@ where
                 }));
             }
             HandlerEvent::InboundStreamClosed(substream_id) => {
+                // The request is complete once its substream is closed, and no longer counts
+                // towards the concurrent request limit.
                 self.inbound_request_limiter
                     .request_ended(InboundRequestId {
                         connection_id,
@@ -625,6 +616,44 @@ mod tests {
         receive_request_on_connection(rpc, peer_id, 0, substream_id);
     }
 
+    fn status_response() -> RpcResponse<MainnetEthSpec> {
+        RpcResponse::Success(RpcSuccessResponse::Status(match status_request() {
+            RequestType::Status(status) => status,
+            _ => unreachable!("status_request always returns a status request"),
+        }))
+    }
+
+    /// Simulates the handler closing the substream of an inbound request.
+    fn close_stream(
+        rpc: &mut RPC<usize, MainnetEthSpec>,
+        peer_id: PeerId,
+        connection_id: usize,
+        substream_id: usize,
+    ) {
+        rpc.on_connection_handler_event(
+            peer_id,
+            ConnectionId::new_unchecked(connection_id),
+            HandlerEvent::InboundStreamClosed(SubstreamId::new(substream_id)),
+        );
+    }
+
+    /// Simulates the handler reporting a timeout for an inbound Status request on connection 0.
+    fn inbound_stream_timeout(
+        rpc: &mut RPC<usize, MainnetEthSpec>,
+        peer_id: PeerId,
+        substream_id: usize,
+    ) {
+        rpc.on_connection_handler_event(
+            peer_id,
+            ConnectionId::new_unchecked(0),
+            HandlerEvent::Err(HandlerErr::Inbound {
+                id: SubstreamId::new(substream_id),
+                proto: Protocol::Status,
+                error: RPCError::StreamTimeout,
+            }),
+        );
+    }
+
     fn close_connection(
         rpc: &mut RPC<usize, MainnetEthSpec>,
         peer_id: PeerId,
@@ -695,8 +724,10 @@ mod tests {
             .count()
     }
 
+    /// Test that an inbound handler error does not end the request, as the handler may still be
+    /// sending an error response. The request ends once its substream closes.
     #[tokio::test]
-    async fn test_inbound_handler_error_ends_active_request() {
+    async fn test_inbound_handler_error_keeps_request_active_until_stream_closed() {
         let mut rpc = test_rpc(RateLimiterConfig::default());
         let peer_id = PeerId::random();
 
@@ -704,17 +735,76 @@ mod tests {
         assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
         assert_eq!(1, rpc.inbound_request_limiter.active_request_count());
 
-        rpc.on_connection_handler_event(
-            peer_id,
-            ConnectionId::new_unchecked(0),
-            HandlerEvent::Err(HandlerErr::Inbound {
-                id: SubstreamId::new(0),
-                proto: Protocol::Status,
-                error: RPCError::StreamTimeout,
-            }),
+        inbound_stream_timeout(&mut rpc, peer_id, 0);
+        assert_eq!(1, rpc.inbound_request_limiter.active_request_count());
+
+        close_stream(&mut rpc, peer_id, 0, 0);
+        assert_eq!(0, rpc.inbound_request_limiter.active_request_count());
+    }
+
+    /// Test that a delayed request is not executed after the handler reported an error for it,
+    /// but remains active until its substream closes.
+    #[tokio::test]
+    async fn test_inbound_handler_error_drops_delayed_request() {
+        let mut rpc = test_rpc(RateLimiterConfig {
+            status_quota: Quota::n_every_millis(NonZeroU64::new(1).unwrap(), 100),
+            ..Default::default()
+        });
+        let peer_id = PeerId::random();
+
+        receive_request(&mut rpc, peer_id, 0);
+        receive_request(&mut rpc, peer_id, 1);
+        assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
+        assert_eq!(2, rpc.inbound_request_limiter.active_request_count());
+
+        inbound_stream_timeout(&mut rpc, peer_id, 1);
+        assert_eq!(2, rpc.inbound_request_limiter.active_request_count());
+
+        // The failed request is neither executed nor rejected once the quota replenishes.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let events = poll_events(&mut rpc);
+        assert_eq!(0, count_delivered_requests(&events));
+        assert_eq!(0, count_rate_limited_errors(&events));
+
+        close_stream(&mut rpc, peer_id, 0, 1);
+        assert_eq!(1, rpc.inbound_request_limiter.active_request_count());
+    }
+
+    /// Test that requests count towards the concurrent request limit after their response was
+    /// produced, until their substream closes.
+    #[tokio::test]
+    async fn test_responded_request_active_until_stream_closed() {
+        let mut rpc = test_rpc(RateLimiterConfig::default());
+        let peer_id = PeerId::random();
+
+        for substream_id in 0..MAX_CONCURRENT_REQUESTS {
+            receive_request(&mut rpc, peer_id, substream_id);
+            rpc.send_response(
+                InboundRequestId::new_unchecked(0, substream_id),
+                status_response(),
+            )
+            .expect("the request is active");
+        }
+        assert_eq!(
+            MAX_CONCURRENT_REQUESTS,
+            count_delivered_requests(&poll_events(&mut rpc))
+        );
+        assert_eq!(
+            MAX_CONCURRENT_REQUESTS,
+            rpc.inbound_request_limiter.active_request_count()
         );
 
-        assert_eq!(0, rpc.inbound_request_limiter.active_request_count());
+        // The substreams of the answered requests are still open, so another request exceeds the
+        // concurrent request limit.
+        receive_request(&mut rpc, peer_id, MAX_CONCURRENT_REQUESTS);
+        let events = poll_events(&mut rpc);
+        assert_eq!(0, count_delivered_requests(&events));
+        assert_eq!(1, count_rate_limited_errors(&events));
+
+        // Once a substream closes, a new request is accepted.
+        close_stream(&mut rpc, peer_id, 0, 0);
+        receive_request(&mut rpc, peer_id, MAX_CONCURRENT_REQUESTS + 1);
+        assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
     }
 
     #[tokio::test]
@@ -734,12 +824,7 @@ mod tests {
         assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
         assert_eq!(1, rpc.inbound_request_limiter.active_request_count());
 
-        rpc.on_connection_handler_event(
-            peer_id,
-            connection_id,
-            HandlerEvent::InboundStreamClosed(SubstreamId::new(0)),
-        );
-
+        close_stream(&mut rpc, peer_id, 0, 0);
         assert_eq!(0, rpc.inbound_request_limiter.active_request_count());
     }
 
@@ -824,14 +909,9 @@ mod tests {
 
         receive_request_on_connection(&mut rpc, peer_id, 0, 0);
         assert_eq!(1, count_delivered_requests(&poll_events(&mut rpc)));
-        rpc.send_response(
-            InboundRequestId::new_unchecked(0, 0),
-            RpcResponse::Success(RpcSuccessResponse::Status(match status_request() {
-                RequestType::Status(status) => status,
-                _ => unreachable!("status_request always returns a status request"),
-            })),
-        )
-        .expect("the first request is active");
+        rpc.send_response(InboundRequestId::new_unchecked(0, 0), status_response())
+            .expect("the first request is active");
+        close_stream(&mut rpc, peer_id, 0, 0);
         let _ = poll_events(&mut rpc);
 
         receive_request_on_connection(&mut rpc, peer_id, 0, 1);

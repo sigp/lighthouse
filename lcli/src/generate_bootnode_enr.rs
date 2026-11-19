@@ -30,7 +30,7 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), Str
     let mut config = NetworkConfig::default();
     config.enr_address = (Some(ip), None);
     config.enr_udp4_port = Some(udp_port);
-    config.enr_tcp6_port = Some(tcp_port);
+    config.enr_tcp4_port = Some(tcp_port);
 
     let secp256k1_keypair = secp256k1::Keypair::generate();
     let enr_key = CombinedKey::from_secp256k1(&secp256k1_keypair);
