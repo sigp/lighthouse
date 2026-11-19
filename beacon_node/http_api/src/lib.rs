@@ -709,7 +709,7 @@ pub async fn serve<T: BeaconChainTypes>(
             |query: api_types::HeadersQuery,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_response_task(Priority::P1, move || {
                     let (root, block, execution_optimistic, finalized) =
                         match (query.slot, query.parent_root) {
                             // No query parameters, return the canonical head block.
@@ -727,8 +727,14 @@ pub async fn serve<T: BeaconChainTypes>(
                             }
                             // Only the parent root parameter, do a forwards-iterator lookup.
                             (None, Some(parent_root)) => {
-                                let (parent, execution_optimistic, _parent_finalized) =
+                                let (parent, _, _) =
                                     BlockId::from_root(parent_root).blinded_block(&chain)?;
+                                let child_not_found = || {
+                                    warp_utils::reject::custom_not_found(format!(
+                                        "child of block with root {}",
+                                        parent_root
+                                    ))
+                                };
                                 let (root, _slot) = chain
                                     .forwards_iter_block_roots(parent.slot())
                                     .map_err(warp_utils::reject::unhandled_error)?
@@ -738,20 +744,14 @@ pub async fn serve<T: BeaconChainTypes>(
                                     })
                                     .transpose()
                                     .map_err(warp_utils::reject::unhandled_error)?
-                                    .ok_or_else(|| {
-                                        warp_utils::reject::custom_not_found(format!(
-                                            "child of block with root {}",
-                                            parent_root
-                                        ))
-                                    })?;
+                                    .ok_or_else(child_not_found)?;
 
-                                BlockId::from_root(root)
-                                    .blinded_block(&chain)
-                                    // Ignore this `execution_optimistic` since the first value has
-                                    // more information about the original request.
-                                    .map(|(block, _execution_optimistic, finalized)| {
-                                        (root, block, execution_optimistic, finalized)
-                                    })?
+                                let (block, execution_optimistic, finalized) =
+                                    BlockId::from_root(root).blinded_block(&chain)?;
+                                if block.parent_root() != parent_root {
+                                    return Err(child_not_found());
+                                }
+                                (root, block, execution_optimistic, finalized)
                             }
                             // Slot is supplied, search by slot and optionally filter by
                             // parent root.
@@ -781,23 +781,15 @@ pub async fn serve<T: BeaconChainTypes>(
                     let data = api_types::BlockHeaderData {
                         root,
                         canonical: true,
-                        header: api_types::BlockHeaderAndSignature {
-                            message: block.message().block_header(),
-                            signature: block
-                                .signature()
-                                .map_err(|_| {
-                                    warp_utils::reject::custom_bad_request(
-                                        "Pq block headers are not supported by this endpoint"
-                                            .into(),
-                                    )
-                                })?
-                                .clone()
-                                .into(),
-                        },
+                        header: block.signed_block_header().into(),
                     };
 
-                    Ok(api_types::GenericResponse::from(vec![data])
-                        .add_execution_optimistic_finalized(execution_optimistic, finalized))
+                    let response = api_types::GenericResponse::from(vec![data])
+                        .add_execution_optimistic_finalized(execution_optimistic, finalized);
+                    Ok(add_consensus_version_header(
+                        warp::reply::json(&response),
+                        block.fork_name_unchecked(),
+                    ))
                 })
             },
         );
@@ -819,7 +811,7 @@ pub async fn serve<T: BeaconChainTypes>(
             |block_id: BlockId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
+                task_spawner.blocking_response_task(Priority::P1, move || {
                     let (root, execution_optimistic, finalized) = block_id.root(&chain)?;
                     // Ignore the second `execution_optimistic` since the first one has more
                     // information about the original request.
@@ -834,26 +826,18 @@ pub async fn serve<T: BeaconChainTypes>(
                     let data = api_types::BlockHeaderData {
                         root,
                         canonical,
-                        header: api_types::BlockHeaderAndSignature {
-                            message: block.message().block_header(),
-                            signature: block
-                                .signature()
-                                .map_err(|_| {
-                                    warp_utils::reject::custom_bad_request(
-                                        "Pq block headers are not supported by this endpoint"
-                                            .into(),
-                                    )
-                                })?
-                                .clone()
-                                .into(),
-                        },
+                        header: block.signed_block_header().into(),
                     };
 
-                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                    let response = api_types::ExecutionOptimisticFinalizedResponse {
                         execution_optimistic: Some(execution_optimistic),
                         finalized: Some(finalized),
                         data,
-                    })
+                    };
+                    Ok(add_consensus_version_header(
+                        warp::reply::json(&response),
+                        block.fork_name_unchecked(),
+                    ))
                 })
             },
         );

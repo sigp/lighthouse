@@ -2392,10 +2392,7 @@ impl ApiTester {
             let header = BlockHeaderData {
                 root,
                 canonical: true,
-                header: BlockHeaderAndSignature {
-                    message: block.message().block_header(),
-                    signature: block.signature().unwrap().clone().into(),
-                },
+                header: block.signed_block_header().into(),
             };
             let expected = vec![header];
 
@@ -2486,8 +2483,8 @@ impl ApiTester {
                 block_id
             );
             assert_eq!(
-                result.header.signature,
-                block.signature().unwrap().clone().into(),
+                result.header,
+                block.signed_block_header().into(),
                 "{:?}",
                 block_id
             );
@@ -11271,6 +11268,193 @@ async fn beacon_state_builders_pre_gloas() {
         .await
         .test_beacon_states_builder_pending_pre_gloas()
         .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_headers_pq() {
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(ForkName::Pq.make_genesis_spec(E::default_spec()).into())
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+    let genesis_state = harness.get_current_state();
+    let genesis_root = harness.head_block_root();
+    let slot = Slot::new(2);
+    let (root, _) = harness
+        .add_attested_block_at_slot(slot, genesis_state.clone(), &[])
+        .await
+        .unwrap();
+    let root = Hash256::from(root);
+    let head = harness.chain.head_snapshot();
+    assert_eq!(head.beacon_block_root, root);
+    let server = create_api_server(harness.chain.clone(), &harness.runtime).await;
+    let server_url = format!("http://{}", server.listening_socket);
+    tokio::spawn(server.server);
+    let client = reqwest::Client::new();
+    let headers_url = format!("{server_url}/eth/v1/beacon/headers");
+    for (suffix, list) in [
+        (String::new(), true),
+        (format!("?slot={slot}"), true),
+        (format!("?parent_root={genesis_root:?}"), true),
+        (format!("?slot={slot}&parent_root={genesis_root:?}"), true),
+        ("/head".into(), false),
+        (format!("/{slot}"), false),
+        (format!("/{root:?}"), false),
+    ] {
+        let response = client
+            .get(format!("{headers_url}{suffix}"))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+        assert_beacon_header_response(response, &head.beacon_block, list, true).await;
+    }
+
+    let eth2 = BeaconNodeHttpClient::new(
+        SensitiveUrl::parse(&server_url).unwrap(),
+        Timeouts::set_all(Duration::from_secs(5)),
+    );
+    let genesis = eth2
+        .get_beacon_headers_block_id(CoreBlockId::Genesis)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(genesis.finalized, Some(true));
+    assert_eq!(genesis.data.root, genesis_root);
+    assert!(genesis.data.canonical);
+
+    for suffix in [
+        "/1".to_string(),
+        "?slot=1".into(),
+        format!("?slot={slot}&parent_root={root:?}"),
+        format!("?parent_root={root:?}"),
+        format!("/{:?}", Hash256::zero()),
+    ] {
+        assert_eq!(
+            client
+                .get(format!("{headers_url}{suffix}"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND,
+            "{suffix}",
+        );
+    }
+
+    let orphan_slot = Slot::new(3);
+    let (orphan, _) = harness.make_pq_block(genesis_state, orphan_slot, &[]).await;
+    let orphan_root = orphan.0.canonical_root();
+    harness
+        .process_block_without_recomputing_head(orphan_slot, orphan_root, orphan)
+        .await
+        .unwrap();
+    let result = eth2
+        .get_beacon_headers_block_id(CoreBlockId::Root(orphan_root))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.data.root, orphan_root);
+    assert!(!result.data.canonical);
+    assert_eq!(result.finalized, Some(false));
+    assert!(
+        eth2.get_beacon_headers(None, Some(orphan_root))
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn beacon_headers_bls() {
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(ForkName::Base.make_genesis_spec(E::default_spec()).into())
+        .deterministic_keypairs(VALIDATOR_COUNT)
+        .fresh_ephemeral_store()
+        .build();
+    let head = harness.chain.head_snapshot();
+
+    // This branch stores XMSS registry keys even before PQ. Exercise the legacy API over
+    // genesis and a signed block in storage without relying on BLS block production.
+    let (mut block, _) = head.beacon_block.as_ref().clone().deconstruct();
+    let BeaconBlock::Base(message) = &mut block else {
+        panic!("expected a Phase0 block");
+    };
+    message.slot = Slot::new(1);
+    message.parent_root = head.beacon_block_root;
+    let signed = block
+        .sign(
+            &harness.validator_keypairs[0].sk,
+            &head.beacon_state.fork(),
+            head.beacon_state.genesis_validators_root(),
+            &harness.spec,
+        )
+        .unwrap();
+    let root = signed.canonical_root();
+    harness
+        .chain
+        .store
+        .put_block(&root, signed.clone())
+        .unwrap();
+
+    let server = create_api_server(harness.chain.clone(), &harness.runtime).await;
+    let headers_url = format!("http://{}/eth/v1/beacon/headers", server.listening_socket);
+    tokio::spawn(server.server);
+    let client = reqwest::Client::new();
+    for (suffix, block, list, canonical) in [
+        (String::new(), head.beacon_block.as_ref(), true, true),
+        ("/head".into(), head.beacon_block.as_ref(), false, true),
+        (format!("/{root:?}"), &signed, false, false),
+    ] {
+        let response = client
+            .get(format!("{headers_url}{suffix}"))
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+        assert_beacon_header_response(response, block, list, canonical).await;
+    }
+}
+
+async fn assert_beacon_header_response(
+    response: Response,
+    block: &SignedBeaconBlock<E>,
+    list: bool,
+    canonical: bool,
+) {
+    assert_eq!(
+        response.headers()[CONSENSUS_VERSION_HEADER]
+            .to_str()
+            .unwrap(),
+        block.fork_name_unchecked().to_string(),
+    );
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["execution_optimistic"], false);
+    assert_eq!(body["finalized"], false);
+    assert!(body.get("version").is_none());
+    let data = if list {
+        assert_eq!(body["data"].as_array().unwrap().len(), 1);
+        &body["data"][0]
+    } else {
+        &body["data"]
+    };
+    let (signature_len, expected_signature) = match block.signed_block_header() {
+        SignedBeaconBlockHeader::Base(header) => {
+            (96, SignatureBytes::from(header.signature).to_string())
+        }
+        SignedBeaconBlockHeader::Pq(header) => (2404, header.signature.to_string()),
+    };
+    let signature = data["header"]["signature"].as_str().unwrap();
+    assert_eq!(signature.len(), 2 + 2 * signature_len);
+    assert_eq!(signature, expected_signature);
+    let decoded: BlockHeaderData = serde_json::from_value(data.clone()).unwrap();
+    assert_eq!(decoded.root, block.canonical_root());
+    assert_eq!(decoded.header.message.tree_hash_root(), decoded.root);
+    assert_eq!(decoded.canonical, canonical);
+    assert_eq!(decoded.header.message, block.message().block_header());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

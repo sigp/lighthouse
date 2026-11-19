@@ -649,7 +649,30 @@ pub struct HeadersQuery {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockHeaderAndSignature {
     pub message: BeaconBlockHeader,
-    pub signature: SignatureBytes,
+    pub signature: BlockHeaderSignature,
+}
+
+/// The signature in a Beacon API block header. Both variants use a hex string on the wire.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum BlockHeaderSignature {
+    Bls(SignatureBytes),
+    Xmss(Box<XmssSignature>),
+}
+
+impl From<SignedBeaconBlockHeader> for BlockHeaderAndSignature {
+    fn from(header: SignedBeaconBlockHeader) -> Self {
+        match header {
+            SignedBeaconBlockHeader::Base(header) => Self {
+                message: header.message,
+                signature: BlockHeaderSignature::Bls(header.signature.into()),
+            },
+            SignedBeaconBlockHeader::Pq(header) => Self {
+                message: header.message,
+                signature: BlockHeaderSignature::Xmss(Box::new(header.signature)),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
