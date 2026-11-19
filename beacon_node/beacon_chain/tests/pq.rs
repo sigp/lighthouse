@@ -34,6 +34,11 @@ async fn pq_reference_chain_finalizes_and_rejects_bad_authentication() {
 
     let validators = (0..validator_count).collect::<Vec<_>>();
     let mut state = harness.get_current_state();
+    assert!(matches!(
+        harness.chain.check_genesis_execution_payload_is_correct().await.unwrap(),
+        beacon_chain::bellatrix_readiness::GenesisExecutionPayloadStatus::Correct(hash)
+            if hash == *state.latest_block_hash().unwrap()
+    ));
     assert_mock_engine_pq_requests(&harness, &state).await;
     let end = E::slots_per_epoch() * 5;
     for slot in (1..=end).map(Slot::new) {

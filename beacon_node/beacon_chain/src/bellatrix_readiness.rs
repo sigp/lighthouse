@@ -37,15 +37,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(GenesisExecutionPayloadStatus::AlreadyHappened);
         }
 
-        let Ok(latest_execution_payload_header) = genesis_state.latest_execution_payload_header()
-        else {
+        // Gloas and later store the execution hash directly instead of a payload header.
+        let exec_block_hash = if let Ok(hash) = genesis_state.latest_block_hash() {
+            *hash
+        } else if let Ok(header) = genesis_state.latest_execution_payload_header() {
+            header.block_hash()
+        } else {
             return Ok(GenesisExecutionPayloadStatus::Irrelevant);
         };
 
         let Some(execution_layer) = self.execution_layer.as_ref() else {
             return Ok(GenesisExecutionPayloadStatus::NoExecutionLayer);
         };
-        let exec_block_hash = latest_execution_payload_header.block_hash();
 
         // Use getBlockByNumber(0) to check that the block hash matches.
         let execution_block = execution_layer

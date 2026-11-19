@@ -289,6 +289,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // end up with envelopes in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
         let pq_auth = signed_envelope.pq_auth.clone();
+        let is_pq = pq_auth.is_some();
         let (signed_envelope, columns) = signed_envelope.deconstruct();
 
         let mut ops = vec![];
@@ -351,6 +352,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // we might need to do some light client related computations here
 
         metrics::stop_timer(db_write_timer);
+
+        if is_pq {
+            info!(
+                ?block_root,
+                slot = %signed_envelope.slot(),
+                "Execution payload envelope imported"
+            );
+        }
 
         self.import_envelope_update_metrics_and_events(
             signed_envelope,

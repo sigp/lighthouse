@@ -1020,6 +1020,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     })
             })
             .await?;
+        info!(
+            slot = slot.as_u64(),
+            beacon_block_root = %contents.signed_execution_payload_envelope.message.beacon_block_root,
+            "Successfully published signed execution payload envelope"
+        );
         Ok(())
     }
 
