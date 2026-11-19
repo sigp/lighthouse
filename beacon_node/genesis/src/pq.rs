@@ -7,7 +7,7 @@ use types::{Hash256, Slot, VrfProof};
 use xmss::XmssSecretKey;
 
 const POPULATED_DEPTH: usize = 20;
-const POPULATED_LEAVES: u64 = 1 << POPULATED_DEPTH;
+pub const POPULATED_LEAVES: u64 = 1 << POPULATED_DEPTH;
 // Keep roots of small subtrees instead of the full 64 MiB tree of each key.
 const SUBTREE_DEPTH: usize = 10;
 const SUBTREE_LEAVES: u64 = 1 << SUBTREE_DEPTH;
@@ -16,10 +16,11 @@ pub fn xmss_key_from_bls(key: &SecretKey) -> XmssSecretKey {
     XmssSecretKey::from_seed(&hash32_concat(b"leanxmss-seed", key.serialize().as_bytes()))
 }
 
-/// The devnet seeds the first 2^20 leaves with Keccak-256 and pads the rest with zeros.
+/// Stores the derived first 2^20 leaves as subtree roots and optionally anchors them in the full tree.
 pub struct VrfTree {
     seed: [u8; 32],
     subtree_roots: Vec<Hash256>,
+    upper_branch: Option<[Hash256; VRF_TREE_DEPTH - POPULATED_DEPTH]>,
 }
 
 impl VrfTree {
@@ -36,12 +37,44 @@ impl VrfTree {
         Self {
             seed,
             subtree_roots,
+            upper_branch: None,
         }
+    }
+
+    /// Join the derived first subtree to the published full tree using the slot-zero branch.
+    pub fn from_slot_zero_state(
+        key: &SecretKey,
+        root: Hash256,
+        branch: &[Hash256; VRF_TREE_DEPTH],
+    ) -> Result<Self, &'static str> {
+        let upper_branch: [Hash256; VRF_TREE_DEPTH - POPULATED_DEPTH] = *branch
+            .last_chunk()
+            .ok_or("invalid upper VRF branch length")?;
+        if upper_branch
+            .iter()
+            .zip(zero_hashes().iter().skip(POPULATED_DEPTH))
+            .any(|(sibling, zero)| sibling == zero)
+        {
+            return Err("full PQ VRF state cannot use zero-padded upper siblings");
+        }
+        let mut tree = Self::from_bls(key);
+        tree.upper_branch = Some(upper_branch);
+        let proof = tree
+            .proof(Slot::new(0))
+            .map_err(|_| "invalid VRF branch length")?;
+        if !proof.iter().skip(1).eq(branch.iter()) || tree.root() != root {
+            return Err("VRF state does not match the derived key and root");
+        }
+        Ok(tree)
     }
 
     pub fn root(&self) -> Hash256 {
         let mut branch = Vec::new();
-        self.populated_root(0, &mut branch)
+        let populated = self.populated_root(0, &mut branch).unwrap_or_default();
+        if let Some(upper_branch) = self.upper_branch {
+            return upper_branch.into_iter().fold(populated, hash_vrf_node);
+        }
+        Some(populated)
             .into_iter()
             .chain(
                 zero_hashes()
@@ -55,6 +88,9 @@ impl VrfTree {
 
     /// A proof opens the absolute slot, with the sibling of each node ordered bottom-up.
     pub fn proof(&self, slot: Slot) -> Result<VrfProof, types::BeaconStateError> {
+        if self.upper_branch.is_some() && slot.as_u64() >= POPULATED_LEAVES {
+            return Err(types::BeaconStateError::SlotOutOfBounds);
+        }
         let index = slot.as_u64() & ((1 << VRF_TREE_DEPTH) - 1);
         let mut proof = Vec::with_capacity(VRF_TREE_DEPTH + 1);
         let zeros = zero_hashes();
@@ -64,7 +100,11 @@ impl VrfTree {
             proof.push(compute_vrf_leaf(&self.seed, index));
             reduce_merkle_nodes(&mut nodes, (index % SUBTREE_LEAVES) as usize, &mut proof);
             self.populated_root((index / SUBTREE_LEAVES) as usize, &mut proof);
-            proof.extend_from_slice(&zeros[POPULATED_DEPTH..VRF_TREE_DEPTH]);
+            if let Some(upper_branch) = &self.upper_branch {
+                proof.extend_from_slice(upper_branch);
+            } else {
+                proof.extend_from_slice(&zeros[POPULATED_DEPTH..VRF_TREE_DEPTH]);
+            }
         } else {
             let joined_depth = index.ilog2() as usize;
             let mut ignored_branch = Vec::new();
@@ -204,5 +244,39 @@ mod tests {
                 Hash256::ZERO
             ));
         }
+    }
+    #[test]
+    fn full_tree_vrf_matches_published_slot_zero_state() {
+        // Public ethPandaOps devnet mnemonic, EIP-2334 index 5, derived independently in Go.
+        let secret = "0x41f692b9306a699ce01ba5b13fd04776ef5898e0ab09f06e37ba22abe43e403e"
+            .parse::<Hash256>()
+            .unwrap();
+        let key = SecretKey::deserialize(secret.as_slice()).unwrap();
+        let bytes =
+            include_bytes!("../../../consensus/types/tests/fixtures/pq/full-vrf-state.index-5.bin");
+        let root = Hash256::from_slice(&bytes[..32]);
+        assert_eq!(
+            root,
+            "0xb81a580c74d39457d22233bd82cc0ac2d651a64e0f0cceb964ac83e2a172e0a2"
+                .parse::<Hash256>()
+                .unwrap()
+        );
+        let branch = std::array::from_fn(|height| {
+            let start = 36 + 32 * height;
+            Hash256::from_slice(&bytes[start..start + 32])
+        });
+        let tree = VrfTree::from_slot_zero_state(&key, root, &branch).unwrap();
+        for slot in [0, 5, POPULATED_LEAVES - 1] {
+            let slot = Slot::new(slot);
+            let proof = tree.proof(slot).unwrap();
+            assert!(state_processing::pq::is_valid_vrf_proof(&proof, slot, root));
+        }
+        assert!(tree.proof(Slot::new(POPULATED_LEAVES)).is_err());
+        for height in [0, POPULATED_DEPTH, VRF_TREE_DEPTH - 1] {
+            let mut corrupt = branch;
+            corrupt[height] = Hash256::ZERO;
+            assert!(VrfTree::from_slot_zero_state(&key, root, &corrupt).is_err());
+        }
+        assert!(VrfTree::from_slot_zero_state(&key, Hash256::ZERO, &branch).is_err());
     }
 }

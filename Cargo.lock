@@ -6261,6 +6261,7 @@ dependencies = [
  "initialized_validators",
  "logging",
  "parking_lot",
+ "reqwest 0.12.28",
  "serde",
  "signing_method",
  "slashing_protection",

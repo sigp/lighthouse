@@ -38,6 +38,7 @@ use validator_store::{
 };
 
 mod pq;
+mod vrf_state;
 
 pub type Error = ValidatorStoreError<SigningError>;
 
@@ -55,6 +56,10 @@ pub struct Config {
     pub prefer_builder_proposals: bool,
     /// Specifies the boost factor, a percentage multiplier to apply to the builder's payload value.
     pub builder_boost_factor: Option<u64>,
+    /// HTTP(S) URL, file URI, or local path to slot-zero VRF state records.
+    pub vrf_state_url: Option<String>,
+    /// Directory for validated VRF records.
+    pub vrf_state_cache_dir: Option<std::path::PathBuf>,
 }
 
 /// Number of epochs of slashing protection history to keep.
@@ -112,7 +117,7 @@ impl<T: SlotClock + 'static, E: EthSpec> LighthouseValidatorStore<T, E> {
             prefer_builder_proposals: config.prefer_builder_proposals,
             builder_boost_factor: config.builder_boost_factor,
             task_executor,
-            pq_keys: pq::Keys::default(),
+            pq_keys: pq::Keys::new(config),
             _phantom: PhantomData,
         }
     }
@@ -935,6 +940,22 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
 
     fn pq_public_key(&self, pubkey: &PublicKeyBytes) -> Option<types::XmssPublicKey> {
         self.local_pq_public_key(pubkey)
+    }
+
+    fn pq_genesis_validators_root(&self) -> Option<Hash256> {
+        Some(self.genesis_validators_root)
+    }
+
+    fn has_registered_pq_vrf_root(&self, pubkey: &PublicKeyBytes) -> bool {
+        self.has_pq_vrf_root(pubkey)
+    }
+
+    fn register_pq_vrf_root(&self, pubkey: PublicKeyBytes, root: Hash256) -> bool {
+        self.set_pq_vrf_root(pubkey, root)
+    }
+
+    async fn prepare_pq_vrf(&self, pubkey: PublicKeyBytes) {
+        self.warm_pq_vrf(pubkey).await;
     }
 
     async fn randao_vrf_proof(

@@ -452,6 +452,13 @@ pub struct ValidatorClient {
 
     #[clap(
         long,
+        value_name = "URL_OR_PATH",
+        help = "Load full-tree PQ VRF state from an HTTP(S) URL or local file. Required for PQ block proposals."
+    )]
+    pub vrf_state_url: Option<String>,
+
+    #[clap(
+        long,
         value_name = "UINT64",
         help = "Defines the boost factor, \
                 a percentage multiplier to apply to the builder's payload value \

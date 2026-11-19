@@ -126,6 +126,22 @@ pub trait ValidatorStore: Send + Sync {
         None
     }
 
+    fn pq_genesis_validators_root(&self) -> Option<Hash256> {
+        None
+    }
+
+    fn has_registered_pq_vrf_root(&self, _pubkey: &PublicKeyBytes) -> bool {
+        true
+    }
+
+    fn register_pq_vrf_root(&self, _pubkey: PublicKeyBytes, _root: Hash256) -> bool {
+        false
+    }
+
+    fn prepare_pq_vrf(&self, _pubkey: PublicKeyBytes) -> impl Future<Output = ()> + Send {
+        std::future::ready(())
+    }
+
     fn randao_vrf_proof(
         &self,
         _validator_pubkey: PublicKeyBytes,

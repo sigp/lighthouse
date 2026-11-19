@@ -156,6 +156,9 @@ Options:
       --web3-signer-max-idle-connections <COUNT>
           Maximum number of idle connections to maintain per web3signer host.
           Default is unlimited.
+      --vrf-state-url <URL_OR_PATH>
+          Load full-tree PQ VRF state from an HTTP(S) URL or local file.
+          Required for PQ block proposals.
 
 Flags:
       --beacon-nodes-sync-tolerances <SYNC_TOLERANCES>

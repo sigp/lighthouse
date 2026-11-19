@@ -21,6 +21,7 @@ genesis = { workspace = true }
 initialized_validators = { workspace = true }
 logging = { workspace = true }
 parking_lot = { workspace = true }
+reqwest = { workspace = true }
 serde = { workspace = true }
 signing_method = { workspace = true }
 slashing_protection = { workspace = true }

@@ -920,7 +920,7 @@ pub fn start_update_service<S: ValidatorStore + 'static, T: SlotClock + 'static>
 
 /// Iterate through all the voting pubkeys in the `ValidatorStore` and attempt to learn any unknown
 /// validator indices.
-pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
+pub async fn poll_validator_indices<S: ValidatorStore + 'static, T: SlotClock + 'static>(
     duties_service: &DutiesService<S, T>,
 ) {
     let _timer = validator_metrics::start_timer_vec(
@@ -954,7 +954,12 @@ pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
             .validator_index(&pubkey)
             .is_some();
 
-        if !is_known {
+        if !is_known
+            || (pq
+                && !duties_service
+                    .validator_store
+                    .has_registered_pq_vrf_root(&pubkey))
+        {
             let current_slot_opt = duties_service.slot_clock.now_or_genesis();
 
             if let Some(current_slot) = current_slot_opt {
@@ -983,6 +988,11 @@ pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
             } else {
                 ValidatorId::BlsPublicKey(pubkey)
             };
+            let expected_genesis = if pq {
+                duties_service.validator_store.pq_genesis_validators_root()
+            } else {
+                None
+            };
             let download_result = duties_service
                 .beacon_nodes
                 .first_success(|beacon_node| {
@@ -992,9 +1002,30 @@ pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
                             &validator_metrics::DUTIES_SERVICE_TIMES,
                             &[validator_metrics::VALIDATOR_ID_HTTP_GET],
                         );
-                        beacon_node
+                        if let Some(expected_genesis) = expected_genesis {
+                            let genesis = beacon_node
+                                .get_beacon_genesis()
+                                .await
+                                .map_err(|e| e.to_string())?;
+                            if genesis.data.genesis_validators_root != expected_genesis {
+                                return Err(
+                                    "Beacon node validator data is from a different genesis"
+                                        .to_string(),
+                                );
+                            }
+                        }
+                        let response = beacon_node
                             .get_beacon_states_validator_id(StateId::Head, &validator_id)
                             .await
+                            .map_err(|e| e.to_string())?;
+                        if let (ValidatorId::PublicKey(expected_key), Some(response)) =
+                            (&validator_id, &response)
+                            && response.data.validator.pubkey != *expected_key
+                        {
+                            return Err("Beacon node returned a different XMSS validator identity"
+                                .to_string());
+                        }
+                        Ok(response)
                     }
                 })
                 .await;
@@ -1010,6 +1041,17 @@ pub async fn poll_validator_indices<S: ValidatorStore, T: SlotClock + 'static>(
                 });
             match download_result {
                 Ok(Some(response)) => {
+                    if expected_genesis.is_some()
+                        && duties_service
+                            .validator_store
+                            .register_pq_vrf_root(pubkey, response.data.validator.vrf_root)
+                    {
+                        let store = duties_service.validator_store.clone();
+                        duties_service.executor.spawn(
+                            async move { store.prepare_pq_vrf(pubkey).await },
+                            "pq_vrf_preparation",
+                        );
+                    }
                     info!(
                         ?pubkey,
                         validator_index = response.data.index,
