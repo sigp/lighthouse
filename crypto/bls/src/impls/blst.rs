@@ -243,6 +243,12 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
         self.0.add_aggregate(&other.0)
     }
 
+    fn is_infinity(&self) -> bool {
+        let point: &blst::blst_p2 = (&self.0).into();
+        // SAFETY: `point` borrows an initialized aggregate for the duration of the call.
+        unsafe { blst::blst_p2_is_inf(point) }
+    }
+
     fn serialize(&self) -> [u8; SIGNATURE_BYTES_LEN] {
         self.0.to_signature().to_bytes()
     }

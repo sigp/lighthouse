@@ -621,7 +621,7 @@ pub mod tests {
     use tempfile::{TempDir, tempdir};
     use tree_hash::TreeHash;
 
-    type E = MainnetEthSpec;
+    type E = Spec;
 
     const TEST_VECTOR_DEPOSIT_CLI_VERSION: &str = "1.3.0"; // Update to ethstaker-deposit-cli version
 
