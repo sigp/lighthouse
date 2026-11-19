@@ -1,4 +1,4 @@
-#![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
+#![cfg(any(feature = "lmdb", feature = "redb"))]
 
 use rand::{prelude::*, rng};
 use slasher::{
