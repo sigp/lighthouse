@@ -15,6 +15,7 @@ use types::{BeaconStateError, ExecutionBlockHash, Hash256, InconsistentFork, Slo
 pub mod direct_verified_bid;
 pub mod gossip_verified_bid;
 pub mod payload_bid_cache;
+pub mod validator_fed_bid;
 
 #[cfg(test)]
 mod tests;

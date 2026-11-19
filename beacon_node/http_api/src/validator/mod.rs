@@ -11,6 +11,7 @@ use crate::{StateId, attester_duties, metrics, proposer_duties, ptc_duties, sync
 use beacon_chain::attestation_verification::VerifiedAttestation;
 use beacon_chain::inclusion_list_store::InsertOutcome;
 use beacon_chain::inclusion_list_verification::InclusionListVerificationError;
+use beacon_chain::payload_bid_verification::validator_fed_bid::verify_validator_fed_bid;
 use beacon_chain::proposer_preferences_verification::ProposerPreferencesError;
 use beacon_chain::{AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes};
 use bls::PublicKeyBytes;
@@ -18,7 +19,8 @@ use bytes::Bytes;
 use context_deserialize::ContextDeserialize;
 use eth2::types::{
     Accept, BeaconCommitteeSubscription, BuilderConfig, BuilderPreferenceEntry, EndpointVersion,
-    Failure, GenericResponse, MAX_SUBMITTED_BUILDER_PREFERENCES, StandardLivenessResponseData,
+    Failure, GenericResponse, MAX_SUBMITTED_BUILDER_PREFERENCES, SignedExecutionPayloadBid,
+    SignedExecutionPayloadBidGloas, SignedExecutionPayloadBidHeze, StandardLivenessResponseData,
     StateId as CoreStateId, ValidatorAggregateAttestationQuery, ValidatorAttestationDataQuery,
     ValidatorBlocksQuery, ValidatorIndexData, ValidatorPayloadAttestationDataQuery,
     ValidatorStatus,
@@ -585,6 +587,110 @@ pub fn post_validator_blocks_v4<T: BeaconChainTypes>(
                     );
                     not_synced_filter?;
                     produce_block_v4(accept_header, chain, slot, query, builder_config).await
+                })
+            },
+        )
+        .boxed()
+}
+
+// POST validator/execution_payload_bids
+pub fn post_validator_execution_payload_bids<T: BeaconChainTypes>(
+    eth_v1: EthV1Filter,
+    chain_filter: ChainFilter<T>,
+    not_while_syncing_filter: NotWhileSyncingFilter,
+    task_spawner_filter: TaskSpawnerFilter<T>,
+) -> ResponseFilter {
+    eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path("execution_payload_bids"))
+        .and(warp::path::end())
+        .and(not_while_syncing_filter)
+        .and(task_spawner_filter)
+        .and(chain_filter)
+        .and(
+            warp::header::<ForkName>(CONSENSUS_VERSION_HEADER)
+                .and(warp::header::optional::<String>(CONTENT_TYPE_HEADER))
+                .and(warp::body::bytes())
+                .and_then(
+                    |consensus_version: ForkName,
+                     content_type: Option<String>,
+                     body: Bytes| async move {
+                        let max_fed_execution_payload_bids = 64;
+                        let bids: Vec<SignedExecutionPayloadBid<T::EthSpec>> =
+                            if is_ssz_content_type(content_type.as_deref()) {
+                                if consensus_version.heze_enabled() {
+                                    Vec::<SignedExecutionPayloadBidHeze<T::EthSpec>>::from_ssz_bytes(&body)
+                                        .map(|bids| bids.into_iter().map(SignedExecutionPayloadBid::Heze).collect())
+                                } else if consensus_version.gloas_enabled() {
+                                    Vec::<SignedExecutionPayloadBidGloas<T::EthSpec>>::from_ssz_bytes(&body)
+                                        .map(|bids| bids.into_iter().map(SignedExecutionPayloadBid::Gloas).collect())
+                                } else {
+                                    Err(ssz::DecodeError::BytesInvalid(format!(
+                                        "unsupported fork for SignedExecutionPayloadBid: {consensus_version}"
+                                    )))
+                                }
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "invalid SSZ: {e:?}"
+                                    ))
+                                })?
+                            } else {
+                                let value: serde_json::Value = serde_json::from_slice(&body)
+                                    .map_err(|e| {
+                                        warp_utils::reject::custom_deserialize_error(format!(
+                                            "{e:?}"
+                                        ))
+                                    })?;
+                                Vec::<SignedExecutionPayloadBid<T::EthSpec>>::context_deserialize(
+                                    &value,
+                                    consensus_version,
+                                )
+                                .map_err(|e| {
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "invalid JSON: {e:?}"
+                                    ))
+                                })?
+                            };
+
+                        if bids.len() > max_fed_execution_payload_bids {
+                            return Err(warp_utils::reject::custom_bad_request(format!(
+                                "too many signed execution payload bids entries: {} exceeds the limit of {}",
+                                bids.len(),
+                                max_fed_execution_payload_bids
+                            )));
+                        }
+
+                        Ok::<_, Rejection>(bids)
+                    },
+                ),
+        )
+        .then(
+            |not_synced_filter: Result<(), Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             bids: Vec<SignedExecutionPayloadBid<T::EthSpec>>| {
+                task_spawner.blocking_response_task(Priority::P0, move || {
+                    not_synced_filter?;
+
+                    let ctx = chain.payload_bid_gossip_verification_context();
+                    let failures: Vec<Failure> = bids
+                        .into_iter()
+                        .enumerate()
+                        .filter_map(|(index, bid)| {
+                            verify_validator_fed_bid(Arc::new(bid), &ctx)
+                                .err()
+                                .map(|e| Failure::new(index, e.to_string()))
+                        })
+                        .collect();
+
+                    if failures.is_empty() {
+                        Ok(warp::reply::reply().into_response())
+                    } else {
+                        Err(warp_utils::reject::indexed_bad_request(
+                            "error feeding execution payload bids".to_string(),
+                            failures,
+                        ))
+                    }
                 })
             },
         )

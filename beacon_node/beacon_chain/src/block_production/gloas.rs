@@ -1190,13 +1190,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.close_builder_bid_streams(&ctx);
         }
 
-        if let Some(gossip_bid) = self.gossip_verified_payload_bid_cache.get_highest_bid(
-            ctx.slot,
-            BidParent {
-                parent_block_hash: ctx.executed_ancestor_hash,
-                parent_block_root: ctx.parent_root,
-            },
-        ) {
+        if let Some(gossip_bid) = self
+            .gossip_verified_payload_bid_cache
+            .get_best_bid_for_production(
+                ctx.slot,
+                BidParent {
+                    parent_block_hash: ctx.executed_ancestor_hash,
+                    parent_block_root: ctx.parent_root,
+                },
+            )
+        {
             // The gossip bid was validated against the head state at gossip time; its builder's
             // eligibility or coverage can go stale before production. Re-check against the production
             // state and drop it if it would now fail `per_block_processing`, so a stale gossip bid

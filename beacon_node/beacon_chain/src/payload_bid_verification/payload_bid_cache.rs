@@ -45,6 +45,14 @@ pub struct GossipBidCacheInner<E: EthSpec> {
     /// Used to enforce one bid per builder per parent per slot: a builder may bid once for each
     /// parent view compatible with the head.
     seen_builder_bids: BTreeMap<Slot, HashSet<(BidParent, BuilderIndex)>>,
+    /// The current best validator-fed bid (`POST validator/execution_payload_bids`) for each
+    /// `(slot, BidParent)`.
+    ///
+    /// Kept apart from `highest_bid` and `seen_builder_bids`, which gossip validation reads: a fed
+    /// bid is never broadcast, so it must not make this node ignore valid gossip bids. Only block
+    /// production reads this map.
+    validator_fed_highest_bid:
+        BTreeMap<Slot, HashMap<BidParent, Arc<SignedExecutionPayloadBid<E>>>>,
 }
 
 /// A cache of gossip-verified payload bids.
@@ -53,6 +61,10 @@ pub struct GossipBidCacheInner<E: EthSpec> {
 /// set of `(parent, builder)` pairs that have already bid, so that duplicate and lower-value
 /// gossip bids can be rejected. Stale entries are removed via [`prune`](Self::prune) as the chain
 /// advances.
+///
+/// It also holds validator-fed bids (`POST validator/execution_payload_bids`), kept apart from the
+/// gossip state and read only by block production via
+/// [`get_best_bid_for_production`](Self::get_best_bid_for_production).
 #[derive(Educe)]
 #[educe(Default(bound = "E: EthSpec"))]
 pub struct GossipVerifiedPayloadBidCache<E: EthSpec> {
@@ -78,6 +90,39 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
             .highest_bid
             .get(&slot)
             .and_then(|map| map.get(&bid_parent).map(|b| b.signed_bid.clone()))
+    }
+
+    /// Get the best bid for block production at `(slot, bid_parent)`: the higher-value of the
+    /// highest gossip bid and the highest validator-fed bid, if either exists. The gossip bid wins
+    /// a tie.
+    ///
+    /// Only block production should call this. Gossip validation must use
+    /// [`get_highest_bid`](Self::get_highest_bid), which never sees validator-fed bids.
+    pub fn get_best_bid_for_production(
+        &self,
+        slot: Slot,
+        bid_parent: BidParent,
+    ) -> Option<Arc<SignedExecutionPayloadBid<E>>> {
+        let inner = self.inner.read();
+        let gossip_bid = inner
+            .highest_bid
+            .get(&slot)
+            .and_then(|map| map.get(&bid_parent))
+            .map(|b| &b.signed_bid);
+        let fed_bid = inner
+            .validator_fed_highest_bid
+            .get(&slot)
+            .and_then(|map| map.get(&bid_parent));
+
+        match (gossip_bid, fed_bid) {
+            (Some(gossip_bid), Some(fed_bid))
+                if fed_bid.message().value() > gossip_bid.message().value() =>
+            {
+                Some(fed_bid.clone())
+            }
+            (Some(gossip_bid), _) => Some(gossip_bid.clone()),
+            (None, fed_bid) => fed_bid.cloned(),
+        }
     }
 
     /// Record a gossip-verified `bid` in the cache.
@@ -114,6 +159,48 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
         }
     }
 
+    /// Record a verified validator-fed `signed_bid` (`POST validator/execution_payload_bids`) for
+    /// block production. Only
+    /// [`verify_validator_fed_bid`](crate::payload_bid_verification::validator_fed_bid::verify_validator_fed_bid)
+    /// calls this, after the bid passes verification; it is `pub(crate)` so callers outside this
+    /// crate can't skip that.
+    ///
+    /// Unlike [`observe_bid`](Self::observe_bid), this never touches the gossip state
+    /// (`highest_bid`, `seen_builder_bids`), so a fed bid can't make gossip validation ignore a valid
+    /// gossip bid. The bid replaces the stored fed bid for its `(slot, BidParent)` only if its value
+    /// is strictly higher.
+    ///
+    /// Returns `true` if the bid became the new highest fed bid for its parent, or `false` if an
+    /// existing fed bid had an equal or greater value and was therefore retained.
+    pub(crate) fn insert_validator_fed_bid(
+        &self,
+        signed_bid: Arc<SignedExecutionPayloadBid<E>>,
+    ) -> bool {
+        let slot = signed_bid.message().slot();
+        let key = BidParent::from_bid(signed_bid.message());
+        let mut inner = self.inner.write();
+
+        // Same replace-if-strictly-higher rule as `observe_bid`; keep the two in step.
+        match inner
+            .validator_fed_highest_bid
+            .entry(slot)
+            .or_default()
+            .entry(key)
+        {
+            hash_map::Entry::Vacant(entry) => {
+                entry.insert(signed_bid);
+                true
+            }
+            hash_map::Entry::Occupied(mut entry) => {
+                if entry.get().message().value() >= signed_bid.message().value() {
+                    return false;
+                }
+                entry.insert(signed_bid);
+                true
+            }
+        }
+    }
+
     /// Returns `true` if a gossip-verified bid from `builder_index` has already been seen for
     /// `(slot, bid_parent)`.
     pub fn seen_builder_bid_for_parent(
@@ -136,6 +223,7 @@ impl<E: EthSpec> GossipVerifiedPayloadBidCache<E> {
         let mut inner = self.inner.write();
         inner.highest_bid = inner.highest_bid.split_off(&current_slot);
         inner.seen_builder_bids = inner.seen_builder_bids.split_off(&current_slot);
+        inner.validator_fed_highest_bid = inner.validator_fed_highest_bid.split_off(&current_slot);
     }
 }
 
